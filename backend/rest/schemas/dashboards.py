@@ -16,37 +16,35 @@ DisplayType = Literal["line", "area", "bar", "pie", "number", "table", "histogra
 AggName = Literal["count", "sum", "avg", "min", "max", "p50", "p95", "p99"]
 
 
-class WidgetFilter(BaseModel):
-    """A single filter predicate applied to a widget query."""
+class _StrictModel(BaseModel):
+    """Base for request-side models: reject unknown fields."""
 
     model_config = ConfigDict(extra="forbid")
+
+
+class WidgetFilter(_StrictModel):
+    """A single filter predicate applied to a widget query."""
 
     field: str
     op: Literal["=", "!=", "contains", ">", ">=", "<", "<="]
     value: str | float
 
 
-class WidgetMetric(BaseModel):
+class WidgetMetric(_StrictModel):
     """The measure and aggregation function that define the widget's y-axis."""
-
-    model_config = ConfigDict(extra="forbid")
 
     measure: str
     agg: AggName
 
 
-class WidgetDisplay(BaseModel):
+class WidgetDisplay(_StrictModel):
     """Controls how the query result is rendered on the dashboard."""
-
-    model_config = ConfigDict(extra="forbid")
 
     type: DisplayType
 
 
-class WidgetSpec(BaseModel):
+class WidgetSpec(_StrictModel):
     """Full declarative specification of a single dashboard widget."""
-
-    model_config = ConfigDict(extra="forbid")
 
     view: Literal["spans", "traces"]
     filters: list[WidgetFilter] = Field(default_factory=list)
@@ -55,10 +53,8 @@ class WidgetSpec(BaseModel):
     display: WidgetDisplay
 
 
-class WidgetQueryRequest(BaseModel):
+class WidgetQueryRequest(_StrictModel):
     """Envelope that pairs a WidgetSpec with the dashboard time window."""
-
-    model_config = ConfigDict(extra="forbid")
 
     spec: WidgetSpec
     start_time: datetime

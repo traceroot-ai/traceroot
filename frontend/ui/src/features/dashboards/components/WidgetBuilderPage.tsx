@@ -118,18 +118,11 @@ export function WidgetBuilderPage({
   const { data: schema } = useWidgetSchema(projectId);
   const view = draft.view as View | undefined;
   const viewFields: Record<string, WidgetSchemaField> = view ? (schema?.[view]?.fields ?? {}) : {};
-  const filterableFields = Object.entries(viewFields).filter(([, f]) => f.filterOps.length > 0) as [
-    string,
-    WidgetSchemaField,
-  ][];
-  const measurableFields = Object.entries(viewFields).filter(([, f]) => f.aggs.length > 0) as [
-    string,
-    WidgetSchemaField,
-  ][];
-  const groupableFields = Object.entries(viewFields).filter(([, f]) => f.groupable) as [
-    string,
-    WidgetSchemaField,
-  ][];
+  const pickFields = (pred: (f: WidgetSchemaField) => boolean) =>
+    Object.entries(viewFields).filter(([, f]) => pred(f)) as [string, WidgetSchemaField][];
+  const filterableFields = pickFields((f) => f.filterOps.length > 0);
+  const measurableFields = pickFields((f) => f.aggs.length > 0);
+  const groupableFields = pickFields((f) => f.groupable);
 
   function handleViewChange(v: View) {
     setDraft({ view: v, filters: [], breakdown: null });

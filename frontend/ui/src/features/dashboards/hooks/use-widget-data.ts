@@ -1,6 +1,5 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useSession as useAuthSession } from "@/lib/auth-client";
-import type { TraceApiUser } from "@/lib/api/client";
+import { useTraceApiUser } from "@/lib/hooks/use-trace-api-user";
 import * as api from "../api";
 import {
   isSpecComplete,
@@ -11,11 +10,7 @@ import {
 } from "../types";
 
 export function useWidgetSchema(projectId: string) {
-  const { data: authSession, isPending } = useAuthSession();
-  const sessionReady = !isPending && !!authSession?.user;
-  const user: TraceApiUser | undefined = authSession?.user
-    ? { id: authSession.user.id, email: authSession.user.email }
-    : undefined;
+  const { user, sessionReady } = useTraceApiUser();
 
   return useQuery({
     queryKey: ["widget-schema", projectId],
@@ -32,11 +27,7 @@ export function useWidgetData(
   range: TimeRange,
   enabled = true,
 ) {
-  const { data: authSession, isPending } = useAuthSession();
-  const sessionReady = !isPending && !!authSession?.user;
-  const user: TraceApiUser | undefined = authSession?.user
-    ? { id: authSession.user.id, email: authSession.user.email }
-    : undefined;
+  const { user, sessionReady } = useTraceApiUser();
 
   return useQuery({
     queryKey: [
@@ -66,11 +57,7 @@ export function useWidgetFieldValues(
   range: TimeRange,
   enabled: boolean,
 ): { values: WidgetFieldValue[]; isLoading: boolean } {
-  const { data: authSession, isPending } = useAuthSession();
-  const sessionReady = !isPending && !!authSession?.user;
-  const user: TraceApiUser | undefined = authSession?.user
-    ? { id: authSession.user.id, email: authSession.user.email }
-    : undefined;
+  const { user, sessionReady } = useTraceApiUser();
 
   const active = enabled && sessionReady && !!projectId && !!view && !!field;
   const { data, isLoading } = useQuery({
@@ -92,11 +79,7 @@ export function useWidgetFieldValues(
 }
 
 export function useWidgetPreview(projectId: string, draft: unknown, range: TimeRange) {
-  const { data: authSession, isPending } = useAuthSession();
-  const sessionReady = !isPending && !!authSession?.user;
-  const user: TraceApiUser | undefined = authSession?.user
-    ? { id: authSession.user.id, email: authSession.user.email }
-    : undefined;
+  const { user, sessionReady } = useTraceApiUser();
 
   return useQuery({
     queryKey: [

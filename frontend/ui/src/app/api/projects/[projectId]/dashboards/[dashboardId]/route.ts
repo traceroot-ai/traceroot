@@ -1,29 +1,17 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@traceroot/core";
-import {
-  requireAuth,
-  requireProjectAccess,
-  errorResponse,
-  successResponse,
-} from "@/lib/auth-helpers";
+import { errorResponse, successResponse } from "@/lib/auth-helpers";
+import { parseJsonObject, requireProjectAuth } from "@/lib/route-helpers";
 
 type RouteParams = { params: Promise<{ projectId: string; dashboardId: string }> };
 
-async function authorize(params: RouteParams["params"]) {
-  const authResult = await requireAuth();
-  if (authResult.error) return { error: authResult.error };
-  const { projectId, dashboardId } = await params;
-  const accessResult = await requireProjectAccess(authResult.user.id, projectId);
-  if (accessResult.error) return { error: accessResult.error };
-  return { projectId, dashboardId };
-}
-
 export async function GET(_req: NextRequest, { params }: RouteParams) {
-  const auth = await authorize(params);
-  if ("error" in auth) return auth.error;
+  const auth = await requireProjectAuth(params);
+  if (auth.error) return auth.error;
+  const { projectId, dashboardId } = auth.params;
 
   const dashboard = await prisma.dashboard.findFirst({
-    where: { id: auth.dashboardId, projectId: auth.projectId },
+    where: { id: dashboardId, projectId },
     include: { widgets: { orderBy: { createTime: "asc" } } },
   });
   if (!dashboard) return errorResponse("Dashboard not found", 404);
@@ -31,20 +19,14 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
 }
 
 export async function PATCH(req: NextRequest, { params }: RouteParams) {
-  const auth = await authorize(params);
-  if ("error" in auth) return auth.error;
+  const auth = await requireProjectAuth(params);
+  if (auth.error) return auth.error;
+  const { projectId, dashboardId } = auth.params;
 
   // Parse and validate body before hitting the DB — fail fast on bad input.
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return errorResponse("Invalid JSON", 400);
-  }
-  if (body === null || typeof body !== "object" || Array.isArray(body)) {
-    return errorResponse("Body must be a JSON object", 400);
-  }
-  const { name, description, layout } = body as Record<string, unknown>;
+  const parsed = await parseJsonObject(req);
+  if (parsed.error) return parsed.error;
+  const { name, description, layout } = parsed.body;
 
   const data: Record<string, unknown> = {};
   if (name !== undefined) {
@@ -66,26 +48,27 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   if (Object.keys(data).length === 0) return errorResponse("No fields to update", 400);
 
   const existing = await prisma.dashboard.findFirst({
-    where: { id: auth.dashboardId, projectId: auth.projectId },
+    where: { id: dashboardId, projectId },
   });
   if (!existing) return errorResponse("Dashboard not found", 404);
 
   const dashboard = await prisma.dashboard.update({
-    where: { id: auth.dashboardId },
+    where: { id: dashboardId },
     data,
   });
   return successResponse({ dashboard });
 }
 
 export async function DELETE(_req: NextRequest, { params }: RouteParams) {
-  const auth = await authorize(params);
-  if ("error" in auth) return auth.error;
+  const auth = await requireProjectAuth(params);
+  if (auth.error) return auth.error;
+  const { projectId, dashboardId } = auth.params;
 
   const existing = await prisma.dashboard.findFirst({
-    where: { id: auth.dashboardId, projectId: auth.projectId },
+    where: { id: dashboardId, projectId },
   });
   if (!existing) return errorResponse("Dashboard not found", 404);
 
-  await prisma.dashboard.delete({ where: { id: auth.dashboardId } });
+  await prisma.dashboard.delete({ where: { id: dashboardId } });
   return successResponse({ deleted: true });
 }

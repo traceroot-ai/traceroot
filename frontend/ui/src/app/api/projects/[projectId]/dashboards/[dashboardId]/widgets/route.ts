@@ -1,11 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@traceroot/core";
-import {
-  requireAuth,
-  requireProjectAccess,
-  errorResponse,
-  successResponse,
-} from "@/lib/auth-helpers";
+import { errorResponse, successResponse } from "@/lib/auth-helpers";
+import { parseJsonObject, requireProjectAuth } from "@/lib/route-helpers";
 
 type RouteParams = { params: Promise<{ projectId: string; dashboardId: string }> };
 
@@ -13,27 +9,18 @@ const WIDGET_TYPES = new Set(["query", "trace_feed"]);
 
 // POST .../widgets — add a widget to a dashboard
 export async function POST(req: NextRequest, { params }: RouteParams) {
-  const authResult = await requireAuth();
-  if (authResult.error) return authResult.error;
-  const { projectId, dashboardId } = await params;
-  const accessResult = await requireProjectAccess(authResult.user.id, projectId);
-  if (accessResult.error) return accessResult.error;
+  const auth = await requireProjectAuth(params);
+  if (auth.error) return auth.error;
+  const { projectId, dashboardId } = auth.params;
 
   const dashboard = await prisma.dashboard.findFirst({
     where: { id: dashboardId, projectId },
   });
   if (!dashboard) return errorResponse("Dashboard not found", 404);
 
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return errorResponse("Invalid JSON", 400);
-  }
-  if (body === null || typeof body !== "object" || Array.isArray(body)) {
-    return errorResponse("Body must be a JSON object", 400);
-  }
-  const { title, type, spec, displayConfig } = body as Record<string, unknown>;
+  const parsed = await parseJsonObject(req);
+  if (parsed.error) return parsed.error;
+  const { title, type, spec, displayConfig } = parsed.body;
 
   if (typeof title !== "string" || title.trim().length === 0) {
     return errorResponse("title must be a non-empty string", 400);

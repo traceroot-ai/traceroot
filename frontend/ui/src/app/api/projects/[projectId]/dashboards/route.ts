@@ -1,12 +1,8 @@
 import { NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@traceroot/core";
-import {
-  requireAuth,
-  requireProjectAccess,
-  errorResponse,
-  successResponse,
-} from "@/lib/auth-helpers";
+import { errorResponse, successResponse } from "@/lib/auth-helpers";
+import { parseJsonObject, requireProjectAuth } from "@/lib/route-helpers";
 import { defaultDashboardId, seedWidgets } from "@/lib/dashboard-seed";
 
 type RouteParams = { params: Promise<{ projectId: string }> };
@@ -20,13 +16,10 @@ const listArgs = (projectId: string) => ({
 // GET /api/projects/[projectId]/dashboards — list; lazily seeds the default
 // "Overview" dashboard the first time a project's dashboards are fetched.
 export async function GET(_req: NextRequest, { params }: RouteParams) {
-  const authResult = await requireAuth();
-  if (authResult.error) return authResult.error;
-  const { user } = authResult;
-
-  const { projectId } = await params;
-  const accessResult = await requireProjectAccess(user.id, projectId);
-  if (accessResult.error) return accessResult.error;
+  const auth = await requireProjectAuth(params);
+  if (auth.error) return auth.error;
+  const { user } = auth;
+  const { projectId } = auth.params;
 
   let dashboards = await prisma.dashboard.findMany(listArgs(projectId));
 
@@ -60,27 +53,14 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
 
 // POST /api/projects/[projectId]/dashboards — create a named dashboard
 export async function POST(req: NextRequest, { params }: RouteParams) {
-  const authResult = await requireAuth();
-  if (authResult.error) return authResult.error;
-  const { user } = authResult;
+  const auth = await requireProjectAuth(params);
+  if (auth.error) return auth.error;
+  const { user } = auth;
+  const { projectId } = auth.params;
 
-  const { projectId } = await params;
-  const accessResult = await requireProjectAccess(user.id, projectId);
-  if (accessResult.error) return accessResult.error;
-
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return errorResponse("Invalid JSON", 400);
-  }
-
-  // `null` is valid JSON but not destructure-friendly. Reject explicitly.
-  if (body === null || typeof body !== "object" || Array.isArray(body)) {
-    return errorResponse("Body must be a JSON object", 400);
-  }
-
-  const { name, description } = body as Record<string, unknown>;
+  const parsed = await parseJsonObject(req);
+  if (parsed.error) return parsed.error;
+  const { name, description } = parsed.body;
   if (typeof name !== "string" || name.trim().length === 0) {
     return errorResponse("name must be a non-empty string", 400);
   }

@@ -145,16 +145,16 @@ def compile_widget_query(
     order_by = ""
 
     is_timeseries = spec.display.type in ("line", "area")
-    has_time_bucket = False
+    # Bound unconditionally: both the bucketing branch and the row-cap branch
+    # below key off is_timeseries, and an implicit binding would let them drift.
+    gran = _pick_granularity(start_time, end_time)
     if is_timeseries:
-        gran = _pick_granularity(start_time, end_time)
         # 'UTC' aligns day/hour boundaries with the UTC time-range params,
         # regardless of the ClickHouse server's local timezone.
         bucket_fn = "toStartOfHour" if gran == "hour" else "toStartOfDay"
         select_cols.append(f"{bucket_fn}(event_time, 'UTC') AS bucket")
         group_cols.append("bucket")
         order_by = "ORDER BY bucket"
-        has_time_bucket = True
 
     if spec.breakdown is not None:
         bd = _resolve_field(view.fields, spec.breakdown, "breakdown")
@@ -174,7 +174,7 @@ def compile_widget_query(
             f"toString({bd.expr}), 'other') AS {spec.breakdown}"
         )
         group_cols.append(spec.breakdown)
-        if has_time_bucket:
+        if is_timeseries:
             # Include breakdown in ORDER BY for deterministic ordering when
             # multiple breakdown values share the same bucket.
             order_by = f"ORDER BY bucket, {spec.breakdown}"
@@ -189,11 +189,10 @@ def compile_widget_query(
     # query window so that long ranges aren't silently truncated.
     if spec.display.type == "table":
         row_limit = MAX_TABLE_ROWS
-    elif has_time_bucket:
+    elif is_timeseries:
         # Each time bucket can have up to (MAX_GROUPS + 1) rows: one per
         # breakdown group plus the 'other' fold bucket. Compute the number of
         # expected buckets from the window size so every bucket is included.
-        gran = _pick_granularity(start_time, end_time)
         granule_seconds = 3600 if gran == "hour" else 86400
         window_seconds = (end_time - start_time).total_seconds()
         # +1: misaligned windows straddle one extra bucket (half-open [start, end) over toStartOfX boundaries).

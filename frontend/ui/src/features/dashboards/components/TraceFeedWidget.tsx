@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { useSession as useAuthSession } from "@/lib/auth-client";
-import type { TraceApiUser } from "@/lib/api/client";
+import { useTraceApiUser } from "@/lib/hooks/use-trace-api-user";
 import { getTraces } from "@/lib/api/traces";
 import type { TraceListItem } from "@/types/api";
 import { formatDuration } from "@/lib/utils";
@@ -45,11 +44,7 @@ function fmtTime(iso: string): string {
 
 export function TraceFeedWidget({ projectId, spec, range }: TraceFeedWidgetProps) {
   const limit = spec.limit ?? 10;
-  const { data: authSession, isPending } = useAuthSession();
-  const sessionReady = !isPending && !!authSession?.user;
-  const user: TraceApiUser | undefined = authSession?.user
-    ? { id: authSession.user.id, email: authSession.user.email }
-    : undefined;
+  const { user, sessionReady } = useTraceApiUser();
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["trace-feed", projectId, limit, range.start.getTime(), range.end.getTime()],
