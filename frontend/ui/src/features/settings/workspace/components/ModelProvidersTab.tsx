@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, Loader2, CheckCircle2, XCircle, ArrowUpRight, X } from "lucide-react";
 import { ProviderIcon } from "@/components/icons/provider-icons";
@@ -57,6 +57,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
   const [baseUrl, setBaseUrl] = useState("");
   const [customModels, setCustomModels] = useState<string[]>([]);
   const [testResult, setTestResult] = useState<{ success: boolean; error?: string } | null>(null);
+  const testRequestVersionRef = useRef(0);
   const [saveError, setSaveError] = useState<string | null>(null);
   // Per-model API protocol overrides: modelId -> protocol
   const [modelProtocols, setModelProtocols] = useState<Record<string, string>>({});
@@ -103,9 +104,13 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
   });
 
   const testMutation = useMutation({
-    mutationFn: (input: Parameters<typeof testModelProvider>[1]) =>
+    mutationFn: ({ input }: { input: Parameters<typeof testModelProvider>[1]; version: number }) =>
       testModelProvider(workspaceId, input),
-    onSuccess: (result) => setTestResult(result),
+    onSuccess: (result, variables) => {
+      if (variables.version === testRequestVersionRef.current) {
+        setTestResult(result);
+      }
+    },
   });
 
   function closeDialog() {
@@ -217,7 +222,15 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     }
     if (baseUrl) testData.baseUrl = baseUrl;
     setTestResult(null);
-    testMutation.mutate(testData as any);
+    testMutation.mutate({
+      input: testData as Parameters<typeof testModelProvider>[1],
+      version: testRequestVersionRef.current,
+    });
+  }
+
+  function invalidateTestResult() {
+    testRequestVersionRef.current += 1;
+    setTestResult(null);
   }
 
   function handleAdapterChange(value: string) {
@@ -503,7 +516,10 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                 </label>
                 <Input
                   value={baseUrl}
-                  onChange={(e) => setBaseUrl(e.target.value)}
+                  onChange={(e) => {
+                    setBaseUrl(e.target.value);
+                    invalidateTestResult();
+                  }}
                   placeholder={
                     adapterConfig.requiresBaseUrl
                       ? "https://your-resource.openai.azure.com"
