@@ -40,6 +40,32 @@ export function getSpanMetadata(span: Span): Record<string, unknown> {
   return parsed;
 }
 
+const spanStartMsCache = new WeakMap<Span, number>();
+const spanEndMsCache = new WeakMap<Span, number>();
+
+/** Parsed `span_start_time` in epoch ms, computed at most once per span object. */
+export function getSpanStartMs(span: Span): number {
+  const cached = spanStartMsCache.get(span);
+  if (cached !== undefined) return cached;
+  const ms = parseTimestamp(span.span_start_time);
+  spanStartMsCache.set(span, ms);
+  return ms;
+}
+
+/**
+ * Parsed `span_end_time` in epoch ms, or null while the span is still open.
+ * Callers decide what "now" means for open spans (`?? Date.now()`), so a live
+ * end time is never cached.
+ */
+export function getSpanEndMs(span: Span): number | null {
+  if (!span.span_end_time) return null;
+  const cached = spanEndMsCache.get(span);
+  if (cached !== undefined) return cached;
+  const ms = parseTimestamp(span.span_end_time);
+  spanEndMsCache.set(span, ms);
+  return ms;
+}
+
 /**
  * For every span that carries traceroot.span.ids_path (ancestor IDs, root→parent)
  * and traceroot.span.path (root→current names) in its metadata, create lightweight
@@ -78,8 +104,8 @@ export function enrichSpansWithPending(spans: Span[]): Span[] {
 
       if (pendingSpans.has(spanId)) {
         const existing = pendingSpans.get(spanId)!;
-        const existStart = parseTimestamp(existing.span_start_time);
-        const curStart = parseTimestamp(span.span_start_time);
+        const existStart = getSpanStartMs(existing);
+        const curStart = getSpanStartMs(span);
         if (curStart < existStart) {
           pendingSpans.set(spanId, { ...existing, span_start_time: span.span_start_time });
         }
@@ -142,9 +168,8 @@ export const TREE_OVERSCAN_ROWS = 26;
  */
 export function getSpanDuration(span: Span): number | null {
   if (!span.span_start_time) return null;
-  const start = parseTimestamp(span.span_start_time);
-  const end = span.span_end_time ? parseTimestamp(span.span_end_time) : Date.now();
-  return Math.max(0, end - start);
+  const end = getSpanEndMs(span) ?? Date.now();
+  return Math.max(0, end - getSpanStartMs(span));
 }
 
 /**
@@ -163,10 +188,8 @@ export function getTraceDuration(trace: TraceDetail): number | null {
   if (!allSpans.length) return null;
 
   const now = Date.now();
-  const minStart = Math.min(...allSpans.map((s) => parseTimestamp(s.span_start_time)));
-  const maxEnd = Math.max(
-    ...allSpans.map((s) => (s.span_end_time ? parseTimestamp(s.span_end_time) : now)),
-  );
+  const minStart = Math.min(...allSpans.map((s) => getSpanStartMs(s)));
+  const maxEnd = Math.max(...allSpans.map((s) => getSpanEndMs(s) ?? now));
   const extent = Math.max(0, maxEnd - minStart);
 
   const root = allSpans.find((s) => !s.parent_span_id);

@@ -8,6 +8,9 @@ import {
   getTraceDuration,
   summarizeCostDetails,
   getTraceCostBreakdown,
+  getSpanStartMs,
+  getSpanEndMs,
+  parseTimestamp,
 } from "./index";
 import { mergeSpans } from "../hooks/use-trace-stream";
 import type { TraceDetail } from "@/types/api";
@@ -560,5 +563,31 @@ describe("mergeSpans (live-SSE compat)", () => {
     expect(enriched.find((s) => s.span_id === "mid")?.pending).toBe(true);
     expect(enriched.find((s) => s.span_id === "root")).toBeDefined();
     expect(enriched.find((s) => s.span_id === "child")).toBeDefined();
+  });
+});
+
+describe("getSpanStartMs / getSpanEndMs", () => {
+  it("agree with parseTimestamp for closed spans", () => {
+    const span = makeSpan({
+      span_id: "s",
+      span_start_time: "2024-01-01T00:00:00.000Z",
+      span_end_time: "2024-01-01T00:00:01.500Z",
+    });
+    expect(getSpanStartMs(span)).toBe(parseTimestamp("2024-01-01T00:00:00.000Z"));
+    expect(getSpanEndMs(span)).toBe(parseTimestamp("2024-01-01T00:00:01.500Z"));
+  });
+
+  it("returns null end for in-progress spans (never caches a live end)", () => {
+    const open = makeSpan({ span_id: "open", span_end_time: null });
+    expect(getSpanEndMs(open)).toBeNull();
+  });
+
+  it("handles timezone-naive whole-second timestamps like parseTimestamp", () => {
+    const span = makeSpan({
+      span_id: "naive",
+      span_start_time: "2026-06-04T06:37:22.527000",
+      span_end_time: "2026-06-04T06:37:30",
+    });
+    expect(getSpanEndMs(span)! - getSpanStartMs(span)).toBe(7_473);
   });
 });
