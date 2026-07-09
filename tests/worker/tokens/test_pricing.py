@@ -60,6 +60,16 @@ def real_cache() -> list[dict]:
 
 
 OPENAI_MODEL_CASES = [
+    ("gpt-5.6-sol", "gpt-5.6-sol"),
+    ("openai/gpt-5.6-sol", "gpt-5.6-sol"),
+    ("azure/gpt-5.6-sol", "gpt-5.6-sol"),
+    ("gpt-5.6-sol-2026-07-09", "gpt-5.6-sol"),
+    ("gpt-5.6-terra", "gpt-5.6-terra"),
+    ("openai/gpt-5.6-terra", "gpt-5.6-terra"),
+    ("azure/gpt-5.6-terra", "gpt-5.6-terra"),
+    ("gpt-5.6-luna", "gpt-5.6-luna"),
+    ("openai/gpt-5.6-luna", "gpt-5.6-luna"),
+    ("azure/gpt-5.6-luna", "gpt-5.6-luna"),
     ("gpt-5.5", "gpt-5.5"),
     ("openai/gpt-5.5", "gpt-5.5"),
     ("azure/gpt-5.5", "gpt-5.5"),
@@ -211,6 +221,20 @@ class TestOpenAIModelIds:
         assert result["output_tokens"] > 0
         assert result["cost"] is not None
         assert result["cost"] > 0
+
+
+class TestGpt56CachePricing:
+    """gpt-5.6 is the first OpenAI family with non-null cacheWrite pricing."""
+
+    @pytest.mark.parametrize("model_name", ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"])
+    def test_cache_write_is_1_25x_input_rate(self, real_cache, model_name):
+        entry = next(e for e in real_cache if e["model_name"] == model_name)
+        assert entry["prices"]["cacheWrite"] == pytest.approx(entry["prices"]["input"] * 1.25)
+
+    @pytest.mark.parametrize("model_name", ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"])
+    def test_cache_read_is_90_percent_discount(self, real_cache, model_name):
+        entry = next(e for e in real_cache if e["model_name"] == model_name)
+        assert entry["prices"]["cacheRead"] == pytest.approx(entry["prices"]["input"] * 0.10)
 
 
 class TestGeminiModelIds:

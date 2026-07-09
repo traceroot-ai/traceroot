@@ -117,6 +117,42 @@
     }
   },
   {
+    "id": "tr-gpt-5-6-sol",
+    "modelName": "gpt-5.6-sol",
+    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-5\\.6-sol)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.000005,
+      "output": 0.00003,
+      "cacheRead": 0.0000005,
+      "cacheWrite": 0.00000625
+    }
+  },
+  {
+    "id": "tr-gpt-5-6-terra",
+    "modelName": "gpt-5.6-terra",
+    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-5\\.6-terra)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.0000025,
+      "output": 0.000015,
+      "cacheRead": 0.00000025,
+      "cacheWrite": 0.000003125
+    }
+  },
+  {
+    "id": "tr-gpt-5-6-luna",
+    "modelName": "gpt-5.6-luna",
+    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-5\\.6-luna)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.000001,
+      "output": 0.000006,
+      "cacheRead": 0.0000001,
+      "cacheWrite": 0.00000125
+    }
+  },
+  {
     "id": "tr-gpt-5-5",
     "modelName": "gpt-5.5",
     "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-5\\.5)(-[\\d-]+)?$",
