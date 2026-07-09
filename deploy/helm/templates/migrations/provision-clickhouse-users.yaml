@@ -1,0 +1,80 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "traceroot.fullname" . }}-provision-clickhouse-users
+  labels:
+    {{- include "traceroot.labels" . | nindent 4 }}
+  annotations:
+    # Runs in the same install/upgrade phase as migrate-clickhouse but at a lower
+    # weight, so the SQL-gateway users always exist before the migration creates the
+    # views (whose DEFINER is sql_gateway_writer).
+    "helm.sh/hook": post-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        {{- include "traceroot.selectorLabels" . | nindent 8 }}
+        app: provision-clickhouse-users
+    spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
+      restartPolicy: Never
+      containers:
+        - name: provision
+          image: "{{ .Values.migrations.clickhouseUsers.image.repository }}:{{ .Values.migrations.clickhouseUsers.image.tag }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              CH="clickhouse-client --host {{ include "traceroot.clickhouse.hostname" . }} --port 9000 --user {{ .Values.clickhouse.auth.username }} --password ${CLICKHOUSE_ADMIN_PASSWORD}"
+              # The ClickHouse pod is not guaranteed Ready before this hook fires; poll.
+              for i in $(seq 1 60); do
+                $CH --query "SELECT 1" >/dev/null 2>&1 && break
+                echo "waiting for clickhouse ($i/60)"; sleep 5
+              done
+              # Idempotent. Grants are name-based, so the read-only grants on the
+              # views are recorded even though the views are created by the later
+              # migration. ClickHouse redacts the password in query_log.
+              $CH --multiquery --query "
+                CREATE USER IF NOT EXISTS sql_gateway_writer
+                    IDENTIFIED WITH sha256_password BY '${SQL_GATEWAY_WRITER_PASSWORD}';
+                GRANT SELECT ON default.spans  TO sql_gateway_writer;
+                GRANT SELECT ON default.traces TO sql_gateway_writer;
+                CREATE SETTINGS PROFILE IF NOT EXISTS sql_readonly_profile SETTINGS
+                    readonly = 1,
+                    max_execution_time = 30 CONST,
+                    max_result_rows = 100000 CONST,
+                    max_result_bytes = 536870912 CONST,
+                    max_memory_usage = 4294967296 CONST;
+                CREATE USER IF NOT EXISTS sql_gateway_ro
+                    IDENTIFIED WITH sha256_password BY '${SQL_GATEWAY_RO_PASSWORD}'
+                    SETTINGS PROFILE 'sql_readonly_profile';
+                GRANT SELECT ON default.spans_public_v1  TO sql_gateway_ro;
+                GRANT SELECT ON default.traces_public_v1 TO sql_gateway_ro;
+              "
+          env:
+            - name: CLICKHOUSE_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.clickhouse.auth.existingSecret }}
+                  key: {{ .Values.clickhouse.auth.existingSecretKey }}
+            - name: SQL_GATEWAY_WRITER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.clickhouse.auth.existingSecret }}
+                  key: "clickhouse-writer-password"
+            - name: SQL_GATEWAY_RO_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.clickhouse.auth.existingSecret }}
+                  key: "clickhouse-ro-password"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"

@@ -144,6 +144,18 @@ clickhouse:
     enabled: true
     size: 20Gi
     storageClass: "efs"
+  # Grants the admin user (auth.username) SQL access management so the SQL-gateway
+  # provisioning Job can CREATE USER and the ClickHouse migration can create views
+  # with an explicit DEFINER. The stock admin has broad DDL but not access
+  # management. The element name below MUST match auth.username (default `default`).
+  usersExtraOverrides: |
+    <clickhouse>
+      <users>
+        <default>
+          <access_management>1</access_management>
+        </default>
+      </users>
+    </clickhouse>
 
 # --- Migrations ---
 migrations:
@@ -155,6 +167,13 @@ migrations:
     image:
       repository: ""
       tag: "latest"
+  # One-shot Job that provisions the SQL-gateway ClickHouse users (writer + read-only
+  # + settings profile) before the ClickHouse migration runs. Needs an image that
+  # ships clickhouse-client; only has to reach the ClickHouse service.
+  clickhouseUsers:
+    image:
+      repository: clickhouse/clickhouse-server
+      tag: "24.3.18.7"
 
 # --- Secrets (managed by Terraform) ---
 secrets:
