@@ -82,7 +82,7 @@ describe("WidgetCard menu gating", () => {
   afterEach(cleanup);
 
   it("shows Edit for a query widget and wires it to onEdit", async () => {
-    useWidgetData.mockReturnValue({ data: undefined, isLoading: false, error: null });
+    useWidgetData.mockReturnValue({ data: undefined, isPending: false, error: null });
     const { onEdit } = renderCard(makeWidget());
 
     await openMenu();
@@ -93,7 +93,7 @@ describe("WidgetCard menu gating", () => {
   });
 
   it("hides the options menu and drag handle entirely when read-only", () => {
-    useWidgetData.mockReturnValue({ data: undefined, isLoading: false, error: null });
+    useWidgetData.mockReturnValue({ data: undefined, isPending: false, error: null });
     renderCard(makeWidget(), {}, true);
 
     expect(screen.queryByRole("button", { name: "Widget options" })).toBeNull();
@@ -110,7 +110,7 @@ describe("WidgetCard menu gating", () => {
   });
 
   it("always shows Duplicate and Delete, wired to their callbacks", async () => {
-    useWidgetData.mockReturnValue({ data: undefined, isLoading: false, error: null });
+    useWidgetData.mockReturnValue({ data: undefined, isPending: false, error: null });
     const { onDuplicate, onDelete } = renderCard(makeWidget());
 
     await openMenu();
@@ -143,7 +143,7 @@ describe("WidgetCard body dispatch", () => {
   it("renders a query widget's data via useWidgetData", () => {
     useWidgetData.mockReturnValue({
       data: { columns: ["value"], rows: [[42]], meta: {} },
-      isLoading: false,
+      isPending: false,
       error: null,
     });
 
@@ -153,7 +153,7 @@ describe("WidgetCard body dispatch", () => {
   });
 
   it("shows a loading state while the query is in flight", () => {
-    useWidgetData.mockReturnValue({ data: undefined, isLoading: true, error: null });
+    useWidgetData.mockReturnValue({ data: undefined, isPending: true, error: null });
 
     renderCard(makeWidget());
 
@@ -161,7 +161,7 @@ describe("WidgetCard body dispatch", () => {
   });
 
   it("shows a query error message", () => {
-    useWidgetData.mockReturnValue({ data: undefined, isLoading: false, error: new Error("boom") });
+    useWidgetData.mockReturnValue({ data: undefined, isPending: false, error: new Error("boom") });
 
     renderCard(makeWidget());
 
@@ -169,7 +169,7 @@ describe("WidgetCard body dispatch", () => {
   });
 
   it("shows an invalid-spec message and disables the query when the spec fails to parse", () => {
-    useWidgetData.mockReturnValue({ data: undefined, isLoading: false, error: null });
+    useWidgetData.mockReturnValue({ data: undefined, isPending: false, error: null });
 
     renderCard(makeWidget({ spec: { view: "spans" } }));
 
