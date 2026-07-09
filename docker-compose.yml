@@ -40,12 +40,38 @@ services:
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - clickhouse_logs:/var/log/clickhouse-server
+      # Grants the admin user SQL access management + SET DEFINER, required for the
+      # SQL-gateway user provisioning (clickhouse-init) and migration 006's definer.
+      - ./backend/db/clickhouse/bootstrap/clickhouse_access_management.xml:/etc/clickhouse-server/users.d/zz-access-management.xml:ro
     healthcheck:
       test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
       interval: 5s
       timeout: 5s
       retries: 10
       start_period: 1s
+
+  # One-shot, idempotent: provisions the SQL-gateway DB users. sql_gateway_writer
+  # is the DEFINER of the views created by migration 006, so it MUST exist before
+  # migrate-clickhouse runs. Uses clickhouse-client against the live server (not the
+  # first-boot-only /docker-entrypoint-initdb.d), so it also provisions existing
+  # data volumes. See backend/db/clickhouse/bootstrap/sql_gateway_users.sql.
+  clickhouse-init:
+    image: docker.io/clickhouse/clickhouse-server:${CLICKHOUSE_VERSION:-24.3}
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    volumes:
+      - ./backend/db/clickhouse/bootstrap/sql_gateway_users.sql:/bootstrap/sql_gateway_users.sql:ro
+    # Single-$ so Compose substitutes the admin creds from .env at parse time (this
+    # container has no environment: block, so $$-escaped vars would wrongly fall back
+    # to the default and break auth whenever CLICKHOUSE_PASSWORD is changed).
+    entrypoint: >
+      /bin/sh -c "
+      clickhouse-client --host clickhouse --port 9000
+      --user ${CLICKHOUSE_USER:-clickhouse} --password ${CLICKHOUSE_PASSWORD:-clickhouse}
+      --queries-file /bootstrap/sql_gateway_users.sql
+      "
+    restart: "no"
 
   minio:
     image: docker.io/minio/minio:latest
@@ -106,6 +132,8 @@ services:
     depends_on:
       clickhouse:
         condition: service_healthy
+      clickhouse-init:
+        condition: service_completed_successfully
     restart: "no"
 
 volumes:

@@ -1,0 +1,23 @@
+<!--
+  Grants SQL-driven access management to the compose ClickHouse admin user
+  (CLICKHOUSE_USER, default `clickhouse`). Mounted into /etc/clickhouse-server/users.d/.
+
+  Required by the SQL gateway: `clickhouse-init` provisions sql_gateway_writer /
+  sql_gateway_ro via `CREATE USER`, and migration 006 creates views with an explicit
+  `DEFINER = sql_gateway_writer`. Both need an admin that can manage users and set a
+  view definer. The stock CLICKHOUSE_USER has broad DDL but NOT access management, so
+  without this the bootstrap fails with "necessary to have the grant CREATE USER".
+
+  access_management=1 makes this user a full access-control admin (it gains ACCESS
+  MANAGEMENT + SET DEFINER WITH GRANT OPTION) — acceptable for the compose/self-host
+  admin account. Real cloud deployments manage this via the chart, not this file.
+
+  The element name below MUST match CLICKHOUSE_USER (default `clickhouse`).
+-->
+<clickhouse>
+    <users>
+        <clickhouse>
+            <access_management>1</access_management>
+        </clickhouse>
+    </users>
+</clickhouse>
