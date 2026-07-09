@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useTraceApiUser } from "@/lib/hooks/use-trace-api-user";
 import { getTraces } from "@/lib/api/traces";
 import type { TraceListItem } from "@/types/api";
-import { formatDuration } from "@/lib/utils";
+import { formatCost, formatDuration } from "@/lib/utils";
 import type { TimeRange } from "../types";
 
 interface TraceFeedWidgetProps {
@@ -27,11 +27,6 @@ function StatusChip({ errorCount }: { errorCount: number }) {
       OK
     </span>
   );
-}
-
-function fmtCost(cost: number | null | undefined): string {
-  if (cost == null || cost === 0) return "—";
-  return `$${cost.toFixed(4)}`;
 }
 
 function fmtTime(iso: string): string {
@@ -115,7 +110,7 @@ export function TraceFeedWidget({ projectId, spec, range }: TraceFeedWidgetProps
                 <StatusChip errorCount={trace.error_count} />
               </td>
               <td className="py-1 pr-3 tabular-nums text-muted-foreground">
-                {fmtCost(trace.total_cost)}
+                {formatCost(trace.total_cost)}
               </td>
               <td className="py-1 tabular-nums text-muted-foreground">
                 {formatDuration(trace.duration_ms)}
