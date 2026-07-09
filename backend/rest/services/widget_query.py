@@ -12,7 +12,7 @@ from typing import Any
 from db.clickhouse import get_clickhouse_client
 from rest.schemas.dashboards import WidgetSpec
 from rest.services.widget_registry import REGISTRY, FieldDef
-from rest.sql_utils import escape_ilike
+from rest.sql_utils import escape_ilike, to_utc_naive
 
 MAX_GROUPS = 50  # top-N breakdown groups; remainder folds into "other"
 MAX_TABLE_ROWS = 1000
@@ -69,6 +69,15 @@ def compile_widget_query(
     end_time: datetime,
 ) -> tuple[str, dict[str, Any]]:
     """Return (sql, params) for the spec. Raises WidgetSpecError on bad specs."""
+    # Normalize like every other ClickHouse endpoint: mixed tz-aware/naive
+    # datetimes (both accepted by the request schema) crash subtraction in
+    # granularity picking, and a reversed window compiles a negative LIMIT
+    # that ClickHouse rejects — both surfaced as opaque 500s.
+    start_time = to_utc_naive(start_time)
+    end_time = to_utc_naive(end_time)
+    if end_time <= start_time:
+        raise WidgetSpecError("time_range", "end_time must be after start_time")
+
     view = REGISTRY[spec.view]
     params: dict[str, Any] = {
         "project_id": project_id,
@@ -244,6 +253,10 @@ def run_widget_query(
     spec: WidgetSpec, project_id: str, start_time: datetime, end_time: datetime
 ) -> dict[str, Any]:
     """Compile and execute, returning the response contract dict."""
+    # Normalized once here; compile_widget_query re-normalizing is idempotent
+    # and keeps it safe for direct callers.
+    start_time = to_utc_naive(start_time)
+    end_time = to_utc_naive(end_time)
     sql, params = compile_widget_query(spec, project_id, start_time, end_time)
     client = get_clickhouse_client()
     result = client.query(

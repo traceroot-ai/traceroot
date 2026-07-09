@@ -1,6 +1,6 @@
 """Tests for widget spec models; SQL compiler tests are added by a later task."""
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import get_args
 
 import pytest
@@ -265,6 +265,30 @@ def test_empty_filter_value_rejected_by_schema():
         WidgetSpec.model_validate(
             make_spec(filters=[{"field": "model_name", "op": "=", "value": ""}])
         )
+
+
+def test_reversed_window_rejected():
+    """start >= end would otherwise compile a negative LIMIT that CH rejects."""
+    spec = WidgetSpec.model_validate(make_spec(display={"type": "line"}))
+    with pytest.raises(WidgetSpecError):
+        compile_widget_query(spec, project_id="proj-1", start_time=END, end_time=START)
+    with pytest.raises(WidgetSpecError):
+        compile_widget_query(spec, project_id="proj-1", start_time=START, end_time=START)
+
+
+def test_mixed_timezone_awareness_normalized():
+    """Aware + naive bounds crash datetime subtraction without normalization."""
+    spec = WidgetSpec.model_validate(make_spec(display={"type": "line"}))
+    sql, params = compile_widget_query(
+        spec,
+        project_id="proj-1",
+        start_time=datetime(2026, 6, 1, tzinfo=UTC),
+        end_time=datetime(2026, 6, 8),
+    )
+    assert "WITH FILL" in sql
+    # Params are handed to ClickHouse tz-naive, matching every other endpoint.
+    assert params["start_time"].tzinfo is None
+    assert params["end_time"].tzinfo is None
 
 
 def test_pie_and_bar_require_breakdown():
