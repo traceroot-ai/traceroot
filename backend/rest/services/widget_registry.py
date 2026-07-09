@@ -198,6 +198,11 @@ def registry_schema() -> dict:
                     "filterOps": list(f.filter_ops),
                     "groupable": f.groupable,
                     "aggs": list(f.aggs),
+                    # Mirrors the compiler's histogram rule (numeric column,
+                    # not the count(*) sentinel) so the builder can gate the
+                    # histogram display instead of saving a widget that the
+                    # query engine permanently rejects.
+                    "histogrammable": f.type == "number" and f.expr != "*",
                 }
                 for fname, f in view.fields.items()
             }

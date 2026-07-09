@@ -75,3 +75,21 @@ def test_each_view_has_count_field_and_structural_requirements():
             f for f in view.fields.values() if f.aggs and f.type == "number" and f.expr != "*"
         ]
         assert number_measures, f"{view_name}: no aggregatable number measure"
+
+
+def test_schema_histogrammable_mirrors_compiler_rule():
+    """histogrammable must be true exactly for numeric non-sentinel measures.
+
+    The builder gates its histogram display on this flag; if it drifts from
+    the compiler's rule the UI either blocks a valid widget or saves one the
+    engine permanently rejects.
+    """
+    schema = registry_schema()
+    for view_name, view in REGISTRY.items():
+        for fname, fdef in view.fields.items():
+            expected = fdef.type == "number" and fdef.expr != "*"
+            actual = schema[view_name]["fields"][fname]["histogrammable"]
+            assert actual == expected, f"{view_name}.{fname}: histogrammable={actual}"
+    # The concrete case that motivated the flag: count is not histogrammable.
+    assert schema["spans"]["fields"]["count"]["histogrammable"] is False
+    assert schema["spans"]["fields"]["cost"]["histogrammable"] is True

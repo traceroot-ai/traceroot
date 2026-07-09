@@ -239,8 +239,15 @@ export function WidgetBuilderPage({
 
   // ── save ──────────────────────────────────────────────────────────────────
   const specComplete = isSpecComplete(draft);
+  // The schema tells us which measures the query engine can histogram
+  // (count's expr is the count(*) sentinel, which it permanently rejects) —
+  // without this gate the widget saves and then renders "Query failed"
+  // forever on the dashboard.
+  const measureField = draft.metric?.measure ? viewFields[draft.metric.measure] : undefined;
+  const histogramBlocked =
+    draft.display?.type === "histogram" && measureField?.histogrammable === false;
   const saving = createWidget.isPending || updateWidget.isPending;
-  const canSave = specComplete && effectiveTitle.trim().length > 0 && !saving;
+  const canSave = specComplete && !histogramBlocked && effectiveTitle.trim().length > 0 && !saving;
   const saveError = createWidget.error ?? updateWidget.error;
 
   function handleSave() {
@@ -432,12 +439,22 @@ export function WidgetBuilderPage({
                       size="sm"
                       variant={draft.display?.type === t ? "default" : "outline"}
                       onClick={() => handleDisplayChange(t)}
+                      // Entering the state is blocked when we already know the
+                      // engine will reject it; the hint below covers reaching
+                      // it the other way round (picking the measure last).
+                      disabled={t === "histogram" && measureField?.histogrammable === false}
                       className="h-7 text-[12px]"
                     >
                       {t}
                     </Button>
                   ))}
                 </div>
+                {histogramBlocked && (
+                  <p className="mt-1 text-[10.5px] text-amber-600">
+                    {measureField?.label ?? draft.metric?.measure} can&apos;t be histogrammed — pick
+                    another measure or display
+                  </p>
+                )}
               </div>
 
               <div className="p-3">

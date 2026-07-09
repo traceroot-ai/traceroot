@@ -52,7 +52,14 @@ const SCHEMA = {
         groupable: false,
         aggs: ["sum", "avg"],
       },
-      count: { type: "number", label: "Count", filterOps: [], groupable: false, aggs: ["count"] },
+      count: {
+        type: "number",
+        label: "Count",
+        filterOps: [],
+        groupable: false,
+        aggs: ["count"],
+        histogrammable: false,
+      },
     },
   },
   traces: {
@@ -223,6 +230,28 @@ describe("WidgetBuilderPage", () => {
     // error_count doesn't exist on spans — the measure select resets.
     expect(screen.queryByText("Errors")).toBeNull();
     expect(screen.getByText("Measure")).toBeTruthy();
+  });
+
+  it("blocks the histogram display for a non-histogrammable measure", async () => {
+    render(<WidgetBuilderPage projectId="p1" dashboardId="d1" />);
+
+    openSelect("Select view");
+    fireEvent.click(await screen.findByRole("option", { name: "Spans" }));
+
+    // Measure picked first: the histogram button itself is disabled.
+    openSelect("Measure");
+    fireEvent.click(await screen.findByRole("option", { name: "Count" }));
+    expect(screen.getByRole("button", { name: "histogram" })).toHaveProperty("disabled", true);
+
+    // Reached the other way (display first, then the measure): warn + block save.
+    openSelect("Count");
+    fireEvent.click(await screen.findByRole("option", { name: "Cost" }));
+    fireEvent.click(screen.getByRole("button", { name: "histogram" }));
+    openSelect("Cost");
+    fireEvent.click(await screen.findByRole("option", { name: "Count" }));
+
+    expect(screen.getByText(/can't be histogrammed/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Save widget" })).toHaveProperty("disabled", true);
   });
 
   it("warns and blocks save when pie/bar is picked without a breakdown", async () => {

@@ -111,6 +111,10 @@ export interface WidgetSchemaField {
   filterOps: string[];
   groupable: boolean;
   aggs: string[];
+  // Whether the query engine can histogram this measure (numeric column, not
+  // the count(*) sentinel). Optional so older cached schemas keep working;
+  // treat absence as histogrammable.
+  histogrammable?: boolean;
 }
 
 export type WidgetSchema = Record<
