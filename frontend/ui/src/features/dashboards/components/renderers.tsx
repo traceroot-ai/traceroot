@@ -354,6 +354,11 @@ function NumberView({ result, unit }: { result: WidgetQueryResult; unit?: FieldU
 }
 
 function TableView({ result }: { result: WidgetQueryResult }) {
+  // Only the metric column (always last, aliased "value" by the compiler) is
+  // numeric — formatting every cell reformats string dimensions too, and a
+  // numeric-looking identifier (user_id, session_id) silently loses digits
+  // past 2^53 or its leading zeros in Number() coercion.
+  const valueIdx = result.columns.length - 1;
   return (
     <div className="h-full overflow-auto">
       <table className="w-full text-[11.5px]">
@@ -371,7 +376,7 @@ function TableView({ result }: { result: WidgetQueryResult }) {
             <tr key={i} className="border-t border-border/60">
               {r.map((v, j) => (
                 <td key={j} className="py-1 pr-3">
-                  {fmtNumber(v)}
+                  {j === valueIdx ? fmtNumber(v) : v == null ? "—" : String(v)}
                 </td>
               ))}
             </tr>

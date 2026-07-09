@@ -81,6 +81,24 @@ describe("QueryWidgetRenderer", () => {
       expect(screen.getByText("5.5")).toBeTruthy();
     });
 
+    it("renders dimension cells verbatim and only formats the metric column", () => {
+      const result = makeResult(
+        ["user_id", "value"],
+        [
+          // Numeric-looking identifiers must not be reformatted: past 2^53
+          // Number() loses the final digits, and "0123" would drop its zero.
+          ["9007199254740993", "5.5000"],
+          ["0123", 10],
+        ],
+      );
+      render(<QueryWidgetRenderer display="table" result={result} />);
+      expect(screen.getByText("9007199254740993")).toBeTruthy();
+      expect(screen.getByText("0123")).toBeTruthy();
+      // The metric column keeps fmtNumber formatting.
+      expect(screen.getByText("5.5")).toBeTruthy();
+      expect(screen.getByText("10")).toBeTruthy();
+    });
+
     it("shows the empty state instead of a table when there are no rows", () => {
       const result = makeResult(["model_name", "count"], []);
       render(<QueryWidgetRenderer display="table" result={result} />);
