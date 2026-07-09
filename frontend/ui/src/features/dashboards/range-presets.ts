@@ -19,8 +19,11 @@ export function makeRange(optionId: string): TimeRange {
   // (RANGE_PRESETS filters custom out).
   const minutes =
     findDateFilterOption(optionId).durationMinutes ?? DEFAULT_DATE_FILTER.durationMinutes!;
+  // Derive start from a single clock read so the range spans exactly the
+  // preset's duration; a second read would skew it by the ms elapsed between.
+  const end = new Date();
   return {
-    start: new Date(Date.now() - minutes * 60_000),
-    end: new Date(),
+    start: new Date(end.getTime() - minutes * 60_000),
+    end,
   };
 }
