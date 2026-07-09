@@ -188,6 +188,7 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "deepseek-chat", label: "deepseek-chat" },
   ],
   xai: [
+    { id: "grok-4.5", label: "grok-4.5" },
     { id: "grok-4.20", label: "grok-4.20" },
     { id: "grok-4", label: "grok-4" },
   ],
