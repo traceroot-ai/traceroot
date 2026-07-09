@@ -23,7 +23,7 @@ function makeWrapper() {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );
-  return { wrapper, invalidateSpy };
+  return { wrapper, invalidateSpy, queryClient };
 }
 
 const fakeSummary: DashboardSummary = {
@@ -142,6 +142,35 @@ describe("useDashboardMutations", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["dashboard", "proj-1", "dash-1"] });
     expect(broadcastMock).toHaveBeenCalledWith(["dashboards", "proj-1"]);
     expect(broadcastMock).toHaveBeenCalledWith(["dashboard", "proj-1", "dash-1"]);
+  });
+
+  it("updateLayout: writes the layout into the detail cache optimistically", async () => {
+    // Never-resolving PATCH: the cache must already hold the new layout while
+    // the request is in flight, so a poll response can't revert the grid.
+    vi.mocked(api.updateDashboard).mockReturnValue(new Promise(() => {}));
+    const { wrapper, queryClient } = makeWrapper();
+    const key = ["dashboard", "proj-1", "dash-1"];
+    queryClient.setQueryData(key, { dashboard: { ...fakeSummary, layout: [], widgets: [] } });
+
+    const layout = [{ i: "w1", x: 2, y: 0, w: 4, h: 4 }];
+    const { result } = renderHook(() => useDashboardMutations("proj-1", "dash-1"), { wrapper });
+    result.current.updateLayout.mutate(layout);
+
+    await waitFor(() => {
+      const cached = queryClient.getQueryData(key) as { dashboard: { layout: unknown } };
+      expect(cached.dashboard.layout).toEqual(layout);
+    });
+  });
+
+  it("updateLayout: refetches the truth when the PATCH fails", async () => {
+    vi.mocked(api.updateDashboard).mockRejectedValue(new Error("boom"));
+    const { wrapper, invalidateSpy } = makeWrapper();
+
+    const { result } = renderHook(() => useDashboardMutations("proj-1", "dash-1"), { wrapper });
+    result.current.updateLayout.mutate([{ i: "w1", x: 0, y: 0, w: 4, h: 4 }]);
+    await waitFor(() => expect(result.current.updateLayout.isError).toBe(true));
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["dashboard", "proj-1", "dash-1"] });
   });
 
   it("renameDashboard: calls api.updateDashboard with name/description and invalidates list + detail", async () => {

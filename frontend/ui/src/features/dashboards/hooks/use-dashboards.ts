@@ -18,6 +18,11 @@ export function useDashboard(projectId: string, dashboardId: string) {
     queryFn: () => api.getDashboard(projectId, dashboardId),
     select: (data) => data.dashboard,
     enabled: !!projectId && !!dashboardId,
+    // Teammates' edits have no push channel and cross-tab sync only covers
+    // one browser, so an open dashboard would otherwise show another user's
+    // changes only on focus/navigation. Polling pauses while the tab is
+    // hidden (react-query default).
+    refetchInterval: 30_000,
   });
 }
 
@@ -45,6 +50,19 @@ export function useDashboardMutations(projectId: string, dashboardId?: string) {
 
   const updateLayout = useMutation({
     mutationFn: (layout: LayoutItem[]) => api.updateDashboard(projectId, dashboardId!, { layout }),
+    // A 30s-poll (or focus-refetch) response carrying the pre-save layout can
+    // land between the drag's PATCH and its refetch, reverting the grid and
+    // re-PATCHing the old layout. Cancel in-flight reads and write the new
+    // layout into the cache up front so that window doesn't exist.
+    onMutate: async (layout) => {
+      const key = ["dashboard", projectId, dashboardId];
+      await queryClient.cancelQueries({ queryKey: key });
+      queryClient.setQueryData(key, (prev: { dashboard: { layout: LayoutItem[] } } | undefined) =>
+        prev ? { ...prev, dashboard: { ...prev.dashboard, layout } } : prev,
+      );
+    },
+    // On failure the optimistic layout is wrong — refetch the truth.
+    onError: () => invalidateDashboards(queryClient, projectId, dashboardId),
     onSuccess: () => invalidateDashboards(queryClient, projectId, dashboardId),
   });
 
