@@ -5,23 +5,18 @@ import {
   traceUrl,
   type DigestEntry,
 } from "@traceroot/slack";
-import type { UsageMeter } from "@traceroot/core";
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
+import { escapeHtml, renderEmailCard, type UsageMeter } from "@traceroot/core";
 
 const SMTP_URL = process.env.TRACEROOT_SMTP_URL;
 const SMTP_FROM = process.env.TRACEROOT_SMTP_MAIL_FROM || "noreply@traceroot.ai";
 const APP_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-// Same logo source as the workspace-invite email in frontend/ui.
-const LOGO_URL =
-  process.env.NEXT_PUBLIC_LOGO_URL ||
-  "https://raw.githubusercontent.com/traceroot-ai/traceroot/main/frontend/ui/public/images/traceroot_icon.png";
+
+// Mirror the Slack digest's overflow behavior (its 50-block ceiling caps it at
+// 45 detector lines): list at most this many per-detector rows so a project
+// with many triggered detectors can't produce an unwieldy email — Gmail clips
+// messages over ~102 KB. An overflow row names how many were omitted, and the
+// View-findings button leads to the full list.
+const MAX_DIGEST_ROWS = 45;
 
 function createTransport() {
   if (!SMTP_URL) return null;
@@ -69,12 +64,15 @@ export async function sendDigestAlertEmail(params: {
     detectorFindingsUrl(APP_BASE_URL, projectId, detectorId, windowStart, windowEnd);
   const traceUrlFor = (traceId: string) => traceUrl(APP_BASE_URL, projectId, traceId);
 
+  const shown = entries.slice(0, MAX_DIGEST_ROWS);
+  const omitted = entries.length - shown.length;
+
   const textParts = [
     `${total} ${noun} in project ${projectName}.`,
     `${windowRange} · ${entries.length} detector${entries.length === 1 ? "" : "s"}`,
     ``,
   ];
-  for (const e of entries) {
+  for (const e of shown) {
     const findingNoun = e.findingCount === 1 ? "finding" : "findings";
     // Omit the trace segment when there is no latest trace (mirrors the Slack
     // builder), so we never emit a blank/broken trace link.
@@ -84,27 +82,68 @@ export async function sendDigestAlertEmail(params: {
       `  ${findingsUrlFor(e.detectorId)}`,
     );
   }
+  if (omitted > 0) textParts.push(`+${omitted} more detector${omitted === 1 ? "" : "s"}`);
 
-  const htmlRows = entries
+  const htmlRows = shown
     .map((e) => {
       const findingNoun = e.findingCount === 1 ? "finding" : "findings";
       const latest = e.latestTraceId
-        ? ` · latest <a href="${traceUrlFor(e.latestTraceId)}" style="color:#888;">${e.latestTraceId.slice(0, 8)}</a>`
+        ? ` · latest <a href="${traceUrlFor(e.latestTraceId)}" style="color: #888;">${e.latestTraceId.slice(0, 8)}</a>`
         : "";
-      return `<p style="margin:6px 0;"><a href="${findingsUrlFor(e.detectorId)}">${escapeHtml(e.detectorName)}</a> <span style="color:#888;">— ${e.findingCount} ${findingNoun}${latest}</span></p>`;
+      return `<p style="margin: 6px 0; color: #333; font-size: 14px; line-height: 1.6;"><a href="${findingsUrlFor(e.detectorId)}" style="color: #000; font-weight: 500;">${escapeHtml(e.detectorName)}</a> <span style="color: #888;">— ${e.findingCount} ${findingNoun}${latest}</span></p>`;
     })
+    .concat(
+      omitted > 0
+        ? [
+            `<p style="margin: 6px 0; color: #888; font-size: 14px; line-height: 1.6;">+${omitted} more detector${omitted === 1 ? "" : "s"}</p>`,
+          ]
+        : [],
+    )
     .join("\n");
+
+  const safeProjectName = escapeHtml(projectName);
+  const html = renderEmailCard({
+    title: "New detector findings",
+    bodyHtml: `
+      <!-- Body -->
+      <tr>
+        <td style="padding: 0 40px 8px 40px; text-align: center;">
+          <p style="margin: 0; color: #333; font-size: 15px; line-height: 1.6;">
+            <strong>${total} ${noun}</strong> in project <strong>${safeProjectName}</strong>.
+          </p>
+        </td>
+      </tr>
+
+      <!-- Window subline -->
+      <tr>
+        <td style="padding: 0 40px 24px 40px; text-align: center;">
+          <p style="margin: 0; color: #888; font-size: 12px;">${windowRange} · ${entries.length} detector${entries.length === 1 ? "" : "s"}</p>
+        </td>
+      </tr>
+
+      <!-- Per-detector rows -->
+      <tr>
+        <td style="padding: 0 40px 32px 40px;">
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #fafafa; border: 1px solid #e5e5e5;">
+            <tr>
+              <td style="padding: 12px 16px;">
+${htmlRows}
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>`,
+    buttonLabel: "View findings",
+    buttonUrl: `${APP_BASE_URL}/projects/${projectId}/detectors`,
+    footerText: `You are receiving this because detector email alerts are enabled for the ${safeProjectName} project on TraceRoot.`,
+  });
 
   await transport.sendMail({
     from: SMTP_FROM,
     to: params.to.join(", "),
     subject: `[TraceRoot Alert] ${total} ${noun} — ${projectName}`,
     text: textParts.join("\n"),
-    html: `
-<p><strong>${total} ${noun}</strong> in project <strong>${escapeHtml(projectName)}</strong>.</p>
-<p style="color:#888;font-size:12px;">${windowRange} · ${entries.length} detector${entries.length === 1 ? "" : "s"}</p>
-${htmlRows}
-    `.trim(),
+    html,
   });
 }
 
@@ -226,9 +265,6 @@ export async function sendUsageQuotaEmail(params: {
   }
 }
 
-// Card layout mirrors the workspace-invite email (frontend/ui
-// send-invite-email.ts): table-based markup with inline styles only, so it
-// survives Gmail/Outlook CSS stripping.
 function buildUsageQuotaHtml(params: {
   kind: "warning" | "blocked";
   workspaceName: string;
@@ -256,49 +292,9 @@ function buildUsageQuotaHtml(params: {
   const safeWorkspaceName = escapeHtml(workspaceName);
 
   const title = kind === "warning" ? "Approaching your free plan limit" : "Free plan limit reached";
-  // Both variants carry a consequence callout: what IS paused (blocked, bold)
-  // or what WILL pause at the limit (warning, regular weight).
-  const consequenceSection = `
-      <!-- Consequence callout -->
-      <tr>
-        <td style="padding: 0 40px 24px 40px;">
-          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #fafafa; border: 1px solid #e5e5e5;">
-            <tr>
-              <td style="padding: 12px 16px;">
-                <p style="margin: 0; color: #333; font-size: 14px; line-height: 1.6; text-align: center;">
-                  ${kind === "blocked" ? `<strong>${consequence}</strong>` : consequence}
-                </p>
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>`;
-
-  return `
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  </head>
-  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 20px; background-color: #fafafa;">
-    <table cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width: 480px; margin: 0 auto; background: #fff; border: 1px solid #e5e5e5;">
-      <!-- Logo section -->
-      <tr>
-        <td style="padding: 40px 40px 32px 40px; text-align: center;">
-          <img src="${LOGO_URL}" alt="TraceRoot" width="72" height="72" style="display: block; margin: 0 auto; border-radius: 14px;" />
-        </td>
-      </tr>
-
-      <!-- Title -->
-      <tr>
-        <td style="padding: 0 40px 24px 40px; text-align: center;">
-          <h1 style="font-size: 24px; font-weight: 600; margin: 0; color: #000; letter-spacing: -0.5px;">
-            ${title}
-          </h1>
-        </td>
-      </tr>
-
+  return renderEmailCard({
+    title,
+    bodyHtml: `
       <!-- Body -->
       <tr>
         <td style="padding: 0 40px 24px 40px;">
@@ -311,7 +307,23 @@ function buildUsageQuotaHtml(params: {
           </p>
         </td>
       </tr>
-${consequenceSection}
+
+      <!-- Consequence callout: what IS paused (blocked, bold) or what WILL
+           pause at the limit (warning, regular weight). -->
+      <tr>
+        <td style="padding: 0 40px 24px 40px;">
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #fafafa; border: 1px solid #e5e5e5;">
+            <tr>
+              <td style="padding: 12px 16px;">
+                <p style="margin: 0; color: #333; font-size: 14px; line-height: 1.6; text-align: center;">
+                  ${kind === "blocked" ? `<strong>${consequence}</strong>` : consequence}
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+
       <!-- CTA note -->
       <tr>
         <td style="padding: 0 40px 32px 40px;">
@@ -319,38 +331,9 @@ ${consequenceSection}
             ${cta}
           </p>
         </td>
-      </tr>
-
-      <!-- Button -->
-      <tr>
-        <td style="padding: 0 40px 40px 40px; text-align: center;">
-          <table cellpadding="0" cellspacing="0" border="0" style="margin: 0 auto;">
-            <tr>
-              <td style="background-color: #000;">
-                <a href="${billingUrl}" style="display: inline-block; padding: 10px 20px; color: #ffffff; text-decoration: none; font-weight: 500; font-size: 14px;">
-                  Manage your plan
-                </a>
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-
-      <!-- Divider -->
-      <tr>
-        <td style="border-top: 1px solid #e5e5e5;"></td>
-      </tr>
-
-      <!-- Footer -->
-      <tr>
-        <td style="padding: 24px 40px; background-color: #fafafa;">
-          <p style="color: #999; font-size: 12px; margin: 0; text-align: center;">
-            You are receiving this because you are an admin of the ${safeWorkspaceName} workspace on TraceRoot.
-          </p>
-        </td>
-      </tr>
-    </table>
-  </body>
-</html>
-  `.trim();
+      </tr>`,
+    buttonLabel: "Manage your plan",
+    buttonUrl: billingUrl,
+    footerText: `You are receiving this because you are an admin of the ${safeWorkspaceName} workspace on TraceRoot.`,
+  });
 }

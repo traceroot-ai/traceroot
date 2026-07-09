@@ -88,6 +88,26 @@ describe("sendDigestAlertEmail", () => {
     expect(sendMail).not.toHaveBeenCalled();
   });
 
+  it("caps the listed detectors and adds an overflow row (mirrors the Slack digest)", async () => {
+    const { sendDigestAlertEmail } = await import("../email.js");
+    const entries = Array.from({ length: 50 }, (_, i) => ({
+      detectorId: `d${i}`,
+      detectorName: `Detector ${i}`,
+      findingCount: 1,
+      latestTraceId: "",
+    }));
+    await sendDigestAlertEmail({ ...baseParams, total: 50, entries });
+
+    const mail = sendMail.mock.calls[0][0];
+    // 45 rows listed, the rest folded into the overflow note
+    expect(mail.html).toContain("Detector 44");
+    expect(mail.html).not.toContain("Detector 45");
+    expect(mail.html).toContain("+5 more detectors");
+    expect(mail.text).toContain("+5 more detectors");
+    // the subline still counts every triggered detector
+    expect(mail.html).toContain("· 50 detectors");
+  });
+
   it("omits the latest-trace segment when an entry has no latest trace", async () => {
     const { sendDigestAlertEmail } = await import("../email.js");
     await sendDigestAlertEmail({
