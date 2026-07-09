@@ -31,6 +31,7 @@ import {
   EVENT_QUOTAS,
 } from "@traceroot/core";
 import { getWorkspaceUsageDetails } from "./clickhouse.js";
+import { runUsageQuotaNotifications } from "./usageNotifications.js";
 
 let stripe: Stripe | null = null;
 
@@ -95,6 +96,7 @@ export async function runBillingJob(): Promise<void> {
 async function processWorkspace(
   workspace: {
     id: string;
+    name: string;
     billingPlan: string;
     billingCustomerId: string | null;
     billingSubscriptionId: string | null;
@@ -564,6 +566,32 @@ async function processWorkspace(
     where: { id: workspace.id },
     data: updateData,
   });
+
+  // =========================================================================
+  // 7. Free-plan usage-quota emails (80% warn / 100% blocked, per meter).
+  // Runs after the DB write so a notification failure can never block the
+  // flag/metering updates. Stamps are recorded only on confirmed sends.
+  // =========================================================================
+  if (isFreePlan) {
+    try {
+      await runUsageQuotaNotifications({
+        workspaceId: workspace.id,
+        workspaceName: workspace.name,
+        periodStart: ctx.allTimeStart,
+        now: ctx.now,
+        meters: [
+          { meter: "events", used: totalEvents, cap: EVENT_QUOTAS[plan].included },
+          { meter: "rca", used: rcaRunsUsed, cap: RCA_RUN_QUOTAS[plan].included },
+          { meter: "detector", used: usage.detectorRuns, cap: DETECTOR_RUN_QUOTAS[plan].included },
+        ],
+      });
+    } catch (error) {
+      console.error(
+        `[Billing] Usage-quota notifications failed for workspace ${workspace.id}:`,
+        error,
+      );
+    }
+  }
 
   console.log(
     `[Billing] Workspace ${workspace.id} (${workspace.billingPlan}): ` +

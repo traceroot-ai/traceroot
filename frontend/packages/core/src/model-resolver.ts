@@ -13,10 +13,10 @@
  *      live together because resolvePiModel takes the BYOK config that
  *      fetchProviderConfig produces; splitting them would just create churn.
  */
-import { getModel } from "@earendil-works/pi-ai";
+import { getModel } from "@earendil-works/pi-ai/compat";
 import type { Api, Model } from "@earendil-works/pi-ai";
-import { prisma } from "./lib/prisma.js";
-import { decryptKey } from "./lib/encryption.js";
+import { prisma } from "./lib/prisma.ts";
+import { decryptKey } from "./lib/encryption.ts";
 import {
   SYSTEM_MODELS,
   PROVIDER_PRIORITY,
@@ -24,7 +24,7 @@ import {
   ADAPTER_DEFAULT_BASE_URL,
   ADAPTER_API_PROTOCOL,
   ADAPTER_MODELS,
-} from "./llm-providers.js";
+} from "./llm-providers.ts";
 
 /** Workspace BYOK row (decrypted key). Same shape as agent's private ProviderConfig. */
 export interface ProviderModelConfig {

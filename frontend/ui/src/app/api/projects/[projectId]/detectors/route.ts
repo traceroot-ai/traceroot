@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@traceroot/core";
+import { DEFAULT_DETECTOR_SAMPLE_RATE } from "@/features/detectors/templates";
 import {
   requireAuth,
   requireProjectAccess,
@@ -80,7 +81,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     template,
     prompt,
     outputSchema,
-    sampleRate = 100,
+    sampleRate,
+    enabled,
     triggerConditions,
     detectionModel,
     detectionProvider,
@@ -99,8 +101,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     return errorResponse("prompt must be a non-empty string", 400);
   }
 
-  // Validate sampleRate (integer 0-100). Fall back to 100 only when omitted.
-  let resolvedSampleRate = 100;
+  // Validate sampleRate (integer 0-100). Fall back to the default only when
+  // omitted — kept light so new detectors don't run an LLM call on every trace.
+  let resolvedSampleRate: number = DEFAULT_DETECTOR_SAMPLE_RATE;
   if (sampleRate !== undefined) {
     if (
       typeof sampleRate !== "number" ||
@@ -145,6 +148,14 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   }
   const resolvedEnableRca = enableRca ?? true;
 
+  // enabled: optional boolean. Defaults to true, but a detector created at 0%
+  // sampling should not show as "enabled but never fires" — fall back to
+  // sampleRate > 0 so a 0% rate creates a paused detector.
+  if (enabled !== undefined && typeof enabled !== "boolean") {
+    return errorResponse("enabled must be a boolean", 400);
+  }
+  const resolvedEnabled = enabled ?? resolvedSampleRate > 0;
+
   const detector = await prisma.detector.create({
     data: {
       projectId,
@@ -153,6 +164,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       prompt,
       outputSchema: (outputSchema as object) ?? [],
       sampleRate: resolvedSampleRate,
+      enabled: resolvedEnabled,
       enableRca: resolvedEnableRca,
       detectionModel: resolvedModel,
       detectionProvider: resolvedProvider,

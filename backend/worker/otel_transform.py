@@ -41,6 +41,17 @@ from shared.enums import SpanKind, SpanStatus
 
 logger = logging.getLogger(__name__)
 
+# Scopes whose LLM spans intentionally leave per-turn token counts unset (usage is
+# aggregated onto a few result spans). Skip text-based estimation for them, else the
+# deliberately-empty spans get fabricated counts. Python only — the TypeScript scope
+# ("@traceroot-ai/claude-agent-sdk") reports real per-turn usage and is excluded.
+_SKIP_TEXT_TOKEN_ESTIMATION_SCOPES = frozenset({"traceroot.claude-agent-sdk"})
+
+
+def _scope_skips_text_token_estimation(scope_name: str | None) -> bool:
+    return scope_name in _SKIP_TEXT_TOKEN_ESTIMATION_SCOPES
+
+
 # Attributes that are already extracted into dedicated fields
 _KNOWN_ATTRIBUTE_PREFIXES = {
     "traceroot.span.input",
@@ -131,13 +142,21 @@ def decode_otel_id(b64_value: str | None) -> str | None:
         b64_value: Base64-encoded ID string, or None
 
     Returns:
-        Hex string representation, or None if input is None/empty
+        Hex string representation, or None if input is None/empty or the ID is
+        all zero bytes
     """
     if not b64_value:
         return None
     try:
         decoded = base64.b64decode(b64_value)
-        return decoded.hex()
+        hex_id = decoded.hex()
+        # Some emitters send all-zero bytes for "no parent" instead of omitting
+        # the field; the OTLP spec treats all-zero IDs as invalid/absent. Without
+        # this, a zero-filled parent_span_id hides the root span (detection never
+        # triggers) and reads as a permanently-dangling parent.
+        if set(hex_id) == {"0"}:
+            return None
+        return hex_id
     except Exception as e:
         logger.warning(f"Failed to decode OTEL ID '{b64_value}': {e}")
         return b64_value  # Return as-is if decoding fails
@@ -418,9 +437,10 @@ def transform_otel_to_clickhouse(
                         json.dumps(span_output) if not isinstance(span_output, str) else span_output
                     )
 
-                # Model & token fields — extract whenever a model name is present,
-                # not just for LLM spans. Auto-instrumentors (OpenInference, GenAI)
-                # set model/token attrs on AGENT and CHAIN spans too.
+                # Model & token fields — extract API-provided counts whenever a model
+                # name is present, not just for LLM spans. Auto-instrumentors
+                # (OpenInference, GenAI) set model/token attrs on AGENT and CHAIN spans
+                # too. Text-based ESTIMATION, however, is LLM-spans-only (see below).
                 model_name = (
                     span_attrs.get("traceroot.llm.model")
                     or span_attrs.get("gen_ai.request.model")
@@ -431,22 +451,30 @@ def transform_otel_to_clickhouse(
 
                     # Try API-provided token counts first (from instrumentors).
                     # OpenInference: llm.token_count.*  ·  GenAI semconv: gen_ai.usage.*
-                    api_input_tokens = first_present_number(
-                        span_attrs,
-                        [
-                            "llm.token_count.prompt",
-                            "gen_ai.usage.input_tokens",
-                            "gen_ai.usage.prompt_tokens",
-                        ],
-                    )
-                    api_output_tokens = first_present_number(
-                        span_attrs,
-                        [
-                            "llm.token_count.completion",
-                            "gen_ai.usage.output_tokens",
-                            "gen_ai.usage.completion_tokens",
-                        ],
-                    )
+                    input_token_keys = [
+                        "llm.token_count.prompt",
+                        "gen_ai.usage.input_tokens",
+                        "gen_ai.usage.prompt_tokens",
+                    ]
+                    output_token_keys = [
+                        "llm.token_count.completion",
+                        "gen_ai.usage.output_tokens",
+                        "gen_ai.usage.completion_tokens",
+                    ]
+                    if span_kind == SpanKind.LLM:
+                        # Vercel AI SDK raw GROSS totals are the only token source it
+                        # normalizes to neither llm.* nor gen_ai.*, so we read them as
+                        # a fallback. But they sit on BOTH the LLM doGenerate span AND
+                        # its AGENT/CHAIN wrapper (ai.generateText/ai.generateObject),
+                        # where they restate the SUM of the wrapper's LLM children.
+                        # Trust them only on the LLM span itself — otherwise the
+                        # wrapper is priced on top of its children (double count).
+                        # generateObject emits only the legacy *Tokens spelling; its
+                        # real usage still lands on an LLM .doGenerate child.
+                        input_token_keys += ["ai.usage.inputTokens", "ai.usage.promptTokens"]
+                        output_token_keys += ["ai.usage.outputTokens", "ai.usage.completionTokens"]
+                    api_input_tokens = first_present_number(span_attrs, input_token_keys)
+                    api_output_tokens = first_present_number(span_attrs, output_token_keys)
                     # Cache buckets. The OpenInference keys (prompt_details.*) are the
                     # verified path for Anthropic/OpenAI and MUST be listed first —
                     # they are the same family as llm.token_count.prompt (read above).
@@ -461,6 +489,10 @@ def transform_otel_to_clickhouse(
                             # pydantic-ai version variants (names differ by release):
                             "gen_ai.usage.cache_read_tokens",
                             "gen_ai.usage.details.cache_read_input_tokens",
+                            # Vercel AI SDK: cache detail is NEVER normalized to
+                            # llm.*/gen_ai.* — it exists only under ai.usage.*:
+                            "ai.usage.cachedInputTokens",
+                            "ai.usage.inputTokenDetails.cacheReadTokens",
                         ],
                     )
                     api_cache_write_tokens = first_present_number(
@@ -472,6 +504,21 @@ def transform_otel_to_clickhouse(
                             "gen_ai.usage.details.cache_write_tokens",
                             # pydantic-ai version variant:
                             "gen_ai.usage.details.cache_creation_input_tokens",
+                            # Vercel AI SDK raw attr (never normalized upstream):
+                            "ai.usage.inputTokenDetails.cacheWriteTokens",
+                        ],
+                    )
+                    # Optional Anthropic 1-hour cache-write portion (1h write = 2.0x
+                    # input, versus 1.25x for the default 5-minute write). A SUBSET of
+                    # cache_write, priced at its own rate when present; absent for every
+                    # emitter today (the split is dropped at the instrumentation layer),
+                    # so this defaults to None -> 0 and leaves pricing unchanged.
+                    api_cache_write_1h_tokens = first_present_number(
+                        span_attrs,
+                        [
+                            "llm.token_count.prompt_details.cache_write_1h",
+                            "gen_ai.usage.cache_creation.ephemeral_1h_input_tokens",
+                            "gen_ai.usage.cache_creation_ephemeral_1h_input_tokens",
                         ],
                     )
                     # Reasoning tokens (o-series / GPT-5): a SUBSET of output
@@ -484,6 +531,9 @@ def transform_otel_to_clickhouse(
                             "gen_ai.usage.reasoning_tokens",
                             "gen_ai.usage.output_details.reasoning_tokens",
                             "gen_ai.usage.details.reasoning_tokens",
+                            # Vercel AI SDK raw attrs (aliases of the same value):
+                            "ai.usage.outputTokenDetails.reasoningTokens",
+                            "ai.usage.reasoningTokens",
                         ],
                     )
 
@@ -509,6 +559,7 @@ def transform_otel_to_clickhouse(
                             output_tokens=output_tokens,
                             cache_read_tokens=int_or_zero(api_cache_read_tokens),
                             cache_write_tokens=int_or_zero(api_cache_write_tokens),
+                            cache_write_1h_tokens=int_or_zero(api_cache_write_1h_tokens),
                         )
                         # Store a GROSS (cache-inclusive) input reconstructed from the
                         # disjoint buckets, so the input column always reconciles with
@@ -535,11 +586,27 @@ def transform_otel_to_clickhouse(
                                 int_or_zero(api_reasoning_tokens), output_tokens
                             ),
                         }
+                        # Persist the 1-hour cache-write portion only when an emitter
+                        # actually reports it, so spans with no 1-hour portion (every
+                        # span today) keep an identical usage_details map. The read path
+                        # defaults the missing key to 0.
+                        if buckets.cache_write_1h:
+                            span_record["usage_details"]["cache_write_1h_tokens"] = (
+                                buckets.cache_write_1h
+                            )
                         cost = cost_from_buckets(get_model_price(model_name), buckets)
                         if cost is not None:
                             span_record["cost"] = cost
-                    else:
-                        # Fall back to text-based estimation.
+                    elif span_kind == SpanKind.LLM and not _scope_skips_text_token_estimation(
+                        scope_name
+                    ):
+                        # Fall back to text-based estimation — only for LLM (completion)
+                        # spans. Wrapper AGENT/CHAIN spans restate text their LLM children
+                        # already account for (e.g. the Vercel AI SDK's ai.generateText
+                        # wrapper carries a model name and the conversation text but no
+                        # token counts), so estimating them double-counts the trace.
+                        # Scopes in _SKIP_TEXT_TOKEN_ESTIMATION_SCOPES leave even their
+                        # LLM spans deliberately unset and are skipped as well.
                         from worker.tokens import calculate_cost
 
                         usage = calculate_cost(

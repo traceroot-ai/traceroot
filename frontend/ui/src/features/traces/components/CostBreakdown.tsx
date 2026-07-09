@@ -33,7 +33,7 @@ export function CostBreakdown({ details }: CostBreakdownProps) {
         <span className="tabular-nums">{formatCost(c.inputCost)}</span>
       </div>
       <div className="mt-1 space-y-0.5">
-        <Row label="uncached input" value={c.inputUncachedCost} />
+        <Row label="uncached" value={c.inputUncachedCost} />
         <Row label="cache read" value={c.cacheReadCost} />
         <Row label="cache write" value={c.cacheWriteCost} />
       </div>

@@ -137,7 +137,10 @@ async function runChatTurn(query: string): Promise<string> {
       model: openai('gpt-4o-mini'),
       experimental_telemetry: { isEnabled: true, functionId: 'synthesis' },
       system: 'You are a principal engineer writing a crisp executive summary.',
-      prompt: `Synthesize these analyses into a 2-paragraph brief:\n\n${analyses.join('\n\n')}`,
+      prompt:
+        `User request: ${query}\n\n` +
+        `Using these analyses, write a 2-paragraph brief and then recommend where to invest first with a clear ranking.\n\n` +
+        analyses.join('\n\n'),
     });
 
     return `${intro}\n\n${analyses.join('\n\n')}\n\n# Summary\n${synthesis.trim()}`;
@@ -196,9 +199,9 @@ async function main() {
     console.log('\n[Traces exported]');
     console.log(
       'Open the trace in the UI: the root POST /api/chat span ends ~' +
-        STREAM_OPEN_MS +
-        'ms in (the streamed response), while chat.turn and the whole research ' +
-        'fan-out keep running well after — all under the same trace.',
+      STREAM_OPEN_MS +
+      'ms in (the streamed response), while chat.turn and the whole research ' +
+      'fan-out keep running well after — all under the same trace.',
     );
   }
 }

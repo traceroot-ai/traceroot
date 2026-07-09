@@ -1,0 +1,78 @@
+---
+title: Microsoft Agent Framework
+description: Auto-instrument Microsoft Agent Framework agent runs, model calls, and tool executions
+---
+
+Automatically capture agent runs, model calls, and tool executions from [Microsoft Agent Framework](https://github.com/microsoft/agent-framework) through its built-in OpenTelemetry emission — no manual instrumentation of the framework required.
+
+## Setup
+
+```python
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.AGENT_FRAMEWORK])
+```
+
+Initialize TraceRoot **before** importing `agent_framework`, so the OpenTelemetry instrumentation is wired up before the framework emits its first span.
+
+## Usage
+
+Once initialized, every agent invocation, model call, and tool execution is captured automatically:
+
+```python
+import asyncio
+
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.AGENT_FRAMEWORK])
+
+# Import after initialize() so tracing is already active.
+from agent_framework import Agent
+from agent_framework.openai import OpenAIChatClient
+
+
+def get_weather(city: str) -> str:
+    """Return a short weather forecast for a city."""
+    return f"{city}: 18°C, partly cloudy."
+
+
+agent = Agent(
+    OpenAIChatClient(model="gpt-4o-mini"),
+    "You are a helpful travel concierge. Use the weather tool when relevant.",
+    name="Concierge",
+    tools=[get_weather],
+)
+
+
+async def main():
+    # The agent run, the model call, and the get_weather tool call are all traced.
+    response = await agent.run("What's the weather in Tokyo?")
+    print(response.text)
+
+
+asyncio.run(main())
+```
+
+Tools are plain functions — Agent Framework already emits an `execute_tool` span for each call, so they don't need manual decoration.
+
+## What Gets Captured
+
+| Attribute | Description |
+|-----------|-------------|
+| Agent run | Each agent invocation as a span (nested for delegated agents) |
+| Model | The chat model used for each call |
+| Tool calls | An `execute_tool` span per tool execution, with arguments |
+| Response | Generated text and tool outputs |
+| Tokens | Input and output token counts |
+| Cost | Calculated from token usage and model pricing |
+| Latency | Request duration |
+
+## Run the example
+
+Clone the repo and run a complete multi-agent example end-to-end.
+
+  <Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/microsoft-agent-framework">
+    Run the Python example
+  </Card>

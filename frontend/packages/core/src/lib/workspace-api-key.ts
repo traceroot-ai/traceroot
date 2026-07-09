@@ -1,5 +1,5 @@
-import { prisma } from "./prisma.js";
-import { decryptKey } from "./encryption.js";
+import { prisma } from "./prisma.ts";
+import { decryptKey } from "./encryption.ts";
 
 /** Cache: `${workspaceId}:${provider}` → { key, expiresAt } */
 const keyCache = new Map<string, { key: string; expiresAt: number }>();

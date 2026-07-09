@@ -1,4 +1,4 @@
-import { Role } from "../constants.js";
+import { Role } from "../constants.ts";
 
 export type { Role };
 

@@ -40,6 +40,24 @@ class SpanSkeletonResponse(BaseModel):
     git_source_function: str | None = None
 
 
+class SpanResponse(SpanSkeletonResponse):
+    """A span skeleton plus its per-span I/O blobs (``input``/``output``/``metadata``).
+
+    The projection-capable superset returned by the trace get/export endpoints.
+    The blobs default to ``None`` and are populated only when the caller requests
+    the matching field group (``io``/``metadata``; see
+    ``rest.projection``). The default ``skeleton`` projection leaves them ``None``
+    and never runs the bulk span-I/O query, so there is no payload or query-cost
+    regression for the dashboard. Keeping the fields present (as ``null``) rather
+    than omitting them is additive: a few bytes per span, and it matches the
+    fields the shipped CLI's generated types already declare.
+    """
+
+    input: str | None = None
+    output: str | None = None
+    metadata: str | None = None
+
+
 class SpanIOResponse(BaseModel):
     """Full I/O payload for a single span, fetched on demand."""
 
@@ -77,7 +95,15 @@ class TraceListResponse(BaseModel):
 
 
 class TraceDetailResponse(BaseModel):
-    """Single trace with span skeletons (no per-span I/O)."""
+    """Single trace with its spans.
+
+    Spans use ``SpanResponse`` (the skeleton superset): per-span ``input``/
+    ``output``/``metadata`` are present but default to ``None``. They are
+    populated only when the caller requests the matching ``io``/``metadata``
+    field group (see ``rest.projection``); the default ``skeleton`` projection
+    leaves them ``None`` and never runs the bulk span-I/O query, preserving the
+    #1040 lightweight behavior.
+    """
 
     trace_id: str
     project_id: str
@@ -90,4 +116,39 @@ class TraceDetailResponse(BaseModel):
     input: str | None
     output: str | None
     metadata: str | None
-    spans: list[SpanSkeletonResponse]
+    spans: list[SpanResponse]
+
+
+class FilterField(BaseModel):
+    """A single filterable column, serialized from the registry for the UI."""
+
+    field: str
+    label: str
+    type: str
+    level: str
+    operators: list[str]
+    value_source: str
+    enum_values: list[str] = []
+    # True for integer-typed numeric fields (tokens/latency/errors), so the UI can
+    # restrict their inputs to whole numbers.
+    integer: bool = False
+
+
+class FilterFieldsResponse(BaseModel):
+    """The full set of filterable fields driving the filter dropdown."""
+
+    fields: list[FilterField]
+
+
+class FilterValueCount(BaseModel):
+    """A distinct categorical value and how often it occurs."""
+
+    value: str
+    count: int
+
+
+class FilterValuesResponse(BaseModel):
+    """Distinct values for one categorical filter field, by frequency."""
+
+    field: str
+    values: list[FilterValueCount]

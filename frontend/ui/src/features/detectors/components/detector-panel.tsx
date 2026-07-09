@@ -1,13 +1,20 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Eye, X, Copy, Check, ArrowUp, ArrowDown } from "lucide-react";
 import { useDetector, useUpdateDetector } from "../hooks/use-detectors";
+import { DEFAULT_DETECTOR_SAMPLE_RATE } from "../templates";
 import { useProject } from "@/features/projects/hooks";
 import { TriggerEditor } from "./trigger-editor";
 import type { TriggerCondition } from "./trigger-editor";
 import { AgentModelLink } from "./agent-model-link";
 import { RcaToggle } from "./rca-toggle";
+import {
+  detectorToFormValues,
+  buildDetectorPatch,
+  mergeDetectorIntoForm,
+  type DetectorFormValues,
+} from "../utils";
 import {
   ModelSelector,
   type ModelSelection,
@@ -39,7 +46,7 @@ export function DetectorPanel({
 
   const [editName, setEditName] = useState("");
   const [editPrompt, setEditPrompt] = useState("");
-  const [editSampleRate, setEditSampleRate] = useState(100);
+  const [editSampleRate, setEditSampleRate] = useState(DEFAULT_DETECTOR_SAMPLE_RATE);
   const [editModelSelection, setEditModelSelection] = useState<ModelSelection>({
     model: "",
     provider: "",
@@ -49,36 +56,77 @@ export function DetectorPanel({
   const [editConditions, setEditConditions] = useState<TriggerCondition[]>([]);
   const [editEnableRca, setEditEnableRca] = useState(true);
 
-  const populate = (d: typeof detector) => {
-    if (!d) return;
-    setEditName(d.name);
-    setEditPrompt(d.prompt);
-    setEditSampleRate(d.sampleRate);
-    setEditModelSelection({
-      model: d.detectionModel ?? "",
-      provider: d.detectionProvider ?? "",
-      source: d.detectionSource ?? "system",
-      adapter: "",
-    });
-    setEditConditions((d.trigger?.conditions ?? []) as TriggerCondition[]);
-    setEditEnableRca(d.enableRca ?? true);
+  const emptyForm: DetectorFormValues = {
+    name: "",
+    prompt: "",
+    sampleRate: DEFAULT_DETECTOR_SAMPLE_RATE,
+    enableRca: true,
+    detectionModel: "",
+    detectionProvider: "",
+    detectionSource: "system",
+    conditions: [],
   };
 
-  // When the loaded detector matches the requested id, populate edit state.
-  // Otherwise clear it: the panel's Next/Prev arrow can change `detectorId`
+  const readForm = (): DetectorFormValues => ({
+    name: editName,
+    prompt: editPrompt,
+    sampleRate: editSampleRate,
+    enableRca: editEnableRca,
+    detectionModel: editModelSelection.model,
+    detectionProvider: editModelSelection.provider,
+    detectionSource: editModelSelection.source === "byok" ? "byok" : "system",
+    conditions: editConditions as DetectorFormValues["conditions"],
+  });
+
+  const applyForm = (values: DetectorFormValues) => {
+    setEditName(values.name);
+    setEditPrompt(values.prompt);
+    setEditSampleRate(values.sampleRate);
+    setEditEnableRca(values.enableRca);
+    setEditModelSelection({
+      model: values.detectionModel,
+      provider: values.detectionProvider,
+      source: values.detectionSource,
+      adapter: "",
+    });
+    setEditConditions(values.conditions as TriggerCondition[]);
+  };
+
+  // Snapshot of the server state the form was last populated from, tagged
+  // with the detector id it belongs to. Save diffs against it so only
+  // user-changed fields are PATCHed, and refetches merge against it so
+  // untouched fields update live (e.g. another tab toggling RCA) without
+  // clobbering in-progress edits.
+  const loadedRef = useRef<{ id: string; values: DetectorFormValues } | null>(null);
+
+  // When the loaded detector matches the requested id, populate or merge.
+  // Otherwise clear: the panel's Next/Prev arrow can change `detectorId`
   // before `useDetector` resolves the new fetch, and without this clear the
   // form would briefly hold the previous detector's values — a Save during
   // that gap would write them to the new detector.
   useEffect(() => {
     if (detector && detector.id === detectorId) {
-      populate(detector);
+      const next = detectorToFormValues(detector);
+      const previous = loadedRef.current;
+      if (previous && previous.id === detector.id) {
+        // Skip when the payload is unchanged. This also covers StrictMode's
+        // dev double-invoke: the re-run sees identical data while the form
+        // state from the first run hasn't committed yet, and merging then
+        // would read empty initial values and blank the form.
+        if (JSON.stringify(next) !== JSON.stringify(previous.values)) {
+          applyForm(mergeDetectorIntoForm(previous.values, next, readForm()));
+          loadedRef.current = { id: detector.id, values: next };
+        }
+      } else {
+        // First load, or navigation to a different detector (possibly served
+        // instantly from the query cache): populate fresh. Merging across
+        // detectors would leak one detector's edits into another.
+        applyForm(next);
+        loadedRef.current = { id: detector.id, values: next };
+      }
     } else {
-      setEditName("");
-      setEditPrompt("");
-      setEditSampleRate(100);
-      setEditModelSelection({ model: "", provider: "", source: "system", adapter: "" });
-      setEditConditions([]);
-      setEditEnableRca(true);
+      applyForm(emptyForm);
+      loadedRef.current = null;
     }
   }, [detectorId, detector]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -95,22 +143,18 @@ export function DetectorPanel({
     // Guard against saving while the new detector's data is still loading.
     // Edit state would be the previous detector's, but the mutation targets
     // the current detectorId; without this guard, stale values would
-    // overwrite the new detector. The Save button is also disabled in this
-    // state — this is defense-in-depth.
+    // overwrite the new detector. The Save button is also disabled for the
+    // detector check — this is defense-in-depth. The snapshot check below
+    // handles the one-frame window before the populate effect has run.
     if (!detector || detector.id !== detectorId) return;
-    updateMutation.mutate(
-      {
-        name: editName,
-        prompt: editPrompt,
-        sampleRate: editSampleRate,
-        enableRca: editEnableRca,
-        triggerConditions: editConditions,
-        detectionModel: editModelSelection.model || undefined,
-        detectionProvider: editModelSelection.provider || undefined,
-        detectionSource: editModelSelection.source === "byok" ? "byok" : "system",
-      },
-      { onSuccess: () => onClose() },
-    );
+    const loaded = loadedRef.current;
+    if (!loaded || loaded.id !== detectorId) return;
+    const patch = buildDetectorPatch(loaded.values, readForm());
+    if (Object.keys(patch).length === 0) {
+      onClose();
+      return;
+    }
+    updateMutation.mutate(patch, { onSuccess: () => onClose() });
   };
 
   return (
@@ -246,7 +290,7 @@ export function DetectorPanel({
           <div className="flex items-center gap-3 p-3">
             <input
               type="range"
-              min={1}
+              min={0}
               max={100}
               value={editSampleRate}
               onChange={(e) => setEditSampleRate(Number(e.target.value))}

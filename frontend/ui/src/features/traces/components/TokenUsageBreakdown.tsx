@@ -21,8 +21,8 @@ function Row({ label, value }: { label: string; value: number }) {
 /**
  * Hierarchical "Usage breakdown" panel for a span's token counts (issue #958).
  *
- * Input usage (gross input_tokens) splits into its cache components and the
- * remaining uncached input; output usage splits into reasoning and plain
+ * Input usage (gross input_tokens) splits into uncached input and its cache
+ * components (same row order as CostBreakdown); output usage splits into reasoning and plain
  * output. The cache sub-rows always render — even at zero — so it's clear we
  * track cache tokens; reasoning renders only when non-zero (it's specific to
  * reasoning models). The uncached `input`/`output` leaf rows always render so
@@ -56,10 +56,11 @@ export function TokenUsageBreakdown({
         <span className="tabular-nums">{formatExactTokens(input)}</span>
       </div>
       <div className="mt-1 space-y-0.5">
-        {/* Always shown (even at zero) so it's clear cache tokens are tracked. */}
+        {/* Always shown (even at zero) so it's clear cache tokens are tracked.
+            Same row order as CostBreakdown so the two panels read in parallel. */}
+        <Row label="uncached" value={uncachedInput} />
         <Row label="cache read" value={cacheRead} />
         <Row label="cache write" value={cacheWrite} />
-        <Row label="uncached" value={uncachedInput} />
       </div>
 
       <div className="mt-2 flex justify-between gap-8 border-b border-border/60 pb-1 font-medium">

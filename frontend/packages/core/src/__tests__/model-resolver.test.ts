@@ -20,8 +20,8 @@ import {
   findByokKeyForPiProvider,
   invalidateProviderConfigCache,
   type ProviderModelConfig,
-} from "../model-resolver.js";
-import { prisma } from "../lib/prisma.js";
+} from "../model-resolver.ts";
+import { prisma } from "../lib/prisma.ts";
 
 describe("resolvePiModel", () => {
   it("uses anthropic-messages for system Claude", () => {
