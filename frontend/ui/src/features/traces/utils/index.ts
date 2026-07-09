@@ -29,8 +29,9 @@ export function compareSpansForStableDisplay(a: Span, b: Span): number {
 
   const aEnd = a.span_end_time ? parseTimestamp(a.span_end_time) : Number.POSITIVE_INFINITY;
   const bEnd = b.span_end_time ? parseTimestamp(b.span_end_time) : Number.POSITIVE_INFINITY;
-  const endDelta = aEnd - bEnd;
-  if (endDelta !== 0) return endDelta;
+  // Strict inequality (not delta !== 0) so two in-progress spans — both
+  // +Infinity, whose subtraction is NaN — fall through to the span_id tie-break.
+  if (aEnd !== bEnd) return aEnd - bEnd;
 
   return a.span_id.localeCompare(b.span_id);
 }
