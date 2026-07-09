@@ -46,7 +46,7 @@ export function TraceFeedWidget({ projectId, spec, range }: TraceFeedWidgetProps
   const limit = spec.limit ?? 10;
   const { user, sessionReady } = useTraceApiUser();
 
-  const { data, isLoading, isError } = useQuery({
+  const { data, isPending, isError } = useQuery({
     queryKey: ["trace-feed", projectId, limit, range.start.getTime(), range.end.getTime()],
     queryFn: () =>
       getTraces(
@@ -63,7 +63,10 @@ export function TraceFeedWidget({ projectId, spec, range }: TraceFeedWidgetProps
     enabled: sessionReady && !!projectId,
   });
 
-  if (isLoading) {
+  // isPending (no data yet), not isLoading (pending AND fetching): while the
+  // auth session is still resolving the query is disabled — not fetching — and
+  // isLoading would fall through to the misleading "No traces" empty state.
+  if (isPending) {
     return <p className="text-[11.5px] text-muted-foreground">Loading…</p>;
   }
   if (isError) {

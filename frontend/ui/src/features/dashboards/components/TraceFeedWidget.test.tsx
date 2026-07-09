@@ -12,11 +12,15 @@ vi.mock("next/link", () => ({
   ),
 }));
 
+// Mutable so individual tests can put the session into its resolving state.
+const auth = {
+  data: { user: { id: "u1", email: "u@example.com" } } as {
+    user: { id: string; email: string };
+  } | null,
+  isPending: false,
+};
 vi.mock("@/lib/auth-client", () => ({
-  useSession: () => ({
-    data: { user: { id: "u1", email: "u@example.com" } },
-    isPending: false,
-  }),
+  useSession: () => auth,
 }));
 
 vi.mock("@/lib/api/traces", () => ({
@@ -28,6 +32,8 @@ import { getTraces } from "@/lib/api/traces";
 afterEach(() => {
   cleanup();
   vi.mocked(getTraces).mockReset();
+  auth.data = { user: { id: "u1", email: "u@example.com" } };
+  auth.isPending = false;
 });
 
 const RANGE: TimeRange = {
@@ -67,6 +73,15 @@ describe("TraceFeedWidget", () => {
     vi.mocked(getTraces).mockReturnValue(new Promise(() => {}));
     renderWidget();
     expect(screen.getByText("Loading…")).toBeTruthy();
+  });
+
+  it("stays loading while the auth session resolves, not the empty state", () => {
+    auth.data = null;
+    auth.isPending = true;
+    renderWidget();
+    expect(screen.getByText("Loading…")).toBeTruthy();
+    expect(screen.queryByText("No traces in this time range")).toBeNull();
+    expect(getTraces).not.toHaveBeenCalled();
   });
 
   it("shows an error state when the query fails", async () => {
