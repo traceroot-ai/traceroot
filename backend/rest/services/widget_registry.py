@@ -143,7 +143,11 @@ REGISTRY: dict[str, ViewDef] = {
         fields={
             "name": _string_dim("name", "Span name"),
             "span_kind": _string_dim("span_kind", "Span kind"),
-            "status": _string_dim("status", "Status"),
+            # Effectively binary (OK / ERROR): useful as a filter, not worth a
+            # breakdown dimension.
+            "status": FieldDef(
+                expr="status", type="string", label="Status", filter_ops=FILTER_OPS_STRING
+            ),
             "model_name": _string_dim("model_name", "Model"),
             "environment": _string_dim("environment", "Environment"),
             # Labels follow the trace-list filter vocabulary (see
