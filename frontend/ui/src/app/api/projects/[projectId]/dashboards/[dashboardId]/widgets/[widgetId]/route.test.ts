@@ -12,6 +12,7 @@ const widgetUpdateMock = vi.fn();
 const widgetDeleteMock = vi.fn();
 
 vi.mock("@traceroot/core", () => ({
+  Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
   prisma: {
     widget: {
       findFirst: (...args: unknown[]) => widgetFindFirstMock(...args),

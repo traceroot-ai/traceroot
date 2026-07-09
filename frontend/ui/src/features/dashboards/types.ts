@@ -15,6 +15,11 @@ export type DisplayType = (typeof DISPLAY_TYPES)[number];
 // full-length name stays visible in the create dialog's input without
 // horizontal scrolling. Long names also display truncated in the tabs.
 export const DASHBOARD_NAME_MAX = 50;
+// Widget titles and dashboard descriptions are also route-enforced: without a
+// cap one member can persist arbitrarily large strings that every dashboard
+// read then ships to all project members.
+export const WIDGET_TITLE_MAX = 100;
+export const DASHBOARD_DESCRIPTION_MAX = 500;
 
 export const AGGS = ["count", "sum", "avg", "min", "max", "p50", "p95", "p99"] as const;
 

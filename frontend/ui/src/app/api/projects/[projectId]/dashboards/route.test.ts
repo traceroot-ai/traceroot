@@ -8,6 +8,7 @@ vi.mock("@/env", () => ({ env: { INTERNAL_API_SECRET: "test-secret" } }));
 const dashboardFindManyMock = vi.fn();
 const dashboardCreateMock = vi.fn();
 vi.mock("@traceroot/core", () => ({
+  Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
   prisma: {
     dashboard: {
       findMany: (...args: unknown[]) => dashboardFindManyMock(...args),
