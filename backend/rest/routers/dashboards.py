@@ -8,9 +8,16 @@ the field registry that drives the builder UI.
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 
-from rest.routers.deps import ProjectAccess
+from rest.rate_limit import (
+    BUCKET_READ,
+    is_request_rate_limit_exempt,
+    key_read,
+    limiter,
+    resolve_limit,
+)
+from rest.routers.deps import RateLimitedProjectAccess
 from rest.schemas.dashboards import WidgetQueryRequest, WidgetQueryResponse
 from rest.schemas.traces import FilterValuesResponse
 from rest.services.trace_reader import get_trace_reader_service
@@ -23,11 +30,16 @@ router = APIRouter(prefix="/projects/{project_id}/widgets", tags=["Dashboards"])
 
 
 @router.get("/field-values/{view}/{field}", response_model=FilterValuesResponse)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
 async def get_widget_field_values(
+    request: Request,
+    response: Response,
     project_id: str,
     view: str,
     field: str,
-    _access: ProjectAccess,
+    _access: RateLimitedProjectAccess,  # Validates access + sets rate-limit identity
     start_time: datetime | None = Query(
         None, description="Only consider rows whose event time is at or after this timestamp"
     ),
@@ -45,7 +57,7 @@ async def get_widget_field_values(
         project_id (str): Project that owns the data; server-bound for isolation.
         view (str): The widget view (``spans`` or ``traces``) whose table is scanned.
         field (str): The string dimension to enumerate.
-        _access (ProjectAccess): Validates the caller's access to the project.
+        _access (RateLimitedProjectAccess): Validates access and sets rate-limit identity.
         start_time (datetime | None): Lower bound of the active dashboard window.
         end_time (datetime | None): Upper bound (exclusive) of the active window.
 
@@ -95,16 +107,29 @@ async def get_widget_field_values(
 
 
 @router.get("/schema")
-async def get_widget_schema(project_id: str, _access: ProjectAccess) -> dict:
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def get_widget_schema(
+    request: Request,
+    response: Response,
+    project_id: str,
+    _access: RateLimitedProjectAccess,  # Validates access + sets rate-limit identity
+) -> dict:
     """Field registry for the widget builder (views, fields, ops, aggs)."""
     return registry_schema()
 
 
 @router.post("/query", response_model=WidgetQueryResponse)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
 async def query_widget_data(
+    request: Request,
+    response: Response,
     project_id: str,
     body: WidgetQueryRequest,
-    _access: ProjectAccess,
+    _access: RateLimitedProjectAccess,  # Validates access + sets rate-limit identity
 ):
     """Execute a widget spec. Stateless: used by saved widgets and builder previews."""
     try:
