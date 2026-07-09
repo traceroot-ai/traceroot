@@ -270,6 +270,34 @@ describe("DashboardGrid", () => {
       expect(onLayoutChange).toHaveBeenCalledWith(v3);
     });
 
+    it("does not flush the suppressed mount-fire layout on unmount", () => {
+      vi.useFakeTimers();
+      const onLayoutChange = vi.fn();
+      const { onChange, unmount } = renderGrid(onLayoutChange);
+
+      // Mount-fire arrives, then the user navigates away before the debounce
+      // fires: the pending snapshot equals what was lazily marked as sent, so
+      // nothing may go upstream.
+      onChange(initialLayout);
+      unmount();
+
+      expect(onLayoutChange).not.toHaveBeenCalled();
+    });
+
+    it("does not flush on unmount after the dedupe path already handled the timer", () => {
+      vi.useFakeTimers();
+      const onLayoutChange = vi.fn();
+      const { onChange, unmount } = renderGrid(onLayoutChange);
+
+      // Mount-fire, timer fires and takes the dedupe skip — refs must be
+      // cleared there, or this unmount would resend the mount layout.
+      onChange(initialLayout);
+      vi.advanceTimersByTime(600);
+      unmount();
+
+      expect(onLayoutChange).not.toHaveBeenCalled();
+    });
+
     it("flushes a pending debounced change synchronously on unmount", () => {
       vi.useFakeTimers();
       const onLayoutChange = vi.fn();

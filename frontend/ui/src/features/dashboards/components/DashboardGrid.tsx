@@ -69,13 +69,19 @@ export function DashboardGrid({
   const pendingMappedRef = useRef<LayoutItem[] | null>(null);
 
   // On unmount: if a debounce is still pending, cancel the timer and flush the
-  // pending layout change synchronously so the last drag is never silently lost.
+  // pending layout change synchronously so the last drag is never silently
+  // lost. The flush re-checks against lastSentRef: without that, the
+  // mount-fire layout (deliberately suppressed by the lazy-init below) would
+  // be PATCHed on every visit-then-navigate — including stale mount-time
+  // layouts overwriting a teammate's saved arrangement, or a PATCH against a
+  // dashboard the user just deleted.
   useEffect(
     () => () => {
       if (debounceTimer.current) {
         clearTimeout(debounceTimer.current);
-        if (pendingMappedRef.current) {
-          onLayoutChange(pendingMappedRef.current);
+        const pending = pendingMappedRef.current;
+        if (pending && JSON.stringify(pending) !== lastSentRef.current) {
+          onLayoutChange(pending);
         }
       }
     },
@@ -97,10 +103,13 @@ export function DashboardGrid({
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     pendingMappedRef.current = mapped;
     debounceTimer.current = setTimeout(() => {
+      // Clear both refs on every firing — including the dedupe skip below —
+      // so the unmount flush can't resend a layout that was already handled.
+      debounceTimer.current = null;
+      pendingMappedRef.current = null;
       const json = JSON.stringify(mapped);
       if (json === lastSentRef.current) return;
       lastSentRef.current = json;
-      pendingMappedRef.current = null;
       onLayoutChange(mapped);
     }, 600);
   };
