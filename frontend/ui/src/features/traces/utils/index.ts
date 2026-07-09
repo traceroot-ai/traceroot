@@ -19,6 +19,27 @@ function parseMetadata(metadata: string | null): Record<string, unknown> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Span-keyed caches.
+//
+// Live updates flow through mergeSpans, which preserves object identity for
+// every span the incoming SSE batch didn't replace. Keying by span object
+// therefore makes per-update parse work proportional to newly arrived spans
+// only, and entries are GC'd together with the spans they belong to. Spans are
+// treated as immutable after creation (react-query updates replace objects,
+// never mutate them) — these caches rely on that.
+// ---------------------------------------------------------------------------
+const spanMetadataCache = new WeakMap<Span, Record<string, unknown>>();
+
+/** Parsed `span.metadata` JSON, computed at most once per span object. */
+export function getSpanMetadata(span: Span): Record<string, unknown> {
+  const cached = spanMetadataCache.get(span);
+  if (cached) return cached;
+  const parsed = parseMetadata(span.metadata ?? null);
+  spanMetadataCache.set(span, parsed);
+  return parsed;
+}
+
 /**
  * For every span that carries traceroot.span.ids_path (ancestor IDs, root→parent)
  * and traceroot.span.path (root→current names) in its metadata, create lightweight
@@ -38,9 +59,10 @@ export function enrichSpansWithPending(spans: Span[]): Span[] {
   for (const span of spans) {
     if (!span.parent_span_id) continue;
 
-    // Skeleton spans omit metadata (parseMetadata(null|undefined) → {}); live
-    // SSE spans still carry it, so enrichment keeps working from live events.
-    const meta = parseMetadata(span.metadata ?? null);
+    // Skeleton spans omit metadata (the parse yields {}); live SSE spans still
+    // carry it, so enrichment keeps working from live events. Parsed once per
+    // span object via the span-keyed cache.
+    const meta = getSpanMetadata(span);
     const idsPath = meta["traceroot.span.ids_path"] as string[] | undefined;
     const namePath = meta["traceroot.span.path"] as string[] | undefined;
 

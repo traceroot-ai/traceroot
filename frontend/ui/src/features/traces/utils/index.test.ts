@@ -1,9 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { SpanKind, SpanStatus } from "@traceroot/core";
 import type { Span } from "@/types/api";
 import {
   enrichSpansWithPending,
   getSpanDuration,
+  getSpanMetadata,
   getTraceDuration,
   summarizeCostDetails,
   getTraceCostBreakdown,
@@ -477,6 +478,42 @@ describe("two-phase loading compatibility", () => {
     } as unknown as TraceDetail;
     // 3s extent (max end − min start).
     expect(getTraceDuration(trace)).toBe(3000);
+  });
+});
+
+describe("getSpanMetadata", () => {
+  it("returns the identical parsed object for the same span object", () => {
+    const span = makeSpan({
+      span_id: "child",
+      parent_span_id: "parent-id",
+      metadata: metadataWith(["parent-id"], ["parent-name", "child"]),
+    });
+    const first = getSpanMetadata(span);
+    expect(first["traceroot.span.ids_path"]).toEqual(["parent-id"]);
+    expect(getSpanMetadata(span)).toBe(first);
+  });
+
+  it("caches the empty result for metadata-less spans", () => {
+    const span = makeSpan({ span_id: "bare", metadata: null });
+    expect(getSpanMetadata(span)).toEqual({});
+    expect(getSpanMetadata(span)).toBe(getSpanMetadata(span));
+  });
+
+  it("does not re-parse metadata for span objects that survive a merge", () => {
+    const child = makeSpan({
+      span_id: "child",
+      parent_span_id: "parent-id",
+      metadata: metadataWith(["parent-id"], ["parent-name", "child"]),
+    });
+    // First pass parses and caches the child's metadata.
+    enrichSpansWithPending([child]);
+
+    const parseSpy = vi.spyOn(JSON, "parse");
+    // A later update delivers a NEW array (fresh identity) still containing the
+    // same child object — exactly what mergeSpans produces for untouched spans.
+    enrichSpansWithPending([child, makeSpan({ span_id: "root-2" })]);
+    expect(parseSpy).not.toHaveBeenCalled();
+    parseSpy.mockRestore();
   });
 });
 
