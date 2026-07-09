@@ -191,4 +191,43 @@ describe("buildTreeRows ↔ flattenTreeWithMetrics ordering parity", () => {
     expect(treeIds).toEqual(["root", "a-child", "b-child", "c-child"]);
     expect(timelineIds).toEqual(treeIds);
   });
+
+  it("stabilizes sibling order when several spans are all in-progress", () => {
+    // Same start time and no end time on every child: the end-time comparison
+    // is Infinity vs Infinity, so ordering must come from the span_id
+    // tie-break regardless of arrival order.
+    const spans = [
+      makeSpan({ span_id: "root" }),
+      makeSpan({
+        span_id: "c-live",
+        parent_span_id: "root",
+        span_start_time: "2024-01-01T00:00:00.100Z",
+        span_end_time: null,
+      }),
+      makeSpan({
+        span_id: "a-live",
+        parent_span_id: "root",
+        span_start_time: "2024-01-01T00:00:00.100Z",
+        span_end_time: null,
+      }),
+      makeSpan({
+        span_id: "b-live",
+        parent_span_id: "root",
+        span_start_time: "2024-01-01T00:00:00.100Z",
+        span_end_time: null,
+      }),
+    ];
+
+    const spanById = new Map(spans.map((s) => [s.span_id, s]));
+    const rows = buildSpanTree(spans);
+    const treeIds = buildTreeRows(rows, spanById, new Set()).flatMap((r) =>
+      r.type === "span" ? [r.row.span.span_id] : [],
+    );
+    const timelineIds = flattenTreeWithMetrics(spans, new Set(), 1000, 800).map(
+      (item) => item.span.span_id,
+    );
+
+    expect(treeIds).toEqual(["root", "a-live", "b-live", "c-live"]);
+    expect(timelineIds).toEqual(treeIds);
+  });
 });
