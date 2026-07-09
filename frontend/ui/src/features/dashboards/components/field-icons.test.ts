@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   AlertCircle,
   Box,
+  CircleCheck,
   CircleDollarSign,
   CircleStop,
   Clock,
@@ -44,8 +45,11 @@ describe("fieldIcon", () => {
     expect(fieldIcon("span_kind")).toBe(Shapes);
   });
 
+  it("uses the check circle for status", () => {
+    expect(fieldIcon("status")).toBe(CircleCheck);
+  });
+
   it("falls back to the generic box like the trace list does", () => {
-    expect(fieldIcon("status")).toBe(Box);
     expect(fieldIcon("some_future_field")).toBe(Box);
   });
 });

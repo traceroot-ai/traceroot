@@ -1,6 +1,7 @@
 import {
   AlertCircle,
   Box,
+  CircleCheck,
   CircleStop,
   Hash,
   Layers,
@@ -29,6 +30,7 @@ const WIDGET_FIELD_ICONS: Record<string, LucideIcon> = {
   // A category-of-kinds field; the per-kind glyphs (Sparkle/Bot/Wrench) would
   // each wrongly imply one specific kind.
   span_kind: Shapes,
+  status: CircleCheck,
 };
 
 export const fieldIcon = (field: string): LucideIcon => WIDGET_FIELD_ICONS[field] ?? Box;
