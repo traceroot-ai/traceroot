@@ -25,7 +25,7 @@ function QueryWidgetBody({
 
   // Hooks cannot be conditional — pass a placeholder spec when invalid, but
   // gate the query with enabled=false so no request is actually sent.
-  const { data, isLoading, error } = useWidgetData(
+  const { data, isPending, error } = useWidgetData(
     projectId,
     widget.id,
     spec ?? {
@@ -42,7 +42,10 @@ function QueryWidgetBody({
   if (!spec) {
     return <div className="p-2 text-[12px] text-red-600">Invalid widget spec — edit to fix</div>;
   }
-  if (isLoading) {
+  // isPending (no data yet), not isLoading (pending AND fetching): while the
+  // auth session is still resolving the query is disabled — not fetching — and
+  // isLoading would fall through to a blank body on every dashboard load.
+  if (isPending) {
     return <div className="p-2 text-[12px] text-muted-foreground">Loading…</div>;
   }
   if (error) {
