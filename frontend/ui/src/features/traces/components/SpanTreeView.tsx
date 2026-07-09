@@ -19,6 +19,7 @@ import {
   getTraceDuration,
   getTraceTotalCost,
   getTraceTokenUsage,
+  getVisibleSpanRows,
   TREE_LAYOUT,
   TREE_OVERSCAN_ROWS,
 } from "../utils";
@@ -39,26 +40,9 @@ const SPAN_IO_PREFETCH_DEBOUNCE_MS = 150;
 // row-height math lives in the parent anymore.
 export type TreeRow = { type: "trace" } | { type: "span"; row: SpanTreeRow };
 
-/**
- * Returns the flattened span rows that are currently visible, i.e. none of
- * their ancestors are collapsed. Kept pure (no React) so the row model can be
- * unit-tested and so the virtualizer count matches exactly what is rendered.
- */
-export function getVisibleSpanRows(
-  spanRows: SpanTreeRow[],
-  spanById: Map<string, Span>,
-  collapsedIds: Set<string>,
-): SpanTreeRow[] {
-  if (collapsedIds.size === 0) return spanRows;
-  return spanRows.filter(({ span }) => {
-    let currentId = span.parent_span_id;
-    while (currentId) {
-      if (collapsedIds.has(currentId)) return false;
-      currentId = spanById.get(currentId)?.parent_span_id || null;
-    }
-    return true;
-  });
-}
+// getVisibleSpanRows moved to ../utils so the timeline flattener can share the
+// exact same collapse filter; re-exported here for existing importers.
+export { getVisibleSpanRows } from "../utils";
 
 /**
  * Builds the full virtualized row model: the trace root at index 0 followed by

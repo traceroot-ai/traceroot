@@ -153,3 +153,10 @@ describe("buildTreeRows ↔ flattenTreeWithMetrics ordering parity", () => {
     expect(treeIds).toEqual(["root", "a", "b"]);
   });
 });
+
+describe("buildSpanTree caching", () => {
+  it("returns the identical rows array for the same spans array", () => {
+    const { spans } = makeTree();
+    expect(buildSpanTree(spans)).toBe(buildSpanTree(spans));
+  });
+});

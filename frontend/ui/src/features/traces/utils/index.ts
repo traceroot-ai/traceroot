@@ -215,10 +215,44 @@ export function getTraceDuration(trace: TraceDetail): number | null {
   return Math.max(rootDuration, extent);
 }
 
+// One row-model per spans-array identity, so the tree and timeline panels —
+// which both derive rows from the same enriched array — share a single
+// computation per data update.
+const spanTreeCache = new WeakMap<Span[], SpanTreeRow[]>();
+
 /**
  * Build a linearized tree structure from spans for rendering
  */
 export function buildSpanTree(spans: Span[]): SpanTreeRow[] {
+  const cached = spanTreeCache.get(spans);
+  if (cached) return cached;
+  const rows = computeSpanTree(spans);
+  spanTreeCache.set(spans, rows);
+  return rows;
+}
+
+/**
+ * Returns the flattened span rows that are currently visible, i.e. none of
+ * their ancestors are collapsed. Kept pure (no React) so the row model can be
+ * unit-tested and so the virtualizer count matches exactly what is rendered.
+ */
+export function getVisibleSpanRows(
+  spanRows: SpanTreeRow[],
+  spanById: Map<string, Span>,
+  collapsedIds: Set<string>,
+): SpanTreeRow[] {
+  if (collapsedIds.size === 0) return spanRows;
+  return spanRows.filter(({ span }) => {
+    let currentId = span.parent_span_id;
+    while (currentId) {
+      if (collapsedIds.has(currentId)) return false;
+      currentId = spanById.get(currentId)?.parent_span_id || null;
+    }
+    return true;
+  });
+}
+
+function computeSpanTree(spans: Span[]): SpanTreeRow[] {
   const childrenByParent = new Map<string | null, Span[]>();
   const spanIds = new Set(spans.map((s) => s.span_id));
 
