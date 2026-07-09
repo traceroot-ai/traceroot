@@ -591,3 +591,32 @@ describe("getSpanStartMs / getSpanEndMs", () => {
     expect(getSpanEndMs(span)! - getSpanStartMs(span)).toBe(7_473);
   });
 });
+
+describe("enrichSpansWithPending caching", () => {
+  it("returns the identical array for the same input array", () => {
+    const spans = [makeSpan({ span_id: "root" })];
+    expect(enrichSpansWithPending(spans)).toBe(enrichSpansWithPending(spans));
+  });
+
+  it("re-enriching an enriched array is the identity operation", () => {
+    const child = makeSpan({
+      span_id: "child",
+      parent_span_id: "parent-id",
+      metadata: metadataWith(["parent-id"], ["parent-name", "child"]),
+    });
+    const enriched = enrichSpansWithPending([child]);
+    // Sanity: enrichment actually did something (placeholder synthesized).
+    expect(enriched.some((s) => s.pending)).toBe(true);
+    expect(enrichSpansWithPending(enriched)).toBe(enriched);
+  });
+
+  it("recomputes for a new array after a merge, keeping untouched span objects", () => {
+    const root = makeSpan({ span_id: "root" });
+    const first = enrichSpansWithPending([root]);
+    const merged = mergeSpans([root], [makeSpan({ span_id: "child", parent_span_id: "root" })]);
+    const second = enrichSpansWithPending(merged);
+    expect(second).not.toBe(first);
+    // The untouched root span keeps its identity through merge + enrichment.
+    expect(second.find((s) => s.span_id === "root")).toBe(root);
+  });
+});

@@ -66,6 +66,14 @@ export function getSpanEndMs(span: Span): number | null {
   return ms;
 }
 
+// One enrichment result per spans-array identity. The live-stream hook
+// enriches at merge time, and every view/helper then calls
+// enrichSpansWithPending on whatever array it holds; this cache collapses all
+// of those calls into a single computation per data update. Mapping
+// result → result makes re-enriching an already-enriched array the identity
+// operation, so downstream useMemo chains keyed on the array stay stable.
+const enrichedSpansCache = new WeakMap<Span[], Span[]>();
+
 /**
  * For every span that carries traceroot.span.ids_path (ancestor IDs, root→parent)
  * and traceroot.span.path (root→current names) in its metadata, create lightweight
@@ -75,6 +83,15 @@ export function getSpanEndMs(span: Span): number | null {
  * because both carry the same metadata JSON.
  */
 export function enrichSpansWithPending(spans: Span[]): Span[] {
+  const cached = enrichedSpansCache.get(spans);
+  if (cached) return cached;
+  const result = computeEnrichedSpans(spans);
+  enrichedSpansCache.set(spans, result);
+  enrichedSpansCache.set(result, result);
+  return result;
+}
+
+function computeEnrichedSpans(spans: Span[]): Span[] {
   const existingSpanIds = new Set(spans.map((s) => s.span_id));
   const pendingSpans = new Map<string, Span>();
 
