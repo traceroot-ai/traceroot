@@ -67,22 +67,21 @@ const SelectItem = React.forwardRef<
 >(({ className, children, icon, ...props }, ref) => (
   <SelectPrimitive.Item
     ref={ref}
+    // Text starts at the left edge for every row (icon or not); the selection
+    // check always sits in the same reserved slot on the right.
     className={cn(
-      "relative flex w-full cursor-default select-none items-center py-1.5 pr-2 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
-      icon ? "pl-2" : "pl-8",
+      "relative flex w-full cursor-default select-none items-center py-1.5 pl-2 pr-8 text-sm outline-none focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
       className,
     )}
     {...props}
   >
-    {!icon && (
-      <span className="absolute left-2 flex h-3.5 w-3.5 items-center justify-center">
-        <SelectPrimitive.ItemIndicator>
-          <Check className="h-4 w-4" />
-        </SelectPrimitive.ItemIndicator>
-      </span>
-    )}
     {icon && <span className="mr-2 flex shrink-0 items-center">{icon}</span>}
     <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+    <span className="absolute right-2 flex h-3.5 w-3.5 items-center justify-center">
+      <SelectPrimitive.ItemIndicator>
+        <Check className="h-4 w-4" />
+      </SelectPrimitive.ItemIndicator>
+    </span>
   </SelectPrimitive.Item>
 ));
 SelectItem.displayName = SelectPrimitive.Item.displayName;
