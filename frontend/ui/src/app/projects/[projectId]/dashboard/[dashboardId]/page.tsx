@@ -43,18 +43,18 @@ export default function DashboardDetailPage() {
     dashboardId,
   );
 
-  // ── time range — the same URL-synced filter the trace list uses ─────────────
+  // ── time range — the same URL-synced filter AND default the trace list uses ──
   const { dateFilter, customStartDate, customEndDate, setDateFilter, setCustomRange, timestamps } =
-    useUrlDateFilter(undefined, "7d");
+    useUrlDateFilter();
   const range: TimeRange = useMemo(
     () => ({
       // Widgets need concrete bounds. startAfter is only absent for a custom
-      // filter arriving via URL without its dates — fall back to the same 7d
-      // default the hook was given; endBefore is absent for now-anchored
-      // presets, whose end is "now" frozen at selection.
+      // filter arriving via URL without its dates — fall back to the shared
+      // 24h default; endBefore is absent for now-anchored presets, whose end
+      // is "now" frozen at selection.
       start: timestamps.startAfter
         ? new Date(timestamps.startAfter)
-        : new Date(Date.now() - 7 * 86_400_000),
+        : new Date(Date.now() - 86_400_000),
       end: timestamps.endBefore ? new Date(timestamps.endBefore) : new Date(),
     }),
     [timestamps.startAfter, timestamps.endBefore],

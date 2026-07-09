@@ -227,7 +227,8 @@ describe("DashboardDetailPage", () => {
 
   it("shows the active range preset label", () => {
     renderPage();
-    expect(screen.getByRole("button", { name: "Last 7 days" })).toBeTruthy();
+    // Same default as the trace list (DEFAULT_DATE_FILTER = 24 hours).
+    expect(screen.getByRole("button", { name: "Last 24 hours" })).toBeTruthy();
   });
 
   it("pushes to the widgets/new route from the header create-widget button", () => {
