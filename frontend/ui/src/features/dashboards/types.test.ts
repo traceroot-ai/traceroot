@@ -32,6 +32,14 @@ describe("WidgetSpecSchema", () => {
       expect(WidgetSpecSchema.safeParse({ ...bad, breakdown: "model_name" }).success).toBe(true);
     }
   });
+  it("rejects a filter whose value was never picked (empty string)", () => {
+    const bad = { ...validSpec, filters: [{ field: "model_name", op: "=", value: "" }] };
+    expect(WidgetSpecSchema.safeParse(bad).success).toBe(false);
+    // Zero is a legitimate numeric filter value and must stay valid.
+    const zero = { ...validSpec, filters: [{ field: "cost", op: ">", value: 0 }] };
+    expect(WidgetSpecSchema.safeParse(zero).success).toBe(true);
+  });
+
   it("keeps line/area/table valid without a breakdown", () => {
     for (const type of ["line", "area", "table"]) {
       const ok = { ...validSpec, breakdown: null, display: { type } };

@@ -259,6 +259,14 @@ def test_breakdown_column_type_is_pinned_non_nullable():
     assert "'other'), '') AS model_name" in sql
 
 
+def test_empty_filter_value_rejected_by_schema():
+    """A filter with value '' means the builder row was never completed."""
+    with pytest.raises(ValidationError):
+        WidgetSpec.model_validate(
+            make_spec(filters=[{"field": "model_name", "op": "=", "value": ""}])
+        )
+
+
 def test_pie_and_bar_require_breakdown():
     """Pie/bar collapse to a single unlabeled datum without a breakdown."""
     for display in ("pie", "bar"):

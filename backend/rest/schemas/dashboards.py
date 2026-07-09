@@ -8,9 +8,9 @@ is the single source of truth for which views and fields exist.
 """
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 DisplayType = Literal["line", "area", "bar", "pie", "number", "table", "histogram"]
 AggName = Literal["count", "sum", "avg", "min", "max", "p50", "p95", "p99"]
@@ -27,7 +27,9 @@ class WidgetFilter(_StrictModel):
 
     field: str
     op: Literal["=", "!=", "contains", ">", ">=", "<", "<="]
-    value: str | float
+    # min_length mirrors the frontend schema: an empty value means the filter
+    # was never completed and would silently match only empty-valued rows.
+    value: Annotated[str, StringConstraints(min_length=1)] | float
 
 
 class WidgetMetric(_StrictModel):

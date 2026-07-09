@@ -26,7 +26,10 @@ export const AGGS = ["count", "sum", "avg", "min", "max", "p50", "p95", "p99"] a
 export const WidgetFilterSchema = z.object({
   field: z.string().min(1),
   op: z.enum(["=", "!=", "contains", ">", ">=", "<", "<="]),
-  value: z.union([z.string(), z.number()]),
+  // min(1): a filter whose value was never picked (the builder's rows start
+  // at "") must keep the spec incomplete, not save a widget that silently
+  // matches only empty-valued rows.
+  value: z.union([z.string().min(1), z.number()]),
 });
 
 // Pie and bar plot one mark per category — without a breakdown dimension the
