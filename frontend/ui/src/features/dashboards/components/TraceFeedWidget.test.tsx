@@ -120,8 +120,10 @@ describe("TraceFeedWidget", () => {
     expect(screen.getByText("ERROR")).toBeTruthy();
     expect(screen.getAllByText("OK")).toHaveLength(2);
 
+    // Cost renders through the shared formatCost: magnitude-adaptive
+    // precision, "-" for missing/zero — same as every other cost in the app.
     expect(screen.getByText("$0.5000")).toBeTruthy();
-    expect(screen.getAllByText("—")).toHaveLength(2);
+    expect(screen.getAllByText("-")).toHaveLength(2);
 
     const nameLink = screen.getByText("errored-run").closest("a");
     expect(nameLink?.getAttribute("href")).toBe("/projects/p1/traces?traceId=err-trace");
