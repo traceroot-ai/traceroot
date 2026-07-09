@@ -12,8 +12,15 @@ from rest.routers.deps import ProjectAccessInfo, get_project_access
 
 @pytest.fixture()
 def client():
+    # Mirror the validate-project-access contract (workspaceId + billingPlan)
+    # so get_rate_limited_project_access stamps a real workspace for the
+    # per-workspace rate limiter.
     app.dependency_overrides[get_project_access] = lambda: ProjectAccessInfo(
-        project_id="proj-1", user_id="user-1", role="admin"
+        project_id="proj-1",
+        user_id="user-1",
+        role="admin",
+        workspace_id="ws-test",
+        billing_plan="free",
     )
     yield TestClient(app)
 
