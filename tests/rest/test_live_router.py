@@ -359,9 +359,31 @@ class TestQuietWindowAnchoring:
 
 
 class TestHardDeadline:
-    def test_hard_deadline_emits_trace_complete(self, client):
-        """At the stream's hard ceiling the client gets trace_complete — which
-        closes and refetches — never a silently dropped timeout event."""
+    def test_hard_deadline_with_completed_root_emits_trace_complete(self, client):
+        """A completed root that kept resetting the quiet window up to the hard
+        ceiling closes as complete, so the frontend refetches instead of
+        dangling on a dropped timeout event."""
+        pubsub = MockPubSub([])
+        mock_redis = MagicMock()
+        mock_redis.pubsub.return_value = pubsub
+
+        with (
+            patch("rest.routers.live.MAX_STREAM_SECONDS", -1),
+            patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 30),
+            patch(
+                "rest.routers.live._root_completion_time_in_clickhouse",
+                return_value=_utcnow_naive(),
+            ),
+            patch("shared.redis.get_async_redis_client", return_value=mock_redis),
+        ):
+            resp = client.get(ENDPOINT)
+
+        events = parse_sse_events(resp.text)
+        assert events == ["event: trace_complete"]
+
+    def test_hard_deadline_without_completed_root_emits_stream_timeout(self, client):
+        """A trace whose root never completed hits the ceiling as a timeout,
+        not a completion — the trace is not done."""
         pubsub = MockPubSub([])
         mock_redis = MagicMock()
         mock_redis.pubsub.return_value = pubsub
@@ -374,4 +396,4 @@ class TestHardDeadline:
             resp = client.get(ENDPOINT)
 
         events = parse_sse_events(resp.text)
-        assert events == ["event: trace_complete"]
+        assert events == ["event: stream_timeout"]

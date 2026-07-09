@@ -152,11 +152,13 @@ async def live_trace_stream(
                         return
                     yield ": heartbeat\n\n"
             else:
-                # Hard ceiling reached. Emit trace_complete rather than a
-                # timeout event: the frontend's completion path closes the
-                # stream and refetches, which leaves the client with correct
-                # data instead of a silently stale live view.
-                yield "event: trace_complete\ndata: {}\n\n"
+                if completion_deadline is not None:
+                    # A completed root kept the quiet window resetting all the
+                    # way to the hard ceiling: the trace is done, so close as
+                    # complete — the frontend's completion path refetches.
+                    yield "event: trace_complete\ndata: {}\n\n"
+                else:
+                    yield "event: stream_timeout\ndata: {}\n\n"
 
         except asyncio.CancelledError:
             pass
