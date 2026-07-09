@@ -13,6 +13,7 @@ Key invariants under test:
 
 import asyncio
 import json
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -47,6 +48,11 @@ class MockPubSub:
         if timeout:
             await asyncio.sleep(timeout)
         return None
+
+
+def _utcnow_naive() -> datetime:
+    """ClickHouse returns naive UTC datetimes; mirror that in test values."""
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def redis_message(payload: dict) -> dict:
@@ -88,7 +94,10 @@ class TestAlreadyCompleteTrace:
 
         with (
             patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.1),
-            patch("rest.routers.live._is_trace_complete_in_clickhouse", return_value=True),
+            patch(
+                "rest.routers.live._root_completion_time_in_clickhouse",
+                return_value=_utcnow_naive(),
+            ),
             patch("shared.redis.get_async_redis_client", return_value=mock_redis),
         ):
             resp = client.get(ENDPOINT)
@@ -105,7 +114,10 @@ class TestAlreadyCompleteTrace:
 
         with (
             patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", -1),
-            patch("rest.routers.live._is_trace_complete_in_clickhouse", return_value=True),
+            patch(
+                "rest.routers.live._root_completion_time_in_clickhouse",
+                return_value=_utcnow_naive(),
+            ),
             patch("shared.redis.get_async_redis_client", return_value=mock_redis),
         ):
             resp = client.get(ENDPOINT)
@@ -122,7 +134,10 @@ class TestAlreadyCompleteTrace:
 
         with (
             patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", -1),
-            patch("rest.routers.live._is_trace_complete_in_clickhouse", return_value=True),
+            patch(
+                "rest.routers.live._root_completion_time_in_clickhouse",
+                return_value=_utcnow_naive(),
+            ),
             patch("shared.redis.get_async_redis_client", return_value=mock_redis),
         ):
             response = await live_router.live_trace_stream(
@@ -150,7 +165,10 @@ class TestAlreadyCompleteTrace:
 
         with (
             patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.1),
-            patch("rest.routers.live._is_trace_complete_in_clickhouse", return_value=True),
+            patch(
+                "rest.routers.live._root_completion_time_in_clickhouse",
+                return_value=_utcnow_naive(),
+            ),
             patch("shared.redis.get_async_redis_client", return_value=mock_redis),
         ):
             resp = client.get(ENDPOINT)
@@ -168,7 +186,10 @@ class TestAlreadyCompleteTrace:
 
         with (
             patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.1),
-            patch("rest.routers.live._is_trace_complete_in_clickhouse", return_value=True),
+            patch(
+                "rest.routers.live._root_completion_time_in_clickhouse",
+                return_value=_utcnow_naive(),
+            ),
             patch("shared.redis.get_async_redis_client", return_value=mock_redis),
         ):
             resp = client.get(ENDPOINT)
@@ -185,7 +206,7 @@ class TestAlreadyCompleteTrace:
 
         with (
             patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.01),
-            patch("rest.routers.live._is_trace_complete_in_clickhouse", return_value=False),
+            patch("rest.routers.live._root_completion_time_in_clickhouse", return_value=None),
             patch("shared.redis.get_async_redis_client", return_value=mock_redis),
         ):
             response = await live_router.live_trace_stream(
@@ -211,7 +232,7 @@ class TestLiveTrace:
 
         with (
             patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.1),
-            patch("rest.routers.live._is_trace_complete_in_clickhouse", return_value=False),
+            patch("rest.routers.live._root_completion_time_in_clickhouse", return_value=None),
             patch("shared.redis.get_async_redis_client", return_value=mock_redis),
         ):
             resp = client.get(ENDPOINT)
@@ -231,7 +252,7 @@ class TestLiveTrace:
 
         with (
             patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.1),
-            patch("rest.routers.live._is_trace_complete_in_clickhouse", return_value=False),
+            patch("rest.routers.live._root_completion_time_in_clickhouse", return_value=None),
             patch("shared.redis.get_async_redis_client", return_value=mock_redis),
         ):
             resp = client.get(ENDPOINT)
@@ -250,7 +271,7 @@ class TestLiveTrace:
 
         with (
             patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.1),
-            patch("rest.routers.live._is_trace_complete_in_clickhouse", return_value=False),
+            patch("rest.routers.live._root_completion_time_in_clickhouse", return_value=None),
             patch("shared.redis.get_async_redis_client", return_value=mock_redis),
         ):
             resp = client.get(ENDPOINT)
@@ -271,7 +292,7 @@ class TestSubscribeBeforeCheckInvariant:
 
         def tracked_check(project_id, trace_id):
             call_order.append("clickhouse_check")
-            return True
+            return _utcnow_naive()
 
         pubsub = MockPubSub([])
         pubsub.subscribe.side_effect = tracked_subscribe
@@ -279,9 +300,78 @@ class TestSubscribeBeforeCheckInvariant:
         mock_redis.pubsub.return_value = pubsub
 
         with (
-            patch("rest.routers.live._is_trace_complete_in_clickhouse", side_effect=tracked_check),
+            patch(
+                "rest.routers.live._root_completion_time_in_clickhouse", side_effect=tracked_check
+            ),
             patch("shared.redis.get_async_redis_client", return_value=mock_redis),
         ):
             client.get(ENDPOINT)
 
         assert call_order.index("subscribe") < call_order.index("clickhouse_check")
+
+
+class TestQuietWindowAnchoring:
+    def test_old_completed_trace_closes_immediately(self, client):
+        """The quiet window is anchored to the root's end time: a trace that
+        completed long ago must not hold the SSE connection for the window."""
+        pubsub = MockPubSub([])
+        mock_redis = MagicMock()
+        mock_redis.pubsub.return_value = pubsub
+
+        stale_root_end = _utcnow_naive() - timedelta(hours=1)
+        with (
+            patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 30),
+            patch(
+                "rest.routers.live._root_completion_time_in_clickhouse",
+                return_value=stale_root_end,
+            ),
+            patch("shared.redis.get_async_redis_client", return_value=mock_redis),
+        ):
+            resp = client.get(ENDPOINT)
+
+        events = parse_sse_events(resp.text)
+        assert events == ["event: trace_complete"]
+        # Deadline expired on arrival — closed without waiting the 30s window.
+        assert pubsub.get_message_calls == 0
+
+    def test_recently_completed_trace_still_gets_quiet_window(self, client):
+        """A root that ended a moment ago keeps the remaining quiet window so
+        late descendant spans can still be forwarded."""
+        late_batch = redis_message(
+            {"type": "spans", "spans": [{"span_id": "late", "trace_id": TRACE_ID}]}
+        )
+        pubsub = MockPubSub([late_batch])
+        mock_redis = MagicMock()
+        mock_redis.pubsub.return_value = pubsub
+
+        with (
+            patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.2),
+            patch(
+                "rest.routers.live._root_completion_time_in_clickhouse",
+                return_value=_utcnow_naive(),
+            ),
+            patch("shared.redis.get_async_redis_client", return_value=mock_redis),
+        ):
+            resp = client.get(ENDPOINT)
+
+        events = parse_sse_events(resp.text)
+        assert events == ["event: spans", "event: trace_complete"]
+
+
+class TestHardDeadline:
+    def test_hard_deadline_emits_trace_complete(self, client):
+        """At the stream's hard ceiling the client gets trace_complete — which
+        closes and refetches — never a silently dropped timeout event."""
+        pubsub = MockPubSub([])
+        mock_redis = MagicMock()
+        mock_redis.pubsub.return_value = pubsub
+
+        with (
+            patch("rest.routers.live.MAX_STREAM_SECONDS", -1),
+            patch("rest.routers.live._root_completion_time_in_clickhouse", return_value=None),
+            patch("shared.redis.get_async_redis_client", return_value=mock_redis),
+        ):
+            resp = client.get(ENDPOINT)
+
+        events = parse_sse_events(resp.text)
+        assert events == ["event: trace_complete"]

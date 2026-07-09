@@ -8,11 +8,13 @@ import asyncio
 import json
 import logging
 import time
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Request
 from starlette.responses import StreamingResponse
 
 from rest.routers.deps import ProjectAccess
+from shared.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -20,22 +22,25 @@ router = APIRouter(prefix="/projects/{project_id}/traces/{trace_id}", tags=["Liv
 
 HEARTBEAT_INTERVAL = 15  # seconds
 MAX_STREAM_SECONDS = 600  # 10 minutes — hard ceiling for idle connections
-TRACE_COMPLETE_QUIET_SECONDS = 5
+# Read once from settings so tests can still patch the module constant. Kept
+# above the SDK's 5s default flush interval so a quiet window can't expire
+# between two batches of the same live trace.
+TRACE_COMPLETE_QUIET_SECONDS = settings.trace_complete_quiet_seconds
 
 
-def _is_trace_complete_in_clickhouse(project_id: str, trace_id: str) -> bool:
-    """Return True if ClickHouse has a root span with an end time for this trace.
+def _root_completion_time_in_clickhouse(project_id: str, trace_id: str) -> datetime | None:
+    """Return the end time of this trace's root span, or None if still open.
 
-    This is a completion candidate, not proof that no more descendant spans can
-    arrive. Some streaming handlers finish the root span before background work
-    emits its children.
+    A root span with an end time is a completion candidate, not proof that no
+    more descendant spans can arrive. Some streaming handlers finish the root
+    span before background work emits its children.
     """
     from db.clickhouse.client import get_clickhouse_client
 
     ch_client = get_clickhouse_client()
     result = ch_client.query(
         """
-        SELECT count() FROM spans FINAL
+        SELECT max(span_end_time) FROM spans FINAL
         WHERE project_id = {project_id:String}
           AND trace_id   = {trace_id:String}
           AND isNull(parent_span_id)
@@ -43,7 +48,8 @@ def _is_trace_complete_in_clickhouse(project_id: str, trace_id: str) -> bool:
         """,
         parameters={"project_id": project_id, "trace_id": trace_id},
     )
-    return result.result_rows[0][0] > 0
+    rows = result.result_rows
+    return rows[0][0] if rows and rows[0][0] is not None else None
 
 
 @router.get("/live")
@@ -82,13 +88,21 @@ async def live_trace_stream(
             # That starts the quiet window, but it does not immediately close the
             # stream: distributed traces can still receive descendant spans after
             # the root wrapper has finished.
-            already_complete = await asyncio.to_thread(
-                _is_trace_complete_in_clickhouse, project_id, trace_id
+            root_end_time = await asyncio.to_thread(
+                _root_completion_time_in_clickhouse, project_id, trace_id
             )
 
-            completion_deadline = (
-                time.monotonic() + TRACE_COMPLETE_QUIET_SECONDS if already_complete else None
-            )
+            completion_deadline = None
+            if root_end_time is not None:
+                # Anchor the quiet window to when the root actually ended, so
+                # opening an old completed trace doesn't hold the SSE connection
+                # and Redis subscription for the full window. ClickHouse stores
+                # naive UTC timestamps; clamp age at 0 against clock skew.
+                now_utc = datetime.now(UTC).replace(tzinfo=None)
+                age = max(0.0, (now_utc - root_end_time).total_seconds())
+                completion_deadline = time.monotonic() + max(
+                    0.0, TRACE_COMPLETE_QUIET_SECONDS - age
+                )
 
             # Live trace: stream until a completion candidate remains quiet long
             # enough, or until the hard timeout.
@@ -131,7 +145,11 @@ async def live_trace_stream(
                         return
                     yield ": heartbeat\n\n"
             else:
-                yield "event: stream_timeout\ndata: {}\n\n"
+                # Hard ceiling reached. Emit trace_complete rather than a
+                # timeout event: the frontend's completion path closes the
+                # stream and refetches, which leaves the client with correct
+                # data instead of a silently stale live view.
+                yield "event: trace_complete\ndata: {}\n\n"
 
         except asyncio.CancelledError:
             pass
