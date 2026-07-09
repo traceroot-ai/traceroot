@@ -252,6 +252,9 @@ function TimeSeries({
             />
           }
         />
+        {/* isAnimationActive={false} on every mark (here and in the other
+            charts): the default ~1.4s geometry morph makes charts visibly lag
+            behind their tile during grid resizes and data refreshes. */}
         {seriesKeys.map((k, i) =>
           area ? (
             <Area
@@ -261,9 +264,17 @@ function TimeSeries({
               stroke={seriesColor(i)}
               fill={seriesColor(i)}
               fillOpacity={0.35}
+              isAnimationActive={false}
             />
           ) : (
-            <Line key={k} dataKey={k} stroke={seriesColor(i)} dot={false} strokeWidth={1.5} />
+            <Line
+              key={k}
+              dataKey={k}
+              stroke={seriesColor(i)}
+              dot={false}
+              strokeWidth={1.5}
+              isAnimationActive={false}
+            />
           ),
         )}
       </Chart>
@@ -283,7 +294,7 @@ function Bars({ result, seriesLabel }: { result: WidgetQueryResult; seriesLabel?
           isAnimationActive={false}
           content={<ChartTip nameFormatter={seriesNameFormatter(seriesLabel)} />}
         />
-        <Bar dataKey="value">
+        <Bar dataKey="value" isAnimationActive={false}>
           {data.map((_, i) => (
             <Cell key={i} fill={seriesColor(i)} fillOpacity={0.7} stroke={seriesColor(i)} />
           ))}
@@ -300,7 +311,14 @@ function PieView({ result }: { result: WidgetQueryResult }) {
       <PieChart>
         <Tooltip isAnimationActive={false} content={<ChartTip />} />
         {/* Pie reads each sector's fill from its data row — no Cells needed. */}
-        <Pie data={data} dataKey="value" nameKey="name" innerRadius="45%" outerRadius="80%" />
+        <Pie
+          data={data}
+          dataKey="value"
+          nameKey="name"
+          innerRadius="45%"
+          outerRadius="80%"
+          isAnimationActive={false}
+        />
       </PieChart>
     </ResponsiveContainer>
   );
@@ -386,7 +404,13 @@ function HistogramView({
           isAnimationActive={false}
           content={<ChartTip nameFormatter={seriesNameFormatter(seriesLabel)} />}
         />
-        <Bar dataKey="value" fill="#93c5fd" fillOpacity={0.7} stroke="#60a5fa" />
+        <Bar
+          dataKey="value"
+          fill="#93c5fd"
+          fillOpacity={0.7}
+          stroke="#60a5fa"
+          isAnimationActive={false}
+        />
       </BarChart>
     </ResponsiveContainer>
   );
