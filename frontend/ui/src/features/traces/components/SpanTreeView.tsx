@@ -178,9 +178,18 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
   };
 
   const isTraceSelected = selection.type === "trace";
-  const traceDuration = getTraceDuration(trace);
-  const traceTotalCost = getTraceTotalCost(trace);
-  const traceTokenUsage = getTraceTokenUsage(trace);
+  // Memoized on trace identity: recompute only when new data arrives, not on
+  // hover/scroll/collapse re-renders. In-progress traces measure open spans
+  // against Date.now(), so the displayed duration intentionally advances when
+  // the next update lands rather than drifting on every render.
+  const { traceDuration, traceTotalCost, traceTokenUsage } = useMemo(
+    () => ({
+      traceDuration: getTraceDuration(trace),
+      traceTotalCost: getTraceTotalCost(trace),
+      traceTokenUsage: getTraceTokenUsage(trace),
+    }),
+    [trace],
+  );
   const traceHasChildren = hasChildren(null);
   const traceIsCollapsed = collapsedIds.has("trace");
 

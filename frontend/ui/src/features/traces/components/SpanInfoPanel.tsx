@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   Clock,
@@ -65,7 +66,10 @@ export function SpanInfoPanel({
   const selectionId = isTrace ? trace.trace_id : selection.span.span_id;
   const name = isTrace ? trace.name : selection.span.name;
   const kind = isTrace ? "trace" : selection.span.span_kind;
-  const duration = isTrace ? getTraceDuration(trace) : getSpanDuration(selection.span);
+  const duration = useMemo(
+    () => (isTrace ? getTraceDuration(trace) : getSpanDuration(selection.span)),
+    [isTrace, trace, selection],
+  );
   const timestamp = isTrace ? trace.trace_start_time : selection.span.span_start_time;
   // Per-span I/O is fetched lazily (the trace skeleton no longer ships it).
   // Trace-level I/O still lives on the trace object and needs no fetch.
@@ -92,10 +96,16 @@ export function SpanInfoPanel({
     }
   })();
 
-  // Trace-level aggregates
-  const traceTotalCost = isTrace ? getTraceTotalCost(trace) : null;
-  const traceCostDetails = isTrace ? getTraceCostBreakdown(trace) : null;
-  const traceTokenUsage = isTrace ? getTraceTokenUsage(trace) : null;
+  // Trace-level aggregates, memoized on trace identity so hover/scroll
+  // re-renders of the parent panel don't recompute them.
+  const { traceTotalCost, traceCostDetails, traceTokenUsage } = useMemo(
+    () => ({
+      traceTotalCost: isTrace ? getTraceTotalCost(trace) : null,
+      traceCostDetails: isTrace ? getTraceCostBreakdown(trace) : null,
+      traceTokenUsage: isTrace ? getTraceTokenUsage(trace) : null,
+    }),
+    [isTrace, trace],
+  );
 
   // Error status
   const hasError = isTrace ? false : selection.span.status === SpanStatus.ERROR;

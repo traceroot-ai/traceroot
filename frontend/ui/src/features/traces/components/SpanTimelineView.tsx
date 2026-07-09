@@ -129,7 +129,8 @@ export function SpanTimelineView({
   const traceIsCollapsed = collapsedIds.has("trace");
   const flattenedItems = useMemo(() => {
     if (traceIsCollapsed) return [];
-    // Must enrich here too so row count matches SpanTreeView (pending placeholders add rows)
+    // Same per-array-cached enrichment the tree view consumes, so both panels
+    // render the identical span array and row counts always match.
     const enrichedSpans = enrichSpansWithPending(trace.spans);
     return flattenTreeWithMetrics(enrichedSpans, collapsedIds, traceDurationMs, timelineWidth);
   }, [trace.spans, collapsedIds, traceIsCollapsed, traceDurationMs, timelineWidth]);
