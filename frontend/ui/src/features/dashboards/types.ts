@@ -41,7 +41,9 @@ export const WidgetSpecSchema = z
     view: z.enum(["spans", "traces"]),
     filters: z.array(WidgetFilterSchema).default([]),
     metric: z.object({ measure: z.string().min(1), agg: z.enum(AGGS) }),
-    breakdown: z.string().nullable().default(null),
+    // min(1): an unpicked dropdown must read as "no breakdown", not as a
+    // (bogus) empty-string dimension that slips past the pie/bar check below.
+    breakdown: z.string().min(1).nullable().default(null),
     display: z.object({ type: z.enum(DISPLAY_TYPES) }),
   })
   .superRefine((spec, ctx) => {

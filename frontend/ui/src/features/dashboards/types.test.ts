@@ -32,6 +32,13 @@ describe("WidgetSpecSchema", () => {
       expect(WidgetSpecSchema.safeParse({ ...bad, breakdown: "model_name" }).success).toBe(true);
     }
   });
+  it("rejects an empty-string breakdown — an unpicked dropdown is not a dimension", () => {
+    const bad = { ...validSpec, breakdown: "" };
+    expect(WidgetSpecSchema.safeParse(bad).success).toBe(false);
+    for (const type of ["pie", "bar"]) {
+      expect(WidgetSpecSchema.safeParse({ ...bad, display: { type } }).success).toBe(false);
+    }
+  });
   it("rejects a filter whose value was never picked (empty string)", () => {
     const bad = { ...validSpec, filters: [{ field: "model_name", op: "=", value: "" }] };
     expect(WidgetSpecSchema.safeParse(bad).success).toBe(false);
