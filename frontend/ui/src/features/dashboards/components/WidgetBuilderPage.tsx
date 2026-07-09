@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/select";
 import { useDashboard, useDashboardMutations } from "../hooks/use-dashboards";
 import { useWidgetPreview, useWidgetSchema } from "../hooks/use-widget-data";
-import { RANGE_PRESETS, makeRange } from "../range-presets";
+import { DEFAULT_RANGE_ID, RANGE_PRESETS, makeRange } from "../range-presets";
 import {
   BREAKDOWN_REQUIRED_DISPLAYS,
   DISPLAY_TYPES,
@@ -93,10 +93,13 @@ export function WidgetBuilderPage({
   const [title, setTitle] = useState("");
   const [titleLocked, setTitleLocked] = useState(isEdit);
 
-  // The page doesn't inherit the dashboard's picked range; the preview gets its
-  // own preset dropdown (default 7 days). Preview-only, not persisted.
-  const [rangeDays, setRangeDays] = useState(7);
-  const range = useMemo(() => makeRange(rangeDays), [rangeDays]);
+  // The page doesn't inherit the dashboard's picked range; the preview gets
+  // its own preset dropdown. Presets and default come from the shared
+  // date-filter module (via range-presets.ts) so the preview window always
+  // matches the trace list's and dashboard page's vocabulary and 24h default.
+  // Preview-only, not persisted.
+  const [rangeId, setRangeId] = useState<string>(DEFAULT_RANGE_ID);
+  const range = useMemo(() => makeRange(rangeId), [rangeId]);
 
   // ── edit mode: hydrate once the widget arrives, guard bad targets ─────────
   const widget = isEdit ? dashboard?.widgets.find((w) => w.id === widgetId) : undefined;
@@ -253,7 +256,11 @@ export function WidgetBuilderPage({
     }
   }
 
-  const activePreset = RANGE_PRESETS.find((p) => p.days === rangeDays) ?? RANGE_PRESETS[1];
+  // Fall back to the default option so an unmatched id shows the same label
+  // as the window makeRange actually builds for it.
+  const activePreset =
+    RANGE_PRESETS.find((p) => p.id === rangeId) ??
+    RANGE_PRESETS.find((p) => p.id === DEFAULT_RANGE_ID)!;
 
   return (
     <div className="flex h-full flex-col text-[13px]">
@@ -496,9 +503,9 @@ export function WidgetBuilderPage({
               <DropdownMenuContent align="end">
                 {RANGE_PRESETS.map((preset) => (
                   <DropdownMenuItem
-                    key={preset.days}
+                    key={preset.id}
                     className="text-[12px]"
-                    onClick={() => setRangeDays(preset.days)}
+                    onClick={() => setRangeId(preset.id)}
                   >
                     {preset.label}
                   </DropdownMenuItem>
