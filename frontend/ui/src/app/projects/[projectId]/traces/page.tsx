@@ -7,6 +7,7 @@ import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
 import { Workflow, Users, Layers, X } from "lucide-react";
 import { SearchFilterBar } from "@/components/search-filter-bar";
+import { TraceSearchFilterInput } from "@/features/filters/trace-search-filter-input";
 import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import {
@@ -19,7 +20,7 @@ import {
   buildUrlWithFilters,
 } from "@/lib/utils";
 import type { TraceListItem } from "@/types/api";
-import { useTraces } from "@/features/traces/hooks";
+import { useTraces, usePrefetchTraces } from "@/features/traces/hooks";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useLocalStorage } from "@/lib/hooks/use-local-storage";
 import { TraceViewerPanel, GettingStarted } from "@/features/traces/components";
@@ -55,7 +56,7 @@ export default function TracesPage() {
     state,
     updateDateFilter,
     updateCustomRange,
-    updateKeyword,
+    updateFilters,
     updateLimit,
     goToPage,
     queryOptions,
@@ -78,6 +79,8 @@ export default function TracesPage() {
     },
     { refetchInterval: autoRefresh ? 5000 : false },
   );
+
+  const prefetchTraces = usePrefetchTraces(projectId);
 
   // Check if project has EVER sent traces (no date filter) — controls onboarding visibility.
   // staleTime: Infinity because once a project has traces it always will (immutable fact).
@@ -128,7 +131,7 @@ export default function TracesPage() {
       <ProjectBreadcrumb projectId={projectId} />
 
       {/* Main content */}
-      <div className="flex flex-1 flex-col">
+      <div className="flex min-w-0 flex-1 flex-col">
         {/* Tab navigation — hidden during onboarding or while checking */}
         {!checking && !showGettingStarted && (
           <div className="border-b border-border bg-background">
@@ -159,9 +162,15 @@ export default function TracesPage() {
         {/* Filters bar — hidden during onboarding or while checking */}
         {!checking && !showGettingStarted && (
           <SearchFilterBar
-            searchValue={state.keyword}
-            onSearchChange={updateKeyword}
-            searchPlaceholder="Search..."
+            searchInput={
+              <TraceSearchFilterInput
+                projectId={projectId}
+                filters={state.filters}
+                onFiltersChange={updateFilters}
+                startAfter={queryOptions.start_after}
+                endBefore={queryOptions.end_before}
+              />
+            }
             dateFilter={state.dateFilter}
             customStartDate={state.customStartDate}
             customEndDate={state.customEndDate}
@@ -349,6 +358,12 @@ export default function TracesPage() {
                 total={total}
                 onPageChange={goToPage}
                 onLimitChange={updateLimit}
+                onPrefetchPage={
+                  autoRefresh
+                    ? undefined
+                    : (p) =>
+                        prefetchTraces({ ...queryOptions, user_id: userId || undefined, page: p })
+                }
               />
             </div>
           )}

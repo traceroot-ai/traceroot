@@ -8,7 +8,11 @@ import {
   ModelSelector,
   type ModelSelection,
 } from "@/features/ai-assistant/components/model-selector";
-import { DETECTOR_TEMPLATES } from "@/features/detectors/templates";
+import {
+  DEFAULT_DETECTOR_SAMPLE_RATE,
+  DETECTOR_TEMPLATES,
+  buildTemplateDetectorInput,
+} from "@/features/detectors/templates";
 import { useCreateDetector } from "@/features/detectors/hooks/use-detectors";
 import type { CreateDetectorInput } from "@/features/detectors/hooks/use-detectors";
 import { TriggerEditor } from "@/features/detectors/components/trigger-editor";
@@ -32,7 +36,7 @@ export default function NewDetectorPage() {
   const [name, setName] = useState(INITIAL_TEMPLATE.label + " Detector");
   const [nameEdited, setNameEdited] = useState(false);
   const [prompt, setPrompt] = useState(INITIAL_TEMPLATE.prompt);
-  const [sampleRate, setSampleRate] = useState(100);
+  const [sampleRate, setSampleRate] = useState(DEFAULT_DETECTOR_SAMPLE_RATE);
   // Seeded from the template's defaultConditions so a user who picks
   // "Failure" and clicks Create gets the trigger filters the template
   // intends, not an unfiltered detector that fires on every trace.
@@ -61,11 +65,11 @@ export default function NewDetectorPage() {
     e.preventDefault();
     const template = DETECTOR_TEMPLATES.find((t) => t.id === selectedTemplate)!;
     const input: CreateDetectorInput = {
+      ...buildTemplateDetectorInput(template),
       name,
-      template: selectedTemplate,
       prompt,
-      outputSchema: template.outputSchema,
       sampleRate,
+      enabled: sampleRate > 0,
       enableRca,
       triggerConditions,
       detectionModel: modelSelection.model || undefined,
@@ -208,7 +212,7 @@ export default function NewDetectorPage() {
               <div className="flex items-center gap-3 p-3">
                 <input
                   type="range"
-                  min={1}
+                  min={0}
                   max={100}
                   value={sampleRate}
                   onChange={(e) => setSampleRate(Number(e.target.value))}

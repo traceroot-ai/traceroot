@@ -1,5 +1,5 @@
 // Stripe client
-export { stripe, getStripeOrThrow } from "./stripe.js";
+export { stripe, getStripeOrThrow } from "./stripe.ts";
 
 // Plans and entitlements (single source of truth)
 export {
@@ -39,4 +39,13 @@ export {
   isAiRunBlocked,
   isRcaRunBlocked,
   isDetectorRunBlocked,
-} from "./plans.js";
+} from "./plans.ts";
+
+// Free-plan usage-quota notification decision (pure helper + types)
+export {
+  USAGE_WARNING_RATIO,
+  decideUsageNotification,
+  type UsageMeter,
+  type UsageNotificationState,
+  type UsageNotificationDecision,
+} from "./usageNotifications.ts";

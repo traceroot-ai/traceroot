@@ -98,10 +98,30 @@ model Workspace {
   githubInstallations GitHubInstallation[]
   aiMessages          AIMessage[]
   slackIntegration SlackIntegration?
+  usageNotifications WorkspaceUsageNotification[]
 
   @@index([billingCustomerId])
   @@index([billingSubscriptionId])
   @@map("workspaces")
+}
+
+// Per-(workspace, meter) state for free-plan usage-quota emails (80% warn,
+// 100% blocked). One row per meter; periodStart anchors the row to the usage
+// window the worker measured against (all-time epoch for free plans), so
+// stamps implicitly re-arm if the window semantics ever change.
+model WorkspaceUsageNotification {
+  id            String    @id @default(cuid()) @db.VarChar
+  workspaceId   String    @map("workspace_id") @db.VarChar
+  meter         String    @db.VarChar // "events" | "rca" | "detector"
+  periodStart   DateTime  @map("period_start") @db.Timestamp(6)
+  warningSentAt DateTime? @map("warning_sent_at") @db.Timestamp(6)
+  blockedSentAt DateTime? @map("blocked_sent_at") @db.Timestamp(6)
+  createTime    DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime    DateTime  @default(now()) @map("update_time") @db.Timestamp(6)
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([workspaceId, meter], map: "uq_usage_notification_workspace_meter")
+  @@map("workspace_usage_notifications")
 }
 
 // Model Providers - Per-workspace BYOK LLM API keys
@@ -138,6 +158,8 @@ model Project {
   updateTime   DateTime  @default(now()) @map("update_time") @db.Timestamp(6)
   // Agent model for Step 2 deep analysis — project-scoped, shared across all detectors
   rcaModel     String?   @map("rca_model") @db.VarChar
+  rcaProvider  String?   @map("rca_provider") @db.VarChar
+  rcaSource    String?   @map("rca_source") @db.VarChar
   accessKeys   AccessKey[]
   aiSessions   AISession[]
   detectors    Detector[]
@@ -350,7 +372,7 @@ model Detector {
   template     String   @db.VarChar  // "failure"|"hallucination"|"logic"|"task"|"safety"|"intent"|"blank"
   prompt       String   @db.Text
   outputSchema       Json     @map("output_schema") @db.JsonB
-  sampleRate         Int      @default(100) @map("sample_rate")  // 1–100
+  sampleRate         Int      @default(25) @map("sample_rate")  // 0–100
   enabled            Boolean  @default(true)
   enableRca          Boolean  @default(true) @map("enable_rca")  // run agent-model RCA on this detector's findings
   detectionModel     String?  @map("detection_model") @db.VarChar    // model id; null = worker picks default
@@ -389,6 +411,10 @@ model DetectorAlertConfig {
   // When set, takes precedence over SlackIntegration.channelId.
   slackChannelId   String? @map("slack_channel_id")   @db.VarChar
   slackChannelName String? @map("slack_channel_name") @db.VarChar
+
+  // Project-level alert batching window. One of the ALERT_WINDOWS tokens.
+  // Every alert is a windowed digest; defaults to DEFAULT_ALERT_WINDOW ("10m").
+  alertWindow String @default("10m") @map("alert_window") @db.VarChar
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 

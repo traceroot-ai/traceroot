@@ -79,7 +79,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
       <div
         className={cn(
           "flex h-screen shrink-0 flex-col border-r bg-background transition-all duration-200",
-          collapsed ? "w-14" : "w-40",
+          collapsed ? "w-14" : "w-48",
         )}
       >
         {isImpersonating && (
@@ -127,7 +127,14 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
         >
           <Link href="/" className="flex items-center gap-2">
             <Logo />
-            {!collapsed && <span className="font-semibold">TraceRoot</span>}
+            {!collapsed && (
+              <>
+                <span className="font-semibold">TraceRoot</span>
+                <span className="text-xs font-normal text-muted-foreground">
+                  {process.env.NEXT_PUBLIC_APP_VERSION ?? "dev"}
+                </span>
+              </>
+            )}
           </Link>
         </div>
 
@@ -227,13 +234,13 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
 
         {/* Bottom section */}
         <div>
+          {/* Star widget */}
+          {!collapsed && <GitHubStarWidget />}
+
           {/* Upgrade button - only show when in project context */}
           {isProject && projectId && (
             <SidebarUpgradeButton projectId={projectId} collapsed={collapsed} />
           )}
-
-          {/* Star widget */}
-          {!collapsed && <GitHubStarWidget />}
 
           {/* GitHub link */}
           <Tooltip>

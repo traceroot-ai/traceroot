@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { broadcastQueryInvalidation } from "@/lib/cross-tab-sync";
 
 export interface Detector {
   id: string;
@@ -40,6 +41,7 @@ export interface CreateDetectorInput {
   prompt: string;
   outputSchema: Array<{ name: string; type: string }>;
   sampleRate?: number;
+  enabled?: boolean;
   enableRca?: boolean;
   triggerConditions?: Array<{ field: string; op: string; value: unknown }>;
   detectionModel?: string;
@@ -85,6 +87,7 @@ export interface UpdateDetectorInput {
   name?: string;
   prompt?: string;
   sampleRate?: number;
+  enabled?: boolean;
   enableRca?: boolean;
   triggerConditions?: Array<{ field: string; op: string; value: unknown }>;
   detectionModel?: string;
@@ -177,6 +180,7 @@ export function useCreateDetector(projectId: string) {
     mutationFn: (input: CreateDetectorInput) => createDetector(projectId, input),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["detectors"] });
+      broadcastQueryInvalidation(["detectors"]);
     },
   });
 }
@@ -187,6 +191,7 @@ export function useUpdateDetector(projectId: string, detectorId: string) {
     mutationFn: (input: UpdateDetectorInput) => updateDetector(projectId, detectorId, input),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["detectors"] });
+      broadcastQueryInvalidation(["detectors"]);
     },
   });
 }
@@ -197,6 +202,7 @@ export function useDeleteDetector(projectId: string) {
     mutationFn: (detectorId: string) => deleteDetector(projectId, detectorId),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["detectors"] });
+      broadcastQueryInvalidation(["detectors"]);
     },
   });
 }

@@ -76,6 +76,15 @@ export interface LLMModelDef {
 // ──────────────────────────────────────────────
 // System models — always available via env vars.
 // ──────────────────────────────────────────────
+/**
+ * Detector-specific hosted screening model.
+ *
+ * This is intentionally not `resolvePiModel(undefined, null)`: detector evals
+ * use a stable cheap-and-fast model instead of the general provider-priority
+ * fallback used by other model resolution paths.
+ */
+export const DETECTOR_SYSTEM_DEFAULT_MODEL_ID = "claude-haiku-4-5";
+
 export const SYSTEM_MODELS: {
   provider: string;
   envVar: string;
@@ -90,8 +99,10 @@ export const SYSTEM_MODELS: {
     piAIProvider: "anthropic",
     apiProtocol: "anthropic-messages",
     models: [
+      { id: "claude-opus-4-8", label: "claude-opus-4-8" },
       { id: "claude-opus-4-7", label: "claude-opus-4-7" },
       { id: "claude-opus-4-6", label: "claude-opus-4-6" },
+      { id: "claude-sonnet-5", label: "claude-sonnet-5" },
       { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6" },
       { id: "claude-opus-4-5", label: "claude-opus-4-5" },
       { id: "claude-sonnet-4-5", label: "claude-sonnet-4-5" },
@@ -104,6 +115,10 @@ export const SYSTEM_MODELS: {
     piAIProvider: "openai",
     apiProtocol: "openai-completions",
     models: [
+      { id: "gpt-5.5", label: "gpt-5.5" },
+      { id: "gpt-5.4", label: "gpt-5.4" },
+      { id: "gpt-5.4-mini", label: "gpt-5.4-mini" },
+      { id: "gpt-5.4-nano", label: "gpt-5.4-nano" },
       { id: "gpt-5", label: "gpt-5" },
       { id: "gpt-5-mini", label: "gpt-5-mini" },
       { id: "o3", label: "o3" },
@@ -149,12 +164,15 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "o4-mini", label: "o4-mini" },
   ],
   anthropic: [
+    { id: "claude-opus-4-8", label: "claude-opus-4-8" },
     { id: "claude-opus-4-7", label: "claude-opus-4-7" },
     { id: "claude-opus-4-6", label: "claude-opus-4-6" },
+    { id: "claude-sonnet-5", label: "claude-sonnet-5" },
     { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6" },
     { id: "claude-opus-4-5", label: "claude-opus-4-5" },
     { id: "claude-sonnet-4-5", label: "claude-sonnet-4-5" },
     { id: "claude-haiku-4-5", label: "claude-haiku-4-5" },
+    { id: "claude-fable-5", label: "claude-fable-5" },
   ],
   google: [
     { id: "gemini-3.5-flash", label: "gemini-3.5-flash" },
@@ -179,6 +197,7 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "kimi-k2-thinking", label: "kimi-k2-thinking" },
   ],
   zai: [
+    { id: "glm-5.2", label: "glm-5.2" },
     { id: "glm-5.1", label: "glm-5.1" },
     { id: "glm-5", label: "glm-5" },
     { id: "glm-5-turbo", label: "glm-5-turbo" },

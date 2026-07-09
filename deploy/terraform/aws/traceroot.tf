@@ -37,11 +37,11 @@ rest:
   port: 8000
   resources:
     requests:
-      cpu: "250m"
-      memory: "512Mi"
-    limits:
       cpu: "1"
-      memory: "1Gi"
+      memory: "2Gi"
+    limits:
+      cpu: "2"
+      memory: "4Gi"
 
 worker:
   image:

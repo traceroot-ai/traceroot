@@ -33,7 +33,10 @@ export async function updateProject(
     name?: string;
     trace_ttl_days?: number | null;
     rca_model?: string | null;
+    rca_provider?: string | null;
+    rca_source?: string | null;
     alert_emails?: string[];
+    alert_window?: string;
   },
 ): Promise<Project> {
   return fetchNextApi<Project>(`/workspaces/${workspaceId}/projects/${projectId}`, {

@@ -86,6 +86,16 @@ class TestDecodeOtelId:
         raw = "not-valid-base64!!!"
         assert decode_otel_id(raw) == raw
 
+    def test_all_zero_span_id_returns_none(self):
+        # Some emitters send zero-filled bytes for "no parent"; OTLP treats
+        # all-zero IDs as absent.
+        b64 = base64.b64encode(bytes(8)).decode()
+        assert decode_otel_id(b64) is None
+
+    def test_all_zero_trace_id_returns_none(self):
+        b64 = base64.b64encode(bytes(16)).decode()
+        assert decode_otel_id(b64) is None
+
 
 # ── nanos_to_datetime ───────────────────────────────────────────────────
 
@@ -224,6 +234,19 @@ class TestTransformOtelToClickhouse:
         assert spans[0]["parent_span_id"] is None
         assert spans[0]["span_kind"] == "SPAN"
         assert spans[0]["status"] == "OK"
+
+    def test_zero_filled_parent_span_id_treated_as_root(self):
+        """A zero-byte parentSpanId must normalize to None so the span is a root."""
+        trace_hex = "aa" * 16
+        span_hex = "bb" * 8
+        payload = make_otel_payload(
+            [make_span(trace_hex, span_hex, name="root", parent_span_id_hex="00" * 8)]
+        )
+        traces, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        assert spans[0]["parent_span_id"] is None
+        assert len(traces) == 1
+        assert traces[0]["name"] == "root"
 
     def test_child_span_does_not_create_trace(self):
         """Child span creates span record but not trace record."""
@@ -552,6 +575,20 @@ class TestTransformOtelToClickhouse:
                 "gen_ai.usage.details.cache_read_input_tokens",
                 "gen_ai.usage.details.cache_write_tokens",
             ),
+            # Vercel AI SDK: gen_ai totals are emitted natively on doGenerate
+            # spans, but cache detail exists only under the raw ai.* namespace.
+            (
+                "ai",
+                "gen_ai.usage.input_tokens",
+                "ai.usage.cachedInputTokens",
+                "ai.usage.inputTokenDetails.cacheWriteTokens",
+            ),
+            (
+                "ai",
+                "gen_ai.usage.input_tokens",
+                "ai.usage.inputTokenDetails.cacheReadTokens",
+                "ai.usage.inputTokenDetails.cacheWriteTokens",
+            ),
         ],
     )
     def test_cache_heavy_span_subtracts_before_pricing(
@@ -597,6 +634,241 @@ class TestTransformOtelToClickhouse:
         assert spans[0]["cost"] == pytest.approx(expected)
         # Stored input_tokens stays GROSS (display continuity; PR B revisits).
         assert spans[0]["input_tokens"] == 1000
+
+    def test_vercel_do_generate_cache_details_persist_to_usage_details(self):
+        """Vercel AI SDK doGenerate spans emit gen_ai.* totals but expose the
+        cache and reasoning split only under the raw ai.usage.* namespace; the
+        split must land in usage_details rather than zero out."""
+        from unittest.mock import patch
+
+        prices = {
+            "input": 0.000003,
+            "output": 0.000015,
+            "cacheRead": 0.0000003,
+            "cacheWrite": 0.00000375,
+        }
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    name="ai.generateText.doGenerate",
+                    attributes=[
+                        make_attr("gen_ai.request.model", "claude-sonnet-4-5"),
+                        make_attr("gen_ai.usage.input_tokens", 28466),
+                        make_attr("gen_ai.usage.output_tokens", 120),
+                        make_attr("ai.usage.cachedInputTokens", 22041),
+                        make_attr("ai.usage.inputTokenDetails.cacheReadTokens", 22041),
+                        make_attr("ai.usage.inputTokenDetails.cacheWriteTokens", 6422),
+                        make_attr("ai.usage.inputTokenDetails.noCacheTokens", 3),
+                        make_attr("ai.usage.outputTokenDetails.reasoningTokens", 64),
+                    ],
+                )
+            ],
+            scope_name="ai",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        assert spans[0]["usage_details"]["cache_read_tokens"] == 22041
+        assert spans[0]["usage_details"]["cache_write_tokens"] == 6422
+        assert spans[0]["usage_details"]["reasoning_tokens"] == 64
+        # Gross input reconciles with the breakdown: 3 + 22041 + 6422.
+        assert spans[0]["input_tokens"] == 28466
+        assert spans[0]["output_tokens"] == 120
+        # Cache-discounted cost, not the whole input at the uncached rate.
+        expected = (
+            3 * prices["input"]
+            + 120 * prices["output"]
+            + 22041 * prices["cacheRead"]
+            + 6422 * prices["cacheWrite"]
+        )
+        assert spans[0]["cost"] == pytest.approx(expected)
+
+    def test_vercel_agent_wrapper_raw_totals_not_double_counted(self):
+        """The ai.generateText AGENT wrapper carries ai.usage.* GROSS totals that
+        restate the SUM of its LLM doGenerate children (the SDK aggregates them
+        onto the wrapper). The wrapper must NOT be priced from those totals, or
+        the trace is charged twice. Only the LLM children — which carry the
+        normalized llm.*/gen_ai.* keys — count.
+
+        Span shapes are taken verbatim from a live ai@6 +
+        @arizeai/openinference-vercel run: wrapper in/out = 203/178 = sum of the
+        two children (67/46 + 136/132)."""
+        from unittest.mock import patch
+
+        prices = {"input": 0.000003, "output": 0.000015, "cacheRead": 0.0, "cacheWrite": 0.0}
+
+        def llm_child(span_id_hex, prompt, completion):
+            return make_span(
+                "aa" * 16,
+                span_id_hex,
+                name="ai.generateText.doGenerate",
+                parent_span_id_hex="bb" * 8,
+                attributes=[
+                    make_attr("openinference.span.kind", "LLM"),
+                    make_attr("llm.model_name", "gpt-4o-mini"),
+                    make_attr("llm.token_count.prompt", prompt),
+                    make_attr("llm.token_count.completion", completion),
+                    # Vercel stamps its raw totals on the LLM span too; the
+                    # normalized keys above take priority, so these are redundant.
+                    make_attr("ai.usage.inputTokens", prompt),
+                    make_attr("ai.usage.outputTokens", completion),
+                ],
+            )
+
+        payload = make_otel_payload(
+            [
+                # AGENT wrapper: openinference.span.kind=AGENT (set by the vercel
+                # processor by function name) and ONLY raw ai.usage.* aggregates.
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    name="ai.generateText",
+                    attributes=[
+                        make_attr("openinference.span.kind", "AGENT"),
+                        make_attr("llm.model_name", "gpt-4o-mini"),
+                        make_attr("ai.usage.inputTokens", 203),
+                        make_attr("ai.usage.outputTokens", 178),
+                    ],
+                ),
+                llm_child("cc" * 8, 67, 46),
+                llm_child("dd" * 8, 136, 132),
+            ],
+            scope_name="ai",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        by_id = {s["span_id"]: s for s in spans}
+        wrapper = next(s for s in spans if s["name"] == "ai.generateText")
+        children = [s for s in spans if s["name"] == "ai.generateText.doGenerate"]
+
+        # Wrapper contributes nothing — its ai.usage.* aggregate is ignored.
+        assert (wrapper.get("input_tokens") or 0) == 0
+        assert (wrapper.get("output_tokens") or 0) == 0
+        assert (wrapper.get("cost") or 0) == 0
+        # Each LLM child is priced from its own (normalized) counts.
+        assert sorted(c["input_tokens"] for c in children) == [67, 136]
+        # Trace totals equal the children alone (203 in / 178 out), not 2x.
+        assert sum((s.get("input_tokens") or 0) for s in spans) == 203
+        assert sum((s.get("output_tokens") or 0) for s in spans) == 178
+        assert by_id  # spans were keyed by id without collision
+
+    def test_vercel_do_generate_raw_totals_used_when_normalized_absent(self):
+        """On an LLM doGenerate span that exposes ONLY the raw ai.usage.* totals
+        (no normalized llm.*/gen_ai.* keys), those totals are still adopted —
+        the LLM-kind gate keeps the fallback alive where it is the sole source."""
+        from unittest.mock import patch
+
+        prices = {"input": 0.000003, "output": 0.000015, "cacheRead": 0.0, "cacheWrite": 0.0}
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    name="ai.generateText.doGenerate",
+                    attributes=[
+                        make_attr("openinference.span.kind", "LLM"),
+                        make_attr("llm.model_name", "claude-sonnet-4-5"),
+                        make_attr("ai.usage.inputTokens", 28466),
+                        make_attr("ai.usage.outputTokens", 120),
+                        make_attr("ai.usage.cachedInputTokens", 22041),
+                        make_attr("ai.usage.inputTokenDetails.cacheWriteTokens", 6422),
+                    ],
+                )
+            ],
+            scope_name="ai",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        assert spans[0]["input_tokens"] == 28466
+        assert spans[0]["output_tokens"] == 120
+        assert spans[0]["usage_details"]["cache_read_tokens"] == 22041
+        assert spans[0]["usage_details"]["cache_write_tokens"] == 6422
+
+    def test_vercel_gross_totals_dropped_on_non_llm_span(self):
+        """A non-LLM span (AGENT or CHAIN→SPAN) that carries ONLY the Vercel raw
+        ai.usage.* gross totals must contribute nothing. The gross-total keys are
+        consulted on LLM spans only, so api_input/output stay None → the
+        API-count branch is skipped, and the estimation branch is LLM-only too."""
+        from unittest.mock import patch
+
+        prices = {"input": 0.000003, "output": 0.000015, "cacheRead": 0.0, "cacheWrite": 0.0}
+        for oi_kind in ("AGENT", "CHAIN"):
+            payload = make_otel_payload(
+                [
+                    make_span(
+                        "aa" * 16,
+                        "bb" * 8,
+                        name="ai.someWrapper",
+                        attributes=[
+                            make_attr("openinference.span.kind", oi_kind),
+                            make_attr("llm.model_name", "gpt-4o-mini"),
+                            make_attr("ai.usage.inputTokens", 1234),
+                            make_attr("ai.usage.outputTokens", 567),
+                            make_attr("ai.usage.promptTokens", 1234),
+                            make_attr("ai.usage.completionTokens", 567),
+                        ],
+                    )
+                ],
+                scope_name="ai",
+            )
+            with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+                _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+            s = spans[0]
+            assert (s.get("input_tokens") or 0) == 0, f"oi_kind={oi_kind}"
+            assert (s.get("output_tokens") or 0) == 0, f"oi_kind={oi_kind}"
+            assert (s.get("cost") or 0) == 0, f"oi_kind={oi_kind}"
+
+    def test_vercel_generate_object_legacy_spellings_priced_on_llm_child_only(self):
+        """generateObject emits only the legacy ai.usage.promptTokens /
+        completionTokens spellings. The AGENT wrapper (ai.generateObject) and its
+        LLM child (ai.generateObject.doGenerate) both carry them, but only the
+        LLM child may be priced — the wrapper would double-count."""
+        from unittest.mock import patch
+
+        prices = {"input": 0.000003, "output": 0.000015, "cacheRead": 0.0, "cacheWrite": 0.0}
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    name="ai.generateObject",
+                    attributes=[
+                        make_attr("openinference.span.kind", "AGENT"),
+                        make_attr("llm.model_name", "gpt-4o"),
+                        make_attr("ai.usage.promptTokens", 500),
+                        make_attr("ai.usage.completionTokens", 80),
+                    ],
+                ),
+                make_span(
+                    "aa" * 16,
+                    "cc" * 8,
+                    name="ai.generateObject.doGenerate",
+                    parent_span_id_hex="bb" * 8,
+                    attributes=[
+                        make_attr("openinference.span.kind", "LLM"),
+                        make_attr("llm.model_name", "gpt-4o"),
+                        make_attr("ai.usage.promptTokens", 500),
+                        make_attr("ai.usage.completionTokens", 80),
+                    ],
+                ),
+            ],
+            scope_name="ai",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        wrapper = next(s for s in spans if s["name"] == "ai.generateObject")
+        child = next(s for s in spans if s["name"] == "ai.generateObject.doGenerate")
+        # Legacy spellings adopted on the LLM child.
+        assert child["input_tokens"] == 500
+        assert child["output_tokens"] == 80
+        # AGENT wrapper not priced from the same totals.
+        assert (wrapper.get("input_tokens") or 0) == 0
+        assert sum((s.get("input_tokens") or 0) for s in spans) == 500
 
     def test_malformed_high_priority_token_attr_falls_through_to_valid_key(self):
         """A present-but-malformed high-priority token attr must not suppress a
@@ -656,6 +928,80 @@ class TestTransformOtelToClickhouse:
             make_attr("llm.token_count.prompt_details.cache_read", 950),
         ]
         assert cost_for(cached) < cost_for(base)
+
+    def test_cache_write_1h_portion_is_extracted_and_priced(self):
+        """When an emitter reports the 1-hour write portion, it is priced at its own
+        rate (1h = 2x input), the remainder at cacheWrite, and the breakdown persists."""
+        from unittest.mock import patch
+
+        prices = {
+            "input": 0.000005,
+            "output": 0.000025,
+            "cacheRead": 0.0000005,
+            "cacheWrite": 0.00000625,  # 5-minute / default rate
+            "cacheWrite1h": 0.00001,  # 1h rate (2x input)
+        }
+        # gross input 1000 = 100 uncached + 900 write; of the 900: 600 @1h, 300 remainder.
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[
+                        make_attr("gen_ai.request.model", "claude-opus-4-7"),
+                        make_attr("llm.token_count.prompt", 1000),
+                        make_attr("llm.token_count.completion", 0),
+                        make_attr("llm.token_count.prompt_details.cache_write", 900),
+                        make_attr("gen_ai.usage.cache_creation.ephemeral_1h_input_tokens", 600),
+                    ],
+                )
+            ],
+            scope_name="openinference.instrumentation.anthropic",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        ud = spans[0]["usage_details"]
+        assert ud["cache_write_tokens"] == 900
+        assert ud["cache_write_1h_tokens"] == 600
+        expected = 100 * prices["input"] + 300 * prices["cacheWrite"] + 600 * prices["cacheWrite1h"]
+        assert spans[0]["cost"] == pytest.approx(expected)
+
+    def test_no_1h_portion_omits_key_and_prices_at_combined_rate(self):
+        """Regression guard: a span with no 1-hour portion keeps an identical
+        usage_details map (key absent, not zero) and the whole write total prices at
+        cacheWrite."""
+        from unittest.mock import patch
+
+        prices = {
+            "input": 0.000005,
+            "output": 0.000025,
+            "cacheRead": 0.0000005,
+            "cacheWrite": 0.00000625,
+            "cacheWrite1h": 0.00001,
+        }
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[
+                        make_attr("gen_ai.request.model", "claude-opus-4-7"),
+                        make_attr("llm.token_count.prompt", 1000),
+                        make_attr("llm.token_count.completion", 0),
+                        make_attr("llm.token_count.prompt_details.cache_write", 900),
+                    ],
+                )
+            ],
+            scope_name="openinference.instrumentation.anthropic",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        ud = spans[0]["usage_details"]
+        assert "cache_write_1h_tokens" not in ud
+        expected = 100 * prices["input"] + 900 * prices["cacheWrite"]
+        assert spans[0]["cost"] == pytest.approx(expected)
 
     def test_text_estimation_fallback(self):
         """Falls back to text-based token estimation when no API counts."""
@@ -1107,3 +1453,41 @@ class TestCacheTokenMetadata:
         assert spans[0]["usage_details"]["cache_write_tokens"] == 64
         assert isinstance(spans[0]["usage_details"]["cache_read_tokens"], int)
         assert isinstance(spans[0]["usage_details"]["cache_write_tokens"], int)
+
+    def test_cache_write_1h_portion_promoted_to_usage_details(self):
+        # The optional 1-hour write portion lands in the usage_details map when present.
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=self._llm_attrs(
+                        make_attr("llm.token_count.prompt_details.cache_write", 500),
+                        make_attr("gen_ai.usage.cache_creation.ephemeral_1h_input_tokens", 300),
+                    ),
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        ud = spans[0]["usage_details"]
+        assert ud["cache_write_tokens"] == 500
+        assert ud["cache_write_1h_tokens"] == 300
+
+    def test_absent_1h_portion_keeps_usage_details_keys_unchanged(self):
+        # No 1-hour portion reported (every span today) -> no extra key is added, so the
+        # stored map is identical to before this change.
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=self._llm_attrs(
+                        make_attr("llm.token_count.prompt_details.cache_write", 500),
+                    ),
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        ud = spans[0]["usage_details"]
+        assert "cache_write_1h_tokens" not in ud
+        assert set(ud) == {"cache_read_tokens", "cache_write_tokens", "reasoning_tokens"}

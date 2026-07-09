@@ -4,7 +4,8 @@ import {
   SYSTEM_MODELS,
   ADAPTER_API_PROTOCOL,
   LLMAdapter,
-} from "../llm-providers.js";
+  DETECTOR_SYSTEM_DEFAULT_MODEL_ID,
+} from "../llm-providers.ts";
 
 describe("ADAPTER_MODELS", () => {
   it("contains no duplicate model IDs within a single adapter", () => {
@@ -35,6 +36,14 @@ describe("ADAPTER_MODELS", () => {
         ).toBe(model.id);
       }
     }
+  });
+
+  it("keeps the detector system default in the system model catalog", () => {
+    const systemModelIds = SYSTEM_MODELS.flatMap((system) =>
+      system.models.map((model) => model.id),
+    );
+
+    expect(systemModelIds).toContain(DETECTOR_SYSTEM_DEFAULT_MODEL_ID);
   });
 
   describe("apiProtocol consistency with SYSTEM_MODELS", () => {

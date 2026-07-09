@@ -1,4 +1,9 @@
-google-genai>=1.0.0
+# Pin to the 1.x line: google-genai 2.0 renamed the private `_interactions`
+# module to a public `interactions` module, which breaks the
+# openinference-instrumentation-google-genai (<1.0) that traceroot 0.1.11
+# depends on ("Failed to instrument google_genai"). Drop the upper bound once
+# traceroot bumps to an instrumentor that supports google-genai >= 2.0.
+google-genai>=1.57.0,<2.0
 python-dotenv>=1.0.0
 
-traceroot==0.1.7
+traceroot==0.1.11

@@ -11,8 +11,8 @@ const { mockComplete, mockResolvePiModel, mockFetchProviderConfig, mockFindByokK
 
 // Forward unmocked exports (Type, getModel, etc.) so submit-result-tool.ts's
 // TypeBox imports still work; only `complete` is replaced with the mock.
-vi.mock("@earendil-works/pi-ai", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@earendil-works/pi-ai")>();
+vi.mock("@earendil-works/pi-ai/compat", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@earendil-works/pi-ai/compat")>();
   return {
     ...actual,
     complete: mockComplete,
@@ -25,7 +25,13 @@ vi.mock("@traceroot/core/model-resolver", () => ({
   findByokKeyForPiProvider: mockFindByokKey,
 }));
 
-import { runDetectionForTrace } from "../sandbox-eval.js";
+import {
+  runDetectionForTrace,
+  parseDetectorEvalTimeoutMs,
+  DEFAULT_DETECTOR_EVAL_TIMEOUT_MS,
+  MAX_DETECTOR_EVAL_TIMEOUT_MS,
+} from "../sandbox-eval.js";
+import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 
 const DETECTOR = {
   id: "det-1",
@@ -40,6 +46,13 @@ const ANTHROPIC_MODEL = {
   provider: "anthropic",
   baseUrl: "",
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+};
+
+const BYOK_PROVIDER_CONFIG = {
+  adapter: "anthropic",
+  key: "byok-key",
+  baseUrl: null,
+  config: null,
 };
 
 const ZERO_USAGE = {
@@ -100,6 +113,75 @@ describe("runDetectionForTrace", () => {
     expect(result.data).toEqual({ category: "tool_error" });
     expect(result.error).toBeUndefined();
     expect(mockComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it("resolves the shared detector default for unpinned system detectors", async () => {
+    mockComplete.mockResolvedValueOnce({
+      content: [
+        {
+          type: "toolCall",
+          name: "submit_result",
+          arguments: { identified: false, summary: "Clean trace", data: {} },
+        },
+      ],
+      usage: ZERO_USAGE,
+      stopReason: "toolUse",
+    });
+
+    await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: { ...DETECTOR, detectionSource: "system", detectionModel: null },
+      workspaceId: "ws-1",
+    });
+
+    expect(mockResolvePiModel).toHaveBeenCalledWith(DETECTOR_SYSTEM_DEFAULT_MODEL_ID, null);
+  });
+
+  it("keeps legacy null-source detectors on the availability-aware resolver default", async () => {
+    mockComplete.mockResolvedValueOnce({
+      content: [
+        {
+          type: "toolCall",
+          name: "submit_result",
+          arguments: { identified: false, summary: "Clean trace", data: {} },
+        },
+      ],
+      usage: ZERO_USAGE,
+      stopReason: "toolUse",
+    });
+
+    await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: { ...DETECTOR, detectionSource: null, detectionModel: null },
+      workspaceId: "ws-1",
+    });
+
+    expect(mockResolvePiModel).toHaveBeenCalledWith(undefined, null);
+  });
+
+  it("passes pinned system detector models through to the resolver", async () => {
+    mockComplete.mockResolvedValueOnce({
+      content: [
+        {
+          type: "toolCall",
+          name: "submit_result",
+          arguments: { identified: false, summary: "Clean trace", data: {} },
+        },
+      ],
+      usage: ZERO_USAGE,
+      stopReason: "toolUse",
+    });
+
+    await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: { ...DETECTOR, detectionSource: "system", detectionModel: "claude-opus-4-8" },
+      workspaceId: "ws-1",
+    });
+
+    expect(mockResolvePiModel).toHaveBeenCalledWith("claude-opus-4-8", null);
   });
 
   it("retries on plain-text response and succeeds on second attempt", async () => {
@@ -232,6 +314,128 @@ describe("runDetectionForTrace", () => {
     expect(result.error).toBe("API rate limit");
   });
 
+  it("passes an AbortSignal to complete() so the call is cancellable", async () => {
+    mockComplete.mockResolvedValueOnce({
+      content: [
+        {
+          type: "toolCall",
+          name: "submit_result",
+          arguments: { identified: false, summary: "ok", data: {} },
+        },
+      ],
+      usage: ZERO_USAGE,
+      stopReason: "toolUse",
+    });
+
+    await runDetectionForTrace({
+      traceId: "t",
+      spansJsonl: "{}",
+      detector: { ...DETECTOR, detectionSource: "system" },
+      workspaceId: "ws-1",
+    });
+
+    const opts = mockComplete.mock.calls[0][2] as { signal?: AbortSignal };
+    expect(opts.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it("aborts and returns a timeout error when the provider never responds", async () => {
+    // Pin the timeout so the test is deterministic regardless of any ambient
+    // DETECTOR_EVAL_TIMEOUT_MS, and advance to exactly the configured bound.
+    vi.stubEnv("DETECTOR_EVAL_TIMEOUT_MS", "5000");
+    vi.useFakeTimers();
+    try {
+      // Simulate a hung provider: the promise only settles if its signal aborts.
+      mockComplete.mockImplementationOnce((_model, _ctx, opts) => {
+        const { signal } = opts as { signal: AbortSignal };
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => {
+            const err = new Error("The operation was aborted");
+            err.name = "AbortError";
+            reject(err);
+          });
+        });
+      });
+
+      const promise = runDetectionForTrace({
+        traceId: "t",
+        spansJsonl: "{}",
+        detector: { ...DETECTOR, detectionSource: "system" },
+        workspaceId: "ws-1",
+      });
+
+      // Advance past the eval timeout; the AbortController fires and the call rejects.
+      await vi.advanceTimersByTimeAsync(5_000);
+      const result = await promise;
+
+      expect(result.identified).toBe(false);
+      expect(result.error).toMatch(/timed out after 5000ms/i);
+      expect(mockComplete).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("classifies an aborted response (stopReason=aborted) as a timeout without retrying", async () => {
+    vi.stubEnv("DETECTOR_EVAL_TIMEOUT_MS", "5000");
+    vi.useFakeTimers();
+    try {
+      // pi-ai may RESOLVE (not throw) with an aborted response once the signal
+      // fires: stopReason "aborted" + empty content. This must be treated as a
+      // timeout, not as a missing submit_result (which would retry).
+      mockComplete.mockImplementationOnce((_model, _ctx, opts) => {
+        const { signal } = opts as { signal: AbortSignal };
+        return new Promise((resolve) => {
+          signal.addEventListener("abort", () => {
+            resolve({ stopReason: "aborted", content: [], usage: ZERO_USAGE });
+          });
+        });
+      });
+
+      const promise = runDetectionForTrace({
+        traceId: "t",
+        spansJsonl: "{}",
+        detector: { ...DETECTOR, detectionSource: "system" },
+        workspaceId: "ws-1",
+      });
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      const result = await promise;
+
+      expect(result.identified).toBe(false);
+      expect(result.error).toMatch(/timed out/i);
+      expect(result.error).not.toMatch(/did not call submit_result/i);
+      expect(mockComplete).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  describe("parseDetectorEvalTimeoutMs", () => {
+    it("accepts valid positive values up to the Node timer max", () => {
+      expect(parseDetectorEvalTimeoutMs("30000")).toBe(30000);
+      expect(parseDetectorEvalTimeoutMs(String(MAX_DETECTOR_EVAL_TIMEOUT_MS))).toBe(
+        MAX_DETECTOR_EVAL_TIMEOUT_MS,
+      );
+    });
+
+    it.each([
+      ["undefined", undefined],
+      ["empty string", ""],
+      ["whitespace", "   "],
+      ["zero", "0"],
+      ["negative", "-1000"],
+      ["Infinity", "Infinity"],
+      ["non-numeric", "abc"],
+      ["over the Node timer max", String(MAX_DETECTOR_EVAL_TIMEOUT_MS + 1)],
+    ])("falls back to the default for %s", (_label, raw) => {
+      expect(parseDetectorEvalTimeoutMs(raw as string | undefined)).toBe(
+        DEFAULT_DETECTOR_EVAL_TIMEOUT_MS,
+      );
+    });
+  });
+
   describe("inference cost + source attribution", () => {
     it("captures system source cost on happy path", async () => {
       mockComplete.mockResolvedValueOnce({
@@ -289,11 +493,7 @@ describe("runDetectionForTrace", () => {
     });
 
     it("captures BYOK source attribution with positive cost", async () => {
-      mockFetchProviderConfig.mockResolvedValueOnce({
-        key: "byok-key",
-        provider: "anthropic",
-        model: "claude-haiku-4-5",
-      });
+      mockFetchProviderConfig.mockResolvedValueOnce(BYOK_PROVIDER_CONFIG);
       mockComplete.mockResolvedValueOnce({
         content: [
           {
@@ -319,6 +519,7 @@ describe("runDetectionForTrace", () => {
 
       expect(result.inferenceSource).toBe("byok");
       expect(result.inferenceCost).toBeCloseTo(0.005, 6);
+      expect(mockResolvePiModel).toHaveBeenCalledWith(undefined, BYOK_PROVIDER_CONFIG);
     });
 
     it("preserves source on error path with cost=0 (early-exit, BYOK provider missing)", async () => {
