@@ -108,6 +108,28 @@ describe("sendDigestAlertEmail", () => {
     expect(mail.html).toContain("· 50 detectors");
   });
 
+  it("escapes HTML in detector names and displayed trace ids", async () => {
+    const { sendDigestAlertEmail } = await import("../email.js");
+    await sendDigestAlertEmail({
+      ...baseParams,
+      entries: [
+        {
+          detectorId: "d1",
+          detectorName: `<b>Bold</b> & co`,
+          findingCount: 1,
+          latestTraceId: `<script>7890`,
+        },
+      ],
+    });
+
+    const mail = sendMail.mock.calls[0][0];
+    expect(mail.html).not.toContain("<b>Bold</b>");
+    expect(mail.html).toContain("&lt;b&gt;Bold&lt;/b&gt; &amp; co");
+    // the displayed prefix is the first 8 chars ("<script>"), escaped
+    expect(mail.html).not.toContain("<script>");
+    expect(mail.html).toContain("&lt;script&gt;");
+  });
+
   it("omits the latest-trace segment when an entry has no latest trace", async () => {
     const { sendDigestAlertEmail } = await import("../email.js");
     await sendDigestAlertEmail({
