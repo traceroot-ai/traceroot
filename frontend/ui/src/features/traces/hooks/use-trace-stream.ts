@@ -50,10 +50,11 @@ const BACKOFF_MAX_MS = 30_000;
  * Resilience: the server closes every connection at a fixed ceiling and
  * keeps no backlog, so any gap (timeout, network blip, reconnect) can drop
  * spans permanently. Each recovery path therefore refetches the trace detail
- * once to cover the gap: on reopen after a transient error, and on
- * `stream_timeout` before resubscribing. The server re-checks completion on
- * every subscribe and emits `trace_complete` immediately for finished
- * traces, so resubscribing after a timeout self-resolves either way.
+ * once to cover the gap: on the first successful reopen after a connection
+ * error (transient or fatal), and on `stream_timeout` before resubscribing.
+ * The server re-checks completion on every subscribe and emits
+ * `trace_complete` immediately for finished traces, so resubscribing after a
+ * timeout self-resolves either way.
  */
 export function useTraceStream(
   projectId: string,
@@ -79,6 +80,12 @@ export function useTraceStream(
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let attempts = 0;
     let refetchInFlight = false;
+    // Set on any connection error (transient or fatal); the next successful
+    // open then does a single gap-covering refetch. Effect-scoped rather than
+    // per-connection so a fatal error's gap survives into the backoff
+    // reconnect — refetching before that reconnect would just hit an endpoint
+    // we already know is down.
+    let pendingGapRefetch = false;
 
     setStreamStatus("connecting");
 
@@ -117,15 +124,11 @@ export function useTraceStream(
       es = source;
       setStreamStatus("connecting");
 
-      // Set on a transient error; the next open then does a single
-      // gap-covering refetch (one per reopen, not one per error event).
-      let sawTransientError = false;
-
       source.onopen = () => {
         attempts = 0; // a healthy connection restores the full retry budget
         setStreamStatus("live");
-        if (sawTransientError) {
-          sawTransientError = false;
+        if (pendingGapRefetch) {
+          pendingGapRefetch = false;
           refetchGap();
         }
       };
@@ -170,6 +173,10 @@ export function useTraceStream(
       });
 
       source.onerror = () => {
+        // Either way spans published while we are down are gone from the
+        // stream (no backlog); flag the gap so the next successful open
+        // refetches once.
+        pendingGapRefetch = true;
         if (source.readyState === EventSource.CLOSED) {
           // Fatal: the browser will not retry. Back off and resubscribe
           // ourselves, up to the bound.
@@ -183,9 +190,8 @@ export function useTraceStream(
           setStreamStatus("connecting");
           scheduleConnect(delay);
         } else {
-          // Transient: the browser auto-reconnects on its own; remember to
-          // cover the gap once the connection reopens.
-          sawTransientError = true;
+          // Transient: the browser auto-reconnects on its own; the flag above
+          // covers the gap once the connection reopens.
           setStreamStatus("connecting");
         }
       };
