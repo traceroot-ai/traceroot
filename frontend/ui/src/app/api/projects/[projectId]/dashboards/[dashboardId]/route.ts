@@ -1,8 +1,8 @@
 import { NextRequest } from "next/server";
-import { prisma } from "@traceroot/core";
+import { prisma, Role } from "@traceroot/core";
 import { errorResponse, successResponse } from "@/lib/auth-helpers";
-import { parseJsonObject, requireProjectAuth } from "@/lib/route-helpers";
-import { DASHBOARD_NAME_MAX } from "@/features/dashboards/types";
+import { isRecordGone, parseJsonObject, requireProjectAuth } from "@/lib/route-helpers";
+import { DASHBOARD_DESCRIPTION_MAX, DASHBOARD_NAME_MAX } from "@/features/dashboards/types";
 
 type RouteParams = { params: Promise<{ projectId: string; dashboardId: string }> };
 
@@ -20,7 +20,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
 }
 
 export async function PATCH(req: NextRequest, { params }: RouteParams) {
-  const auth = await requireProjectAuth(params);
+  const auth = await requireProjectAuth(params, Role.MEMBER);
   if (auth.error) return auth.error;
   const { projectId, dashboardId } = auth.params;
 
@@ -43,11 +43,43 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     if (description !== null && typeof description !== "string") {
       return errorResponse("description must be a string or null", 400);
     }
+    if (typeof description === "string" && description.length > DASHBOARD_DESCRIPTION_MAX) {
+      return errorResponse(
+        `description must be at most ${DASHBOARD_DESCRIPTION_MAX} characters`,
+        400,
+      );
+    }
     data.description = description;
   }
   if (layout !== undefined) {
     if (!Array.isArray(layout)) return errorResponse("layout must be an array", 400);
-    data.layout = layout;
+    // Validate every entry: a single malformed one (null, missing keys,
+    // non-numeric coordinates) crashes the dashboard grid for every project
+    // member on the next read, with no UI path to repair it.
+    const isPlacement = (v: unknown): boolean =>
+      typeof v === "object" &&
+      v !== null &&
+      !Array.isArray(v) &&
+      typeof (v as Record<string, unknown>).i === "string" &&
+      ((v as Record<string, unknown>).i as string).length <= 128 &&
+      ["x", "y", "w", "h"].every((k) => {
+        const n = (v as Record<string, unknown>)[k];
+        return typeof n === "number" && Number.isFinite(n) && n >= 0;
+      });
+    if (!layout.every(isPlacement)) {
+      return errorResponse("layout entries must be {i, x, y, w, h} objects", 400);
+    }
+    // Store only the placement keys: the grid spreads stored entries into
+    // react-grid-layout items, so extra keys smuggled through PATCH (static,
+    // isDraggable, maxW, arbitrary payloads) would be persisted and honored
+    // for every member.
+    data.layout = (layout as Record<string, unknown>[]).map(({ i, x, y, w, h }) => ({
+      i,
+      x,
+      y,
+      w,
+      h,
+    }));
   }
   if (Object.keys(data).length === 0) return errorResponse("No fields to update", 400);
 
@@ -57,15 +89,21 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   if (!existing) return errorResponse("Dashboard not found", 404);
   if (existing.isDefault) return errorResponse("The default dashboard is read-only", 403);
 
-  const dashboard = await prisma.dashboard.update({
-    where: { id: dashboardId },
-    data,
-  });
-  return successResponse({ dashboard });
+  try {
+    const dashboard = await prisma.dashboard.update({
+      where: { id: dashboardId },
+      data,
+    });
+    return successResponse({ dashboard });
+  } catch (e) {
+    // Deleted concurrently between the scoped findFirst and this write.
+    if (isRecordGone(e)) return errorResponse("Dashboard not found", 404);
+    throw e;
+  }
 }
 
 export async function DELETE(_req: NextRequest, { params }: RouteParams) {
-  const auth = await requireProjectAuth(params);
+  const auth = await requireProjectAuth(params, Role.MEMBER);
   if (auth.error) return auth.error;
   const { projectId, dashboardId } = auth.params;
 
@@ -75,6 +113,12 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
   if (!existing) return errorResponse("Dashboard not found", 404);
   if (existing.isDefault) return errorResponse("The default dashboard is read-only", 403);
 
-  await prisma.dashboard.delete({ where: { id: dashboardId } });
+  try {
+    await prisma.dashboard.delete({ where: { id: dashboardId } });
+  } catch (e) {
+    // Deleted concurrently between the scoped findFirst and this write.
+    if (isRecordGone(e)) return errorResponse("Dashboard not found", 404);
+    throw e;
+  }
   return successResponse({ deleted: true });
 }

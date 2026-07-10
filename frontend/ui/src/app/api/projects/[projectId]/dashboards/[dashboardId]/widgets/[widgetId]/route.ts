@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server";
-import { prisma } from "@traceroot/core";
+import { prisma, Role } from "@traceroot/core";
 import { errorResponse, successResponse } from "@/lib/auth-helpers";
-import { parseJsonObject, requireProjectAuth } from "@/lib/route-helpers";
+import { isRecordGone, parseJsonObject, requireProjectAuth } from "@/lib/route-helpers";
+import { WIDGET_TITLE_MAX } from "@/features/dashboards/types";
 
 type RouteParams = {
   params: Promise<{ projectId: string; dashboardId: string; widgetId: string }>;
@@ -15,7 +16,7 @@ async function findWidget(dashboardId: string, widgetId: string, projectId: stri
 }
 
 export async function PATCH(req: NextRequest, { params }: RouteParams) {
-  const auth = await requireProjectAuth(params);
+  const auth = await requireProjectAuth(params, Role.MEMBER);
   if (auth.error) return auth.error;
   const { projectId, dashboardId, widgetId } = auth.params;
 
@@ -33,6 +34,9 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   if (title !== undefined) {
     if (typeof title !== "string" || title.trim().length === 0) {
       return errorResponse("title must be a non-empty string", 400);
+    }
+    if (title.trim().length > WIDGET_TITLE_MAX) {
+      return errorResponse(`title must be at most ${WIDGET_TITLE_MAX} characters`, 400);
     }
     data.title = title.trim();
   }
@@ -54,15 +58,21 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   }
   if (Object.keys(data).length === 0) return errorResponse("No fields to update", 400);
 
-  const widget = await prisma.widget.update({
-    where: { id: widgetId },
-    data,
-  });
-  return successResponse({ widget });
+  try {
+    const widget = await prisma.widget.update({
+      where: { id: widgetId },
+      data,
+    });
+    return successResponse({ widget });
+  } catch (e) {
+    // Deleted concurrently between the scoped findFirst and this write.
+    if (isRecordGone(e)) return errorResponse("Widget not found", 404);
+    throw e;
+  }
 }
 
 export async function DELETE(_req: NextRequest, { params }: RouteParams) {
-  const auth = await requireProjectAuth(params);
+  const auth = await requireProjectAuth(params, Role.MEMBER);
   if (auth.error) return auth.error;
   const { projectId, dashboardId, widgetId } = auth.params;
 
@@ -72,6 +82,12 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
     return errorResponse("The default dashboard is read-only", 403);
   }
 
-  await prisma.widget.delete({ where: { id: widgetId } });
+  try {
+    await prisma.widget.delete({ where: { id: widgetId } });
+  } catch (e) {
+    // Deleted concurrently between the scoped findFirst and this write.
+    if (isRecordGone(e)) return errorResponse("Widget not found", 404);
+    throw e;
+  }
   return successResponse({ deleted: true });
 }
