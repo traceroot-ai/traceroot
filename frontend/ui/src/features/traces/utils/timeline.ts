@@ -1,5 +1,5 @@
 import type { Span } from "@/types/api";
-import { buildChildrenMap, getSpanDuration, parseTimestamp } from "../utils";
+import { buildSpanTree, getSpanDuration, getSpanStartMs, getVisibleSpanRows } from "../utils";
 
 export interface TimelineMetrics {
   startOffsetPx: number;
@@ -15,21 +15,14 @@ export interface FlatTimelineItem {
 }
 
 /**
- * Flattens a flat array of spans into a DFS-ordered list for virtualized rendering,
- * pre-computing pixel offsets and widths for the Gantt bars.
+ * Flattens spans into the DFS-ordered visible-row list for virtualized
+ * rendering, pre-computing pixel offsets and widths for the Gantt bars.
  *
- * The visible-span ORDER produced here must stay identical to SpanTreeView's
- * `buildTreeRows`/`getVisibleSpanRows` — the timeline and tree panels are
- * scroll-synced row-for-row, so any divergence in which spans are emitted (or
- * their order) silently misaligns them. The collapse skip below mirrors the
- * tree's ancestor-collapse filter, and a parity test guards it in
- * SpanTreeView.test.ts.
- *
- * TODO: unify this visible-span derivation with SpanTreeView's
- * getVisibleSpanRows/buildTreeRows so the collapse logic lives in one place.
- * Deferred because this flattener also computes pixel metrics and works on raw
- * Span[] (not SpanTreeRow[]), so the merge is non-trivial. The parity test
- * protects the invariant until then.
+ * Row derivation is shared with SpanTreeView: both panels consume the same
+ * cached buildSpanTree rows and the same getVisibleSpanRows collapse filter,
+ * so the scroll-synced, row-aligned panels cannot diverge in visible-span
+ * order. This flattener only layers per-span pixel metrics on top. The parity
+ * test in SpanTreeView.test.ts still guards the row-order invariant.
  */
 export function flattenTreeWithMetrics(
   spans: Span[],
@@ -39,46 +32,15 @@ export function flattenTreeWithMetrics(
 ): FlatTimelineItem[] {
   if (!spans || spans.length === 0) return [];
 
-  // Cache parsed timestamps to avoid re-parsing during traversal
-  const startTimes = new Map<string, number>();
-  for (const span of spans) {
-    startTimes.set(span.span_id, parseTimestamp(span.span_start_time));
-  }
+  const rows = buildSpanTree(spans);
+  const spanById = new Map(spans.map((s) => [s.span_id, s]));
+  const visibleRows = getVisibleSpanRows(rows, spanById, collapsedIds);
 
-  const traceStartMs = spans.reduce(
-    (min, s) => Math.min(min, startTimes.get(s.span_id)!),
-    Infinity,
-  );
-
-  const childrenMap = buildChildrenMap(spans);
-  const spanIds = new Set(spans.map((s) => s.span_id));
-
-  for (const children of childrenMap.values()) {
-    children.sort((a, b) => startTimes.get(a.span_id)! - startTimes.get(b.span_id)!);
-  }
-
-  // True roots + orphan spans (parent not yet arrived), sorted by time
-  const trueRoots = childrenMap.get(null) ?? [];
-  const orphans = spans.filter((s) => s.parent_span_id !== null && !spanIds.has(s.parent_span_id));
-  const topLevel = [...trueRoots, ...orphans].sort(
-    (a, b) => startTimes.get(a.span_id)! - startTimes.get(b.span_id)!,
-  );
-
-  const flatList: FlatTimelineItem[] = [];
+  const traceStartMs = spans.reduce((min, s) => Math.min(min, getSpanStartMs(s)), Infinity);
   const safeTraceDuration = Math.max(1, traceDurationMs);
 
-  // Iterative DFS — avoids stack overflow on deeply-nested traces (recursive
-  // agents, deep ReAct loops). Children are pushed in reverse so the first
-  // child is popped first, preserving chronological DFS order.
-  const stack: Span[] = [];
-  for (let i = topLevel.length - 1; i >= 0; i--) {
-    stack.push(topLevel[i]);
-  }
-
-  while (stack.length > 0) {
-    const span = stack.pop()!;
-
-    const offsetMs = startTimes.get(span.span_id)! - traceStartMs;
+  return visibleRows.map(({ span }) => {
+    const offsetMs = getSpanStartMs(span) - traceStartMs;
     const durationMs = getSpanDuration(span) ?? 0;
     const isInProgress = span.span_end_time === null;
 
@@ -86,7 +48,7 @@ export function flattenTreeWithMetrics(
     const widthPx = (durationMs / safeTraceDuration) * scaleWidth;
     const isInstant = !isInProgress && (widthPx < 2 || durationMs / safeTraceDuration < 0.002);
 
-    flatList.push({
+    return {
       span,
       metrics: {
         startOffsetPx: Math.max(0, startOffsetPx),
@@ -95,15 +57,6 @@ export function flattenTreeWithMetrics(
         isInProgress,
         isInstant,
       },
-    });
-
-    if (!collapsedIds.has(span.span_id)) {
-      const children = childrenMap.get(span.span_id) ?? [];
-      for (let i = children.length - 1; i >= 0; i--) {
-        stack.push(children[i]);
-      }
-    }
-  }
-
-  return flatList;
+    };
+  });
 }

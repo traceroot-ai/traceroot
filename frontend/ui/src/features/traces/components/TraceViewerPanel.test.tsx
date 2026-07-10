@@ -222,3 +222,14 @@ describe("live stream status badge", () => {
     expect(screen.queryByText("Live view disconnected")).toBeNull();
   });
 });
+
+describe("scroll sync", () => {
+  it("the tree scroll handler no-ops while the timeline panel is unmounted", () => {
+    const root = renderPanel();
+    const scroller = root.querySelector(".overflow-y-auto");
+    expect(scroller).toBeTruthy();
+    // Tree mode: the timeline scroll ref is null, so the mirror must bail
+    // without touching anything (and without throwing).
+    fireEvent.scroll(scroller!);
+  });
+});

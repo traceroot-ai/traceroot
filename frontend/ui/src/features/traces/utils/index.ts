@@ -19,6 +19,61 @@ function parseMetadata(metadata: string | null): Record<string, unknown> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Span-keyed caches.
+//
+// Live updates flow through mergeSpans, which preserves object identity for
+// every span the incoming SSE batch didn't replace. Keying by span object
+// therefore makes per-update parse work proportional to newly arrived spans
+// only, and entries are GC'd together with the spans they belong to. Spans are
+// treated as immutable after creation (react-query updates replace objects,
+// never mutate them) — these caches rely on that.
+// ---------------------------------------------------------------------------
+const spanMetadataCache = new WeakMap<Span, Record<string, unknown>>();
+
+/** Parsed `span.metadata` JSON, computed at most once per span object. */
+export function getSpanMetadata(span: Span): Record<string, unknown> {
+  const cached = spanMetadataCache.get(span);
+  if (cached) return cached;
+  const parsed = parseMetadata(span.metadata ?? null);
+  spanMetadataCache.set(span, parsed);
+  return parsed;
+}
+
+const spanStartMsCache = new WeakMap<Span, number>();
+const spanEndMsCache = new WeakMap<Span, number>();
+
+/** Parsed `span_start_time` in epoch ms, computed at most once per span object. */
+export function getSpanStartMs(span: Span): number {
+  const cached = spanStartMsCache.get(span);
+  if (cached !== undefined) return cached;
+  const ms = parseTimestamp(span.span_start_time);
+  spanStartMsCache.set(span, ms);
+  return ms;
+}
+
+/**
+ * Parsed `span_end_time` in epoch ms, or null while the span is still open.
+ * Callers decide what "now" means for open spans (`?? Date.now()`), so a live
+ * end time is never cached.
+ */
+export function getSpanEndMs(span: Span): number | null {
+  if (!span.span_end_time) return null;
+  const cached = spanEndMsCache.get(span);
+  if (cached !== undefined) return cached;
+  const ms = parseTimestamp(span.span_end_time);
+  spanEndMsCache.set(span, ms);
+  return ms;
+}
+
+// One enrichment result per spans-array identity. The live-stream hook
+// enriches at merge time, and every view/helper then calls
+// enrichSpansWithPending on whatever array it holds; this cache collapses all
+// of those calls into a single computation per data update. Mapping
+// result → result makes re-enriching an already-enriched array the identity
+// operation, so downstream useMemo chains keyed on the array stay stable.
+const enrichedSpansCache = new WeakMap<Span[], Span[]>();
+
 /**
  * For every span that carries traceroot.span.ids_path (ancestor IDs, root→parent)
  * and traceroot.span.path (root→current names) in its metadata, create lightweight
@@ -28,6 +83,15 @@ function parseMetadata(metadata: string | null): Record<string, unknown> {
  * because both carry the same metadata JSON.
  */
 export function enrichSpansWithPending(spans: Span[]): Span[] {
+  const cached = enrichedSpansCache.get(spans);
+  if (cached) return cached;
+  const result = computeEnrichedSpans(spans);
+  enrichedSpansCache.set(spans, result);
+  enrichedSpansCache.set(result, result);
+  return result;
+}
+
+function computeEnrichedSpans(spans: Span[]): Span[] {
   const existingSpanIds = new Set(spans.map((s) => s.span_id));
   const pendingSpans = new Map<string, Span>();
 
@@ -38,9 +102,10 @@ export function enrichSpansWithPending(spans: Span[]): Span[] {
   for (const span of spans) {
     if (!span.parent_span_id) continue;
 
-    // Skeleton spans omit metadata (parseMetadata(null|undefined) → {}); live
-    // SSE spans still carry it, so enrichment keeps working from live events.
-    const meta = parseMetadata(span.metadata ?? null);
+    // Skeleton spans omit metadata (the parse yields {}); live SSE spans still
+    // carry it, so enrichment keeps working from live events. Parsed once per
+    // span object via the span-keyed cache.
+    const meta = getSpanMetadata(span);
     const idsPath = meta["traceroot.span.ids_path"] as string[] | undefined;
     const namePath = meta["traceroot.span.path"] as string[] | undefined;
 
@@ -56,8 +121,8 @@ export function enrichSpansWithPending(spans: Span[]): Span[] {
 
       if (pendingSpans.has(spanId)) {
         const existing = pendingSpans.get(spanId)!;
-        const existStart = parseTimestamp(existing.span_start_time);
-        const curStart = parseTimestamp(span.span_start_time);
+        const existStart = getSpanStartMs(existing);
+        const curStart = getSpanStartMs(span);
         if (curStart < existStart) {
           pendingSpans.set(spanId, { ...existing, span_start_time: span.span_start_time });
         }
@@ -120,9 +185,8 @@ export const TREE_OVERSCAN_ROWS = 26;
  */
 export function getSpanDuration(span: Span): number | null {
   if (!span.span_start_time) return null;
-  const start = parseTimestamp(span.span_start_time);
-  const end = span.span_end_time ? parseTimestamp(span.span_end_time) : Date.now();
-  return Math.max(0, end - start);
+  const end = getSpanEndMs(span) ?? Date.now();
+  return Math.max(0, end - getSpanStartMs(span));
 }
 
 /**
@@ -141,10 +205,8 @@ export function getTraceDuration(trace: TraceDetail): number | null {
   if (!allSpans.length) return null;
 
   const now = Date.now();
-  const minStart = Math.min(...allSpans.map((s) => parseTimestamp(s.span_start_time)));
-  const maxEnd = Math.max(
-    ...allSpans.map((s) => (s.span_end_time ? parseTimestamp(s.span_end_time) : now)),
-  );
+  const minStart = Math.min(...allSpans.map((s) => getSpanStartMs(s)));
+  const maxEnd = Math.max(...allSpans.map((s) => getSpanEndMs(s) ?? now));
   const extent = Math.max(0, maxEnd - minStart);
 
   const root = allSpans.find((s) => !s.parent_span_id);
@@ -153,10 +215,44 @@ export function getTraceDuration(trace: TraceDetail): number | null {
   return Math.max(rootDuration, extent);
 }
 
+// One row-model per spans-array identity, so the tree and timeline panels —
+// which both derive rows from the same enriched array — share a single
+// computation per data update.
+const spanTreeCache = new WeakMap<Span[], SpanTreeRow[]>();
+
 /**
  * Build a linearized tree structure from spans for rendering
  */
 export function buildSpanTree(spans: Span[]): SpanTreeRow[] {
+  const cached = spanTreeCache.get(spans);
+  if (cached) return cached;
+  const rows = computeSpanTree(spans);
+  spanTreeCache.set(spans, rows);
+  return rows;
+}
+
+/**
+ * Returns the flattened span rows that are currently visible, i.e. none of
+ * their ancestors are collapsed. Kept pure (no React) so the row model can be
+ * unit-tested and so the virtualizer count matches exactly what is rendered.
+ */
+export function getVisibleSpanRows(
+  spanRows: SpanTreeRow[],
+  spanById: Map<string, Span>,
+  collapsedIds: Set<string>,
+): SpanTreeRow[] {
+  if (collapsedIds.size === 0) return spanRows;
+  return spanRows.filter(({ span }) => {
+    let currentId = span.parent_span_id;
+    while (currentId) {
+      if (collapsedIds.has(currentId)) return false;
+      currentId = spanById.get(currentId)?.parent_span_id || null;
+    }
+    return true;
+  });
+}
+
+function computeSpanTree(spans: Span[]): SpanTreeRow[] {
   const childrenByParent = new Map<string | null, Span[]>();
   const spanIds = new Set(spans.map((s) => s.span_id));
 
@@ -174,16 +270,6 @@ export function buildSpanTree(spans: Span[]): SpanTreeRow[] {
 
   const rows: SpanTreeRow[] = [];
 
-  function traverse(span: Span, level: number, isTerminal: boolean, parentLevels: number[]) {
-    rows.push({ span, level, isTerminal, parentLevels });
-    const children = childrenByParent.get(span.span_id) || [];
-    children.forEach((child, idx) => {
-      const childIsTerminal = idx === children.length - 1;
-      const nextParentLevels = childIsTerminal ? parentLevels : [...parentLevels, level];
-      traverse(child, level + 1, childIsTerminal, nextParentLevels);
-    });
-  }
-
   // Combine true roots with orphan spans (parent not yet arrived) into a single
   // top-level list sorted by start_time. This ensures:
   // 1. Connector lines are correct across all top-level items.
@@ -192,9 +278,37 @@ export function buildSpanTree(spans: Span[]): SpanTreeRow[] {
   const topLevel = [...(childrenByParent.get(null) ?? []), ...orphans].sort(
     (a, b) => parseTimestamp(a.span_start_time) - parseTimestamp(b.span_start_time),
   );
-  topLevel.forEach((span, idx) => {
-    traverse(span, 0, idx === topLevel.length - 1, []);
-  });
+
+  // Iterative preorder DFS — an explicit stack instead of recursion so very
+  // deeply nested traces (recursive agents, deep ReAct loops) can't overflow
+  // the call stack. Children are pushed in reverse so the first child is
+  // popped first, preserving chronological DFS order. Both panels derive
+  // their rows from this builder, so the guard covers the tree and the
+  // timeline alike.
+  const stack: SpanTreeRow[] = [];
+  for (let i = topLevel.length - 1; i >= 0; i--) {
+    stack.push({
+      span: topLevel[i],
+      level: 0,
+      isTerminal: i === topLevel.length - 1,
+      parentLevels: [],
+    });
+  }
+
+  while (stack.length > 0) {
+    const row = stack.pop()!;
+    rows.push(row);
+    const children = childrenByParent.get(row.span.span_id) || [];
+    for (let i = children.length - 1; i >= 0; i--) {
+      const childIsTerminal = i === children.length - 1;
+      stack.push({
+        span: children[i],
+        level: row.level + 1,
+        isTerminal: childIsTerminal,
+        parentLevels: childIsTerminal ? row.parentLevels : [...row.parentLevels, row.level],
+      });
+    }
+  }
 
   return rows;
 }

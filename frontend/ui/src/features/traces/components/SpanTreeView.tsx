@@ -1,6 +1,14 @@
 "use client";
 
-import { forwardRef, useImperativeHandle, useMemo, useCallback, useRef, useEffect } from "react";
+import {
+  forwardRef,
+  memo,
+  useImperativeHandle,
+  useMemo,
+  useCallback,
+  useRef,
+  useEffect,
+} from "react";
 import type { RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useQueryClient } from "@tanstack/react-query";
@@ -19,6 +27,7 @@ import {
   getTraceDuration,
   getTraceTotalCost,
   getTraceTokenUsage,
+  getVisibleSpanRows,
   TREE_LAYOUT,
   TREE_OVERSCAN_ROWS,
 } from "../utils";
@@ -39,26 +48,9 @@ const SPAN_IO_PREFETCH_DEBOUNCE_MS = 150;
 // row-height math lives in the parent anymore.
 export type TreeRow = { type: "trace" } | { type: "span"; row: SpanTreeRow };
 
-/**
- * Returns the flattened span rows that are currently visible, i.e. none of
- * their ancestors are collapsed. Kept pure (no React) so the row model can be
- * unit-tested and so the virtualizer count matches exactly what is rendered.
- */
-export function getVisibleSpanRows(
-  spanRows: SpanTreeRow[],
-  spanById: Map<string, Span>,
-  collapsedIds: Set<string>,
-): SpanTreeRow[] {
-  if (collapsedIds.size === 0) return spanRows;
-  return spanRows.filter(({ span }) => {
-    let currentId = span.parent_span_id;
-    while (currentId) {
-      if (collapsedIds.has(currentId)) return false;
-      currentId = spanById.get(currentId)?.parent_span_id || null;
-    }
-    return true;
-  });
-}
+// getVisibleSpanRows moved to ../utils so the timeline flattener can share the
+// exact same collapse filter; re-exported here for existing importers.
+export { getVisibleSpanRows } from "../utils";
 
 /**
  * Builds the full virtualized row model: the trace root at index 0 followed by
@@ -84,6 +76,146 @@ export function buildTreeRows(
     })),
   ];
 }
+
+/**
+ * One span row, memoized: a row's model object, position, and size are stable
+ * for a given data update (virtualized rows are absolutely positioned inside
+ * the scrolled content, so scrolling moves nothing per-row). Memoizing means
+ * a scroll frame re-renders only the rows entering the virtual window, and a
+ * hover change repaints exactly the rows whose highlight flipped — instead of
+ * every mounted row in the panel.
+ */
+const SpanTreeRowItem = memo(function SpanTreeRowItem({
+  row,
+  top,
+  height,
+  compact,
+  isSelected,
+  isHovered,
+  hasChildren,
+  isCollapsed,
+  onSelect,
+  onHoverChange,
+  onToggleCollapse,
+  onPrefetchSchedule,
+  onPrefetchCancel,
+}: {
+  row: SpanTreeRow;
+  top: number;
+  height: number;
+  compact: boolean;
+  isSelected: boolean;
+  isHovered: boolean;
+  hasChildren: boolean;
+  isCollapsed: boolean;
+  onSelect: (selection: TraceSelection) => void;
+  onHoverChange: (id: string | null) => void;
+  onToggleCollapse: (id: string) => void;
+  onPrefetchSchedule: (span: Span) => void;
+  onPrefetchCancel: () => void;
+}) {
+  const { span, level, isTerminal, parentLevels } = row;
+  const adjustedLevel = level + 1;
+  const adjustedParentLevels = parentLevels.map((l) => l + 1);
+
+  return (
+    <div
+      className={cn(
+        "group flex cursor-pointer items-center border-b border-border/5 transition-colors",
+        isHovered ? "bg-muted/60" : "bg-transparent",
+        isSelected && "bg-muted/80",
+      )}
+      style={{
+        position: "absolute",
+        top: 0,
+        left: 0,
+        width: "100%",
+        height,
+        transform: `translateY(${top}px)`,
+      }}
+      onMouseEnter={(e) => {
+        e.stopPropagation();
+        onHoverChange(span.span_id);
+        onPrefetchSchedule(span);
+      }}
+      onMouseLeave={(e) => {
+        e.stopPropagation();
+        onHoverChange(null);
+        onPrefetchCancel();
+      }}
+      onClick={() => onSelect({ type: "span", span })}
+    >
+      <SpanTreeConnector
+        level={adjustedLevel}
+        isTerminal={isTerminal}
+        parentLevels={adjustedParentLevels}
+      />
+
+      <div className="flex min-w-0 flex-1 items-center gap-1.5 pr-2">
+        <SpanKindIcon kind={span.span_kind} inTree />
+        <span
+          className={cn(
+            "min-w-0 shrink truncate text-xs",
+            span.pending && "text-muted-foreground/60",
+          )}
+        >
+          {span.name}
+        </span>
+        {/* Error badge stays outside the @container to guarantee it is always visible */}
+        {span.status === SpanStatus.ERROR && (
+          <span className="shrink-0 whitespace-nowrap rounded bg-red-100 px-1 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
+            ERROR
+          </span>
+        )}
+
+        {/* Always render the flex-1 container to lock the gap math */}
+        <div className="flex min-w-0 flex-1 items-center justify-start gap-1.5 @container">
+          {!compact && (
+            <>
+              {!span.pending && (
+                <span className="hidden shrink-0 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[45px]:inline-flex">
+                  {formatDuration(getSpanDuration(span))}
+                </span>
+              )}
+
+              {span.span_kind === SpanKind.LLM && span.total_tokens != null && (
+                <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap text-[10px] font-medium text-muted-foreground @[130px]:inline-flex">
+                  <CircleStop className="h-2.5 w-2.5" />
+                  {formatTokenFlow(span.input_tokens, span.output_tokens, span.total_tokens)}
+                </span>
+              )}
+
+              {span.span_kind === SpanKind.LLM &&
+                span.cost != null &&
+                Number.isFinite(span.cost) && (
+                  <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[190px]:inline-flex">
+                    <CircleDollarSign className="h-2.5 w-2.5" />
+                    {span.cost.toFixed(4)}
+                  </span>
+                )}
+            </>
+          )}
+        </div>
+
+        {hasChildren && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleCollapse(span.span_id);
+            }}
+            className="shrink-0 rounded p-0.5 transition-colors hover:bg-muted"
+          >
+            {isCollapsed ? (
+              <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
+            ) : (
+              <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+            )}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+});
 
 interface SpanTreeViewProps {
   trace: TraceDetail;
@@ -137,32 +269,32 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
   const spanById = useMemo(() => new Map(spans.map((s) => [s.span_id, s])), [spans]);
   const spanRows = useMemo(() => buildSpanTree(spans), [spans]);
 
-  const hasChildren = (spanId: string | null) => {
-    const children = childrenByParent.get(spanId) || [];
-    return children.length > 0;
-  };
-
   // Prefetch a span's I/O on hover so the click → SpanInfoPanel render is
   // instant. Skips placeholder (pending) spans, which have no row in ClickHouse.
   const queryClient = useQueryClient();
   const { data: authSession } = useAuthSession();
   const prefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Depend on the primitive auth fields, not the session object: its identity
+  // can change per render, and an unstable callback here would defeat the
+  // row-level memoization below.
+  const authUserId = authSession?.user?.id;
+  const authUserEmail = authSession?.user?.email;
   const runSpanIOPrefetch = useCallback(
     (span: Span) => {
       if (span.pending) return;
       // Skip prefetch until the auth session is ready: prefetching with no user
       // would trigger a fallback session fetch per hover and could cache an
       // unauthenticated result under the shared span-io query key.
-      if (!authSession?.user) return;
-      const user = { id: authSession.user.id, email: authSession.user.email };
+      if (!authUserId) return;
+      const user = { id: authUserId, email: authUserEmail };
       queryClient.prefetchQuery({
         queryKey: spanIOQueryKey(trace.project_id, trace.trace_id, span.span_id),
         queryFn: () => getSpanIO(trace.project_id, trace.trace_id, span.span_id, user),
         staleTime: SPAN_IO_STALE_TIME_MS,
       });
     },
-    [queryClient, authSession, trace.project_id, trace.trace_id],
+    [queryClient, authUserId, authUserEmail, trace.project_id, trace.trace_id],
   );
 
   // Schedule the prefetch after a short hover delay; cancel on leave / unmount so a
@@ -188,16 +320,20 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
 
   useEffect(() => () => cancelSpanIOPrefetch(), [cancelSpanIOPrefetch]);
 
-  const toggleCollapse = (spanId: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    onToggleCollapse(spanId);
-  };
-
   const isTraceSelected = selection.type === "trace";
-  const traceDuration = getTraceDuration(trace);
-  const traceTotalCost = getTraceTotalCost(trace);
-  const traceTokenUsage = getTraceTokenUsage(trace);
-  const traceHasChildren = hasChildren(null);
+  // Memoized on trace identity: recompute only when new data arrives, not on
+  // hover/scroll/collapse re-renders. In-progress traces measure open spans
+  // against Date.now(), so the displayed duration intentionally advances when
+  // the next update lands rather than drifting on every render.
+  const { traceDuration, traceTotalCost, traceTokenUsage } = useMemo(
+    () => ({
+      traceDuration: getTraceDuration(trace),
+      traceTotalCost: getTraceTotalCost(trace),
+      traceTokenUsage: getTraceTokenUsage(trace),
+    }),
+    [trace],
+  );
+  const traceHasChildren = (childrenByParent.get(null) ?? []).length > 0;
   const traceIsCollapsed = collapsedIds.has("trace");
 
   // Full virtualized row model: trace root at index 0, then collapse-filtered
@@ -298,7 +434,10 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
 
                   {traceHasChildren && (
                     <button
-                      onClick={(e) => toggleCollapse("trace", e)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleCollapse("trace");
+                      }}
                       className="shrink-0 rounded p-0.5 transition-colors hover:bg-muted"
                     >
                       {traceIsCollapsed ? (
@@ -313,104 +452,24 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
             );
           }
 
-          const { span, level, isTerminal, parentLevels } = rowData.row;
-          const isSelected = selection.type === "span" && selection.span.span_id === span.span_id;
-          const adjustedLevel = level + 1;
-          const adjustedParentLevels = parentLevels.map((l) => l + 1);
-          const spanHasChildren = hasChildren(span.span_id);
-          const isCollapsed = collapsedIds.has(span.span_id);
-
+          const { span } = rowData.row;
           return (
-            <div
+            <SpanTreeRowItem
               key={span.span_id}
-              className={cn(
-                "group flex cursor-pointer items-center border-b border-border/5 transition-colors",
-                hoveredSpanId === span.span_id ? "bg-muted/60" : "bg-transparent",
-                isSelected && "bg-muted/80",
-              )}
-              style={rowStyle}
-              onMouseEnter={(e) => {
-                e.stopPropagation();
-                onHoverChange(span.span_id);
-                scheduleSpanIOPrefetch(span);
-              }}
-              onMouseLeave={(e) => {
-                e.stopPropagation();
-                onHoverChange(null);
-                cancelSpanIOPrefetch();
-              }}
-              onClick={() => onSelect({ type: "span", span })}
-            >
-              <SpanTreeConnector
-                level={adjustedLevel}
-                isTerminal={isTerminal}
-                parentLevels={adjustedParentLevels}
-              />
-
-              <div className="flex min-w-0 flex-1 items-center gap-1.5 pr-2">
-                <SpanKindIcon kind={span.span_kind} inTree />
-                <span
-                  className={cn(
-                    "min-w-0 shrink truncate text-xs",
-                    span.pending && "text-muted-foreground/60",
-                  )}
-                >
-                  {span.name}
-                </span>
-                {/* Error badge stays outside the @container to guarantee it is always visible */}
-                {span.status === SpanStatus.ERROR && (
-                  <span className="shrink-0 whitespace-nowrap rounded bg-red-100 px-1 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
-                    ERROR
-                  </span>
-                )}
-
-                {/* Always render the flex-1 container to lock the gap math */}
-                <div className="flex min-w-0 flex-1 items-center justify-start gap-1.5 @container">
-                  {!compact && (
-                    <>
-                      {!span.pending && (
-                        <span className="hidden shrink-0 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[45px]:inline-flex">
-                          {formatDuration(getSpanDuration(span))}
-                        </span>
-                      )}
-
-                      {span.span_kind === SpanKind.LLM && span.total_tokens != null && (
-                        <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap text-[10px] font-medium text-muted-foreground @[130px]:inline-flex">
-                          <CircleStop className="h-2.5 w-2.5" />
-                          {formatTokenFlow(
-                            span.input_tokens,
-                            span.output_tokens,
-                            span.total_tokens,
-                          )}
-                        </span>
-                      )}
-
-                      {span.span_kind === SpanKind.LLM &&
-                        span.cost != null &&
-                        Number.isFinite(span.cost) && (
-                          <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[190px]:inline-flex">
-                            <CircleDollarSign className="h-2.5 w-2.5" />
-                            {span.cost.toFixed(4)}
-                          </span>
-                        )}
-                    </>
-                  )}
-                </div>
-
-                {spanHasChildren && (
-                  <button
-                    onClick={(e) => toggleCollapse(span.span_id, e)}
-                    className="shrink-0 rounded p-0.5 transition-colors hover:bg-muted"
-                  >
-                    {isCollapsed ? (
-                      <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-                    ) : (
-                      <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                    )}
-                  </button>
-                )}
-              </div>
-            </div>
+              row={rowData.row}
+              top={virtualRow.start}
+              height={virtualRow.size}
+              compact={compact}
+              isSelected={selection.type === "span" && selection.span.span_id === span.span_id}
+              isHovered={hoveredSpanId === span.span_id}
+              hasChildren={(childrenByParent.get(span.span_id) ?? []).length > 0}
+              isCollapsed={collapsedIds.has(span.span_id)}
+              onSelect={onSelect}
+              onHoverChange={onHoverChange}
+              onToggleCollapse={onToggleCollapse}
+              onPrefetchSchedule={scheduleSpanIOPrefetch}
+              onPrefetchCancel={cancelSpanIOPrefetch}
+            />
           );
         })}
       </div>

@@ -110,7 +110,6 @@ export function TraceViewerPanel({
   // Scroll sync refs
   const treeScrollRef = useRef<HTMLDivElement>(null);
   const timelineScrollRef = useRef<HTMLDivElement>(null);
-  const isSyncing = useRef(false);
   // Imperative handle so a timeline click can scroll the tree to the span;
   // the tree owns the virtualizer and resolves the row index itself.
   const treeViewRef = useRef<SpanTreeViewHandle>(null);
@@ -201,24 +200,29 @@ export function TraceViewerPanel({
     }
   }, []);
 
+  // Scroll sync mirrors positions by VALUE, not with a timing flag: writing
+  // scrollTop raises a scroll event on the other panel, whose handler then
+  // finds the positions already equal and stops. Unlike the previous
+  // requestAnimationFrame-reset guard, this drops no mirror updates during
+  // momentum scrolling and a late echo event can never mirror stale state
+  // backwards — both showed up as the timeline visibly trailing the tree.
+
   // Sync tree scroll → timeline
   const handleTreeScroll = useCallback(() => {
-    if (isSyncing.current || !treeScrollRef.current || !timelineScrollRef.current) return;
-    isSyncing.current = true;
-    timelineScrollRef.current.scrollTop = treeScrollRef.current.scrollTop;
-    requestAnimationFrame(() => {
-      isSyncing.current = false;
-    });
+    const tree = treeScrollRef.current;
+    const timeline = timelineScrollRef.current;
+    if (!tree || !timeline) return;
+    if (Math.abs(timeline.scrollTop - tree.scrollTop) < 1) return;
+    timeline.scrollTop = tree.scrollTop;
   }, []);
 
   // Sync timeline scroll → tree
   const handleTimelineScroll = useCallback(() => {
-    if (isSyncing.current || !treeScrollRef.current || !timelineScrollRef.current) return;
-    isSyncing.current = true;
-    treeScrollRef.current.scrollTop = timelineScrollRef.current.scrollTop;
-    requestAnimationFrame(() => {
-      isSyncing.current = false;
-    });
+    const tree = treeScrollRef.current;
+    const timeline = timelineScrollRef.current;
+    if (!tree || !timeline) return;
+    if (Math.abs(tree.scrollTop - timeline.scrollTop) < 1) return;
+    tree.scrollTop = timeline.scrollTop;
   }, []);
 
   return (

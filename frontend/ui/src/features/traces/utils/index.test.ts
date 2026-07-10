@@ -1,12 +1,16 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { SpanKind, SpanStatus } from "@traceroot/core";
 import type { Span } from "@/types/api";
 import {
   enrichSpansWithPending,
   getSpanDuration,
+  getSpanMetadata,
   getTraceDuration,
   summarizeCostDetails,
   getTraceCostBreakdown,
+  getSpanStartMs,
+  getSpanEndMs,
+  parseTimestamp,
 } from "./index";
 import { mergeSpans } from "../hooks/use-trace-stream";
 import type { TraceDetail } from "@/types/api";
@@ -480,6 +484,42 @@ describe("two-phase loading compatibility", () => {
   });
 });
 
+describe("getSpanMetadata", () => {
+  it("returns the identical parsed object for the same span object", () => {
+    const span = makeSpan({
+      span_id: "child",
+      parent_span_id: "parent-id",
+      metadata: metadataWith(["parent-id"], ["parent-name", "child"]),
+    });
+    const first = getSpanMetadata(span);
+    expect(first["traceroot.span.ids_path"]).toEqual(["parent-id"]);
+    expect(getSpanMetadata(span)).toBe(first);
+  });
+
+  it("caches the empty result for metadata-less spans", () => {
+    const span = makeSpan({ span_id: "bare", metadata: null });
+    expect(getSpanMetadata(span)).toEqual({});
+    expect(getSpanMetadata(span)).toBe(getSpanMetadata(span));
+  });
+
+  it("does not re-parse metadata for span objects that survive a merge", () => {
+    const child = makeSpan({
+      span_id: "child",
+      parent_span_id: "parent-id",
+      metadata: metadataWith(["parent-id"], ["parent-name", "child"]),
+    });
+    // First pass parses and caches the child's metadata.
+    enrichSpansWithPending([child]);
+
+    const parseSpy = vi.spyOn(JSON, "parse");
+    // A later update delivers a NEW array (fresh identity) still containing the
+    // same child object — exactly what mergeSpans produces for untouched spans.
+    enrichSpansWithPending([child, makeSpan({ span_id: "root-2" })]);
+    expect(parseSpy).not.toHaveBeenCalled();
+    parseSpy.mockRestore();
+  });
+});
+
 describe("mergeSpans (live-SSE compat)", () => {
   it("replaces skeleton spans with full live spans carrying I/O + metadata", () => {
     // Initial cache state: skeletons from the trace-detail endpoint (no I/O).
@@ -523,5 +563,60 @@ describe("mergeSpans (live-SSE compat)", () => {
     expect(enriched.find((s) => s.span_id === "mid")?.pending).toBe(true);
     expect(enriched.find((s) => s.span_id === "root")).toBeDefined();
     expect(enriched.find((s) => s.span_id === "child")).toBeDefined();
+  });
+});
+
+describe("getSpanStartMs / getSpanEndMs", () => {
+  it("agree with parseTimestamp for closed spans", () => {
+    const span = makeSpan({
+      span_id: "s",
+      span_start_time: "2024-01-01T00:00:00.000Z",
+      span_end_time: "2024-01-01T00:00:01.500Z",
+    });
+    expect(getSpanStartMs(span)).toBe(parseTimestamp("2024-01-01T00:00:00.000Z"));
+    expect(getSpanEndMs(span)).toBe(parseTimestamp("2024-01-01T00:00:01.500Z"));
+  });
+
+  it("returns null end for in-progress spans (never caches a live end)", () => {
+    const open = makeSpan({ span_id: "open", span_end_time: null });
+    expect(getSpanEndMs(open)).toBeNull();
+  });
+
+  it("handles timezone-naive whole-second timestamps like parseTimestamp", () => {
+    const span = makeSpan({
+      span_id: "naive",
+      span_start_time: "2026-06-04T06:37:22.527000",
+      span_end_time: "2026-06-04T06:37:30",
+    });
+    expect(getSpanEndMs(span)! - getSpanStartMs(span)).toBe(7_473);
+  });
+});
+
+describe("enrichSpansWithPending caching", () => {
+  it("returns the identical array for the same input array", () => {
+    const spans = [makeSpan({ span_id: "root" })];
+    expect(enrichSpansWithPending(spans)).toBe(enrichSpansWithPending(spans));
+  });
+
+  it("re-enriching an enriched array is the identity operation", () => {
+    const child = makeSpan({
+      span_id: "child",
+      parent_span_id: "parent-id",
+      metadata: metadataWith(["parent-id"], ["parent-name", "child"]),
+    });
+    const enriched = enrichSpansWithPending([child]);
+    // Sanity: enrichment actually did something (placeholder synthesized).
+    expect(enriched.some((s) => s.pending)).toBe(true);
+    expect(enrichSpansWithPending(enriched)).toBe(enriched);
+  });
+
+  it("recomputes for a new array after a merge, keeping untouched span objects", () => {
+    const root = makeSpan({ span_id: "root" });
+    const first = enrichSpansWithPending([root]);
+    const merged = mergeSpans([root], [makeSpan({ span_id: "child", parent_span_id: "root" })]);
+    const second = enrichSpansWithPending(merged);
+    expect(second).not.toBe(first);
+    // The untouched root span keeps its identity through merge + enrichment.
+    expect(second.find((s) => s.span_id === "root")).toBe(root);
   });
 });

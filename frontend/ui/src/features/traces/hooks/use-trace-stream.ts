@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Span, TraceDetail } from "@/types/api";
-import { enrichSpansWithPending } from "../utils";
 
 /**
  * Merge incoming spans into existing spans array.
@@ -42,10 +41,10 @@ const BACKOFF_BASE_MS = 1_000;
 const BACKOFF_MAX_MS = 30_000;
 
 /**
- * Hook that connects to the live trace SSE endpoint and merges incoming spans
- * into the React Query cache for the trace detail. When new spans arrive via
- * SSE, the existing useQuery data for ["trace", projectId, traceId] is updated
- * in-place, causing SpanTreeView and SpanInfoPanel to re-render automatically.
+ * Hook that connects to the live trace SSE endpoint and merges incoming raw
+ * spans into the React Query cache for the trace detail. Enrichment
+ * (pending-child placeholders) is left to consumers via
+ * `enrichSpansWithPending`, which caches its result per input array.
  *
  * Resilience: the server closes every connection at a fixed ceiling and
  * keeps no backlog, so any gap (timeout, network blip, reconnect) can drop
@@ -154,7 +153,7 @@ export function useTraceStream(
             if (!prev) return prev;
             return {
               ...prev,
-              spans: enrichSpansWithPending(mergeSpans(prev.spans, newSpans)),
+              spans: mergeSpans(prev.spans, newSpans),
             };
           });
         } catch {
