@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useMemo, useRef, useEffect, type RefObject } from "react";
+import { memo, useState, useMemo, useRef, useEffect, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { CircleStop, CircleDollarSign } from "lucide-react";
 import { cn, formatDuration, formatTokenFlow } from "@/lib/utils";
 import { SpanStatus, SpanKind } from "@traceroot/core";
-import { flattenTreeWithMetrics } from "../utils/timeline";
+import { flattenTreeWithMetrics, type FlatTimelineItem } from "../utils/timeline";
 import {
   TREE_LAYOUT,
   TREE_OVERSCAN_ROWS,
@@ -52,6 +52,110 @@ function formatTickLabel(sec: number): string {
 type TimelineRow =
   | { type: "trace-root" }
   | { type: "span"; data: ReturnType<typeof flattenTreeWithMetrics>[number] };
+
+/**
+ * One Gantt bar row, memoized: a row's item, position, and size are stable
+ * for a given data update (virtualized rows are absolutely positioned inside
+ * the scrolled content, so scrolling moves nothing per-row). Memoizing means
+ * a scroll frame re-renders only the rows entering the virtual window, and a
+ * hover change repaints exactly the rows whose highlight flipped — instead of
+ * every mounted row in the panel.
+ */
+const TimelineSpanRow = memo(function TimelineSpanRow({
+  item,
+  top,
+  height,
+  isSelected,
+  isHovered,
+  onSelect,
+  onHoverChange,
+}: {
+  item: FlatTimelineItem;
+  top: number;
+  height: number;
+  isSelected: boolean;
+  isHovered: boolean;
+  onSelect: (s: TraceSelection) => void;
+  onHoverChange: (id: string | null) => void;
+}) {
+  const span = item.span;
+  const isError = span.status === SpanStatus.ERROR;
+  const durationText = formatDuration(item.metrics.durationMs);
+
+  const isRootSpan = span.parent_span_id === null;
+  const showDuration =
+    span.span_kind === SpanKind.LLM || span.span_kind === SpanKind.TOOL || isRootSpan;
+
+  const showRightMetrics = span.span_kind === SpanKind.LLM || isRootSpan;
+  const showTokens = showRightMetrics && span.total_tokens != null && span.total_tokens > 0;
+  const showCost =
+    showRightMetrics && span.cost != null && Number.isFinite(span.cost) && span.cost > 0;
+
+  return (
+    <div
+      className={cn(
+        "group absolute left-0 top-0 z-10 flex w-full cursor-pointer items-center border-b border-border/5 transition-colors",
+        isHovered ? "bg-muted/60" : "bg-transparent",
+        isSelected && "bg-muted/80",
+      )}
+      style={{ height, transform: `translateY(${top}px)` }}
+      onMouseEnter={(e) => {
+        e.stopPropagation();
+        onHoverChange(span.span_id);
+      }}
+      onMouseLeave={(e) => {
+        e.stopPropagation();
+        onHoverChange(null);
+      }}
+      onClick={() => onSelect({ type: "span", span })}
+    >
+      {showDuration && (
+        <span className="absolute left-2 z-20 whitespace-nowrap text-[10px] text-muted-foreground">
+          {durationText}
+        </span>
+      )}
+      {(showTokens || showCost) && (
+        <span className="absolute right-2 z-20 inline-flex items-center gap-2 whitespace-nowrap text-[10px] text-muted-foreground">
+          {showTokens && (
+            <span className="inline-flex items-center gap-0.5 font-sans font-medium">
+              <CircleStop className="h-2.5 w-2.5" />
+              {formatTokenFlow(span.input_tokens, span.output_tokens, span.total_tokens)}
+            </span>
+          )}
+          {showCost && (
+            <span className="inline-flex items-center gap-0.5">
+              <CircleDollarSign className="h-2.5 w-2.5" />
+              {span.cost!.toFixed(4)}
+            </span>
+          )}
+        </span>
+      )}
+      {item.metrics.isInstant && !item.metrics.isInProgress ? (
+        <div
+          className="absolute z-10 h-3 w-[2px] bg-muted-foreground/50 transition-colors"
+          style={{ left: `${item.metrics.startOffsetPx}px` }}
+        />
+      ) : (
+        <div
+          className={cn(
+            "absolute z-10 overflow-hidden rounded-[2px] border border-solid transition-colors",
+            isError
+              ? "border-red-300 bg-red-100 dark:border-red-800 dark:bg-red-950/60"
+              : getSpanKindColor(span.span_kind).surface,
+            item.metrics.isInProgress && "animate-pulse border-dashed opacity-70",
+            // Tinted bars wash out a neutral ring; foreground/50 stays legible on every kind
+            isSelected && "ring-1 ring-foreground/50",
+          )}
+          style={{
+            left: `${item.metrics.startOffsetPx}px`,
+            width: `${Math.max(4, item.metrics.widthPx)}px`,
+            height: "20px",
+          }}
+        />
+      )}
+    </div>
+  );
+});
 
 interface SpanTimelineViewProps {
   trace: TraceDetail;
@@ -267,86 +371,19 @@ export function SpanTimelineView({
             }
 
             const item = row.data;
-            const span = item.span;
-            const isSelected = selection.type === "span" && selection.span.span_id === span.span_id;
-            const isError = span.status === SpanStatus.ERROR;
-            const isInProgress = item.metrics.isInProgress;
-            const durationText = formatDuration(item.metrics.durationMs);
-
-            const isRootSpan = span.parent_span_id === null;
-            const showDuration =
-              span.span_kind === SpanKind.LLM || span.span_kind === SpanKind.TOOL || isRootSpan;
-
-            const showRightMetrics = span.span_kind === SpanKind.LLM || isRootSpan;
-            const showTokens =
-              showRightMetrics && span.total_tokens != null && span.total_tokens > 0;
-            const showCost =
-              showRightMetrics && span.cost != null && Number.isFinite(span.cost) && span.cost > 0;
-
             return (
-              <div
-                key={span.span_id}
-                className={cn(
-                  "group absolute left-0 top-0 z-10 flex w-full cursor-pointer items-center border-b border-border/5 transition-colors",
-                  hoveredSpanId === span.span_id ? "bg-muted/60" : "bg-transparent",
-                  isSelected && "bg-muted/80",
-                )}
-                style={rowStyle}
-                onMouseEnter={(e) => {
-                  e.stopPropagation();
-                  onHoverChange(span.span_id);
-                }}
-                onMouseLeave={(e) => {
-                  e.stopPropagation();
-                  onHoverChange(null);
-                }}
-                onClick={() => onSelect({ type: "span", span })}
-              >
-                {showDuration && (
-                  <span className="absolute left-2 z-20 whitespace-nowrap text-[10px] text-muted-foreground">
-                    {durationText}
-                  </span>
-                )}
-                {(showTokens || showCost) && (
-                  <span className="absolute right-2 z-20 inline-flex items-center gap-2 whitespace-nowrap text-[10px] text-muted-foreground">
-                    {showTokens && (
-                      <span className="inline-flex items-center gap-0.5 font-sans font-medium">
-                        <CircleStop className="h-2.5 w-2.5" />
-                        {formatTokenFlow(span.input_tokens, span.output_tokens, span.total_tokens)}
-                      </span>
-                    )}
-                    {showCost && (
-                      <span className="inline-flex items-center gap-0.5">
-                        <CircleDollarSign className="h-2.5 w-2.5" />
-                        {span.cost!.toFixed(4)}
-                      </span>
-                    )}
-                  </span>
-                )}
-                {item.metrics.isInstant && !item.metrics.isInProgress ? (
-                  <div
-                    className="absolute z-10 h-3 w-[2px] bg-muted-foreground/50 transition-colors"
-                    style={{ left: `${item.metrics.startOffsetPx}px` }}
-                  />
-                ) : (
-                  <div
-                    className={cn(
-                      "absolute z-10 overflow-hidden rounded-[2px] border border-solid transition-colors",
-                      isError
-                        ? "border-red-300 bg-red-100 dark:border-red-800 dark:bg-red-950/60"
-                        : getSpanKindColor(span.span_kind).surface,
-                      item.metrics.isInProgress && "animate-pulse border-dashed opacity-70",
-                      // Tinted bars wash out a neutral ring; foreground/50 stays legible on every kind
-                      isSelected && "ring-1 ring-foreground/50",
-                    )}
-                    style={{
-                      left: `${item.metrics.startOffsetPx}px`,
-                      width: `${Math.max(4, item.metrics.widthPx)}px`,
-                      height: "20px",
-                    }}
-                  />
-                )}
-              </div>
+              <TimelineSpanRow
+                key={item.span.span_id}
+                item={item}
+                top={virtualRow.start}
+                height={virtualRow.size}
+                isSelected={
+                  selection.type === "span" && selection.span.span_id === item.span.span_id
+                }
+                isHovered={hoveredSpanId === item.span.span_id}
+                onSelect={onSelect}
+                onHoverChange={onHoverChange}
+              />
             );
           })}
         </div>
