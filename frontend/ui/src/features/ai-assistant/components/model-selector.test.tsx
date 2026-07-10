@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, cleanup, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => ({
   models: undefined as
@@ -91,5 +91,34 @@ describe("ModelSelector", () => {
       source: "system",
       adapter: "anthropic",
     });
+  });
+
+  it("renders disabled without opening or backfilling selection", async () => {
+    mocks.models = {
+      byokProviders: [],
+      systemModels: [
+        {
+          provider: "openai",
+          adapter: "openai",
+          source: "system",
+          models: [{ id: "gpt-4o-mini", label: "GPT-4o mini" }],
+        },
+      ],
+    };
+
+    render(
+      <ModelSelector
+        workspaceId="workspace-1"
+        value={{ model: "gpt-4o-mini", provider: "openai", source: "system", adapter: "" }}
+        onChange={mocks.onChange}
+        disabled
+      />,
+    );
+
+    const trigger = screen.getByRole("button", { name: /gpt-4o mini/i });
+    expect((trigger as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(trigger);
+    await waitFor(() => expect(mocks.onChange).not.toHaveBeenCalled());
   });
 });

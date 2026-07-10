@@ -72,6 +72,7 @@ export function TriggerEditor({
   }, [initialConditions]);
 
   const update = (next: TriggerCondition[]) => {
+    if (readOnly) return;
     setConditions(next);
     if (onChange) {
       onChange(next);
@@ -108,14 +109,18 @@ export function TriggerEditor({
   };
 
   const conditionRows = (
-    <div className={`space-y-1.5 ${readOnly ? "pointer-events-none opacity-60" : ""}`}>
+    <div className={`space-y-1.5 ${readOnly ? "opacity-60" : ""}`}>
       {conditions.map((cond, i) => {
         const fieldDef = FIELD_DEFS.find((d) => d.field === cond.field) ?? FIELD_DEFS[0];
         return (
           <div key={i} className="flex items-center gap-1.5">
             {/* Field */}
-            <Select value={cond.field} onValueChange={(val) => updateCondition(i, { field: val })}>
-              <SelectTrigger className="h-7 w-[120px] shrink-0 text-[12px]">
+            <Select
+              value={cond.field}
+              onValueChange={(val) => updateCondition(i, { field: val })}
+              disabled={readOnly}
+            >
+              <SelectTrigger disabled={readOnly} className="h-7 w-[120px] shrink-0 text-[12px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -128,8 +133,12 @@ export function TriggerEditor({
             </Select>
 
             {/* Op */}
-            <Select value={cond.op} onValueChange={(val) => updateCondition(i, { op: val })}>
-              <SelectTrigger className="h-7 w-14 shrink-0 text-[12px]">
+            <Select
+              value={cond.op}
+              onValueChange={(val) => updateCondition(i, { op: val })}
+              disabled={readOnly}
+            >
+              <SelectTrigger disabled={readOnly} className="h-7 w-14 shrink-0 text-[12px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -146,8 +155,9 @@ export function TriggerEditor({
               <Select
                 value={cond.value as string}
                 onValueChange={(val) => updateCondition(i, { value: val })}
+                disabled={readOnly}
               >
-                <SelectTrigger className="h-7 flex-1 text-[12px]">
+                <SelectTrigger disabled={readOnly} className="h-7 flex-1 text-[12px]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -163,6 +173,7 @@ export function TriggerEditor({
                 value={cond.value as string}
                 onChange={(e) => updateCondition(i, { value: e.target.value })}
                 placeholder="Enter value..."
+                disabled={readOnly}
                 className="h-7 flex-1 text-[12px]"
               />
             )}

@@ -30,6 +30,7 @@ interface DetectorPanelProps {
   onNavigate?: (direction: "up" | "down") => void;
   canNavigateUp?: boolean;
   canNavigateDown?: boolean;
+  canEdit?: boolean;
 }
 
 export function DetectorPanel({
@@ -40,6 +41,7 @@ export function DetectorPanel({
   onNavigate,
   canNavigateUp,
   canNavigateDown,
+  canEdit = true,
 }: DetectorPanelProps) {
   const { data: detector } = useDetector(projectId, detectorId);
   const { data: project } = useProject(projectId);
@@ -140,6 +142,7 @@ export function DetectorPanel({
   const updateMutation = useUpdateDetector(projectId, detectorId);
 
   const handleSave = () => {
+    if (!canEdit) return;
     // Guard against saving while the new detector's data is still loading.
     // Edit state would be the previous detector's, but the mutation targets
     // the current detectorId; without this guard, stale values would
@@ -149,6 +152,7 @@ export function DetectorPanel({
     if (!detector || detector.id !== detectorId) return;
     const loaded = loadedRef.current;
     if (!loaded || loaded.id !== detectorId) return;
+    updateMutation.reset();
     const patch = buildDetectorPatch(loaded.values, readForm());
     if (Object.keys(patch).length === 0) {
       onClose();
@@ -210,6 +214,12 @@ export function DetectorPanel({
 
       {/* Scrollable form body */}
       <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
+        {!canEdit && (
+          <p className="text-[13px] text-muted-foreground">
+            Members and admins can edit detectors for this project.
+          </p>
+        )}
+
         {/* Name */}
         <div className="border border-border">
           <div className="border-b border-border bg-muted/50 px-3 py-1.5">
@@ -219,6 +229,7 @@ export function DetectorPanel({
             <Input
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
+              disabled={!canEdit}
               className="h-7 text-[13px]"
             />
           </div>
@@ -237,6 +248,7 @@ export function DetectorPanel({
                 value={editModelSelection}
                 onChange={setEditModelSelection}
                 workspaceId={workspaceId}
+                disabled={!canEdit}
               />
               <p className="mt-1 text-[11px] text-muted-foreground">
                 Used to evaluate each trace for this detector.
@@ -257,6 +269,7 @@ export function DetectorPanel({
                 id="edit-enable-rca"
                 checked={editEnableRca}
                 onCheckedChange={setEditEnableRca}
+                disabled={!canEdit}
               />
             </div>
           </div>
@@ -271,15 +284,21 @@ export function DetectorPanel({
             <textarea
               value={editPrompt}
               onChange={(e) => setEditPrompt(e.target.value)}
+              disabled={!canEdit}
               rows={10}
-              className="resize-vertical w-full border border-input bg-background px-3 py-2 font-mono text-[12px] leading-relaxed focus:outline-none focus:ring-1 focus:ring-ring"
+              className="resize-vertical w-full border border-input bg-background px-3 py-2 font-mono text-[12px] leading-relaxed focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
             />
           </div>
         </div>
 
         {/* Filter */}
         <div className="border border-border">
-          <TriggerEditor conditions={editConditions} onChange={setEditConditions} asCard />
+          <TriggerEditor
+            conditions={editConditions}
+            onChange={setEditConditions}
+            readOnly={!canEdit}
+            asCard
+          />
         </div>
 
         {/* Sampling */}
@@ -294,7 +313,8 @@ export function DetectorPanel({
               max={100}
               value={editSampleRate}
               onChange={(e) => setEditSampleRate(Number(e.target.value))}
-              className="flex-1 cursor-pointer accent-foreground"
+              disabled={!canEdit}
+              className="flex-1 cursor-pointer accent-foreground disabled:cursor-not-allowed disabled:opacity-50"
             />
             <span className="w-12 shrink-0 text-right text-[13px] tabular-nums text-muted-foreground">
               {editSampleRate}%
@@ -303,6 +323,12 @@ export function DetectorPanel({
         </div>
 
         {/* Save / Cancel */}
+        {updateMutation.isError && (
+          <p role="alert" className="text-[12px] text-destructive">
+            {updateMutation.error.message}
+          </p>
+        )}
+
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="outline" size="sm" onClick={onClose} className="h-7 text-[12px]">
             Cancel
@@ -310,7 +336,9 @@ export function DetectorPanel({
           <Button
             size="sm"
             onClick={handleSave}
-            disabled={updateMutation.isPending || !detector || detector.id !== detectorId}
+            disabled={
+              updateMutation.isPending || !detector || detector.id !== detectorId || !canEdit
+            }
             className="h-7 text-[12px]"
           >
             {updateMutation.isPending ? "Saving..." : "Save"}

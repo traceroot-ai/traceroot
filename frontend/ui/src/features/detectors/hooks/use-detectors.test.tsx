@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi, type MockInstance } from "vitest";
+import { afterEach, describe, expect, it, vi, type Mock, type MockInstance } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
@@ -38,6 +38,14 @@ function setup() {
   return { wrapper, invalidateSpy };
 }
 
+function failNextFetch(message: string) {
+  (globalThis.fetch as unknown as Mock).mockResolvedValueOnce({
+    ok: false,
+    status: 403,
+    json: async () => ({ error: message }),
+  });
+}
+
 const expectNotified = (invalidateSpy: MockInstance) => {
   expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["detectors"] });
   expect(FakeBroadcastChannel.posted).toEqual([{ type: "invalidate", queryKey: ["detectors"] }]);
@@ -66,5 +74,40 @@ describe("detector mutations notify other tabs on success", () => {
     result.current.mutate("det-1");
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expectNotified(invalidateSpy);
+  });
+});
+
+describe("detector mutations surface API permission errors", () => {
+  it("create: uses the API error message", async () => {
+    const { wrapper } = setup();
+    failNextFetch("Requires MEMBER role or higher");
+    const { result } = renderHook(() => useCreateDetector("proj-1"), { wrapper });
+
+    result.current.mutate({ name: "n", template: "t", prompt: "p", outputSchema: [] });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.error?.message).toBe("Requires MEMBER role or higher");
+  });
+
+  it("update: uses the API error message", async () => {
+    const { wrapper } = setup();
+    failNextFetch("Requires MEMBER role or higher");
+    const { result } = renderHook(() => useUpdateDetector("proj-1", "det-1"), { wrapper });
+
+    result.current.mutate({ enableRca: false });
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.error?.message).toBe("Requires MEMBER role or higher");
+  });
+
+  it("delete: uses the API error message", async () => {
+    const { wrapper } = setup();
+    failNextFetch("Requires ADMIN role or higher");
+    const { result } = renderHook(() => useDeleteDetector("proj-1"), { wrapper });
+
+    result.current.mutate("det-1");
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(result.current.error?.message).toBe("Requires ADMIN role or higher");
   });
 });

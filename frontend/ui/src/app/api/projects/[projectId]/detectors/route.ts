@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { prisma } from "@traceroot/core";
+import { prisma, Role } from "@traceroot/core";
 import { DEFAULT_DETECTOR_SAMPLE_RATE } from "@/features/detectors/templates";
 import {
   requireAuth,
@@ -54,14 +54,14 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   return successResponse({ data, meta: { page, limit, total } });
 }
 
-// POST /api/projects/[projectId]/detectors - Create a new detector
+// POST /api/projects/[projectId]/detectors - Create a new detector (MEMBER+)
 export async function POST(req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { user } = authResult;
 
   const { projectId } = await params;
-  const accessResult = await requireProjectAccess(user.id, projectId);
+  const accessResult = await requireProjectAccess(user.id, projectId, Role.MEMBER);
   if (accessResult.error) return accessResult.error;
 
   let body: unknown;
