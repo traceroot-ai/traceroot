@@ -270,16 +270,6 @@ function computeSpanTree(spans: Span[]): SpanTreeRow[] {
 
   const rows: SpanTreeRow[] = [];
 
-  function traverse(span: Span, level: number, isTerminal: boolean, parentLevels: number[]) {
-    rows.push({ span, level, isTerminal, parentLevels });
-    const children = childrenByParent.get(span.span_id) || [];
-    children.forEach((child, idx) => {
-      const childIsTerminal = idx === children.length - 1;
-      const nextParentLevels = childIsTerminal ? parentLevels : [...parentLevels, level];
-      traverse(child, level + 1, childIsTerminal, nextParentLevels);
-    });
-  }
-
   // Combine true roots with orphan spans (parent not yet arrived) into a single
   // top-level list sorted by start_time. This ensures:
   // 1. Connector lines are correct across all top-level items.
@@ -288,9 +278,37 @@ function computeSpanTree(spans: Span[]): SpanTreeRow[] {
   const topLevel = [...(childrenByParent.get(null) ?? []), ...orphans].sort(
     (a, b) => parseTimestamp(a.span_start_time) - parseTimestamp(b.span_start_time),
   );
-  topLevel.forEach((span, idx) => {
-    traverse(span, 0, idx === topLevel.length - 1, []);
-  });
+
+  // Iterative preorder DFS — an explicit stack instead of recursion so very
+  // deeply nested traces (recursive agents, deep ReAct loops) can't overflow
+  // the call stack. Children are pushed in reverse so the first child is
+  // popped first, preserving chronological DFS order. Both panels derive
+  // their rows from this builder, so the guard covers the tree and the
+  // timeline alike.
+  const stack: SpanTreeRow[] = [];
+  for (let i = topLevel.length - 1; i >= 0; i--) {
+    stack.push({
+      span: topLevel[i],
+      level: 0,
+      isTerminal: i === topLevel.length - 1,
+      parentLevels: [],
+    });
+  }
+
+  while (stack.length > 0) {
+    const row = stack.pop()!;
+    rows.push(row);
+    const children = childrenByParent.get(row.span.span_id) || [];
+    for (let i = children.length - 1; i >= 0; i--) {
+      const childIsTerminal = i === children.length - 1;
+      stack.push({
+        span: children[i],
+        level: row.level + 1,
+        isTerminal: childIsTerminal,
+        parentLevels: childIsTerminal ? row.parentLevels : [...row.parentLevels, row.level],
+      });
+    }
+  }
 
   return rows;
 }

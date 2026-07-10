@@ -160,3 +160,20 @@ describe("buildSpanTree caching", () => {
     expect(buildSpanTree(spans)).toBe(buildSpanTree(spans));
   });
 });
+
+describe("buildSpanTree depth", () => {
+  it("builds a very deeply nested trace without overflowing the call stack", () => {
+    // One 20 000-level parent chain — a recursive traversal overflows well
+    // before this depth; the iterative builder must not.
+    const spans: Span[] = [];
+    let parent: string | null = null;
+    for (let i = 0; i < 20_000; i++) {
+      spans.push(makeSpan({ span_id: `s${i}`, parent_span_id: parent }));
+      parent = `s${i}`;
+    }
+    const rows = buildSpanTree(spans);
+    expect(rows).toHaveLength(20_000);
+    expect(rows[0].span.span_id).toBe("s0");
+    expect(rows[19_999].level).toBe(19_999);
+  });
+});
