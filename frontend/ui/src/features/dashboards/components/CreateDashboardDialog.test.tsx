@@ -103,6 +103,18 @@ describe("CreateDashboardDialog", () => {
     expect(createDashboard.mutate).not.toHaveBeenCalled();
   });
 
+  it("ignores Escape and other Radix close paths while a create is in flight", () => {
+    createDashboard.isPending = true;
+    const { onOpenChange } = renderDialog();
+
+    // Escape bypasses the disabled Cancel button; the dialog must stay open
+    // so the pending mutation can't be reset and resubmitted mid-request.
+    fireEvent.keyDown(screen.getByPlaceholderText("Dashboard name"), { key: "Escape" });
+
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(createDashboard.reset).not.toHaveBeenCalled();
+  });
+
   it("shows the mutation error message and a pending Create label", () => {
     createDashboard.isPending = true;
     createDashboard.isError = true;
