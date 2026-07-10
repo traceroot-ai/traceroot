@@ -147,13 +147,14 @@ clickhouse:
   # Grants the admin user (auth.username) SQL access management so the SQL-gateway
   # provisioning Job can CREATE USER and the ClickHouse migration can create views
   # with an explicit DEFINER. The stock admin has broad DDL but not access
-  # management. The element name below MUST match auth.username (default `default`).
+  # management. The subchart renders this value with `tpl`, so the username element
+  # tracks auth.username automatically — including a non-default admin username.
   usersExtraOverrides: |
     <clickhouse>
       <users>
-        <default>
+        <{{ .Values.auth.username }}>
           <access_management>1</access_management>
-        </default>
+        </{{ .Values.auth.username }}>
       </users>
     </clickhouse>
 

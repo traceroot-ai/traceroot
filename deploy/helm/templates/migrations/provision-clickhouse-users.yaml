@@ -35,11 +35,16 @@ spec:
                 $CH --query "SELECT 1" >/dev/null 2>&1 && break
                 echo "waiting for clickhouse ($i/60)"; sleep 5
               done
-              # Idempotent. Grants are name-based, so the read-only grants on the
-              # views are recorded even though the views are created by the later
-              # migration. ClickHouse redacts the password in query_log.
+              # Idempotent AND reconciling: the ALTER statements re-apply the password
+              # and profile on every run, so rotating the secret propagates to
+              # ClickHouse (CREATE ... IF NOT EXISTS alone would not update an existing
+              # user, leaving it on the old password). Grants are name-based, so the
+              # read-only grants on the views are recorded even though the views are
+              # created by the later migration. ClickHouse redacts passwords in query_log.
               $CH --multiquery --query "
                 CREATE USER IF NOT EXISTS sql_gateway_writer
+                    IDENTIFIED WITH sha256_password BY '${SQL_GATEWAY_WRITER_PASSWORD}';
+                ALTER USER sql_gateway_writer
                     IDENTIFIED WITH sha256_password BY '${SQL_GATEWAY_WRITER_PASSWORD}';
                 GRANT SELECT ON default.spans  TO sql_gateway_writer;
                 GRANT SELECT ON default.traces TO sql_gateway_writer;
@@ -49,7 +54,16 @@ spec:
                     max_result_rows = 100000 CONST,
                     max_result_bytes = 536870912 CONST,
                     max_memory_usage = 4294967296 CONST;
+                ALTER SETTINGS PROFILE sql_readonly_profile SETTINGS
+                    readonly = 1,
+                    max_execution_time = 30 CONST,
+                    max_result_rows = 100000 CONST,
+                    max_result_bytes = 536870912 CONST,
+                    max_memory_usage = 4294967296 CONST;
                 CREATE USER IF NOT EXISTS sql_gateway_ro
+                    IDENTIFIED WITH sha256_password BY '${SQL_GATEWAY_RO_PASSWORD}'
+                    SETTINGS PROFILE 'sql_readonly_profile';
+                ALTER USER sql_gateway_ro
                     IDENTIFIED WITH sha256_password BY '${SQL_GATEWAY_RO_PASSWORD}'
                     SETTINGS PROFILE 'sql_readonly_profile';
                 GRANT SELECT ON default.spans_public_v1  TO sql_gateway_ro;
