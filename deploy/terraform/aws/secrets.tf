@@ -18,6 +18,19 @@ resource "random_password" "clickhouse" {
   special = false
 }
 
+# SQL-gateway ClickHouse identities: the view-definer writer and the read-only
+# user the SQL gateway runs user queries as. Provisioned by the
+# provision-clickhouse-users Helm hook Job before the ClickHouse migration.
+resource "random_password" "clickhouse_writer" {
+  length  = 32
+  special = false
+}
+
+resource "random_password" "clickhouse_ro" {
+  length  = 32
+  special = false
+}
+
 resource "random_id" "encryption_key" {
   byte_length = 32 # 32 bytes = 64 hex characters = 256 bits
 }
@@ -44,14 +57,16 @@ resource "kubernetes_secret" "app" {
   }
 
   data = {
-    "postgres-password"   = random_password.postgres.result
-    "redis-password"      = random_password.redis.result
-    "better-auth-secret"  = random_password.better_auth_secret.result
-    "internal-api-secret" = random_password.internal_api_secret.result
-    "clickhouse-password" = random_password.clickhouse.result
-    "database-url"        = "postgresql://traceroot:${random_password.postgres.result}@${aws_rds_cluster.postgres.endpoint}:5432/${local.database_name}"
-    "redis-url"           = "rediss://:${random_password.redis.result}@${aws_elasticache_replication_group.redis.primary_endpoint_address}:6379/0"
-    "encryption-key"      = random_id.encryption_key.hex
+    "postgres-password"          = random_password.postgres.result
+    "redis-password"             = random_password.redis.result
+    "better-auth-secret"         = random_password.better_auth_secret.result
+    "internal-api-secret"        = random_password.internal_api_secret.result
+    "clickhouse-password"        = random_password.clickhouse.result
+    "clickhouse-writer-password" = random_password.clickhouse_writer.result
+    "clickhouse-ro-password"     = random_password.clickhouse_ro.result
+    "database-url"               = "postgresql://traceroot:${random_password.postgres.result}@${aws_rds_cluster.postgres.endpoint}:5432/${local.database_name}"
+    "redis-url"                  = "rediss://:${random_password.redis.result}@${aws_elasticache_replication_group.redis.primary_endpoint_address}:6379/0"
+    "encryption-key"             = random_id.encryption_key.hex
   }
 
   depends_on = [module.eks]

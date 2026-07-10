@@ -98,26 +98,35 @@ order above is the safe logical sequence for staged/manual provisioning.
   `docker-compose.prod.yml` stack instead auto-provisions the `no_password` compose
   accounts via `clickhouse-init` — for a hardened host, create the users with real
   secrets out of band and do not rely on that bootstrap.
-- **Staging / production (Helm) — ⚠️ OPS BLOCKER, not yet automated.** The Helm chart
-  does **not** yet provision these users, so a deploy that reaches migration 006 without
-  them will fail (`post-install`/`pre-upgrade` hook Job → failed release). Provision them
-  as part of the ClickHouse deploy, then wire the RO env, before rolling the app:
-  1. In the ClickHouse Bitnami subchart values, declare the users/profile via
-     `clickhouse.usersExtraOverrides` (native `users.d` XML — applies to already-running
-     clusters, unlike `initdbScripts`, which only fires on a first-boot/empty data dir and
-     would silently no-op on the existing EFS volume). Back the passwords with
-     `<password from_env="...">` fed by `clickhouse.extraEnvVars` `secretKeyRef`.
-  2. Add `sql_gateway_writer` / `sql_gateway_ro` passwords as new keys in the Terraform-owned
-     secret (`deploy/terraform/aws/secrets.tf`) — mirror `random_password.clickhouse`.
-  3. Wire `CLICKHOUSE_RO_USER` / `CLICKHOUSE_RO_PASSWORD` into `deploy/helm/templates/rest/deployment.yaml`
-     (next to the existing `CLICKHOUSE_USER`/`CLICKHOUSE_PASSWORD`).
-  4. Verify the writer exists **before** the migrate Job runs — the subchart StatefulSet is
-     not hook-ordered relative to the `hook-weight: 0` migrate Job, so confirm the users are
-     live (e.g. a `pre-upgrade` hook Job at a lower weight, or a manual pre-check) rather than
-     assuming values-driven config lands first.
+- **Staging / production (Helm).** Automated by the chart:
+  - `clickhouse.usersExtraOverrides` (`deploy/helm/values.yaml`) grants the admin user
+    `access_management` via native `users.d` config, so the migration can create the
+    definer views and the provisioning Job can create users.
+  - `provision-clickhouse-users.yaml` (`post-install,pre-upgrade`, `hook-weight: -5`) runs
+    the idempotent `CREATE USER`/`GRANT`/`CREATE SETTINGS PROFILE` via `clickhouse-client`,
+    polling for ClickHouse to be reachable. Being weighted below the migrate Job
+    (`hook-weight: 0`) it always runs first, so the writer exists before the migration.
+  - Passwords come from two Terraform-generated secret keys — `clickhouse-writer-password`
+    and `clickhouse-ro-password` in the `traceroot` secret (`deploy/terraform/aws/secrets.tf`).
+  - `CLICKHOUSE_RO_USER` / `CLICKHOUSE_RO_PASSWORD` are wired into
+    `deploy/helm/templates/rest/deployment.yaml`.
 
-  TODO(ops): automate the above (tracked separately) before enabling the SQL gateway in
-  staging/prod. This change intentionally does not ship unverified Helm/Terraform changes.
+  **First rollout onto an already-running cluster — one-time manual sequencing.** Helm runs
+  `pre-upgrade` hooks *before* it updates non-hook resources (the ClickHouse StatefulSet). On
+  the very first upgrade that introduces `access_management`, the provisioning hook would run
+  against the old pod that lacks it and fail with a permissions error (no retry can fix that).
+  Do it in two steps: (1) upgrade with only the `usersExtraOverrides` change and confirm the
+  ClickHouse pod rolled with the new flag (`SHOW GRANTS` shows `ACCESS MANAGEMENT`); (2) upgrade
+  again to add the provisioning Job + enable the migration. Fresh installs and every subsequent
+  upgrade need no manual step. Confirm afterwards: `SHOW CREATE VIEW` shows the writer definer,
+  and `sql_gateway_ro` is denied the physical tables (Code 497).
+
+  Secret rotation is handled in-code: the provisioning Job follows each `CREATE USER` with
+  `ALTER USER ... IDENTIFIED WITH sha256_password BY ...`, so a rerun after rotating the
+  writer/ro secrets propagates the new password.
+
+  **Caveat to verify against a real cluster:** confirm the admin does not already carry access
+  management out of the box, which would make the `usersExtraOverrides` flag redundant.
 
 ## DEFINER: explicit scoped writer
 
@@ -166,9 +175,9 @@ SHOW CREATE VIEW <database>.spans_public_v1;
 - Under `readonly = 1`, the RO user cannot apply per-query `SETTINGS`. The query service
   therefore relies on the profile for caps and applies row limits via a `LIMIT`
   wrapper in the SQL text, never via per-query settings.
-- **TODO (public SQL endpoint):** the app service containers must receive `CLICKHOUSE_RO_USER` /
-  `CLICKHOUSE_RO_PASSWORD` before anything calls `get_readonly_clickhouse_client()`.
-  `docker-compose.prod.yml`'s `rest`/`worker` and Helm's `rest/deployment.yaml` do **not**
-  pass them yet — intentionally, since nothing reads the RO client until the public SQL
-  endpoint lands. Wire them there at that point (in cloud, `rest` defaults `ENABLE_BILLING=true`,
-  so a missing `CLICKHOUSE_RO_USER` is fatal by design).
+- **RO env wiring:** Helm's `rest/deployment.yaml` passes `CLICKHOUSE_RO_USER` /
+  `CLICKHOUSE_RO_PASSWORD` (the host that serves the SQL endpoint). Still **not** wired:
+  `docker-compose.prod.yml`'s app services and Helm's `worker` — intentionally, since nothing
+  reads the RO client there. Wire them if the public SQL endpoint ever runs outside `rest`
+  (in cloud, `rest` defaults `ENABLE_BILLING=true`, so a missing `CLICKHOUSE_RO_USER` is fatal
+  by design).
