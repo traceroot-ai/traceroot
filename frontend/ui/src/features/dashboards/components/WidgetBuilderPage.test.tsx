@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DashboardDetail, Widget } from "../types";
+import { dateFilterStorageKey, readStoredDateFilter } from "@/lib/date-filter-storage";
 import { WidgetBuilderPage } from "./WidgetBuilderPage";
 
 // Radix Select opens on pointerdown and relies on pointer-capture APIs jsdom
@@ -133,8 +134,40 @@ describe("WidgetBuilderPage", () => {
     updateWidget.mutate.mockReset();
     updateWidget.isPending = false;
     updateWidget.error = null;
+    localStorage.clear();
     mockDashboard(DASHBOARD);
     mockPreview({});
+  });
+
+  it("adopts the project's persisted range and persists a picked preset", async () => {
+    localStorage.setItem(dateFilterStorageKey("p1"), JSON.stringify({ id: "7d" }));
+    render(<WidgetBuilderPage projectId="p1" dashboardId="d1" />);
+
+    // The preview dropdown adopts the stored selection after mount…
+    expect(await screen.findByText("Last 7 days")).toBeTruthy();
+
+    // …and picking a preset writes the shared store for the other pages.
+    fireEvent.pointerDown(screen.getByText("Last 7 days").closest("button") as HTMLElement, {
+      button: 0,
+      pointerType: "mouse",
+    });
+    fireEvent.click(await screen.findByText("Last 30 days"));
+    expect(readStoredDateFilter("p1")).toEqual({ id: "30d" });
+  });
+
+  it("leaves a stored custom range untouched and previews the shared default", () => {
+    const custom = {
+      id: "custom",
+      start: "2026-07-01T00:00:00.000Z",
+      end: "2026-07-02T00:00:00.000Z",
+    };
+    localStorage.setItem(dateFilterStorageKey("p1"), JSON.stringify(custom));
+    render(<WidgetBuilderPage projectId="p1" dashboardId="d1" />);
+
+    // The preset-only dropdown can't express custom: default preview window,
+    // stored preference preserved for the pages that can render it.
+    expect(screen.getByText("Last 24 hours")).toBeTruthy();
+    expect(readStoredDateFilter("p1")).toEqual(custom);
   });
 
   it("renders the two config sections with save disabled on a fresh draft", () => {
