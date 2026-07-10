@@ -121,10 +121,12 @@ order above is the safe logical sequence for staged/manual provisioning.
   upgrade need no manual step. Confirm afterwards: `SHOW CREATE VIEW` shows the writer definer,
   and `sql_gateway_ro` is denied the physical tables (Code 497).
 
-  **Caveats to verify against a real cluster:** `CREATE USER IF NOT EXISTS` does not re-apply a
-  changed password, so rotating the writer/ro secrets needs an unconditional `ALTER USER` step;
-  and confirm the admin does not already carry access management out of the box (which would
-  make the flag redundant).
+  Secret rotation is handled in-code: the provisioning Job follows each `CREATE USER` with
+  `ALTER USER ... IDENTIFIED WITH sha256_password BY ...`, so a rerun after rotating the
+  writer/ro secrets propagates the new password.
+
+  **Caveat to verify against a real cluster:** confirm the admin does not already carry access
+  management out of the box, which would make the `usersExtraOverrides` flag redundant.
 
 ## DEFINER: explicit scoped writer
 
