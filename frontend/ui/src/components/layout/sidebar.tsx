@@ -237,9 +237,13 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
           {/* Star widget */}
           {!collapsed && <GitHubStarWidget />}
 
-          {/* Upgrade button - only show when in project context */}
-          {isProject && projectId && (
-            <SidebarUpgradeButton projectId={projectId} collapsed={collapsed} />
+          {/* Upgrade button - only show when in a project or workspace context */}
+          {(projectId || workspaceId) && (
+            <SidebarUpgradeButton
+              projectId={projectId}
+              workspaceId={workspaceId}
+              collapsed={collapsed}
+            />
           )}
 
           {/* GitHub link */}
