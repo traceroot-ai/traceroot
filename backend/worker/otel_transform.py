@@ -162,14 +162,14 @@ def decode_otel_id(b64_value: str | None) -> str | None:
         return b64_value  # Return as-is if decoding fails
 
 
-def nanos_to_datetime(nanos: int | str | None) -> datetime | None:
+def nanos_to_datetime(nanos: object) -> datetime | None:
     """Convert nanoseconds since epoch to datetime.
 
     Args:
         nanos: Unix timestamp in nanoseconds (int or string representation)
 
     Returns:
-        datetime object, or None if input is None/empty
+        datetime object, or None if input is None/empty/malformed
     """
     if nanos is None:
         return None
@@ -177,10 +177,19 @@ def nanos_to_datetime(nanos: int | str | None) -> datetime | None:
     if isinstance(nanos, str):
         if not nanos:
             return None
-        nanos = int(nanos)
+        try:
+            nanos = int(nanos)
+        except ValueError:
+            return None
+    elif isinstance(nanos, bool) or not isinstance(nanos, int):
+        return None
+
     # Convert nanos to seconds (float to preserve precision)
-    seconds = nanos / 1_000_000_000
-    return datetime.fromtimestamp(seconds, tz=UTC).replace(tzinfo=None)
+    try:
+        seconds = nanos / 1_000_000_000
+        return datetime.fromtimestamp(seconds, tz=UTC).replace(tzinfo=None)
+    except (OverflowError, OSError, ValueError):
+        return None
 
 
 def extract_attribute_value(attr_value: dict) -> Any:
