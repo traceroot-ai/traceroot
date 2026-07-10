@@ -306,12 +306,42 @@ describe("DashboardDetailPage", () => {
     expect(screen.queryByRole("button", { name: "Delete dashboard" })).toBeNull();
   });
 
-  it("redirects to the dashboard index and invalidates the list cache when the dashboard fails to load", () => {
-    mockDetail(undefined, new Error("404"));
+  it("redirects to the dashboard index and invalidates the list cache when the dashboard is gone", () => {
+    mockDetail(undefined, new Error("Dashboard not found"));
     const { invalidateSpy } = renderPage();
 
     expect(replace).toHaveBeenCalledWith("/projects/p1/dashboard");
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["dashboards", "p1"] });
+  });
+
+  it("stays put and shows a failure notice on a transient load error", () => {
+    mockDetail(undefined, new Error("API error: 503"));
+    const { invalidateSpy } = renderPage();
+
+    expect(replace).not.toHaveBeenCalled();
+    expect(invalidateSpy).not.toHaveBeenCalled();
+    expect(screen.getByText(/Failed to load the dashboard/)).toBeTruthy();
+  });
+
+  it("keeps rendering the cached dashboard when a background poll fails", () => {
+    mockDetail(
+      { ...DASH_A, widgets: [WIDGET], layout: [{ i: "w1", x: 0, y: 0, w: 4, h: 4 }] },
+      new Error("API error: 503"),
+    );
+    renderPage();
+
+    expect(replace).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Failed to load the dashboard/)).toBeNull();
+    expect(lastGridProps?.widgets).toEqual([WIDGET]);
+  });
+
+  it("hides edit controls while the dashboard is still loading", () => {
+    mockDetail(undefined);
+    renderPage();
+
+    expect(screen.getByText("Loading…")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "＋ Create widget" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete dashboard" })).toBeNull();
   });
 
   it("passes widgets, layout and range to the grid and wires edit/duplicate/delete", () => {
@@ -333,6 +363,8 @@ describe("DashboardDetailPage", () => {
       title: "Cost (copy)",
       type: "query",
       spec: WIDGET.spec,
+      // A duplicate carries the display settings too, not just the query.
+      displayConfig: WIDGET.displayConfig,
     });
 
     fireEvent.click(screen.getByRole("button", { name: "delete-w1" }));

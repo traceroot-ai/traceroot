@@ -83,16 +83,26 @@ export default function DashboardDetailPage() {
     router.push(`/projects/${projectId}/dashboard/${dashboardId}/widgets/${w.id}/edit`);
 
   // ── deleted / missing dashboard redirect ─────────────────────────────────────
+  // fetchNextApi doesn't carry the HTTP status, so gone-ness is detected from
+  // the API's error message. The exact match keeps "Project not found" (a
+  // deleted project) and auth failures from redirecting; only a genuinely
+  // missing dashboard leaves the page. Everything else keeps the user here —
+  // the detail query's 30s poll retries, with a failure notice while empty.
+  const dashboardGone =
+    dashboardError instanceof Error &&
+    (dashboardError.message === "Dashboard not found" ||
+      /API error: 404/i.test(dashboardError.message));
   useEffect(() => {
-    if (dashboardError) {
+    if (dashboardGone) {
       // Invalidate the list so a stale cache can't bounce the user back here.
       void queryClient.invalidateQueries({ queryKey: ["dashboards", projectId] });
       router.replace(`/projects/${projectId}/dashboard`);
     }
-  }, [dashboardError, projectId, queryClient, router]);
+  }, [dashboardGone, projectId, queryClient, router]);
 
-  // useDashboard resolves to undefined while loading and throws on 404/error,
-  // so dashboardError above handles the redirect. No additional null check needed.
+  // useDashboard resolves to undefined while loading and surfaces failures via
+  // its error field; the redirect above handles gone dashboards, so the render
+  // below only needs the loading and failure branches.
 
   // ── new dashboard ────────────────────────────────────────────────────────────
   const [createDashboardOpen, setCreateDashboardOpen] = useState(false);
@@ -124,6 +134,7 @@ export default function DashboardDetailPage() {
         title: `${w.title} (copy)`,
         type: w.type,
         spec: w.spec,
+        displayConfig: w.displayConfig,
       });
     },
     [createWidget],
@@ -141,8 +152,10 @@ export default function DashboardDetailPage() {
   const widgets = dashboard?.widgets ?? [];
   const layout = dashboard?.layout ?? [];
   // The seeded default dashboard is read-only: custom dashboards start from
-  // "＋ new" instead. The API enforces the same rule.
-  const readOnly = dashboard?.isDefault ?? false;
+  // "＋ new" instead. The API enforces the same rule. Treated as read-only
+  // while the detail is still loading so edit controls never flash on the
+  // Overview before the app knows which dashboard this is.
+  const readOnly = dashboard ? dashboard.isDefault : true;
 
   return (
     <div className="relative flex h-full text-[13px]">
@@ -245,7 +258,13 @@ export default function DashboardDetailPage() {
 
         {/* Body */}
         <div ref={bodyRef} className="flex-1 overflow-auto bg-background">
-          {!dashboard ? (
+          {dashboardError && !dashboardGone && !dashboard ? (
+            // Only when there's nothing to render: a failed background poll
+            // keeps the cached dashboard, and the stale grid beats a notice.
+            <div className="flex h-64 items-center justify-center text-[13px] text-red-600">
+              Failed to load the dashboard — retrying automatically
+            </div>
+          ) : !dashboard ? (
             <div className="flex h-64 items-center justify-center text-[13px] text-muted-foreground">
               Loading…
             </div>

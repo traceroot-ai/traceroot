@@ -31,6 +31,10 @@ export function CreateDashboardDialog({
   // Closing discards the draft: a cancelled name or stale error must not
   // reappear the next time the dialog opens.
   const handleOpenChange = (next: boolean) => {
+    // Radix close paths (Escape, overlay click, the X) bypass the disabled
+    // Cancel button — ignore them while a create is in flight, so the pending
+    // mutation can't be reset mid-request and resubmitted.
+    if (!next && createDashboard.isPending) return;
     if (!next) {
       setName("");
       createDashboard.reset();
