@@ -91,12 +91,22 @@ export function useTraceStream(
 
     // At most one gap-covering refetch in flight: a timeout and a reconnect
     // can land close together, and each would otherwise hit the
-    // trace-detail endpoint.
+    // trace-detail endpoint. A request that arrives mid-flight is queued (one
+    // deep) instead of dropped — the in-flight response may predate the spans
+    // the newer request is trying to recover.
+    let refetchQueued = false;
     const refetchGap = () => {
-      if (refetchInFlight) return;
+      if (refetchInFlight) {
+        refetchQueued = true;
+        return;
+      }
       refetchInFlight = true;
       queryClient.invalidateQueries({ queryKey }).finally(() => {
         refetchInFlight = false;
+        if (refetchQueued && !disposed) {
+          refetchQueued = false;
+          refetchGap();
+        }
       });
     };
 

@@ -211,6 +211,26 @@ describe("connection errors", () => {
     act(() => latest().open());
     expect(invalidateSpy).toHaveBeenCalledTimes(1);
   });
+
+  it("queues a gap refetch requested while one is in flight instead of dropping it", async () => {
+    let resolveFirst!: (value?: unknown) => void;
+    invalidateSpy
+      .mockReturnValueOnce(new Promise((r) => (resolveFirst = r)) as Promise<void>)
+      .mockResolvedValue(undefined);
+    renderStream();
+    act(() => latest().open());
+    act(() => latest().errorTransient());
+    act(() => latest().open()); // gap refetch #1 starts and stays in flight
+    act(() => latest().errorTransient());
+    act(() => latest().open()); // gap #2 requested mid-flight — must be queued
+    expect(invalidateSpy).toHaveBeenCalledTimes(1);
+    // The queued refetch runs after the first one settles, so its snapshot
+    // cannot predate the second gap's spans.
+    await act(async () => {
+      resolveFirst();
+    });
+    expect(invalidateSpy).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("unmount", () => {
