@@ -433,6 +433,9 @@ class TraceReaderService:
         # usage_details is kept (small map) to derive cost_details. Duration is
         # derived on the client from start/end so in-progress spans can grow
         # against `now()` for live traces.
+        # span_start_time is DateTime64(3) (ms), so sub-ms parallel siblings tie;
+        # the span_end_time + span_id tie-breakers give a stable, deterministic
+        # order (clients sort the same way — keep these columns in sync).
         spans_query = f"""
             SELECT
                 span_id, trace_id, parent_span_id, name, span_kind,
@@ -452,7 +455,7 @@ class TraceReaderService:
                 ORDER BY ch_update_time DESC
                 LIMIT 1 BY span_id
             )
-            ORDER BY span_start_time ASC
+            ORDER BY span_start_time ASC, span_end_time ASC, span_id ASC
         """
         spans_result = self._client.query(
             spans_query,
