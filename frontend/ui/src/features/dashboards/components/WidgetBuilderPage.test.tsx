@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DashboardDetail, Widget } from "../types";
 import { WidgetBuilderPage } from "./WidgetBuilderPage";
@@ -252,6 +252,15 @@ describe("WidgetBuilderPage", () => {
 
     expect(screen.getByText(/can't be histogrammed/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Save widget" })).toHaveProperty("disabled", true);
+
+    // The preview is starved rather than firing a query the compiler is
+    // guaranteed to reject: the pane shows guidance immediately, and once
+    // the debounce settles the hook receives a null draft (the gate judges
+    // the same debounced value the hook consumes).
+    expect(
+      screen.getByText("Preview unavailable for this measure/display combination"),
+    ).toBeTruthy();
+    await waitFor(() => expect(vi.mocked(useWidgetPreview).mock.lastCall?.[1]).toBeNull());
   });
 
   it("warns and blocks save when pie/bar is picked without a breakdown", async () => {

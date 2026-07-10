@@ -54,6 +54,20 @@ type View = "spans" | "traces";
 
 const EMPTY_DRAFT: DraftSpec = { filters: [], breakdown: null };
 
+// A histogram-blocked draft (histogram display on a measure the registry says
+// can't be histogrammed) still parses complete — histogrammable is registry
+// data, not schema shape — so completeness checks alone won't catch it. Used
+// against both the live draft (warning/save UI) and the debounced draft (the
+// preview gate must judge the same value the query hook consumes, or leaving
+// the blocked state would fire the stale blocked spec once).
+function isHistogramBlocked(
+  draft: DraftSpec,
+  viewFields: Record<string, WidgetSchemaField>,
+): boolean {
+  const field = draft.metric?.measure ? viewFields[draft.metric.measure] : undefined;
+  return draft.display?.type === "histogram" && field?.histogrammable === false;
+}
+
 // Section boxes match the detector creation form: square-cornered border with
 // a muted header strip, sub-fields divided inside.
 function SectionBox({ label, children }: { label: string; children: React.ReactNode }) {
@@ -232,20 +246,28 @@ export function WidgetBuilderPage({
   // ── name (auto until edited) ──────────────────────────────────────────────
   const effectiveTitle = titleLocked ? title : generateWidgetTitle(draft, viewFields);
 
-  // ── preview ───────────────────────────────────────────────────────────────
-  const debouncedDraft = useDebounced(draft, 400);
-  const preview = useWidgetPreview(projectId, debouncedDraft, range);
-  const debouncedSpec = useMemo(() => parseSpec(debouncedDraft), [debouncedDraft]);
-
-  // ── save ──────────────────────────────────────────────────────────────────
-  const specComplete = isSpecComplete(draft);
   // The schema tells us which measures the query engine can histogram
   // (count's expr is the count(*) sentinel, which it permanently rejects) —
   // without this gate the widget saves and then renders "Query failed"
   // forever on the dashboard.
   const measureField = draft.metric?.measure ? viewFields[draft.metric.measure] : undefined;
-  const histogramBlocked =
-    draft.display?.type === "histogram" && measureField?.histogrammable === false;
+  const histogramBlocked = isHistogramBlocked(draft, viewFields);
+
+  // ── preview ───────────────────────────────────────────────────────────────
+  const debouncedDraft = useDebounced(draft, 400);
+  // The compiler is guaranteed to reject a histogram-blocked spec — starve
+  // the preview query instead of rendering its error under the inline
+  // warning that already explains the problem. Judged on the debounced
+  // draft the hook consumes, not the fresher `histogramBlocked`.
+  const preview = useWidgetPreview(
+    projectId,
+    isHistogramBlocked(debouncedDraft, viewFields) ? null : debouncedDraft,
+    range,
+  );
+  const debouncedSpec = useMemo(() => parseSpec(debouncedDraft), [debouncedDraft]);
+
+  // ── save ──────────────────────────────────────────────────────────────────
+  const specComplete = isSpecComplete(draft);
   const saving = createWidget.isPending || updateWidget.isPending;
   const canSave = specComplete && !histogramBlocked && effectiveTitle.trim().length > 0 && !saving;
   const saveError = createWidget.error ?? updateWidget.error;
@@ -531,9 +553,11 @@ export function WidgetBuilderPage({
             </DropdownMenu>
           </div>
           <div className="min-h-0 flex-1 p-4">
-            {!specComplete ? (
+            {!specComplete || histogramBlocked ? (
               <div className="flex h-full items-center justify-center text-[12px] text-muted-foreground">
-                Complete the data selection and display to preview
+                {histogramBlocked
+                  ? "Preview unavailable for this measure/display combination"
+                  : "Complete the data selection and display to preview"}
               </div>
             ) : preview.isPending ? (
               <div className="flex h-full items-center justify-center text-[12px] text-muted-foreground">
