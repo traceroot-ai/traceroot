@@ -38,7 +38,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   const { user } = authResult;
 
   const { projectId, detectorId } = await params;
-  const accessResult = await requireProjectAccess(user.id, projectId);
+  const accessResult = await requireProjectAccess(user.id, projectId, "MEMBER");
   if (accessResult.error) return accessResult.error;
 
   const existing = await prisma.detector.findFirst({
@@ -167,7 +167,7 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
   const { user } = authResult;
 
   const { projectId, detectorId } = await params;
-  const accessResult = await requireProjectAccess(user.id, projectId);
+  const accessResult = await requireProjectAccess(user.id, projectId, "ADMIN");
   if (accessResult.error) return accessResult.error;
 
   const existing = await prisma.detector.findFirst({

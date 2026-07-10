@@ -50,6 +50,18 @@ beforeEach(() => {
   detectorCreateMock.mockResolvedValue({ id: "det-1" });
 });
 
+describe("POST .../detectors — role gate", () => {
+  it("returns 403 for VIEWER (requires MEMBER)", async () => {
+    requireProjectAccessMock.mockResolvedValue({
+      error: { status: 403, json: async () => ({ error: "Requires MEMBER role or higher" }) },
+    });
+    const res = await POST(makeRequest(validBody()), makeParams());
+    expect(res.status).toBe(403);
+    expect(requireProjectAccessMock).toHaveBeenCalledWith("user-1", "proj-1", "MEMBER");
+    expect(detectorCreateMock).not.toHaveBeenCalled();
+  });
+});
+
 describe("POST .../detectors — sampleRate default", () => {
   it("defaults sampleRate to 25 when omitted", async () => {
     const res = await POST(makeRequest(validBody()), makeParams());

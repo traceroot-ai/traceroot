@@ -61,7 +61,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   const { user } = authResult;
 
   const { projectId } = await params;
-  const accessResult = await requireProjectAccess(user.id, projectId);
+  const accessResult = await requireProjectAccess(user.id, projectId, "MEMBER");
   if (accessResult.error) return accessResult.error;
 
   let body: unknown;

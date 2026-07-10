@@ -125,6 +125,17 @@ describe("GET /api/github/token", () => {
       const res = await GET(makeRequest({ workspaceIdQuery: "ws_1" }));
       expect(res.status).toBe(403);
     });
+
+    it("session path requires ADMIN — VIEWER gets 403 and no token is minted", async () => {
+      requireAuthMock.mockResolvedValue({ user: { id: "u_1" } });
+      requireMembershipMock.mockResolvedValue({
+        error: { status: 403, json: async () => ({ error: "Requires ADMIN role or higher" }) },
+      });
+      const res = await GET(makeRequest({ workspaceIdQuery: "ws_1" }));
+      expect(res.status).toBe(403);
+      expect(requireMembershipMock).toHaveBeenCalledWith("u_1", "ws_1", "ADMIN");
+      expect(getInstallationTokenMock).not.toHaveBeenCalled();
+    });
   });
 
   describe("installation lookup", () => {
