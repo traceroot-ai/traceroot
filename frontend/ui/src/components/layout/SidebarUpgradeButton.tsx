@@ -15,7 +15,11 @@ interface SidebarUpgradeButtonProps {
   collapsed: boolean;
 }
 
-export function SidebarUpgradeButton({ projectId, workspaceId: propWorkspaceId, collapsed }: SidebarUpgradeButtonProps) {
+export function SidebarUpgradeButton({
+  projectId,
+  workspaceId: propWorkspaceId,
+  collapsed,
+}: SidebarUpgradeButtonProps) {
   const [showPricingDialog, setShowPricingDialog] = useState(false);
 
   // Resolve the workspace so the pricing dialog can act on its plan
