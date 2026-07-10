@@ -148,7 +148,7 @@ export function TraceViewerPanel({
     queryFn: () => getTrace(projectId, traceId, ""),
   });
 
-  useTraceStream(projectId, traceId, true);
+  const { streamStatus } = useTraceStream(projectId, traceId, true);
 
   // Reset when navigating to a different trace
   useEffect(() => {
@@ -243,6 +243,24 @@ export function TraceViewerPanel({
             <Workflow className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm font-medium">Trace</span>
             <span className="truncate font-mono text-xs text-muted-foreground">{traceId}</span>
+            {streamStatus === "live" && (
+              <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500 opacity-75" />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                </span>
+                Live
+              </span>
+            )}
+            {streamStatus === "disconnected" && (
+              <span
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-500"
+                title="Live updates stopped — reload to catch up"
+              >
+                <span className="inline-flex h-1.5 w-1.5 rounded-full bg-amber-500" />
+                Live view disconnected
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1">
             {hasRca && (
