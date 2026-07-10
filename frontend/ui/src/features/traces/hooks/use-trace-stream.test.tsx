@@ -199,6 +199,18 @@ describe("connection errors", () => {
     act(() => latest().emit("stream_timeout")); // would refetch again
     expect(invalidateSpy).toHaveBeenCalledTimes(1);
   });
+
+  it("covers the gap once when a fatal-error reconnect succeeds", () => {
+    renderStream();
+    act(() => latest().open());
+    act(() => latest().errorFatal());
+    // No refetch while the endpoint is known-down — only after reconnecting.
+    expect(invalidateSpy).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(MockEventSource.instances).toHaveLength(2);
+    act(() => latest().open());
+    expect(invalidateSpy).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("unmount", () => {
