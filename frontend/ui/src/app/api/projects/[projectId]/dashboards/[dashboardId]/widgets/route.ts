@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server";
-import { prisma } from "@traceroot/core";
+import { prisma, Role } from "@traceroot/core";
 import { errorResponse, successResponse } from "@/lib/auth-helpers";
 import { parseJsonObject, requireProjectAuth } from "@/lib/route-helpers";
+import { WIDGET_TITLE_MAX } from "@/features/dashboards/types";
 
 type RouteParams = { params: Promise<{ projectId: string; dashboardId: string }> };
 
@@ -9,7 +10,7 @@ const WIDGET_TYPES = new Set(["query", "trace_feed"]);
 
 // POST .../widgets — add a widget to a dashboard
 export async function POST(req: NextRequest, { params }: RouteParams) {
-  const auth = await requireProjectAuth(params);
+  const auth = await requireProjectAuth(params, Role.MEMBER);
   if (auth.error) return auth.error;
   const { projectId, dashboardId } = auth.params;
 
@@ -25,6 +26,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
   if (typeof title !== "string" || title.trim().length === 0) {
     return errorResponse("title must be a non-empty string", 400);
+  }
+  if (title.trim().length > WIDGET_TITLE_MAX) {
+    return errorResponse(`title must be at most ${WIDGET_TITLE_MAX} characters`, 400);
   }
   if (typeof type !== "string" || !WIDGET_TYPES.has(type)) {
     return errorResponse(`type must be one of ${[...WIDGET_TYPES].join(", ")}`, 400);
