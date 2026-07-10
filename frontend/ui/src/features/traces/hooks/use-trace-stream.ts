@@ -65,6 +65,9 @@ export function useTraceStream(
 
   useEffect(() => {
     if (!enabled || !projectId || !traceId) {
+      // A disabled stream is non-live; without this a consumer that toggles
+      // `enabled` off mid-stream would keep reporting the last live status.
+      setStreamStatus("ended");
       return;
     }
 

@@ -212,3 +212,18 @@ describe("unmount", () => {
     expect(MockEventSource.instances).toHaveLength(1); // retry timer cancelled
   });
 });
+
+describe("disabling the stream", () => {
+  it("resets a live status when enabled flips to false", () => {
+    const { result, rerender } = renderHook(({ enabled }) => useTraceStream("p1", "t1", enabled), {
+      wrapper,
+      initialProps: { enabled: true },
+    });
+    act(() => latest().open());
+    expect(result.current.streamStatus).toBe("live");
+    rerender({ enabled: false });
+    expect(result.current.streamStatus).toBe("ended");
+    expect(result.current.isStreaming).toBe(false);
+    expect(MockEventSource.instances[0].readyState).toBe(MockEventSource.CLOSED);
+  });
+});
