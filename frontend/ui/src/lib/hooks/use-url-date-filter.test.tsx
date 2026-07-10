@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { renderHook, act, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
 import { DATE_FILTER_OPTIONS, findDateFilterOption } from "@/lib/date-filter";
 import { dateFilterStorageKey, readStoredDateFilter } from "@/lib/date-filter-storage";
 import { useUrlDateFilter } from "./use-url-date-filter";
@@ -131,5 +133,39 @@ describe("useUrlDateFilter persistence", () => {
       expect(result.current.dateFilter.id).toBe(DATE_FILTER_OPTIONS.find((o) => o.id === "1d")!.id),
     );
     expect(result.current.customStartDate).toBeNull();
+  });
+
+  it("settles data queries on the restored window, not the default", async () => {
+    localStorage.setItem(KEY, JSON.stringify({ id: "7d" }));
+    const fetchSpy = vi.fn(async (bounds: unknown) => ({ bounds }));
+
+    // Mirror how pages consume the hook: a react-query query keyed on the
+    // effective window. Restoration runs in a layout effect (pre-paint), so
+    // the restored window is what the page settles on; react-query may still
+    // start-and-supersede one default-window fetch during the same commit —
+    // accepted, invisible to the user.
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(
+      () => {
+        const filter = useUrlDateFilter();
+        const query = useQuery({
+          queryKey: ["window", filter.timestamps.startAfter, filter.timestamps.endBefore],
+          queryFn: () => fetchSpy(filter.timestamps),
+        });
+        return { filter, query };
+      },
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.query.isSuccess).toBe(true));
+    expect(result.current.filter.dateFilter.id).toBe("7d");
+    const fetchedWindowMs =
+      new Date(result.current.filter.timestamps.endBefore ?? Date.now()).getTime() -
+      new Date(result.current.filter.timestamps.startAfter!).getTime();
+    expect(Math.round(fetchedWindowMs / 86_400_000)).toBe(7);
+    client.clear();
   });
 });

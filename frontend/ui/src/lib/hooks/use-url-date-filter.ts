@@ -4,7 +4,7 @@
  * when present; otherwise the stored selection applies, so a range picked on
  * any page (trace list, dashboards, detectors) carries to all of them.
  */
-import { useState, useCallback, useMemo, useEffect, useRef } from "react";
+import { useState, useCallback, useMemo, useEffect, useLayoutEffect, useRef } from "react";
 import { useSearchParams, useRouter, usePathname, useParams } from "next/navigation";
 import {
   DEFAULT_DATE_FILTER,
@@ -14,6 +14,10 @@ import {
   type DateFilterOption,
 } from "@/lib/date-filter";
 import { readStoredDateFilter, writeStoredDateFilter } from "@/lib/date-filter-storage";
+
+// useLayoutEffect on the client, useEffect during SSR: layout effects never
+// run on the server, and React warns when a server render encounters one.
+const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 interface UseUrlDateFilterReturn {
   dateFilter: DateFilterOption;
@@ -60,13 +64,17 @@ export function useUrlDateFilter(
   const onFilterChangeRef = useRef(onFilterChange);
   onFilterChangeRef.current = onFilterChange;
 
-  // Adopt the stored per-project selection once after mount, and only when the
+  // Adopt the stored per-project selection once at mount, and only when the
   // URL carries no explicit filter (a shared link's range must win on the page
-  // it targets). Running post-mount keeps server and first client render
-  // identical, so hydration never mismatches; a stored value differing from
-  // the default flashes once at the default — same tradeoff as useLocalStorage.
+  // it targets). The first render still shows the default — identical to the
+  // server HTML, so hydration never mismatches — but adopting in a LAYOUT
+  // effect re-renders before the browser paints, so the user never sees the
+  // default window. (react-query subscribes during the same commit, so a
+  // default-window fetch can still start and be superseded — invisible, but
+  // one extra backend query per hard load; eliminating it would mean gating
+  // every consumer query on a restoration flag.)
   const restoredRef = useRef(false);
-  useEffect(() => {
+  useIsomorphicLayoutEffect(() => {
     if (restoredRef.current) return;
     restoredRef.current = true;
     if (!projectId || searchParams.get("date_filter")) return;
@@ -90,9 +98,9 @@ export function useUrlDateFilter(
     // The effective window changed under the page: consumers that paginate
     // must reset (a stale ?page_index can point past the restored window).
     onFilterChangeRef.current?.();
-    // dateFilter.id is read only on the once-guarded first run; re-running on
-    // its later changes is prevented by restoredRef.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // dateFilter.id is deliberately not a dependency: it's read only on the
+    // once-guarded first run, and restoredRef prevents any re-run. (The lint
+    // rule doesn't check custom-named hooks, so this documents what it can't.)
   }, [projectId, searchParams]);
 
   // Only explicit user actions persist: adopting a link's URL param must not
