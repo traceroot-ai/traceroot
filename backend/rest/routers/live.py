@@ -28,35 +28,41 @@ MAX_STREAM_SECONDS = 600  # 10 minutes — hard ceiling for idle connections
 TRACE_COMPLETE_QUIET_SECONDS = settings.trace_complete_quiet_seconds
 
 
-def _root_completion_time_in_clickhouse(project_id: str, trace_id: str) -> datetime | None:
-    """Return the end time of this trace's root span, or None if still open.
+def _completion_state_in_clickhouse(
+    project_id: str, trace_id: str
+) -> tuple[datetime | None, datetime | None]:
+    """Return (root end time, last ingest time) for this trace.
 
-    A root span with an end time is a completion candidate, not proof that no
-    more descendant spans can arrive. Some streaming handlers finish the root
-    span before background work emits its children.
+    The root end time is None while the root span is still open. A root span
+    with an end time is a completion candidate, not proof that no more
+    descendant spans can arrive — some streaming handlers finish the root span
+    before background work emits its children, so the last ingest time
+    (max ch_update_time) tells us whether spans are still actively arriving.
     """
     from db.clickhouse.client import get_clickhouse_client
 
     ch_client = get_clickhouse_client()
     # Dedup ReplacingMergeTree rows without FINAL: keep the latest version per
-    # span_id (filtered to this trace), then test the root-complete condition on
-    # the deduped rows.
+    # span_id (filtered to this trace), then aggregate on the deduped rows.
     result = ch_client.query(
         """
-        SELECT max(span_end_time) FROM (
-            SELECT parent_span_id, span_end_time FROM spans
+        SELECT
+            maxIf(span_end_time, isNull(parent_span_id)),
+            max(ch_update_time)
+        FROM (
+            SELECT parent_span_id, span_end_time, ch_update_time FROM spans
             WHERE project_id = {project_id:String}
               AND trace_id   = {trace_id:String}
             ORDER BY ch_update_time DESC
             LIMIT 1 BY span_id
         )
-        WHERE isNull(parent_span_id)
-          AND isNotNull(span_end_time)
         """,
         parameters={"project_id": project_id, "trace_id": trace_id},
     )
     rows = result.result_rows
-    return rows[0][0] if rows and rows[0][0] is not None else None
+    if not rows:
+        return None, None
+    return rows[0][0], rows[0][1]
 
 
 @router.get("/live")
@@ -95,18 +101,22 @@ async def live_trace_stream(
             # That starts the quiet window, but it does not immediately close the
             # stream: distributed traces can still receive descendant spans after
             # the root wrapper has finished.
-            root_end_time = await asyncio.to_thread(
-                _root_completion_time_in_clickhouse, project_id, trace_id
+            root_end_time, last_ingest_time = await asyncio.to_thread(
+                _completion_state_in_clickhouse, project_id, trace_id
             )
 
             completion_deadline = None
             if root_end_time is not None:
-                # Anchor the quiet window to when the root actually ended, so
-                # opening an old completed trace doesn't hold the SSE connection
-                # and Redis subscription for the full window. ClickHouse stores
-                # naive UTC timestamps; clamp age at 0 against clock skew.
+                # Anchor the quiet window to the LATEST of root end and last
+                # span ingest: an old idle trace closes immediately instead of
+                # holding the SSE connection and Redis subscription for the
+                # full window, while a trace whose descendants are still
+                # arriving (root ended early) keeps its late-span protection.
+                # ClickHouse stores naive UTC timestamps; clamp age at 0
+                # against clock skew.
+                anchor = max(root_end_time, last_ingest_time or root_end_time)
                 now_utc = datetime.now(UTC).replace(tzinfo=None)
-                age = max(0.0, (now_utc - root_end_time).total_seconds())
+                age = max(0.0, (now_utc - anchor).total_seconds())
                 completion_deadline = time.monotonic() + max(
                     0.0, TRACE_COMPLETE_QUIET_SECONDS - age
                 )
