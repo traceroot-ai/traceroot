@@ -146,6 +146,8 @@ class TestPublicListTraces:
         item = resp.json()["data"][0]
         assert item["trace_url"] == "http://localhost:3000/projects/proj-A/traces?traceId=abc123"
         assert "status" not in item
+        # Every timestamp must carry an explicit UTC offset (#1054).
+        assert item["trace_start_time"].endswith("+00:00")
 
     def test_trace_url_uses_public_ui_url_not_internal(self, client, mock_reader, monkeypatch):
         """List trace_url must use the host-usable public UI URL, never the
@@ -226,6 +228,10 @@ class TestPublicGetTrace:
         assert len(data["spans"]) == 1
         assert data["spans"][0]["span_id"] == "span-1"
         assert data["trace_url"] == "http://localhost:3000/projects/proj-A/traces?traceId=abc123"
+        # Every timestamp must carry an explicit UTC offset (#1054).
+        assert data["trace_start_time"].endswith("+00:00")
+        assert data["spans"][0]["span_start_time"].endswith("+00:00")
+        assert data["spans"][0]["span_end_time"].endswith("+00:00")
 
     def test_trace_url_uses_public_ui_url_not_internal(self, client, mock_reader, monkeypatch):
         """Get trace_url must use the host-usable public UI URL, never the
@@ -282,6 +288,17 @@ class TestPublicGetTrace:
         resp = client.get("/api/v1/public/traces/abc123", headers=AUTH_HEADER)
         assert resp.status_code == 500
         assert resp.json()["detail"] == "Failed to get trace"
+
+    def test_export_includes_utc_offsets(self, client, mock_reader):
+        """Export bundles inherit the same trace/span schema and must emit offsets."""
+        mock_reader.get_trace.return_value = dict(TRACE_DETAIL)
+        resp = client.get("/api/v1/public/traces/abc123/export", headers=AUTH_HEADER)
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["manifest"]["trace_id"] == "abc123"
+        assert data["trace"]["trace_start_time"].endswith("+00:00")
+        assert data["spans"][0]["span_start_time"].endswith("+00:00")
+        assert data["spans"][0]["span_end_time"].endswith("+00:00")
 
 
 class TestPublicTraceReadAuth:

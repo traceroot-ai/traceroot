@@ -1,11 +1,12 @@
 """Unit tests for Celery task logic with mocked S3 + ClickHouse."""
 
+from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest
 
 from tests.fixtures.otel_payloads import make_otel_payload, make_span
-from worker.ingest_tasks import process_s3_traces
+from worker.ingest_tasks import _json_serializer, process_s3_traces
 
 TRACE_HEX = "aa" * 16
 SPAN_HEX = "bb" * 8
@@ -128,3 +129,19 @@ class TestProcessS3Traces:
         process_s3_traces(s3_key="test/key.json", project_id="proj-1")
 
         mock_detector_enqueue.assert_not_called()
+
+
+class TestJsonSerializer:
+    def test_naive_datetime_serializes_with_utc_offset(self):
+        """SSE payloads built by the worker must emit explicit UTC offsets (#1054)."""
+        assert _json_serializer(datetime(2024, 1, 15, 12, 0, 0)) == "2024-01-15T12:00:00+00:00"
+
+    def test_microsecond_datetime_serializes_with_utc_offset(self):
+        assert (
+            _json_serializer(datetime(2024, 1, 15, 12, 0, 0, 123456))
+            == "2024-01-15T12:00:00.123456+00:00"
+        )
+
+    def test_non_datetime_raises_type_error(self):
+        with pytest.raises(TypeError):
+            _json_serializer(object())

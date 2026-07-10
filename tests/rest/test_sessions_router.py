@@ -71,6 +71,9 @@ class TestListSessions:
         assert data["data"][0]["input"] == "What is the weather?"
         assert data["data"][0]["output"] == "It is sunny and 72F."
         assert data["data"][0]["total_cost"] == 0.05
+        # Every timestamp must carry an explicit UTC offset (#1054).
+        assert data["data"][0]["first_trace_time"].endswith("+00:00")
+        assert data["data"][0]["last_trace_time"].endswith("+00:00")
 
     def test_pagination(self, client, mock_trace_reader):
         mock_trace_reader.list_sessions.return_value = {
@@ -205,6 +208,11 @@ class TestGetSession:
         assert data["traces"][1]["output"] == "It will rain."
         assert data["trace_count"] == 2
         assert data["total_cost"] == 0.02
+        # Every timestamp must carry an explicit UTC offset (#1054).
+        assert data["first_trace_time"].endswith("+00:00")
+        assert data["last_trace_time"].endswith("+00:00")
+        assert data["traces"][0]["trace_start_time"].endswith("+00:00")
+        assert data["traces"][1]["trace_start_time"].endswith("+00:00")
 
     def test_not_found(self, client, mock_trace_reader):
         mock_trace_reader.get_session.return_value = None

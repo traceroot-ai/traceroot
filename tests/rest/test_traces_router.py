@@ -119,6 +119,24 @@ class TestListTraces:
         assert data["data"][0]["error_count"] == 0
         assert "status" not in data["data"][0]
         assert data["meta"]["total"] == 1
+        # Every timestamp must carry an explicit UTC offset (#1054).
+        assert data["data"][0]["trace_start_time"].endswith("+00:00")
+
+    def test_trace_start_time_includes_utc_offset(self, client, mock_trace_reader):
+        """Whole-second timestamps previously lost the offset and skewed the UI (#1055)."""
+        mock_trace_reader.list_traces.return_value = {
+            "data": [
+                {
+                    **TRACE_LIST_ITEM,
+                    "trace_start_time": datetime(2024, 1, 15, 12, 0, 0),
+                }
+            ],
+            "meta": {"page": 0, "limit": 50, "total": 1},
+        }
+        response = client.get("/api/v1/projects/test-project/traces")
+        assert response.status_code == 200
+        ts = response.json()["data"][0]["trace_start_time"]
+        assert ts == "2024-01-15T12:00:00+00:00"
 
     def test_with_name_and_user_filters(self, client, mock_trace_reader):
         mock_trace_reader.list_traces.return_value = {
@@ -199,6 +217,32 @@ class TestGetTrace:
         assert data["trace_id"] == "abc123"
         assert len(data["spans"]) == 1
         assert data["spans"][0]["span_id"] == "span-1"
+        # Every timestamp must carry an explicit UTC offset (#1054).
+        assert data["trace_start_time"].endswith("+00:00")
+        assert data["spans"][0]["span_start_time"].endswith("+00:00")
+        assert data["spans"][0]["span_end_time"].endswith("+00:00")
+
+    def test_trace_and_span_times_include_utc_offset(self, client, mock_trace_reader):
+        """Regression guard: whole-second and microsecond timestamps both emit +00:00."""
+        detail = {
+            **TRACE_DETAIL,
+            "trace_start_time": datetime(2024, 1, 15, 12, 0, 0),
+            "spans": [
+                {
+                    **TRACE_DETAIL["spans"][0],
+                    "span_start_time": datetime(2024, 1, 15, 12, 0, 0),
+                    "span_end_time": datetime(2024, 1, 15, 12, 0, 1, 123456),
+                }
+            ],
+        }
+        mock_trace_reader.get_trace.return_value = detail
+        response = client.get("/api/v1/projects/test-project/traces/abc123")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["trace_start_time"] == "2024-01-15T12:00:00+00:00"
+        span = data["spans"][0]
+        assert span["span_start_time"] == "2024-01-15T12:00:00+00:00"
+        assert span["span_end_time"] == "2024-01-15T12:00:01.123456+00:00"
 
     def test_404(self, client, mock_trace_reader):
         mock_trace_reader.get_trace.return_value = None
