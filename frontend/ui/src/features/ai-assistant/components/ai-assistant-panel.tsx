@@ -169,9 +169,12 @@ export function AiAssistantPanel({ projectId, onClose, compact = false }: AiAssi
             <p className="text-[12px] text-muted-foreground">
               To use the AI assistant, configure a system API key (e.g. Anthropic, OpenAI) in your
               environment, or add a BYOK provider in{" "}
-              <span className="font-medium text-foreground">
+              <a
+                href={`/workspaces/${workspaceId}/settings/model-providers`}
+                className="font-medium underline"
+              >
                 Workspace Settings &rarr; Model Providers
-              </span>
+              </a>
               .
             </p>
           </div>
