@@ -596,8 +596,9 @@ model EvaluationRun {
   scoredCount      Int       @default(0) @map("scored_count")
   taskErrorCount   Int       @default(0) @map("task_error_count")
   scorerErrorCount Int       @default(0) @map("scorer_error_count")
-  scorers          Json?     @map("scorers") @db.JsonB // [{name, version}]
+  scorers          Json?     @map("scorers") @db.JsonB // [{name, version, value_type?, direction?, threshold?}]
   model            String?   @db.VarChar
+  metadata         Json?     @map("metadata") @db.JsonB // structured run provenance (model, prompt, config, git)
   clientRunId      String?   @map("client_run_id") @db.VarChar // SDK idempotency key
   startedAt        DateTime  @default(now()) @map("started_at") @db.Timestamp(6)
   completedAt      DateTime? @map("completed_at") @db.Timestamp(6)
