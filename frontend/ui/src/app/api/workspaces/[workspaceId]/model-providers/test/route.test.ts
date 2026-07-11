@@ -295,7 +295,7 @@ describe("POST model-providers/test - error responses", () => {
     expect(await res.json()).toEqual({ success: false, error: "Invalid API key" });
   });
 
-  it("anthropic non-401 errors are treated as connectable (success)", async () => {
+  it("anthropic non-auth (non-401/403) errors are treated as connectable (success)", async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 400, statusText: "Bad Request" });
     const res = await POST(makeRequest({ adapter: "anthropic", apiKey: "k" }), makeParams());
     expect(await res.json()).toEqual({ success: true });
@@ -351,7 +351,16 @@ describe("POST model-providers/test - error responses", () => {
       ok: false,
       status: 400,
       statusText: "Bad Request",
-      json: async () => ({ error: { message: "API key not valid. Reason: API_KEY_INVALID" } }),
+      json: async () => ({
+        error: {
+          code: 400,
+          message: "API key not valid. Please pass a valid API key.",
+          status: "INVALID_ARGUMENT",
+          details: [
+            { "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "API_KEY_INVALID" },
+          ],
+        },
+      }),
     });
     const res = await POST(makeRequest({ adapter: "google", apiKey: "bad" }), makeParams());
     expect(await res.json()).toEqual({ success: false, error: "Invalid API key" });
