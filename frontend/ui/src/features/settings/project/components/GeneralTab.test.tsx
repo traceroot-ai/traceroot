@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, cleanup, screen, fireEvent, waitFor, within } from "@testing-library/react";
+
+type ProjectUpdatePayload = { name: string };
 
 const mocks = vi.hoisted(() => ({
   project: {
@@ -8,8 +10,12 @@ const mocks = vi.hoisted(() => ({
     name: "Acme Project",
     workspace_id: "w1",
   },
-  deleteProject: vi.fn().mockResolvedValue(void 0),
-  updateProject: vi.fn().mockResolvedValue(void 0),
+  deleteProject: vi
+    .fn<(workspaceId: string, projectId: string) => Promise<void>>()
+    .mockResolvedValue(void 0),
+  updateProject: vi
+    .fn<(workspaceId: string, projectId: string, data: ProjectUpdatePayload) => Promise<void>>()
+    .mockResolvedValue(void 0),
 }));
 
 vi.mock("@/features/projects/hooks", () => ({
@@ -17,8 +23,10 @@ vi.mock("@/features/projects/hooks", () => ({
 }));
 
 vi.mock("@/lib/api", () => ({
-  updateProject: (...a: any[]) => mocks.updateProject(...a),
-  deleteProject: (...a: any[]) => mocks.deleteProject(...a),
+  updateProject: (workspaceId: string, projectId: string, data: ProjectUpdatePayload) =>
+    mocks.updateProject(workspaceId, projectId, data),
+  deleteProject: (workspaceId: string, projectId: string) =>
+    mocks.deleteProject(workspaceId, projectId),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -50,9 +58,8 @@ describe("GeneralTab project delete dialog", () => {
     // Open the delete dialog
     fireEvent.click(screen.getByRole("button", { name: /delete project/i }));
 
-    // Get the input from the dialog (the last one with this placeholder)
-    const inputs = screen.getAllByPlaceholderText("Project name");
-    const input = inputs[inputs.length - 1];
+    const dialog = screen.getByRole("dialog");
+    const input = within(dialog).getByPlaceholderText("Project name");
     fireEvent.change(input, { target: { value: "Acme Project" } });
 
     // Press Enter
@@ -70,16 +77,12 @@ describe("GeneralTab project delete dialog", () => {
     // Open the delete dialog
     fireEvent.click(screen.getByRole("button", { name: /delete project/i }));
 
-    // Get the input from the dialog (the last one with this placeholder)
-    const inputs = screen.getAllByPlaceholderText("Project name");
-    const input = inputs[inputs.length - 1];
+    const dialog = screen.getByRole("dialog");
+    const input = within(dialog).getByPlaceholderText("Project name");
     fireEvent.change(input, { target: { value: "Wrong Project" } });
 
     // Press Enter
     fireEvent.keyDown(input, { key: "Enter" });
-
-    // Give it a moment to process
-    await new Promise((r) => setTimeout(r, 50));
 
     // Verify delete was NOT called
     expect(mocks.deleteProject).not.toHaveBeenCalled();
@@ -94,18 +97,16 @@ describe("GeneralTab project delete dialog", () => {
     // Open the delete dialog
     fireEvent.click(screen.getByRole("button", { name: /delete project/i }));
 
-    // Get the input from the dialog (the last one with this placeholder)
-    const inputs = screen.getAllByPlaceholderText("Project name");
-    const input = inputs[inputs.length - 1];
+    const dialog = screen.getByRole("dialog");
+    const input = within(dialog).getByPlaceholderText("Project name");
     fireEvent.change(input, { target: { value: "Acme Project" } });
 
     // Press Enter twice
     fireEvent.keyDown(input, { key: "Enter" });
-    await new Promise((r) => setTimeout(r, 50));
+    await waitFor(() => {
+      expect(within(dialog).getByRole("button", { name: /deleting/i }).disabled).toBe(true);
+    });
     fireEvent.keyDown(input, { key: "Enter" });
-
-    // Give it a moment to process
-    await new Promise((r) => setTimeout(r, 50));
 
     // Verify delete was called exactly once
     expect(mocks.deleteProject).toHaveBeenCalledTimes(1);

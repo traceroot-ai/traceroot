@@ -135,7 +135,7 @@ export function GeneralTab({ workspaceId }: GeneralTabProps) {
             <Input
               value={deleteConfirmText}
               onChange={(e) => setDeleteConfirmText(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleDelete()}
+              onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && handleDelete()}
               placeholder="Workspace name"
             />
             {deleteMutation.isError && (
