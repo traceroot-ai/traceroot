@@ -47,7 +47,14 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
   // Without case 2 the selector would silently auto-pick a default when a
   // partially-hydrated saved selection arrives, clobbering the user's choice.
   useEffect(() => {
-    if (models.length === 0) return;
+    if (models.length === 0) {
+      // Query resolved with zero models — clear any phantom selection that was
+      // set from FALLBACK_MODELS while the query was still loading.
+      if (value.model) {
+        onChange({ model: "", provider: "", source: "system", adapter: "" });
+      }
+      return;
+    }
 
     const exact = models.find(
       (m) => m.id === value.model && m.provider === value.provider && m.source === value.source,

@@ -64,6 +64,47 @@ describe("ModelSelector", () => {
     expect(mocks.onChange).not.toHaveBeenCalled();
   });
 
+  it("clears a phantom selection when models resolve to empty", () => {
+    // Simulates: query was loading (FALLBACK_MODELS picked claude-opus-4-8),
+    // then resolved with no models. The selector must clear the phantom value.
+    mocks.models = { byokProviders: [], systemModels: [] };
+
+    render(
+      <ModelSelector
+        value={{
+          model: "claude-opus-4-8",
+          provider: "anthropic",
+          source: "system",
+          adapter: "anthropic",
+        }}
+        onChange={mocks.onChange}
+        workspaceId="workspace-1"
+      />,
+    );
+
+    expect(mocks.onChange).toHaveBeenCalledWith({
+      model: "",
+      provider: "",
+      source: "system",
+      adapter: "",
+    });
+  });
+
+  it("shows 'Select model' placeholder when no model is selected and no models exist", () => {
+    mocks.models = { byokProviders: [], systemModels: [] };
+
+    render(
+      <ModelSelector
+        value={{ model: "", provider: "", source: "system", adapter: "" }}
+        onChange={mocks.onChange}
+        workspaceId="workspace-1"
+      />,
+    );
+
+    expect(screen.getByRole("button").textContent).toContain("Select model");
+    expect(mocks.onChange).not.toHaveBeenCalled();
+  });
+
   it("auto-picks a default only when the model is empty", () => {
     mocks.models = {
       byokProviders: [],
