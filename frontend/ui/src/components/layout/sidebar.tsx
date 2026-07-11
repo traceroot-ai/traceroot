@@ -24,7 +24,6 @@ import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/utils";
 import { GitHubStarWidget } from "@/components/layout/GitHubStarWidget";
 import { SidebarUpgradeButton } from "@/components/layout/SidebarUpgradeButton";
-import { getProjectContext } from "@/components/layout/project-context";
 import { clientEnv } from "@/env.client";
 
 function getInitials(name?: string | null, email?: string | null): string {
@@ -64,7 +63,6 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
   // Project/workspace context from the matched dynamic route params
   const projectId = params?.projectId ?? null;
   const workspaceId = params?.workspaceId ?? null;
-  const { isProject } = getProjectContext(pathname);
 
   // Settings target depends on context: project settings inside a project,
   // workspace settings inside a workspace, hidden elsewhere

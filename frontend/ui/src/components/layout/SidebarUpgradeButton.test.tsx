@@ -11,11 +11,11 @@ const mockUseWorkspace = vi.fn();
 const mockPricingDialog = vi.fn();
 
 vi.mock("@/features/projects/hooks", () => ({
-  useProject: (projectId: string, enabled: boolean) => mockUseProject(projectId, enabled),
+  useProject: (projectId: string) => mockUseProject(projectId),
 }));
 
 vi.mock("@/features/workspaces/hooks", () => ({
-  useWorkspace: (workspaceId: string, enabled: boolean) => mockUseWorkspace(workspaceId, enabled),
+  useWorkspace: (workspaceId: string) => mockUseWorkspace(workspaceId),
 }));
 
 vi.mock("@/ee/features/billing/PricingDialog", () => ({
@@ -47,8 +47,8 @@ describe("SidebarUpgradeButton", () => {
     const button = screen.getByRole("button") as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     expect(button.textContent).toContain("Upgrade");
-    expect(mockUseProject).toHaveBeenCalledWith("p1", true);
-    expect(mockUseWorkspace).toHaveBeenCalledWith("", false);
+    expect(mockUseProject).toHaveBeenCalledWith("p1");
+    expect(mockUseWorkspace).toHaveBeenCalledWith("");
   });
 
   it("should return enabled button and show Upgrade text when not collapsed and workspace is loaded", () => {
@@ -66,7 +66,7 @@ describe("SidebarUpgradeButton", () => {
     const button = screen.getByRole("button") as HTMLButtonElement;
     expect(button.disabled).toBe(false);
     expect(button.textContent).toContain("Upgrade");
-    expect(mockUseWorkspace).toHaveBeenCalledWith("w1", true);
+    expect(mockUseWorkspace).toHaveBeenCalledWith("w1");
 
     const dialog = screen.getByTestId("pricing-dialog");
     expect(dialog.getAttribute("data-open")).toBe("false");
@@ -148,6 +148,6 @@ describe("SidebarUpgradeButton", () => {
       <SidebarUpgradeButton projectId="p1" workspaceId="w-prop" collapsed={false} />,
     );
 
-    expect(mockUseWorkspace).toHaveBeenCalledWith("w-prop", true);
+    expect(mockUseWorkspace).toHaveBeenCalledWith("w-prop");
   });
 });

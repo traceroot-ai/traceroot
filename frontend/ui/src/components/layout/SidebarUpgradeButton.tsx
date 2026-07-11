@@ -23,9 +23,9 @@ export function SidebarUpgradeButton({
   const [showPricingDialog, setShowPricingDialog] = useState(false);
 
   // Resolve the workspace so the pricing dialog can act on its plan
-  const { data: project } = useProject(projectId ?? "", !!projectId);
+  const { data: project } = useProject(projectId as string);
   const workspaceId = propWorkspaceId || project?.workspace_id || "";
-  const { data: workspace } = useWorkspace(workspaceId, !!workspaceId);
+  const { data: workspace } = useWorkspace(workspaceId);
 
   return (
     <>
