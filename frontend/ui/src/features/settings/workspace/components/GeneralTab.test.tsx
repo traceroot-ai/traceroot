@@ -1,15 +1,18 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, cleanup, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import type { Role as WorkspaceRole } from "@traceroot/core";
 
 const mocks = vi.hoisted(() => ({
   workspace: {
     id: "w1",
     name: "Acme Corp",
-    role: "ADMIN" as any,
+    role: "ADMIN" satisfies WorkspaceRole,
   },
-  deleteWorkspace: vi.fn().mockResolvedValue(void 0),
-  updateWorkspace: vi.fn().mockResolvedValue(void 0),
+  deleteWorkspace: vi.fn<(workspaceId: string) => Promise<void>>().mockResolvedValue(void 0),
+  updateWorkspace: vi
+    .fn<(workspaceId: string, name: string) => Promise<void>>()
+    .mockResolvedValue(void 0),
 }));
 
 vi.mock("../hooks", () => ({
@@ -17,8 +20,8 @@ vi.mock("../hooks", () => ({
 }));
 
 vi.mock("@/lib/api", () => ({
-  updateWorkspace: (...a: any[]) => mocks.updateWorkspace(...a),
-  deleteWorkspace: (...a: any[]) => mocks.deleteWorkspace(...a),
+  updateWorkspace: (workspaceId: string, name: string) => mocks.updateWorkspace(workspaceId, name),
+  deleteWorkspace: (workspaceId: string) => mocks.deleteWorkspace(workspaceId),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -54,9 +57,8 @@ describe("GeneralTab workspace delete dialog", () => {
     // Open the delete dialog
     fireEvent.click(screen.getByRole("button", { name: /delete workspace/i }));
 
-    // Get the input from the dialog (the last one with this placeholder)
-    const inputs = screen.getAllByPlaceholderText("Workspace name");
-    const input = inputs[inputs.length - 1];
+    const dialog = screen.getByRole("dialog");
+    const input = within(dialog).getByPlaceholderText("Workspace name");
     fireEvent.change(input, { target: { value: "Acme Corp" } });
 
     // Press Enter
@@ -74,16 +76,12 @@ describe("GeneralTab workspace delete dialog", () => {
     // Open the delete dialog
     fireEvent.click(screen.getByRole("button", { name: /delete workspace/i }));
 
-    // Get the input from the dialog (the last one with this placeholder)
-    const inputs = screen.getAllByPlaceholderText("Workspace name");
-    const input = inputs[inputs.length - 1];
+    const dialog = screen.getByRole("dialog");
+    const input = within(dialog).getByPlaceholderText("Workspace name");
     fireEvent.change(input, { target: { value: "Wrong Name" } });
 
     // Press Enter
     fireEvent.keyDown(input, { key: "Enter" });
-
-    // Give it a moment to process
-    await new Promise((r) => setTimeout(r, 50));
 
     // Verify delete was NOT called
     expect(mocks.deleteWorkspace).not.toHaveBeenCalled();
@@ -98,18 +96,16 @@ describe("GeneralTab workspace delete dialog", () => {
     // Open the delete dialog
     fireEvent.click(screen.getByRole("button", { name: /delete workspace/i }));
 
-    // Get the input from the dialog (the last one with this placeholder)
-    const inputs = screen.getAllByPlaceholderText("Workspace name");
-    const input = inputs[inputs.length - 1];
+    const dialog = screen.getByRole("dialog");
+    const input = within(dialog).getByPlaceholderText("Workspace name");
     fireEvent.change(input, { target: { value: "Acme Corp" } });
 
     // Press Enter twice
     fireEvent.keyDown(input, { key: "Enter" });
-    await new Promise((r) => setTimeout(r, 50));
+    await waitFor(() => {
+      expect(within(dialog).getByRole("button", { name: /deleting/i }).disabled).toBe(true);
+    });
     fireEvent.keyDown(input, { key: "Enter" });
-
-    // Give it a moment to process
-    await new Promise((r) => setTimeout(r, 50));
 
     // Verify delete was called exactly once
     expect(mocks.deleteWorkspace).toHaveBeenCalledTimes(1);
