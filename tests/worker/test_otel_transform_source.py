@@ -2,6 +2,9 @@
 
 import base64
 import json
+import logging
+
+import pytest
 
 from worker.otel_transform import transform_otel_to_clickhouse
 
@@ -46,10 +49,10 @@ def _otel_payload(span_attributes: list[dict], *, parent_span_id: str | None = N
 
 
 def test_source_marker_lifted_onto_span_and_trace():
-    """traceroot.source becomes the span and trace source field."""
+    """traceroot.source becomes the span and trace source field when trusted."""
     payload = _otel_payload([_attr("traceroot.source", "detector")])
 
-    traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+    traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1", trust_source=True)
 
     assert len(spans) == 1
     assert spans[0]["source"] == "detector"
@@ -69,9 +72,31 @@ def test_source_from_child_span_reaches_trace():
         parent_span_id=_make_span_id(0x03),
     )
 
-    traces, _spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+    traces, _spans = transform_otel_to_clickhouse(payload, project_id="proj-1", trust_source=True)
 
     assert traces[0]["source"] == "detector"
+
+
+@pytest.mark.parametrize("spoofed", ["detector", "anything-else", ""])
+def test_untrusted_call_coerces_spoofed_source_to_user(spoofed, caplog):
+    """Without trust_source, a tenant-supplied marker can never classify traffic.
+
+    The public OTLP path uses the default; only the internal ingest route
+    passes trust_source=True, so a spoofed traceroot.source must land as
+    'user' on both the span and the trace — and leave a warning breadcrumb
+    naming the project.
+    """
+    payload = _otel_payload([_attr("traceroot.source", spoofed)])
+
+    with caplog.at_level(logging.WARNING):
+        traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert spans[0]["source"] == "user"
+    assert traces[0]["source"] == "user"
+    assert any(
+        record.levelno == logging.WARNING and "proj-1" in record.getMessage()
+        for record in caplog.records
+    )
 
 
 def test_source_marker_not_duplicated_into_metadata():
