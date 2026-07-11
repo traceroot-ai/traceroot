@@ -603,6 +603,8 @@ def _otlp_body(
     trace_id: bytes = b"\xab" * 16,
     compress: bool = False,
     extra_trace_ids: tuple[bytes, ...] = (),
+    span_id: bytes = b"\x01" * 8,
+    parent_span_id: bytes | None = None,
 ) -> bytes:
     """Serialize an OTLP ExportTraceServiceRequest with one span per trace id."""
     request = ExportTraceServiceRequest()
@@ -612,7 +614,9 @@ def _otlp_body(
     for index, tid in enumerate((trace_id, *extra_trace_ids)):
         span = scope_spans.spans.add()
         span.trace_id = tid
-        span.span_id = bytes([index + 1]) * 8
+        span.span_id = span_id if index == 0 else bytes([index + 1]) * 8
+        if index == 0 and parent_span_id is not None:
+            span.parent_span_id = parent_span_id
         span.name = "detector-run"
         span.start_time_unix_nano = 1700000000000000000
         span.end_time_unix_nano = 1700000001000000000
@@ -667,6 +671,38 @@ class TestInternalTraceIngest:
         assert resp.json() == {"ok": True}
         assert mock_ch.insert_spans_batch.call_args[0][0] == []
         assert mock_ch.insert_traces_batch.call_args[0][0] == []
+
+    def test_rejects_malformed_span_id(self, client, secret, mock_ch):
+        """A 4-byte span id decodes to 8 hex chars and must be rejected."""
+        resp = client.post(
+            self.URL,
+            content=_otlp_body(span_id=b"\x01" * 4),
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 400
+        mock_ch.insert_spans_batch.assert_not_called()
+        mock_ch.insert_traces_batch.assert_not_called()
+
+    def test_rejects_malformed_parent_span_id(self, client, secret, mock_ch):
+        """parent_span_id must be absent (root span) or a full 16-hex id."""
+        resp = client.post(
+            self.URL,
+            content=_otlp_body(parent_span_id=b"\x02" * 4),
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 400
+        mock_ch.insert_spans_batch.assert_not_called()
+        mock_ch.insert_traces_batch.assert_not_called()
+
+    def test_accepts_valid_parent_span_id(self, client, secret, mock_ch):
+        resp = client.post(
+            self.URL,
+            content=_otlp_body(parent_span_id=b"\x02" * 8),
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        spans = mock_ch.insert_spans_batch.call_args[0][0]
+        assert spans[0]["parent_span_id"] == "02" * 8
 
     def test_multi_trace_payload_validates_every_id(self, client, secret, mock_ch):
         """One malformed id among several traces rejects the whole payload."""

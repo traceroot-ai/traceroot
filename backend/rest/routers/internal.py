@@ -741,6 +741,7 @@ async def list_detector_window_summary(
 # =============================================================================
 
 _TRACE_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+_SPAN_ID_RE = re.compile(r"^[0-9a-f]{16}$")
 
 
 @router.post("/traces", dependencies=[Depends(verify_internal_secret)])
@@ -769,8 +770,9 @@ async def ingest_internal_traces(
         dict: ``{"ok": True}`` on success.
 
     Raises:
-        HTTPException: 400 on an empty body, undecodable payload, or a trace
-            id that is not exactly 32 lowercase hex chars.
+        HTTPException: 400 on an empty body, an undecodable payload, a trace
+            id that is not exactly 32 lowercase hex chars, or a span/parent
+            id that is present but not exactly 16.
     """
     body = await request.body()
     if not body:
@@ -799,6 +801,16 @@ async def ingest_internal_traces(
     for trace_id in trace_ids:
         if not _TRACE_ID_RE.match(trace_id):
             raise HTTPException(status_code=400, detail="trace_id must be 32 hex chars")
+    for span in spans:
+        if not _SPAN_ID_RE.match(span["span_id"]):
+            raise HTTPException(status_code=400, detail="span_id must be 16 hex chars")
+        parent_span_id = span.get("parent_span_id")
+        # None is a root span, and every self-trace has exactly one — the
+        # parent id is only constrained when present.
+        if parent_span_id is not None and not _SPAN_ID_RE.match(parent_span_id):
+            raise HTTPException(
+                status_code=400, detail="parent_span_id must be 16 hex chars when present"
+            )
 
     for record in (*traces, *spans):
         record["source"] = "detector"
