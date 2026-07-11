@@ -326,6 +326,94 @@ class TestTransformOtelToClickhouse:
 
         assert traces[0]["user_id"] == "child-user"
 
+    def test_git_metadata_from_child_before_root_arrives(self):
+        """Repo/ref should be available during live streaming, not only at trace end."""
+        trace_hex = "aa" * 16
+        root_hex = "bb" * 8
+        child_hex = "cc" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    child_hex,
+                    name="llm-call",
+                    parent_span_id_hex=root_hex,
+                    attributes=[
+                        make_attr("traceroot.git.repo", "https://github.com/acme/agent"),
+                        make_attr("traceroot.git.ref", "feature/live-debug"),
+                    ],
+                )
+            ]
+        )
+
+        traces, _ = transform_otel_to_clickhouse(payload, "proj-1")
+
+        assert len(traces) == 1
+        assert traces[0]["git_repo"] == "https://github.com/acme/agent"
+        assert traces[0]["git_ref"] == "feature/live-debug"
+
+    def test_root_git_metadata_overrides_child_candidate(self):
+        """If root and child disagree, root remains the authoritative trace value."""
+        trace_hex = "aa" * 16
+        root_hex = "bb" * 8
+        child_hex = "cc" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    child_hex,
+                    name="tool-call",
+                    parent_span_id_hex=root_hex,
+                    attributes=[
+                        make_attr("traceroot.git.repo", "https://github.com/acme/stale-agent"),
+                        make_attr("traceroot.git.ref", "stale-ref"),
+                    ],
+                ),
+                make_span(
+                    trace_hex,
+                    root_hex,
+                    name="agent-run",
+                    attributes=[
+                        make_attr("traceroot.git.repo", "https://github.com/acme/agent"),
+                        make_attr("traceroot.git.ref", "main"),
+                    ],
+                ),
+            ]
+        )
+
+        traces, _ = transform_otel_to_clickhouse(payload, "proj-1")
+
+        assert len(traces) == 1
+        assert traces[0]["git_repo"] == "https://github.com/acme/agent"
+        assert traces[0]["git_ref"] == "main"
+
+    def test_child_git_metadata_survives_when_root_has_none(self):
+        """Older or partial root spans should not clear git metadata from child spans."""
+        trace_hex = "aa" * 16
+        root_hex = "bb" * 8
+        child_hex = "cc" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    child_hex,
+                    name="tool-call",
+                    parent_span_id_hex=root_hex,
+                    attributes=[
+                        make_attr("traceroot.git.repo", "https://github.com/acme/agent"),
+                        make_attr("traceroot.git.ref", "main"),
+                    ],
+                ),
+                make_span(trace_hex, root_hex, name="agent-run"),
+            ]
+        )
+
+        traces, _ = transform_otel_to_clickhouse(payload, "proj-1")
+
+        assert len(traces) == 1
+        assert traces[0]["git_repo"] == "https://github.com/acme/agent"
+        assert traces[0]["git_ref"] == "main"
+
     def test_skip_span_with_missing_ids(self):
         """Spans without traceId/spanId are skipped."""
         payload = {
