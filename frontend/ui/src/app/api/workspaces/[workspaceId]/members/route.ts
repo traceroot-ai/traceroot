@@ -120,8 +120,21 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     return errorResponse("Workspace not found", 404);
   }
 
+  // A pending invite for this user's email is about to be superseded by the
+  // direct membership created below, so it must not be double-counted
+  // against the seat limit (mirrors invite-accept's own transaction).
+  const pendingInvite = await prisma.invite.findUnique({
+    where: {
+      email_workspaceId: {
+        email: targetUser.email.toLowerCase(),
+        workspaceId,
+      },
+    },
+  });
+
   const plan = (workspace.billingPlan || PlanType.FREE) as PlanType;
-  const currentSeats = workspace._count.members + workspace._count.invites;
+  const currentSeats =
+    workspace._count.members + workspace._count.invites - (pendingInvite ? 1 : 0);
   const seatLimit = getSeatLimit(plan);
 
   if (!canAddSeat(plan, currentSeats)) {
@@ -134,7 +147,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
   const membershipId = crypto.randomUUID();
 
-  const membership = await prisma.workspaceMember.create({
+  const createMembership = prisma.workspaceMember.create({
     data: {
       id: membershipId,
       workspaceId,
@@ -142,6 +155,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       role,
     },
   });
+
+  const [membership] = pendingInvite
+    ? await prisma.$transaction([
+        createMembership,
+        prisma.invite.delete({ where: { id: pendingInvite.id } }),
+      ])
+    : await prisma.$transaction([createMembership]);
 
   return NextResponse.json(
     {

@@ -1,16 +1,20 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const {
   workspaceFindUnique,
   userFindUnique,
   memberFindUnique,
   memberCreate,
+  inviteFindUnique,
+  inviteDelete,
   requireWorkspaceMembershipMock,
 } = vi.hoisted(() => ({
   workspaceFindUnique: vi.fn(),
   userFindUnique: vi.fn(),
   memberFindUnique: vi.fn(),
   memberCreate: vi.fn(),
+  inviteFindUnique: vi.fn(),
+  inviteDelete: vi.fn(),
   requireWorkspaceMembershipMock: vi.fn(),
 }));
 
@@ -22,6 +26,8 @@ vi.mock("@traceroot/core", async (orig) => {
       workspace: { findUnique: workspaceFindUnique },
       user: { findUnique: userFindUnique },
       workspaceMember: { findUnique: memberFindUnique, create: memberCreate },
+      invite: { findUnique: inviteFindUnique, delete: inviteDelete },
+      $transaction: vi.fn((ops: unknown[]) => Promise.all(ops)),
     },
   };
 });
@@ -59,11 +65,17 @@ describe("workspace members POST seat limit", () => {
     memberCreate
       .mockReset()
       .mockResolvedValue({ id: "m1", role: "MEMBER", createTime: new Date() });
+    inviteFindUnique.mockReset().mockResolvedValue(null);
+    inviteDelete.mockReset().mockResolvedValue({ id: "inv1" });
     workspaceFindUnique.mockReset().mockResolvedValue({
       id: "w1",
       billingPlan: "free",
       _count: { members: 1, invites: 0 },
     });
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it("rejects at the seat limit and does not create a member", async () => {
@@ -88,6 +100,19 @@ describe("workspace members POST seat limit", () => {
     expect(memberCreate).not.toHaveBeenCalled();
   });
 
+  it("excludes the target's own pending invite from the seat count and deletes it", async () => {
+    workspaceFindUnique.mockResolvedValue({
+      id: "w1",
+      billingPlan: "free",
+      _count: { members: 1, invites: 1 },
+    });
+    inviteFindUnique.mockResolvedValue({ id: "inv1", email: "u2@x.com", workspaceId: "w1" });
+    const res = await post({ userId: "u2", role: "MEMBER" });
+    expect(res.status).toBe(201);
+    expect(memberCreate).toHaveBeenCalledTimes(1);
+    expect(inviteDelete).toHaveBeenCalledWith({ where: { id: "inv1" } });
+  });
+
   it("succeeds under the seat limit", async () => {
     const res = await post({ userId: "u2", role: "MEMBER" });
     expect(res.status).toBe(201);
@@ -105,19 +130,14 @@ describe("workspace members POST seat limit", () => {
   });
 
   it("succeeds when billing is disabled even past the free cap", async () => {
-    const original = process.env.ENABLE_BILLING;
-    process.env.ENABLE_BILLING = "false";
-    try {
-      workspaceFindUnique.mockResolvedValue({
-        id: "w1",
-        billingPlan: "free",
-        _count: { members: 5, invites: 0 },
-      });
-      const res = await post({ userId: "u2", role: "MEMBER" });
-      expect(res.status).toBe(201);
-    } finally {
-      process.env.ENABLE_BILLING = original;
-    }
+    vi.stubEnv("ENABLE_BILLING", "false");
+    workspaceFindUnique.mockResolvedValue({
+      id: "w1",
+      billingPlan: "free",
+      _count: { members: 5, invites: 0 },
+    });
+    const res = await post({ userId: "u2", role: "MEMBER" });
+    expect(res.status).toBe(201);
   });
 
   it("rejects non-ADMIN before ever checking the seat limit", async () => {
