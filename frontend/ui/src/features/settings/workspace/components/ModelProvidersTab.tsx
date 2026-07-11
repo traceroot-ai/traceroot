@@ -56,7 +56,11 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [customModels, setCustomModels] = useState<string[]>([]);
-  const [testResult, setTestResult] = useState<{ success: boolean; error?: string } | null>(null);
+  const [testResult, setTestResult] = useState<{
+    success: boolean;
+    error?: string;
+    detail?: string;
+  } | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   // Per-model API protocol overrides: modelId -> protocol
   const [modelProtocols, setModelProtocols] = useState<Record<string, string>>({});
@@ -634,9 +638,16 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                 )}
               </div>
               {testResult && !testResult.success && (
-                <div className="flex items-start gap-1 text-xs text-destructive">
-                  <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                  <span>{testResult.error}</span>
+                <div className="flex min-w-0 flex-col gap-0.5 text-xs text-destructive">
+                  <div className="flex items-start gap-1">
+                    <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span className="min-w-0 break-words">{testResult.error}</span>
+                  </div>
+                  {testResult.detail && (
+                    <span className="pl-4.5 min-w-0 break-words text-muted-foreground">
+                      {testResult.detail}
+                    </span>
+                  )}
                 </div>
               )}
             </div>

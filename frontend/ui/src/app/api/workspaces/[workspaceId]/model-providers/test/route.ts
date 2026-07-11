@@ -66,7 +66,7 @@ async function readErrorMessage(res: Response, signal: AbortSignal): Promise<str
 async function checkEndpoint(
   url: string,
   headers: Record<string, string>,
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true } | { ok: false; error: string; detail?: string }> {
   return withTimeout(async (signal) => {
     const res = await fetch(url, { headers, signal });
     if (res.ok) return { ok: true as const };
@@ -75,6 +75,7 @@ async function checkEndpoint(
     const isGoogleInvalidKey = /api key not valid/i.test(message ?? "");
 
     let normalizedError: string;
+    let errorDetail: string | undefined;
     if (res.status === 401) {
       normalizedError = "Invalid API key";
     } else if (res.status === 403) {
@@ -86,9 +87,10 @@ async function checkEndpoint(
       // xAI returns 400 with a plain-string error mentioning "Incorrect API key".
       normalizedError = "Invalid API key";
     } else {
-      normalizedError = message ?? `HTTP ${res.status}: ${res.statusText}`;
+      normalizedError = "Connection failed";
+      errorDetail = message ?? `HTTP ${res.status}: ${res.statusText}`;
     }
-    return { ok: false as const, error: normalizedError };
+    return { ok: false as const, error: normalizedError, detail: errorDetail };
   });
 }
 
@@ -140,7 +142,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           ? `${baseUrl.replace(/\/$/, "")}/v1/models`
           : "https://api.openai.com/v1/models";
         const check = await checkEndpoint(url, { Authorization: `Bearer ${apiKey}` });
-        if (!check.ok) return successResponse({ success: false, error: check.error });
+        if (!check.ok)
+          return successResponse({ success: false, error: check.error, detail: check.detail });
         break;
       }
 
@@ -167,7 +170,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           if (res.status === 403) return { invalid: true as const, error: "API lacks permission" };
           return { invalid: false as const };
         });
-        if (check.invalid) return successResponse({ success: false, error: check.error });
+        if (check.invalid)
+          return successResponse({ success: false, error: check.error, detail: check.detail });
         break;
       }
 
@@ -176,7 +180,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           "https://generativelanguage.googleapis.com/v1beta/models",
           { "x-goog-api-key": apiKey || "" },
         );
-        if (!check.ok) return successResponse({ success: false, error: check.error });
+        if (!check.ok)
+          return successResponse({ success: false, error: check.error, detail: check.detail });
         break;
       }
 
@@ -192,7 +197,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           `${baseUrl.replace(/\/$/, "")}/models?api-version=${apiVersion}`,
           { "api-key": apiKey || "" },
         );
-        if (!check.ok) return successResponse({ success: false, error: check.error });
+        if (!check.ok)
+          return successResponse({ success: false, error: check.error, detail: check.detail });
         break;
       }
 
@@ -223,7 +229,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         const check = await checkEndpoint(`${deepseekBase.replace(/\/$/, "")}/models`, {
           Authorization: `Bearer ${apiKey}`,
         });
-        if (!check.ok) return successResponse({ success: false, error: check.error });
+        if (!check.ok)
+          return successResponse({ success: false, error: check.error, detail: check.detail });
         break;
       }
 
@@ -231,7 +238,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         const check = await checkEndpoint("https://openrouter.ai/api/v1/models", {
           Authorization: `Bearer ${apiKey}`,
         });
-        if (!check.ok) return successResponse({ success: false, error: check.error });
+        if (!check.ok)
+          return successResponse({ success: false, error: check.error, detail: check.detail });
         break;
       }
 
@@ -240,7 +248,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         const check = await checkEndpoint(`${xaiBase.replace(/\/$/, "")}/models`, {
           Authorization: `Bearer ${apiKey}`,
         });
-        if (!check.ok) return successResponse({ success: false, error: check.error });
+        if (!check.ok)
+          return successResponse({ success: false, error: check.error, detail: check.detail });
         break;
       }
 
@@ -249,7 +258,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         const check = await checkEndpoint(`${moonshotBase.replace(/\/$/, "")}/models`, {
           Authorization: `Bearer ${apiKey}`,
         });
-        if (!check.ok) return successResponse({ success: false, error: check.error });
+        if (!check.ok)
+          return successResponse({ success: false, error: check.error, detail: check.detail });
         break;
       }
 
@@ -258,7 +268,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         const check = await checkEndpoint(`${zaiBase.replace(/\/$/, "")}/models`, {
           Authorization: `Bearer ${apiKey}`,
         });
-        if (!check.ok) return successResponse({ success: false, error: check.error });
+        if (!check.ok)
+          return successResponse({ success: false, error: check.error, detail: check.detail });
         break;
       }
     }

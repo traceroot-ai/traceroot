@@ -284,7 +284,8 @@ describe("POST model-providers/test - error responses", () => {
       const res = await POST(makeRequest(body), makeParams());
       expect(await res.json()).toEqual({
         success: false,
-        error: "HTTP 500: Internal Server Error",
+        error: "Connection failed",
+        detail: "HTTP 500: Internal Server Error",
       });
     });
   }
@@ -320,7 +321,11 @@ describe("POST model-providers/test - error responses", () => {
       json: async () => ({ error: { message: "Malformed request body" } }),
     });
     const res = await POST(makeRequest({ adapter: "openai", apiKey: "k" }), makeParams());
-    expect(await res.json()).toEqual({ success: false, error: "Malformed request body" });
+    expect(await res.json()).toEqual({
+      success: false,
+      error: "Connection failed",
+      detail: "Malformed request body",
+    });
   });
 
   it("anthropic 401 always normalizes to Invalid API key, ignoring the provider's own message", async () => {
@@ -387,7 +392,11 @@ describe("POST model-providers/test - error responses", () => {
       json: async () => ({ error: "Model not found: grok-beta" }),
     });
     const res = await POST(makeRequest({ adapter: "xai", apiKey: "k" }), makeParams());
-    expect(await res.json()).toEqual({ success: false, error: "Model not found: grok-beta" });
+    expect(await res.json()).toEqual({
+      success: false,
+      error: "Connection failed",
+      detail: "Model not found: grok-beta",
+    });
   });
 
   it("azure without baseUrl fails before any network call", async () => {
