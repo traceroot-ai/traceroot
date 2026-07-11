@@ -95,6 +95,9 @@ describe("ModelProvidersTab - Test Connection error display", () => {
     fireEvent.click(screen.getByRole("button", { name: /test connection/i }));
 
     await waitFor(() => expect(screen.getByText("Connected")).toBeTruthy());
+    const button = screen.getByRole("button", { name: /test connection/i });
+    const connectedText = screen.getByText("Connected");
+    expect(button.parentElement?.contains(connectedText)).toBe(true);
     expect(screen.queryByText(/invalid api key/i)).toBeNull();
   });
 });
