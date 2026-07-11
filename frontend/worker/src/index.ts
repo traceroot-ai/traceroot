@@ -7,7 +7,7 @@
 
 import cron from "node-cron";
 import { prisma, syncStandardPrices } from "@traceroot/core";
-import { runBillingJob, closeClickHouseClient } from "./ee/billing/index.js";
+import { runBillingJob, runStartupBillingPass, closeClickHouseClient } from "./ee/billing/index.js";
 
 // Graceful shutdown handling
 let isShuttingDown = false;
@@ -46,6 +46,10 @@ async function main(): Promise<void> {
 
   // Sync standard model pricing from JSON → DB
   await syncStandardPrices();
+
+  // Run once immediately so the first usage snapshot lands within seconds
+  // of startup instead of waiting for the next cron tick (up to ~1h away).
+  await runStartupBillingPass();
 
   // Schedule billing job (default: every hour at minute 5)
   const billingCron = process.env.USAGE_METERING_CRON || "5 * * * *";
