@@ -70,15 +70,17 @@ async function checkEndpoint(
   return withTimeout(async (signal) => {
     const res = await fetch(url, { headers, signal });
     if (res.ok) return { ok: true as const };
+
     const message = await readErrorMessage(res, signal);
+    const isGoogleInvalidKey = /api key not valid/i.test(message ?? "");
 
     let normalizedError: string;
     if (res.status === 401) {
       normalizedError = "Invalid API key";
     } else if (res.status === 403) {
       normalizedError = "API lacks permission";
-    } else if (res.status === 400 && message && /API_KEY_INVALID/i.test(message)) {
-      // Google returns 400 with reason API_KEY_INVALID instead of 401.
+    } else if (res.status === 400 && isGoogleInvalidKey) {
+      // Google returns 400 with reason API_KEY_INVALID in error.details[].reason, not in message.
       normalizedError = "Invalid API key";
     } else if (res.status === 400 && message && /incorrect api key/i.test(message)) {
       // xAI returns 400 with a plain-string error mentioning "Incorrect API key".
