@@ -62,6 +62,8 @@ TRACE_DETAIL = {
             "input": None,
             "output": None,
             "metadata": None,
+            "ids_path": [],
+            "path": [],
         }
     ],
 }
@@ -225,6 +227,10 @@ class TestPublicGetTrace:
         assert data["metadata"] == "{}"
         assert len(data["spans"]) == 1
         assert data["spans"][0]["span_id"] == "span-1"
+        # ids_path/path (#1498): always present on the public span payload,
+        # defaulting to [] for a root span with no ancestors.
+        assert data["spans"][0]["ids_path"] == []
+        assert data["spans"][0]["path"] == []
         assert data["trace_url"] == "http://localhost:3000/projects/proj-A/traces?traceId=abc123"
 
     def test_trace_url_uses_public_ui_url_not_internal(self, client, mock_reader, monkeypatch):

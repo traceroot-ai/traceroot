@@ -21,11 +21,12 @@ function parseMetadata(metadata: string | null): Record<string, unknown> {
 
 /**
  * For every span that carries traceroot.span.ids_path (ancestor IDs, root→parent)
- * and traceroot.span.path (root→current names) in its metadata, create lightweight
+ * and traceroot.span.path (ancestor names, root→parent), create lightweight
  * placeholder spans for any missing ancestors.
  *
- * Works for both live SSE streaming AND completed traces loaded from ClickHouse,
- * because both carry the same metadata JSON.
+ * Path data now comes from dedicated span columns (preferred) with fallback to
+ * metadata for backward compatibility with historical/cached spans. Works for both
+ * live SSE streaming AND completed traces loaded from ClickHouse.
  */
 export function enrichSpansWithPending(spans: Span[]): Span[] {
   const existingSpanIds = new Set(spans.map((s) => s.span_id));
@@ -38,14 +39,18 @@ export function enrichSpansWithPending(spans: Span[]): Span[] {
   for (const span of spans) {
     if (!span.parent_span_id) continue;
 
-    // Skeleton spans omit metadata (parseMetadata(null|undefined) → {}); live
-    // SSE spans still carry it, so enrichment keeps working from live events.
+    // Prefer dedicated columns (newly populated); fall back to metadata for
+    // backward compatibility with historical/cached spans that may still carry
+    // the paths embedded in metadata.
     const meta = parseMetadata(span.metadata ?? null);
-    const idsPath = meta["traceroot.span.ids_path"] as string[] | undefined;
-    const namePath = meta["traceroot.span.path"] as string[] | undefined;
+    const idsPath = span.ids_path?.length
+      ? span.ids_path
+      : (meta["traceroot.span.ids_path"] as string[] | undefined);
+    const ancestorNames = span.path?.length
+      ? span.path
+      : (meta["traceroot.span.path"] as string[] | undefined)?.slice(0, -1);
 
-    if (!idsPath || !namePath || idsPath.length === 0) continue;
-    const ancestorNames = namePath.slice(0, -1);
+    if (!idsPath || !ancestorNames || idsPath.length === 0) continue;
     if (idsPath.length !== ancestorNames.length) continue;
 
     for (let i = 0; i < idsPath.length; i++) {

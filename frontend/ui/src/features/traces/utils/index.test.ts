@@ -458,6 +458,51 @@ describe("two-phase loading compatibility", () => {
     expect(placeholder!.name).toBe("demo_session");
   });
 
+  it("enrichSpansWithPending synthesizes ancestors from dedicated ids_path/path fields (issue #1498)", () => {
+    // After the fix, spans carry ids_path/path as dedicated top-level fields instead
+    // of (or in addition to) metadata. This test verifies ancestors are synthesized
+    // correctly from the new dedicated fields, ensuring backward compatibility with
+    // the metadata fallback was not broken.
+    const rootId = "root-agent-id";
+    const midId = "turbo-id";
+    const childId = "llm-completion-id";
+
+    // Child span with dedicated ids_path/path fields (not in metadata)
+    const child = makeSpan({
+      span_id: childId,
+      parent_span_id: midId,
+      ids_path: [rootId, midId],
+      path: ["agent_session", "turbo_mode"],
+      // Metadata does NOT contain ids_path/path; it's now in dedicated fields
+      metadata: JSON.stringify({ "custom.field": "user_data" }),
+    });
+
+    const result = enrichSpansWithPending([child]);
+
+    // Verify both missing ancestors are synthesized
+    const placeholders = result.filter((s) => s.pending);
+    const placeholderIds = placeholders.map((s) => s.span_id);
+    expect(placeholderIds).toContain(rootId);
+    expect(placeholderIds).toContain(midId);
+
+    // Verify root placeholder
+    const rootPlaceholder = result.find((s) => s.span_id === rootId)!;
+    expect(rootPlaceholder.name).toBe("agent_session");
+    expect(rootPlaceholder.parent_span_id).toBeNull();
+    expect(rootPlaceholder.pending).toBe(true);
+
+    // Verify mid placeholder
+    const midPlaceholder = result.find((s) => s.span_id === midId)!;
+    expect(midPlaceholder.name).toBe("turbo_mode");
+    expect(midPlaceholder.parent_span_id).toBe(rootId);
+    expect(midPlaceholder.pending).toBe(true);
+
+    // Verify real child span is intact
+    const realChild = result.find((s) => s.span_id === childId)!;
+    expect(realChild.pending).toBeFalsy();
+    expect(realChild.parent_span_id).toBe(midId);
+  });
+
   it("getTraceDuration works over a mix of skeleton and full live spans", () => {
     const trace = {
       spans: [

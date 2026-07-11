@@ -439,14 +439,16 @@ class TraceReaderService:
                 span_start_time, span_end_time, status, status_message,
                 model_name, cost, input_tokens, output_tokens, total_tokens,
                 usage_details,
-                git_source_file, git_source_line, git_source_function
+                git_source_file, git_source_line, git_source_function,
+                ids_path, path
             FROM (
                 SELECT
                     span_id, trace_id, parent_span_id, name, span_kind,
                     span_start_time, span_end_time, status, status_message,
                     model_name, cost, input_tokens, output_tokens, total_tokens,
                     usage_details,
-                    git_source_file, git_source_line, git_source_function
+                    git_source_file, git_source_line, git_source_function,
+                    ids_path, path
                 FROM spans
                 WHERE {spans_where_clause}
                 ORDER BY ch_update_time DESC
@@ -487,6 +489,8 @@ class TraceReaderService:
                     "git_source_file": row[15],
                     "git_source_line": int(row[16]) if row[16] is not None else None,
                     "git_source_function": row[17],
+                    "ids_path": list(row[18]) if row[18] else [],
+                    "path": list(row[19]) if row[19] else [],
                 }
             )
 

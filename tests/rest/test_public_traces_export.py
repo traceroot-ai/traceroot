@@ -53,6 +53,8 @@ TRACE_DETAIL = {
             "git_source_file": "app/main.py",
             "git_source_line": 42,
             "git_source_function": "handler",
+            "ids_path": ["root-span"],
+            "path": ["test-trace"],
         }
     ],
 }

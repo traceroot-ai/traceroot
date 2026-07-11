@@ -142,6 +142,15 @@ export interface Span {
   git_source_file: string | null;
   git_source_line: number | null;
   git_source_function: string | null;
+  // Internal tree-repair bookkeeping: ancestor span IDs / names (root->parent),
+  // used by enrichSpansWithPending to reconstruct partial live traces. These
+  // arrays are capped at 128 entries by dropping the root-most prefix, preserving
+  // the immediate-parent side of very deep chains. Present in both the internal
+  // dashboard and the public API response (SpanResponse is shared between them
+  // on the backend). Optional for backward compatibility with historical/cached
+  // spans that predate this field.
+  ids_path?: string[];
+  path?: string[];
   pending?: boolean;
 }
 

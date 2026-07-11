@@ -183,6 +183,8 @@ class TestGetTraceSkeleton:
                         "file.py",  # git_source_file
                         12,  # git_source_line
                         "fn",  # git_source_function
+                        ["root-id"],  # ids_path
+                        ["root"],  # path
                     )
                 ]
             )

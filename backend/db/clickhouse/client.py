@@ -114,6 +114,8 @@ class ClickHouseClient:
                     s.get("git_source_file"),
                     s.get("git_source_line"),
                     s.get("git_source_function"),
+                    s.get("ids_path") or [],
+                    s.get("path") or [],
                     now,  # ch_create_time
                     now,  # ch_update_time
                 ]
@@ -145,6 +147,8 @@ class ClickHouseClient:
                 "git_source_file",
                 "git_source_line",
                 "git_source_function",
+                "ids_path",
+                "path",
                 "ch_create_time",
                 "ch_update_time",
             ],

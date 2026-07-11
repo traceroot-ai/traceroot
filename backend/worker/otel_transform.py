@@ -52,6 +52,38 @@ def _scope_skips_text_token_estimation(scope_name: str | None) -> bool:
     return scope_name in _SKIP_TEXT_TOKEN_ESTIMATION_SCOPES
 
 
+# Trace depth realistically stays far below this. The cap exists for malformed or
+# adversarial ``traceroot.span.ids_path`` / ``traceroot.span.path`` attributes: keep
+# the parent-near tail used for live tree repair, and drop only the root-most prefix
+# once the arrays are too deep.
+MAX_SPAN_PATH_DEPTH = 128
+
+
+def _extract_span_path_columns(
+    ids_path_value: object,
+    path_value: object,
+) -> tuple[list[str], list[str]]:
+    """Return bounded, index-aligned ancestor IDs and names for live tree repair.
+
+    SDKs historically emit ``traceroot.span.path`` as root→current names while
+    ``traceroot.span.ids_path`` is root→parent IDs. The stored/public columns are
+    a stricter ancestor-chain contract: both arrays exclude this span, align
+    index-for-index, and are capped by dropping the root-most prefix so the
+    immediate parent side of the chain remains repairable.
+    """
+
+    ids_path = list(ids_path_value) if isinstance(ids_path_value, (list, tuple)) else []
+    path = list(path_value) if isinstance(path_value, (list, tuple)) else []
+
+    # Normalize legacy root→current path values to root→parent ancestor names.
+    ancestor_path = path[:-1] if len(path) == len(ids_path) + 1 else path
+    bounded_depth = min(len(ids_path), len(ancestor_path), MAX_SPAN_PATH_DEPTH)
+    if bounded_depth == 0:
+        return [], []
+
+    return ids_path[-bounded_depth:], ancestor_path[-bounded_depth:]
+
+
 # Attributes that are already extracted into dedicated fields
 _KNOWN_ATTRIBUTE_PREFIXES = {
     "traceroot.span.input",
@@ -59,6 +91,8 @@ _KNOWN_ATTRIBUTE_PREFIXES = {
     "traceroot.span.type",
     "traceroot.span.metadata",
     "traceroot.span.tags",
+    "traceroot.span.ids_path",  # Internal tree-repair bookkeeping: now in dedicated column
+    "traceroot.span.path",  # Internal tree-repair bookkeeping: now in dedicated column
     "traceroot.llm.",
     "traceroot.trace.",
     "traceroot.environment",
@@ -396,6 +430,21 @@ def transform_otel_to_clickhouse(
                     span_record["git_source_line"] = git_source_line
                 if git_source_function is not None:
                     span_record["git_source_function"] = git_source_function
+
+                # Extract tree-repair bookkeeping: ancestor IDs and names.
+                # These are internal; they drive frontend enrichSpansWithPending to
+                # synthesize placeholders for children whose real parent hasn't streamed
+                # yet. Stored as dedicated columns (not in metadata blob) so they survive
+                # the base-fetch skeleton read, which skips metadata for payload size.
+                # Capped at depth so a malformed/adversarial OTel payload (an SDK bug or a
+                # misbehaving client) can't force an unbounded array into ClickHouse or
+                # balloon worker memory during the transform.
+                ids_path = span_attrs.get("traceroot.span.ids_path")
+                path_value = span_attrs.get("traceroot.span.path")
+                span_record["ids_path"], span_record["path"] = _extract_span_path_columns(
+                    ids_path,
+                    path_value,
+                )
 
                 # Extraction priority (first key present/not-None wins):
                 # 1. TraceRoot SDK: user-provided explicit values — highest authority.

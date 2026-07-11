@@ -812,6 +812,14 @@
             ],
             "title": "Git Source Line"
           },
+          "ids_path": {
+            "description": "Ancestor span IDs from root to parent (excludes this span). Internal tree-repair bookkeeping consumed by the dashboard to reconstruct partial live traces; empty for root spans and spans predating this field. Capped at 128 entries by dropping the root-most prefix, preserving the immediate-parent side of very deep chains.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Ids Path",
+            "type": "array"
+          },
           "input": {
             "anyOf": [
               {
@@ -892,6 +900,14 @@
               }
             ],
             "title": "Parent Span Id"
+          },
+          "path": {
+            "description": "Ancestor span names from root to parent (excludes this span), aligned index-for-index with ids_path. Internal tree-repair bookkeeping; empty for root spans and spans predating this field. Capped at 128 entries by dropping the root-most prefix, matching ids_path truncation so the arrays remain aligned.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Path",
+            "type": "array"
           },
           "span_end_time": {
             "anyOf": [

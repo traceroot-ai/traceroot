@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from rest.schemas.common import PaginationMeta
 
@@ -38,6 +38,26 @@ class SpanSkeletonResponse(BaseModel):
     git_source_file: str | None = None
     git_source_line: int | None = None
     git_source_function: str | None = None
+    ids_path: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Ancestor span IDs from root to parent (excludes this span). Internal "
+            "tree-repair bookkeeping consumed by the dashboard to reconstruct partial "
+            "live traces; empty for root spans and spans predating this field. Capped "
+            "at 128 entries by dropping the root-most prefix, preserving the "
+            "immediate-parent side of very deep chains."
+        ),
+    )
+    path: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Ancestor span names from root to parent (excludes this span), aligned "
+            "index-for-index with ids_path. Internal tree-repair bookkeeping; empty "
+            "for root spans and spans predating this field. Capped at 128 entries by "
+            "dropping the root-most prefix, matching ids_path truncation so the arrays "
+            "remain aligned."
+        ),
+    )
 
 
 class SpanResponse(SpanSkeletonResponse):
