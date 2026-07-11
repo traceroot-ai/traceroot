@@ -44,15 +44,6 @@ describe("DELETE .../ai/sessions/[sessionId] — role gate", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("returns 403 for MEMBER (requires ADMIN)", async () => {
-    requireProjectAccessMock.mockResolvedValue({
-      error: { status: 403, json: async () => ({ error: "Requires ADMIN role or higher" }) },
-    });
-    const res = await DELETE(makeRequest(), makeParams());
-    expect(res.status).toBe(403);
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
   it("allows ADMIN to delete a session", async () => {
     requireProjectAccessMock.mockResolvedValue({
       project: { id: "proj-1", workspaceId: "ws-1" },

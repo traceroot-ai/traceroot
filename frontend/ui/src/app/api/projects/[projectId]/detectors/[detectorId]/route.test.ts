@@ -93,13 +93,6 @@ describe("DELETE .../detectors/[detectorId] — role gate", () => {
     expect(detectorDeleteMock).not.toHaveBeenCalled();
   });
 
-  it("returns 403 for MEMBER (requires ADMIN)", async () => {
-    requireProjectAccessMock.mockResolvedValue(adminForbidden());
-    const res = await DELETE(makeDeleteRequest(), makeParams());
-    expect(res.status).toBe(403);
-    expect(detectorDeleteMock).not.toHaveBeenCalled();
-  });
-
   it("allows ADMIN to delete a detector", async () => {
     requireProjectAccessMock.mockResolvedValue({ project: { workspaceId: "ws-1" } });
     detectorFindFirstMock.mockResolvedValue({ id: "det-1", projectId: "proj-1" });

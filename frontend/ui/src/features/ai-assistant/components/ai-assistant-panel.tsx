@@ -8,7 +8,8 @@ import { MessageList } from "./message-list";
 import { MessageInput } from "./message-input";
 import { SessionHistory } from "./session-history";
 import { useAiChatContext } from "./ai-chat-context";
-import { getProject, getAvailableLLMModels } from "@/lib/api";
+import { getProject, getAvailableLLMModels, getMembers } from "@/lib/api";
+import { useSession } from "@/lib/auth-client";
 
 interface AiAssistantPanelProps {
   projectId?: string;
@@ -46,6 +47,14 @@ export function AiAssistantPanel({ projectId, onClose, compact = false }: AiAssi
 
   // workspaceId from project (only available on project pages)
   const workspaceId = project?.workspace_id;
+
+  const { data: authSession } = useSession();
+  const { data: members } = useQuery({
+    queryKey: ["workspace-members", workspaceId],
+    queryFn: () => getMembers(workspaceId!),
+    enabled: !!workspaceId,
+  });
+  const isAdmin = members?.find((m) => m.user_id === authSession?.user?.id)?.role === "ADMIN";
 
   // Check if any models are available (system or BYOK)
   const { data: llmModels } = useQuery({
@@ -127,6 +136,7 @@ export function AiAssistantPanel({ projectId, onClose, compact = false }: AiAssi
               projectId={projectId ?? ""}
               onSelect={handleSelectSession}
               onDelete={handleDeleteSession}
+              canDelete={isAdmin}
             />
           </PopoverContent>
         </Popover>
