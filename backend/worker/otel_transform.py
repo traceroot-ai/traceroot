@@ -303,12 +303,18 @@ def _extract_session_id(attrs: dict[str, Any]) -> str | None:
 def transform_otel_to_clickhouse(
     otel_data: dict,
     project_id: str,
+    trust_source: bool = False,
 ) -> tuple[list[dict], list[dict]]:
     """Transform OTEL JSON to ClickHouse traces and spans.
 
     Args:
         otel_data: Parsed OTEL JSON data (camelCase format with resourceSpans)
         project_id: The project ID to associate with all records
+        trust_source: Honor a lifted traceroot.source attribute as-is. The
+            public ingest path keeps the False default, which coerces any
+            non-'user' marker to 'user' so tenants cannot classify their
+            traffic as detector self-traces; only the trusted internal
+            ingest route passes True.
 
     Returns:
         Tuple of (traces, spans) lists ready for ClickHouse insertion
@@ -327,6 +333,10 @@ def transform_otel_to_clickhouse(
     # when the first span in a batch isn't the closest-to-root span for that trace.
     _trace_name_candidates: dict[str, tuple[int, str]] = {}
     trace_git_attrs: dict[str, dict[str, str | None]] = {}
+
+    # Spoof attempts coerced this batch; logged once at the end so a
+    # misbehaving sender cannot flood the logs span-by-span.
+    coerced_source_spans = 0
 
     # camelCase: resourceSpans
     resource_spans = otel_data.get("resourceSpans", [])
@@ -375,6 +385,12 @@ def transform_otel_to_clickhouse(
                 # Build span record
                 environment = span_attrs.get("traceroot.environment")
                 source = span_attrs.get("traceroot.source")
+                if source is not None and source != "user" and not trust_source:
+                    # Anti-spoof: only the trusted internal ingest route may
+                    # classify traffic; a tenant-supplied marker on the public
+                    # path is coerced, never honored.
+                    source = "user"
+                    coerced_source_spans += 1
                 span_record = {
                     "span_id": span_id,
                     "trace_id": trace_id,
@@ -811,5 +827,12 @@ def transform_otel_to_clickhouse(
                 traces[trace_id]["git_ref"] = attrs["git_ref"]
             if attrs["git_repo"] is not None:
                 traces[trace_id]["git_repo"] = attrs["git_repo"]
+
+    if coerced_source_spans:
+        logger.warning(
+            "Coerced %d spoofed traceroot.source marker(s) to 'user' for project %s",
+            coerced_source_spans,
+            project_id,
+        )
 
     return list(traces.values()), spans
