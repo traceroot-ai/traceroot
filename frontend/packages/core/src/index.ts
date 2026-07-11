@@ -1,6 +1,6 @@
 // Database
 export { prisma } from "./lib/prisma.ts";
-export { PrismaClient } from "@prisma/client";
+export { PrismaClient, Prisma } from "@prisma/client";
 export * from "./ee/billing/index.ts";
 
 // Encryption
@@ -34,6 +34,7 @@ export type {
 // Constants & Zod schemas
 export * from "./constants.ts";
 export * from "./schemas.ts";
+export * from "./eval-contract.ts";
 
 // LLM Providers
 export * from "./llm-providers.ts";
