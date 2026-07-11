@@ -71,16 +71,20 @@ async function checkEndpoint(
     const res = await fetch(url, { headers, signal });
     if (res.ok) return { ok: true as const };
 
+    // Check status before reading the body — 401/403 never need the provider's message.
+    if (res.status === 401) {
+      return { ok: false as const, error: "Invalid API key" };
+    }
+    if (res.status === 403) {
+      return { ok: false as const, error: "API lacks permission" };
+    }
+
     const message = await readErrorMessage(res, signal);
     const isGoogleInvalidKey = /api key not valid/i.test(message ?? "");
 
     let normalizedError: string;
     let errorDetail: string | undefined;
-    if (res.status === 401) {
-      normalizedError = "Invalid API key";
-    } else if (res.status === 403) {
-      normalizedError = "API lacks permission";
-    } else if (res.status === 400 && isGoogleInvalidKey) {
+    if (res.status === 400 && isGoogleInvalidKey) {
       // Google returns 400 with reason API_KEY_INVALID in error.details[].reason, not in message.
       normalizedError = "Invalid API key";
     } else if (res.status === 400 && message && /incorrect api key/i.test(message)) {
@@ -170,8 +174,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           if (res.status === 403) return { invalid: true as const, error: "API lacks permission" };
           return { invalid: false as const };
         });
-        if (check.invalid)
-          return successResponse({ success: false, error: check.error, detail: check.detail });
+        if (check.invalid) return successResponse({ success: false, error: check.error });
         break;
       }
 
