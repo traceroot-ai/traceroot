@@ -1,0 +1,119 @@
+---
+title: Groq
+description: Auto-instrument Groq API calls
+---
+
+Automatically capture all Groq chat completion calls, including tool/function calls and streaming responses.
+
+In Python, TraceRoot instruments the native [`groq`](https://pypi.org/project/groq/) SDK directly via `Integration.GROQ`. In TypeScript/JavaScript, Groq exposes an OpenAI-compatible endpoint (`https://api.groq.com/openai/v1`), so the standard `openai` SDK is captured through the existing OpenAI instrumentation — no Groq-specific configuration required.
+
+## Setup
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.GROQ])
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import OpenAI from 'openai';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({
+      instrumentModules: { openAI: OpenAI },
+    });
+
+    const openai = new OpenAI({
+      apiKey: process.env.GROQ_API_KEY,
+      baseURL: 'https://api.groq.com/openai/v1',
+    });
+    ```
+  </Tab>
+</Tabs>
+
+## Usage
+
+<Tabs>
+  <Tab title="Python">
+    Once initialized, all Groq calls are captured automatically:
+
+    ```python
+    import os
+    from groq import Groq
+
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.GROQ])
+
+    client = Groq(api_key=os.environ["GROQ_API_KEY"])
+
+    # This call is automatically traced
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {"role": "user", "content": "What is the capital of France?"},
+        ],
+    )
+
+    print(response.choices[0].message.content)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import OpenAI from 'openai';
+
+    const openai = new OpenAI({
+      apiKey: process.env.GROQ_API_KEY,
+      baseURL: 'https://api.groq.com/openai/v1',
+    });
+
+    // This Groq call is traced by TraceRoot's OpenAI integration
+    const response = await openai.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        { role: 'system', content: 'You are a helpful assistant.' },
+        { role: 'user', content: 'What is the capital of France?' },
+      ],
+    });
+
+    console.log(response.choices[0].message.content);
+    ```
+  </Tab>
+</Tabs>
+
+## What Gets Captured
+
+| Attribute  | Description                                                                              |
+| ---------- | ---------------------------------------------------------------------------------------- |
+| Model      | `llama-3.3-70b-versatile`, `llama-3.1-8b-instant`, `openai/gpt-oss-120b`, etc.            |
+| Messages   | Input messages array                                                                     |
+| Response   | Completion content                                                                       |
+| Tool calls | Function/tool call inputs and outputs when using the tool-calling API                    |
+| Tokens     | Prompt, completion, and total tokens when returned by the provider                       |
+| Latency    | Request duration                                                                         |
+
+## Run the example
+
+Clone the repo and run a complete Groq tool-agent end-to-end.
+
+<CardGroup cols={2}>
+  <Card
+    title="Python"
+    icon="python"
+    href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/groq-tool-agent"
+  >
+    Run the Python Groq tool-agent example
+  </Card>
+  <Card
+    title="TypeScript"
+    icon="js"
+    href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/groq"
+  >
+    Run the TypeScript Groq example
+  </Card>
+</CardGroup>

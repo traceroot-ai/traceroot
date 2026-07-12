@@ -24,6 +24,7 @@ const ADAPTER_VALUES = [
   LLMAdapter.XAI,
   LLMAdapter.MOONSHOT,
   LLMAdapter.ZAI,
+  LLMAdapter.GROQ,
 ] as const;
 
 const testSchema = z.object({

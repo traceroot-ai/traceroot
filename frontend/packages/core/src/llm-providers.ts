@@ -17,6 +17,7 @@ export const LLMAdapter = {
   XAI: "xai",
   MOONSHOT: "moonshot",
   ZAI: "zai",
+  GROQ: "groq",
 } as const;
 export type LLMAdapter = (typeof LLMAdapter)[keyof typeof LLMAdapter];
 
@@ -32,6 +33,7 @@ export const ADAPTER_TO_PI_AI: Record<string, string> = {
   xai: "openai", // OpenAI-compatible
   moonshot: "openai", // OpenAI-compatible
   zai: "openai", // OpenAI-compatible
+  groq: "openai", // OpenAI-compatible
 };
 
 // Default base URLs for adapters
@@ -44,6 +46,7 @@ export const ADAPTER_DEFAULT_BASE_URL: Record<string, string> = {
   xai: "https://api.x.ai/v1",
   moonshot: "https://api.moonshot.ai/v1",
   zai: "https://open.bigmodel.cn/api/paas/v4",
+  groq: "https://api.groq.com/openai/v1",
 };
 
 // API protocol per adapter — used to build fallback model objects for BYOK models
@@ -59,6 +62,7 @@ export const ADAPTER_API_PROTOCOL: Record<string, string> = {
   xai: "openai-completions",
   moonshot: "openai-completions",
   zai: "openai-completions",
+  groq: "openai-completions",
 };
 
 export interface LLMModelDef {
@@ -140,6 +144,7 @@ export const PROVIDER_PRIORITY: LLMAdapter[] = [
   LLMAdapter.XAI,
   LLMAdapter.MOONSHOT,
   LLMAdapter.ZAI,
+  LLMAdapter.GROQ,
   LLMAdapter.GOOGLE,
   LLMAdapter.OPENROUTER,
   LLMAdapter.AZURE,
@@ -212,6 +217,12 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "glm-4.5-air", label: "glm-4.5-air" },
     { id: "glm-4.5-flash", label: "glm-4.5-flash" },
   ],
+  groq: [
+    { id: "llama-3.3-70b-versatile", label: "llama-3.3-70b-versatile" },
+    { id: "llama-3.1-8b-instant", label: "llama-3.1-8b-instant" },
+    { id: "openai/gpt-oss-120b", label: "openai/gpt-oss-120b" },
+    { id: "openai/gpt-oss-20b", label: "openai/gpt-oss-20b" },
+  ],
 };
 
 // Available API protocols per adapter — shown in provider settings UI
@@ -233,6 +244,7 @@ export const ADAPTER_AVAILABLE_PROTOCOLS: Record<string, { value: string; label:
   xai: [{ value: "openai-completions", label: "Chat Completions" }],
   moonshot: [{ value: "openai-completions", label: "Chat Completions" }],
   zai: [{ value: "openai-completions", label: "Chat Completions" }],
+  groq: [{ value: "openai-completions", label: "Chat Completions" }],
 };
 
 // Adapter UI metadata
@@ -291,6 +303,11 @@ export const ADAPTER_CONFIG: Record<
   },
   zai: {
     label: "Z.AI (GLM)",
+    requiresBaseUrl: false,
+    credentialType: "api-key",
+  },
+  groq: {
+    label: "Groq",
     requiresBaseUrl: false,
     credentialType: "api-key",
   },

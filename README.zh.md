@@ -97,6 +97,7 @@
 | [Anthropic](https://traceroot.ai/docs/integrations/anthropic) | Python, JS/TS | 自动埋点 Messages API。 |
 | [Google Gemini](https://traceroot.ai/docs/integrations/gemini) | Python | 通过 Google GenAI SDK 实现自动埋点。 |
 | [Mistral](https://traceroot.ai/docs/integrations/mistral) | Python | 自动埋点 Mistral 的 chat completions、工具调用以及流式响应。 |
+| [Groq](https://traceroot.ai/docs/integrations/groq) | Python, JS/TS | Python 中原生埋点 Groq SDK；JS/TS 中通过 Groq 的 base URL 以 OpenAI 兼容方式追踪。可参考 [Python](./examples/python/groq-tool-agent) 与 [TypeScript](./examples/typescript/groq) 示例。 |
 
 ### Agent 框架
 
