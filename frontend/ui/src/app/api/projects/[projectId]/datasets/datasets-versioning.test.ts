@@ -64,8 +64,8 @@ beforeEach(() => {
   });
 });
 
-const p = (extra: Record<string, string> = {}) => ({
-  params: Promise.resolve({ projectId: PROJECT_ID, datasetId: "ds1", ...extra }),
+const p = (extra: { testCaseId?: string } = {}) => ({
+  params: Promise.resolve({ projectId: PROJECT_ID, datasetId: "ds1", testCaseId: "", ...extra }),
 });
 
 describe("saving a test case publishes a new immutable version", () => {
