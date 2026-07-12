@@ -220,8 +220,6 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
   groq: [
     { id: "llama-3.3-70b-versatile", label: "llama-3.3-70b-versatile" },
     { id: "llama-3.1-8b-instant", label: "llama-3.1-8b-instant" },
-    { id: "mixtral-8x7b-32768", label: "mixtral-8x7b-32768" },
-    { id: "gemma2-9b-it", label: "gemma2-9b-it" },
   ],
 };
 
