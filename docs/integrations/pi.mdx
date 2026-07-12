@@ -1,78 +1,89 @@
 ---
 title: pi
-description: Trace pi coding-agent sessions to TraceRoot
+description: Instrument embedded pi coding-agent sessions with TraceRoot
 ---
 
-Trace [pi](https://pi.dev) coding-agent sessions to TraceRoot with the
-`@traceroot-ai/pi-extension` package. pi is a minimal coding-agent harness and does not
-emit OpenTelemetry natively, so the extension is the integration surface: it subscribes
-to pi's lifecycle events and exports a span tree — sessions, turns, LLM calls, and tool
-executions — to TraceRoot over OTLP.
+Trace [pi](https://pi.dev) coding-agent sessions you embed in your own Node process using
+the `@traceroot-ai/pi` package. `@earendil-works/pi-coding-agent` is the library form of
+pi — you drive an `AgentSession` yourself instead of running the interactive CLI —
+and `@traceroot-ai/pi` patches `AgentSession.prototype` so every session is traced with
+full agent/LLM/tool span semantics, no manual span code required.
 
 ## Setup
 
-Install the extension with pi's package manager:
+Install the instrumentation alongside the SDK it patches:
 
 ```bash
-pi install npm:@traceroot-ai/pi-extension
+npm install @traceroot-ai/pi @earendil-works/pi-coding-agent
 ```
 
-Enable it and point it at TraceRoot:
+Instrument before creating any session:
 
-```bash
-export TRACEROOT_ENABLED=true
-export TRACEROOT_API_KEY=<your-api-key>
+```typescript
+import * as pi from '@earendil-works/pi-coding-agent';
+import { instrumentPiCodingAgent } from '@traceroot-ai/pi';
+
+// Instrument BEFORE creating any session — instrumentPiCodingAgent patches
+// AgentSession.prototype.
+instrumentPiCodingAgent(pi, {
+  apiKey: process.env.TRACEROOT_API_KEY,
+});
 ```
 
-Tracing is opt-in — no spans are emitted unless `TRACEROOT_ENABLED` is set. For a local
-TraceRoot instance, add `TRACEROOT_LOCAL_MODE=true`.
+`@earendil-works/pi-coding-agent` is ESM-only and requires Node >=22.19.
 
 ## Usage
 
-Run pi as usual. Every session is traced automatically:
+Create and run a session as usual — every session created after instrumentation is
+traced automatically:
 
-```bash
-pi
+```typescript
+import { AuthStorage, createAgentSession, ModelRegistry } from '@earendil-works/pi-coding-agent';
+
+const authStorage = AuthStorage.create();
+const modelRegistry = ModelRegistry.create(authStorage);
+const model = modelRegistry.find('openai', 'gpt-4o-mini');
+
+const { session } = await createAgentSession({ model, authStorage, modelRegistry });
+try {
+  await session.prompt('Write add.js exporting add(a, b), then write and run a test for it.');
+} finally {
+  session.dispose();
+}
 ```
 
-Send a prompt and the agent's work is captured as a nested trace:
+Each `session.prompt()` call is captured as a nested trace:
 
 ```
-pi.session
-└── pi.turn                       # one per prompt
-    ├── openai/gpt-4o-mini        # LLM call: tokens, cost
-    │   ├── pi.tool.read          # tool: arguments + result
-    │   └── pi.tool.bash
-    └── openai/gpt-4o-mini        # second turn, after tool results
+AgentSession.prompt              # AGENT span — one per prompt() call
+└── gpt-4o-mini                  # LLM span — provider, tokens, cost
+    ├── write: add.js            # TOOL span — arguments + result
+    ├── write: test-add.js
+    └── bash: node test-add.js
 ```
 
-In the TUI, a `Traceroot ●` status and a clickable trace URL appear in the footer. The
-`/traceroot` command controls tracing at runtime: `status`, `open`, `flush`, `disable`,
-and `enable`.
+Tool spans nest under the LLM span that requested them.
 
 ## What Gets Captured
 
 | Attribute | Description |
 |-----------|-------------|
-| Session | One span per pi session (the trace root) |
-| Turn | One span per prompt / agent loop |
-| Model | Provider and model id for each LLM call |
-| Messages | Request messages and the assistant response, on every span |
-| Tool calls | Each tool execution with arguments, result, and error flag |
-| Tokens | Input, output, total, and cache read/write counts |
+| Agent runs | One span per `session.prompt()` call |
+| Model | Model id for each LLM call |
+| Messages | Prompt and assistant response, when content capture is enabled |
+| Tool calls | Each tool execution with arguments, result, and error status |
+| Tokens | Input, output, and cache read/write counts |
 | Cost | Per-call cost from the model's reported usage |
-| Context usage | Context-window tokens and percentage |
-| HTTP status | Provider response status, with rate-limit events |
 | Latency | Duration per span |
 
-Tool spans are parallel-safe and nest under the LLM call that requested them.
+`captureContent` and `captureToolIo` (both default `true`) control whether prompt/response
+text and tool arguments/results are attached to spans; set either to `false` to keep that
+content off exported spans.
 
 ## Run the example
 
-Install the extension, enable it, and run any prompt that uses tools — for example,
-*"Read package.json, edit the description field, then run `git diff` and tell me what
-changed."* The full session → turn → LLM → tool tree appears in TraceRoot.
+Clone the repo and run a complete session end-to-end.
 
-<Card title="pi extension docs" icon="book" href="https://pi.dev/docs/latest/extensions">
-  Learn how pi extensions work
+<Card title="TypeScript" icon="js" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/pi-agent-sdk">
+  Run the TypeScript example
 </Card>
