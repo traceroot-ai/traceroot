@@ -281,7 +281,7 @@ TraceRoot.initialize({
   },
   {
     id: "pi",
-    name: "pi",
+    name: "pi SDK",
     href: "https://traceroot.ai/docs/integrations/pi",
     category: "framework",
     logo: "/logo/integrations/pi.svg",

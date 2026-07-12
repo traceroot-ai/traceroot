@@ -1,5 +1,5 @@
 ---
-title: pi
+title: pi SDK
 description: Instrument embedded pi coding-agent sessions with TraceRoot
 ---
 
@@ -8,6 +8,12 @@ the `@traceroot-ai/pi` package. `@earendil-works/pi-coding-agent` is the library
 pi — you drive an `AgentSession` yourself instead of running the interactive CLI —
 and `@traceroot-ai/pi` patches `AgentSession.prototype` so every session is traced with
 full agent/LLM/tool span semantics, no manual span code required.
+
+<Note>
+  Driving pi programmatically from your own code is what `@traceroot-ai/pi` is for.
+  Running the interactive `pi` CLI instead? Grab the
+  [TraceRoot pi extension](https://github.com/traceroot-ai/traceroot-pi-extension).
+</Note>
 
 ## Setup
 
