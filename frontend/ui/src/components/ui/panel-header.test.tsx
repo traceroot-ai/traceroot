@@ -211,7 +211,11 @@ describe("PanelHeader", () => {
     it("opens the href in a new tab on click", () => {
       renderHeader({ newTab: { href: "http://example/trace-123?fullscreen=1" } });
       fireEvent.click(screen.getByRole("button", { name: /open in new tab/i }));
-      expect(openSpy).toHaveBeenCalledWith("http://example/trace-123?fullscreen=1", "_blank");
+      expect(openSpy).toHaveBeenCalledWith(
+        "http://example/trace-123?fullscreen=1",
+        "_blank",
+        "noopener,noreferrer",
+      );
     });
 
     it("supports a custom title", () => {

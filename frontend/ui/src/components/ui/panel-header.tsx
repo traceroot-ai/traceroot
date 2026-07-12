@@ -178,7 +178,7 @@ export function PanelHeader({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => window.open(newTab.href, "_blank")}
+            onClick={() => window.open(newTab.href, "_blank", "noopener,noreferrer")}
             className="h-7 w-7 p-0"
             title={newTab.title ?? "Open in new tab"}
           >
