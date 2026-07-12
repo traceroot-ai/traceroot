@@ -222,13 +222,13 @@ export const ZAIIcon: FC<IconProps> = ({ className }) => (
   </svg>
 );
 
-// Groq (from lobehub/lobe-icons)
+// Groq (from lobehub/lobe-icons, brand orange to match docs/logo/integrations/groq.svg)
 export const GroqIcon: FC<IconProps> = ({ className }) => (
   <svg
     viewBox="0 0 24 24"
     className={cn("h-4 w-4", className)}
     xmlns="http://www.w3.org/2000/svg"
-    fill="currentColor"
+    fill="#F55036"
     fillRule="evenodd"
     aria-hidden="true"
   >
