@@ -32,6 +32,9 @@ EvalResultStatus = Literal["passed", "failed", "errored", "not_scored"]
 ResultChange = Literal["improved", "regressed", "unchanged"]
 ScorerValueType = Literal["numeric", "boolean", "categorical"]
 ScorerDirection = Literal["higher_is_better", "lower_is_better", "none"]
+ScorerType = Literal["llm_judge", "code"]
+ScorerOutputType = Literal["score", "classification"]
+ScorerLanguage = Literal["python", "typescript"]
 
 
 class ErrorResponse(BaseModel):
@@ -43,11 +46,21 @@ class ErrorResponse(BaseModel):
 # --- Scorer + score descriptors ---------------------------------------------
 
 
+class ScorerMessage(BaseModel):
+    """One prompt message of an LLM-judge scorer's definition."""
+
+    role: str = Field(min_length=1, max_length=50)
+    content: str
+
+
 class ScorerRef(BaseModel):
     """A scorer's descriptor. ``name`` + ``version`` are the comparison identity;
     the richer metadata is optional and back-compatible (an old SDK sending only
     ``{name, version}`` stays valid). Mirrors the non-strict ``ScorerRefSchema``,
     so unknown keys are ignored rather than rejected.
+
+    The DEFINITION fields (``scorer_type``, prompt/source, config) let the read-only
+    Scorer detail render an LLM judge's model + messages or a code scorer's snippet.
     """
 
     name: str = Field(min_length=1, max_length=200)
@@ -55,6 +68,17 @@ class ScorerRef(BaseModel):
     value_type: ScorerValueType | None = None
     direction: ScorerDirection | None = None
     threshold: float | None = None
+    # SDK-reported definition (all optional; absent → "—" in the detail).
+    scorer_type: ScorerType | None = None
+    output_type: ScorerOutputType | None = None
+    description: str | None = Field(default=None, max_length=2000)
+    metadata: Any | None = None
+    # llm_judge
+    model: str | None = Field(default=None, max_length=200)
+    messages: list[ScorerMessage] | None = None
+    # code
+    language: ScorerLanguage | None = None
+    source: str | None = None
 
 
 class ScoreInput(BaseModel):
