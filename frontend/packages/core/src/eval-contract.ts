@@ -54,11 +54,34 @@ export const SCORER_DIRECTIONS = ["higher_is_better", "lower_is_better", "none"]
 export const ScorerDirectionSchema = z.enum(SCORER_DIRECTIONS);
 export type ScorerDirection = (typeof SCORER_DIRECTIONS)[number];
 
+/** How a scorer is implemented — drives the read-only Scorer-detail layout. */
+export const SCORER_TYPES = ["llm_judge", "code"] as const;
+export const ScorerTypeSchema = z.enum(SCORER_TYPES);
+export type ScorerType = (typeof SCORER_TYPES)[number];
+
+export const SCORER_OUTPUT_TYPES = ["score", "classification"] as const;
+export const ScorerOutputTypeSchema = z.enum(SCORER_OUTPUT_TYPES);
+
+export const SCORER_LANGUAGES = ["python", "typescript"] as const;
+export const ScorerLanguageSchema = z.enum(SCORER_LANGUAGES);
+
+/** One prompt message of an LLM-judge scorer's definition. */
+export const ScorerMessageSchema = z.object({
+  role: z.string().min(1).max(50),
+  content: z.string(),
+});
+
 /**
  * A scorer's descriptor. `name` + `version` are the identity used for cell
  * comparison; the richer metadata is optional and back-compatible — an old SDK
  * sending only `{name, version}` stays valid, and the backend defaults direction
  * (numeric/boolean → higher-is-better, categorical → none) when it's absent.
+ *
+ * The DEFINITION fields (`scorer_type`, prompt/source, config) let the read-only
+ * Scorer detail render an LLM judge's model + messages or a code scorer's snippet.
+ * This is a plain (non-strict) object: unknown keys are stripped, so a field must
+ * be declared here to survive into the persisted per-run manifest that the scorer
+ * registry reads back (see `lib/eval/scorer-registry.ts`).
  */
 export const ScorerRefSchema = z.object({
   name: z.string().min(1).max(200),
@@ -66,6 +89,17 @@ export const ScorerRefSchema = z.object({
   value_type: ScorerValueTypeSchema.nullable().optional(),
   direction: ScorerDirectionSchema.nullable().optional(),
   threshold: z.number().nullable().optional(),
+  // SDK-reported definition (all optional; absent → "—" in the detail).
+  scorer_type: ScorerTypeSchema.nullable().optional(),
+  output_type: ScorerOutputTypeSchema.nullable().optional(),
+  description: z.string().max(2000).nullable().optional(),
+  metadata: z.unknown().nullable().optional(),
+  // llm_judge
+  model: z.string().max(200).nullable().optional(),
+  messages: z.array(ScorerMessageSchema).nullable().optional(),
+  // code
+  language: ScorerLanguageSchema.nullable().optional(),
+  source: z.string().nullable().optional(),
 });
 export type ScorerRef = z.infer<typeof ScorerRefSchema>;
 
