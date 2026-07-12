@@ -25,9 +25,10 @@ Tools: `get_weather`, `get_stock_price`, `calculate`, `get_current_time`
 Change the model by passing a different Groq model string to `new ReActAgent()`:
 
 ```typescript
+// Any of these Groq model IDs works — pick one:
 const agent = new ReActAgent("llama-3.3-70b-versatile");
-const agent = new ReActAgent("llama-3.1-8b-instant");
-const agent = new ReActAgent("openai/gpt-oss-120b");
+// const agent = new ReActAgent("llama-3.1-8b-instant");
+// const agent = new ReActAgent("openai/gpt-oss-120b");
 ```
 
 See [console.groq.com/docs/models](https://console.groq.com/docs/models) for the full list.

@@ -21,12 +21,14 @@ vi.mock("@traceroot/core", () => ({
     XAI: "xai",
     MOONSHOT: "moonshot",
     ZAI: "zai",
+    GROQ: "groq",
   },
   ADAPTER_DEFAULT_BASE_URL: {
     deepseek: "https://api.deepseek.com/v1",
     xai: "https://api.x.ai/v1",
     moonshot: "https://api.moonshot.ai/v1",
     zai: "https://open.bigmodel.cn/api/paas/v4",
+    groq: "https://api.groq.com/openai/v1",
   },
   prisma: {
     modelProvider: {
@@ -236,6 +238,11 @@ describe("POST model-providers/test - network providers succeed", () => {
       url: "https://open.bigmodel.cn/api/paas/v4/models",
     },
     {
+      name: "groq",
+      body: { adapter: "groq", apiKey: "k" },
+      url: "https://api.groq.com/openai/v1/models",
+    },
+    {
       name: "azure",
       body: { adapter: "azure", apiKey: "k", baseUrl: "https://my.openai.azure.com/" },
       url: "https://my.openai.azure.com/models?api-version=2024-06-01",
@@ -275,6 +282,7 @@ describe("POST model-providers/test - error responses", () => {
     { adapter: "xai", apiKey: "k" },
     { adapter: "moonshot", apiKey: "k" },
     { adapter: "zai", apiKey: "k" },
+    { adapter: "groq", apiKey: "k" },
     { adapter: "azure", apiKey: "k", baseUrl: "https://my.openai.azure.com/" },
   ];
 

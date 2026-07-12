@@ -63,7 +63,17 @@ function calculate(expression: string): ToolResult {
 }
 
 function getCurrentTime(timezone = 'UTC'): ToolResult {
-  return { timezone, time: new Date().toISOString() };
+  try {
+    const time = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      dateStyle: 'short',
+      timeStyle: 'medium',
+    }).format(new Date());
+    return { timezone, time };
+  } catch {
+    // Invalid timezone — fall back to UTC.
+    return { timezone: 'UTC', time: new Date().toISOString() };
+  }
 }
 
 const TOOLS: Record<string, (a: Record<string, unknown>) => ToolResult> = {

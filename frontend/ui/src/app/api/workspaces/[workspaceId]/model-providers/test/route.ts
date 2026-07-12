@@ -238,6 +238,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         if (!check.ok) return successResponse({ success: false, error: check.error });
         break;
       }
+
+      case "groq": {
+        const groqBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.groq;
+        const check = await checkEndpoint(`${groqBase.replace(/\/$/, "")}/models`, {
+          Authorization: `Bearer ${apiKey}`,
+        });
+        if (!check.ok) return successResponse({ success: false, error: check.error });
+        break;
+      }
     }
 
     return successResponse({ success: true });
