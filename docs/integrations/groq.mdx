@@ -1,0 +1,98 @@
+---
+title: Groq
+description: Auto-instrument Groq API calls
+---
+
+Automatically capture all Groq Chat Completions API calls.
+
+## Setup
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    from traceroot import Integration
+
+    traceroot.initialize(integrations=[Integration.GROQ])
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import Groq from 'groq-sdk';
+    import { TraceRoot } from '@traceroot-ai/traceroot';
+
+    TraceRoot.initialize({
+      instrumentModules: { groq: Groq },
+    });
+
+    const groq = new Groq();
+    ```
+  </Tab>
+</Tabs>
+
+## Usage
+
+<Tabs>
+  <Tab title="Python">
+    Once initialized, all Groq calls are captured automatically:
+
+    ```python
+    import os
+    from groq import Groq
+
+    client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+
+    # This call is automatically traced
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "What is the capital of France?"},
+        ],
+    )
+
+    print(response.choices[0].message.content)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import Groq from 'groq-sdk';
+
+    const groq = new Groq({
+        apiKey: process.env.GROQ_API_KEY
+    });
+
+    // This call is automatically traced
+    const response = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        { role: 'system', content: 'You are a helpful assistant.' },
+        { role: 'user', content: 'What is the capital of France?' },
+      ],
+    });
+
+    console.log(response.choices[0].message.content);
+    ```
+  </Tab>
+</Tabs>
+
+## What Gets Captured
+
+| Attribute | Description |
+|-----------|-------------|
+| Model | `llama-3.3-70b-versatile`, `mixtral-8x7b-32768`, etc. |
+| Messages | Input messages array |
+| Response | Completion content |
+| Tokens | Prompt, completion, and total tokens |
+| Cost | Calculated from token usage and model pricing |
+| Latency | Request duration |
+
+## Run the example
+
+Clone the repo and run a complete agent end-to-end.
+
+<CardGroup cols={2}>
+  <Card title="Python" icon="python" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/python/groq-tool-agent">
+    Run the Python example
+  </Card>
+</CardGroup>

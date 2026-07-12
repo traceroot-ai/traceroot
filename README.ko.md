@@ -96,6 +96,7 @@
 | [OpenRouter](https://traceroot.ai/docs/integrations/openrouter) | Python, JS/TS | OpenAI SDK의 OpenRouter base URL로 호환 tracing을 수집합니다. [Python](./examples/python/openrouter-tool-agent) 및 [TypeScript](./examples/typescript/openrouter) 예제를 참고하세요. |
 | [Anthropic](https://traceroot.ai/docs/integrations/anthropic) | Python, JS/TS | Messages API에 대한 instrumentation을 자동으로 수집합니다. |
 | [Google Gemini](https://traceroot.ai/docs/integrations/gemini) | Python | Google GenAI SDK 기반 instrumentation을 자동으로 수집합니다. |
+| [Groq](https://traceroot.ai/docs/integrations/groq) | Python, JS/TS | Groq Chat Completions에 대한 instrumentation을 자동으로 수집합니다. |
 | [Mistral](https://traceroot.ai/docs/integrations/mistral) | Python | Mistral chat completions, 툴 호출, streaming response에 대한 instrumentation을 자동으로 수집합니다. |
 
 ### 에이전트 프레임워크

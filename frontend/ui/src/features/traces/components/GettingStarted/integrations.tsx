@@ -360,6 +360,33 @@ traceroot.initialize(integrations=[Integration.GOOGLE_GENAI])`,
     },
   },
   {
+    id: "groq",
+    name: "Groq",
+    href: "https://traceroot.ai/docs/integrations/groq",
+    category: "provider",
+    logo: "/logo/integrations/groq.svg",
+    languages: {
+      python: {
+        installCommand: PYTHON_INSTALL_COMMAND,
+        initSnippet: `import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.GROQ])`,
+      },
+      typescript: {
+        installCommand: TYPESCRIPT_INSTALL_COMMAND,
+        initSnippet: `import Groq from "groq-sdk";
+import { TraceRoot } from "@traceroot-ai/traceroot";
+
+TraceRoot.initialize({
+  instrumentModules: { groq: Groq },
+});
+
+const groq = new Groq();`,
+      },
+    },
+  },
+  {
     id: "mistral",
     name: "Mistral",
     href: "https://traceroot.ai/docs/integrations/mistral",
