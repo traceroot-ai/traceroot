@@ -2,21 +2,9 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
-import {
-  Workflow,
-  X,
-  ArrowUp,
-  ArrowDown,
-  BotMessageSquare,
-  ListTree,
-  SquareGanttChart,
-  Eye,
-  Expand,
-  Shrink,
-  SquareArrowOutUpRight,
-} from "lucide-react";
+import { Workflow, ListTree, SquareGanttChart, Eye } from "lucide-react";
 import { cn, buildUrlWithFilters } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
+import { PanelHeader } from "@/components/ui/panel-header";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { getTrace } from "@/lib/api";
 import type { TraceSelection } from "../types";
@@ -237,101 +225,52 @@ export function TraceViewerPanel({
       )}
     >
       <div className="flex h-full flex-col bg-background">
-        {/* ── MAIN HEADER ── */}
-        <div className="flex h-12 items-center justify-between border-b border-border bg-muted/30 px-4">
-          <div className="flex min-w-0 items-center gap-2">
-            <Workflow className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Trace</span>
-            <span className="truncate font-mono text-xs text-muted-foreground">{traceId}</span>
-          </div>
-          <div className="flex items-center gap-1">
-            {hasRca && (
-              <button
-                type="button"
-                onClick={() => {
-                  setAiContext({ traceId });
-                  setAiInitialSessionId(rcaSessionId);
-                  setAiPanelOpen(true);
-                }}
-                className="rounded-md border border-red-300 bg-red-50 px-2 py-1 text-[11px] font-medium text-red-700 transition-colors hover:bg-red-100 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/60"
-                title="Findings detected — open root cause analysis"
-              >
-                Alert
-              </button>
-            )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onNavigate("up")}
-              disabled={!canNavigateUp}
-              className="h-7 w-7 p-0"
-              title="Previous trace"
-            >
-              <ArrowUp className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onNavigate("down")}
-              disabled={!canNavigateDown}
-              className="h-7 w-7 p-0"
-              title="Next trace"
-            >
-              <ArrowDown className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setIsFullscreen((v) => !v)}
-              className="h-7 w-7 p-0"
-              title={isFullscreen ? "Restore default size" : "Expand to full screen"}
-            >
-              {isFullscreen ? <Shrink className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                window.open(
-                  buildUrlWithFilters(newTabPath ?? `/projects/${projectId}/traces`, {
-                    dateFilter,
-                    customStartDate,
-                    customEndDate,
-                    extraParams: { traceId, fullscreen: "1" },
-                  }),
-                  "_blank",
-                )
-              }
-              className="h-7 w-7 p-0"
-              title="Open in new tab"
-            >
-              <SquareArrowOutUpRight className="h-4 w-4" />
-            </Button>
-            <div className="w-2" />
-            {/* AI Assistant sits immediately left of Close, separated by a gap
-                from the navigation/view controls, so the agent button stays the
-                rightmost action regardless of the other header controls. */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setAiContext({ traceId });
-                // Bot button always opens a fresh chat; an active RCA session
-                // would otherwise hijack the next message into the worker's
-                // session instead of starting a new one.
-                setAiInitialSessionId(undefined);
-                setAiPanelOpen(!aiPanelOpen);
-              }}
-              className="h-7 w-7 p-0"
-              title="AI Assistant"
-            >
-              <BotMessageSquare className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0">
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
+        {/* ── MAIN HEADER ── (shared PanelHeader; old inline header kept below, disabled) */}
+        <PanelHeader
+          icon={<Workflow className="h-4 w-4 text-muted-foreground" />}
+          label="Trace"
+          id={traceId}
+          copyTitle="Copy trace ID"
+          alert={
+            hasRca
+              ? {
+                  onClick: () => {
+                    setAiContext({ traceId });
+                    setAiInitialSessionId(rcaSessionId);
+                    setAiPanelOpen(true);
+                  },
+                }
+              : undefined
+          }
+          nav={{
+            onNavigate,
+            canUp: canNavigateUp,
+            canDown: canNavigateDown,
+            upTitle: "Previous trace",
+            downTitle: "Next trace",
+          }}
+          fullscreen={{ isFullscreen, onToggle: () => setIsFullscreen((v) => !v) }}
+          newTab={{
+            href: buildUrlWithFilters(newTabPath ?? `/projects/${projectId}/traces`, {
+              dateFilter,
+              customStartDate,
+              customEndDate,
+              extraParams: { traceId, fullscreen: "1" },
+            }),
+          }}
+          ai={{
+            open: aiPanelOpen,
+            onClick: () => {
+              setAiContext({ traceId });
+              // Bot button always opens a fresh chat; an active RCA session
+              // would otherwise hijack the next message into the worker's
+              // session instead of starting a new one.
+              setAiInitialSessionId(undefined);
+              setAiPanelOpen(!aiPanelOpen);
+            },
+          }}
+          close={{ onClose }}
+        />
 
         {/* ── VIEW TOGGLE SUB-HEADER ── */}
         <div className="flex h-10 items-center border-b border-border">
