@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { SpanKind, SpanStatus } from "@traceroot/core";
 import type { Span } from "@/types/api";
 import {
+  buildSpanTree,
   enrichSpansWithPending,
   getSpanDuration,
   getTraceDuration,
@@ -523,5 +524,53 @@ describe("mergeSpans (live-SSE compat)", () => {
     expect(enriched.find((s) => s.span_id === "mid")?.pending).toBe(true);
     expect(enriched.find((s) => s.span_id === "root")).toBeDefined();
     expect(enriched.find((s) => s.span_id === "child")).toBeDefined();
+  });
+});
+
+describe("base-fetched skeleton spans build a connected tree", () => {
+  // The trace-detail read returns span skeletons whose `metadata` is the small
+  // span-path subset the backend extracts (no input/output blobs). Reloading
+  // mid-run therefore hits this path rather than SSE, and it must produce the
+  // same connected tree — children under synthesized ancestors, never pinned to
+  // the root as orphans.
+  it("nests a skeleton child under a synthesized ancestor instead of orphaning it", () => {
+    // Only the leaf has been exported so far: its parent chain is still running.
+    const skeletonSpans = [
+      makeSpan({
+        span_id: "leaf",
+        parent_span_id: "agent",
+        name: "tool_call",
+        metadata: metadataWith(["root", "agent"], ["session", "agent_step", "tool_call"]),
+      }),
+    ];
+
+    const rows = buildSpanTree(enrichSpansWithPending(skeletonSpans));
+
+    expect(rows.map((r) => [r.span.span_id, r.level])).toEqual([
+      ["root", 0],
+      ["agent", 1],
+      ["leaf", 2],
+    ]);
+    // The ancestors are placeholders, and the real leaf is not one.
+    expect(rows[0].span.pending).toBe(true);
+    expect(rows[1].span.pending).toBe(true);
+    expect(rows[2].span.pending).toBeUndefined();
+    // Exactly one top-level row: nothing is orphaned up to the root.
+    expect(rows.filter((r) => r.level === 0)).toHaveLength(1);
+  });
+
+  it("orphans the child when the skeleton carries no path metadata", () => {
+    // Guards the regression this fix exists for: without the extracted subset
+    // (metadata: null, as the skeleton returned before), repair cannot run and
+    // the child is pinned to the root.
+    const rows = buildSpanTree(
+      enrichSpansWithPending([
+        makeSpan({ span_id: "leaf", parent_span_id: "agent", metadata: null }),
+      ]),
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].span.span_id).toBe("leaf");
+    expect(rows[0].level).toBe(0);
   });
 });

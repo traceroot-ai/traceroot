@@ -1,5 +1,8 @@
 """Response schemas for the public, API-key-authenticated API."""
 
+from datetime import datetime
+from typing import Any
+
 from pydantic import BaseModel
 
 from rest.schemas.common import PaginationMeta
@@ -80,3 +83,75 @@ class PublicTraceExportResponse(BaseModel):
     # null. See rest.projection and the export endpoint's default `fields`.
     spans: list[SpanResponse]
     git_context: GitContext
+
+
+class DetectorResultItem(BaseModel):
+    """One detector's result within a finding, normalized from the stored payload.
+
+    The stored finding ``payload`` uses camelCase keys (``detectorId`` /
+    ``detectorName``); the public API exposes snake_case. Only triggered detectors
+    are persisted, so ``identified`` is always ``True`` for a present item. ``data``
+    is the detector's opaque output, passed through verbatim. ``template`` is looked
+    up from the Postgres ``detectors`` row and is ``None`` when that row is absent
+    (e.g. a deleted detector).
+    """
+
+    detector_id: str
+    detector_name: str
+    template: str | None
+    summary: str
+    identified: bool
+    data: Any | None
+
+
+class RCAResult(BaseModel):
+    """Free-text root-cause analysis for a finding (Postgres ``detector_rcas``)."""
+
+    status: str
+    result: str | None
+
+
+class FindingSummary(BaseModel):
+    """A detector finding row for the list view; ``detectors`` are display labels."""
+
+    finding_id: str
+    project_id: str
+    trace_id: str
+    summary: str
+    timestamp: datetime
+    detectors: list[str]
+
+
+class FindingDetail(FindingSummary):
+    """A finding plus its per-detector results and optional free-text RCA."""
+
+    results: list[DetectorResultItem]
+    rca: RCAResult | None
+
+
+class PublicFindingListResponse(BaseModel):
+    """Paginated list of detector findings for the public API."""
+
+    data: list[FindingSummary]
+    meta: PaginationMeta
+
+
+class DetectorItem(BaseModel):
+    """A detector from the project's catalog (Postgres ``detectors``).
+
+    ``detector_id`` is the value to pass to ``findings list --detector`` to filter
+    findings to this detector.
+    """
+
+    detector_id: str
+    name: str
+    template: str
+    enabled: bool
+    created_at: datetime
+
+
+class PublicDetectorListResponse(BaseModel):
+    """Paginated list of the project's detectors for the public API."""
+
+    data: list[DetectorItem]
+    meta: PaginationMeta

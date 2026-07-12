@@ -152,3 +152,10 @@ def test_read_endpoints_document_error_responses():
         responses = paths[p]["get"]["responses"]
         assert set(responses) >= {"200", "401", "404", "500"}
         assert responses["404"]["description"] == "Trace not found"
+
+
+def test_detectors_list_route_documents_error_responses():
+    paths = _schema()["paths"]
+    assert "get" in paths["/api/v1/public/detectors"]
+    responses = paths["/api/v1/public/detectors"]["get"]["responses"]
+    assert set(responses) >= {"200", "401", "500"}

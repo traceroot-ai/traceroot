@@ -89,6 +89,9 @@ detector:
     repository: ""
     tag: "latest"
   replicas: 1
+  # Per-attempt LLM eval timeout (ms). High enough to absorb slow/throttled
+  # BYOK providers (e.g. Z.AI glm) so their evals complete instead of timing out.
+  evalTimeoutMs: "180000"
   resources:
     requests:
       cpu: "250m"

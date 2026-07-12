@@ -9,11 +9,13 @@
 import { prisma } from "@traceroot/core";
 import { startDetectorRunWorker } from "./processors/detector-run-processor.js";
 import { startDetectorRcaWorker } from "./processors/detector-rca-processor.js";
+import { startDetectorDigestWorker } from "./processors/detector-digest-processor.js";
 
 // Graceful shutdown handling
 let isShuttingDown = false;
 let detectorRunWorker: ReturnType<typeof startDetectorRunWorker> | undefined;
 let detectorRcaWorker: ReturnType<typeof startDetectorRcaWorker> | undefined;
+let detectorDigestWorker: ReturnType<typeof startDetectorDigestWorker> | undefined;
 
 async function shutdown(signal: string): Promise<void> {
   if (isShuttingDown) return;
@@ -27,6 +29,9 @@ async function shutdown(signal: string): Promise<void> {
     }
     if (detectorRcaWorker) {
       await detectorRcaWorker.close();
+    }
+    if (detectorDigestWorker) {
+      await detectorDigestWorker.close();
     }
     await prisma.$disconnect();
     console.log("[Detector Worker] Cleanup complete");
@@ -59,6 +64,10 @@ async function main(): Promise<void> {
   // Start BullMQ detector RCA worker
   detectorRcaWorker = startDetectorRcaWorker();
   console.log("[Detector Worker] Detector RCA worker started");
+
+  // Start BullMQ detector digest worker
+  detectorDigestWorker = startDetectorDigestWorker();
+  console.log("[Detector Worker] Detector digest worker started");
 
   console.log("[Detector Worker] Workers are running. Press Ctrl+C to stop.");
 

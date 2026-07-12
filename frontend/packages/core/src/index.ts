@@ -9,6 +9,9 @@ export { encryptKey, decryptKey, maskKey } from "./lib/encryption.ts";
 // BYOK key resolution
 export { resolveWorkspaceApiKey } from "./lib/workspace-api-key.ts";
 
+// Transactional-email card template
+export { escapeHtml, renderEmailCard } from "./lib/email-card.ts";
+
 // Re-export Prisma types
 export type {
   User,

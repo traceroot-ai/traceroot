@@ -1,11 +1,25 @@
+const { execSync } = require("child_process");
 const path = require("path");
+
+function resolveAppVersion() {
+  if (process.env.APP_VERSION) return process.env.APP_VERSION;
+  try {
+    return execSync("git describe --tags --abbrev=0", {
+      cwd: path.join(__dirname, "../"),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return "dev";
+  }
+}
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: "standalone",
   reactStrictMode: true,
   env: {
-    NEXT_PUBLIC_APP_VERSION: process.env.APP_VERSION || `v${require("./package.json").version}`,
+    NEXT_PUBLIC_APP_VERSION: resolveAppVersion(),
   },
   transpilePackages: ["@traceroot/core", "@traceroot/github", "@traceroot/slack"],
   // Include monorepo root so standalone output traces deps outside ui/

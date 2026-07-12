@@ -76,6 +76,7 @@ export function CreateProjectDialog({
           </DialogHeader>
           <div className="py-4">
             <Input
+              autoFocus
               placeholder="Project name"
               value={name}
               onChange={(e) => setName(e.target.value)}

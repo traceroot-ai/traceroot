@@ -1,0 +1,140 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const sendMail = vi.fn();
+
+vi.mock("nodemailer", () => ({
+  default: { createTransport: () => ({ sendMail }) },
+}));
+
+const baseParams = {
+  to: ["admin@example.com", "owner@example.com"],
+  kind: "warning" as const,
+  meter: "events" as const,
+  workspaceId: "ws-1",
+  workspaceName: "Acme <script>",
+  used: 40_000,
+  cap: 50_000,
+};
+
+describe("sendUsageQuotaEmail", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    sendMail.mockReset();
+    // realistic nodemailer SentMessageInfo: every recipient accepted
+    sendMail.mockResolvedValue({
+      accepted: ["admin@example.com", "owner@example.com"],
+      rejected: [],
+    });
+    process.env.TRACEROOT_SMTP_URL = "smtp://user:pass@localhost:587";
+    process.env.NEXT_PUBLIC_APP_URL = "https://app.example.com";
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete process.env.TRACEROOT_SMTP_URL;
+    delete process.env.NEXT_PUBLIC_APP_URL;
+  });
+
+  it("sends a warning email with usage, escaped workspace name, and billing link", async () => {
+    const { sendUsageQuotaEmail } = await import("../email.js");
+    const ok = await sendUsageQuotaEmail(baseParams);
+
+    expect(ok).toBe(true);
+    expect(sendMail).toHaveBeenCalledTimes(1);
+    const mail = sendMail.mock.calls[0][0];
+
+    expect(mail.to).toBe("admin@example.com, owner@example.com");
+    expect(mail.subject).toContain("approaching");
+    expect(mail.subject).toContain("events");
+    // user-supplied workspace name is escaped in HTML
+    expect(mail.html).toContain("Acme &lt;script&gt;");
+    expect(mail.html).not.toContain("<script>");
+    expect(mail.html).toContain("40,000");
+    expect(mail.html).toContain("50,000");
+    expect(mail.html).toContain("https://app.example.com/workspaces/ws-1/settings/billing");
+    // house-style card markup: logo, title, and CTA button
+    expect(mail.html).toContain('alt="TraceRoot"');
+    expect(mail.html).toContain("Approaching your free plan limit");
+    expect(mail.html).toContain("Manage your plan");
+    // verbose warning lead: percentage, remaining headroom, and the
+    // what-will-pause consequence line
+    expect(mail.html).toContain("(80%)");
+    expect(mail.html).toContain("10,000 remaining");
+    expect(mail.html).toContain("Once the limit is reached, trace and span ingestion will pause");
+    // plain-text twin carries the same essentials
+    expect(mail.text).toContain("40,000 of 50,000");
+    expect(mail.text).toContain("(80%)");
+    expect(mail.text).toContain("10,000 remaining");
+    expect(mail.text).toContain("Once the limit is reached, trace and span ingestion will pause");
+    expect(mail.text).toContain("https://app.example.com/workspaces/ws-1/settings/billing");
+  });
+
+  it("blocked email names the paused feature per meter", async () => {
+    const { sendUsageQuotaEmail } = await import("../email.js");
+    await sendUsageQuotaEmail({
+      ...baseParams,
+      kind: "blocked",
+      meter: "detector",
+      used: 100,
+      cap: 100,
+    });
+
+    const mail = sendMail.mock.calls[0][0];
+    expect(mail.subject).toContain("limit reached");
+    expect(mail.html).toContain("Free plan limit reached");
+    expect(mail.html).toContain("Detector scans are paused");
+    expect(mail.html).toContain("https://app.example.com/workspaces/ws-1/settings/billing");
+    expect(mail.html).toContain("Manage your plan");
+    expect(mail.text).toContain("Detector scans are paused");
+    // blocked lead states the limit; no "used X of Y" (measured usage can
+    // exceed the cap before tick-granular blocking engages)
+    expect(mail.html).toContain(
+      "reached its free plan limit of <strong>100</strong> detector runs",
+    );
+    expect(mail.html).not.toContain("has used");
+    expect(mail.text).toContain("reached its free plan limit of 100 detector runs");
+    expect(mail.text).not.toContain("has used");
+  });
+
+  it("returns false without sending when the recipient list is empty", async () => {
+    const { sendUsageQuotaEmail } = await import("../email.js");
+    expect(await sendUsageQuotaEmail({ ...baseParams, to: [] })).toBe(false);
+    expect(sendMail).not.toHaveBeenCalled();
+  });
+
+  it("returns false when SMTP is not configured", async () => {
+    delete process.env.TRACEROOT_SMTP_URL;
+    const { sendUsageQuotaEmail } = await import("../email.js");
+    expect(await sendUsageQuotaEmail(baseParams)).toBe(false);
+    expect(sendMail).not.toHaveBeenCalled();
+  });
+
+  it("returns false when the transport errors, without throwing", async () => {
+    sendMail.mockRejectedValue(new Error("smtp down"));
+    const { sendUsageQuotaEmail } = await import("../email.js");
+    expect(await sendUsageQuotaEmail(baseParams)).toBe(false);
+  });
+
+  it("returns false when the server rejects every recipient", async () => {
+    sendMail.mockResolvedValue({
+      accepted: [],
+      rejected: ["admin@example.com", "owner@example.com"],
+    });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { sendUsageQuotaEmail } = await import("../email.js");
+    // nobody received the email, so callers must not stamp it as sent
+    expect(await sendUsageQuotaEmail(baseParams)).toBe(false);
+  });
+
+  it("returns true and logs when only some recipients are rejected", async () => {
+    sendMail.mockResolvedValue({
+      accepted: ["admin@example.com"],
+      rejected: ["owner@example.com"],
+    });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { sendUsageQuotaEmail } = await import("../email.js");
+    expect(await sendUsageQuotaEmail(baseParams)).toBe(true);
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("ws-1"), ["owner@example.com"]);
+  });
+});

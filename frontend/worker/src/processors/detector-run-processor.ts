@@ -1,6 +1,6 @@
 import { Worker, Queue, DelayedError, type Job } from "bullmq";
 import { createHash } from "crypto";
-import { prisma, PlanType } from "@traceroot/core";
+import { prisma, PlanType, calculateCost } from "@traceroot/core";
 import type {
   DetectorRunJob,
   DetectorRcaJob,
@@ -133,6 +133,31 @@ export interface ScanUsage {
   inferenceSource: "system" | "byok" | null;
   inferenceModel: string | null;
   inferenceProvider: string | null;
+}
+
+async function detectorInferenceCost(usage: ScanUsage): Promise<number> {
+  if (
+    usage.inferenceCost > 0 ||
+    !usage.inferenceModel ||
+    usage.inferenceInputTokens + usage.inferenceOutputTokens <= 0
+  ) {
+    return usage.inferenceCost;
+  }
+
+  try {
+    const fallback = await calculateCost(
+      usage.inferenceModel,
+      usage.inferenceInputTokens,
+      usage.inferenceOutputTokens,
+    );
+    return fallback > 0 ? fallback : usage.inferenceCost;
+  } catch (err) {
+    console.error(
+      `[Detector] Failed to calculate local pricing fallback for model ${usage.inferenceModel}:`,
+      err,
+    );
+    return usage.inferenceCost;
+  }
 }
 
 interface SingleDetectorOutcome {
@@ -281,14 +306,12 @@ async function evaluateTrace(
     prisma.project.findUnique({
       where: { id: projectId },
       select: {
-        name: true,
         workspaceId: true,
         workspace: { select: { billingPlan: true, detectorBlocked: true } },
       },
     }),
   ]);
 
-  const projectName = project?.name ?? "";
   const workspaceId = project?.workspaceId ?? "";
 
   // Free-plan detector cap enforcement — read the cached `detectorBlocked`
@@ -337,21 +360,25 @@ async function evaluateTrace(
   // Persist one AIMessage row per scan with kind="detector". This is the
   // source of truth for detector by-model + cost aggregations in the hourly
   // billing cron — same role aIMessage plays for chat + RCA.
-  const usages = fulfilled.map((o) => o.usage).filter((u): u is ScanUsage => u !== null);
+  const usages = fulfilled
+    .map((o) => o.usage)
+    .filter((u): u is ScanUsage => u !== null && u.inferenceModel !== null);
   if (usages.length > 0 && workspaceId) {
-    const aiMessageRows = usages.map((u) => ({
-      workspaceId,
-      sessionId: null,
-      kind: "detector",
-      role: "assistant",
-      content: "", // detector scans don't have a chat-like content payload
-      model: u.inferenceModel,
-      provider: u.inferenceProvider,
-      isByok: u.inferenceSource === "byok",
-      inputTokens: u.inferenceInputTokens,
-      outputTokens: u.inferenceOutputTokens,
-      cost: u.inferenceCost,
-    }));
+    const aiMessageRows = await Promise.all(
+      usages.map(async (u) => ({
+        workspaceId,
+        sessionId: null,
+        kind: "detector",
+        role: "assistant",
+        content: "", // detector scans don't have a chat-like content payload
+        model: u.inferenceModel,
+        provider: u.inferenceProvider,
+        isByok: u.inferenceSource === "byok",
+        inputTokens: u.inferenceInputTokens,
+        outputTokens: u.inferenceOutputTokens,
+        cost: await detectorInferenceCost(u),
+      })),
+    );
     try {
       await prisma.aIMessage.createMany({ data: aiMessageRows });
     } catch (err) {
@@ -382,15 +409,25 @@ async function evaluateTrace(
     })),
   );
 
+  // Single capture time for this finding. Stamped onto the finding row AND every
+  // triggered run below (timestampMs), and threaded to the RCA job to key the
+  // digest flush. Because the same value is both the row timestamp the flush
+  // counts and the window key, a finding always falls in exactly the window its
+  // flush covers — no boundary skew between the worker and server clocks.
+  const findingTimestamp = Date.now();
+
   await writeDetectorFinding({
     findingId,
     projectId,
     traceId,
     summary: combinedSummary,
     payload,
+    timestampMs: findingTimestamp,
   });
 
   // Write runs for all triggered detectors, all pointing to the same finding_id
+  // and stamped with the shared findingTimestamp so the digest count window
+  // matches the flush key.
   await Promise.allSettled(
     triggered.map((r) =>
       writeDetectorRun({
@@ -400,6 +437,7 @@ async function evaluateTrace(
         traceId,
         findingId,
         status: "completed",
+        timestampMs: findingTimestamp,
       }).catch((err) => console.error("[Detector] Failed to write run:", err)),
     ),
   );
@@ -432,8 +470,8 @@ async function evaluateTrace(
         projectId,
         traceId,
         workspaceId,
-        projectName,
         findings: rcaFindings,
+        findingTimestamp,
       },
       { jobId: `rca-${findingId}`, removeOnComplete: 100, removeOnFail: 50 },
     );

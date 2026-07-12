@@ -51,6 +51,12 @@ class SpanResponse(SpanSkeletonResponse):
     regression for the dashboard. Keeping the fields present (as ``null``) rather
     than omitting them is additive: a few bytes per span, and it matches the
     fields the shipped CLI's generated types already declare.
+
+    One internal-only exception: the dashboard's trace-detail read leaves a small
+    SDK span-path subset in ``metadata`` on the skeleton, which it needs to
+    rebuild the tree of an in-flight trace. The public routes drop it (see
+    ``rest.projection.drop_span_tree_metadata``), so for API clients the contract
+    above holds exactly: ``metadata`` is ``null`` unless requested.
     """
 
     input: str | None = None
@@ -102,7 +108,8 @@ class TraceDetailResponse(BaseModel):
     populated only when the caller requests the matching ``io``/``metadata``
     field group (see ``rest.projection``); the default ``skeleton`` projection
     leaves them ``None`` and never runs the bulk span-I/O query, preserving the
-    #1040 lightweight behavior.
+    #1040 lightweight behavior. The one exception is the dashboard's span-path
+    metadata subset — see ``SpanResponse``; the public routes drop it.
     """
 
     trace_id: str
@@ -117,3 +124,38 @@ class TraceDetailResponse(BaseModel):
     output: str | None
     metadata: str | None
     spans: list[SpanResponse]
+
+
+class FilterField(BaseModel):
+    """A single filterable column, serialized from the registry for the UI."""
+
+    field: str
+    label: str
+    type: str
+    level: str
+    operators: list[str]
+    value_source: str
+    enum_values: list[str] = []
+    # True for integer-typed numeric fields (tokens/latency/errors), so the UI can
+    # restrict their inputs to whole numbers.
+    integer: bool = False
+
+
+class FilterFieldsResponse(BaseModel):
+    """The full set of filterable fields driving the filter dropdown."""
+
+    fields: list[FilterField]
+
+
+class FilterValueCount(BaseModel):
+    """A distinct categorical value and how often it occurs."""
+
+    value: str
+    count: int
+
+
+class FilterValuesResponse(BaseModel):
+    """Distinct values for one categorical filter field, by frequency."""
+
+    field: str
+    values: list[FilterValueCount]

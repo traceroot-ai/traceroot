@@ -10,6 +10,7 @@ import {
   BotMessageSquare,
   ListTree,
   SquareGanttChart,
+  Eye,
   Expand,
   Shrink,
   SquareArrowOutUpRight,
@@ -27,6 +28,7 @@ import { useTraceStream } from "../hooks/use-trace-stream";
 import { SpanTimelineView } from "./SpanTimelineView";
 import { TREE_LAYOUT } from "../utils";
 import { useTraceFindings, useRca } from "@/features/detectors/hooks/use-findings";
+import { TraceDetectorsTab } from "./TraceDetectorsTab";
 
 interface TraceViewerPanelProps {
   projectId: string;
@@ -54,14 +56,15 @@ interface TraceViewerPanelProps {
 /**
  * Full-screen slide-in panel for viewing trace details.
  *
- * Resize hierarchy (#881):
- *   outer: [ Trace Tree | Right Workspace ]
- *   inner: [ Span Details | AI Assistant (optional) ]
+ * Resize hierarchy:
+ *   top-level: [ Main content | AI Assistant (optional) ]
+ *   main:      [ Trace Tree | Span Details ]
  *
- * The outer divider resizes tree vs everything-else; the inner divider only
- * touches details vs AI so the tree stays stable while the user adjusts the
- * assistant. AI state lives in AiChatProvider above this component, so chat
- * survives trace switching (#784).
+ * The AI assistant is a top-level sibling of the main content so it stays
+ * visible on every view. The trace tree stays mounted on the left across all
+ * views; the toggle swaps the right detail panel between span details, the
+ * timeline, and the detectors table. AI state lives in AiChatProvider above
+ * this component, so chat survives trace switching.
  */
 export function TraceViewerPanel({
   projectId,
@@ -78,7 +81,7 @@ export function TraceViewerPanel({
   newTabPath,
 }: TraceViewerPanelProps) {
   const [selection, setSelection] = useState<TraceSelection>({ type: "trace" });
-  const [viewMode, setViewMode] = useState<"tree" | "timeline">("tree");
+  const [viewMode, setViewMode] = useState<"tree" | "timeline" | "detectors">("tree");
   // Fullscreen widens the slide-in overlay from ~70% to the full viewport.
   // Seeded from initialFullscreen so a trace opened in a new tab lands expanded.
   // Local + resets when the panel unmounts (i.e. on close/reopen); it
@@ -160,7 +163,18 @@ export function TraceViewerPanel({
       timelineScrollRef.current.scrollTop = treeScrollRef.current.scrollTop;
     });
   }, [viewMode]);
-
+  // Close the panel on Escape. A nested Radix overlay (dialog/select/popover/menu) that
+  // consumes the Escape calls preventDefault() in the capture phase, before this
+  // bubble-phase listener runs — so defaultPrevented means "already handled, leave the panel open".
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (e.defaultPrevented) return;
+      onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
   const handleToggleCollapse = useCallback((id: string) => {
     setCollapsedIds((prev) => {
       const next = new Set(prev);
@@ -344,67 +358,80 @@ export function TraceViewerPanel({
             >
               <SquareGanttChart className="h-3.5 w-3.5" /> Timeline
             </button>
+            <button
+              onClick={() => setViewMode("detectors")}
+              className={cn(
+                "flex items-center gap-2 rounded-md px-3 py-1 text-xs font-medium transition-all",
+                viewMode === "detectors"
+                  ? "bg-muted text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <Eye className="h-3.5 w-3.5" /> Detectors
+            </button>
           </div>
         </div>
 
         {/* ── CONTENT AREA ── */}
-        {/* ResizablePanelGroup stays mounted across trace switches so the AI
-          panel inside doesn't get torn down while the next trace is
-          fetching (#784: chat survives ↑/↓ navigation). Loading and error
-          states are isolated to the detail panel's content. */}
         <div className="relative flex flex-1 overflow-hidden">
+          {/* Top-level split: [ main content | AI assistant (optional) ]. The AI
+            panel is hoisted up here so it sits beside the main content on every
+            view, so it stays usable on the Detectors view too. */}
           <ResizablePanelGroup orientation="horizontal" className="h-full min-w-0">
-            {/* LEFT: tree panel — outer group */}
-            <ResizablePanel
-              id="trace-tree"
-              defaultSize="32%"
-              minSize="260px"
-              maxSize="50%"
-              className="flex min-w-0 flex-col bg-muted/30"
-            >
-              <div
-                className="flex flex-shrink-0 items-center border-b border-border bg-muted/10 px-3"
-                style={{ height: TREE_LAYOUT.ROW_HEIGHT }}
-              >
-                <span className="text-[11px] font-medium text-muted-foreground">Trace Tree</span>
-              </div>
-              <div
-                ref={treeScrollRef}
-                className="flex-1 overflow-y-auto overflow-x-hidden"
-                onScroll={handleTreeScroll}
-              >
-                {trace && (
-                  <SpanTreeView
-                    ref={treeViewRef}
-                    trace={trace}
-                    scrollRef={treeScrollRef}
-                    selection={selection}
-                    onSelect={viewMode === "tree" ? setSelection : handleTimelineSelect}
-                    collapsedIds={collapsedIds}
-                    onToggleCollapse={handleToggleCollapse}
-                    compact={viewMode === "timeline"}
-                    hoveredSpanId={hoveredSpanId}
-                    onHoverChange={setHoveredSpanId}
-                  />
-                )}
-              </div>
-            </ResizablePanel>
-
-            <ResizableHandle />
-
-            {/* RIGHT: workspace (details + optional AI) — inner group */}
-            <ResizablePanel
-              id="trace-right-workspace"
-              minSize="420px"
-              className="min-w-0 overflow-hidden border-l border-border bg-background"
-            >
+            <ResizablePanel id="trace-main" minSize="420px" className="min-w-0 overflow-hidden">
               <ResizablePanelGroup orientation="horizontal" className="h-full min-w-0">
+                {/* LEFT: tree panel */}
+                <ResizablePanel
+                  id="trace-tree"
+                  defaultSize="32%"
+                  minSize="260px"
+                  maxSize="50%"
+                  className="flex min-w-0 flex-col bg-muted/30"
+                >
+                  <div
+                    className="flex flex-shrink-0 items-center border-b border-border bg-muted/10 px-3"
+                    style={{ height: TREE_LAYOUT.ROW_HEIGHT }}
+                  >
+                    <span className="text-[11px] font-medium text-muted-foreground">
+                      Trace Tree
+                    </span>
+                  </div>
+                  <div
+                    ref={treeScrollRef}
+                    className="flex-1 overflow-y-auto overflow-x-hidden"
+                    onScroll={handleTreeScroll}
+                  >
+                    {trace && (
+                      <SpanTreeView
+                        ref={treeViewRef}
+                        trace={trace}
+                        scrollRef={treeScrollRef}
+                        selection={selection}
+                        onSelect={viewMode === "tree" ? setSelection : handleTimelineSelect}
+                        collapsedIds={collapsedIds}
+                        onToggleCollapse={handleToggleCollapse}
+                        compact={viewMode === "timeline"}
+                        hoveredSpanId={hoveredSpanId}
+                        onHoverChange={setHoveredSpanId}
+                      />
+                    )}
+                  </div>
+                </ResizablePanel>
+
+                <ResizableHandle />
+
+                {/* RIGHT: span details / timeline */}
                 <ResizablePanel
                   id="trace-detail"
                   minSize="320px"
-                  className="min-w-0 overflow-hidden bg-background"
+                  className="min-w-0 overflow-hidden border-l border-border bg-background"
                 >
-                  {isLoading ? (
+                  {/* Detectors fetches its own data by traceId, so it renders
+                    ahead of the trace-load guards — a slow or failed *trace*
+                    fetch must not hide independently-loaded detector data. */}
+                  {viewMode === "detectors" ? (
+                    <TraceDetectorsTab projectId={projectId} traceId={traceId} />
+                  ) : isLoading ? (
                     <div className="flex h-full items-center justify-center">
                       <p className="text-sm text-muted-foreground">Loading trace...</p>
                     </div>
@@ -435,31 +462,31 @@ export function TraceViewerPanel({
                     />
                   )}
                 </ResizablePanel>
-
-                {aiPanelOpen && (
-                  <>
-                    <ResizableHandle />
-                    <ResizablePanel
-                      id="trace-ai-chat"
-                      defaultSize="46%"
-                      minSize="320px"
-                      maxSize="55%"
-                      className="min-w-0 border-border bg-background"
-                    >
-                      <AiAssistantPanel
-                        projectId={projectId}
-                        compact
-                        onClose={() => {
-                          setAiPanelOpen(false);
-                          setAiContext(null);
-                          setAiInitialSessionId(undefined);
-                        }}
-                      />
-                    </ResizablePanel>
-                  </>
-                )}
               </ResizablePanelGroup>
             </ResizablePanel>
+
+            {aiPanelOpen && (
+              <>
+                <ResizableHandle />
+                <ResizablePanel
+                  id="trace-ai-chat"
+                  defaultSize="31%"
+                  minSize="320px"
+                  maxSize="45%"
+                  className="min-w-0 border-l border-border bg-background"
+                >
+                  <AiAssistantPanel
+                    projectId={projectId}
+                    compact
+                    onClose={() => {
+                      setAiPanelOpen(false);
+                      setAiContext(null);
+                      setAiInitialSessionId(undefined);
+                    }}
+                  />
+                </ResizablePanel>
+              </>
+            )}
           </ResizablePanelGroup>
         </div>
       </div>

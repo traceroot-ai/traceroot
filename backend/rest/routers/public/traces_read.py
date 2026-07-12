@@ -7,6 +7,7 @@ write concerns stay decoupled; both reuse the shared API-key auth dependency.
 """
 
 import logging
+from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 
@@ -15,6 +16,7 @@ from rest.projection import (
     FULL,
     SKELETON,
     InvalidFieldsError,
+    drop_span_tree_metadata,
     hydrate_span_io,
     resolve_span_fields,
 )
@@ -51,11 +53,24 @@ async def list_traces(
     response: Response,
     auth: StampedAuth,
     limit: int = Query(50, ge=1, le=200, description="Items per page"),
+    start_after: datetime | None = Query(
+        None,
+        description="Only traces that started at or after this time (inclusive, ISO 8601)",
+    ),
+    end_before: datetime | None = Query(
+        None,
+        description="Only traces that started before this time (exclusive, ISO 8601)",
+    ),
 ):
     """List recent traces for the API key's project (newest first)."""
     try:
         service = get_trace_reader_service()
-        result = service.list_traces(project_id=auth.project_id, limit=limit)
+        result = service.list_traces(
+            project_id=auth.project_id,
+            limit=limit,
+            start_after=start_after,
+            end_before=end_before,
+        )
     except Exception as e:
         logger.exception(f"Error listing traces: {e}")
         raise HTTPException(
@@ -194,6 +209,10 @@ def _require_trace(project_id: str, trace_id: str, groups: frozenset[str]) -> di
         trace = service.get_trace(project_id=project_id, trace_id=trace_id)
         if trace:
             hydrate_span_io(service, trace, project_id=project_id, trace_id=trace_id, groups=groups)
+            # The skeleton's span-path metadata subset exists for the dashboard's
+            # live-tree repair; API clients build trees from parent_span_id and
+            # their contract is `metadata: null` unless they ask for it.
+            drop_span_tree_metadata(trace, groups)
     except Exception as e:
         logger.exception(f"Error getting trace: {e}")
         raise HTTPException(

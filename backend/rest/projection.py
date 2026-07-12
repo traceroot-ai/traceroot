@@ -112,6 +112,27 @@ def io_columns(groups: frozenset[str]) -> frozenset[str]:
     return frozenset(columns)
 
 
+def drop_span_tree_metadata(trace: dict, groups: frozenset[str]) -> None:
+    """Drop the skeleton's span-path metadata subset, in place, unless requested.
+
+    The trace-detail skeleton returns a small span-path metadata subset that the
+    dashboard needs to rebuild the tree of a live trace (children are exported
+    before their parents, so the missing ancestors are synthesized from it).
+
+    API clients do no tree repair, and their contract is ``metadata: null``
+    unless the ``metadata`` field group is requested. Handing them the subset
+    instead would be a partial blob they cannot distinguish from a real one —
+    the field's type would not change, so nothing signals the truncation. The
+    public routes therefore drop it; when ``metadata`` IS requested,
+    ``merge_span_io`` has already overwritten it with the full blob, so there is
+    nothing to drop.
+    """
+    if METADATA in groups:
+        return
+    for span in trace.get("spans", []):
+        span["metadata"] = None
+
+
 def merge_span_io(trace: dict, span_io: dict[str, dict]) -> None:
     """Attach bulk per-span I/O onto a trace's skeleton spans, in place.
 

@@ -1,6 +1,92 @@
 {
   "components": {
     "schemas": {
+      "DetectorItem": {
+        "description": "A detector from the project's catalog (Postgres ``detectors``).\n\n``detector_id`` is the value to pass to ``findings list --detector`` to filter\nfindings to this detector.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "detector_id": {
+            "title": "Detector Id",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "template": {
+            "title": "Template",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detector_id",
+          "name",
+          "template",
+          "enabled",
+          "created_at"
+        ],
+        "title": "DetectorItem",
+        "type": "object"
+      },
+      "DetectorResultItem": {
+        "description": "One detector's result within a finding, normalized from the stored payload.\n\nThe stored finding ``payload`` uses camelCase keys (``detectorId`` /\n``detectorName``); the public API exposes snake_case. Only triggered detectors\nare persisted, so ``identified`` is always ``True`` for a present item. ``data``\nis the detector's opaque output, passed through verbatim. ``template`` is looked\nup from the Postgres ``detectors`` row and is ``None`` when that row is absent\n(e.g. a deleted detector).",
+        "properties": {
+          "data": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data"
+          },
+          "detector_id": {
+            "title": "Detector Id",
+            "type": "string"
+          },
+          "detector_name": {
+            "title": "Detector Name",
+            "type": "string"
+          },
+          "identified": {
+            "title": "Identified",
+            "type": "boolean"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "template": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Template"
+          }
+        },
+        "required": [
+          "detector_id",
+          "detector_name",
+          "template",
+          "summary",
+          "identified",
+          "data"
+        ],
+        "title": "DetectorResultItem",
+        "type": "object"
+      },
       "ExportManifest": {
         "description": "manifest.json: index of the bundle's parts.",
         "properties": {
@@ -31,6 +117,111 @@
           "files"
         ],
         "title": "ExportManifest",
+        "type": "object"
+      },
+      "FindingDetail": {
+        "description": "A finding plus its per-detector results and optional free-text RCA.",
+        "properties": {
+          "detectors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Detectors",
+            "type": "array"
+          },
+          "finding_id": {
+            "title": "Finding Id",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "rca": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RCAResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/DetectorResultItem"
+            },
+            "title": "Results",
+            "type": "array"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "timestamp": {
+            "format": "date-time",
+            "title": "Timestamp",
+            "type": "string"
+          },
+          "trace_id": {
+            "title": "Trace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "finding_id",
+          "project_id",
+          "trace_id",
+          "summary",
+          "timestamp",
+          "detectors",
+          "results",
+          "rca"
+        ],
+        "title": "FindingDetail",
+        "type": "object"
+      },
+      "FindingSummary": {
+        "description": "A detector finding row for the list view; ``detectors`` are display labels.",
+        "properties": {
+          "detectors": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Detectors",
+            "type": "array"
+          },
+          "finding_id": {
+            "title": "Finding Id",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "timestamp": {
+            "format": "date-time",
+            "title": "Timestamp",
+            "type": "string"
+          },
+          "trace_id": {
+            "title": "Trace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "finding_id",
+          "project_id",
+          "trace_id",
+          "summary",
+          "timestamp",
+          "detectors"
+        ],
+        "title": "FindingSummary",
         "type": "object"
       },
       "GitContext": {
@@ -178,6 +369,48 @@
           "total"
         ],
         "title": "PaginationMeta",
+        "type": "object"
+      },
+      "PublicDetectorListResponse": {
+        "description": "Paginated list of the project's detectors for the public API.",
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/DetectorItem"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/PaginationMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "PublicDetectorListResponse",
+        "type": "object"
+      },
+      "PublicFindingListResponse": {
+        "description": "Paginated list of detector findings for the public API.",
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/FindingSummary"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/PaginationMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "PublicFindingListResponse",
         "type": "object"
       },
       "PublicTraceDetailResponse": {
@@ -498,8 +731,34 @@
         "title": "PublicTraceListResponse",
         "type": "object"
       },
+      "RCAResult": {
+        "description": "Free-text root-cause analysis for a finding (Postgres ``detector_rcas``).",
+        "properties": {
+          "result": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "result"
+        ],
+        "title": "RCAResult",
+        "type": "object"
+      },
       "SpanResponse": {
-        "description": "A span skeleton plus its per-span I/O blobs (``input``/``output``/``metadata``).\n\nThe projection-capable superset returned by the trace get/export endpoints.\nThe blobs default to ``None`` and are populated only when the caller requests\nthe matching field group (``io``/``metadata``; see\n``rest.projection``). The default ``skeleton`` projection leaves them ``None``\nand never runs the bulk span-I/O query, so there is no payload or query-cost\nregression for the dashboard. Keeping the fields present (as ``null``) rather\nthan omitting them is additive: a few bytes per span, and it matches the\nfields the shipped CLI's generated types already declare.",
+        "description": "A span skeleton plus its per-span I/O blobs (``input``/``output``/``metadata``).\n\nThe projection-capable superset returned by the trace get/export endpoints.\nThe blobs default to ``None`` and are populated only when the caller requests\nthe matching field group (``io``/``metadata``; see\n``rest.projection``). The default ``skeleton`` projection leaves them ``None``\nand never runs the bulk span-I/O query, so there is no payload or query-cost\nregression for the dashboard. Keeping the fields present (as ``null``) rather\nthan omitting them is additive: a few bytes per span, and it matches the\nfields the shipped CLI's generated types already declare.\n\nOne internal-only exception: the dashboard's trace-detail read leaves a small\nSDK span-path subset in ``metadata`` on the skeleton, which it needs to\nrebuild the tree of an in-flight trace. The public routes drop it (see\n``rest.projection.drop_span_tree_metadata``), so for API clients the contract\nabove holds exactly: ``metadata`` is ``null`` unless requested.",
         "properties": {
           "cost": {
             "anyOf": [
@@ -848,6 +1107,530 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/public/detectors": {
+      "get": {
+        "description": "List the detectors in the API key's project (newest first).",
+        "operationId": "list_detectors_api_v1_public_detectors_get",
+        "parameters": [
+          {
+            "description": "Items per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only detectors created at or after this time (inclusive, ISO 8601)",
+            "in": "query",
+            "name": "start_after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only detectors created at or after this time (inclusive, ISO 8601)",
+              "title": "Start After"
+            }
+          },
+          {
+            "description": "Only detectors created before this time (exclusive, ISO 8601)",
+            "in": "query",
+            "name": "end_before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only detectors created before this time (exclusive, ISO 8601)",
+              "title": "End Before"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicDetectorListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Failed to list detectors"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List Detectors",
+        "tags": [
+          "Detectors (Public)"
+        ]
+      }
+    },
+    "/api/v1/public/detectors/findings": {
+      "get": {
+        "description": "List recent detector findings for the API key's project (newest first).",
+        "operationId": "list_findings_api_v1_public_detectors_findings_get",
+        "parameters": [
+          {
+            "description": "Items per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Only findings at or after this time (inclusive, ISO 8601)",
+            "in": "query",
+            "name": "start_after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only findings at or after this time (inclusive, ISO 8601)",
+              "title": "Start After"
+            }
+          },
+          {
+            "description": "Only findings before this time (exclusive, ISO 8601)",
+            "in": "query",
+            "name": "end_before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only findings before this time (exclusive, ISO 8601)",
+              "title": "End Before"
+            }
+          },
+          {
+            "description": "Filter by detector id, name, or template",
+            "in": "query",
+            "name": "detector",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by detector id, name, or template",
+              "title": "Detector"
+            }
+          },
+          {
+            "description": "Filter to a single trace",
+            "in": "query",
+            "name": "trace_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter to a single trace",
+              "title": "Trace Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicFindingListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Failed to list findings"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List Findings",
+        "tags": [
+          "Detectors (Public)"
+        ]
+      }
+    },
+    "/api/v1/public/detectors/findings/{finding_id}": {
+      "get": {
+        "description": "Get a single finding by id for the key's project.",
+        "operationId": "get_finding_api_v1_public_detectors_findings__finding_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "finding_id",
+            "required": true,
+            "schema": {
+              "title": "Finding Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindingDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Finding not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Failed to read finding"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Finding",
+        "tags": [
+          "Detectors (Public)"
+        ]
+      }
+    },
+    "/api/v1/public/detectors/traces/{trace_id}/finding": {
+      "get": {
+        "description": "Get the finding for a single trace (findings are 1-per-trace).",
+        "operationId": "get_finding_by_trace_api_v1_public_detectors_traces__trace_id__finding_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "trace_id",
+            "required": true,
+            "schema": {
+              "title": "Trace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindingDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Finding not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Failed to read finding"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Finding By Trace",
+        "tags": [
+          "Detectors (Public)"
+        ]
+      }
+    },
     "/api/v1/public/traces": {
       "get": {
         "description": "List recent traces for the API key's project (newest first).",
@@ -865,6 +1648,44 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "description": "Only traces that started at or after this time (inclusive, ISO 8601)",
+            "in": "query",
+            "name": "start_after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only traces that started at or after this time (inclusive, ISO 8601)",
+              "title": "Start After"
+            }
+          },
+          {
+            "description": "Only traces that started before this time (exclusive, ISO 8601)",
+            "in": "query",
+            "name": "end_before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only traces that started before this time (exclusive, ISO 8601)",
+              "title": "End Before"
             }
           }
         ],

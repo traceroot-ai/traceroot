@@ -91,5 +91,10 @@ spec:
               port: {{ .Values.rest.port }}
             initialDelaySeconds: 15
             periodSeconds: 10
+            # Relaxed so a transient slow ClickHouse query that briefly blocks the
+            # event loop doesn't trip a needless restart (k8s defaults are
+            # timeoutSeconds:1 / failureThreshold:3 = killed after ~30s unresponsive).
+            timeoutSeconds: 5
+            failureThreshold: 5
           resources:
             {{- toYaml .Values.rest.resources | nindent 12 }}

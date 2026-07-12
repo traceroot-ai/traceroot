@@ -9,6 +9,14 @@ on:
   #   # Daily at 3am — disabled until we have a use for it
   #   - cron: "0 3 * * *"
   workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target ECR repo prefix (repos are named traceroot-<environment>-<service>)"
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
 
 concurrency:
   group: docker-images-${{ github.ref }}
@@ -49,6 +57,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -63,11 +73,15 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Resolve app version
+        id: app_version
+        run: echo "value=$(git describe --tags --abbrev=0 2>/dev/null || echo dev)" >> "$GITHUB_OUTPUT"
+
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.ECR_REGISTRY }}/traceroot-${{ matrix.service }}
+          images: ${{ env.ECR_REGISTRY }}/traceroot-${{ inputs.environment }}-${{ matrix.service }}
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha,prefix=sha-
@@ -81,8 +95,20 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Per-environment build args. NEXT_PUBLIC_APP_URL and BETTER_AUTH_URL
+          # are inlined into the web client bundle at BUILD time (Next.js) and
+          # default to http://localhost:3000 in docker/Dockerfile.web — if they
+          # are not passed, login breaks in the deployed env. They are public,
+          # deterministic per-env URLs (not secrets), so derive them from the
+          # `environment` input rather than a deletable GitHub secret. PostHog
+          # is production-only (empty -> dropped by build-push-action -> the
+          # Dockerfile default of "" -> analytics disabled, as on staging).
           build-args: |
-            APP_VERSION=${{ github.ref_name }}
+            APP_VERSION=${{ steps.app_version.outputs.value }}
+            NEXT_PUBLIC_APP_URL=${{ inputs.environment == 'production' && 'https://app.traceroot.ai' || 'https://staging.traceroot.ai' }}
+            BETTER_AUTH_URL=${{ inputs.environment == 'production' && 'https://app.traceroot.ai' || 'https://staging.traceroot.ai' }}
+            NEXT_PUBLIC_POSTHOG_KEY=${{ inputs.environment == 'production' && secrets.NEXT_PUBLIC_POSTHOG_KEY || '' }}
+            NEXT_PUBLIC_POSTHOG_HOST=${{ inputs.environment == 'production' && secrets.NEXT_PUBLIC_POSTHOG_HOST || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64
