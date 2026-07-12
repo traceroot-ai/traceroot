@@ -206,27 +206,29 @@ export const MoonshotIcon: FC<IconProps> = ({ className }) => (
 );
 
 // Groq
-export const GroqIcon: FC<IconProps> = ({ className }) => (
-  <svg
-    viewBox="0 0 24 24"
-    className={cn("h-4 w-4", className)}
-    xmlns="http://www.w3.org/2000/svg"
-    aria-hidden="true"
-  >
-    <rect width="24" height="24" rx="4" fill="#F55036" />
-    <text
-      x="12"
-      y="16.5"
-      fontFamily="sans-serif"
-      fontWeight="bold"
-      fontSize="16"
-      fill="#ffffff"
-      textAnchor="middle"
+export const GroqIcon: FC<IconProps> = ({ className }) => {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={cn("h-4 w-4", className)}
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
     >
-      G
-    </text>
-  </svg>
-);
+      <rect width="24" height="24" rx="4" fill="#F55036" />
+      <text
+        x="12"
+        y="16.5"
+        fontFamily="sans-serif"
+        fontWeight="bold"
+        fontSize="16"
+        fill="#ffffff"
+        textAnchor="middle"
+      >
+        G
+      </text>
+    </svg>
+  );
+};
 
 // Z.AI (from lobehub/lobe-icons — new 2025 rebrand)
 export const ZAIIcon: FC<IconProps> = ({ className }) => (
