@@ -84,6 +84,26 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
             op["responses"].setdefault("404", _error_response("Trace not found"))
             op["responses"].setdefault("500", _error_response("Failed to get trace"))
 
+    # Detector catalog list error contract (matches the route code).
+    detectors_list_op = schema["paths"].get("/api/v1/public/detectors", {}).get("get")
+    if detectors_list_op is not None:
+        detectors_list_op["responses"].setdefault(
+            "500", _error_response("Failed to list detectors")
+        )
+
+    # Detector findings read error contract (matches the route code).
+    findings_list_op = schema["paths"].get("/api/v1/public/detectors/findings", {}).get("get")
+    if findings_list_op is not None:
+        findings_list_op["responses"].setdefault("500", _error_response("Failed to list findings"))
+    for path in (
+        "/api/v1/public/detectors/findings/{finding_id}",
+        "/api/v1/public/detectors/traces/{trace_id}/finding",
+    ):
+        op = schema["paths"].get(path, {}).get("get")
+        if op is not None:
+            op["responses"].setdefault("404", _error_response("Finding not found"))
+            op["responses"].setdefault("500", _error_response("Failed to read finding"))
+
 
 def _collect_refs(node: Any, acc: set[str]) -> None:
     """Collect component schema names referenced by `$ref` anywhere under `node`."""

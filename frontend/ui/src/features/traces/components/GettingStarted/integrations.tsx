@@ -206,6 +206,22 @@ traceroot.initialize(integrations=[Integration.LLAMA_INDEX])`,
     },
   },
   {
+    id: "microsoft-agent-framework",
+    name: "Microsoft Agent Framework",
+    href: "https://traceroot.ai/docs/integrations/microsoft-agent-framework",
+    category: "framework",
+    logo: "/logo/integrations/microsoft-agent-framework.svg",
+    languages: {
+      python: {
+        installCommand: PYTHON_INSTALL_COMMAND,
+        initSnippet: `import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.AGENT_FRAMEWORK])`,
+      },
+    },
+  },
+  {
     id: "mastra",
     name: "Mastra",
     href: "https://traceroot.ai/docs/integrations/mastra",

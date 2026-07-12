@@ -19,8 +19,16 @@ from rest.rate_limit import (
     limiter,
     resolve_limit,
 )
-from rest.routers.deps import ProjectAccess, RateLimitedProjectAccess
-from rest.schemas.traces import SpanIOResponse, TraceDetailResponse, TraceListResponse
+from rest.routers.deps import RateLimitedProjectAccess
+from rest.schemas.traces import (
+    FilterFieldsResponse,
+    FilterValuesResponse,
+    SpanIOResponse,
+    TraceDetailResponse,
+    TraceListResponse,
+)
+from rest.services.filters import columns as filter_columns
+from rest.services.filters.translate import parse_filters_param
 from rest.services.trace_reader import get_trace_reader_service
 
 logger = logging.getLogger(__name__)
@@ -46,8 +54,17 @@ async def list_traces(
     search_query: str | None = Query(
         None, description="Search trace_id, name, session_id, user_id"
     ),
+    filters: str | None = Query(
+        None, description="URL-encoded JSON array of {field, op, value} filter predicates"
+    ),
 ):
     """List traces for a project with pagination and filtering."""
+    # Parse + validate filters before the DB try-block so a bad predicate surfaces as a
+    # 422 rather than being swallowed by the broad 500 handler below.
+    try:
+        parsed_filters = parse_filters_param(filters)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e)) from e
     try:
         service = get_trace_reader_service()
         result = service.list_traces(
@@ -59,6 +76,7 @@ async def list_traces(
             start_after=start_after,
             end_before=end_before,
             search_query=search_query,
+            filters=parsed_filters,
         )
         return result
     except Exception as e:
@@ -67,6 +85,104 @@ async def list_traces(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to list traces",
         ) from e
+
+
+@router.get("/filter-fields", response_model=FilterFieldsResponse)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def get_filter_fields(
+    request: Request,
+    response: Response,
+    project_id: str,
+    _access: RateLimitedProjectAccess,  # Validates access + sets rate-limit identity
+):
+    """Serialize the filter field registry that drives the filter dropdown.
+
+    Python is the single source of truth for filterable columns, so the frontend
+    holds no second column list.
+
+    Args:
+        project_id (str): Project from the path; scopes access (the field set itself
+            is the same for every project).
+        _access (RateLimitedProjectAccess): Validates access and sets rate-limit identity.
+
+    Returns:
+        FilterFieldsResponse: One entry per registry column with its UI metadata.
+    """
+    return {
+        "fields": [
+            {
+                "field": c.name,
+                "label": c.label,
+                "type": c.type,
+                "level": c.level,
+                "operators": list(c.operators),
+                "value_source": c.value_source,
+                "enum_values": list(c.enum_values),
+                "integer": c.is_integer,
+            }
+            for c in filter_columns.FILTER_COLUMNS
+        ]
+    }
+
+
+@router.get("/filter-values/{field}", response_model=FilterValuesResponse)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def get_filter_values(
+    request: Request,
+    response: Response,
+    project_id: str,
+    field: str,
+    _access: RateLimitedProjectAccess,  # Validates access + sets rate-limit identity
+    start_after: datetime | None = Query(
+        None, description="Only consider spans starting at or after this timestamp"
+    ),
+    end_before: datetime | None = Query(
+        None, description="Only consider spans starting before this timestamp"
+    ),
+):
+    """Distinct values for an open-ended categorical filter field.
+
+    Only fields the registry marks as distinct-query (model_name, environment) are
+    listable; static-enum and numeric fields are rejected.
+    The field is resolved through the registry before it reaches SQL, so it can never
+    be a raw client-supplied column name.
+
+    Args:
+        project_id (str): Project that owns the spans; server-bound for isolation.
+        field (str): The categorical field to enumerate.
+        _access (RateLimitedProjectAccess): Validates access and sets rate-limit identity.
+        start_after (datetime | None): Lower bound on span start time (active window).
+        end_before (datetime | None): Upper bound on span start time (active window),
+            symmetric with ``start_after`` so options match the list's window.
+
+    Returns:
+        FilterValuesResponse: Distinct values ordered by descending frequency.
+
+    Raises:
+        HTTPException: 404 if the field is not in the registry, 400 if it is not a
+            distinct-query categorical.
+    """
+    column = filter_columns.get_column(field)
+    if column is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Unknown filter field: {field}",
+        )
+    if column.value_source != filter_columns.ValueSource.DISTINCT_QUERY:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Field '{field}' does not support distinct-value listing",
+        )
+
+    service = get_trace_reader_service()
+    values = service.get_distinct_span_values(
+        project_id=project_id, column=column.name, start_after=start_after, end_before=end_before
+    )
+    return {"field": field, "values": values}
 
 
 @router.get("/{trace_id}", response_model=TraceDetailResponse)
@@ -123,11 +239,16 @@ async def get_trace(
 
 
 @router.get("/{trace_id}/spans/{span_id}/io", response_model=SpanIOResponse)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
 async def get_span_io(
+    request: Request,
+    response: Response,
     project_id: str,
     trace_id: str,
     span_id: str,
-    _access: ProjectAccess,  # Validates user has access to project
+    _access: RateLimitedProjectAccess,  # Validates access + sets rate-limit identity
 ):
     """Get full input/output/metadata for a single span on demand."""
     service = get_trace_reader_service()

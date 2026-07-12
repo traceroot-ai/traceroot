@@ -99,6 +99,8 @@ spec:
                   key: {{ .Values.smtp.keys.mailFrom }}
             {{- end }}
             {{- end }}
+            - name: DETECTOR_EVAL_TIMEOUT_MS
+              value: {{ .Values.detector.evalTimeoutMs | default "180000" | quote }}
             {{- with .Values.additionalEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}

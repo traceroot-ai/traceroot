@@ -43,6 +43,56 @@ def test_span_cost_details_reconciles_to_cost():
     assert details["input_uncached_cost"] == pytest.approx(2000 * 0.000003)
 
 
+def test_span_cost_details_rebuilds_1h_portion():
+    from rest.services.trace_reader import span_cost_details
+    from worker.tokens.buckets import TokenBuckets
+    from worker.tokens.pricing import cost_from_buckets
+
+    # input 1000 = 100 uncached + 0 read + 900 write; of the 900: 600 @1h, 300 remainder.
+    prices = {**CLAUDE_PRICES, "cacheWrite1h": 0.000006}  # 2x the 0.000003 input rate
+    with patch("rest.services.trace_reader.get_model_price", return_value=prices):
+        details = span_cost_details(
+            "claude-opus-4-7",
+            input_tokens=1000,
+            output_tokens=0,
+            usage_details={
+                "cache_read_tokens": 0,
+                "cache_write_tokens": 900,
+                "cache_write_1h_tokens": 600,
+            },
+        )
+
+    expected = cost_from_buckets(
+        prices,
+        TokenBuckets(
+            input_uncached=100,
+            output=0,
+            cache_read=0,
+            cache_write=900,
+            cache_write_1h=600,
+        ),
+    )
+    assert sum(details.values()) == pytest.approx(expected)
+    # Independent ground truth: 300 remainder @cacheWrite + 600 @cacheWrite1h.
+    assert details["cache_write_cost"] == pytest.approx(300 * 0.00000375 + 600 * 0.000006)
+
+
+def test_span_cost_details_without_1h_key_matches_combined_rate():
+    # A stored span with no 1-hour key (every span today) prices its whole write total
+    # at the combined cacheWrite rate.
+    from rest.services.trace_reader import span_cost_details
+
+    prices = {**CLAUDE_PRICES, "cacheWrite1h": 0.000006}
+    with patch("rest.services.trace_reader.get_model_price", return_value=prices):
+        details = span_cost_details(
+            "claude-opus-4-7",
+            input_tokens=1000,
+            output_tokens=0,
+            usage_details={"cache_read_tokens": 0, "cache_write_tokens": 900},
+        )
+    assert details["cache_write_cost"] == pytest.approx(900 * 0.00000375)
+
+
 def test_span_cost_details_empty_without_model():
     from rest.services.trace_reader import span_cost_details
 
@@ -56,23 +106,25 @@ def test_span_cost_details_empty_for_unknown_model():
         assert span_cost_details("mystery-model", 100, 50, {}) == {}
 
 
-def test_span_tree_metadata_keeps_only_live_tree_path_keys():
-    from rest.services.trace_reader import span_tree_metadata
+def test_span_path_attribute_names_are_the_sdk_wire_strings():
+    """Pin the attribute names: they are a wire contract with both SDKs.
 
-    result = span_tree_metadata(
-        '{"traceroot.span.ids_path":["root"],'
-        '"traceroot.span.path":["root","child"],'
-        '"large_prompt":"do-not-return"}'
+    The SDKs emit these keys and the client reads them back out of span metadata
+    to rebuild the tree of an in-flight trace. Nothing else fails if one is
+    renamed on one side — live-tree repair just silently stops working — so the
+    exact strings are asserted here.
+    """
+    from shared.span_attributes import (
+        SPAN_IDS_PATH,
+        SPAN_PATH,
+        SPAN_STARTS_PATH,
+        SPAN_TREE_ATTRIBUTES,
     )
 
-    assert result == ('{"traceroot.span.ids_path":["root"],"traceroot.span.path":["root","child"]}')
-
-
-def test_span_tree_metadata_empty_without_path_keys():
-    from rest.services.trace_reader import span_tree_metadata
-
-    assert span_tree_metadata('{"large_prompt":"do-not-return"}') is None
-    assert span_tree_metadata("not-json") is None
+    assert SPAN_PATH == "traceroot.span.path"
+    assert SPAN_IDS_PATH == "traceroot.span.ids_path"
+    assert SPAN_STARTS_PATH == "traceroot.span.starts_path"
+    assert set(SPAN_TREE_ATTRIBUTES) == {SPAN_PATH, SPAN_IDS_PATH, SPAN_STARTS_PATH}
 
 
 # ---------------------------------------------------------------------------
@@ -105,16 +157,17 @@ def _rows(rows):
 
 
 class TestGetTraceSkeleton:
-    def test_spans_query_omits_io_columns_and_returns_tree_metadata_only(self):
-        """The spans SELECT must not read input/output blobs.
+    def test_spans_query_omits_io_blobs_and_extracts_only_span_path_attrs(self):
+        """The spans SELECT must not ship the input/output/metadata blobs.
 
-        It may read metadata only to return a tiny whitelisted path subset used
-        to repair live span trees while parents are still in flight.
+        `metadata` is read only inside ClickHouse, to extract the SDK span-path
+        attributes the client needs to rebuild an in-flight trace's tree; the
+        full attribute bag never crosses the wire.
         """
         captured = {}
 
         def side_effect(query, parameters=None):
-            if "FROM traces FINAL" in query:
+            if "FROM traces" in query and "FROM spans" not in query:
                 return _rows(
                     [
                         (
@@ -153,9 +206,11 @@ class TestGetTraceSkeleton:
                         None,  # output_tokens
                         None,  # total_tokens
                         {},  # usage_details
+                        # ClickHouse has already extracted the path attrs; this
+                        # is the small object the query re-packs, not the blob.
                         '{"traceroot.span.ids_path":["root-id"],'
                         '"traceroot.span.path":["root","child"],'
-                        '"large_blob":"do-not-return"}',  # metadata
+                        '"traceroot.span.starts_path":["1700000000000000000"]}',  # metadata
                         "file.py",  # git_source_file
                         12,  # git_source_line
                         "fn",  # git_source_function
@@ -167,19 +222,42 @@ class TestGetTraceSkeleton:
         result = service.get_trace("proj", "abc123")
 
         spans_sql = captured["spans_query"]
-        # No blob columns in the SELECT clause. Tokenize on commas/whitespace so
-        # `input_tokens` / `output_tokens` (which legitimately remain) don't
-        # trip a naive substring check.
-        select_clause = spans_sql.split("FROM spans")[0]
-        cols = {c.strip() for c in select_clause.replace("SELECT", "").split(",")}
-        assert "input" not in cols
-        assert "output" not in cols
-        assert "metadata" in cols
+        # The inner subquery reads the raw columns; it must not project the
+        # input/output blobs. Tokenize on commas so `input_tokens` /
+        # `output_tokens` (which legitimately remain) don't trip a substring
+        # check, and drop the JSONExtract expressions (they mention `metadata`
+        # by design — that is the point of extracting server-side).
+        inner_select = spans_sql.split("FROM (")[1].split("FROM spans")[0]
+        plain_cols = {
+            c.strip()
+            for c in inner_select.replace("SELECT", "").split(",")
+            if "JSONExtract" not in c and "(" not in c and ")" not in c
+        }
+        assert "input" not in plain_cols
+        assert "output" not in plain_cols
+        assert "metadata" not in plain_cols
         # The token columns (which share a prefix with the blobs) are still there.
-        assert "input_tokens" in cols
-        assert "output_tokens" in cols
-        # Still selects via FINAL (correctness for ReplacingMergeTree).
-        assert "FROM spans FINAL" in spans_sql
+        assert "input_tokens" in plain_cols
+        assert "output_tokens" in plain_cols
+
+        # Every span-path attribute is extracted, by its wire name.
+        from shared.span_attributes import SPAN_TREE_ATTRIBUTES
+
+        for attribute in SPAN_TREE_ATTRIBUTES:
+            assert f"'{attribute}'" in spans_sql
+
+        # Guards the nested-query trap: the outer SELECT re-packs the extracted
+        # columns by alias, so every alias it reads must be projected by the
+        # subquery. Adding a column to one SELECT list and not the other is a
+        # ClickHouse UNKNOWN_IDENTIFIER at runtime — i.e. every trace open 500s.
+        outer_select = spans_sql.split("FROM (")[0]
+        for alias in ("tree_ids_path", "tree_name_path", "tree_starts_path"):
+            assert f"AS {alias}" in inner_select, f"{alias} not projected by the subquery"
+            assert alias in outer_select, f"{alias} not read by the outer SELECT"
+        # Uses dedup subquery instead of FINAL for better read performance.
+        assert "LIMIT 1 BY span_id" in spans_sql
+        assert "ch_update_time DESC" in spans_sql
+        assert "FROM spans FINAL" not in spans_sql
         # Bound by the already-read trace_start_time so ClickHouse can prune
         # monthly span partitions before the trace.
         from rest.services.trace_reader import TRACE_SPAN_LOOKBACK_HOURS
@@ -195,15 +273,16 @@ class TestGetTraceSkeleton:
             "trace_start_time": datetime(2024, 1, 1),
         }
 
-        # Resulting span dict carries NO input/output keys, but keeps the tiny
-        # tree-repair metadata subset.
+        # Resulting span dict carries NO input/output keys, and passes the
+        # server-extracted span-path object through as `metadata`.
         span = result["spans"][0]
         assert "input" not in span
         assert "output" not in span
         assert span["metadata"] == (
-            '{"traceroot.span.ids_path":["root-id"],"traceroot.span.path":["root","child"]}'
+            '{"traceroot.span.ids_path":["root-id"],'
+            '"traceroot.span.path":["root","child"],'
+            '"traceroot.span.starts_path":["1700000000000000000"]}'
         )
-        assert "large_blob" not in span["metadata"]
         assert span["span_id"] == "span-1"
         assert span["git_source_file"] == "file.py"
         assert span["git_source_line"] == 12
@@ -225,7 +304,7 @@ class TestGetTraceSkeleton:
         captured = {}
 
         def side_effect(query, parameters=None):
-            if "FROM traces FINAL" in query:
+            if "FROM traces" in query and "FROM spans" not in query:
                 return _rows(
                     [
                         (
@@ -270,7 +349,7 @@ class TestGetTraceSkeleton:
         )
 
         def side_effect(query, parameters=None):
-            if "FROM traces FINAL" in query:
+            if "FROM traces" in query and "FROM spans" not in query:
                 return _rows(
                     [
                         (
@@ -335,7 +414,9 @@ class TestGetTraceSpansIO:
         # Exactly one trace-scoped query (no N+1 single-span fan-out).
         assert len(calls) == 1
         query, params = calls[0]
-        assert "FROM spans FINAL" in query
+        assert "LIMIT 1 BY span_id" in query
+        assert "ch_update_time DESC" in query
+        assert "FROM spans FINAL" not in query
         assert params == {"project_id": "proj", "trace_id": "abc123"}
         # No span_id filter — it is trace-wide.
         assert "span_id =" not in query
@@ -356,9 +437,11 @@ class TestGetTraceSpansIO:
         service, _ = _make_service(side_effect)
         result = service.get_trace_spans_io("proj", "abc123", frozenset({"metadata"}))
 
-        select_clause = captured["query"].split("FROM spans")[0]
-        cols = {c.strip() for c in select_clause.replace("SELECT", "").split(",")}
-        assert cols == {"span_id", "metadata"}
+        # Extract inner SELECT (after the last "FROM (") to get the actual projected cols.
+        inner_select = captured["query"].split("FROM spans")[0].split("FROM (")[-1]
+        cols = {c.strip() for c in inner_select.replace("SELECT", "").split(",")}
+        assert "span_id" in cols
+        assert "metadata" in cols
         assert "input" not in cols
         assert "output" not in cols
         assert result == {"span-1": {"metadata": "meta-1"}}
@@ -390,7 +473,8 @@ class TestGetTraceSpansIO:
 class TestGetSpanIO:
     def test_returns_blobs_for_existing_span(self):
         def side_effect(query, parameters=None):
-            assert "FROM spans FINAL" in query
+            assert "ch_update_time DESC" in query
+            assert "FROM spans FINAL" not in query
             # All three blob columns must be in the SELECT.
             assert "input" in query
             assert "output" in query
@@ -432,3 +516,27 @@ class TestGetSpanIO:
             "output": None,
             "metadata": None,
         }
+
+    def test_latest_row_wins_when_span_reingested(self):
+        """Asserts the dedup query shape and single-row pass-through.
+
+        Newest-wins ordering is enforced by ClickHouse (ORDER BY ch_update_time
+        DESC + LIMIT 1). The mock returns the single post-dedup row; the service
+        must surface it without further modification.
+        """
+        call_count = {"n": 0}
+
+        def side_effect(query, parameters=None):
+            call_count["n"] += 1
+            assert "ORDER BY ch_update_time DESC" in query
+            assert "LIMIT 1" in query
+            assert "FROM spans FINAL" not in query
+            return _rows([("span-1", "abc123", "new-input", "new-output", "new-meta")])
+
+        service, _ = _make_service(side_effect)
+        result = service.get_span_io("proj", "abc123", "span-1")
+
+        assert call_count["n"] == 1
+        assert result["input"] == "new-input"
+        assert result["output"] == "new-output"
+        assert result["metadata"] == "new-meta"

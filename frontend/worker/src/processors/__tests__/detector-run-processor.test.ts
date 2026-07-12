@@ -4,20 +4,26 @@ import type { DetectorRunJob } from "../../queues/detector-run-queue.js";
 
 const EVALUATOR_DELAY = 60_000;
 
-const { mockRunDetection, mockWriteRun, mockWriteFinding, mockQueueAdd, mockPrisma } = vi.hoisted(
-  () => ({
-    mockRunDetection: vi.fn(),
-    mockWriteRun: vi.fn(),
-    mockWriteFinding: vi.fn(),
-    mockQueueAdd: vi.fn(),
-    mockPrisma: {
-      detector: { findMany: vi.fn() },
-      project: { findUnique: vi.fn() },
-      aIMessage: { createMany: vi.fn() },
-      detectorRca: { upsert: vi.fn() },
-    },
-  }),
-);
+const {
+  mockRunDetection,
+  mockWriteRun,
+  mockWriteFinding,
+  mockQueueAdd,
+  mockPrisma,
+  mockCalculateCost,
+} = vi.hoisted(() => ({
+  mockRunDetection: vi.fn(),
+  mockWriteRun: vi.fn(),
+  mockWriteFinding: vi.fn(),
+  mockQueueAdd: vi.fn(),
+  mockCalculateCost: vi.fn(),
+  mockPrisma: {
+    detector: { findMany: vi.fn() },
+    project: { findUnique: vi.fn() },
+    aIMessage: { createMany: vi.fn() },
+    detectorRca: { upsert: vi.fn() },
+  },
+}));
 
 vi.mock("bullmq", () => {
   class MockQueue {
@@ -30,6 +36,7 @@ vi.mock("bullmq", () => {
 vi.mock("@traceroot/core", () => ({
   prisma: mockPrisma,
   PlanType: { FREE: "free", PRO: "pro" },
+  calculateCost: mockCalculateCost,
 }));
 
 vi.mock("../../queues/detector-run-queue.js", () => ({
@@ -83,6 +90,7 @@ beforeEach(() => {
   mockWriteRun.mockResolvedValue(undefined);
   mockWriteFinding.mockResolvedValue(undefined);
   mockQueueAdd.mockResolvedValue(undefined);
+  mockCalculateCost.mockResolvedValue(0);
   mockPrisma.aIMessage.createMany.mockResolvedValue(undefined);
   mockPrisma.detectorRca.upsert.mockResolvedValue(undefined);
 });
@@ -164,6 +172,14 @@ describe("processTrace — finding + RCA", () => {
     expect(mockWriteFinding.mock.calls[0][0]).not.toHaveProperty("retracted");
     expect(mockWriteRun).toHaveBeenCalled();
     expect(mockQueueAdd).toHaveBeenCalledTimes(1); // one RCA job
+
+    // The finding row, its triggered run, and the RCA job that keys the digest
+    // flush all carry the SAME capture time, so the count window the flush reads
+    // matches the window the key selects (no clock-boundary skew).
+    const ts = mockWriteFinding.mock.calls[0][0].timestampMs;
+    expect(typeof ts).toBe("number");
+    expect(mockWriteRun.mock.calls[0][0].timestampMs).toBe(ts);
+    expect(mockQueueAdd.mock.calls[0][1].findingTimestamp).toBe(ts);
   });
 
   it("writes no finding when nothing triggers", async () => {
@@ -196,5 +212,81 @@ describe("processTrace — finding + RCA", () => {
 
     expect(mockWriteFinding).not.toHaveBeenCalled();
     expect(mockQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it("uses local model pricing when detector inference reports zero cost", async () => {
+    mockFetches(60_000, '{"span":1}\n');
+    mockPrisma.detector.findMany.mockResolvedValue([
+      {
+        id: "d1",
+        name: "Slow",
+        prompt: "p",
+        outputSchema: [],
+        detectionModel: "glm-5.2",
+        detectionProvider: "zai",
+        detectionSource: "byok",
+        enableRca: false,
+      },
+    ]);
+    mockRunDetection.mockResolvedValue({
+      identified: false,
+      summary: "clean",
+      data: {},
+      inferenceCost: 0,
+      inferenceInputTokens: 1000,
+      inferenceOutputTokens: 500,
+      inferenceSource: "byok",
+      inferenceModel: "glm-5.2",
+      inferenceProvider: "zai",
+    });
+    mockCalculateCost.mockResolvedValue(0.0015);
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    expect(mockCalculateCost).toHaveBeenCalledWith("glm-5.2", 1000, 500);
+    expect(mockPrisma.aIMessage.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          model: "glm-5.2",
+          provider: "zai",
+          isByok: true,
+          inputTokens: 1000,
+          outputTokens: 500,
+          cost: 0.0015,
+        }),
+      ],
+    });
+  });
+
+  it("does not write detector AI usage when inference has no model attribution", async () => {
+    mockFetches(60_000, '{"span":1}\n');
+    mockPrisma.detector.findMany.mockResolvedValue([
+      {
+        id: "d1",
+        name: "Slow",
+        prompt: "p",
+        outputSchema: [],
+        detectionModel: null,
+        detectionProvider: null,
+        detectionSource: "system",
+        enableRca: false,
+      },
+    ]);
+    mockRunDetection.mockResolvedValue({
+      identified: false,
+      summary: "Analysis failed",
+      data: {},
+      error: 'No API key configured for provider "anthropic"',
+      inferenceCost: 0,
+      inferenceInputTokens: 0,
+      inferenceOutputTokens: 0,
+      inferenceSource: "system",
+      inferenceModel: null,
+      inferenceProvider: null,
+    });
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    expect(mockPrisma.aIMessage.createMany).not.toHaveBeenCalled();
   });
 });

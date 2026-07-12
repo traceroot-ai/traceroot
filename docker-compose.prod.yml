@@ -29,7 +29,7 @@ services:
       retries: 10
 
   clickhouse:
-    image: docker.io/clickhouse/clickhouse-server:${CLICKHOUSE_VERSION:-24.3}
+    image: docker.io/clickhouse/clickhouse-server:${CLICKHOUSE_VERSION:-25.2}
     restart: always
     environment:
       CLICKHOUSE_DB: ${CLICKHOUSE_DB:-default}
@@ -126,7 +126,7 @@ services:
       context: .
       dockerfile: docker/Dockerfile.web
       args:
-        APP_VERSION: ${APP_VERSION:-}
+        APP_VERSION: ${APP_VERSION:-dev}
         BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-local-dev-secret-change-in-production}
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
@@ -156,6 +156,8 @@ services:
       # --- AI keys ---
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      # --- Model providers ---
+      MODEL_PROVIDER_TEST_TIMEOUT_MS: ${MODEL_PROVIDER_TEST_TIMEOUT_MS:-10000}
       # --- Encryption ---
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
       # --- Billing ---
@@ -335,6 +337,10 @@ services:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
+      # --- Detector config ---
+      # Per-attempt wall-clock timeout (ms) for the LLM-as-judge eval call so a
+      # hung or unreachable provider can't pin a worker slot indefinitely.
+      DETECTOR_EVAL_TIMEOUT_MS: ${DETECTOR_EVAL_TIMEOUT_MS:-60000}
     depends_on:
       migrate:
         condition: service_completed_successfully

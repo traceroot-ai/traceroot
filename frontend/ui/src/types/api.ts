@@ -48,6 +48,7 @@ export interface Project {
   rca_provider?: string | null;
   rca_source?: string | null;
   alert_emails?: string[];
+  alert_window?: string;
   access_key_count?: number;
   delete_time?: string | null;
   create_time: string;
@@ -182,6 +183,19 @@ export interface TraceListResponse {
   };
 }
 
+/**
+ * A single trace-list filter predicate `{field, op, value}` — the frontend mirror of the
+ * backend predicate IR, serialized into the `?filters=` JSON array. Explicit scalar
+ * operators: categorical `in` (a list of strings; the UI selects one),
+ * numeric `eq`/`gt`/`gte`/`lt`/`lte` (a single number), and text `eq`/`contains` (a string).
+ * A numeric range is two one-sided predicates the backend AND-combines.
+ */
+export type Predicate =
+  | { field: string; op: "in"; value: string[] }
+  | { field: string; op: "gt" | "gte" | "lt" | "lte"; value: number }
+  | { field: string; op: "eq"; value: number | string }
+  | { field: string; op: "contains"; value: string };
+
 export interface TraceQueryOptions {
   page?: number;
   limit?: number;
@@ -193,6 +207,8 @@ export interface TraceQueryOptions {
   end_before?: string; // ISO timestamp - filter traces before this time
   // Multi-field keyword search (searches trace_id, name, session_id, user_id)
   search_query?: string;
+  // Structured attribute filters, serialized as one URL-encoded JSON array.
+  filters?: Predicate[];
 }
 
 // Session types

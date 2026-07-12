@@ -10,6 +10,32 @@ export function parseTimestamp(ts: string): number {
   return parseAsUTC(ts.trim()).getTime();
 }
 
+/**
+ * Total ordering for sibling spans that is stable across fetches/streams of the
+ * same trace. `span_start_time` is stored at millisecond precision (ClickHouse
+ * DateTime64(3)), so sub-millisecond-fast parallel siblings (e.g. parallel tool
+ * calls) collapse to an identical start and would otherwise order arbitrarily.
+ *
+ * Tie-break start → end → span_id, mirroring the backend
+ * `ORDER BY span_start_time ASC, span_end_time ASC, span_id ASC` so the tree and
+ * timeline views agree with each other and with the server. In-progress spans
+ * have no end time; sorting them as +Infinity places them after completed
+ * siblings that share a start, and keeps two end-less siblings equal so the
+ * span_id tie-break decides. span_id is the final, always-present discriminator.
+ */
+export function compareSpansForStableDisplay(a: Span, b: Span): number {
+  const startDelta = parseTimestamp(a.span_start_time) - parseTimestamp(b.span_start_time);
+  if (startDelta !== 0) return startDelta;
+
+  const aEnd = a.span_end_time ? parseTimestamp(a.span_end_time) : Number.POSITIVE_INFINITY;
+  const bEnd = b.span_end_time ? parseTimestamp(b.span_end_time) : Number.POSITIVE_INFINITY;
+  // Strict inequality (not delta !== 0) so two in-progress spans — both
+  // +Infinity, whose subtraction is NaN — fall through to the span_id tie-break.
+  if (aEnd !== bEnd) return aEnd - bEnd;
+
+  return a.span_id.localeCompare(b.span_id);
+}
+
 function parseMetadata(metadata: string | null): Record<string, unknown> {
   if (!metadata) return {};
   try {
@@ -38,8 +64,12 @@ export function enrichSpansWithPending(spans: Span[]): Span[] {
   for (const span of spans) {
     if (!span.parent_span_id) continue;
 
-    // Skeleton spans may carry only the tiny path metadata subset needed for
-    // live tree repair; live SSE spans carry the same keys in full metadata.
+    // Both delivery paths carry these keys: the trace-detail skeleton returns a
+    // small path-only metadata subset (extracted server-side), and live SSE
+    // spans carry the same keys inside their full metadata. Spans that set
+    // explicit user metadata are the exception — the ingest transform stores
+    // that INSTEAD of the attribute bag holding these keys, so they have no
+    // paths on either route and simply fall through to the orphan handling.
     const meta = parseMetadata(span.metadata ?? null);
     const idsPath = meta["traceroot.span.ids_path"] as string[] | undefined;
     const namePath = meta["traceroot.span.path"] as string[] | undefined;
@@ -166,10 +196,12 @@ export function buildSpanTree(spans: Span[]): SpanTreeRow[] {
     childrenByParent.get(pid)!.push(span);
   });
 
-  // Sort children within each parent by start_time so connector lines
-  // (isTerminal / parentLevels) are stable regardless of SSE arrival order.
+  // Sort children within each parent so connector lines (isTerminal /
+  // parentLevels) are stable regardless of SSE arrival order. start_time alone
+  // ties for sub-ms parallel spans, so compareSpansForStableDisplay falls back
+  // to end_time then span_id.
   for (const children of childrenByParent.values()) {
-    children.sort((a, b) => parseTimestamp(a.span_start_time) - parseTimestamp(b.span_start_time));
+    children.sort(compareSpansForStableDisplay);
   }
 
   const rows: SpanTreeRow[] = [];
@@ -185,12 +217,12 @@ export function buildSpanTree(spans: Span[]): SpanTreeRow[] {
   }
 
   // Combine true roots with orphan spans (parent not yet arrived) into a single
-  // top-level list sorted by start_time. This ensures:
+  // top-level list, stably sorted (start → end → span_id). This ensures:
   // 1. Connector lines are correct across all top-level items.
   // 2. Orphans are always visible, not silently dropped when root exists.
   const orphans = spans.filter((s) => s.parent_span_id !== null && !spanIds.has(s.parent_span_id));
   const topLevel = [...(childrenByParent.get(null) ?? []), ...orphans].sort(
-    (a, b) => parseTimestamp(a.span_start_time) - parseTimestamp(b.span_start_time),
+    compareSpansForStableDisplay,
   );
   topLevel.forEach((span, idx) => {
     traverse(span, 0, idx === topLevel.length - 1, []);
