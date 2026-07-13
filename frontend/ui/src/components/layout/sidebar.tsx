@@ -253,6 +253,50 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                   </TooltipContent>
                 )}
               </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link
+                    href={`/projects/${projectId}/datasets`}
+                    className={cn(
+                      "flex items-center gap-2 py-2 text-[13px] transition-colors",
+                      collapsed ? "justify-center px-2" : "px-3",
+                      pathname.includes("/datasets") && !inOfflineEval
+                        ? "bg-muted"
+                        : "hover:bg-muted/50",
+                    )}
+                  >
+                    <Database className="h-3.5 w-3.5 shrink-0" />
+                    {!collapsed && "Datasets"}
+                  </Link>
+                </TooltipTrigger>
+                {collapsed && (
+                  <TooltipContent side="right" sideOffset={16}>
+                    Datasets
+                  </TooltipContent>
+                )}
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link
+                    href={`/projects/${projectId}/evaluations`}
+                    className={cn(
+                      "flex items-center gap-2 py-2 text-[13px] transition-colors",
+                      collapsed ? "justify-center px-2" : "px-3",
+                      pathname.includes("/evaluations") && !inOfflineEval
+                        ? "bg-muted"
+                        : "hover:bg-muted/50",
+                    )}
+                  >
+                    <FlaskConical className="h-3.5 w-3.5 shrink-0" />
+                    {!collapsed && "Evaluations"}
+                  </Link>
+                </TooltipTrigger>
+                {collapsed && (
+                  <TooltipContent side="right" sideOffset={16}>
+                    Evaluations
+                  </TooltipContent>
+                )}
+              </Tooltip>
 
               {/* Offline Evaluation — design prototype */}
               {collapsed ? (
