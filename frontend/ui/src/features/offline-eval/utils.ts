@@ -66,15 +66,25 @@ export function scoreDisplay(value: number | null): string {
   return `${Math.round(value * 100)}%`;
 }
 
-/** Compact absolute timestamp — the fixtures are fixed instants. */
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * Compact absolute timestamp, e.g. "16 Jul, 15:41" (UTC).
+ *
+ * Built by hand rather than with `toLocaleString`, mirroring formatDate in
+ * lib/utils. The reason matters here: these fixtures are available at render
+ * time, so unlike the rest of the app — whose dates arrive from react-query and
+ * are absent during SSR — these cells render on the server *and* the client. Any
+ * disagreement between the two runtimes' ICU data would surface as a hydration
+ * mismatch, so the output must not depend on locale data at all.
+ */
 export function formatStamp(iso: string): string {
-  return new Date(iso).toLocaleString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "UTC",
-  });
+  const date = new Date(iso);
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const month = MONTHS[date.getUTCMonth()];
+  const hours = String(date.getUTCHours()).padStart(2, "0");
+  const minutes = String(date.getUTCMinutes()).padStart(2, "0");
+  return `${day} ${month}, ${hours}:${minutes}`;
 }
 
 export function formatMs(ms: number): string {
