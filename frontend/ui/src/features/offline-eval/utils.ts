@@ -102,15 +102,16 @@ export function truncate(text: string, max = 80): string {
 /** The Python SDK snippet copied by "Copy init code" on a dataset. */
 export function datasetInitCode(datasetName: string): string {
   return `import traceroot
+from traceroot import Dataset
 
-ds = traceroot.dataset("${datasetName}")
+# Initialize with your API key, then author the dataset in code and
+# publish it as one immutable server version.
+traceroot.initialize()
 
-ds.add(
-    input="…",
-    expected="…",
-)
+ds = Dataset("${datasetName}")
+ds.add(input="…", expected="…")
 
-ds.publish()`;
+ds.push()`;
 }
 
 /** The TypeScript SDK snippet for a dataset. */
