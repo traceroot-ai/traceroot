@@ -51,7 +51,6 @@ function makeWidget(overrides: Partial<Widget> = {}): Widget {
 function renderCard(
   widget: Widget,
   callbacks: Partial<{ onEdit: () => void; onDuplicate: () => void; onDelete: () => void }> = {},
-  readOnly = false,
 ) {
   const onEdit = callbacks.onEdit ?? vi.fn();
   const onDuplicate = callbacks.onDuplicate ?? vi.fn();
@@ -61,7 +60,6 @@ function renderCard(
       projectId="p1"
       widget={widget}
       range={RANGE}
-      readOnly={readOnly}
       onEdit={onEdit}
       onDuplicate={onDuplicate}
       onDelete={onDelete}
@@ -90,16 +88,6 @@ describe("WidgetCard menu gating", () => {
     fireEvent.click(edit);
 
     expect(onEdit).toHaveBeenCalledTimes(1);
-  });
-
-  it("hides the options menu and drag handle entirely when read-only", () => {
-    useWidgetData.mockReturnValue({ data: undefined, isPending: false, error: null });
-    renderCard(makeWidget(), {}, true);
-
-    expect(screen.queryByRole("button", { name: "Widget options" })).toBeNull();
-    expect(screen.queryByText("⠿")).toBeNull();
-    // The widget body still renders.
-    expect(screen.getByText("My widget")).toBeTruthy();
   });
 
   it("hides Edit for a non-query widget", async () => {
