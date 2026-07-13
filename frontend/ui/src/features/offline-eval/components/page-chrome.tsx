@@ -18,7 +18,7 @@ export function EvalPageHeader({
   backLabel,
   action,
 }: {
-  title: string;
+  title: React.ReactNode;
   /** One plain sentence. Not marketing copy — a definition. */
   purpose?: React.ReactNode;
   backHref?: string;
