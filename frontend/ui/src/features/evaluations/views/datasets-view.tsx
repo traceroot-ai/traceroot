@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { DATE_FILTER_OPTIONS, type DateFilterOption } from "@/lib/date-filter";
 import { useToast } from "@/components/ui/toast";
+import { ProjectBreadcrumb } from "@/features/projects/components";
 import {
   DatasetActionsMenu,
   SelectAllHeaderCell,
@@ -80,6 +81,9 @@ export function DatasetsView({ projectId }: { projectId: string }) {
 
   return (
     <div className="flex h-full flex-col text-[13px]">
+      {/* Populates the app's top breadcrumb bar (workspace / project). Without a
+          mounted ProjectBreadcrumb the header goes blank on this route. */}
+      <ProjectBreadcrumb projectId={projectId} current="Datasets" />
       <div className="flex items-center justify-between border-b border-border px-4 py-2">
         <h1 className="text-[13px] font-medium">Datasets</h1>
         <Button size="sm" className="h-7 text-[12px]" onClick={() => setNewOpen(true)}>
