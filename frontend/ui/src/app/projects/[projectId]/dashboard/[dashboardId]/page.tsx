@@ -75,6 +75,19 @@ export default function DashboardDetailPage() {
     return () => ro.disconnect();
   }, []);
 
+  // ── keep the active tab visible in the scrollable strip ─────────────────────
+  const tabStripRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // Without this, a dashboard deep in a long list sits scrolled out of view
+    // after a reload or a switch to a far tab. Optional call: jsdom (and any
+    // environment without layout) doesn't implement scrollIntoView.
+    tabStripRef.current
+      ?.querySelector('[aria-current="page"]')
+      ?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    // Length, not the array: re-scroll when the list first arrives or grows,
+    // without snapping the strip on unrelated list refetches mid-browse.
+  }, [dashboardId, dashboards?.length]);
+
   // ── widget builder navigation ────────────────────────────────────────────────
   const openCreate = () =>
     router.push(`/projects/${projectId}/dashboard/${dashboardId}/widgets/new`);
@@ -200,17 +213,23 @@ export default function DashboardDetailPage() {
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Page header */}
         <div className="flex items-center justify-between border-b border-border px-4 py-2">
-          {/* Left: title + dashboard tabs */}
-          <div className="flex items-center gap-3">
-            <h1 className="text-[13px] font-medium">Dashboard</h1>
-            <div className="flex items-center gap-0.5">
+          {/* Left: title + dashboard tabs. min-w-0 lets the tab strip shrink
+              and scroll instead of growing without bound — however many
+              dashboards exist, the ＋ new button and the right-side controls
+              stay on screen. */}
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <h1 className="shrink-0 text-[13px] font-medium">Dashboard</h1>
+            <div
+              ref={tabStripRef}
+              className="flex min-w-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:thin]"
+            >
               {dashboards?.map((d) => (
                 <Link
                   key={d.id}
                   href={`/projects/${projectId}/dashboard/${d.id}`}
                   aria-current={d.id === dashboardId ? "page" : undefined}
                   className={cn(
-                    "flex items-center gap-1 rounded px-2 py-0.5 text-[12px] transition-colors",
+                    "flex shrink-0 items-center gap-1 rounded px-2 py-0.5 text-[12px] transition-colors",
                     d.id === dashboardId
                       ? "border-b-2 border-foreground font-medium text-foreground"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground",
@@ -222,18 +241,18 @@ export default function DashboardDetailPage() {
                   </span>
                 </Link>
               ))}
-              <button
-                type="button"
-                onClick={() => setCreateDashboardOpen(true)}
-                className="rounded px-2 py-0.5 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground"
-              >
-                ＋ new
-              </button>
             </div>
+            <button
+              type="button"
+              onClick={() => setCreateDashboardOpen(true)}
+              className="shrink-0 rounded px-2 py-0.5 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              ＋ new
+            </button>
           </div>
 
           {/* Right: time range, create widget */}
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <DateFilterSelect
               dateFilter={dateFilter}
               customStartDate={customStartDate}

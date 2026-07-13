@@ -197,6 +197,28 @@ describe("DashboardDetailPage", () => {
     expect(screen.getByRole("button", { name: "＋ new" })).toBeTruthy();
   });
 
+  it("keeps header controls outside the scrollable tab strip when dashboards pile up", () => {
+    mockLists(
+      Array.from({ length: 30 }, (_, i) => ({ ...DASH_A, id: `d${i + 1}`, name: `Dash ${i + 1}` })),
+    );
+    mockDetail({ ...DASH_A, layout: [], widgets: [WIDGET] });
+    renderPage();
+
+    // All tabs render inside one horizontally scrollable strip…
+    const strip = screen.getByRole("link", { name: "Dash 30" }).parentElement!;
+    expect(strip.className).toContain("overflow-x-auto");
+    expect(strip.querySelectorAll("a")).toHaveLength(30);
+
+    // …while ＋ new, the date filter, and the widget controls live outside it,
+    // so an ever-growing dashboard list can never push them off screen.
+    const newButton = screen.getByRole("button", { name: "＋ new" });
+    expect(strip.contains(newButton)).toBe(false);
+    const dateFilterButton = screen.getByRole("button", { name: "Last 24 hours" });
+    expect(strip.contains(dateFilterButton)).toBe(false);
+    const createWidget = screen.getByRole("button", { name: "＋ Create widget" });
+    expect(strip.contains(createWidget)).toBe(false);
+  });
+
   it("opens the create-dashboard dialog and cancelling it does not create", () => {
     renderPage();
 
