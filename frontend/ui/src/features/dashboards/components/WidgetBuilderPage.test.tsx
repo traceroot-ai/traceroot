@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DashboardDetail, Widget } from "../types";
 import { dateFilterStorageKey, readStoredDateFilter } from "@/lib/date-filter-storage";
@@ -453,18 +453,30 @@ describe("WidgetBuilderPage", () => {
   });
 
   it("renders the query result once preview data resolves", () => {
-    vi.useFakeTimers();
-    try {
-      mockPreview({ data: { columns: ["value"], rows: [[42]], meta: {} } });
-      render(<WidgetBuilderPage projectId="p1" dashboardId="d1" widgetId="w1" />);
-      // The preview draft is debounced 400ms before the renderer picks it up.
-      act(() => {
-        vi.advanceTimersByTime(400);
-      });
-      // cost measure carries its $ unit through the preview renderer
-      expect(screen.getByText("$42")).toBeTruthy();
-    } finally {
-      vi.useRealTimers();
-    }
+    // The renderer draws straight from the preview data (spec + rows), so no
+    // debounce needs to elapse first.
+    mockPreview({
+      data: { spec: WIDGET.spec, result: { columns: ["value"], rows: [[42]], meta: {} } },
+    });
+    render(<WidgetBuilderPage projectId="p1" dashboardId="d1" widgetId="w1" />);
+    // cost measure carries its $ unit through the preview renderer
+    expect(screen.getByText("$42")).toBeTruthy();
+  });
+
+  it("renders the preview from the spec that produced the data, not the live draft", () => {
+    // keepPreviousData can leave the previous query's rows on screen while a
+    // new draft is fetching; the renderer must label them with the spec that
+    // produced them. Here the stored widget measures duration, but the data
+    // came from a cost spec — the $ unit must follow the data.
+    const durationWidget = {
+      ...WIDGET,
+      spec: { ...WIDGET.spec, metric: { measure: "duration_ms", agg: "avg" } },
+    };
+    mockDashboard({ ...DASHBOARD, widgets: [durationWidget] });
+    mockPreview({
+      data: { spec: WIDGET.spec, result: { columns: ["value"], rows: [[42]], meta: {} } },
+    });
+    render(<WidgetBuilderPage projectId="p1" dashboardId="d1" widgetId="w1" />);
+    expect(screen.getByText("$42")).toBeTruthy();
   });
 });

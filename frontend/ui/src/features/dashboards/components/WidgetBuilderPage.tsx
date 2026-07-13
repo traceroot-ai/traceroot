@@ -245,7 +245,6 @@ export function WidgetBuilderPage({
   // ── preview ───────────────────────────────────────────────────────────────
   const debouncedDraft = useDebounced(draft, 400);
   const preview = useWidgetPreview(projectId, debouncedDraft, range);
-  const debouncedSpec = useMemo(() => parseSpec(debouncedDraft), [debouncedDraft]);
 
   // ── save ──────────────────────────────────────────────────────────────────
   const specComplete = isSpecComplete(draft);
@@ -553,12 +552,18 @@ export function WidgetBuilderPage({
               <div className="flex h-full items-start justify-center pt-8 text-[12px] text-red-600">
                 {preview.error instanceof Error ? preview.error.message : "Query failed"}
               </div>
-            ) : preview.data && debouncedSpec ? (
+            ) : preview.data ? (
+              // Everything spec-derived comes from the spec that produced the
+              // rows (preview.data.spec, not the live draft): keepPreviousData
+              // can show the previous result while a new query is in flight,
+              // and mixing old rows with the new draft's display/unit/agg
+              // would briefly mislabel them.
               <QueryWidgetRenderer
-                display={debouncedSpec.display.type}
-                result={preview.data}
-                unit={FIELD_UNIT[debouncedSpec.metric.measure]}
-                seriesLabel={debouncedSpec.metric.measure}
+                display={preview.data.spec.display.type}
+                result={preview.data.result}
+                unit={FIELD_UNIT[preview.data.spec.metric.measure]}
+                seriesLabel={preview.data.spec.metric.measure}
+                agg={preview.data.spec.metric.agg}
               />
             ) : null}
           </div>

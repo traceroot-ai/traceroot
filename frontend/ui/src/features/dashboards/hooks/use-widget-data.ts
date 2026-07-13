@@ -6,6 +6,7 @@ import {
   parseSpec,
   type TimeRange,
   type WidgetFieldValue,
+  type WidgetQueryResult,
   type WidgetSpec,
 } from "../types";
 
@@ -78,6 +79,16 @@ export function useWidgetFieldValues(
   return active ? { values: data?.values ?? [], isLoading } : { values: [], isLoading: false };
 }
 
+// The preview pairs each result with the spec that produced it: keepPreviousData
+// shows the previous rows while a new query is in flight, and rendering those
+// rows with the NEW draft's display/unit/aggregation would briefly mislabel
+// them (e.g. an old additive sum series drawn with avg's gap semantics).
+// Rendering from data.spec keeps every frame internally consistent.
+export interface WidgetPreviewData {
+  spec: WidgetSpec;
+  result: WidgetQueryResult;
+}
+
 export function useWidgetPreview(projectId: string, draft: unknown, range: TimeRange) {
   const { user, sessionReady } = useTraceApiUser();
 
@@ -89,7 +100,10 @@ export function useWidgetPreview(projectId: string, draft: unknown, range: TimeR
       range.start.getTime(),
       range.end.getTime(),
     ],
-    queryFn: () => api.runWidgetQuery(projectId, parseSpec(draft)!, range, user),
+    queryFn: async (): Promise<WidgetPreviewData> => {
+      const spec = parseSpec(draft)!;
+      return { spec, result: await api.runWidgetQuery(projectId, spec, range, user) };
+    },
     enabled: sessionReady && !!projectId && isSpecComplete(draft),
     staleTime: 10_000,
     retry: false,
