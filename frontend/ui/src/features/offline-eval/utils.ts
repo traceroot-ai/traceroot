@@ -89,6 +89,20 @@ export function truncate(text: string, max = 80): string {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
 
+/** The SDK snippet copied by "Copy init code" on a dataset. */
+export function datasetInitCode(datasetName: string): string {
+  return `import traceroot
+
+ds = traceroot.dataset("${datasetName}")
+
+ds.add(
+    input="…",
+    expected="…",
+)
+
+ds.publish()`;
+}
+
 /** Parses a span's JSON metadata string into a flat record for display. */
 export function parseMetadata(raw: string | null | undefined): Record<string, string> {
   if (!raw) return {};
