@@ -73,7 +73,9 @@ function Card({
       <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/50 px-3 py-1.5">
         <span className="text-[12px] font-medium text-muted-foreground">
           {label}
-          {optional && <span className="ml-1 font-normal text-muted-foreground/70">optional</span>}
+          {optional && (
+            <span className="ml-1 font-normal text-muted-foreground/70">(optional)</span>
+          )}
         </span>
         {action}
       </div>
@@ -107,12 +109,11 @@ export function DatasetFormFields({
       </Card>
 
       <Card label="Description" optional>
-        <textarea
+        <Input
           value={state.description}
           onChange={(e) => set("description", e.target.value)}
-          rows={2}
           placeholder="What this collection of test cases is for"
-          className="resize-vertical w-full border border-input bg-background px-3 py-2 text-[12px] leading-relaxed placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          className="h-7 text-[13px]"
         />
       </Card>
 
