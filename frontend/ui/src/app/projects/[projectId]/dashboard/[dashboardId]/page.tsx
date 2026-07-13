@@ -221,7 +221,7 @@ export default function DashboardDetailPage() {
             <h1 className="shrink-0 text-[13px] font-medium">Dashboard</h1>
             <div
               ref={tabStripRef}
-              className="flex min-w-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:thin]"
+              className="flex min-w-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             >
               {dashboards?.map((d) => (
                 <Link
