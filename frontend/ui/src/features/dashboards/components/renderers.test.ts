@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fmtNumber, pivotRows } from "./renderers";
+import { fmtNumber, fmtValueWithUnit, pivotRows } from "./renderers";
 
 describe("fmtNumber", () => {
   it("formats a numeric string (Decimal from ClickHouse) as a formatted number", () => {
@@ -172,5 +172,20 @@ describe("pivotRows", () => {
     expect(d[0]["rare-model"]).toBe(0); // first bucket: zero-filled
     expect(d[2]["rare-model"]).toBe(0); // last bucket: zero-filled
     expect(d[1]["rare-model"]).toBe(5); // middle bucket: real value
+  });
+});
+
+describe("fmtValueWithUnit", () => {
+  it("applies prefix and suffix units around the formatted number", () => {
+    expect(fmtValueWithUnit(0.0034, { prefix: "$" })).toBe("$0.0034");
+    expect(fmtValueWithUnit(1500, { suffix: "ms" })).toBe("1,500 ms");
+  });
+
+  it("passes through unadorned without a unit", () => {
+    expect(fmtValueWithUnit(1500)).toBe("1,500");
+  });
+
+  it("keeps gap values a bare dash — no unit on nothing", () => {
+    expect(fmtValueWithUnit(null, { prefix: "$" })).toBe("—");
   });
 });

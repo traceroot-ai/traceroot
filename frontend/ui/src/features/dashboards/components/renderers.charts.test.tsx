@@ -337,6 +337,22 @@ describe("ChartTip", () => {
     expect(empty.firstChild).toBeNull();
   });
 
+  it("applies the measure unit to every value row", () => {
+    render(
+      <ChartTip
+        active
+        payload={[
+          { name: "gpt-4o", value: "0.0034", color: "#a78bfa" },
+          { name: "haiku", value: null, color: "#60a5fa" },
+        ]}
+        unit={{ prefix: "$" }}
+      />,
+    );
+    expect(screen.getByText("$0.0034")).toBeTruthy();
+    // A gap bucket stays a bare dash — no unit on nothing.
+    expect(screen.getByText("—")).toBeTruthy();
+  });
+
   it("renders the label header and one swatch+name+value row per series", () => {
     const { container } = render(
       <ChartTip
@@ -395,5 +411,33 @@ describe("fmtStatNumber", () => {
     expect(fmtStatNumber("12.5")).toBe("12.5");
     expect(fmtStatNumber(99999)).toBe("99,999");
     expect(fmtStatNumber(0.0004)).toBe("0.0004");
+  });
+});
+
+describe("unit formatting on charts and tables", () => {
+  afterEach(cleanup);
+
+  it("applies the measure unit to the table's metric column", () => {
+    const result = makeResult(["model_name", "value"], [["gpt-4o", "0.0034"]]);
+    render(<QueryWidgetRenderer display="table" result={result} unit={{ prefix: "$" }} />);
+    expect(screen.getByText("$0.0034")).toBeTruthy();
+    // Dimension cells stay verbatim — no unit, no numeric reformatting.
+    expect(screen.getByText("gpt-4o")).toBeTruthy();
+  });
+
+  it("applies the measure unit to time-series axis ticks", () => {
+    const result = makeResult(
+      ["bucket", "value"],
+      [
+        ["2026-06-01T00:00:00", 100],
+        ["2026-06-02T00:00:00", 200],
+      ],
+      { granularity: "day" },
+    );
+    const { container } = render(
+      <QueryWidgetRenderer display="line" result={result} unit={{ suffix: "ms" }} />,
+    );
+    const ticks = Array.from(container.querySelectorAll(".recharts-cartesian-axis-tick-value"));
+    expect(ticks.some((t) => t.textContent?.includes("ms"))).toBe(true);
   });
 });
