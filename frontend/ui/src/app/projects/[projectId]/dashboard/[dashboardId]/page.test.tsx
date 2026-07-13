@@ -219,6 +219,32 @@ describe("DashboardDetailPage", () => {
     expect(strip.contains(createWidget)).toBe(false);
   });
 
+  it("restores the tab strip scroll position across the remount a tab click causes", () => {
+    mockLists(
+      Array.from({ length: 30 }, (_, i) => ({ ...DASH_A, id: `d${i + 1}`, name: `Dash ${i + 1}` })),
+    );
+    mockDetail({ ...DASH_A, layout: [], widgets: [WIDGET] });
+    const { unmount } = render(
+      <QueryClientProvider client={new QueryClient()}>
+        <DashboardDetailPage />
+      </QueryClientProvider>,
+    );
+
+    // The user scrolls deep into the strip… (the recorded position lives in a
+    // module-scope Map, so it deliberately persists for the rest of this test
+    // file — later mounts restore it, which nothing else asserts on)
+    const strip = screen.getByRole("link", { name: "Dash 30" }).parentElement!;
+    strip.scrollLeft = 480;
+    fireEvent.scroll(strip);
+
+    // …then clicks a tab, which navigates and remounts the whole page.
+    unmount();
+    renderPage();
+
+    const remounted = screen.getByRole("link", { name: "Dash 30" }).parentElement!;
+    expect(remounted.scrollLeft).toBe(480);
+  });
+
   it("opens the create-dashboard dialog and cancelling it does not create", () => {
     renderPage();
 
