@@ -8,7 +8,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useWidgetData } from "../hooks/use-widget-data";
-import { FIELD_UNIT, parseSpec, type TimeRange, type Widget } from "../types";
+import { FIELD_UNIT } from "@/features/filters/filter-controls";
+import { parseSpec, type TimeRange, type Widget } from "../types";
 import { QueryWidgetRenderer } from "./renderers";
 import { TraceFeedWidget } from "./TraceFeedWidget";
 

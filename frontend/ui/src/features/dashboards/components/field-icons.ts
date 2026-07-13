@@ -10,7 +10,7 @@ import {
   Workflow,
   type LucideIcon,
 } from "lucide-react";
-import { FIELD_ICONS } from "@/features/filters/filter-builder";
+import { FIELD_ICONS } from "@/features/filters/filter-controls";
 
 // The trace-list filter icons, extended with the widget registry's field
 // names the trace list spells differently (errors -> error_count), the token
