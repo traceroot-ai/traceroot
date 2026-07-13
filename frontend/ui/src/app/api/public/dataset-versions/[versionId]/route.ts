@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@traceroot/core";
 import { requireApiKeyProject } from "@/lib/eval/auth";
+import { decodeJsonValue } from "@/lib/eval/json-value";
 
 type RouteParams = { params: Promise<{ versionId: string }> };
 
@@ -23,10 +24,12 @@ export async function GET(request: Request, { params }: RouteParams) {
     dataset_id: version.datasetId,
     version_number: version.versionNumber,
     label: version.label,
+    // input/expected are returned as NATIVE JSON values (decoded from the stored
+    // JSON-encoded text). Legacy plain-text rows fall back to the raw string.
     items: version.testCases.map((t) => ({
       test_case_id: t.testCaseId,
-      input: t.input,
-      expected: t.expected,
+      input: decodeJsonValue(t.input),
+      expected: t.expected === null ? null : decodeJsonValue(t.expected),
       metadata: t.metadata,
       source_trace_id: t.sourceTraceId,
       source_span_id: t.sourceSpanId,

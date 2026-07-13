@@ -6,6 +6,7 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { displayJsonValue } from "@/lib/eval/json-value";
 
 type RouteParams = { params: Promise<{ projectId: string; datasetId: string }> };
 
@@ -34,7 +35,20 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     : [];
   const currentVersion = dataset.versions.find((v) => v.id === dataset.currentVersionId) ?? null;
 
-  return successResponse({ dataset, currentVersion, testCases, versions: dataset.versions });
+  // Present input/expected as human-readable text for the UI: a genuine string as-is,
+  // structured values (from an SDK push) as pretty JSON — never a bare quoted string.
+  const presentedCases = testCases.map((t) => ({
+    ...t,
+    input: displayJsonValue(t.input),
+    expected: t.expected === null ? null : displayJsonValue(t.expected),
+  }));
+
+  return successResponse({
+    dataset,
+    currentVersion,
+    testCases: presentedCases,
+    versions: dataset.versions,
+  });
 }
 
 // PATCH — update editable dataset metadata (not its snapshots).
