@@ -305,6 +305,41 @@ def test_non_timeseries_has_no_fill():
         assert "WITH FILL" not in sql
 
 
+def test_non_additive_timeseries_metric_is_nullable():
+    """Percentile/average time series wrap the metric in toNullable.
+
+    WITH FILL rows carry the column default — 0 for a plain Float64 — which
+    would draw a false collapse for aggs where an empty bucket has no value.
+    Nullable makes the filled rows NULL, and the chart renders them as gaps.
+    """
+    for agg in ("avg", "min", "max", "p50", "p95", "p99"):
+        sql, _ = compile_(
+            make_spec(metric={"measure": "duration_ms", "agg": agg}, display={"type": "line"})
+        )
+        assert "toNullable(" in sql, agg
+
+
+def test_additive_timeseries_metric_stays_plain():
+    """count/sum of an empty bucket genuinely is zero — no Nullable wrapper."""
+    for metric in ({"measure": "count", "agg": "count"}, {"measure": "cost", "agg": "sum"}):
+        sql, _ = compile_(make_spec(metric=metric, display={"type": "line"}))
+        assert "toNullable(" not in sql, metric
+
+
+def test_non_additive_without_fill_stays_plain():
+    """The wrapper exists only for WITH FILL; number/table shapes skip it."""
+    for display in ({"type": "number"}, {"type": "table"}):
+        sql, _ = compile_(
+            make_spec(
+                metric={"measure": "duration_ms", "agg": "p95"},
+                display=display,
+                # Number rejects a breakdown outright; keep the shapes minimal.
+                breakdown=None,
+            )
+        )
+        assert "toNullable(" not in sql, display
+
+
 def test_other_fold_shape():
     """The 'other' fold uses a subquery with LIMIT 50 (MAX_GROUPS)."""
     sql, _ = compile_(make_spec(display={"type": "bar"}))

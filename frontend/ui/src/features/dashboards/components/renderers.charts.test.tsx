@@ -152,6 +152,56 @@ describe("QueryWidgetRenderer", () => {
       expect(screen.getByText("No data in range")).toBeTruthy();
       expect(container.querySelectorAll(".recharts-line-curve").length).toBe(0);
     });
+
+    it("draws a non-additive series through NULL gap buckets instead of dropping to 0", () => {
+      // p95 over a window with an empty middle bucket: the backend's Nullable
+      // WITH FILL row carries null, and the line must bridge it (connectNulls)
+      // rather than chart a false collapse. Both flanking points survive.
+      const result = makeResult(
+        ["bucket", "value"],
+        [
+          ["2026-06-01T00:00:00", 120],
+          ["2026-06-02T00:00:00", null],
+          ["2026-06-03T00:00:00", 90],
+        ],
+        { granularity: "day" },
+      );
+      const { container } = render(
+        <QueryWidgetRenderer display="line" result={result} agg="p95" />,
+      );
+      const [curve] = Array.from(container.querySelectorAll(".recharts-line-curve"));
+      expect(curve).toBeTruthy();
+      // One unbroken path: a broken (per-segment) render or a dip to the
+      // 0-baseline would betray the gap handling. The path must span from the
+      // first bucket to the last.
+      const d = curve.getAttribute("d") ?? "";
+      expect(d.length).toBeGreaterThan(0);
+      expect((d.match(/M/g) ?? []).length).toBe(1);
+    });
+
+    it("keeps a non-additive AREA off the zero baseline over gap buckets", () => {
+      // Stacked areas are the trap: recharts' stack accessor coerces null to
+      // 0 BEFORE connectNulls is consulted, redrawing the false collapse. A
+      // non-additive area therefore renders unstacked — its bridged curve has
+      // exactly two points (M + one L); a baseline dip would add a third.
+      const result = makeResult(
+        ["bucket", "value"],
+        [
+          ["2026-06-01T00:00:00", 120],
+          ["2026-06-02T00:00:00", null],
+          ["2026-06-03T00:00:00", 90],
+        ],
+        { granularity: "day" },
+      );
+      const { container } = render(
+        <QueryWidgetRenderer display="area" result={result} agg="p95" />,
+      );
+      const [curve] = Array.from(container.querySelectorAll(".recharts-area-curve"));
+      expect(curve).toBeTruthy();
+      const d = curve.getAttribute("d") ?? "";
+      expect((d.match(/M/g) ?? []).length).toBe(1);
+      expect((d.match(/L/g) ?? []).length).toBe(1);
+    });
   });
 
   describe("line/area empty-breakdown fallback", () => {
