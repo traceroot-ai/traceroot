@@ -4,7 +4,7 @@
 
 import type { ResultStatus, ReviewStatus } from "./types";
 
-/** v1 navigation: Traces, Datasets, Experiments, Scorers. Nothing else. */
+/** v1 navigation: Traces, Datasets, Evaluations, Scorers. */
 export function evalRoutes(projectId: string) {
   const base = `/projects/${projectId}/offline-eval`;
   return {
@@ -13,13 +13,15 @@ export function evalRoutes(projectId: string) {
     trace: (traceId: string) => `${base}/traces?trace=${traceId}`,
     datasets: `${base}/datasets`,
     dataset: (datasetId: string) => `${base}/datasets/${datasetId}`,
-    experiments: `${base}/experiments`,
-    experiment: (experimentId: string) => `${base}/experiments/${experimentId}`,
+    datasetCase: (datasetId: string, caseId: string) =>
+      `${base}/datasets/${datasetId}?case=${caseId}`,
+    evaluations: `${base}/evaluations`,
+    evaluation: (evaluationId: string) => `${base}/evaluations/${evaluationId}`,
     scorers: `${base}/scorers`,
   };
 }
 
-/** Badge variants for the four status labels. Muted on purpose. */
+/** Badge variants for the status labels. Muted on purpose. */
 export const RESULT_STATUS_VARIANT: Record<ResultStatus, "success" | "danger" | "warning"> = {
   passed: "success",
   failed: "danger",
@@ -27,7 +29,7 @@ export const RESULT_STATUS_VARIANT: Record<ResultStatus, "success" | "danger" | 
 };
 
 export const REVIEW_STATUS_VARIANT: Record<ReviewStatus, "success" | "warning"> = {
-  golden: "success",
+  reviewed: "success",
   needs_review: "warning",
 };
 
@@ -36,16 +38,15 @@ export function pct(value: number, digits = 1): string {
   return `${value.toFixed(digits)}%`;
 }
 
-/** e.g. 22.4 → "+22.4", -9.5 → "−9.5" (true minus sign, not a hyphen). */
+/** e.g. 22.4 → "+22.4", -9.5 → "−9.5" (true minus sign). */
 export function signed(value: number, digits = 1): string {
   const sign = value > 0 ? "+" : value < 0 ? "−" : "";
   return `${sign}${Math.abs(value).toFixed(digits)}`;
 }
 
 /**
- * Reads a change the way a person would, not by arithmetic sign.
- * Everything in v1 is higher-is-better, but the direction stays explicit so a
- * lower-is-better metric can't silently render green for getting worse.
+ * Reads a change the way a person would, not by arithmetic sign. Everything in
+ * v1 is higher-is-better, but the direction stays explicit.
  */
 export function changeSentiment(change: number, higherIsBetter = true): "good" | "bad" | "neutral" {
   if (change === 0) return "neutral";
@@ -72,11 +73,8 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
  * Compact absolute timestamp, e.g. "16 Jul, 15:41" (UTC).
  *
  * Built by hand rather than with `toLocaleString`, mirroring formatDate in
- * lib/utils. The reason matters here: these fixtures are available at render
- * time, so unlike the rest of the app — whose dates arrive from react-query and
- * are absent during SSR — these cells render on the server *and* the client. Any
- * disagreement between the two runtimes' ICU data would surface as a hydration
- * mismatch, so the output must not depend on locale data at all.
+ * lib/utils. These fixtures render during SSR, so any dependence on the
+ * runtime's locale/ICU data would risk a hydration mismatch.
  */
 export function formatStamp(iso: string): string {
   const date = new Date(iso);
@@ -87,14 +85,21 @@ export function formatStamp(iso: string): string {
   return `${day} ${month}, ${hours}:${minutes}`;
 }
 
-export function formatMs(ms: number): string {
-  return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
-}
-
-export function formatUsd(value: number): string {
-  return `$${value.toFixed(4)}`;
-}
-
 export function truncate(text: string, max = 80): string {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
+}
+
+/** Parses a span's JSON metadata string into a flat record for display. */
+export function parseMetadata(raw: string | null | undefined): Record<string, string> {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object") {
+      return Object.fromEntries(Object.entries(parsed).map(([k, v]) => [k, String(v)]));
+    }
+  } catch {
+    // Non-JSON metadata is shown as a single value.
+    return { value: raw };
+  }
+  return {};
 }

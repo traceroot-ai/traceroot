@@ -1,108 +1,30 @@
 /**
  * Offline Evaluation — domain types (UI prototype).
  *
- * v1 scope is deliberately small: Traces → Datasets → Experiments, plus Scorers
- * and human review. There are no detectors, cohorts, CI gates, or session-level
- * evaluation here.
+ * v1 loop: an existing trace → select a span → save it as a test case →
+ * dataset → run an evaluation → compare → inspect the resulting trace → review.
+ * Plus a small Scorers section.
  *
- * Vocabulary rule: the four object names (Trace, Dataset, Experiment, Scorer)
- * stay, because they are what the SDK calls things. Everything else reads in
- * plain language — "test case", "reference answer", "quality check", "review".
+ * This version deliberately reuses the *real* trace types (`Span`,
+ * `TraceDetail`) rather than a parallel shape, so the trace-inspection UI is the
+ * genuine TraceRoot component fed with hardcoded data — not a lookalike.
  */
 
-// ---------------------------------------------------------------------------
-// Scope — what a test case actually runs
-// ---------------------------------------------------------------------------
+import type { Span, TraceDetail } from "@/types/api";
+import type { SpanKind } from "@traceroot/core";
 
-/**
- * `whole_workflow` is the normal case. The rest isolate one operation and are
- * only reachable by picking a specific step inside a trace.
- */
-export type Scope =
-  | "whole_workflow"
-  | "llm_response"
-  | "retrieval_step"
-  | "routing_decision"
-  | "tool_selection"
-  | "tool_arguments"
-  | "tool_execution"
-  | "application_function";
-
-export interface ScopeMeta {
-  id: Scope;
-  label: string;
-  /** One plain sentence describing what rerunning this scope does. */
-  description: string;
-  /** Maps onto the span palette already used by features/traces. */
-  spanKind: "trace" | "llm" | "tool" | "span";
-}
-
-export const SCOPES: ScopeMeta[] = [
-  {
-    id: "whole_workflow",
-    label: "Whole workflow",
-    description: "Runs the whole thing again, start to finish, from this input.",
-    spanKind: "trace",
-  },
-  {
-    id: "llm_response",
-    label: "LLM response",
-    description: "Runs just this model call and judges what it wrote.",
-    spanKind: "llm",
-  },
-  {
-    id: "retrieval_step",
-    label: "Retrieval step",
-    description: "Runs just the search and judges the documents it found.",
-    spanKind: "span",
-  },
-  {
-    id: "routing_decision",
-    label: "Routing decision",
-    description: "Runs just the routing choice and judges where it sent the request.",
-    spanKind: "span",
-  },
-  {
-    id: "tool_selection",
-    label: "Tool selection",
-    description: "Judges which tool was picked, ignoring the arguments.",
-    spanKind: "tool",
-  },
-  {
-    id: "tool_arguments",
-    label: "Tool arguments",
-    description: "Judges the values passed to a tool that was already picked.",
-    spanKind: "tool",
-  },
-  {
-    id: "tool_execution",
-    label: "Tool execution",
-    description: "Runs the tool itself and judges what it returned.",
-    spanKind: "tool",
-  },
-  {
-    id: "application_function",
-    label: "Application function",
-    description: "Runs one function in your code and judges its output.",
-    spanKind: "span",
-  },
-];
-
-export function scopeMeta(id: Scope): ScopeMeta {
-  const found = SCOPES.find((item) => item.id === id);
-  if (!found) throw new Error(`Unknown scope: ${id}`);
-  return found;
-}
+export type { Span, TraceDetail };
+export type { SpanKind };
 
 // ---------------------------------------------------------------------------
-// Status vocabulary — exactly four labels, used everywhere
+// Status vocabulary — plain, and no "Golden"
 // ---------------------------------------------------------------------------
 
 /** How a single result turned out. */
 export type ResultStatus = "passed" | "failed" | "needs_review";
 
-/** How much the team trusts a test case. New cases start at `needs_review`. */
-export type ReviewStatus = "needs_review" | "golden";
+/** How much the team trusts a test case. New cases start as needs_review. */
+export type ReviewStatus = "needs_review" | "reviewed";
 
 export const RESULT_STATUS_LABEL: Record<ResultStatus, string> = {
   passed: "Passed",
@@ -112,13 +34,23 @@ export const RESULT_STATUS_LABEL: Record<ResultStatus, string> = {
 
 export const REVIEW_STATUS_LABEL: Record<ReviewStatus, string> = {
   needs_review: "Needs review",
-  golden: "Golden",
+  reviewed: "Reviewed",
 };
 
-/** Plain sentence for each review status, shown instead of jargon tooltips. */
 export const REVIEW_STATUS_HELP: Record<ReviewStatus, string> = {
-  needs_review: "Nobody has confirmed this case or its reference answer yet.",
-  golden: "Someone checked this case and trusts it to judge future runs.",
+  needs_review: "Nobody has checked this case or its expected output yet.",
+  reviewed: "A person checked this case and trusts it to judge future runs.",
+};
+
+/**
+ * Human-readable label for a span kind. The real kinds are LLM / AGENT / TOOL /
+ * SPAN; "retrieval" and "root" are conveyed by the span's name, not a new kind.
+ */
+export const SPAN_KIND_LABEL: Record<SpanKind, string> = {
+  LLM: "LLM call",
+  AGENT: "Agent step",
+  TOOL: "Tool call",
+  SPAN: "Step",
 };
 
 // ---------------------------------------------------------------------------
@@ -136,77 +68,37 @@ export const HUMAN_VERDICT_LABEL: Record<HumanVerdict, string> = {
 /**
  * One person's judgment of one observed result.
  *
- * `correctedReference` is deliberately separate from the verdict: judging what
+ * `correctedExpected` is kept separate from the verdict on purpose: judging what
  * happened once and changing what future runs are compared against are two
- * different decisions, and conflating them is how a dataset quietly rots.
+ * different decisions.
  */
 export interface HumanReview {
   verdict: HumanVerdict;
-  /** Optional 1–5 quality score. */
   quality?: number;
-  correctedReference?: string;
+  correctedExpected?: string;
   comment?: string;
-  markGolden?: boolean;
   reviewer: string;
   at: string;
 }
 
-/** What the review panel is judging — the same panel serves all three. */
-export type ReviewSubject =
-  | { kind: "trace"; traceId: string }
-  | { kind: "case"; datasetId: string; caseId: string }
-  | { kind: "result"; experimentId: string; caseId: string };
-
 // ---------------------------------------------------------------------------
-// Traces
+// Traces (real TraceDetail, plus the display fields a list needs)
 // ---------------------------------------------------------------------------
-
-export interface TraceRow {
-  traceId: string;
-  /** Plain summary of what the user asked for — the "Input" column. */
-  input: string;
-  /** Plain summary of what the app did — the "Result" column. */
-  result: string;
-  /** The one score shown by default. Null when nothing scored this trace. */
-  mainScore: number | null;
-  mainScoreName: string;
-  status: ResultStatus;
-  hasError: boolean;
-  errorMessage?: string;
-  durationMs: number;
-  at: string;
-  /** Revealed only after the trace is opened. */
-  details: {
-    model: string;
-    cost: number;
-    inputTokens: number;
-    outputTokens: number;
-    userId: string;
-    sessionId: string;
-  };
-  humanReview?: HumanReview;
-}
 
 /**
- * A step inside a trace.
- *
- * `name` is the human-readable label shown by default ("Generate response");
- * `technicalName` is the real span name, shown as a quiet secondary label so
- * the tree stays learnable without hiding what actually ran.
+ * A trace in the prototype: the genuine `TraceDetail` (rendered by the real
+ * SpanTreeView / SpanInfoPanel) plus the summary fields a list shows.
  */
-export interface Step {
-  stepId: string;
-  name: string;
-  technicalName: string;
-  kind: "trace" | "llm" | "tool" | "span";
-  scope: Scope;
-  durationMs: number;
-  status: "ok" | "error";
-  input: string;
-  output: string;
-  /** Shown only under Details. */
-  details: Record<string, string>;
-  children: Step[];
+export interface ProtoTrace {
+  detail: TraceDetail;
+  /** Short plain summary of the top-level input, for the list. */
+  inputSummary: string;
+  /** Short plain summary of the outcome, for the list. */
+  resultSummary: string;
+  status: ResultStatus;
+  mainScore: number | null;
+  mainScoreName: string;
+  humanReview?: HumanReview;
 }
 
 export type TraceFilter = "all" | "passed" | "failed" | "needs_review" | "has_error";
@@ -220,41 +112,47 @@ export const TRACE_FILTERS: Array<{ id: TraceFilter; label: string }> = [
 ];
 
 // ---------------------------------------------------------------------------
-// Datasets
+// Datasets & test cases
 // ---------------------------------------------------------------------------
 
 export interface Dataset {
   id: string;
   name: string;
-  /** One plain sentence: what this collection is for. */
-  purpose: string;
+  description: string;
   caseCount: number;
-  goldenCount: number;
-  /** Name of the most recent experiment run against it, if any. */
-  lastExperiment: string | null;
-  lastExperimentId: string | null;
+  reviewedCount: number;
+  /** Names of evaluations that have run against this dataset. */
+  evaluationNames: string[];
   updatedAt: string;
-  version: string;
+  /** Optional free-form tags, shown only in a collapsed section. */
+  tags: string[];
 }
 
-export type CaseSource =
-  | { kind: "trace"; traceId: string }
-  | { kind: "sdk" }
-  | { kind: "variation"; ofCaseId: string };
+/**
+ * Where a test case came from. Always a span inside a parent trace — the whole
+ * trace is retained as context, but the case *is* the selected span.
+ */
+export interface CaseSource {
+  traceId: string;
+  spanId: string;
+  spanName: string;
+  spanKind: SpanKind;
+}
 
 export interface TestCase {
   id: string;
+  /** The selected span's input becomes the proposed test input. */
   input: string;
   /**
-   * Optional. Null means no single right answer exists and a quality check
-   * judges the output directly — not that the field is missing.
+   * Optional. Null means a scorer judges the produced output directly rather
+   * than comparing it to one exact answer.
    */
-  reference: string | null;
-  scope: Scope;
+  expected: string | null;
+  source: CaseSource;
   review: ReviewStatus;
   latestScore: number | null;
   latestStatus: ResultStatus | null;
-  source: CaseSource;
+  metadata: Record<string, string>;
   addedAt: string;
   addedBy: string;
   humanReview?: HumanReview;
@@ -275,70 +173,68 @@ export interface DatasetActivity {
 }
 
 // ---------------------------------------------------------------------------
-// Experiments
+// Evaluations (the run — the term chosen for this product)
 // ---------------------------------------------------------------------------
 
-export type ExperimentStatus = "completed" | "running" | "failed";
+export type EvaluationStatus = "completed" | "running" | "failed";
 
-export const EXPERIMENT_STATUS_LABEL: Record<ExperimentStatus, string> = {
+export const EVALUATION_STATUS_LABEL: Record<EvaluationStatus, string> = {
   completed: "Completed",
   running: "Running",
   failed: "Failed",
 };
 
-export interface Experiment {
+export interface Evaluation {
   id: string;
   name: string;
   datasetId: string;
   datasetName: string;
-  datasetVersion: string;
-  status: ExperimentStatus;
-  /** The single headline number. */
+  status: EvaluationStatus;
   mainScore: number | null;
   mainScoreName: string;
-  /** Percentage-point change vs the baseline run. Null when nothing to compare. */
+  /** Percentage-point change vs the baseline. Null when there is no baseline. */
   changeFromBaseline: number | null;
-  /** The run this one is compared against. */
   baselineId: string | null;
   baselineName: string | null;
+  regressionCount: number;
   ranAt: string;
   caseCount: number;
-  /** Everything technical, revealed only under the Details tab. */
+  scorerIds: string[];
+  /** Everything technical, revealed only under a Details area. */
   details: {
+    task: string;
+    appVersion: string;
     model: string;
     trials: number;
     durationMs: number;
     cost: number;
-    gitBranch: string;
-    gitCommit: string;
-    scorerIds: string[];
   };
 }
 
 export type ResultChange = "improved" | "regressed" | "unchanged";
 
-export interface ExperimentResult {
+export interface EvaluationResult {
   caseId: string;
   input: string;
-  reference: string | null;
-  candidateOutput: string;
+  expected: string | null;
+  currentOutput: string;
   baselineOutput: string;
   score: number;
   baselineScore: number;
   status: ResultStatus;
   change: ResultChange;
-  /** Short plain-language reason from the quality check. */
+  /** Short plain reason from the scorer. */
   explanation: string;
+  /** The trace this result produced — opens the real trace detail. */
+  traceId: string;
   humanReview?: HumanReview;
 }
 
-export type ResultFilter = "all" | "improved" | "regressed" | "passed" | "failed" | "needs_review";
+export type ResultFilter = "all" | "regressions" | "failed" | "needs_review";
 
 export const RESULT_FILTERS: Array<{ id: ResultFilter; label: string }> = [
   { id: "all", label: "All" },
-  { id: "improved", label: "Improved" },
-  { id: "regressed", label: "Regressed" },
-  { id: "passed", label: "Passed" },
+  { id: "regressions", label: "Regressions" },
   { id: "failed", label: "Failed" },
   { id: "needs_review", label: "Needs review" },
 ];
@@ -347,12 +243,12 @@ export const RESULT_FILTERS: Array<{ id: ResultFilter; label: string }> = [
 // Scorers
 // ---------------------------------------------------------------------------
 
-/** Friendly types. "Rule" beats "heuristic/code" for someone reading this cold. */
+/** Friendly types. */
 export type ScorerType = "rule" | "ai_judge" | "human_review";
 
 export const SCORER_TYPE_LABEL: Record<ScorerType, string> = {
-  rule: "Rule",
-  ai_judge: "AI judge",
+  rule: "Rule / code",
+  ai_judge: "LLM judge",
   human_review: "Human review",
 };
 
@@ -362,26 +258,18 @@ export const SCORER_TYPE_HELP: Record<ScorerType, string> = {
   human_review: "A person decides. Used when nothing automatic is good enough.",
 };
 
-export interface ScorerVersion {
-  version: string;
-  createdAt: string;
-  note: string;
-}
-
 export interface Scorer {
   id: string;
   name: string;
   /** One plain sentence: what it measures. */
   measures: string;
   type: ScorerType;
-  scopes: Scope[];
+  /** e.g. "Pass / fail", "0–1", "1–5". */
+  scoreFormat: string;
+  /** How the number should be read. */
+  interpretation: string;
   version: string;
   higherIsBetter: boolean;
-  /** What the scorer reads. */
-  inputs: string[];
-  versions: ScorerVersion[];
-  usedByDatasetIds: string[];
-  usedByExperimentIds: string[];
-  /** Minimal SDK definition, shown behind "View SDK definition". */
-  sdkExample: string;
+  /** Names of evaluations using this scorer. */
+  usedByEvaluationNames: string[];
 }
