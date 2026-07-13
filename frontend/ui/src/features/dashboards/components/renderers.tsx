@@ -17,7 +17,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { type DisplayType, type FieldUnit, type WidgetQueryResult, AGGS } from "../types";
+import type { FieldUnit } from "@/features/filters/filter-controls";
+import { type DisplayType, type WidgetQueryResult, AGGS } from "../types";
 
 // Pastel series palette mirroring the span-kind tints
 // (violet=llm, blue=agent, amber=tool, slate=span), then softened extras.

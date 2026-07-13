@@ -2,19 +2,20 @@
 
 import { useMemo } from "react";
 import { X } from "lucide-react";
-import { Input } from "@/components/ui/input";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { ValueDropdown } from "@/features/filters/filter-builder";
+  Dropdown,
+  DropdownItem,
+  FIELD_UNIT,
+  FieldDropdown,
+  FilterControlSizeProvider,
+  NumberField,
+  ParkedValueField,
+  TextField,
+  ValueDropdown,
+} from "@/features/filters/filter-controls";
 import { fieldIcon } from "./field-icons";
 import { useWidgetFieldValues } from "../hooks/use-widget-data";
 import {
-  FIELD_UNIT,
   filterOpLabel,
   isEnumerableFilter,
   type TimeRange,
@@ -46,7 +47,6 @@ export function FilterRow({
   range: TimeRange;
 }) {
   const fieldMeta = fieldsMap[filter.field];
-  const ops = fieldMeta?.filterOps ?? [];
   const isNumeric = fieldMeta?.type === "number";
 
   // Equality on a string dimension offers the field's stored values as a
@@ -71,96 +71,87 @@ export function FilterRow({
   const showValueDropdown = enumerable && (options.length > 0 || isLoading);
 
   return (
-    <div className="flex items-center gap-1.5">
-      {/* field */}
-      <Select
-        value={filter.field}
-        onValueChange={(v) => onChange(index, { field: v, op: "", value: "" })}
-      >
-        <SelectTrigger className="h-7 flex-1 text-[12px]">
-          <SelectValue placeholder="Field" />
-        </SelectTrigger>
-        <SelectContent>
-          {filterableFields.map(([key, meta]) => {
-            const Icon = fieldIcon(key);
-            return (
-              <SelectItem
-                key={key}
-                value={key}
-                className="text-[12px]"
-                icon={<Icon className="h-3.5 w-3.5 text-muted-foreground" />}
-              >
-                {meta.label}
-              </SelectItem>
-            );
-          })}
-        </SelectContent>
-      </Select>
-
-      {/* op — labeled with the trace-list filter vocabulary (is / is not / ≥ / ≤ / ≠) */}
-      <Select
-        value={filter.op}
-        onValueChange={(v) => onChange(index, { op: v })}
-        disabled={!filter.field}
-      >
-        <SelectTrigger className="h-7 w-24 text-[12px]">
-          <SelectValue placeholder="Op">
-            {filter.op ? filterOpLabel(fieldMeta, filter.op) : undefined}
-          </SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          {ops.map((op) => (
-            <SelectItem key={op} value={op} className="text-[12px]">
-              {filterOpLabel(fieldMeta, op)}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-
-      {/* value — the trace-list stored-values picker, counts included */}
-      {showValueDropdown ? (
-        <ValueDropdown
-          value={String(filter.value)}
-          options={options}
-          onValue={(v) => onChange(index, { value: v })}
-          placeholder={isLoading ? "Loading…" : "Value"}
-          triggerClassName="text-[12px]"
+    // The widget builder's config column runs at 12px, so the shared controls
+    // render at their compact size here.
+    <FilterControlSizeProvider size="sm">
+      <div className="flex items-center gap-1">
+        <FieldDropdown
+          options={filterableFields.map(([key, meta]) => ({
+            key,
+            label: meta.label,
+            icon: fieldIcon(key),
+          }))}
+          valueKey={filter.field || null}
+          // Picking a field selects its first operator, like the trace-list builder.
+          onPick={(key) =>
+            onChange(index, { field: key, op: fieldsMap[key]?.filterOps[0] ?? "", value: "" })
+          }
         />
-      ) : (
-        <div className="flex flex-1 items-center gap-1">
-          {isNumeric && FIELD_UNIT[filter.field]?.prefix && (
-            <span className="shrink-0 text-[11px] text-muted-foreground">
-              {FIELD_UNIT[filter.field].prefix}
-            </span>
-          )}
-          <Input
-            className="h-7 flex-1 text-[12px]"
-            placeholder="Value"
-            type={isNumeric ? "number" : "text"}
-            value={String(filter.value)}
-            onChange={(e) => {
-              const raw = e.target.value;
-              onChange(index, { value: isNumeric && raw !== "" ? Number(raw) : raw });
-            }}
-            disabled={!filter.field}
-          />
-          {isNumeric && FIELD_UNIT[filter.field]?.suffix && (
-            <span className="shrink-0 text-[11px] text-muted-foreground">
-              {FIELD_UNIT[filter.field].suffix}
-            </span>
-          )}
-        </div>
-      )}
 
-      {/* remove */}
-      <button
-        type="button"
-        onClick={() => onRemove(index)}
-        className="rounded p-0.5 text-muted-foreground hover:text-foreground"
-        aria-label="Remove filter"
-      >
-        <X className="h-3.5 w-3.5" />
-      </button>
-    </div>
+        {/* op — labeled with the trace-list filter vocabulary (is / is not / ≥ / ≤ / ≠) */}
+        <Dropdown
+          disabled={!fieldMeta}
+          trigger={
+            <span className="whitespace-nowrap">
+              {fieldMeta && filter.op ? filterOpLabel(fieldMeta, filter.op) : "is"}
+            </span>
+          }
+          triggerClassName="min-w-[3.5rem] shrink-0"
+          contentClassName="w-28"
+        >
+          {(close) =>
+            (fieldMeta?.filterOps ?? []).map((op) => (
+              <DropdownItem
+                key={op}
+                active={op === filter.op}
+                onClick={() => {
+                  onChange(index, { op });
+                  close();
+                }}
+              >
+                {filterOpLabel(fieldMeta, op)}
+              </DropdownItem>
+            ))
+          }
+        </Dropdown>
+
+        {/* value — same controls as the trace-list builder's ValueControl */}
+        {!fieldMeta ? (
+          <ParkedValueField />
+        ) : showValueDropdown ? (
+          <ValueDropdown
+            value={String(filter.value)}
+            options={options}
+            onValue={(v) => onChange(index, { value: v })}
+            placeholder={isLoading ? "Loading…" : undefined}
+          />
+        ) : isNumeric ? (
+          <NumberField
+            ariaLabel="value"
+            placeholder="Enter value"
+            value={String(filter.value)}
+            onChange={(v) => onChange(index, { value: v === "" ? "" : Number(v) })}
+            unit={FIELD_UNIT[filter.field]}
+          />
+        ) : (
+          <TextField
+            ariaLabel="value"
+            placeholder="Enter value"
+            value={String(filter.value)}
+            onChange={(v) => onChange(index, { value: v })}
+          />
+        )}
+
+        {/* remove */}
+        <button
+          type="button"
+          onClick={() => onRemove(index)}
+          className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+          aria-label="Remove filter"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    </FilterControlSizeProvider>
   );
 }
