@@ -1,311 +1,263 @@
 /**
  * Offline Evaluation — domain types (UI prototype).
  *
- * These describe the *vocabulary* the prototype is testing, not a backend
- * contract. Nothing here is persisted; see ./data for the fixtures.
+ * v1 scope is deliberately small: Traces → Datasets → Experiments, plus Scorers
+ * and human review. There are no detectors, cohorts, CI gates, or session-level
+ * evaluation here.
  *
- * The central modelling claim being tested: "scope" is not one field. A case
- * has four independent scopes that teams routinely conflate —
- * see SCOPE_FACETS below.
+ * Vocabulary rule: the four object names (Trace, Dataset, Experiment, Scorer)
+ * stay, because they are what the SDK calls things. Everything else reads in
+ * plain language — "test case", "reference answer", "quality check", "review".
  */
 
 // ---------------------------------------------------------------------------
-// Granularity
+// Scope — what a test case actually runs
 // ---------------------------------------------------------------------------
 
 /**
- * What a case can execute or be judged against.
- * `whole_trace` is the recommended default; the rest are component-level.
+ * `whole_workflow` is the normal case. The rest isolate one operation and are
+ * only reachable by picking a specific step inside a trace.
  */
-export type Granularity =
-  | "whole_trace"
+export type Scope =
+  | "whole_workflow"
   | "llm_response"
-  | "retrieval"
-  | "router_decision"
+  | "retrieval_step"
+  | "routing_decision"
   | "tool_selection"
   | "tool_arguments"
   | "tool_execution"
-  | "function_transform"
-  | "guardrail";
+  | "application_function";
 
-export interface GranularityMeta {
-  id: Granularity;
+export interface ScopeMeta {
+  id: Scope;
   label: string;
-  /** One-line description of what re-running this granularity actually does. */
+  /** One plain sentence describing what rerunning this scope does. */
   description: string;
-  /** Component-level granularities isolate a single span. */
-  isComponent: boolean;
-  /** Maps onto the existing span_kind palette in features/traces. */
-  spanKind: "trace" | "llm" | "tool" | "agent" | "span";
+  /** Maps onto the span palette already used by features/traces. */
+  spanKind: "trace" | "llm" | "tool" | "span";
 }
 
-export const GRANULARITIES: GranularityMeta[] = [
+export const SCOPES: ScopeMeta[] = [
   {
-    id: "whole_trace",
-    label: "Whole trace",
-    description: "Reruns the end-to-end workflow from the original input.",
-    isComponent: false,
+    id: "whole_workflow",
+    label: "Whole workflow",
+    description: "Runs the whole thing again, start to finish, from this input.",
     spanKind: "trace",
   },
   {
     id: "llm_response",
     label: "LLM response",
-    description: "Isolates a single model call and judges its output.",
-    isComponent: true,
+    description: "Runs just this model call and judges what it wrote.",
     spanKind: "llm",
   },
   {
-    id: "retrieval",
+    id: "retrieval_step",
     label: "Retrieval step",
-    description: "Isolates the retrieval query and judges the documents returned.",
-    isComponent: true,
+    description: "Runs just the search and judges the documents it found.",
     spanKind: "span",
   },
   {
-    id: "router_decision",
-    label: "Router decision",
-    description: "Isolates the routing choice and judges the branch selected.",
-    isComponent: true,
+    id: "routing_decision",
+    label: "Routing decision",
+    description: "Runs just the routing choice and judges where it sent the request.",
     spanKind: "span",
   },
   {
     id: "tool_selection",
     label: "Tool selection",
-    description: "Judges which tool the model chose, ignoring the arguments.",
-    isComponent: true,
+    description: "Judges which tool was picked, ignoring the arguments.",
     spanKind: "tool",
   },
   {
     id: "tool_arguments",
     label: "Tool arguments",
-    description: "Judges the argument payload for an already-chosen tool.",
-    isComponent: true,
+    description: "Judges the values passed to a tool that was already picked.",
     spanKind: "tool",
   },
   {
     id: "tool_execution",
     label: "Tool execution",
-    description: "Runs the tool itself and judges its return value.",
-    isComponent: true,
+    description: "Runs the tool itself and judges what it returned.",
     spanKind: "tool",
   },
   {
-    id: "function_transform",
-    label: "Function / transform",
-    description: "Isolates a deterministic function and judges its output.",
-    isComponent: true,
-    spanKind: "span",
-  },
-  {
-    id: "guardrail",
-    label: "Guardrail",
-    description: "Judges whether a guardrail fired correctly on the input.",
-    isComponent: true,
+    id: "application_function",
+    label: "Application function",
+    description: "Runs one function in your code and judges its output.",
     spanKind: "span",
   },
 ];
 
-export function granularity(id: Granularity): GranularityMeta {
-  const found = GRANULARITIES.find((item) => item.id === id);
-  if (!found) throw new Error(`Unknown granularity: ${id}`);
+export function scopeMeta(id: Scope): ScopeMeta {
+  const found = SCOPES.find((item) => item.id === id);
+  if (!found) throw new Error(`Unknown scope: ${id}`);
   return found;
 }
 
 // ---------------------------------------------------------------------------
-// Aggregation contexts (higher-level than a single case)
+// Status vocabulary — exactly four labels, used everywhere
 // ---------------------------------------------------------------------------
 
-export type AggregationLevel = "case" | "session" | "user" | "cohort";
+/** How a single result turned out. */
+export type ResultStatus = "passed" | "failed" | "needs_review";
 
-export interface AggregationMeta {
-  id: AggregationLevel;
-  label: string;
-  description: string;
-  /**
-   * False where we do NOT yet claim automatic evaluation. Session-level
-   * evaluation needs an explicit session boundary and an aggregation policy;
-   * the UI must not imply this is solved.
-   */
-  supported: boolean;
-  caveat?: string;
-}
+/** How much the team trusts a test case. New cases start at `needs_review`. */
+export type ReviewStatus = "needs_review" | "golden";
 
-export const AGGREGATION_LEVELS: AggregationMeta[] = [
-  {
-    id: "case",
-    label: "Case",
-    description: "One dataset row. The unit that is executed and scored.",
-    supported: true,
-  },
-  {
-    id: "session",
-    label: "Session",
-    description: "Multiple traces belonging to one conversation.",
-    supported: false,
-    caveat:
-      "Requires an explicit session boundary and an aggregation policy (last turn? worst turn? mean?). Grouping works today; automatic session-level scoring does not.",
-  },
-  {
-    id: "user",
-    label: "User",
-    description: "All traces attributed to one end user.",
-    supported: false,
-    caveat: "Available as a grouping for results. There is no user-level scorer.",
-  },
-  {
-    id: "cohort",
-    label: "Cohort",
-    description: "Traces matching a metadata filter, e.g. intent=billing.",
-    supported: true,
-  },
-];
+export const RESULT_STATUS_LABEL: Record<ResultStatus, string> = {
+  passed: "Passed",
+  failed: "Failed",
+  needs_review: "Needs review",
+};
+
+export const REVIEW_STATUS_LABEL: Record<ReviewStatus, string> = {
+  needs_review: "Needs review",
+  golden: "Golden",
+};
+
+/** Plain sentence for each review status, shown instead of jargon tooltips. */
+export const REVIEW_STATUS_HELP: Record<ReviewStatus, string> = {
+  needs_review: "Nobody has confirmed this case or its reference answer yet.",
+  golden: "Someone checked this case and trusts it to judge future runs.",
+};
 
 // ---------------------------------------------------------------------------
-// The four scope facets — the distinction this prototype exists to test
+// Human review — the one thing people create in the UI
 // ---------------------------------------------------------------------------
 
-export type ScopeFacetId = "execution" | "evidence" | "scoring" | "aggregation";
+export type HumanVerdict = "pass" | "fail" | "unsure";
 
-export interface ScopeFacetMeta {
-  id: ScopeFacetId;
-  label: string;
-  question: string;
-  description: string;
-}
-
-export const SCOPE_FACETS: ScopeFacetMeta[] = [
-  {
-    id: "execution",
-    label: "Execution scope",
-    question: "What is rerun?",
-    description: "The unit the candidate fix actually re-executes.",
-  },
-  {
-    id: "evidence",
-    label: "Evidence scope",
-    question: "Where did this come from?",
-    description: "The production trace or span the case was captured from.",
-  },
-  {
-    id: "scoring",
-    label: "Scoring scope",
-    question: "What is judged?",
-    description: "The part of the result a scorer reads. Need not equal what was rerun.",
-  },
-  {
-    id: "aggregation",
-    label: "Aggregation scope",
-    question: "How are results grouped?",
-    description: "How individual case scores roll up into a reported number.",
-  },
-];
-
-/** The concrete four-scope assignment carried by a dataset case. */
-export interface CaseScope {
-  execution: Granularity;
-  evidence: { traceId: string; spanId?: string; spanName?: string };
-  scoring: Granularity;
-  aggregation: AggregationLevel;
-}
-
-// ---------------------------------------------------------------------------
-// Golden status
-// ---------------------------------------------------------------------------
+export const HUMAN_VERDICT_LABEL: Record<HumanVerdict, string> = {
+  pass: "Pass",
+  fail: "Fail",
+  unsure: "Unsure",
+};
 
 /**
- * Golden means a human (or trusted process) validated the case AND its success
- * criteria. Copying a production trace does not make a case golden — new cases
- * land in `needs_review`.
+ * One person's judgment of one observed result.
+ *
+ * `correctedReference` is deliberately separate from the verdict: judging what
+ * happened once and changing what future runs are compared against are two
+ * different decisions, and conflating them is how a dataset quietly rots.
  */
-export type GoldenStatus = "draft" | "needs_review" | "golden";
-
-export interface GoldenStatusMeta {
-  id: GoldenStatus;
-  label: string;
-  description: string;
-  variant: "default" | "warning" | "success";
+export interface HumanReview {
+  verdict: HumanVerdict;
+  /** Optional 1–5 quality score. */
+  quality?: number;
+  correctedReference?: string;
+  comment?: string;
+  markGolden?: boolean;
+  reviewer: string;
+  at: string;
 }
 
-export const GOLDEN_STATUSES: GoldenStatusMeta[] = [
-  {
-    id: "draft",
-    label: "Draft",
-    description: "Being edited. Not yet proposed as a test case.",
-    variant: "default",
-  },
-  {
-    id: "needs_review",
-    label: "Needs review",
-    description: "Captured but not yet validated by a human. The default for imported traces.",
-    variant: "warning",
-  },
-  {
-    id: "golden",
-    label: "Golden",
-    description: "A human validated both the case and its success criteria.",
-    variant: "success",
-  },
+/** What the review panel is judging — the same panel serves all three. */
+export type ReviewSubject =
+  | { kind: "trace"; traceId: string }
+  | { kind: "case"; datasetId: string; caseId: string }
+  | { kind: "result"; experimentId: string; caseId: string };
+
+// ---------------------------------------------------------------------------
+// Traces
+// ---------------------------------------------------------------------------
+
+export interface TraceRow {
+  traceId: string;
+  /** Plain summary of what the user asked for — the "Input" column. */
+  input: string;
+  /** Plain summary of what the app did — the "Result" column. */
+  result: string;
+  /** The one score shown by default. Null when nothing scored this trace. */
+  mainScore: number | null;
+  mainScoreName: string;
+  status: ResultStatus;
+  hasError: boolean;
+  errorMessage?: string;
+  durationMs: number;
+  at: string;
+  /** Revealed only after the trace is opened. */
+  details: {
+    model: string;
+    cost: number;
+    inputTokens: number;
+    outputTokens: number;
+    userId: string;
+    sessionId: string;
+  };
+  humanReview?: HumanReview;
+}
+
+/**
+ * A step inside a trace.
+ *
+ * `name` is the human-readable label shown by default ("Generate response");
+ * `technicalName` is the real span name, shown as a quiet secondary label so
+ * the tree stays learnable without hiding what actually ran.
+ */
+export interface Step {
+  stepId: string;
+  name: string;
+  technicalName: string;
+  kind: "trace" | "llm" | "tool" | "span";
+  scope: Scope;
+  durationMs: number;
+  status: "ok" | "error";
+  input: string;
+  output: string;
+  /** Shown only under Details. */
+  details: Record<string, string>;
+  children: Step[];
+}
+
+export type TraceFilter = "all" | "passed" | "failed" | "needs_review" | "has_error";
+
+export const TRACE_FILTERS: Array<{ id: TraceFilter; label: string }> = [
+  { id: "all", label: "All" },
+  { id: "passed", label: "Passed" },
+  { id: "failed", label: "Failed" },
+  { id: "needs_review", label: "Needs review" },
+  { id: "has_error", label: "Has error" },
 ];
 
-export function goldenStatus(id: GoldenStatus): GoldenStatusMeta {
-  const found = GOLDEN_STATUSES.find((item) => item.id === id);
-  if (!found) throw new Error(`Unknown golden status: ${id}`);
-  return found;
-}
-
 // ---------------------------------------------------------------------------
-// Dataset
+// Datasets
 // ---------------------------------------------------------------------------
 
-export type CaseOrigin =
-  | { kind: "production_trace"; traceId: string; detectorIssueId?: string }
-  | { kind: "manual" }
-  | { kind: "duplicated"; fromCaseId: string }
-  | { kind: "regression"; experimentId: string };
-
-export interface DatasetCase {
-  id: string;
-  /** The stimulus fed to the system under test. */
-  input: string;
-  /**
-   * Optional: some scorers judge the output directly (e.g. a rubric judge)
-   * and need no single reference answer.
-   */
-  expected: string | null;
-  /** Why `expected` is absent, shown in place of an empty cell. */
-  expectedAbsentReason?: string;
-  metadata: Record<string, string>;
-  origin: CaseOrigin;
-  scope: CaseScope;
-  golden: GoldenStatus;
-  lastScore: number | null;
-  addedAt: string;
-  addedBy: string;
-  activity: ActivityEntry[];
-}
-
-export interface ActivityEntry {
-  at: string;
-  actor: string;
-  message: string;
-}
-
-export interface DatasetSummary {
+export interface Dataset {
   id: string;
   name: string;
-  description: string;
-  /** Display label for the dataset's dominant scope, e.g. "Whole trace", "Mixed trace/LLM". */
-  scopeLabel: string;
-  /** Present when the dataset is single-scope; absent for mixed datasets. */
-  scope: Granularity | null;
+  /** One plain sentence: what this collection is for. */
+  purpose: string;
   caseCount: number;
-  version: string;
-  owner: string;
-  counts: Record<GoldenStatus, number>;
-  originSummary: string;
+  goldenCount: number;
+  /** Name of the most recent experiment run against it, if any. */
+  lastExperiment: string | null;
+  lastExperimentId: string | null;
   updatedAt: string;
-  /** Detector issue this dataset traces back to, when it was scoped from one. */
-  sourceDetectorIssueId?: string;
+  version: string;
+}
+
+export type CaseSource =
+  | { kind: "trace"; traceId: string }
+  | { kind: "sdk" }
+  | { kind: "variation"; ofCaseId: string };
+
+export interface TestCase {
+  id: string;
+  input: string;
+  /**
+   * Optional. Null means no single right answer exists and a quality check
+   * judges the output directly — not that the field is missing.
+   */
+  reference: string | null;
+  scope: Scope;
+  review: ReviewStatus;
+  latestScore: number | null;
+  latestStatus: ResultStatus | null;
+  source: CaseSource;
+  addedAt: string;
+  addedBy: string;
+  humanReview?: HumanReview;
 }
 
 export interface DatasetVersion {
@@ -316,170 +268,99 @@ export interface DatasetVersion {
   caseCount: number;
 }
 
-export interface DatasetRunRef {
-  experimentId: string;
-  experimentName: string;
+export interface DatasetActivity {
+  at: string;
+  actor: string;
+  message: string;
+}
+
+// ---------------------------------------------------------------------------
+// Experiments
+// ---------------------------------------------------------------------------
+
+export type ExperimentStatus = "completed" | "running" | "failed";
+
+export const EXPERIMENT_STATUS_LABEL: Record<ExperimentStatus, string> = {
+  completed: "Completed",
+  running: "Running",
+  failed: "Failed",
+};
+
+export interface Experiment {
+  id: string;
+  name: string;
+  datasetId: string;
+  datasetName: string;
   datasetVersion: string;
+  status: ExperimentStatus;
+  /** The single headline number. */
+  mainScore: number | null;
+  mainScoreName: string;
+  /** Percentage-point change vs the baseline run. Null when nothing to compare. */
+  changeFromBaseline: number | null;
+  /** The run this one is compared against. */
+  baselineId: string | null;
+  baselineName: string | null;
   ranAt: string;
   caseCount: number;
-  primaryMetric: string;
-  primaryValue: number;
+  /** Everything technical, revealed only under the Details tab. */
+  details: {
+    model: string;
+    trials: number;
+    durationMs: number;
+    cost: number;
+    gitBranch: string;
+    gitCommit: string;
+    scorerIds: string[];
+  };
 }
 
-// ---------------------------------------------------------------------------
-// Candidate fix
-// ---------------------------------------------------------------------------
+export type ResultChange = "improved" | "regressed" | "unchanged";
 
-/** The changed system configuration under test, before acceptance. */
-export type CandidateFixKind =
-  | "prompt"
-  | "model"
-  | "retrieval"
-  | "tool_schema"
-  | "routing"
-  | "guardrail"
-  | "app_code";
-
-export interface CandidateFixKindMeta {
-  id: CandidateFixKind;
-  label: string;
-  example: string;
+export interface ExperimentResult {
+  caseId: string;
+  input: string;
+  reference: string | null;
+  candidateOutput: string;
+  baselineOutput: string;
+  score: number;
+  baselineScore: number;
+  status: ResultStatus;
+  change: ResultChange;
+  /** Short plain-language reason from the quality check. */
+  explanation: string;
+  humanReview?: HumanReview;
 }
 
-export const CANDIDATE_FIX_KINDS: CandidateFixKindMeta[] = [
-  { id: "prompt", label: "Revised prompt", example: "Prompt v19 candidate" },
-  { id: "model", label: "Different model", example: "claude-opus-4-8" },
-  { id: "retrieval", label: "Retrieval change", example: "top_k 4 → 8, rerank on" },
-  { id: "tool_schema", label: "Tool-schema change", example: "lookup_invoice: add account_id" },
-  { id: "routing", label: "Routing change", example: "intent threshold 0.6 → 0.75" },
-  { id: "guardrail", label: "Guardrail change", example: "PII filter on tool args" },
-  { id: "app_code", label: "Application-code fix", example: "fix/billing-routing" },
+export type ResultFilter = "all" | "improved" | "regressed" | "passed" | "failed" | "needs_review";
+
+export const RESULT_FILTERS: Array<{ id: ResultFilter; label: string }> = [
+  { id: "all", label: "All" },
+  { id: "improved", label: "Improved" },
+  { id: "regressed", label: "Regressed" },
+  { id: "passed", label: "Passed" },
+  { id: "failed", label: "Failed" },
+  { id: "needs_review", label: "Needs review" },
 ];
-
-export interface CandidateFix {
-  id: string;
-  name: string;
-  kind: CandidateFixKind;
-  summary: string;
-  branch?: string;
-}
-
-// ---------------------------------------------------------------------------
-// Detector issue / RCA
-// ---------------------------------------------------------------------------
-
-export type Severity = "high" | "medium" | "low";
-
-export interface MetricMovement {
-  metric: string;
-  baselineValue: number;
-  currentValue: number;
-  unit: "percent" | "ms" | "usd";
-  /** Higher-is-better vs lower-is-better changes how a delta is read. */
-  direction: "higher_is_better" | "lower_is_better";
-  recoveryTarget: number;
-}
-
-export interface CohortFilter {
-  key: string;
-  value: string;
-}
-
-export interface RepresentativeTrace {
-  traceId: string;
-  summary: string;
-  failedAs: string;
-  durationMs: number;
-  cost: number;
-  timestamp: string;
-}
-
-export interface FailingCluster {
-  label: string;
-  share: number;
-  exampleInput: string;
-  note: string;
-}
-
-export interface RelatedSpan {
-  spanId: string;
-  name: string;
-  kind: "llm" | "tool" | "span" | "agent";
-  role: string;
-  /** True for the span RCA points at as the probable locus. */
-  isPrimary: boolean;
-}
-
-export interface DetectorIssue {
-  id: string;
-  title: string;
-  severity: Severity;
-  detectorName: string;
-  detectedAt: string;
-  affectedTraceCount: number;
-  metric: MetricMovement;
-  cohort: CohortFilter[];
-  representativeTraces: RepresentativeTrace[];
-  topCluster: FailingCluster;
-  sourceEvidence: string;
-  /** What RCA suggests rerunning. */
-  recommendedGranularity: Granularity;
-  /**
-   * What RCA suggests judging. Separate from `recommendedGranularity` because
-   * the two genuinely differ: DET-2841 reruns the whole trace but scores only
-   * the routing decision.
-   */
-  recommendedScoringGranularity: Granularity;
-  recommendedRationale: string;
-  /**
-   * Affected traces that survive dedupe into distinct cases. Smaller than
-   * `affectedTraceCount` — 214 traces collapse to 24 failing shapes.
-   */
-  proposedCaseCount: number;
-  relatedSpans: RelatedSpan[];
-  baseline: CandidateFix;
-  guardrailNote: string;
-  /** Set once a verification dataset has been scoped from this issue. */
-  verificationDatasetId?: string;
-  stage: ContinuityStage;
-}
-
-// ---------------------------------------------------------------------------
-// Continuity stages — the spine of the product story
-// ---------------------------------------------------------------------------
-
-export type ContinuityStage =
-  | "detected"
-  | "scoped"
-  | "dataset"
-  | "experiment"
-  | "compared"
-  | "gated";
-
-export interface ContinuityStageMeta {
-  id: ContinuityStage;
-  label: string;
-  description: string;
-}
-
-export const CONTINUITY_STAGES: ContinuityStageMeta[] = [
-  { id: "detected", label: "Detected", description: "A detector flagged a metric movement." },
-  { id: "scoped", label: "Scoped", description: "The affected cohort and metric are pinned." },
-  { id: "dataset", label: "Dataset", description: "Failing traces became reusable test cases." },
-  { id: "experiment", label: "Experiment", description: "A candidate fix ran against the cases." },
-  { id: "compared", label: "Compared", description: "Candidate measured against the baseline." },
-  { id: "gated", label: "Gated", description: "The bar is enforced on every future change." },
-];
-
-export function stageIndex(stage: ContinuityStage): number {
-  return CONTINUITY_STAGES.findIndex((item) => item.id === stage);
-}
 
 // ---------------------------------------------------------------------------
 // Scorers
 // ---------------------------------------------------------------------------
 
-export type ScorerType = "llm_judge" | "heuristic" | "code";
+/** Friendly types. "Rule" beats "heuristic/code" for someone reading this cold. */
+export type ScorerType = "rule" | "ai_judge" | "human_review";
+
+export const SCORER_TYPE_LABEL: Record<ScorerType, string> = {
+  rule: "Rule",
+  ai_judge: "AI judge",
+  human_review: "Human review",
+};
+
+export const SCORER_TYPE_HELP: Record<ScorerType, string> = {
+  rule: "Plain code. Same input, same answer, every time.",
+  ai_judge: "A model reads the output and grades it against a rubric.",
+  human_review: "A person decides. Used when nothing automatic is good enough.",
+};
 
 export interface ScorerVersion {
   version: string;
@@ -490,240 +371,17 @@ export interface ScorerVersion {
 export interface Scorer {
   id: string;
   name: string;
-  version: string;
+  /** One plain sentence: what it measures. */
+  measures: string;
   type: ScorerType;
-  purpose: string;
-  acceptedInputs: string[];
-  scopes: Granularity[];
-  aggregation: AggregationLevel;
-  direction: "higher_is_better" | "lower_is_better";
-  threshold: number | null;
-  unit: "percent" | "score";
+  scopes: Scope[];
+  version: string;
+  higherIsBetter: boolean;
+  /** What the scorer reads. */
+  inputs: string[];
   versions: ScorerVersion[];
-  linkedDetectorIssueIds: string[];
+  usedByDatasetIds: string[];
   usedByExperimentIds: string[];
-  /** Draft scorers are explicitly not ready; the UI must show why. */
-  isDraft: boolean;
-  experimentalNote?: string;
+  /** Minimal SDK definition, shown behind "View SDK definition". */
+  sdkExample: string;
 }
-
-// ---------------------------------------------------------------------------
-// Experiments
-// ---------------------------------------------------------------------------
-
-export type ExperimentStatus = "completed" | "running" | "draft" | "failed";
-
-export interface ExperimentScores {
-  routingAccuracy: number | null;
-  helpfulness: number | null;
-}
-
-export interface Experiment {
-  id: string;
-  name: string;
-  status: ExperimentStatus;
-  /** True for the run currently accepted as the comparison baseline. */
-  isBaseline: boolean;
-  candidate: CandidateFix;
-  datasetId: string;
-  datasetName: string;
-  datasetVersion: string;
-  caseCount: number;
-  scores: ExperimentScores;
-  durationMs: number;
-  cost: number;
-  trials: number;
-  ranAt: string;
-  sourceDetectorIssueId?: string;
-  metadata: Record<string, string>;
-  scorerIds: string[];
-}
-
-/** How the experiments list and comparison results can be grouped. */
-export type GroupingKey = "overall" | "intent" | "scope" | "source_detector";
-
-export interface GroupingMeta {
-  id: GroupingKey;
-  label: string;
-}
-
-export const GROUPINGS: GroupingMeta[] = [
-  { id: "overall", label: "Overall" },
-  { id: "intent", label: "Intent" },
-  { id: "scope", label: "Scope" },
-  { id: "source_detector", label: "Source detector" },
-];
-
-// ---------------------------------------------------------------------------
-// Comparison
-// ---------------------------------------------------------------------------
-
-export type RowOutcome = "improved" | "regressed" | "unchanged" | "needs_review";
-
-export interface ComparisonRow {
-  caseId: string;
-  input: string;
-  expected: string | null;
-  intent: string;
-  scope: Granularity;
-  baselineOutput: string;
-  candidateOutput: string;
-  baselineScore: number;
-  candidateScore: number;
-  durationDeltaMs: number;
-  outcome: RowOutcome;
-  reviewed: boolean;
-  /** Why a row landed in needs_review — never leave the reader guessing. */
-  reviewNote?: string;
-  baselineTraceId: string;
-  candidateTraceId: string;
-}
-
-export interface ComparisonGroupResult {
-  key: string;
-  label: string;
-  baselineValue: number;
-  candidateValue: number;
-  caseCount: number;
-  /** True when this group breaches the guardrail (regression > 2%). */
-  breachesGuardrail: boolean;
-}
-
-export interface MetricSummary {
-  label: string;
-  baselineDisplay: string;
-  candidateDisplay: string;
-  deltaDisplay: string;
-  /** Direction of the delta as the *user* should read it, not its arithmetic sign. */
-  sentiment: "good" | "bad" | "neutral";
-  isPrimary: boolean;
-}
-
-export interface ExperimentComparison {
-  id: string;
-  baselineExperimentId: string;
-  candidateExperimentId: string;
-  title: string;
-  decision: {
-    verdict: "meets_target" | "misses_target";
-    headline: string;
-    detail: string;
-  };
-  summary: MetricSummary[];
-  groups: Record<GroupingKey, ComparisonGroupResult[]>;
-  rows: ComparisonRow[];
-  sourceDetectorIssueId: string;
-}
-
-// ---------------------------------------------------------------------------
-// CI gate
-// ---------------------------------------------------------------------------
-
-export type GateStatus = "awaiting_approval" | "active" | "draft";
-
-export interface GateCondition {
-  id: string;
-  label: string;
-  detail: string;
-  /** Whether the current comparison would satisfy this condition. */
-  currentlyMet: boolean;
-}
-
-export interface CiGate {
-  id: string;
-  name: string;
-  status: GateStatus;
-  baselineLabel: string;
-  datasetId: string;
-  datasetName: string;
-  datasetVersion: string;
-  conditions: GateCondition[];
-  sourceDetectorIssueId: string;
-  scorerIds: string[];
-  createdBy: string;
-  /** Hardcoded preview of the PR check this gate would post. */
-  checkPreview: {
-    name: string;
-    conclusion: "success" | "failure" | "neutral";
-    summary: string;
-    lines: string[];
-  };
-  /** Hardcoded preview of the machine-readable result payload. */
-  machineReadable: Record<string, unknown>;
-}
-
-// ---------------------------------------------------------------------------
-// Traces (prototype trace explorer)
-// ---------------------------------------------------------------------------
-
-export interface TraceScore {
-  name: string;
-  value: number;
-}
-
-export interface TraceFeedback {
-  kind: "thumbs_up" | "thumbs_down" | "none";
-  comment?: string;
-}
-
-export interface TraceRow {
-  traceId: string;
-  name: string;
-  timestamp: string;
-  durationMs: number;
-  cost: number;
-  status: "ok" | "error";
-  errorMessage?: string;
-  intent: string;
-  model: string;
-  appVersion: string;
-  userId: string;
-  sessionId: string;
-  scores: TraceScore[];
-  feedback: TraceFeedback;
-  /** True when this trace is in the DET-2841 affected cohort. */
-  inAffectedCohort: boolean;
-}
-
-/** A span in the prototype's trace-detail tree. */
-export interface ProtoSpan {
-  spanId: string;
-  name: string;
-  kind: "trace" | "llm" | "tool" | "span" | "agent";
-  /** Human label for the component role, e.g. "function", "retrieval", "scorer". */
-  role: string;
-  durationMs: number;
-  cost: number | null;
-  status: "ok" | "error";
-  input: string;
-  output: string;
-  metadata: Record<string, string>;
-  children: ProtoSpan[];
-  /** Granularity this span maps to when captured as a component-level case. */
-  granularity: Granularity;
-}
-
-export interface SavedView {
-  id: string;
-  label: string;
-  description: string;
-  filters: Partial<TraceFilterState>;
-}
-
-export interface TraceFilterState {
-  search: string;
-  intent: string;
-  model: string;
-  appVersion: string;
-  status: "all" | "ok" | "error";
-  cohortOnly: boolean;
-}
-
-export const EMPTY_TRACE_FILTERS: TraceFilterState = {
-  search: "",
-  intent: "all",
-  model: "all",
-  appVersion: "all",
-  status: "all",
-  cohortOnly: false,
-};

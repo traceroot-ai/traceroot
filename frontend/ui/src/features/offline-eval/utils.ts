@@ -1,94 +1,56 @@
 /**
- * Offline Evaluation — shared helpers and route builders.
+ * Offline Evaluation — helpers and route builders.
  */
 
-import type { GoldenStatus, RowOutcome, Severity } from "./types";
+import type { ResultStatus, ReviewStatus } from "./types";
 
-/** All prototype routes live under one namespace so the area is self-contained. */
+/** v1 navigation: Traces, Datasets, Experiments, Scorers. Nothing else. */
 export function evalRoutes(projectId: string) {
   const base = `/projects/${projectId}/offline-eval`;
   return {
     base,
-    overview: base,
-    issue: (issueId: string) => `${base}/issues/${issueId}`,
     traces: `${base}/traces`,
     trace: (traceId: string) => `${base}/traces?trace=${traceId}`,
     datasets: `${base}/datasets`,
     dataset: (datasetId: string) => `${base}/datasets/${datasetId}`,
     experiments: `${base}/experiments`,
-    newExperiment: `${base}/experiments/new`,
     experiment: (experimentId: string) => `${base}/experiments/${experimentId}`,
-    compare: (candidateId: string, baselineId: string) =>
-      `${base}/experiments/compare?candidate=${candidateId}&baseline=${baselineId}`,
     scorers: `${base}/scorers`,
-    scorer: (scorerId: string) => `${base}/scorers/${scorerId}`,
-    gates: `${base}/ci-gates`,
-    gate: (gateId: string) => `${base}/ci-gates?gate=${gateId}`,
   };
 }
 
-export const SEVERITY_VARIANT: Record<Severity, "danger" | "warning" | "default"> = {
-  high: "danger",
-  medium: "warning",
-  low: "default",
+/** Badge variants for the four status labels. Muted on purpose. */
+export const RESULT_STATUS_VARIANT: Record<ResultStatus, "success" | "danger" | "warning"> = {
+  passed: "success",
+  failed: "danger",
+  needs_review: "warning",
 };
 
-export const GOLDEN_VARIANT: Record<GoldenStatus, "success" | "warning" | "default"> = {
+export const REVIEW_STATUS_VARIANT: Record<ReviewStatus, "success" | "warning"> = {
   golden: "success",
   needs_review: "warning",
-  draft: "default",
 };
 
-export const OUTCOME_LABEL: Record<RowOutcome, string> = {
-  improved: "Improved",
-  regressed: "Regressed",
-  unchanged: "Unchanged",
-  needs_review: "Needs review",
-};
-
-export const OUTCOME_VARIANT: Record<RowOutcome, "success" | "danger" | "default" | "warning"> = {
-  improved: "success",
-  regressed: "danger",
-  unchanged: "default",
-  needs_review: "warning",
-};
-
-/** Formats a percentage for display, e.g. 93.8 → "93.8%". */
+/** e.g. 93.8 → "93.8%" */
 export function pct(value: number, digits = 1): string {
   return `${value.toFixed(digits)}%`;
 }
 
-/** Formats a signed delta, e.g. 22.4 → "+22.4%", -1.6 → "−1.6%". */
-export function signedPct(value: number, digits = 1): string {
+/** e.g. 22.4 → "+22.4", -9.5 → "−9.5" (true minus sign, not a hyphen). */
+export function signed(value: number, digits = 1): string {
   const sign = value > 0 ? "+" : value < 0 ? "−" : "";
-  return `${sign}${Math.abs(value).toFixed(digits)}%`;
-}
-
-/** Formats a signed millisecond delta, e.g. 80 → "+80ms". */
-export function signedMs(value: number): string {
-  const sign = value > 0 ? "+" : value < 0 ? "−" : "";
-  return `${sign}${Math.abs(value).toLocaleString()}ms`;
-}
-
-/** Renders a per-case score as a percentage or a pass/fail glyph. */
-export function scoreDisplay(value: number | null): string {
-  if (value === null) return "—";
-  if (value === 0 || value === 1) return value === 1 ? "Pass" : "Fail";
-  return `${(value * 100).toFixed(0)}%`;
+  return `${sign}${Math.abs(value).toFixed(digits)}`;
 }
 
 /**
- * Reads a delta the way the user should, not by arithmetic sign: for a
- * lower-is-better metric a negative delta is good.
+ * Reads a change the way a person would, not by arithmetic sign.
+ * Everything in v1 is higher-is-better, but the direction stays explicit so a
+ * lower-is-better metric can't silently render green for getting worse.
  */
-export function deltaSentiment(
-  delta: number,
-  direction: "higher_is_better" | "lower_is_better",
-): "good" | "bad" | "neutral" {
-  if (delta === 0) return "neutral";
-  const isUp = delta > 0;
-  const good = direction === "higher_is_better" ? isUp : !isUp;
-  return good ? "good" : "bad";
+export function changeSentiment(change: number, higherIsBetter = true): "good" | "bad" | "neutral" {
+  if (change === 0) return "neutral";
+  const isUp = change > 0;
+  return (higherIsBetter ? isUp : !isUp) ? "good" : "bad";
 }
 
 export const SENTIMENT_CLASS: Record<"good" | "bad" | "neutral", string> = {
@@ -97,10 +59,16 @@ export const SENTIMENT_CLASS: Record<"good" | "bad" | "neutral", string> = {
   neutral: "text-muted-foreground",
 };
 
-/** Compact absolute timestamp — the fixtures are fixed instants, not relative. */
+/** 0/1 scores read as Pass/Fail; fractional scores read as a percentage. */
+export function scoreDisplay(value: number | null): string {
+  if (value === null) return "—";
+  if (value === 0 || value === 1) return value === 1 ? "Pass" : "Fail";
+  return `${Math.round(value * 100)}%`;
+}
+
+/** Compact absolute timestamp — the fixtures are fixed instants. */
 export function formatStamp(iso: string): string {
-  const date = new Date(iso);
-  return date.toLocaleString("en-GB", {
+  return new Date(iso).toLocaleString("en-GB", {
     day: "2-digit",
     month: "short",
     hour: "2-digit",
@@ -110,14 +78,13 @@ export function formatStamp(iso: string): string {
 }
 
 export function formatMs(ms: number): string {
-  if (ms >= 1000) return `${(ms / 1000).toFixed(2)}s`;
-  return `${ms}ms`;
+  return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
 }
 
 export function formatUsd(value: number): string {
   return `$${value.toFixed(4)}`;
 }
 
-export function truncate(text: string, max = 72): string {
+export function truncate(text: string, max = 80): string {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
