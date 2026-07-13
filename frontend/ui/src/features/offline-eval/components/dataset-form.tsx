@@ -121,6 +121,7 @@ export function DatasetFormFields({
         <LineNumberedTextarea
           value={state.metadata}
           onChange={(v) => set("metadata", v)}
+          highlightJson
           aria-label="Metadata"
         />
       </Card>
@@ -170,6 +171,7 @@ function SchemaCard({
             value={value}
             onChange={onValueChange}
             minRows={3}
+            highlightJson
             aria-label={`${label} JSON`}
           />
         </div>
