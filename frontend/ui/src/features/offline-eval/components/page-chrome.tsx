@@ -20,7 +20,7 @@ export function EvalPageHeader({
 }: {
   title: string;
   /** One plain sentence. Not marketing copy — a definition. */
-  purpose?: string;
+  purpose?: React.ReactNode;
   backHref?: string;
   backLabel?: string;
   /** At most one primary action per page. */

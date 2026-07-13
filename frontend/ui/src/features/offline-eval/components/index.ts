@@ -3,6 +3,7 @@
  */
 
 export { StatusBadge, ReviewBadge } from "./badges";
+export { Timestamp } from "./timestamp";
 export {
   EvalPageHeader,
   PrototypeNotice,
