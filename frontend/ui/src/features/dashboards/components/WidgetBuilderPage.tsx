@@ -244,7 +244,15 @@ export function WidgetBuilderPage({
 
   // ── preview ───────────────────────────────────────────────────────────────
   const debouncedDraft = useDebounced(draft, 400);
-  const preview = useWidgetPreview(projectId, debouncedDraft, range);
+  const debouncedSpec = useMemo(() => parseSpec(debouncedDraft), [debouncedDraft]);
+  // The engine permanently rejects histogramming a non-histogrammable measure
+  // (reachable by picking the measure after the display) — pause the preview
+  // query instead of sending a request that can only fail. Derived from the
+  // debounced draft so the gate and the query key always agree.
+  const previewBlocked =
+    debouncedSpec?.display.type === "histogram" &&
+    schema?.[debouncedSpec.view]?.fields[debouncedSpec.metric.measure]?.histogrammable === false;
+  const preview = useWidgetPreview(projectId, previewBlocked ? null : debouncedDraft, range);
 
   // ── save ──────────────────────────────────────────────────────────────────
   const specComplete = isSpecComplete(draft);
@@ -543,6 +551,12 @@ export function WidgetBuilderPage({
             {!specComplete ? (
               <div className="flex h-full items-center justify-center text-[12px] text-muted-foreground">
                 Complete the data selection and display to preview
+              </div>
+            ) : histogramBlocked || previewBlocked ? (
+              // The paused query would otherwise sit in isPending forever and
+              // show "Running…" — name the actual blocker instead.
+              <div className="flex h-full items-center justify-center text-[12px] text-muted-foreground">
+                Preview paused — histogram isn&apos;t available for this measure
               </div>
             ) : preview.isPending ? (
               <div className="flex h-full items-center justify-center text-[12px] text-muted-foreground">

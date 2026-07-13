@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DashboardDetail, Widget } from "../types";
 import { dateFilterStorageKey, readStoredDateFilter } from "@/lib/date-filter-storage";
@@ -285,6 +285,37 @@ describe("WidgetBuilderPage", () => {
 
     expect(screen.getByText(/can't be histogrammed/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Save widget" })).toHaveProperty("disabled", true);
+  });
+
+  it("pauses the preview query while the histogram draft is blocked", () => {
+    vi.useFakeTimers();
+    try {
+      // count is flagged histogrammable: false in the schema, so this saved
+      // spec is complete but permanently rejected by the query engine.
+      const blockedWidget = {
+        ...WIDGET,
+        spec: {
+          ...WIDGET.spec,
+          metric: { measure: "count", agg: "count" },
+          display: { type: "histogram" },
+        },
+      };
+      mockDashboard({ ...DASHBOARD, widgets: [blockedWidget] });
+      // A disabled query reports isPending — the paused branch must outrank it.
+      mockPreview({ isPending: true });
+      render(<WidgetBuilderPage projectId="p1" dashboardId="d1" widgetId="w1" />);
+      // Let the 400ms draft debounce settle so the gate sees the blocked spec.
+      act(() => {
+        vi.advanceTimersByTime(400);
+      });
+      // The hook receives null instead of the doomed draft — no request fires.
+      expect(vi.mocked(useWidgetPreview).mock.lastCall?.[1]).toBeNull();
+      // And the pane names the blocker instead of sitting on "Running…".
+      expect(screen.getByText(/Preview paused/)).toBeTruthy();
+      expect(screen.queryByText("Running…")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("warns and blocks save when pie/bar is picked without a breakdown", async () => {
