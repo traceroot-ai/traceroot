@@ -10,8 +10,10 @@ import { displayJsonValue } from "@/lib/eval/json-value";
 
 type RouteParams = { params: Promise<{ projectId: string; datasetId: string }> };
 
-// GET — dataset detail: current version, its test cases, and the version list.
-export async function GET(_req: NextRequest, { params }: RouteParams) {
+// GET — dataset detail: a chosen version (default current), its test cases, and
+// the version list. `?version_id=` views an older immutable snapshot; an unknown
+// or omitted id falls back to the current version.
+export async function GET(req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
   const { projectId, datasetId } = await params;
@@ -26,10 +28,17 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
   });
   if (!dataset) return errorResponse("Dataset not found", 404);
 
+  // The requested version, if it belongs to this dataset; else the current one.
+  const requestedVersionId = req.nextUrl.searchParams.get("version_id");
+  const selectedVersion =
+    (requestedVersionId ? dataset.versions.find((v) => v.id === requestedVersionId) : undefined) ??
+    dataset.versions.find((v) => v.id === dataset.currentVersionId) ??
+    null;
+
   // Newest first for the UI table (latest-added test case at the top).
-  const testCases = dataset.currentVersionId
+  const testCases = selectedVersion
     ? await prisma.testCase.findMany({
-        where: { datasetVersionId: dataset.currentVersionId },
+        where: { datasetVersionId: selectedVersion.id },
         orderBy: { createTime: "desc" },
       })
     : [];
@@ -46,6 +55,8 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
   return successResponse({
     dataset,
     currentVersion,
+    selectedVersion,
+    isCurrentVersion: selectedVersion?.id === dataset.currentVersionId,
     testCases: presentedCases,
     versions: dataset.versions,
   });
