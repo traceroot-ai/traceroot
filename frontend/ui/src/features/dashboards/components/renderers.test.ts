@@ -67,6 +67,26 @@ describe("pivotRows", () => {
     ]);
   });
 
+  it("fills bucket×series holes with null for non-additive aggs", () => {
+    // A percentile has no value for an empty bucket: the hole must be a gap
+    // (null), not a zero that would chart as a false collapse.
+    const out = pivotRows(
+      ["bucket", "model_name", "value"],
+      [
+        ["2026-06-01T00:00:00", "gpt-4o", 120],
+        ["2026-06-02T00:00:00", null, null], // WITH FILL gap row (Nullable metric)
+        ["2026-06-03T00:00:00", "gpt-4o", 90],
+      ],
+      null,
+    );
+    expect(out.seriesKeys).toEqual(["gpt-4o"]);
+    expect(out.data).toEqual([
+      { bucket: "2026-06-01T00:00:00", "gpt-4o": 120 },
+      { bucket: "2026-06-02T00:00:00", "gpt-4o": null },
+      { bucket: "2026-06-03T00:00:00", "gpt-4o": 90 },
+    ]);
+  });
+
   it("keeps a genuine empty-string dim with a nonzero value as a real series", () => {
     const out = pivotRows(["bucket", "model_name", "value"], [["2026-06-01T00:00:00", "", 2]]);
     expect(out.seriesKeys).toEqual([""]);
