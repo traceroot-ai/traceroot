@@ -27,13 +27,13 @@ import { readStoredDateFilter, writeStoredDateFilter } from "@/lib/date-filter-s
 import {
   BREAKDOWN_REQUIRED_DISPLAYS,
   DISPLAY_TYPES,
-  FIELD_UNIT,
   generateWidgetTitle,
   isSpecComplete,
   parseSpec,
   type DraftSpec,
   type WidgetSchemaField,
 } from "../types";
+import { FIELD_UNIT } from "@/features/filters/filter-controls";
 import { fieldIcon } from "./field-icons";
 import { FilterRow } from "./FilterRow";
 import { QueryWidgetRenderer } from "./renderers";
