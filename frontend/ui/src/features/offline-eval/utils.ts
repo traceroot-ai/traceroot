@@ -2,6 +2,7 @@
  * Offline Evaluation — helpers and route builders.
  */
 
+import { formatDate } from "@/lib/utils";
 import type { ResultStatus, ReviewStatus } from "./types";
 
 /** v1 navigation: Traces, Datasets, Evaluations, Scorers. */
@@ -67,22 +68,16 @@ export function scoreDisplay(value: number | null): string {
   return `${Math.round(value * 100)}%`;
 }
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
 /**
- * Compact absolute timestamp, e.g. "16 Jul, 15:41" (UTC).
+ * Absolute timestamp, matching the rest of the app.
  *
- * Built by hand rather than with `toLocaleString`, mirroring formatDate in
- * lib/utils. These fixtures render during SSR, so any dependence on the
- * runtime's locale/ICU data would risk a hydration mismatch.
+ * Delegates to `formatDate` from lib/utils so dataset/evaluation timestamps read
+ * exactly like the traces and detectors tables ("2026-07-16 15:41:12"). That
+ * helper is hand-built (no `toLocaleString`), so it stays hydration-safe for the
+ * fixtures that render during SSR.
  */
 export function formatStamp(iso: string): string {
-  const date = new Date(iso);
-  const day = String(date.getUTCDate()).padStart(2, "0");
-  const month = MONTHS[date.getUTCMonth()];
-  const hours = String(date.getUTCHours()).padStart(2, "0");
-  const minutes = String(date.getUTCMinutes()).padStart(2, "0");
-  return `${day} ${month}, ${hours}:${minutes}`;
+  return formatDate(iso);
 }
 
 export function truncate(text: string, max = 80): string {
