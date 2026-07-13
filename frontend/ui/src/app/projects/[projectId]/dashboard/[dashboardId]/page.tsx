@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
@@ -26,6 +26,16 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+
+// useLayoutEffect on the client, useEffect during SSR: layout effects never
+// run on the server, and React warns when a server render encounters one.
+const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
+
+// Tab strip scroll position per project, module-scoped: the page remounts on
+// every dashboard switch, so component state can't carry the position across
+// clicks. In-memory only — a hard reload falls back to scrolling the active
+// tab into view.
+const tabStripScroll = new Map<string, number>();
 
 export default function DashboardDetailPage() {
   const params = useParams();
@@ -75,11 +85,21 @@ export default function DashboardDetailPage() {
     return () => ro.disconnect();
   }, []);
 
-  // ── keep the active tab visible in the scrollable strip ─────────────────────
+  // ── keep the scrollable tab strip where the user left it ────────────────────
   const tabStripRef = useRef<HTMLDivElement>(null);
+  // The route is keyed by the dashboardId segment, so clicking a tab remounts
+  // this page and a fresh strip would snap back to the far left. Restore the
+  // remembered position pre-paint (layout effect) so the switch is seamless;
+  // re-run when the list arrives, since an empty strip can't hold a scroll.
+  useIsomorphicLayoutEffect(() => {
+    const el = tabStripRef.current;
+    const saved = tabStripScroll.get(projectId);
+    if (el && saved !== undefined) el.scrollLeft = saved;
+  }, [projectId, dashboards?.length]);
   useEffect(() => {
-    // Without this, a dashboard deep in a long list sits scrolled out of view
-    // after a reload or a switch to a far tab. Optional call: jsdom (and any
+    // Then make sure the active tab is visible: after a hard reload (nothing
+    // remembered) a deep tab would sit out of view. "nearest" is a no-op when
+    // the restored position already shows it. Optional call: jsdom (and any
     // environment without layout) doesn't implement scrollIntoView.
     tabStripRef.current
       ?.querySelector('[aria-current="page"]')
@@ -221,6 +241,7 @@ export default function DashboardDetailPage() {
             <h1 className="shrink-0 text-[13px] font-medium">Dashboard</h1>
             <div
               ref={tabStripRef}
+              onScroll={(e) => tabStripScroll.set(projectId, e.currentTarget.scrollLeft)}
               className="flex min-w-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             >
               {dashboards?.map((d) => (
