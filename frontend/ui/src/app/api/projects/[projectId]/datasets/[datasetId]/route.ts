@@ -25,10 +25,11 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
   });
   if (!dataset) return errorResponse("Dataset not found", 404);
 
+  // Newest first for the UI table (latest-added test case at the top).
   const testCases = dataset.currentVersionId
     ? await prisma.testCase.findMany({
         where: { datasetVersionId: dataset.currentVersionId },
-        orderBy: { createTime: "asc" },
+        orderBy: { createTime: "desc" },
       })
     : [];
   const currentVersion = dataset.versions.find((v) => v.id === dataset.currentVersionId) ?? null;
