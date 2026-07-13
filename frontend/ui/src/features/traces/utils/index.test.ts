@@ -10,6 +10,7 @@ import {
   getTraceCostBreakdown,
 } from "./index";
 import { mergeSpans } from "../hooks/use-trace-stream";
+import { flattenTreeWithMetrics } from "./timeline";
 import type { TraceDetail } from "@/types/api";
 
 // Pin a non-UTC timezone so timezone-naive timestamp regressions (a whole-second
@@ -528,11 +529,13 @@ describe("mergeSpans (live-SSE compat)", () => {
 });
 
 describe("base-fetched skeleton spans build a connected tree", () => {
-  // The trace-detail read returns span skeletons whose `metadata` is the small
-  // span-path subset the backend extracts (no input/output blobs). Reloading
-  // mid-run therefore hits this path rather than SSE, and it must produce the
-  // same connected tree — children under synthesized ancestors, never pinned to
-  // the root as orphans.
+  // Characterization, not a regression guard: these fabricate the skeleton
+  // metadata rather than fetching it, so they pass with or without the backend
+  // change. What they pin is the CONTRACT the backend must satisfy — given a
+  // skeleton span carrying the span-path subset, the tree must come out
+  // connected. The backend half is guarded in tests/rest/test_trace_reader.py
+  // (the SELECT extracts the attrs) and tests/rest/test_traces_router.py (the
+  // dashboard route does not drop them).
   it("nests a skeleton child under a synthesized ancestor instead of orphaning it", () => {
     // Only the leaf has been exported so far: its parent chain is still running.
     const skeletonSpans = [
@@ -572,5 +575,53 @@ describe("base-fetched skeleton spans build a connected tree", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].span.span_id).toBe("leaf");
     expect(rows[0].level).toBe(0);
+  });
+});
+
+describe("pending placeholders never fabricate a duration", () => {
+  // Placeholders are ancestors we inferred but never received. Their end time is
+  // unknown -- NOT "still running". Once the base fetch started returning path
+  // metadata, any trace whose ancestors never arrived (a killed process) began
+  // synthesizing placeholders on load; measuring their missing end against now()
+  // would stretch the trace to the present day.
+  const crashedTrace = (): TraceDetail =>
+    ({
+      spans: [
+        makeSpan({
+          span_id: "leaf",
+          parent_span_id: "agent",
+          span_start_time: "2024-01-01T00:00:00.000Z",
+          span_end_time: "2024-01-01T00:00:02.000Z",
+          metadata: metadataWith(["root", "agent"], ["session", "agent_step", "tool_call"]),
+        }),
+      ],
+    }) as TraceDetail;
+
+  it("does not stretch a long-finished trace to now()", () => {
+    const duration = getTraceDuration(crashedTrace());
+
+    // The only real span spans 2s. Before the fix the synthesized ancestors
+    // (end_time: null) measured against now(), making this years long.
+    expect(duration).toBe(2000);
+  });
+
+  it("reports an unknown, not a growing, duration for a placeholder", () => {
+    const [placeholder] = enrichSpansWithPending(crashedTrace().spans).filter((s) => s.pending);
+    expect(placeholder).toBeDefined();
+    expect(getSpanDuration(placeholder)).toBeNull();
+  });
+
+  it("does not render placeholders as in-progress in the timeline", () => {
+    const spans = enrichSpansWithPending(crashedTrace().spans);
+    const items = flattenTreeWithMetrics(spans, new Set(), 2000, 800);
+
+    const placeholders = items.filter((i) => i.span.pending);
+    expect(placeholders.length).toBeGreaterThan(0);
+    for (const item of placeholders) {
+      // No pulsing "live" bar, and no bar stretching across the whole timeline.
+      expect(item.metrics.isInProgress).toBe(false);
+      expect(item.metrics.durationMs).toBe(0);
+      expect(item.metrics.widthPx).toBe(0);
+    }
   });
 });

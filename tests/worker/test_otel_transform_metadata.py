@@ -352,3 +352,49 @@ def test_span_path_attributes_are_not_known_attributes():
             f"{attribute} is treated as a known attribute, so it would be stripped "
             "from span metadata and live-tree repair would silently stop working"
         )
+
+
+def test_span_path_attributes_survive_alongside_explicit_metadata():
+    """A span that sets explicit metadata must KEEP its span-path attributes.
+
+    The two branches used to be exclusive: an explicit `traceroot.span.metadata`
+    blob replaced the attribute bag, so the paths were dropped at ingest and the
+    span rendered as an orphan while its parent was still in flight. That hit
+    precisely the spans users annotate — usually leaves, whose long-lived parents
+    are the ones still open — so it was not an edge case but the common one.
+    """
+    payload = _otel_payload(
+        [
+            _attr("traceroot.span.metadata", json.dumps({"run_id": 42, "tier": "gold"})),
+            _array_attr(SPAN_PATH, ["root", "child"]),
+            _array_attr(SPAN_IDS_PATH, ["root-id"]),
+            _array_attr(SPAN_STARTS_PATH, ["1700000000000000000"]),
+        ],
+        parent_span_id=_make_span_id(0x03),
+    )
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+    metadata = json.loads(spans[0]["metadata"])
+
+    # User metadata is preserved...
+    assert metadata["run_id"] == 42
+    assert metadata["tier"] == "gold"
+    # ...and so are the paths the client needs to rebuild the tree.
+    assert metadata[SPAN_PATH] == ["root", "child"]
+    assert metadata[SPAN_IDS_PATH] == ["root-id"]
+    assert metadata[SPAN_STARTS_PATH] == ["1700000000000000000"]
+
+
+def test_non_object_explicit_metadata_is_stored_verbatim():
+    """Free-text explicit metadata has nothing to merge into; store it as given
+    rather than mangling it (such a span simply has no paths)."""
+    payload = _otel_payload(
+        [
+            _attr("traceroot.span.metadata", "just a note"),
+            _array_attr(SPAN_IDS_PATH, ["root-id"]),
+        ],
+        parent_span_id=_make_span_id(0x03),
+    )
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+    assert spans[0]["metadata"] == "just a note"

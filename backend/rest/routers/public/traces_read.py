@@ -208,11 +208,13 @@ def _require_trace(project_id: str, trace_id: str, groups: frozenset[str]) -> di
         service = get_trace_reader_service()
         trace = service.get_trace(project_id=project_id, trace_id=trace_id)
         if trace:
-            hydrate_span_io(service, trace, project_id=project_id, trace_id=trace_id, groups=groups)
             # The skeleton's span-path metadata subset exists for the dashboard's
             # live-tree repair; API clients build trees from parent_span_id and
-            # their contract is `metadata: null` unless they ask for it.
-            drop_span_tree_metadata(trace, groups)
+            # their contract is `metadata: null` unless they ask for it. Clear it
+            # first, then let the hydration below refill `metadata` with the real
+            # blob for the projections that do request it.
+            drop_span_tree_metadata(trace)
+            hydrate_span_io(service, trace, project_id=project_id, trace_id=trace_id, groups=groups)
     except Exception as e:
         logger.exception(f"Error getting trace: {e}")
         raise HTTPException(
