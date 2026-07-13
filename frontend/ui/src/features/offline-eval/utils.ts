@@ -80,6 +80,21 @@ export function formatStamp(iso: string): string {
   return formatDate(iso);
 }
 
+/**
+ * A stable, trace-id-looking display id for a dataset row, derived from its
+ * internal case id (which stays "case-001" for lookups/routes/refs).
+ */
+export function caseDisplayId(id: string): string {
+  let h = 2166136261;
+  for (let i = 0; i < id.length; i++) {
+    h ^= id.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  const a = (h >>> 0).toString(16).padStart(8, "0");
+  const b = (Math.imul(h ^ 0x9e3779b9, 16777619) >>> 0).toString(16).padStart(8, "0");
+  return `tc_${a}${b}`.slice(0, 15);
+}
+
 export function truncate(text: string, max = 80): string {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
