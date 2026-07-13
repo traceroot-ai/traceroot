@@ -6,7 +6,12 @@ from datetime import UTC, datetime, timedelta
 from db.clickhouse import get_clickhouse_client
 from rest.services.filters.translate import Predicate, build_conditions
 from rest.sql_utils import escape_ilike, to_utc_naive
-from shared.span_attributes import SPAN_IDS_PATH, SPAN_PATH, SPAN_STARTS_PATH
+from shared.span_attributes import (
+    SPAN_IDS_PATH,
+    SPAN_PATH,
+    SPAN_STARTS_PATH,
+    SPAN_TREE_ATTRIBUTES,
+)
 from worker.tokens.buckets import TokenBuckets, reconcile_cache_write_1h
 from worker.tokens.pricing import cost_breakdown_from_buckets, get_model_price
 
@@ -99,6 +104,10 @@ def _extract_span_path_attr(attribute: str) -> str:
     Nullable argument, hence the ifNull. Missing keys, a NULL blob, malformed
     JSON and non-object JSON all yield an empty array.
     """
+    # The name is interpolated into SQL, so it must come from the constants — the
+    # same "never trust the caller" rule the filter translator applies.
+    if attribute not in SPAN_TREE_ATTRIBUTES:
+        raise ValueError(f"Not a known span-path attribute: {attribute!r}")
     return f"JSONExtract(ifNull(metadata, ''), '{attribute}', 'Array(String)')"
 
 

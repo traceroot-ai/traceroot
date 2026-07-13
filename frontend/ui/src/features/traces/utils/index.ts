@@ -66,10 +66,9 @@ export function enrichSpansWithPending(spans: Span[]): Span[] {
 
     // Both delivery paths carry these keys: the trace-detail skeleton returns a
     // small path-only metadata subset (extracted server-side), and live SSE
-    // spans carry the same keys inside their full metadata. Spans that set
-    // explicit user metadata are the exception — the ingest transform stores
-    // that INSTEAD of the attribute bag holding these keys, so they have no
-    // paths on either route and simply fall through to the orphan handling.
+    // spans carry the same keys inside their full metadata — including spans
+    // that set explicit user metadata, which the ingest transform merges the
+    // paths into rather than replacing.
     const meta = parseMetadata(span.metadata ?? null);
     const idsPath = meta["traceroot.span.ids_path"] as string[] | undefined;
     const namePath = meta["traceroot.span.path"] as string[] | undefined;
@@ -147,8 +146,15 @@ export const TREE_OVERSCAN_ROWS = 26;
 /**
  * Calculate span duration in milliseconds.
  * In-progress spans (no end_time) measure against now() so live bars grow.
+ *
+ * Pending placeholders are NOT in-progress spans: they are ancestors we have
+ * inferred but never received, so their duration is unknown, not "still
+ * running". Measuring them against now() would draw an ever-growing bar for a
+ * parent that may have died days ago (a trace whose process was killed keeps
+ * its placeholders forever), so they report null instead.
  */
 export function getSpanDuration(span: Span): number | null {
+  if (span.pending) return null;
   if (!span.span_start_time) return null;
   const start = parseTimestamp(span.span_start_time);
   const end = span.span_end_time ? parseTimestamp(span.span_end_time) : Date.now();
@@ -172,8 +178,16 @@ export function getTraceDuration(trace: TraceDetail): number | null {
 
   const now = Date.now();
   const minStart = Math.min(...allSpans.map((s) => parseTimestamp(s.span_start_time)));
+  // Pending placeholders never define the trace's extent: their end time is
+  // unknown, and treating it as now() would stretch a long-finished trace whose
+  // ancestors never arrived (killed process) all the way to the present — the
+  // timeline scale would then squash every real span into an invisible sliver.
+  // Real spans with no end are genuinely running and still grow against now().
+  const realSpans = allSpans.filter((s) => !s.pending);
   const maxEnd = Math.max(
-    ...allSpans.map((s) => (s.span_end_time ? parseTimestamp(s.span_end_time) : now)),
+    ...(realSpans.length ? realSpans : allSpans).map((s) =>
+      s.span_end_time ? parseTimestamp(s.span_end_time) : now,
+    ),
   );
   const extent = Math.max(0, maxEnd - minStart);
 
