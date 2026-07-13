@@ -245,14 +245,25 @@ export interface EvaluationMetrics {
  * deliberately separate — the name is how runs are matched to a baseline.
  */
 export interface Evaluation {
-  id: string;
+  /**
+   * Immutable identity of ONE execution. This is what a run URL points at; a run
+   * is never edited, so there is no evaluation-version field.
+   */
+  runId: string;
+  /** Stable identity of the evaluation purpose, constant across its runs. */
+  evaluationId: string;
+  /** Monotonic run counter within one evaluation, for display as "Run #27". */
+  runNumber: number;
   /** Stable suite name. Never the candidate version. */
   name: string;
   /** What was being tested this time: "prompt-v19" or a commit. */
   candidateVersion: string;
+  /** Stable dataset identity. */
   datasetId: string;
   datasetName: string;
-  /** The dataset snapshot this run measured against. */
+  /** Immutable dataset snapshot this run measured against. */
+  datasetVersionId: string;
+  /** Human-readable label for that snapshot, e.g. "v12". */
   datasetVersion: string;
   /** Where the run executed — the SDK reports this. */
   environment: string;
@@ -296,7 +307,10 @@ export interface ScorerOutcome {
 }
 
 export interface EvaluationResult {
-  caseId: string;
+  /** Identity of this one test-case result within this one run. */
+  resultId: string;
+  /** Stable identity of the source dataset test case. Baselines match on this. */
+  datasetItemId: string;
   input: string;
   expected: string | null;
   /** Null when the candidate application errored before producing anything. */
