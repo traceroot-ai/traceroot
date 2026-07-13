@@ -11,7 +11,6 @@ type RouteParams = {
 async function findWidget(dashboardId: string, widgetId: string, projectId: string) {
   return prisma.widget.findFirst({
     where: { id: widgetId, dashboardId, dashboard: { projectId } },
-    include: { dashboard: { select: { isDefault: true } } },
   });
 }
 
@@ -22,9 +21,6 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
   const existing = await findWidget(dashboardId, widgetId, projectId);
   if (!existing) return errorResponse("Widget not found", 404);
-  if (existing.dashboard?.isDefault) {
-    return errorResponse("The default dashboard is read-only", 403);
-  }
 
   const parsed = await parseJsonObject(req);
   if (parsed.error) return parsed.error;
@@ -78,9 +74,6 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
 
   const existing = await findWidget(dashboardId, widgetId, projectId);
   if (!existing) return errorResponse("Widget not found", 404);
-  if (existing.dashboard?.isDefault) {
-    return errorResponse("The default dashboard is read-only", 403);
-  }
 
   try {
     await prisma.widget.delete({ where: { id: widgetId } });
