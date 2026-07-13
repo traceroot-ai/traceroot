@@ -143,6 +143,27 @@ export const fmtNumber = (v: unknown) => {
 export const seriesNameFormatter = (seriesLabel?: string) => (name: string) =>
   name === "value" && seriesLabel ? seriesLabel : name;
 
+// Unit-aware metric formatting for tooltips, axis ticks, and table cells:
+// "$0.0034", "1,500 ms". Gap values stay a bare "—" — a unit on nothing
+// ("$—") reads wrong.
+export const fmtValueWithUnit = (v: unknown, unit?: FieldUnit) => {
+  const text = fmtNumber(v);
+  if (!unit || text === "—") return text;
+  return `${unit.prefix ?? ""}${text}${unit.suffix ? ` ${unit.suffix}` : ""}`;
+};
+
+// Y-axis ticks live in a fixed gutter, and recharts right-anchors them: an
+// overflowing label clips its LEADING digits and reads as a wrong number.
+// Compact notation bounds the glyph count at any magnitude ("100000" →
+// "100K", "$1.2M"), so the gutter widths below hold for every tick.
+const Y_AXIS_WIDTH = 42;
+const Y_AXIS_WIDTH_WITH_UNIT = 58;
+export const fmtAxisTick = (v: unknown, unit?: FieldUnit) => {
+  const text = fmtStatNumber(v);
+  if (!unit || text === "—") return text;
+  return `${unit.prefix ?? ""}${text}${unit.suffix ? ` ${unit.suffix}` : ""}`;
+};
+
 // Bucket keys come back ISO-ish ("2026-06-01T00:00:00"); a space reads better
 // in the tooltip header than the "T" separator.
 export const bucketLabel = (label: unknown) => String(label).replace("T", " ");
@@ -157,6 +178,7 @@ export function ChartTip({
   label,
   nameFormatter,
   labelFormatter,
+  unit,
 }: {
   active?: boolean;
   payload?: {
@@ -168,6 +190,8 @@ export function ChartTip({
   label?: unknown;
   nameFormatter?: (name: string) => string;
   labelFormatter?: (label: unknown) => string;
+  /** Measure unit ($, ms) applied to every value row. */
+  unit?: FieldUnit;
 }) {
   if (!active || !payload?.length) return null;
   return (
@@ -189,7 +213,7 @@ export function ChartTip({
                   {nameFormatter ? nameFormatter(rawName) : rawName}
                 </span>
                 <span className="shrink-0 whitespace-nowrap font-mono font-medium tabular-nums text-foreground">
-                  {fmtNumber(item.value)}
+                  {fmtValueWithUnit(item.value, unit)}
                 </span>
               </div>
             </div>
@@ -218,12 +242,14 @@ function TimeSeries({
   area,
   seriesLabel,
   additive = true,
+  unit,
 }: {
   result: WidgetQueryResult;
   area: boolean;
   seriesLabel?: string;
   /** False for avg/percentile series: empty buckets render as gaps, not 0. */
   additive?: boolean;
+  unit?: FieldUnit;
 }) {
   const { seriesKeys, data } = useMemo(
     () => pivotRows(result.columns, result.rows, additive ? 0 : null),
@@ -255,7 +281,11 @@ function TimeSeries({
       <Chart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
         <CartesianGrid strokeOpacity={0.15} vertical={false} />
         <XAxis dataKey="bucket" tick={{ fontSize: 10 }} tickFormatter={tickFormatter} />
-        <YAxis tick={{ fontSize: 10 }} width={42} />
+        <YAxis
+          tick={{ fontSize: 10 }}
+          width={unit ? Y_AXIS_WIDTH_WITH_UNIT : Y_AXIS_WIDTH}
+          tickFormatter={(v: unknown) => fmtAxisTick(v, unit)}
+        />
         {/* filterNull: recharts strips null payload items by default, which
             would drop a non-additive series' row from the tooltip on its empty
             (gap) buckets — keep them so ChartTip shows an em-dash instead. */}
@@ -266,6 +296,7 @@ function TimeSeries({
             <ChartTip
               nameFormatter={seriesNameFormatter(seriesLabel)}
               labelFormatter={bucketLabel}
+              unit={unit}
             />
           }
         />
@@ -308,17 +339,29 @@ function TimeSeries({
   );
 }
 
-function Bars({ result, seriesLabel }: { result: WidgetQueryResult; seriesLabel?: string }) {
+function Bars({
+  result,
+  seriesLabel,
+  unit,
+}: {
+  result: WidgetQueryResult;
+  seriesLabel?: string;
+  unit?: FieldUnit;
+}) {
   const data = useColoredRows(result);
   return (
     <ResponsiveContainer width="100%" height="100%" className={CHART_FOCUS_RESET}>
       <BarChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
         <CartesianGrid strokeOpacity={0.15} vertical={false} />
         <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-        <YAxis tick={{ fontSize: 10 }} width={42} />
+        <YAxis
+          tick={{ fontSize: 10 }}
+          width={unit ? Y_AXIS_WIDTH_WITH_UNIT : Y_AXIS_WIDTH}
+          tickFormatter={(v: unknown) => fmtAxisTick(v, unit)}
+        />
         <Tooltip
           isAnimationActive={false}
-          content={<ChartTip nameFormatter={seriesNameFormatter(seriesLabel)} />}
+          content={<ChartTip nameFormatter={seriesNameFormatter(seriesLabel)} unit={unit} />}
         />
         <Bar dataKey="value" isAnimationActive={false}>
           {data.map((_, i) => (
@@ -330,12 +373,12 @@ function Bars({ result, seriesLabel }: { result: WidgetQueryResult; seriesLabel?
   );
 }
 
-function PieView({ result }: { result: WidgetQueryResult }) {
+function PieView({ result, unit }: { result: WidgetQueryResult; unit?: FieldUnit }) {
   const data = useColoredRows(result);
   return (
     <ResponsiveContainer width="100%" height="100%" className={CHART_FOCUS_RESET}>
       <PieChart>
-        <Tooltip isAnimationActive={false} content={<ChartTip />} />
+        <Tooltip isAnimationActive={false} content={<ChartTip unit={unit} />} />
         {/* Pie reads each sector's fill from its data row — no Cells needed. */}
         <Pie
           data={data}
@@ -379,7 +422,7 @@ function NumberView({ result, unit }: { result: WidgetQueryResult; unit?: FieldU
   );
 }
 
-function TableView({ result }: { result: WidgetQueryResult }) {
+function TableView({ result, unit }: { result: WidgetQueryResult; unit?: FieldUnit }) {
   // Only the metric column (always last, aliased "value" by the compiler) is
   // numeric — formatting every cell reformats string dimensions too, and a
   // numeric-looking identifier (user_id, session_id) silently loses digits
@@ -402,7 +445,7 @@ function TableView({ result }: { result: WidgetQueryResult }) {
             <tr key={i} className="border-t border-border/60">
               {r.map((v, j) => (
                 <td key={j} className="py-1 pr-3">
-                  {j === valueIdx ? fmtNumber(v) : v == null ? "—" : String(v)}
+                  {j === valueIdx ? fmtValueWithUnit(v, unit) : v == null ? "—" : String(v)}
                 </td>
               ))}
             </tr>
@@ -430,7 +473,13 @@ function HistogramView({
     <ResponsiveContainer width="100%" height="100%" className={CHART_FOCUS_RESET}>
       <BarChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
         <XAxis dataKey="name" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
-        <YAxis tick={{ fontSize: 10 }} width={42} />
+        {/* The y-axis counts rows per bin (no unit), but large counts clip in
+            the fixed gutter just like the other charts — compact them too. */}
+        <YAxis
+          tick={{ fontSize: 10 }}
+          width={Y_AXIS_WIDTH}
+          tickFormatter={(v: unknown) => fmtAxisTick(v)}
+        />
         <Tooltip
           isAnimationActive={false}
           content={<ChartTip nameFormatter={seriesNameFormatter(seriesLabel)} />}
@@ -480,18 +529,32 @@ export function QueryWidgetRenderer({
   switch (display) {
     case "line":
       return (
-        <TimeSeries result={result} area={false} seriesLabel={seriesLabel} additive={additive} />
+        <TimeSeries
+          result={result}
+          area={false}
+          seriesLabel={seriesLabel}
+          additive={additive}
+          unit={unit}
+        />
       );
     case "area":
-      return <TimeSeries result={result} area seriesLabel={seriesLabel} additive={additive} />;
+      return (
+        <TimeSeries
+          result={result}
+          area
+          seriesLabel={seriesLabel}
+          additive={additive}
+          unit={unit}
+        />
+      );
     case "bar":
-      return <Bars result={result} seriesLabel={seriesLabel} />;
+      return <Bars result={result} seriesLabel={seriesLabel} unit={unit} />;
     case "pie":
-      return <PieView result={result} />;
+      return <PieView result={result} unit={unit} />;
     case "number":
       return <NumberView result={result} unit={unit} />;
     case "table":
-      return <TableView result={result} />;
+      return <TableView result={result} unit={unit} />;
     case "histogram":
       return <HistogramView result={result} seriesLabel={seriesLabel} />;
   }
