@@ -107,6 +107,20 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
 
         root_bearing_trace_ids = {s["trace_id"] for s in spans if s.get("parent_span_id") is None}
 
+        # root_bearing_trace_ids also feeds the trace-insert path below. Detection
+        # uses a narrower set that drops roots of traces the detector worker
+        # itself emitted (source='detector'): those self-traces are still INSERTED
+        # into ClickHouse, but scanning one would trigger detection on a detector's
+        # own emission and recurse forever. Set difference keeps the subset
+        # relationship structural, and a trace that somehow carried both a
+        # detector root and a user root stays excluded — the safe direction.
+        detector_root_trace_ids = {
+            s["trace_id"]
+            for s in spans
+            if s.get("parent_span_id") is None and s.get("source", "user") == "detector"
+        }
+        detection_eligible_root_trace_ids = root_bearing_trace_ids - detector_root_trace_ids
+
         # 3. Insert into ClickHouse
         if traces or spans:
             ch_client = get_clickhouse_client()
@@ -148,11 +162,13 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
         # duplicate root delivery. Batches without the root span are ignored
         # here; the worker waits out the quiescence window before evaluating,
         # so late spans need no enqueue.
-        if root_bearing_trace_ids:
+        # Traces emitted by the detector itself are excluded from the enqueue
+        # (they are still inserted above).
+        if detection_eligible_root_trace_ids:
             try:
                 from worker.detector_tasks import enqueue_detector_runs
 
-                enqueue_detector_runs(project_id, root_bearing_trace_ids)
+                enqueue_detector_runs(project_id, detection_eligible_root_trace_ids)
             except Exception as e:
                 logger.error(f"Failed to call detector tasks: {e}", exc_info=True)
 
