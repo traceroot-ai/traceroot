@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "../api";
 import type { DraftSpec, TimeRange, WidgetSpec } from "../types";
 import {
+  quantizeRange,
   useWidgetData,
   useWidgetFieldValues,
   useWidgetPreview,
@@ -120,6 +121,69 @@ describe("useWidgetData", () => {
   it("stays disabled without a widgetId", () => {
     renderHook(() => useWidgetData("p1", "", SPEC, RANGE), { wrapper });
     expect(api.runWidgetQuery).not.toHaveBeenCalled();
+  });
+
+  it("floors the window to the minute for the request", async () => {
+    vi.mocked(api.runWidgetQuery).mockResolvedValue({ columns: [], rows: [], meta: {} });
+    const ragged: TimeRange = {
+      start: new Date("2026-06-01T00:00:10.500Z"),
+      end: new Date("2026-06-02T00:00:42.900Z"),
+    };
+    renderHook(() => useWidgetData("p1", "w1", SPEC, ragged), { wrapper });
+
+    await waitFor(() => expect(api.runWidgetQuery).toHaveBeenCalled());
+    const [, , window] = vi.mocked(api.runWidgetQuery).mock.calls[0];
+    expect(window.start.toISOString()).toBe("2026-06-01T00:00:00.000Z");
+    expect(window.end.toISOString()).toBe("2026-06-02T00:00:00.000Z");
+  });
+
+  it("serves a same-minute remount from cache without refetching", async () => {
+    // Relative presets recompute end="now" per mount: raw millisecond keys
+    // would refire every widget on every dashboard round-trip. Same client
+    // across two mounts = the navigation case.
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const sharedWrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    vi.mocked(api.runWidgetQuery).mockResolvedValue({ columns: [], rows: [], meta: {} });
+
+    const first = renderHook(
+      () =>
+        useWidgetData("p1", "w1", SPEC, {
+          start: new Date("2026-06-01T00:00:05Z"),
+          end: new Date("2026-06-02T00:00:05Z"),
+        }),
+      { wrapper: sharedWrapper },
+    );
+    await waitFor(() => expect(api.runWidgetQuery).toHaveBeenCalledTimes(1));
+    first.unmount();
+
+    // Seconds later the remounted page computes a slightly different raw
+    // window — same floored minute, so the cache answers with zero requests.
+    const second = renderHook(
+      () =>
+        useWidgetData("p1", "w1", SPEC, {
+          start: new Date("2026-06-01T00:00:25Z"),
+          end: new Date("2026-06-02T00:00:25Z"),
+        }),
+      { wrapper: sharedWrapper },
+    );
+    await waitFor(() => expect(second.result.current.data).toBeTruthy());
+    expect(api.runWidgetQuery).toHaveBeenCalledTimes(1);
+    client.clear();
+  });
+});
+
+describe("quantizeRange", () => {
+  it("widens a sub-minute window to one minute instead of an empty range", () => {
+    const q = quantizeRange({
+      start: new Date("2026-06-01T00:00:10Z"),
+      end: new Date("2026-06-01T00:00:40Z"),
+    });
+    expect(q.start.toISOString()).toBe("2026-06-01T00:00:00.000Z");
+    // Both bounds floor to the same minute; the end must stay one step ahead
+    // or the backend would reject end <= start.
+    expect(q.end.toISOString()).toBe("2026-06-01T00:01:00.000Z");
   });
 });
 
