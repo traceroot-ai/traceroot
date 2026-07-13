@@ -30,7 +30,7 @@ export const RESULT_STATUS_VARIANT: Record<ResultStatus, "success" | "danger" | 
 };
 
 export const REVIEW_STATUS_VARIANT: Record<ReviewStatus, "success" | "warning"> = {
-  reviewed: "success",
+  ready: "success",
   needs_review: "warning",
 };
 

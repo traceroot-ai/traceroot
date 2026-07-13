@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
  *
  * One heading, one plain sentence explaining the object, and at most one
  * primary action. The sentence is the point: every page names a concept
- * (Trace, Dataset, Experiment, Scorer) that a new reader has not met yet.
+ * (Trace, Dataset, Evaluation run, Scorer) that a new reader has not met yet.
  */
 export function EvalPageHeader({
   title,
@@ -54,7 +54,7 @@ export function EvalPageHeader({
 
 /**
  * Standing marker that none of this is real. The prototype shows finished
- * experiments that never ran; without this the screens are indistinguishable
+ * runs that never happened; without this the screens are indistinguishable
  * from a working product.
  */
 export function PrototypeNotice({ className }: { className?: string }) {

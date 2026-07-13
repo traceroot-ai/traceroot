@@ -23,8 +23,21 @@ export type { SpanKind };
 /** How a single result turned out. */
 export type ResultStatus = "passed" | "failed" | "needs_review";
 
-/** How much the team trusts a test case. New cases start as needs_review. */
-export type ReviewStatus = "needs_review" | "reviewed";
+/**
+ * How much the team trusts a test case. Advisory only — Ready never blocks a
+ * case from evaluations here; it communicates trust. New cases start needs_review.
+ */
+export type ReviewStatus = "needs_review" | "ready";
+
+/** Why a span was captured into a dataset — read-only context for the reviewer. */
+export type CaptureReason = "manual" | "error" | "failed_tool" | "negative_feedback";
+
+export const CAPTURE_REASON_LABEL: Record<CaptureReason, string> = {
+  manual: "Captured manually",
+  error: "Span ended with an error",
+  failed_tool: "Failed tool call",
+  negative_feedback: "Negative user feedback",
+};
 
 export const RESULT_STATUS_LABEL: Record<ResultStatus, string> = {
   passed: "Passed",
@@ -34,12 +47,12 @@ export const RESULT_STATUS_LABEL: Record<ResultStatus, string> = {
 
 export const REVIEW_STATUS_LABEL: Record<ReviewStatus, string> = {
   needs_review: "Needs review",
-  reviewed: "Reviewed",
+  ready: "Ready",
 };
 
 export const REVIEW_STATUS_HELP: Record<ReviewStatus, string> = {
-  needs_review: "Nobody has checked this case or its expected output yet.",
-  reviewed: "A person checked this case and trusts it to judge future runs.",
+  needs_review: "Nobody has verified this case is reusable yet.",
+  ready: "A reviewer verified this case; later runs may optionally use Ready cases only.",
 };
 
 /**
@@ -148,6 +161,10 @@ export interface TestCase {
    * than comparing it to one exact answer.
    */
   expected: string | null;
+  /** What the span actually produced in production. Read-only, never = expected. */
+  recordedOutput: string | null;
+  /** Why this span was captured — read-only context for the reviewer. */
+  captureReason: CaptureReason;
   source: CaseSource;
   review: ReviewStatus;
   latestScore: number | null;
@@ -176,19 +193,69 @@ export interface DatasetActivity {
 // Evaluations (the run — the term chosen for this product)
 // ---------------------------------------------------------------------------
 
-export type EvaluationStatus = "completed" | "running" | "failed";
+export type EvaluationStatus =
+  | "running"
+  | "completed"
+  | "completed_with_errors"
+  | "failed"
+  | "incomplete";
 
 export const EVALUATION_STATUS_LABEL: Record<EvaluationStatus, string> = {
-  completed: "Completed",
   running: "Running",
+  completed: "Completed",
+  completed_with_errors: "Completed with errors",
   failed: "Failed",
+  incomplete: "Incomplete",
 };
 
+/**
+ * How one result turned out. Distinct from a dataset case's status: "Not scored"
+ * is not a zero, and "Errored" says the run broke rather than judged badly.
+ */
+export type EvalResultStatus = "passed" | "failed" | "errored" | "not_scored";
+
+export const EVAL_RESULT_STATUS_LABEL: Record<EvalResultStatus, string> = {
+  passed: "Passed",
+  failed: "Failed",
+  errored: "Errored",
+  not_scored: "Not scored",
+};
+
+/** Per-run totals reported by the SDK, shown low on the run detail page. */
+export interface EvaluationMetrics {
+  /** Wall-clock duration of the run. */
+  durationMs: number;
+  /** Summed duration of every span in the run. */
+  totalDurationMs: number;
+  /** Summed duration of the LLM spans only. */
+  llmDurationMs: number;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  spanErrors: number;
+  /** Estimated dollar cost of the run. */
+  cost: number;
+}
+
+/**
+ * One evaluation run: a candidate version measured against a dataset snapshot.
+ *
+ * `name` is the stable purpose ("Billing routing") and stays constant across
+ * runs; `candidateVersion` is what changed ("prompt-v19", a git sha). They are
+ * deliberately separate — the name is how runs are matched to a baseline.
+ */
 export interface Evaluation {
   id: string;
+  /** Stable suite name. Never the candidate version. */
   name: string;
+  /** What was being tested this time: "prompt-v19" or a commit. */
+  candidateVersion: string;
   datasetId: string;
   datasetName: string;
+  /** The dataset snapshot this run measured against. */
+  datasetVersion: string;
+  /** Where the run executed — the SDK reports this. */
+  environment: string;
   status: EvaluationStatus;
   mainScore: number | null;
   mainScoreName: string;
@@ -198,33 +265,56 @@ export interface Evaluation {
   baselineName: string | null;
   regressionCount: number;
   ranAt: string;
+  /** Test cases in the dataset snapshot — the denominator. */
   caseCount: number;
+  /** How many of them actually produced a score. Never silently equals caseCount. */
+  scoredCount: number;
+  /** The candidate application failed for this many cases. */
+  taskErrorCount: number;
+  /** The candidate produced output, but a scorer failed to judge it. */
+  scorerErrorCount: number;
   scorerIds: string[];
-  /** Everything technical, revealed only under a Details area. */
+  /** Per-run totals (duration, tokens, cost) — shown low on the detail page. */
+  metrics: EvaluationMetrics;
   details: {
     task: string;
-    appVersion: string;
     model: string;
     trials: number;
-    durationMs: number;
-    cost: number;
   };
 }
 
 export type ResultChange = "improved" | "regressed" | "unchanged";
 
+/** One scorer's verdict on one result. `score` is null when the scorer failed. */
+export interface ScorerOutcome {
+  scorerId: string;
+  score: number | null;
+  /** Short plain reason from the scorer. */
+  explanation?: string;
+  /** Set when this scorer failed to judge an output the candidate did produce. */
+  error?: string;
+}
+
 export interface EvaluationResult {
   caseId: string;
   input: string;
   expected: string | null;
-  currentOutput: string;
-  baselineOutput: string;
-  score: number;
-  baselineScore: number;
-  status: ResultStatus;
-  change: ResultChange;
-  /** Short plain reason from the scorer. */
-  explanation: string;
+  /** Null when the candidate application errored before producing anything. */
+  currentOutput: string | null;
+  /** Null when this run has no baseline. */
+  baselineOutput: string | null;
+  /** Main score. Null when not scored (errored, or no scorer produced a value). */
+  score: number | null;
+  baselineScore: number | null;
+  status: EvalResultStatus;
+  /** Null when there is no baseline to compare against. */
+  change: ResultChange | null;
+  /** Every scorer that ran, including the ones that failed. */
+  scores: ScorerOutcome[];
+  /** Set when the candidate application itself failed for this case. */
+  taskError?: string;
+  durationMs: number;
+  cost: number;
   /** The trace this result produced — opens the real trace detail. */
   traceId: string;
   humanReview?: HumanReview;
@@ -270,6 +360,10 @@ export interface Scorer {
   interpretation: string;
   version: string;
   higherIsBetter: boolean;
+  /** What the scorer judges: the whole run's output, or one span. */
+  scope: "Evaluation item" | "Span";
+  /** Share of results where this scorer failed to produce a score, 0–1. */
+  errorRate: number;
   /** Names of evaluations using this scorer. */
   usedByEvaluationNames: string[];
 }

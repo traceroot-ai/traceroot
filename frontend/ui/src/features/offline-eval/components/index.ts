@@ -2,7 +2,7 @@
  * Offline Evaluation feature components.
  */
 
-export { StatusBadge, ReviewBadge } from "./badges";
+export { StatusBadge, ReviewBadge, EvalResultBadge } from "./badges";
 export { Timestamp } from "./timestamp";
 export { DatasetInfoChip } from "./dataset-info-chip";
 export {
@@ -17,7 +17,9 @@ export {
 export { TraceInspector } from "./trace-inspector";
 export { CreateDrawer, FormCard, AdvancedSection } from "./form-kit";
 export { SaveTestCaseDrawer } from "./save-test-case-drawer";
+export { RunEvaluationDrawer } from "./run-evaluation-drawer";
 export { ReviewPanel, type ReviewTarget } from "./review-panel";
+export { TestCaseReviewDrawer, type TestCaseReviewTarget } from "./test-case-review-drawer";
 export { useRowSelection, SelectAllHeaderCell, SelectRowCell, BulkActionBar } from "./selection";
 export { ScoreChart, DistributionBar, type ChartSeries } from "./score-chart";
 export { UploadControl } from "./upload-control";
