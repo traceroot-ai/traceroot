@@ -98,6 +98,25 @@ describe("saving a test case publishes a new immutable version", () => {
     expect(v2Cases.map((c) => c.testCaseId)).toContain("case-1");
   });
 
+  it("preserves each copied case's original created date (does not restamp on add)", async () => {
+    const original = new Date("2026-01-01T00:00:00.000Z");
+    // Give the pre-existing case a known creation time.
+    fakePrisma.testCase.rows.find((c) => c.testCaseId === "case-1")!.createTime = original;
+
+    await saveTestCase(req({ input: "new ticket" }), p());
+
+    const dataset = fakePrisma.dataset.rows.find((d) => d.id === "ds1")!;
+    const v2Cases = fakePrisma.testCase.rows.filter(
+      (c) => c.datasetVersionId === dataset.currentVersionId,
+    );
+    const copied = v2Cases.find((c) => c.testCaseId === "case-1")!;
+    const added = v2Cases.find((c) => c.testCaseId !== "case-1")!;
+    // The unchanged case keeps its original "Created" date...
+    expect(copied.createTime).toEqual(original);
+    // ...while the newly added case is stamped fresh, not restamped to match.
+    expect(added.createTime).not.toEqual(original);
+  });
+
   it("returns the existing case instead of duplicating the same source span", async () => {
     fakePrisma.testCase.rows.push({
       id: "row2",
