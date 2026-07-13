@@ -119,8 +119,8 @@ vi.mock("@/features/dashboards/components/DashboardGrid", () => ({
 
 import { useDashboard, useDashboards } from "@/features/dashboards/hooks/use-dashboards";
 
-// The rendered dashboard (d1) is deliberately non-default: the default one is
-// read-only, which the dedicated tests below cover.
+// d1 is a user dashboard; d2 is the seeded default (Overview) — both are
+// fully editable, the default is just auto-created and tab-marked.
 const DASH_A: DashboardSummary = {
   id: "d1",
   name: "Custom",
@@ -251,20 +251,20 @@ describe("DashboardDetailPage", () => {
     expect(push).toHaveBeenCalledWith("/projects/p1/dashboard/d1/widgets/new");
   });
 
-  it("marks the grid read-only and hides both create-widget buttons on the default dashboard", () => {
+  it("shows the create-widget button and passes no readOnly prop for the default dashboard", () => {
     mockDetail({ ...DASH_B, layout: [], widgets: [WIDGET] });
     renderPage();
 
-    expect(screen.queryByRole("button", { name: "＋ Create widget" })).toBeNull();
-    expect(lastGridProps?.readOnly).toBe(true);
+    expect(screen.getAllByRole("button", { name: "＋ Create widget" }).length).toBe(1);
+    expect(lastGridProps?.readOnly).toBeUndefined();
   });
 
-  it("keeps the grid editable on a non-default dashboard", () => {
-    mockDetail({ ...DASH_A, layout: [], widgets: [WIDGET] });
+  it("holds the header edit controls until the dashboard detail loads", () => {
+    mockDetail(undefined);
     renderPage();
 
-    expect(screen.getAllByRole("button", { name: "＋ Create widget" }).length).toBe(1);
-    expect(lastGridProps?.readOnly).toBe(false);
+    expect(screen.queryByRole("button", { name: "＋ Create widget" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete dashboard" })).toBeNull();
   });
 
   it("deletes the dashboard through the confirm dialog and navigates to the index", () => {
@@ -300,10 +300,10 @@ describe("DashboardDetailPage", () => {
     expect(removeDashboard.mutate).not.toHaveBeenCalled();
   });
 
-  it("hides the delete button on the read-only default dashboard", () => {
+  it("shows the delete button on the default dashboard", () => {
     mockDetail({ ...DASH_B, layout: [], widgets: [] });
     renderPage();
-    expect(screen.queryByRole("button", { name: "Delete dashboard" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Delete dashboard" })).toBeTruthy();
   });
 
   it("redirects to the dashboard index and invalidates the list cache when the dashboard is gone", () => {

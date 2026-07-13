@@ -151,11 +151,6 @@ export default function DashboardDetailPage() {
   // ── render ───────────────────────────────────────────────────────────────────
   const widgets = dashboard?.widgets ?? [];
   const layout = dashboard?.layout ?? [];
-  // The seeded default dashboard is read-only: custom dashboards start from
-  // "＋ new" instead. The API enforces the same rule. Treated as read-only
-  // while the detail is still loading so edit controls never flash on the
-  // Overview before the app knows which dashboard this is.
-  const readOnly = dashboard ? dashboard.isDefault : true;
 
   return (
     <div className="relative flex h-full text-[13px]">
@@ -242,7 +237,9 @@ export default function DashboardDetailPage() {
               onCustomRangeChange={setCustomRange}
             />
 
-            {!readOnly && (
+            {/* Held back until the detail loads so edit controls don't act
+                on a dashboard the app doesn't know yet. */}
+            {dashboard && (
               <>
                 <Button size="sm" className="h-7 text-[12px]" onClick={openCreate}>
                   ＋ Create widget
@@ -271,11 +268,9 @@ export default function DashboardDetailPage() {
           ) : widgets.length === 0 ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
               <p className="text-[13px] text-muted-foreground">No widgets yet.</p>
-              {!readOnly && (
-                <Button size="sm" className="text-[12px]" onClick={openCreate}>
-                  ＋ Create widget
-                </Button>
-              )}
+              <Button size="sm" className="text-[12px]" onClick={openCreate}>
+                ＋ Create widget
+              </Button>
             </div>
           ) : (
             <DashboardGrid
@@ -284,7 +279,6 @@ export default function DashboardDetailPage() {
               layout={layout}
               range={range}
               width={width}
-              readOnly={readOnly}
               onLayoutChange={handleLayoutChange}
               onEdit={openEdit}
               onDuplicate={handleDuplicate}

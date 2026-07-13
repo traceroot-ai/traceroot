@@ -20,7 +20,6 @@ export function DashboardGrid({
   layout,
   range,
   width,
-  readOnly = false,
   onLayoutChange,
   onEdit,
   onDuplicate,
@@ -31,8 +30,6 @@ export function DashboardGrid({
   layout: LayoutItem[];
   range: TimeRange;
   width: number;
-  /** Read-only dashboards (the seeded default) can't be rearranged or resized. */
-  readOnly?: boolean;
   onLayoutChange: (layout: LayoutItem[]) => void;
   onEdit: (w: Widget) => void;
   onDuplicate: (w: Widget) => void;
@@ -44,10 +41,7 @@ export function DashboardGrid({
   const fullLayout: RGLLayoutItem[] = useMemo(() => {
     const known = new Map(layout.map((l) => [l.i, l]));
     let maxY = Math.max(0, ...layout.map((l) => l.y + l.h));
-    // `static` items can't be dragged or resized.
-    const constraints = readOnly
-      ? { minW: MIN_W, minH: MIN_H, static: true }
-      : { minW: MIN_W, minH: MIN_H };
+    const constraints = { minW: MIN_W, minH: MIN_H };
     return widgets.map((w) => {
       const item = known.get(w.id);
       if (item) return { ...item, ...constraints };
@@ -55,7 +49,7 @@ export function DashboardGrid({
       maxY += 4;
       return fresh;
     });
-  }, [widgets, layout, readOnly]);
+  }, [widgets, layout]);
 
   // Snapshot of the last layout sent upstream, used to skip no-op PATCH calls.
   // react-grid-layout fires onLayoutChange on mount with the initial layout, so
@@ -89,9 +83,6 @@ export function DashboardGrid({
   );
 
   const handleChange = (next: Layout) => {
-    // Static items can still be re-compacted on mount; never persist from a
-    // read-only grid.
-    if (readOnly) return;
     const mapped: LayoutItem[] = next.map(({ i, x, y, w, h }) => ({ i, x, y, w, h }));
 
     // Lazy-init: on the first call (mount-fire from react-grid-layout) treat the
@@ -129,7 +120,6 @@ export function DashboardGrid({
             projectId={projectId}
             widget={w}
             range={range}
-            readOnly={readOnly}
             onEdit={() => onEdit(w)}
             onDuplicate={() => onDuplicate(w)}
             onDelete={() => onDelete(w)}
