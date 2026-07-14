@@ -4,7 +4,7 @@ Auth is overridden and the reader service is replaced with a fake, so these run
 with no live databases.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -21,11 +21,15 @@ from rest.schemas.public import (
 from rest.services.detector_reader import get_detector_reader_service
 
 
-def make_auth(project_id: str = "proj-A") -> AuthResult:
+def _now_naive():
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+def make_auth(project_id: str = "proj-A", billing_plan: str = "enterprise") -> AuthResult:
     return AuthResult(
         project_id=project_id,
         workspace_id="ws-1",
-        billing_plan="pro",
+        billing_plan=billing_plan,
         ingestion_blocked=False,
     )
 
@@ -260,3 +264,37 @@ def test_auth_required_without_key(reader):
     app.dependency_overrides[get_detector_reader_service] = lambda: reader
     resp = TestClient(app).get("/api/v1/public/detectors/findings")
     assert resp.status_code in (401, 403)
+
+
+class TestDetectorsRetentionGate:
+    @pytest.fixture()
+    def free_client(self, reader):
+        app.dependency_overrides[authenticate_api_key] = lambda: make_auth(billing_plan="free")
+        app.dependency_overrides[get_detector_reader_service] = lambda: reader
+        return TestClient(app)
+
+    def test_list_detectors_clamps_default_query(self, free_client, reader):
+        reader.detectors_return = ([], 0)
+        resp = free_client.get("/api/v1/public/detectors")
+        assert resp.status_code == 200
+        assert reader.detectors_args["start_after"] is not None
+
+    def test_list_findings_403_when_outside_window(self, free_client):
+        old = _now_naive() - timedelta(days=30)
+        resp = free_client.get(f"/api/v1/public/detectors/findings?start_after={old.isoformat()}")
+        assert resp.status_code == 403
+
+    def test_get_finding_403_when_outside_window(self, free_client, reader):
+        reader.finding = _detail(timestamp=datetime(2020, 1, 1))
+        resp = free_client.get("/api/v1/public/detectors/findings/f1")
+        assert resp.status_code == 403
+
+    def test_get_finding_200_when_in_window(self, free_client, reader):
+        reader.finding = _detail(timestamp=_now_naive() - timedelta(days=5))
+        resp = free_client.get("/api/v1/public/detectors/findings/f1")
+        assert resp.status_code == 200
+
+    def test_get_finding_by_trace_403_when_outside_window(self, free_client, reader):
+        reader.by_trace = _detail(timestamp=datetime(2020, 1, 1))
+        resp = free_client.get("/api/v1/public/detectors/traces/t1/finding")
+        assert resp.status_code == 403
