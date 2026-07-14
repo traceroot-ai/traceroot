@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { prisma, RegisterRunRequestSchema, type RegisterRunResponse } from "@traceroot/core";
+import {
+  prisma,
+  RegisterRunRequestSchema,
+  type RegisterRunResponse,
+  type Prisma,
+} from "@traceroot/core";
 import { requireApiKeyProject } from "@/lib/eval/auth";
 
 // POST /api/public/evaluation-runs — SDK registers/starts a run (API-key auth).
@@ -109,7 +114,10 @@ export async function POST(request: Request) {
           baselineRunId: req.baseline_run_id ?? null,
           mainScoreName: req.main_score_name ?? null,
           caseCount,
+          // Rich scorer metadata (value_type/direction/threshold) rides along in this
+          // JSON column when the SDK sends it; legacy {name, version} stays valid.
           scorers: req.scorers,
+          metadata: (req.metadata ?? undefined) as Prisma.InputJsonValue | undefined,
           clientRunId: req.client_run_id ?? null,
         },
         select: { id: true, runNumber: true, datasetVersionId: true },
