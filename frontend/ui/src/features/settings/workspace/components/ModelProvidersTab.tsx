@@ -110,6 +110,14 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     mutationFn: (input: Parameters<typeof testModelProvider>[1]) =>
       testModelProvider(workspaceId, input),
     onSuccess: (result) => setTestResult(result),
+    // The request itself can fail (expired session, offline, 500). Without this
+    // the spinner would just stop and the user would see no result at all.
+    onError: (err) =>
+      setTestResult({
+        success: false,
+        error: "Connection failed",
+        detail: err instanceof Error ? err.message : undefined,
+      }),
   });
 
   function closeDialog() {
@@ -644,7 +652,9 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                     <span className="min-w-0 break-words">{testResult.error}</span>
                   </div>
                   {testResult.detail && (
-                    <span className="pl-4.5 min-w-0 break-words text-muted-foreground">
+                    // Indent past the icon (h-3.5) and its gap-1 so the detail
+                    // aligns under the headline text.
+                    <span className="min-w-0 break-words pl-[1.125rem] text-muted-foreground">
                       {testResult.detail}
                     </span>
                   )}

@@ -494,12 +494,13 @@ describe("POST model-providers/test - timeout (acceptance criteria)", () => {
     expect(elapsed).toBeLessThan(2000);
   });
 
-  it("surfaces an ordinary fetch rejection as a non-timeout failure", async () => {
+  it("demotes an ordinary fetch rejection to the detail line under a normalized headline", async () => {
     fetchMock.mockRejectedValue(new Error("ECONNREFUSED"));
     const res = await POST(makeRequest({ adapter: "openai", apiKey: "k" }), makeParams());
-    const body = (await res.json()) as { success: boolean; error: string };
+    const body = (await res.json()) as { success: boolean; error: string; detail?: string };
     expect(body.success).toBe(false);
-    expect(body.error).toBe("ECONNREFUSED");
+    expect(body.error).toBe("Connection failed");
+    expect(body.detail).toBe("ECONNREFUSED");
     expect(body.error).not.toMatch(/timed out/i);
   });
 
@@ -546,4 +547,34 @@ describe("POST model-providers/test - timeout (acceptance criteria)", () => {
     const body = (await res.json()) as { success: boolean; error: string };
     expect(body).toEqual({ success: false, error: "Invalid API key" });
   });
+
+  it.each([
+    [401, "Invalid API key"],
+    [403, "API lacks permission"],
+  ])(
+    "checkEndpoint short-circuits a %i before reading the body, so a stalled body cannot time it out",
+    async (status, expected) => {
+      // checkEndpoint is the path every provider except anthropic/bedrock takes.
+      // It must decide on the status alone: a provider that returns auth-failure
+      // headers and then stalls the body would otherwise report a timeout, hiding
+      // the real cause from the user.
+      fetchMock.mockImplementation((_url: string, init?: { signal?: AbortSignal }) =>
+        Promise.resolve({
+          ok: false,
+          status,
+          statusText: "Auth failure",
+          json: () =>
+            new Promise((_resolve, reject) => {
+              init?.signal?.addEventListener("abort", () =>
+                reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
+              );
+            }),
+        }),
+      );
+
+      const res = await POST(makeRequest({ adapter: "openai", apiKey: "bad" }), makeParams());
+      const body = (await res.json()) as { success: boolean; error: string };
+      expect(body).toEqual({ success: false, error: expected });
+    },
+  );
 });

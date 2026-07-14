@@ -11,7 +11,7 @@ import {
 // baseUrl — that accepts the socket but never responds would otherwise leave
 // this handler hanging. `withTimeout` keeps the deadline armed across the whole
 // provider check (including the error-body reads below).
-import { withTimeout } from "./timeout";
+import { TimeoutError, withTimeout } from "./timeout";
 
 const ADAPTER_VALUES = [
   LLMAdapter.OPENAI,
@@ -85,7 +85,8 @@ async function checkEndpoint(
     let normalizedError: string;
     let errorDetail: string | undefined;
     if (res.status === 400 && isGoogleInvalidKey) {
-      // Google returns 400 with reason API_KEY_INVALID in error.details[].reason, not in message.
+      // Google's machine-readable API_KEY_INVALID lives in error.details[].reason, which
+      // readErrorMessage does not surface — so match the prose in error.message instead.
       normalizedError = "Invalid API key";
     } else if (res.status === 400 && message && /incorrect api key/i.test(message)) {
       // xAI returns 400 with a plain-string error mentioning "Incorrect API key".
@@ -279,9 +280,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     return successResponse({ success: true });
   } catch (err) {
+    // A timeout message stands on its own as a headline. Transport failures
+    // ("fetch failed", "ECONNREFUSED") are raw runtime text, so they belong in
+    // the detail line under a normalized headline.
+    if (err instanceof TimeoutError) {
+      return successResponse({ success: false, error: err.message });
+    }
     return successResponse({
       success: false,
-      error: err instanceof Error ? err.message : "Connection failed",
+      error: "Connection failed",
+      detail: err instanceof Error ? err.message : undefined,
     });
   }
 }
