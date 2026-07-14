@@ -53,4 +53,20 @@ describe("getSpanKindColor", () => {
       expect(getSpanKindColor(k).glyph).toContain("dark:");
     }
   });
+
+  it("gives the offline-eval kinds distinct tints (not the SPAN fallback)", () => {
+    expect(getSpanKindColor("EVALUATION").surface).toContain("emerald");
+    expect(getSpanKindColor("TASK").surface).toContain("sky");
+    expect(getSpanKindColor("SCORER").surface).toContain("fuchsia");
+    for (const k of ["EVALUATION", "TASK", "SCORER"]) {
+      expect(getSpanKindColor(k)).not.toEqual(getSpanKindColor("SPAN"));
+    }
+  });
+
+  it("maps the offline-eval kinds to their own icons", () => {
+    const span = getSpanKindIcon("SPAN");
+    for (const k of ["EVALUATION", "TASK", "SCORER"]) {
+      expect(getSpanKindIcon(k)).not.toBe(span);
+    }
+  });
 });
