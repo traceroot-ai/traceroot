@@ -146,6 +146,22 @@ for case in dataset:
     print(case.id, case.input, case.expected)`;
 }
 
+/** The TypeScript SDK snippet for pulling THIS dataset by id. */
+export function datasetPullCodeTs(datasetId: string): string {
+  return `import * as traceroot from "traceroot";
+import { pullDataset } from "traceroot";
+
+// Initialize with your API key so the pull is authenticated.
+traceroot.initialize();
+
+// Pull this dataset's current published version.
+const dataset = await pullDataset("${datasetId}");
+
+for (const testCase of dataset) {
+  console.log(testCase.id, testCase.input, testCase.expected);
+}`;
+}
+
 /** The TypeScript SDK snippet for a dataset. */
 export function datasetInitCodeTs(datasetName: string): string {
   return `import { dataset } from "traceroot";
