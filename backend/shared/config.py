@@ -163,6 +163,11 @@ class Settings(BaseSettings):
     )
     internal_api_secret: str = ""
 
+    # Live SSE: how long a completed root span must stay quiet before the
+    # stream emits trace_complete. Must exceed the SDK's flush interval
+    # (5s default) or the window can expire between two batches of a live trace.
+    trace_complete_quiet_seconds: float = 10.0
+
     # Service-specific settings
     clickhouse: ClickHouseSettings = ClickHouseSettings()
     s3: S3Settings = S3Settings()

@@ -106,6 +106,27 @@ def test_span_cost_details_empty_for_unknown_model():
         assert span_cost_details("mystery-model", 100, 50, {}) == {}
 
 
+def test_span_path_attribute_names_are_the_sdk_wire_strings():
+    """Pin the attribute names: they are a wire contract with both SDKs.
+
+    The SDKs emit these keys and the client reads them back out of span metadata
+    to rebuild the tree of an in-flight trace. Nothing else fails if one is
+    renamed on one side — live-tree repair just silently stops working — so the
+    exact strings are asserted here.
+    """
+    from shared.span_attributes import (
+        SPAN_IDS_PATH,
+        SPAN_PATH,
+        SPAN_STARTS_PATH,
+        SPAN_TREE_ATTRIBUTES,
+    )
+
+    assert SPAN_PATH == "traceroot.span.path"
+    assert SPAN_IDS_PATH == "traceroot.span.ids_path"
+    assert SPAN_STARTS_PATH == "traceroot.span.starts_path"
+    assert set(SPAN_TREE_ATTRIBUTES) == {SPAN_PATH, SPAN_IDS_PATH, SPAN_STARTS_PATH}
+
+
 # ---------------------------------------------------------------------------
 # Two-phase loading: get_trace skeleton + get_span_io.
 # The ClickHouse client is mocked; we assert on the SQL issued and the dicts
@@ -136,8 +157,13 @@ def _rows(rows):
 
 
 class TestGetTraceSkeleton:
-    def test_spans_query_omits_io_columns(self):
-        """The spans SELECT must not read input/output/metadata blobs."""
+    def test_spans_query_omits_io_blobs_and_extracts_only_span_path_attrs(self):
+        """The spans SELECT must not ship the input/output/metadata blobs.
+
+        `metadata` is read only inside ClickHouse, to extract the SDK span-path
+        attributes the client needs to rebuild an in-flight trace's tree; the
+        full attribute bag never crosses the wire.
+        """
         captured = {}
 
         def side_effect(query, parameters=None):
@@ -180,6 +206,10 @@ class TestGetTraceSkeleton:
                         None,  # output_tokens
                         None,  # total_tokens
                         {},  # usage_details
+                        # ClickHouse has already extracted the path attrs; this
+                        # is the small object the query re-packs, not the blob.
+                        '{"traceroot.span.ids_path":["root-id"],'
+                        '"traceroot.span.path":["root","child"]}',  # metadata
                         "file.py",  # git_source_file
                         12,  # git_source_line
                         "fn",  # git_source_function
@@ -191,17 +221,42 @@ class TestGetTraceSkeleton:
         result = service.get_trace("proj", "abc123")
 
         spans_sql = captured["spans_query"]
-        # No blob columns in the SELECT clause. Tokenize on commas/whitespace so
-        # `input_tokens` / `output_tokens` (which legitimately remain) don't
-        # trip a naive substring check.
-        select_clause = spans_sql.split("FROM spans")[0]
-        cols = {c.strip() for c in select_clause.replace("SELECT", "").split(",")}
-        assert "input" not in cols
-        assert "output" not in cols
-        assert "metadata" not in cols
+        # The inner subquery reads the raw columns; it must not project the
+        # input/output blobs. Tokenize on commas so `input_tokens` /
+        # `output_tokens` (which legitimately remain) don't trip a substring
+        # check, and drop the JSONExtract expressions (they mention `metadata`
+        # by design — that is the point of extracting server-side).
+        inner_select = spans_sql.split("FROM (")[1].split("FROM spans")[0]
+        plain_cols = {
+            c.strip()
+            for c in inner_select.replace("SELECT", "").split(",")
+            if "JSONExtract" not in c and "(" not in c and ")" not in c
+        }
+        assert "input" not in plain_cols
+        assert "output" not in plain_cols
+        assert "metadata" not in plain_cols
         # The token columns (which share a prefix with the blobs) are still there.
-        assert "input_tokens" in cols
-        assert "output_tokens" in cols
+        assert "input_tokens" in plain_cols
+        assert "output_tokens" in plain_cols
+
+        # The attributes the client consumes are extracted, by wire name.
+        # starts_path is deliberately NOT here: ingest preserves it and the live
+        # stream carries it, but nothing reads it yet, so the read path does not
+        # pay to extract and ship it. It lands with the code that uses it.
+        from shared.span_attributes import SPAN_IDS_PATH, SPAN_PATH, SPAN_STARTS_PATH
+
+        assert f"'{SPAN_IDS_PATH}'" in spans_sql
+        assert f"'{SPAN_PATH}'" in spans_sql
+        assert f"'{SPAN_STARTS_PATH}'" not in spans_sql
+
+        # Guards the nested-query trap: the outer SELECT re-packs the extracted
+        # columns by alias, so every alias it reads must be projected by the
+        # subquery. Adding a column to one SELECT list and not the other is a
+        # ClickHouse UNKNOWN_IDENTIFIER at runtime — i.e. every trace open 500s.
+        outer_select = spans_sql.split("FROM (")[0]
+        for alias in ("tree_ids_path", "tree_name_path"):
+            assert f"AS {alias}" in inner_select, f"{alias} not projected by the subquery"
+            assert alias in outer_select, f"{alias} not read by the outer SELECT"
         # Uses dedup subquery instead of FINAL for better read performance.
         assert "LIMIT 1 BY span_id" in spans_sql
         assert "ch_update_time DESC" in spans_sql
@@ -221,11 +276,14 @@ class TestGetTraceSkeleton:
             "trace_start_time": datetime(2024, 1, 1),
         }
 
-        # Resulting span dict carries NO I/O keys, but keeps tree fields.
+        # Resulting span dict carries NO input/output keys, and passes the
+        # server-extracted span-path object through as `metadata`.
         span = result["spans"][0]
         assert "input" not in span
         assert "output" not in span
-        assert "metadata" not in span
+        assert span["metadata"] == (
+            '{"traceroot.span.ids_path":["root-id"],"traceroot.span.path":["root","child"]}'
+        )
         assert span["span_id"] == "span-1"
         assert span["git_source_file"] == "file.py"
         assert span["git_source_line"] == 12

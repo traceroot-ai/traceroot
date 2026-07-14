@@ -88,6 +88,48 @@ describe("sendDigestAlertEmail", () => {
     expect(sendMail).not.toHaveBeenCalled();
   });
 
+  it("caps the listed detectors and adds an overflow row (mirrors the Slack digest)", async () => {
+    const { sendDigestAlertEmail } = await import("../email.js");
+    const entries = Array.from({ length: 50 }, (_, i) => ({
+      detectorId: `d${i}`,
+      detectorName: `Detector ${i}`,
+      findingCount: 1,
+      latestTraceId: "",
+    }));
+    await sendDigestAlertEmail({ ...baseParams, total: 50, entries });
+
+    const mail = sendMail.mock.calls[0][0];
+    // 45 rows listed, the rest folded into the overflow note
+    expect(mail.html).toContain("Detector 44");
+    expect(mail.html).not.toContain("Detector 45");
+    expect(mail.html).toContain("+5 more detectors");
+    expect(mail.text).toContain("+5 more detectors");
+    // the subline still counts every triggered detector
+    expect(mail.html).toContain("· 50 detectors");
+  });
+
+  it("escapes HTML in detector names and displayed trace ids", async () => {
+    const { sendDigestAlertEmail } = await import("../email.js");
+    await sendDigestAlertEmail({
+      ...baseParams,
+      entries: [
+        {
+          detectorId: "d1",
+          detectorName: `<b>Bold</b> & co`,
+          findingCount: 1,
+          latestTraceId: `<script>7890`,
+        },
+      ],
+    });
+
+    const mail = sendMail.mock.calls[0][0];
+    expect(mail.html).not.toContain("<b>Bold</b>");
+    expect(mail.html).toContain("&lt;b&gt;Bold&lt;/b&gt; &amp; co");
+    // the displayed prefix is the first 8 chars ("<script>"), escaped
+    expect(mail.html).not.toContain("<script>");
+    expect(mail.html).toContain("&lt;script&gt;");
+  });
+
   it("omits the latest-trace segment when an entry has no latest trace", async () => {
     const { sendDigestAlertEmail } = await import("../email.js");
     await sendDigestAlertEmail({
