@@ -18,10 +18,8 @@ import {
   Settings,
   UserRoundSearch,
   Eye,
-  Route,
   Database,
   FlaskConical,
-  type LucideIcon,
 } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Logo } from "@/components/Logo";
@@ -49,38 +47,6 @@ interface SidebarProps {
   collapsed?: boolean;
 }
 
-interface OfflineEvalNavItem {
-  id: string;
-  label: string;
-  icon: LucideIcon;
-  /** Path fragment appended to the offline-eval base. Empty string = overview. */
-  href: string;
-}
-
-/**
- * Offline Evaluation (design prototype) section.
- *
- * Three items, in workflow order: look at what happened, keep the examples worth
- * rerunning, and see how a version did. Scorers live as a tab on the Evaluations
- * page, not as their own nav item. The section opens on Traces.
- */
-const OFFLINE_EVAL_NAV: OfflineEvalNavItem[] = [
-  { id: "traces", label: "Traces", icon: Route, href: "/traces" },
-  { id: "datasets", label: "Datasets", icon: Database, href: "/datasets" },
-  { id: "evaluations", label: "Evaluations", icon: FlaskConical, href: "/evaluations" },
-];
-
-/** Marks the offline-eval item matching the current path. */
-function activeOfflineEvalId(pathname: string, base: string): string | null {
-  if (!pathname.startsWith(base)) return null;
-  const rest = pathname.slice(base.length);
-  // The bare base redirects to /traces, so treat it as Traces.
-  if (rest === "" || rest === "/") return "traces";
-  // Scorers is a tab on the Evaluations page; its route highlights Evaluations.
-  if (rest.startsWith("/scorers")) return "evaluations";
-  return OFFLINE_EVAL_NAV.find((item) => rest.startsWith(item.href))?.id ?? null;
-}
-
 export function Sidebar({ collapsed = false }: SidebarProps) {
   const pathname = usePathname();
   const { data: sessionData } = authClient.useSession();
@@ -101,14 +67,6 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
   const projectId = params?.projectId ?? null;
   const workspaceId = params?.workspaceId ?? null;
   const { isProject } = getProjectContext(pathname);
-
-  // The nav items above match on substrings (pathname.includes("/traces")), so
-  // the nested offline-eval routes would otherwise light up two links at once
-  // (/offline-eval/traces contains "/traces"). Gate the production items on
-  // being outside the prototype rather than loosening their existing checks.
-  const offlineEvalBase = projectId ? `/projects/${projectId}/offline-eval` : null;
-  const inOfflineEval = !!offlineEvalBase && pathname.startsWith(offlineEvalBase);
-  const activeEvalId = offlineEvalBase ? activeOfflineEvalId(pathname, offlineEvalBase) : null;
 
   // Settings target depends on context: project settings inside a project,
   // workspace settings inside a workspace, hidden elsewhere
@@ -194,9 +152,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                     className={cn(
                       "flex items-center gap-2 py-2 text-[13px] transition-colors",
                       collapsed ? "justify-center px-2" : "px-3",
-                      pathname.includes("/traces") && !inOfflineEval
-                        ? "bg-muted"
-                        : "hover:bg-muted/50",
+                      pathname.includes("/traces") ? "bg-muted" : "hover:bg-muted/50",
                     )}
                   >
                     <Workflow className="h-3.5 w-3.5 shrink-0" />
@@ -216,9 +172,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                     className={cn(
                       "flex items-center gap-2 py-2 text-[13px] transition-colors",
                       collapsed ? "justify-center px-2" : "px-3",
-                      pathname.includes("/detectors") && !inOfflineEval
-                        ? "bg-muted"
-                        : "hover:bg-muted/50",
+                      pathname.includes("/detectors") ? "bg-muted" : "hover:bg-muted/50",
                     )}
                   >
                     <Eye className="h-3.5 w-3.5 shrink-0" />
@@ -238,9 +192,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                     className={cn(
                       "flex items-center gap-2 py-2 text-[13px] transition-colors",
                       collapsed ? "justify-center px-2" : "px-3",
-                      pathname.includes("/dashboard") && !inOfflineEval
-                        ? "bg-muted"
-                        : "hover:bg-muted/50",
+                      pathname.includes("/dashboard") ? "bg-muted" : "hover:bg-muted/50",
                     )}
                   >
                     <LayoutDashboard className="h-3.5 w-3.5 shrink-0" />
@@ -260,9 +212,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                     className={cn(
                       "flex items-center gap-2 py-2 text-[13px] transition-colors",
                       collapsed ? "justify-center px-2" : "px-3",
-                      pathname.includes("/datasets") && !inOfflineEval
-                        ? "bg-muted"
-                        : "hover:bg-muted/50",
+                      pathname.includes("/datasets") ? "bg-muted" : "hover:bg-muted/50",
                     )}
                   >
                     <Database className="h-3.5 w-3.5 shrink-0" />
@@ -282,9 +232,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                     className={cn(
                       "flex items-center gap-2 py-2 text-[13px] transition-colors",
                       collapsed ? "justify-center px-2" : "px-3",
-                      pathname.includes("/evaluations") && !inOfflineEval
-                        ? "bg-muted"
-                        : "hover:bg-muted/50",
+                      pathname.includes("/evaluations") ? "bg-muted" : "hover:bg-muted/50",
                     )}
                   >
                     <FlaskConical className="h-3.5 w-3.5 shrink-0" />
@@ -297,41 +245,6 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                   </TooltipContent>
                 )}
               </Tooltip>
-
-              {/* Offline Evaluation — design prototype */}
-              {collapsed ? (
-                <div className="mx-2 my-1.5 h-px bg-border" aria-hidden />
-              ) : (
-                <p className="px-3 pb-1 pt-3 text-[10px] uppercase tracking-wide text-muted-foreground/70">
-                  Offline Eval
-                </p>
-              )}
-              {OFFLINE_EVAL_NAV.map((item) => {
-                const Icon = item.icon;
-                const isActive = activeEvalId === item.id;
-                return (
-                  <Tooltip key={item.id}>
-                    <TooltipTrigger asChild>
-                      <Link
-                        href={`/projects/${projectId}/offline-eval${item.href}`}
-                        className={cn(
-                          "flex items-center gap-2 py-2 text-[13px] transition-colors",
-                          collapsed ? "justify-center px-2" : "px-3",
-                          isActive ? "bg-muted" : "hover:bg-muted/50",
-                        )}
-                      >
-                        <Icon className="h-3.5 w-3.5 shrink-0" />
-                        {!collapsed && item.label}
-                      </Link>
-                    </TooltipTrigger>
-                    {collapsed && (
-                      <TooltipContent side="right" sideOffset={16}>
-                        {item.label}
-                      </TooltipContent>
-                    )}
-                  </Tooltip>
-                );
-              })}
             </>
           ) : (
             // Default navigation (Workspaces)
