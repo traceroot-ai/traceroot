@@ -2,8 +2,21 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { FileCode, Plus } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronRight,
+  Database,
+  Expand,
+  FileCode,
+  FileText,
+  History,
+  Plus,
+  Shrink,
+  SquareArrowOutUpRight,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
 import {
@@ -16,19 +29,39 @@ import {
 import { Table, TBody, THead, TR, TRHead, Td, Th } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast";
+import { useLayout } from "@/components/layout/app-layout";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { DATE_FILTER_OPTIONS, type DateFilterOption } from "@/lib/date-filter";
 import { ProjectBreadcrumb } from "@/features/projects/components";
+import { SpanKindIcon } from "@/features/traces";
+import { cn } from "@/lib/utils";
 import {
   EmptyState,
   EvalBody,
   EvalPageHeader,
+  ReviewBadge,
+  EditableValueBlock,
   Timestamp,
+  TestCaseReviewDrawer,
+  type TestCaseReviewTarget,
 } from "@/features/offline-eval/components";
+import { CAPTURE_REASON_LABEL, type ReviewStatus } from "@/features/offline-eval/types";
 import { RunStatusBadge, ScoreValue, formatCost, formatElapsed } from "./evaluations-view";
 import { PassRate } from "../components/pass-rate";
-import { datasetPullCode, datasetPullCodeTs, truncate } from "@/features/offline-eval/utils";
-import { useDataset, useSaveTestCase, useEvaluationRuns } from "../hooks";
+import {
+  caseDisplayId,
+  datasetPullCode,
+  datasetPullCodeTs,
+  truncate,
+} from "@/features/offline-eval/utils";
+import {
+  useDataset,
+  useSaveTestCase,
+  useUpdateTestCase,
+  useEvaluationRuns,
+  useTestCaseRuns,
+} from "../hooks";
+import type { TestCaseRow } from "../types";
 import { PullCodeDrawer, type PullOption } from "../components/pull-code-drawer";
 
 /** "Last 14 days" default, matching the traces/datasets lists. */
@@ -40,7 +73,7 @@ function orDash(value: string | null): React.ReactNode {
   return value && value.trim() !== "" ? value : <span className="text-muted-foreground">-</span>;
 }
 
-/** Metadata is stored as unknown JSON; coerce to a flat record for display. */
+/** Metadata is stored as unknown JSON; coerce to a flat record for display/edit. */
 function asRecord(metadata: unknown): Record<string, unknown> {
   return metadata && typeof metadata === "object" && !Array.isArray(metadata)
     ? (metadata as Record<string, unknown>)
@@ -58,13 +91,15 @@ function metadataPreview(metadata: unknown): React.ReactNode {
 }
 
 /**
- * Dataset detail — the dataset detail surface, wired to the server.
+ * Dataset detail — the dataset detail surface, wired to
+ * the server.
  *
- * A version bar picks a snapshot to view (older versions are read-only). The
- * test-case table lists Created · Input · Expected · Metadata (empty reads as
- * "-"), and New row adds an empty test case. A second tab lists the evaluation
- * runs measured against this dataset. "Pull code" opens the shared drawer with
- * a snippet that fetches the dataset in code.
+ * Columns are Created · Input · Expected · Metadata (empty reads as "-"). New
+ * row adds an empty test case.
+ * offers Duplicate, Add to dataset, and Delete, with an X to cancel. Focusing a
+ * row slides in a panel from the right (the way a trace opens) showing the
+ * input, expected, and metadata as editable value blocks. Editing publishes a
+ * new immutable dataset version — an earlier run's snapshot is never rewritten.
  */
 export function DatasetDetailView({
   projectId,
@@ -75,12 +110,30 @@ export function DatasetDetailView({
 }) {
   const { toast } = useToast();
   const router = useRouter();
+  const searchParams = useSearchParams();
   // null = the current version. Selecting an older version loads its snapshot
   // (read-only — editing always branches from the current version).
   const [selectedVersionId, setSelectedVersionId] = React.useState<string | null>(null);
   const { data, isLoading, error } = useDataset(projectId, datasetId, selectedVersionId);
   const save = useSaveTestCase(projectId, datasetId);
+  const update = useUpdateTestCase(projectId, datasetId);
 
+  const [openCaseId, setOpenCaseId] = React.useState<string | null>(null);
+
+  // Deep link: /datasets/[id]?case=<testCaseId> opens that case's panel once (e.g.
+  // "View source test case" from an evaluation result). Matched on the stable
+  // testCaseId, not the per-version row id.
+  const handledCaseParam = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    const caseParam = searchParams.get("case");
+    if (!caseParam || !data || handledCaseParam.current === caseParam) return;
+    const match = data.testCases.find((c) => c.testCaseId === caseParam);
+    if (match) {
+      setOpenCaseId(match.id);
+      handledCaseParam.current = caseParam;
+    }
+  }, [searchParams, data]);
+  const [reviewCaseId, setReviewCaseId] = React.useState<string | null>(null);
   const [keyword, setKeyword] = React.useState("");
   const [caseDate, setCaseDate] = React.useState<DateFilterOption>(DEFAULT_DATE_FILTER);
   const [caseStart, setCaseStart] = React.useState<Date | null>(null);
@@ -116,6 +169,37 @@ export function DatasetDetailView({
         (r.mainScoreName ?? "").toLowerCase().includes(q),
     );
   }, [runs, historyKeyword]);
+
+  const openCase = openCaseId ? (cases.find((c) => c.id === openCaseId) ?? null) : null;
+  const reviewCase = reviewCaseId ? (cases.find((c) => c.id === reviewCaseId) ?? null) : null;
+
+  const reviewTarget = React.useMemo<TestCaseReviewTarget | null>(() => {
+    if (!reviewCase || !dataset) return null;
+    return {
+      contextLabel: `${caseDisplayId(reviewCase.testCaseId)} · ${dataset.name}`,
+      input: reviewCase.input,
+      expected: reviewCase.expected,
+      currentReview: reviewCase.review,
+    };
+  }, [reviewCase, dataset]);
+
+  const submitReview = (result: { review: ReviewStatus; correctedExpected?: string }) => {
+    if (!reviewCase) return;
+    update.mutate(
+      {
+        testCaseId: reviewCase.testCaseId,
+        patch: {
+          review: result.review,
+          ...(result.correctedExpected ? { expected: result.correctedExpected } : {}),
+        },
+      },
+      {
+        onSuccess: () =>
+          toast({ title: "Review saved — new dataset version published", tone: "success" }),
+      },
+    );
+    setReviewCaseId(null);
+  };
 
   const addEmptyRow = () => {
     save.mutate(
@@ -265,7 +349,7 @@ export function DatasetDetailView({
               </span>
             </SearchFilterBar>
 
-            {/* Test-case table — read-only rows. */}
+            {/* Table + focused-case slide-in panel */}
             <div className="min-h-0 flex-1 overflow-auto">
               {cases.length === 0 ? (
                 <EmptyState>
@@ -285,7 +369,12 @@ export function DatasetDetailView({
                   </THead>
                   <TBody>
                     {cases.map((tc) => (
-                      <TR key={tc.id}>
+                      <TR
+                        key={tc.id}
+                        interactive
+                        selected={tc.id === openCaseId}
+                        onClick={() => setOpenCaseId(tc.id)}
+                      >
                         <Td className="whitespace-nowrap text-muted-foreground">
                           <Timestamp iso={tc.createTime} />
                         </Td>
@@ -385,6 +474,26 @@ export function DatasetDetailView({
         </Tabs>
       </div>
 
+      {/* Focused case — slides in from the right like a trace. */}
+      {openCase && (
+        <CasePanel
+          testCase={openCase}
+          projectId={projectId}
+          datasetId={datasetId}
+          datasetName={dataset.name}
+          readOnly={!isCurrentVersion}
+          onClose={() => setOpenCaseId(null)}
+          onReview={() => setReviewCaseId(openCase.id)}
+          onNavigate={(dir) => {
+            const idx = cases.findIndex((c) => c.id === openCase.id);
+            const next = dir === "up" ? idx - 1 : idx + 1;
+            if (next >= 0 && next < cases.length) setOpenCaseId(cases[next].id);
+          }}
+          canNavigateUp={cases.findIndex((c) => c.id === openCase.id) > 0}
+          canNavigateDown={cases.findIndex((c) => c.id === openCase.id) < cases.length - 1}
+        />
+      )}
+
       {/* Pull code — the shared drawer: one snippet that fetches the dataset. */}
       <PullCodeDrawer
         title="Pull this dataset in code"
@@ -408,6 +517,380 @@ export function DatasetDetailView({
         open={codeOpen}
         onOpenChange={setCodeOpen}
       />
+
+      <TestCaseReviewDrawer
+        target={reviewTarget}
+        open={reviewCaseId !== null}
+        onOpenChange={(open) => !open && setReviewCaseId(null)}
+        onSubmit={submitReview}
+      />
     </>
+  );
+}
+
+/**
+ * Slide-in case panel, matching the trace/span detail panel: a header with an
+ * icon, the row id, a copy button and the up/down/fullscreen/open-in-new-tab/
+ * close controls; then the created date; then Source / Captured chips (in place
+ * of a span kind). Input, expected, and metadata render as editable value
+ * blocks; saving any edit publishes a new immutable dataset version.
+ */
+function CasePanel({
+  testCase,
+  projectId,
+  datasetId,
+  datasetName,
+  readOnly = false,
+  onClose,
+  onReview,
+  onNavigate,
+  canNavigateUp,
+  canNavigateDown,
+}: {
+  testCase: TestCaseRow;
+  projectId: string;
+  datasetId: string;
+  datasetName: string;
+  /** Viewing an older snapshot: fields and Save are disabled (editing branches
+   * from the current version, not this one). */
+  readOnly?: boolean;
+  onClose: () => void;
+  onReview: () => void;
+  onNavigate: (direction: "up" | "down") => void;
+  canNavigateUp: boolean;
+  canNavigateDown: boolean;
+}) {
+  const { toast } = useToast();
+  const router = useRouter();
+  const { sidebarCollapsed } = useLayout();
+  const update = useUpdateTestCase(projectId, datasetId);
+  const caseRuns = useTestCaseRuns(projectId, datasetId, testCase.testCaseId);
+  const runs = caseRuns.data?.data ?? [];
+  const [fullscreen, setFullscreen] = React.useState(false);
+  const [view, setView] = React.useState<"details" | "runs">("details");
+
+  // Editable buffers, seeded from the case and re-seeded when it changes.
+  // Input/expected are plain strings; metadata is edited as JSON and parsed back.
+  const initialMetadata = React.useMemo(() => {
+    const record = asRecord(testCase.metadata);
+    return Object.keys(record).length ? JSON.stringify(record, null, 2) : "";
+  }, [testCase.metadata]);
+  const [inputText, setInputText] = React.useState(testCase.input);
+  const [expectedText, setExpectedText] = React.useState(testCase.expected ?? "");
+  const [metadataText, setMetadataText] = React.useState(initialMetadata);
+
+  React.useEffect(() => {
+    setInputText(testCase.input);
+    setExpectedText(testCase.expected ?? "");
+    setMetadataText(initialMetadata);
+  }, [testCase.id, testCase.input, testCase.expected, initialMetadata]);
+
+  const dirty =
+    !readOnly &&
+    (inputText !== testCase.input ||
+      expectedText !== (testCase.expected ?? "") ||
+      metadataText !== initialMetadata);
+
+  // Metadata only persists when it parses to an object; a half-typed edit keeps
+  // the prior value rather than blowing it away.
+  const parseMetadata = (): Record<string, unknown> | null | undefined => {
+    if (metadataText.trim() === "") return null;
+    try {
+      const parsed = JSON.parse(metadataText);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      /* invalid JSON mid-edit */
+    }
+    return undefined; // leave stored metadata untouched
+  };
+
+  const saveEdits = () => {
+    const patch: {
+      input?: string;
+      expected?: string | null;
+      metadata?: Record<string, unknown> | null;
+    } = {};
+    if (inputText !== testCase.input) patch.input = inputText;
+    if (expectedText !== (testCase.expected ?? "")) {
+      patch.expected = expectedText.trim() === "" ? null : expectedText;
+    }
+    if (metadataText !== initialMetadata) {
+      const parsed = parseMetadata();
+      if (parsed !== undefined) patch.metadata = parsed;
+    }
+    if (Object.keys(patch).length === 0) return;
+    update.mutate(
+      { testCaseId: testCase.testCaseId, patch },
+      {
+        onSuccess: () => toast({ title: "Saved — new dataset version published", tone: "success" }),
+      },
+    );
+  };
+
+  return (
+    <div
+      className={cn(
+        "animate-slide-in-right fixed bottom-0 right-0 z-50 flex flex-col border-l border-border bg-background shadow-xl transition-[width,top] duration-200",
+        fullscreen
+          ? sidebarCollapsed
+            ? "top-14 w-[calc(100%-3.5rem)]"
+            : "top-14 w-[calc(100%-12rem)]"
+          : "top-0 w-[45%] min-w-[520px] max-w-[94vw]",
+      )}
+    >
+      {/* Header — same shape as the trace/span detail panel. */}
+      <div className="shrink-0 border-b border-border bg-muted/30 px-4 py-3">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <Database className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <span className="text-sm font-medium">Row</span>
+            <span className="truncate font-mono text-xs text-muted-foreground">
+              {caseDisplayId(testCase.testCaseId)}
+            </span>
+            <CopyButton
+              value={testCase.testCaseId}
+              className="h-6 w-6 text-muted-foreground hover:text-foreground"
+              title="Copy ID"
+            />
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onNavigate("up")}
+              disabled={!canNavigateUp}
+              className="h-7 w-7 p-0"
+              title="Previous row"
+            >
+              <ArrowUp className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onNavigate("down")}
+              disabled={!canNavigateDown}
+              className="h-7 w-7 p-0"
+              title="Next row"
+            >
+              <ArrowDown className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setFullscreen((v) => !v)}
+              className="h-7 w-7 p-0"
+              title={fullscreen ? "Restore default size" : "Expand to full screen"}
+            >
+              {fullscreen ? <Shrink className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.open(`/projects/${projectId}/datasets/${datasetId}`, "_blank")}
+              className="h-7 w-7 p-0"
+              title="Open in new tab"
+            >
+              <SquareArrowOutUpRight className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0"
+              onClick={onClose}
+              aria-label="Close"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+
+        <Timestamp iso={testCase.createTime} className="mt-1 block text-xs text-muted-foreground" />
+
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <ReviewBadge status={testCase.review} />
+          {testCase.sourceTraceId ? (
+            <Link
+              href={`/projects/${projectId}/traces?traceId=${testCase.sourceTraceId}&fullscreen=1`}
+              className="inline-flex items-center gap-1.5 rounded-md border bg-muted/40 py-1 pl-2.5 pr-1.5 text-xs transition-colors hover:bg-muted"
+            >
+              <span className="text-muted-foreground">Source:</span>
+              <SpanKindIcon kind={(testCase.sourceSpanKind ?? "SPAN") as never} />
+              <span className="font-medium">{testCase.sourceSpanName ?? "trace"}</span>
+              <ChevronRight className="h-3 w-3 text-muted-foreground" />
+            </Link>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 rounded-md border bg-muted/40 px-2.5 py-1 text-xs">
+              <span className="text-muted-foreground">Source:</span>
+              <span className="font-medium">Added manually</span>
+            </span>
+          )}
+          {/* Why this case was captured — read-only context. */}
+          <span className="inline-flex items-center gap-1.5 rounded-md border bg-muted/40 px-2.5 py-1 text-xs">
+            <span className="text-muted-foreground">Captured:</span>
+            <span className="font-medium">
+              {CAPTURE_REASON_LABEL[testCase.captureReason as keyof typeof CAPTURE_REASON_LABEL] ??
+                testCase.captureReason}
+            </span>
+          </span>
+        </div>
+      </div>
+
+      {/* View toggle — Details / Runs, where a trace shows Tree / Timeline. */}
+      <div className="flex h-10 shrink-0 items-center border-b border-border px-2">
+        <button
+          type="button"
+          onClick={() => setView("details")}
+          className={cn(
+            "flex items-center gap-2 rounded-md px-3 py-1 text-xs font-medium transition-all",
+            view === "details"
+              ? "bg-muted text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <FileText className="h-3.5 w-3.5" /> Details
+        </button>
+        <button
+          type="button"
+          onClick={() => setView("runs")}
+          className={cn(
+            "flex items-center gap-2 rounded-md px-3 py-1 text-xs font-medium transition-all",
+            view === "runs"
+              ? "bg-muted text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <History className="h-3.5 w-3.5" /> Runs
+          {runs.length > 0 && (
+            <span className="rounded bg-muted px-1 text-[10px] tabular-nums text-muted-foreground">
+              {runs.length}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {view === "details" ? (
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 text-[12px]">
+          <EditableValueBlock
+            key={`input-${testCase.id}`}
+            label="Input"
+            text={inputText}
+            onChange={setInputText}
+            copyable
+            autoDetectKind
+            boxed
+            minRows={2}
+            collapsible
+            readOnly={readOnly}
+          />
+          <EditableValueBlock
+            key={`expected-${testCase.id}`}
+            label="Expected"
+            text={expectedText}
+            onChange={setExpectedText}
+            copyable
+            autoDetectKind
+            boxed
+            minRows={2}
+            collapsible
+            readOnly={readOnly}
+          />
+          {/* Recorded production output — read-only, kept separate from Expected. */}
+          {testCase.recordedOutput !== null && (
+            <EditableValueBlock
+              key={`recorded-${testCase.id}`}
+              label="What happened in production"
+              text={testCase.recordedOutput}
+              onChange={() => {}}
+              copyable
+              autoDetectKind
+              boxed
+              minRows={2}
+              collapsible
+              readOnly
+            />
+          )}
+          <EditableValueBlock
+            key={`metadata-${testCase.id}`}
+            label="Metadata"
+            text={metadataText}
+            defaultKind="pretty"
+            onChange={setMetadataText}
+            copyable
+            autoDetectKind
+            boxed
+            minRows={2}
+            collapsible
+            readOnly={readOnly}
+          />
+          <p className="text-[11px] leading-snug text-muted-foreground">
+            Saving publishes a new dataset version — it changes what future runs are compared
+            against and never rewrites a snapshot an earlier run used.
+          </p>
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-auto p-4">
+          {runs.length === 0 ? (
+            <EmptyState>
+              No evaluation run has measured this test case yet. Runs appear here once your
+              application or CI reports them.
+            </EmptyState>
+          ) : (
+            <Table>
+              <THead>
+                <TRHead>
+                  <Th>Evaluation / Run</Th>
+                  <Th>Dataset</Th>
+                  <Th className="w-[110px] text-right">Main score</Th>
+                  <Th className="w-[130px] text-right">Timestamp</Th>
+                </TRHead>
+              </THead>
+              <TBody>
+                {runs.map((r) => (
+                  <TR
+                    key={r.resultId}
+                    interactive
+                    onClick={() => router.push(`/projects/${projectId}/evaluations/${r.runId}`)}
+                  >
+                    <Td>
+                      <div className="font-medium">{r.evaluationName}</div>
+                      <div className="text-[11px] text-muted-foreground">
+                        Run #{r.runNumber} · <span className="font-mono">{r.candidateVersion}</span>
+                      </div>
+                    </Td>
+                    <Td className="text-muted-foreground">{datasetName}</Td>
+                    <Td className="text-right tabular-nums">
+                      <ScoreValue value={r.score} />
+                    </Td>
+                    <Td className="whitespace-nowrap text-right text-muted-foreground">
+                      <Timestamp iso={r.ranAt} />
+                    </Td>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+          )}
+        </div>
+      )}
+
+      {/* Save (when edited) + Review — primary actions, at the bottom. */}
+      <div className="flex shrink-0 items-center gap-2 border-t border-border p-3">
+        {dirty && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 flex-1 text-[12px]"
+            disabled={update.isPending}
+            onClick={saveEdits}
+          >
+            Save changes
+          </Button>
+        )}
+        <Button size="sm" className="h-8 flex-1 text-[12px]" onClick={onReview}>
+          Review
+        </Button>
+      </div>
+    </div>
   );
 }
