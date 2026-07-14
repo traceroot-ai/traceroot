@@ -123,4 +123,36 @@ describe("SpanInfoPanel - Error box source location badges", () => {
     expect(errorMessage.className).toContain("whitespace-pre-wrap");
     expect(errorMessage.className).toContain("break-all");
   });
+
+  it("renders Trace header with git_repo and git_ref badges with correct wrapping styles", () => {
+    const mockTraceSelection: TraceSelection = {
+      type: "trace",
+    };
+
+    render(<SpanInfoPanel projectId="proj-123" trace={mockTrace} selection={mockTraceSelection} />);
+
+    // Verify header git_repo badge wrapping styles
+    const repoSpan = screen.getByText("github.com/org-name/a-very-long-monorepo-name-example");
+    expect(repoSpan).toBeTruthy();
+    expect(repoSpan.className).toContain("min-w-0");
+    expect(repoSpan.className).toContain("break-all");
+
+    const repoParentLink = repoSpan.parentElement;
+    expect(repoParentLink).toBeTruthy();
+    expect(repoParentLink?.tagName.toLowerCase()).toBe("a");
+    expect(repoParentLink?.className).toContain("inline-flex");
+    expect(repoParentLink?.className).toContain("min-w-0");
+
+    // Verify header git_ref badge is NOT affected (no min-w-0, no break-all on span or parent)
+    const refSpan = screen.getByText("a1b2c3d");
+    expect(refSpan).toBeTruthy();
+    expect(refSpan.className).not.toContain("min-w-0");
+    expect(refSpan.className).not.toContain("break-all");
+
+    const refParentLink = refSpan.parentElement;
+    expect(refParentLink).toBeTruthy();
+    expect(refParentLink?.tagName.toLowerCase()).toBe("a");
+    expect(refParentLink?.className).toContain("inline-flex");
+    expect(refParentLink?.className).not.toContain("min-w-0");
+  });
 });

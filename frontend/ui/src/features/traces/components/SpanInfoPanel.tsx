@@ -195,11 +195,11 @@ export function SpanInfoPanel({
                 href={`https://github.com/${trace.git_repo}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors hover:bg-muted"
+                className="inline-flex min-w-0 items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors hover:bg-muted"
               >
                 <GitBranch className="h-3 w-3 text-muted-foreground" />
                 <span className="text-muted-foreground">Repo:</span>
-                <span className="font-mono font-medium">{trace.git_repo}</span>
+                <span className="min-w-0 break-all font-mono font-medium">{trace.git_repo}</span>
               </a>
             )}
             {trace.git_ref && (
