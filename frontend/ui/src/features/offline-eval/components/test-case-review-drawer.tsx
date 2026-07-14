@@ -68,7 +68,7 @@ export function TestCaseReviewDrawer({
     toast({
       title: review === "ready" ? "Marked Ready" : "Sent back for work",
       description: expectedChanged
-        ? "Saved with a corrected expected outcome. Prototype only."
+        ? "Saved with a corrected expected outcome."
         : "Saved in this page only.",
       tone: "success",
     });

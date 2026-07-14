@@ -14,10 +14,8 @@ import {
 import type { ReviewStatus } from "../types";
 
 /**
- * Review test case — server-wired port of the prototype's drawer. Identical
- * chrome and checklist; the only changes are that submitting no longer fires a
- * "prototype only" toast (the caller persists through useUpdateTestCase and
- * shows a real toast) and the advisory copy no longer says "saved here only".
+ * Review test case — the server-wired review drawer. Submitting persists
+ * through useUpdateTestCase and shows a real toast.
  * Reviewing verifies a row is a good, reusable test case — a different question
  * from scoring one output — and may correct the expected outcome. Ready is
  * advisory: it never blocks the case from an evaluation.
