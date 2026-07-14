@@ -36,7 +36,7 @@ def _trace_start_time_in_clickhouse(project_id: str, trace_id: str) -> datetime 
     ch_client = get_clickhouse_client()
     result = ch_client.query(
         """
-        SELECT minIf(span_start_time, isNull(parent_span_id))
+        SELECT minOrNull(span_start_time)
         FROM (
             SELECT parent_span_id, span_start_time FROM spans
             WHERE project_id = {project_id:String}
@@ -44,6 +44,7 @@ def _trace_start_time_in_clickhouse(project_id: str, trace_id: str) -> datetime 
             ORDER BY ch_update_time DESC
             LIMIT 1 BY span_id
         )
+        WHERE isNull(parent_span_id)
         """,
         parameters={"project_id": project_id, "trace_id": trace_id},
     )
