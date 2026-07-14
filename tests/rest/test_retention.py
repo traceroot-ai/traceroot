@@ -6,6 +6,7 @@ import pytest
 from fastapi import HTTPException
 
 from rest.retention import (
+    clamp_retention_window,
     enforce_retention_by_time,
     enforce_retention_window,
     get_retention_cutoff,
@@ -117,3 +118,34 @@ class TestEnforceRetentionByTime:
         with pytest.raises(HTTPException) as exc_info:
             enforce_retention_by_time("free", old)
         assert exc_info.value.status_code == 403
+
+
+class TestClampRetentionWindow:
+    def test_enterprise_passes_through(self):
+        sa = datetime(2020, 1, 1)
+        eb = datetime(2020, 2, 1)
+        result = clamp_retention_window("enterprise", sa, eb)
+        assert result == (sa, eb)
+
+    def test_no_start_after_clamps_to_cutoff(self):
+        result_sa, _ = clamp_retention_window("free", None)
+        assert result_sa is not None
+        expected = _now_naive() - timedelta(days=15)
+        assert abs((result_sa - expected).total_seconds()) < 2
+
+    def test_old_start_after_clamps_instead_of_403(self):
+        old = _now_naive() - timedelta(days=30)
+        result_sa, _ = clamp_retention_window("free", old)
+        expected = _now_naive() - timedelta(days=15)
+        assert abs((result_sa - expected).total_seconds()) < 2
+
+    def test_recent_start_after_passes_through(self):
+        recent = _now_naive() - timedelta(days=5)
+        result_sa, _ = clamp_retention_window("free", recent)
+        assert result_sa == recent
+
+    def test_tz_aware_old_start_after_clamps(self):
+        old = datetime.now(UTC) - timedelta(days=30)
+        result_sa, _ = clamp_retention_window("free", old)
+        expected = _now_naive() - timedelta(days=15)
+        assert abs((result_sa - expected).total_seconds()) < 2

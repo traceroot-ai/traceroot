@@ -47,6 +47,26 @@ def _retention_403(billing_plan: str, cutoff: datetime) -> HTTPException:
     )
 
 
+def clamp_retention_window(
+    billing_plan: str,
+    start_after: datetime | None,
+    end_before: datetime | None = None,
+) -> tuple[datetime | None, datetime | None]:
+    """For session endpoints: clamp only, never 403.
+
+    Sessions can span the retention boundary, so we silently clamp
+    start_after to the cutoff instead of rejecting the request.
+    """
+    cutoff = get_retention_cutoff(billing_plan)
+    if cutoff is None:
+        return start_after, end_before
+
+    if start_after is None or _to_naive_utc(start_after) < cutoff:
+        start_after = cutoff
+
+    return start_after, end_before
+
+
 def enforce_retention_window(
     billing_plan: str,
     start_after: datetime | None,
