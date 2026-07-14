@@ -1,6 +1,10 @@
 import { Type } from "@earendil-works/pi-ai";
-import type { Tool } from "@earendil-works/pi-ai";
+import type { Message, ProviderStreamOptions, Tool, ToolCall } from "@earendil-works/pi-ai";
+import { complete } from "@earendil-works/pi-ai/compat";
+import { fetchProviderConfig, resolvePiModel } from "@traceroot/core/model-resolver";
+import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 import { formatWindowRange } from "@traceroot/slack";
+import { resolveDetectorApiKey } from "../detection/sandbox-eval.js";
 
 export interface DigestSummaryDetectorInput {
   name: string;
@@ -91,4 +95,122 @@ export function buildDigestSummaryTool(): Tool {
       { additionalProperties: false, required: ["summary"] },
     ),
   };
+}
+
+/**
+ * Hard cap on the single summary attempt; the digest never waits longer.
+ * Validation cloned from the detector-eval timeout parser: finite, > 0, and
+ * within the 32-bit setTimeout range; anything else falls back to 15s.
+ * Exported for tests; called at call time (not module load) so env changes
+ * apply per call.
+ */
+export function parseDigestSummaryTimeoutMs(raw: string | undefined): number {
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 && n <= 2_147_483_647 ? n : 15_000;
+}
+
+export interface DigestSummaryModelConfig {
+  workspaceId: string;
+  rcaModel: string | null;
+  rcaProvider: string | null;
+  rcaSource: string | null;
+}
+
+export interface DigestSummaryUsage {
+  model: string;
+  provider: string;
+  isByok: boolean;
+  inputTokens: number;
+  outputTokens: number;
+  cost: number;
+}
+
+/**
+ * One best-effort LLM call synthesizing the window's judge sentences into a
+ * short paragraph. Returns null on ANY failure — the digest must send
+ * unchanged, never wait, never throw. Model choice is two clean branches:
+ * a valid BYOK config uses the project's rcaModel on that config; everything
+ * else (system source, BYOK lookup failure) uses the detector system default.
+ */
+export async function generateDigestSummary(
+  input: DigestSummaryInput,
+  cfg: DigestSummaryModelConfig,
+): Promise<{ summary: string; usage: DigestSummaryUsage } | null> {
+  try {
+    const prompt = buildDigestSummaryPrompt(input);
+    if (!prompt) return null;
+
+    const byokConfig =
+      cfg.rcaSource === "byok" && cfg.rcaProvider
+        ? await fetchProviderConfig(cfg.workspaceId, cfg.rcaProvider)
+        : null;
+    // System calls always use the cheap detector default; a project's rcaModel
+    // is sized for the RCA agent, not a short summarization. BYOK keeps the
+    // project's model so the spend stays on their key. resolvePiModel can
+    // throw for BYOK adapters when rcaModel is null — caught by the outer
+    // try -> summary skipped.
+    const model = byokConfig
+      ? resolvePiModel(cfg.rcaModel ?? undefined, byokConfig)
+      : resolvePiModel(DETECTOR_SYSTEM_DEFAULT_MODEL_ID, null);
+
+    const apiKey = await resolveDetectorApiKey(cfg.workspaceId, byokConfig, model.provider);
+    if (!apiKey) {
+      console.log(`[DigestSummary] no API key for provider "${model.provider}"; skipping summary`);
+      return null;
+    }
+
+    const timeoutMs = parseDigestSummaryTimeoutMs(process.env.DIGEST_SUMMARY_TIMEOUT_MS);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    timeout.unref?.();
+    try {
+      const messages: Message[] = [
+        { role: "user", content: prompt.userText, timestamp: Date.now() },
+      ];
+      const options: ProviderStreamOptions = {
+        apiKey,
+        toolChoice: "auto",
+        signal: controller.signal,
+      };
+      const response = await complete(
+        model,
+        { systemPrompt: prompt.systemPrompt, messages, tools: [buildDigestSummaryTool()] },
+        options,
+      );
+      if (controller.signal.aborted || response.stopReason === "aborted") {
+        console.warn(`[DigestSummary] timed out after ${timeoutMs}ms (model=${model.id})`);
+        return null;
+      }
+      const toolCall = response.content.find(
+        (c): c is ToolCall => c.type === "toolCall" && c.name === "submit_digest_summary",
+      );
+      const summary =
+        typeof toolCall?.arguments?.summary === "string" ? toolCall.arguments.summary.trim() : "";
+      if (!summary) {
+        // Include the provider's error message on error stops (sandbox-eval
+        // precedent) so a 401/bad-BYOK config is diagnosable from logs.
+        const errDetail = response.stopReason === "error" ? ` error=${response.errorMessage}` : "";
+        console.warn(
+          `[DigestSummary] no usable summary (stopReason=${response.stopReason}, model=${model.id})${errDetail}`,
+        );
+        return null;
+      }
+      return {
+        summary,
+        usage: {
+          model: response.model ?? model.id,
+          provider: response.provider ?? model.provider,
+          isByok: Boolean(byokConfig),
+          inputTokens: response.usage?.input ?? 0,
+          outputTokens: response.usage?.output ?? 0,
+          cost: response.usage?.cost?.total ?? 0,
+        },
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+  } catch (err) {
+    console.warn(`[DigestSummary] failed; sending digest without summary:`, err);
+    return null;
+  }
 }
