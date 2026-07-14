@@ -18,6 +18,8 @@ import {
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
 import { useProject } from "@/features/projects/hooks";
+import { isRetentionError, getRetentionDetail } from "@/lib/api/retention";
+import { RetentionGateBanner } from "@/components/RetentionGateBanner";
 import { DeleteDetectorDialog } from "@/features/detectors/components/delete-detector-dialog";
 import { DetectorPanel } from "@/features/detectors/components/detector-panel";
 import { getTemplate } from "@/features/detectors/templates";
@@ -148,6 +150,8 @@ export default function DetectorsPage() {
             <div className="flex h-64 items-center justify-center">
               <p className="text-[13px] text-muted-foreground">Loading detectors...</p>
             </div>
+          ) : error && isRetentionError(error) ? (
+            <RetentionGateBanner projectId={projectId} detail={getRetentionDetail(error)!} />
           ) : error ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
               <p className="text-[13px] text-destructive">Error loading detectors</p>
