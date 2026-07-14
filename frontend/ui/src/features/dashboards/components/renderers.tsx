@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Area,
   AreaChart,
@@ -18,29 +18,39 @@ import {
   YAxis,
 } from "recharts";
 import type { FieldUnit } from "@/features/filters/filter-controls";
+import { ChartLegend, type LegendEntry } from "./ChartLegend";
 import { type DisplayType, type WidgetQueryResult, AGGS } from "../types";
 
-// Pastel series palette mirroring the span-kind tints
-// (violet=llm, blue=agent, amber=tool, slate=span), then softened extras.
+// Categorical series palette: 12 hues spread evenly round the wheel and
+// ORDERED so consecutive series sit on opposite sides of it — a 2-3 series
+// chart (the common case) gets maximally separated colors, and breakdowns up
+// to a dozen categories stay distinct. No gray in the rotation: a gray series
+// reads as muted/"other", not as real data. Amber and cyan are the -500 shades
+// so thin line strokes keep contrast on a light background.
 export const SERIES_COLORS = [
-  "#a78bfa",
-  "#60a5fa",
-  "#fbbf24",
-  "#94a3b8",
-  "#34d399",
-  "#f472b6",
-  "#22d3ee",
-  "#fb923c",
+  "#fb7185", // rose
+  "#06b6d4", // cyan
+  "#4ade80", // green
+  "#a78bfa", // violet
+  "#fb923c", // orange
+  "#60a5fa", // blue
+  "#10b981", // emerald
+  "#e879f9", // fuchsia
+  "#f59e0b", // amber
+  "#818cf8", // indigo
+  "#2dd4bf", // teal
+  "#f472b6", // pink
 ];
 
 const seriesColor = (i: number) => SERIES_COLORS[i % SERIES_COLORS.length];
 
-// Recharts marks its wrapper and SVG internals keyboard-focusable, so clicking
-// anywhere in a chart paints the browser's focus outline around the clicked
-// wrapper/layer/sector — suppress it on every chart surface.
-const CHART_FOCUS_RESET =
-  "[&_.recharts-wrapper]:outline-none [&_.recharts-surface]:outline-none " +
-  "[&_.recharts-layer]:outline-none [&_.recharts-sector]:outline-none";
+// Recharts makes its wrapper, SVG, and individual marks (bar rects, line/area
+// paths, pie sectors) keyboard-focusable, so a click paints the browser's focus
+// outline around whatever was clicked. Suppress the outline on every focused
+// descendant — charts here have no keyboard-interaction model, so there's no
+// focus affordance to preserve. (The legend rows and buttons live outside this
+// wrapper and keep their focus rings.)
+const CHART_FOCUS_RESET = "[&_*:focus]:outline-none [&_*:focus-visible]:outline-none";
 
 // ClickHouse returns Decimal columns as strings; coerce them before charting
 // or formatting — recharts (the pie especially) can't plot string values.
@@ -225,6 +235,55 @@ export function ChartTip({
   );
 }
 
+// Legend hover dims every OTHER series so the hovered one stands out.
+const seriesOpacity = (hovered: string | null, key: string, base = 1) =>
+  hovered !== null && hovered !== key ? Number((base * 0.2).toFixed(3)) : base;
+
+/**
+ * Per-series aggregates for the legend, from the same pivot the charts draw.
+ * Additive measures sum across buckets (a true window total); non-additive
+ * ones average their non-null buckets — an approximation (bucketed
+ * percentiles can't be re-aggregated), so those get no Total row.
+ * Single-series charts (no breakdown) return null: nothing to disambiguate.
+ */
+function legendFor(
+  result: WidgetQueryResult,
+  additive: boolean,
+): { entries: LegendEntry[]; total: number | null } | null {
+  const { seriesKeys, data } = pivotRows(result.columns, result.rows, additive ? 0 : null);
+  if (seriesKeys.length <= 1) return null;
+  const entries = seriesKeys.map((k, i) => {
+    const nums = data
+      .map((r) => (r as Record<string, unknown>)[k])
+      .filter((v): v is number => typeof v === "number");
+    const sum = nums.reduce((a, b) => a + b, 0);
+    const value = nums.length === 0 ? null : additive ? sum : sum / nums.length;
+    return { key: k, label: k, color: seriesColor(i), value };
+  });
+  const total = additive ? entries.reduce((a, e) => a + (e.value ?? 0), 0) : null;
+  return { entries, total };
+}
+
+/** Categorical charts (bar/pie): one legend entry per category row. */
+function categoricalLegend(
+  result: WidgetQueryResult,
+  additive: boolean,
+): { entries: LegendEntry[]; total: number | null } | null {
+  const { data } = pivotRows(result.columns, result.rows);
+  if (data.length <= 1) return null;
+  const entries = data.map((r, i) => {
+    const v = r.value;
+    return {
+      key: String(r.name),
+      label: String(r.name),
+      color: seriesColor(i),
+      value: typeof v === "number" ? v : null,
+    };
+  });
+  const total = additive ? entries.reduce((a, e) => a + (e.value ?? 0), 0) : null;
+  return { entries, total };
+}
+
 // Categorical rows tinted per-index; the `fill` on each row is also what the
 // tooltip payload reads for its swatch.
 function useColoredRows(result: WidgetQueryResult) {
@@ -244,6 +303,7 @@ function TimeSeries({
   seriesLabel,
   additive = true,
   unit,
+  hovered = null,
 }: {
   result: WidgetQueryResult;
   area: boolean;
@@ -251,6 +311,8 @@ function TimeSeries({
   /** False for avg/percentile series: empty buckets render as gaps, not 0. */
   additive?: boolean;
   unit?: FieldUnit;
+  /** Legend-hovered series key; the others render dimmed. */
+  hovered?: string | null;
 }) {
   const { seriesKeys, data } = useMemo(
     () => pivotRows(result.columns, result.rows, additive ? 0 : null),
@@ -318,8 +380,9 @@ function TimeSeries({
               dataKey={k}
               stackId={additive ? "1" : undefined}
               stroke={seriesColor(i)}
+              strokeOpacity={seriesOpacity(hovered, k)}
               fill={seriesColor(i)}
-              fillOpacity={0.35}
+              fillOpacity={seriesOpacity(hovered, k, 0.35)}
               isAnimationActive={false}
               connectNulls={!additive}
             />
@@ -328,6 +391,7 @@ function TimeSeries({
               key={k}
               dataKey={k}
               stroke={seriesColor(i)}
+              strokeOpacity={seriesOpacity(hovered, k)}
               dot={false}
               strokeWidth={1.5}
               isAnimationActive={false}
@@ -344,10 +408,12 @@ function Bars({
   result,
   seriesLabel,
   unit,
+  hovered = null,
 }: {
   result: WidgetQueryResult;
   seriesLabel?: string;
   unit?: FieldUnit;
+  hovered?: string | null;
 }) {
   const data = useColoredRows(result);
   return (
@@ -365,8 +431,14 @@ function Bars({
           content={<ChartTip nameFormatter={seriesNameFormatter(seriesLabel)} unit={unit} />}
         />
         <Bar dataKey="value" isAnimationActive={false}>
-          {data.map((_, i) => (
-            <Cell key={i} fill={seriesColor(i)} fillOpacity={0.7} stroke={seriesColor(i)} />
+          {data.map((d, i) => (
+            <Cell
+              key={i}
+              fill={seriesColor(i)}
+              fillOpacity={seriesOpacity(hovered, String((d as { name?: unknown }).name), 0.7)}
+              stroke={seriesColor(i)}
+              strokeOpacity={seriesOpacity(hovered, String((d as { name?: unknown }).name))}
+            />
           ))}
         </Bar>
       </BarChart>
@@ -374,13 +446,20 @@ function Bars({
   );
 }
 
-function PieView({ result, unit }: { result: WidgetQueryResult; unit?: FieldUnit }) {
+function PieView({
+  result,
+  unit,
+  hovered = null,
+}: {
+  result: WidgetQueryResult;
+  unit?: FieldUnit;
+  hovered?: string | null;
+}) {
   const data = useColoredRows(result);
   return (
     <ResponsiveContainer width="100%" height="100%" className={CHART_FOCUS_RESET}>
       <PieChart>
         <Tooltip isAnimationActive={false} content={<ChartTip unit={unit} />} />
-        {/* Pie reads each sector's fill from its data row — no Cells needed. */}
         <Pie
           data={data}
           dataKey="value"
@@ -388,7 +467,16 @@ function PieView({ result, unit }: { result: WidgetQueryResult; unit?: FieldUnit
           innerRadius="45%"
           outerRadius="80%"
           isAnimationActive={false}
-        />
+        >
+          {/* Explicit Cells so legend hover can dim the other sectors. */}
+          {data.map((d, i) => (
+            <Cell
+              key={i}
+              fill={seriesColor(i)}
+              fillOpacity={seriesOpacity(hovered, String((d as { name?: unknown }).name))}
+            />
+          ))}
+        </Pie>
       </PieChart>
     </ResponsiveContainer>
   );
@@ -520,6 +608,26 @@ export function QueryWidgetRenderer({
   agg?: (typeof AGGS)[number];
 }) {
   const additive = agg === undefined || !NON_ADDITIVE_AGGS.has(agg);
+  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+  // Multi-series charts get a legend under the plot; everything else
+  // (single series, stat tiles, tables, histograms) stays legend-free.
+  const legend = useMemo(() => {
+    if (result.rows.length === 0) return null;
+    if (display === "line" || display === "area") return legendFor(result, additive);
+    if (display === "bar" || display === "pie") return categoricalLegend(result, additive);
+    return null;
+  }, [display, result, additive]);
+  // A background refresh can drop the hovered series between renders; a stale
+  // key matches nothing and would dim EVERY series — treat it as no hover.
+  const hoveredInLegend =
+    hoveredKey !== null && (legend?.entries.some((e) => e.key === hoveredKey) ?? false);
+  // Mask a stale key this render, and clear it from state so a series that
+  // RETURNS in a later refresh doesn't resurrect the dim with no row hovered.
+  useEffect(() => {
+    if (hoveredKey !== null && !hoveredInLegend) setHoveredKey(null);
+  }, [hoveredKey, hoveredInLegend]);
+  const hovered = hoveredInLegend ? hoveredKey : null;
+
   if (result.rows.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-[12px] text-muted-foreground">
@@ -527,36 +635,55 @@ export function QueryWidgetRenderer({
       </div>
     );
   }
-  switch (display) {
-    case "line":
-      return (
-        <TimeSeries
-          result={result}
-          area={false}
-          seriesLabel={seriesLabel}
-          additive={additive}
-          unit={unit}
-        />
-      );
-    case "area":
-      return (
-        <TimeSeries
-          result={result}
-          area
-          seriesLabel={seriesLabel}
-          additive={additive}
-          unit={unit}
-        />
-      );
-    case "bar":
-      return <Bars result={result} seriesLabel={seriesLabel} unit={unit} />;
-    case "pie":
-      return <PieView result={result} unit={unit} />;
-    case "number":
-      return <NumberView result={result} unit={unit} />;
-    case "table":
-      return <TableView result={result} unit={unit} />;
-    case "histogram":
-      return <HistogramView result={result} seriesLabel={seriesLabel} />;
-  }
+
+  const chart = (() => {
+    switch (display) {
+      case "line":
+        return (
+          <TimeSeries
+            result={result}
+            area={false}
+            seriesLabel={seriesLabel}
+            additive={additive}
+            unit={unit}
+            hovered={hovered}
+          />
+        );
+      case "area":
+        return (
+          <TimeSeries
+            result={result}
+            area
+            seriesLabel={seriesLabel}
+            additive={additive}
+            unit={unit}
+            hovered={hovered}
+          />
+        );
+      case "bar":
+        return <Bars result={result} seriesLabel={seriesLabel} unit={unit} hovered={hovered} />;
+      case "pie":
+        return <PieView result={result} unit={unit} hovered={hovered} />;
+      case "number":
+        return <NumberView result={result} unit={unit} />;
+      case "table":
+        return <TableView result={result} unit={unit} />;
+      case "histogram":
+        return <HistogramView result={result} seriesLabel={seriesLabel} />;
+    }
+  })();
+
+  if (!legend) return chart;
+  return (
+    <div className="flex h-full flex-col">
+      <div className="min-h-0 flex-1">{chart}</div>
+      <ChartLegend
+        entries={legend.entries}
+        total={legend.total}
+        format={(v) => fmtValueWithUnit(v, unit)}
+        hoveredKey={hovered}
+        onHoverKey={setHoveredKey}
+      />
+    </div>
+  );
 }
