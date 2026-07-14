@@ -59,6 +59,26 @@ def real_cache() -> list[dict]:
     ]
 
 
+CODEX_MODEL_PRICES = [
+    ("gpt-5-codex", 0.00000125, 0.00001, 0.000000125),
+    ("gpt-5.1-codex", 0.00000125, 0.00001, 0.000000125),
+    ("gpt-5.1-codex-max", 0.00000125, 0.00001, 0.000000125),
+    ("gpt-5.1-codex-mini", 0.00000025, 0.000002, 0.000000025),
+    ("gpt-5.2-codex", 0.00000175, 0.000014, 0.000000175),
+    ("gpt-5.3-codex", 0.00000175, 0.000014, 0.000000175),
+    ("gpt-5.3-codex-spark", 0.00000175, 0.000014, 0.000000175),
+]
+
+CODEX_MODEL_CASES = [
+    alias
+    for model_name, *_ in CODEX_MODEL_PRICES
+    for alias in (
+        (model_name, model_name),
+        (f"openai/{model_name}", model_name),
+        (f"{model_name}-2026-01-01", model_name),
+    )
+]
+
 OPENAI_MODEL_CASES = [
     ("gpt-5.6-sol", "gpt-5.6-sol"),
     ("openai/gpt-5.6-sol", "gpt-5.6-sol"),
@@ -84,6 +104,7 @@ OPENAI_MODEL_CASES = [
     ("gpt-5.2-pro", "gpt-5.2-pro"),
     ("gpt-5.1", "gpt-5.1"),
     ("gpt-5", "gpt-5"),
+    *CODEX_MODEL_CASES,
     ("gpt-5-mini", "gpt-5-mini"),
     ("gpt-5-nano", "gpt-5-nano"),
     ("gpt-5-pro", "gpt-5-pro"),
@@ -210,6 +231,21 @@ class TestOpenAIModelIds:
         assert price[MATCHED_MODEL_NAME] == expected_name, (
             f"{model_id} matched a different entry than {expected_name}"
         )
+
+    @pytest.mark.parametrize(
+        "model_id,input_price,output_price,cache_read_price", CODEX_MODEL_PRICES
+    )
+    def test_codex_prices_match_pinned_model_catalog(
+        self, real_cache, model_id, input_price, output_price, cache_read_price
+    ):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price(model_id)
+
+        assert price is not None
+        assert price["input"] == input_price
+        assert price["output"] == output_price
+        assert price["cacheRead"] == cache_read_price
+        assert price["cacheWrite"] is None
 
     def test_latest_openai_model_calculates_cost(self, real_cache):
         with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
