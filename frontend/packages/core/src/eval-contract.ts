@@ -123,6 +123,14 @@ export interface RegisterRunResponse {
   evaluation_run_id: string;
   run_number: number;
   dataset_version_id: string;
+  /**
+   * UI-relative path to the run, `/projects/<projectId>/evaluations/<runId>`. The
+   * backend owns the route shape; the SDK joins it to its own `host_url` to print a
+   * clickable run link. Not an absolute URL (the control plane can't reliably know
+   * its public origin) and not the bare projectId (that would hard-code the route in
+   * the SDK).
+   */
+  run_path: string;
 }
 
 /**

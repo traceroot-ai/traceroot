@@ -101,6 +101,10 @@ class RegisterRunResponse(BaseModel):
     evaluation_run_id: str
     run_number: int
     dataset_version_id: str
+    # UI-relative path "/projects/<projectId>/evaluations/<runId>"; the SDK joins it to
+    # its own host_url to print a clickable run link. The gateway proxies the upstream
+    # body verbatim, so this is documentation/parity only — no logic here builds it.
+    run_path: str
 
 
 # --- (b) Upsert one test-case result with scores ----------------------------

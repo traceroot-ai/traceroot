@@ -87,6 +87,7 @@ export async function POST(request: Request) {
               evaluation_run_id: existing.id,
               run_number: existing.runNumber,
               dataset_version_id: existing.datasetVersionId,
+              run_path: `/projects/${projectId}/evaluations/${existing.id}`,
             } satisfies RegisterRunResponse,
           };
         }
@@ -129,6 +130,7 @@ export async function POST(request: Request) {
           evaluation_run_id: run.id,
           run_number: run.runNumber,
           dataset_version_id: run.datasetVersionId,
+          run_path: `/projects/${projectId}/evaluations/${run.id}`,
         } satisfies RegisterRunResponse,
       };
     });
