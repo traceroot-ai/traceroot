@@ -127,11 +127,14 @@ ds.add(input="…", expected="…")
 ds.push()`;
 }
 
-/**
- * The Python SDK snippet for pulling THIS dataset (its current published
- * version) to run an evaluation against — the dataset already exists, so the
- * useful next step is to fetch it by id, not to re-author it.
- */
+// ---------------------------------------------------------------------------
+// Pull snippets. You only pull DATA: a dataset (its CURRENT version) or an exact
+// immutable version. An evaluation series and a run id are identifiers, not
+// runnable — so there is no "pull run" here. Reproducing a run = pulling that
+// run's pinned dataset version. Each helper has a Python and a TypeScript form.
+// ---------------------------------------------------------------------------
+
+/** Python — pull the dataset's CURRENT published version (independent of any run). */
 export function datasetPullCode(datasetId: string): string {
   return `import traceroot
 from traceroot import pull_dataset
@@ -139,14 +142,14 @@ from traceroot import pull_dataset
 # Initialize with your API key so the pull is authenticated.
 traceroot.initialize()
 
-# Pull this dataset's current published version.
+# Pull this dataset's CURRENT published version (moves as the dataset is edited).
 dataset = pull_dataset("${datasetId}")
 
 for case in dataset:
     print(case.id, case.input, case.expected)`;
 }
 
-/** The TypeScript SDK snippet for pulling THIS dataset by id. */
+/** TypeScript — pull the dataset's current published version. */
 export function datasetPullCodeTs(datasetId: string): string {
   return `import * as traceroot from "traceroot";
 import { pullDataset } from "traceroot";
@@ -154,12 +157,91 @@ import { pullDataset } from "traceroot";
 // Initialize with your API key so the pull is authenticated.
 traceroot.initialize();
 
-// Pull this dataset's current published version.
+// Pull this dataset's CURRENT published version (moves as the dataset is edited).
 const dataset = await pullDataset("${datasetId}");
 
 for (const testCase of dataset) {
   console.log(testCase.id, testCase.input, testCase.expected);
 }`;
+}
+
+/** Python — pull one EXACT immutable dataset version by its version id. */
+export function datasetPullVersionCode(versionId: string): string {
+  return `import traceroot
+from traceroot import pull_dataset_version
+
+traceroot.initialize()
+
+# Pull this EXACT version (an immutable snapshot — never changes).
+dataset = pull_dataset_version("${versionId}")
+
+for case in dataset:
+    print(case.id, case.input, case.expected)`;
+}
+
+/** TypeScript — pull one exact immutable dataset version by its version id. */
+export function datasetPullVersionCodeTs(versionId: string): string {
+  return `import * as traceroot from "traceroot";
+import { pullDatasetVersion } from "traceroot";
+
+traceroot.initialize();
+
+// Pull this EXACT version (an immutable snapshot — never changes).
+const dataset = await pullDatasetVersion("${versionId}");
+
+for (const testCase of dataset) {
+  console.log(testCase.id, testCase.input, testCase.expected);
+}`;
+}
+
+/**
+ * Python — reproduce ONE run locally: pull the exact dataset version that run
+ * scored (so a new candidate is measured on the same cases), then the commented
+ * evaluate(... baseline=...) stub to run your candidate and compare against it.
+ */
+export function reproduceRunCode(versionId: string, evaluationName: string, runId: string): string {
+  return `import traceroot
+from traceroot import evaluate, pull_dataset_version
+
+traceroot.initialize()
+
+# The EXACT cases this run scored — pin them so a new candidate is comparable.
+dataset = pull_dataset_version("${versionId}")
+
+# Point task at your candidate; report baseline=this run to get the comparison.
+# result = evaluate(
+#     name=${JSON.stringify(evaluationName)},
+#     data=dataset,
+#     task=your_task,
+#     scorers=[...],
+#     candidate_version="git:REPLACE_ME",
+#     baseline=${JSON.stringify(runId)},  # compare against this run
+# )`;
+}
+
+/** TypeScript — reproduce one run locally (version pull + commented evaluate stub). */
+export function reproduceRunCodeTs(
+  versionId: string,
+  evaluationName: string,
+  runId: string,
+): string {
+  return `import * as traceroot from "traceroot";
+import { evaluate, pullDatasetVersion } from "traceroot";
+
+traceroot.initialize();
+
+// The EXACT cases this run scored — pin them so a new candidate is comparable.
+const dataset = await pullDatasetVersion("${versionId}");
+
+// Point task at your candidate; report baseline=this run to get the comparison.
+// const result = await evaluate({
+//   name: ${JSON.stringify(evaluationName)},
+//   data: dataset,
+//   task: yourTask,
+//   scorers: [...],
+//   candidateVersion: "git:REPLACE_ME",
+//   baseline: ${JSON.stringify(runId)}, // compare against this run
+// });`;
 }
 
 /** The TypeScript SDK snippet for a dataset. */
