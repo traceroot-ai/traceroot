@@ -272,6 +272,9 @@ export interface TraceTestCaseRow {
   datasetName: string;
   sourceSpanId: string | null;
   review: string;
+  datasetVersionLabel: string;
+  datasetUpdatedAt: string;
+  caseCount: number;
 }
 
 /**

@@ -14,6 +14,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { CopyButton } from "@/components/ui/copy-button";
 import { cn } from "@/lib/utils";
 import { getTrace } from "@/lib/api/traces";
 import { SpanKindIcon, useSpanIO } from "@/features/traces";
@@ -21,7 +23,9 @@ import {
   FormCard,
   EditableValueBlock,
   LineNumberedTextarea,
+  Timestamp,
 } from "@/features/offline-eval/components";
+import { datasetInitCode, datasetInitCodeTs } from "@/features/offline-eval/utils";
 import {
   CAPTURE_REASON_LABEL,
   SPAN_KIND_LABEL,
@@ -540,11 +544,45 @@ export function TraceEvaluationChip({
   );
 }
 
+/** Small SDK-snippet card with a Python / TypeScript toggle (one shown at a time). */
+function DatasetSdkSnippet({ datasetName }: { datasetName: string }) {
+  const [lang, setLang] = React.useState<"python" | "typescript">("python");
+  const code = lang === "python" ? datasetInitCode(datasetName) : datasetInitCodeTs(datasetName);
+  return (
+    <div className="overflow-hidden rounded border border-border">
+      <div className="flex items-center justify-between border-b border-border bg-muted/50 px-1.5 py-1">
+        <div className="flex items-center gap-0.5">
+          {(["python", "typescript"] as const).map((l) => (
+            <button
+              key={l}
+              type="button"
+              onClick={() => setLang(l)}
+              className={cn(
+                "rounded px-1.5 py-0.5 text-xs font-medium transition-colors",
+                lang === l
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {l === "python" ? "Python" : "TypeScript"}
+            </button>
+          ))}
+        </div>
+        <CopyButton value={code} className="h-6 w-6" iconClassName="h-3.5 w-3.5" title="Copy" />
+      </div>
+      <pre className="max-h-48 overflow-auto whitespace-pre px-2.5 py-2 font-mono text-xs leading-relaxed">
+        {code}
+      </pre>
+    </div>
+  );
+}
+
 /**
  * "Dataset:" chip shown on a span that already backs a test case — the trace-
  * viewer marker for a span that's been saved to a dataset. Renders one chip per
- * dataset the span belongs to (current version only), each linking to it, or
- * nothing when the span isn't a saved case.
+ * dataset the span belongs to (current version only), each linking to it, with a
+ * hover card carrying the dataset's version, last-updated, case count, and a
+ * copyable SDK snippet. Nothing renders when the span isn't a saved case.
  */
 export function SpanDatasetChip({
   projectId,
@@ -559,19 +597,42 @@ export function SpanDatasetChip({
   const matches = (data?.data ?? []).filter((c) => c.sourceSpanId === spanId);
   if (matches.length === 0) return null;
   return (
-    <>
+    <TooltipProvider delayDuration={150}>
       {matches.map((c) => (
-        <Link
-          key={`${c.datasetId}:${c.testCaseId}`}
-          href={`/projects/${projectId}/datasets/${c.datasetId}`}
-          className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors hover:bg-muted"
-          title={`In dataset ${c.datasetName}`}
-        >
-          <Database className="h-3 w-3 text-muted-foreground" aria-hidden />
-          <span className="text-muted-foreground">Dataset:</span>
-          <span className="font-medium">{c.datasetName}</span>
-        </Link>
+        <Tooltip key={`${c.datasetId}:${c.testCaseId}`}>
+          <TooltipTrigger asChild>
+            <Link
+              href={`/projects/${projectId}/datasets/${c.datasetId}`}
+              className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors hover:bg-muted"
+              title={`In dataset ${c.datasetName}`}
+            >
+              <Database className="h-3 w-3 text-muted-foreground" aria-hidden />
+              <span className="text-muted-foreground">Dataset:</span>
+              <span className="font-medium">{c.datasetName}</span>
+            </Link>
+          </TooltipTrigger>
+          <TooltipContent
+            align="start"
+            className="w-[540px] max-w-[92vw] border bg-popover px-3 pb-2 pt-3 text-xs text-popover-foreground shadow-md"
+          >
+            <div className="mb-2">
+              <div className="font-semibold">{c.datasetName}</div>
+              <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-0.5 text-muted-foreground">
+                <span>
+                  Version <span className="font-mono">{c.datasetVersionLabel}</span>
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  Updated <Timestamp iso={c.datasetUpdatedAt} />
+                </span>
+                <span>
+                  {c.caseCount} {c.caseCount === 1 ? "case" : "cases"}
+                </span>
+              </div>
+            </div>
+            <DatasetSdkSnippet datasetName={c.datasetName} />
+          </TooltipContent>
+        </Tooltip>
       ))}
-    </>
+    </TooltipProvider>
   );
 }

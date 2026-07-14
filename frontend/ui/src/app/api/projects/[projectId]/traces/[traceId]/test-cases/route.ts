@@ -25,7 +25,11 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
       sourceSpanId: true,
       review: true,
       version: {
-        select: { dataset: { select: { name: true, currentVersionId: true } } },
+        select: {
+          label: true,
+          _count: { select: { testCases: true } },
+          dataset: { select: { name: true, currentVersionId: true, updateTime: true } },
+        },
       },
     },
   });
@@ -39,6 +43,9 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
       datasetName: c.version.dataset.name,
       sourceSpanId: c.sourceSpanId,
       review: c.review,
+      datasetVersionLabel: c.version.label,
+      datasetUpdatedAt: c.version.dataset.updateTime.toISOString(),
+      caseCount: c.version._count.testCases,
     }));
 
   return successResponse({ data });
