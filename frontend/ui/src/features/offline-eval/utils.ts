@@ -127,6 +127,25 @@ ds.add(input="…", expected="…")
 ds.push()`;
 }
 
+/**
+ * The Python SDK snippet for pulling THIS dataset (its current published
+ * version) to run an evaluation against — the dataset already exists, so the
+ * useful next step is to fetch it by id, not to re-author it.
+ */
+export function datasetPullCode(datasetId: string): string {
+  return `import traceroot
+from traceroot import pull_dataset
+
+# Initialize with your API key so the pull is authenticated.
+traceroot.initialize()
+
+# Pull this dataset's current published version.
+dataset = pull_dataset("${datasetId}")
+
+for case in dataset:
+    print(case.id, case.input, case.expected)`;
+}
+
 /** The TypeScript SDK snippet for a dataset. */
 export function datasetInitCodeTs(datasetName: string): string {
   return `import { dataset } from "traceroot";
