@@ -338,6 +338,36 @@ class TestSubscribeBeforeCheckInvariant:
 
         assert call_order.index("subscribe") < call_order.index("clickhouse_check")
 
+    def test_events_published_during_clickhouse_check_are_not_lost(self, client):
+        """Simulates a Celery worker publishing a span to Redis while the
+        ClickHouse completion check is running. Because subscribe happens
+        before the check, the event must appear in the SSE output."""
+        pubsub = MockPubSub([])
+        mock_redis = MagicMock()
+        mock_redis.pubsub.return_value = pubsub
+
+        def check_that_injects_a_message(project_id, trace_id):
+            # Simulate a Celery worker publishing while ClickHouse is queried:
+            # inject a span message into the pubsub queue mid-check.
+            pubsub._messages.append(
+                redis_message({"type": "spans", "spans": [{"span_id": "concurrent"}]})
+            )
+            return _utcnow_naive(), _utcnow_naive()
+
+        with (
+            patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.1),
+            patch(
+                "rest.routers.live._completion_state_in_clickhouse",
+                side_effect=check_that_injects_a_message,
+            ),
+            patch("shared.redis.get_async_redis_client", return_value=mock_redis),
+        ):
+            resp = client.get(ENDPOINT)
+
+        events = parse_sse_events(resp.text)
+        assert "event: spans" in events, "span published during ClickHouse check was lost"
+        assert events[-1] == "event: trace_complete"
+
 
 class TestQuietWindowAnchoring:
     def test_old_completed_trace_closes_immediately(self, client):
