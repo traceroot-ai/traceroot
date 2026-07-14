@@ -55,7 +55,7 @@ vi.mock("@/lib/auth-helpers", () => ({
 }));
 
 import { POST } from "./route";
-import { withTimeout, resolveTimeoutMs } from "./timeout";
+import { TimeoutError, withTimeout, resolveTimeoutMs } from "./timeout";
 
 const fetchMock = vi.fn();
 vi.stubGlobal("fetch", fetchMock);
@@ -133,15 +133,19 @@ describe("withTimeout", () => {
   });
 
   it("throws a timeout error when the operation never settles", async () => {
-    await expect(
-      withTimeout(
-        (signal) =>
-          new Promise((_resolve, reject) => {
-            signal.addEventListener("abort", () => reject(new Error("aborted")));
-          }),
-        20,
-      ),
-    ).rejects.toThrow(/timed out after 20ms/);
+    const err = await withTimeout(
+      (signal) =>
+        new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(new Error("aborted")));
+        }),
+      20,
+    ).catch((e: unknown) => e);
+
+    // A distinct type lets callers tell a deadline breach from a transport
+    // failure; the name carries that distinction into serialized logs too.
+    expect(err).toBeInstanceOf(TimeoutError);
+    expect((err as Error).name).toBe("TimeoutError");
+    expect((err as Error).message).toMatch(/timed out after 20ms/);
   });
 
   it("stays armed across multiple awaits (e.g. a hanging body read)", async () => {
