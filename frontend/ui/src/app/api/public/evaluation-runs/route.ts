@@ -7,6 +7,17 @@ import {
 } from "@traceroot/core";
 import { requireApiKeyProject } from "@/lib/eval/auth";
 
+// The control plane's public app origin, used to make the run link absolute so it
+// resolves regardless of how the API and UI origins are split (the SDK's host_url is
+// the API origin, which need not serve the UI). Mirrors the auth/slack conventions.
+const APP_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
+/** The run's UI-relative path + the absolute clickable URL for the SDK to print. */
+function runLink(projectId: string, runId: string): { run_path: string; run_url: string } {
+  const run_path = `/projects/${projectId}/evaluations/${runId}`;
+  return { run_path, run_url: new URL(run_path, APP_BASE_URL).toString() };
+}
+
 // POST /api/public/evaluation-runs — SDK registers/starts a run (API-key auth).
 // Idempotent on client_run_id within an evaluation. The evaluation lineage is
 // resolved (create-if-absent) from evaluation_name + dataset_id; the server
@@ -87,7 +98,7 @@ export async function POST(request: Request) {
               evaluation_run_id: existing.id,
               run_number: existing.runNumber,
               dataset_version_id: existing.datasetVersionId,
-              run_path: `/projects/${projectId}/evaluations/${existing.id}`,
+              ...runLink(projectId, existing.id),
             } satisfies RegisterRunResponse,
           };
         }
@@ -130,7 +141,7 @@ export async function POST(request: Request) {
           evaluation_run_id: run.id,
           run_number: run.runNumber,
           dataset_version_id: run.datasetVersionId,
-          run_path: `/projects/${projectId}/evaluations/${run.id}`,
+          ...runLink(projectId, run.id),
         } satisfies RegisterRunResponse,
       };
     });
