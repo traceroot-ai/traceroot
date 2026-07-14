@@ -30,7 +30,7 @@ def client(mock_trace_reader):
             user_id="test-user",
             role="ADMIN",
             workspace_id="ws-test",
-            billing_plan="free",
+            billing_plan="enterprise",
         )
 
     app.dependency_overrides[get_project_access] = mock_get_access
