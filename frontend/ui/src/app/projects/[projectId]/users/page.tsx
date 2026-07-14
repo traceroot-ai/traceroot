@@ -22,6 +22,8 @@ import {
 } from "@/lib/utils";
 import type { UserListItem } from "@/lib/api/users";
 import type { UserQueryOptions } from "@/lib/api/users";
+import { isRetentionError, getRetentionDetail } from "@/lib/api/retention";
+import { RetentionGateBanner } from "@/components/RetentionGateBanner";
 
 const tabs = [
   { id: "traces", label: "Traces", icon: Workflow, href: "traces" },
@@ -133,6 +135,8 @@ export default function UsersPage() {
             <div className="flex h-64 items-center justify-center">
               <LoadingState label="Loading users..." />
             </div>
+          ) : error && isRetentionError(error) ? (
+            <RetentionGateBanner projectId={projectId} detail={getRetentionDetail(error)!} />
           ) : error && !data ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
               <p className="text-[13px] text-destructive">Error loading users</p>
