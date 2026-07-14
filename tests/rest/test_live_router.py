@@ -59,10 +59,20 @@ def redis_message(payload: dict) -> dict:
     return {"type": "message", "data": json.dumps(payload)}
 
 
+@pytest.fixture(autouse=True)
+def _mock_retention_lookup():
+    """All tests mock the lightweight retention timestamp query so it never
+    hits real ClickHouse.  Enterprise tests bypass retention regardless of the
+    value; retention-specific tests override this with their own patch."""
+    with patch(
+        "rest.routers.live._trace_start_time_in_clickhouse",
+        return_value=_utcnow_naive(),
+    ):
+        yield
+
+
 @pytest.fixture()
 def client():
-    mock_reader = MagicMock()
-
     async def mock_access(project_id: str, x_user_id=None):
         return ProjectAccessInfo(
             project_id=project_id,
@@ -73,15 +83,8 @@ def client():
         )
 
     app.dependency_overrides[get_project_access] = mock_access
-
-    import rest.routers.live as live_mod
-
-    original_svc = live_mod.get_trace_reader_service
-    live_mod.get_trace_reader_service = lambda: mock_reader
-
     yield TestClient(app)
-
-    live_mod.get_trace_reader_service = original_svc
+    app.dependency_overrides.clear()
 
 
 def parse_sse_events(text: str) -> list[str]:
@@ -155,7 +158,6 @@ class TestAlreadyCompleteTrace:
                 return_value=(_utcnow_naive(), _utcnow_naive()),
             ),
             patch("shared.redis.get_async_redis_client", return_value=mock_redis),
-            patch("rest.routers.live.get_trace_reader_service", return_value=MagicMock()),
         ):
             response = await live_router.live_trace_stream(
                 ConnectedRequest(),
@@ -231,7 +233,6 @@ class TestAlreadyCompleteTrace:
             patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.01),
             patch("rest.routers.live._completion_state_in_clickhouse", return_value=(None, None)),
             patch("shared.redis.get_async_redis_client", return_value=mock_redis),
-            patch("rest.routers.live.get_trace_reader_service", return_value=MagicMock()),
         ):
             response = await live_router.live_trace_stream(
                 ConnectedRequest(),
@@ -455,10 +456,7 @@ class TestHardDeadline:
 class TestRetentionGate:
     def test_live_stream_403_for_old_trace(self):
         """A trace outside the retention window returns 403 before streaming."""
-        mock_reader = MagicMock()
-        mock_reader.get_trace.return_value = {
-            "trace_start_time": datetime(2020, 1, 1),
-        }
+        old_start = datetime(2020, 1, 1)
 
         async def mock_access(project_id: str, x_user_id=None):
             return ProjectAccessInfo(
@@ -471,26 +469,22 @@ class TestRetentionGate:
 
         app.dependency_overrides[get_project_access] = mock_access
 
-        import rest.routers.live as live_mod
-
-        original_svc = live_mod.get_trace_reader_service
-        live_mod.get_trace_reader_service = lambda: mock_reader
-
         try:
             test_client = TestClient(app, raise_server_exceptions=False)
-            resp = test_client.get(ENDPOINT)
+            with patch(
+                "rest.routers.live._trace_start_time_in_clickhouse",
+                return_value=old_start,
+            ):
+                resp = test_client.get(ENDPOINT)
             assert resp.status_code == 403
             detail = resp.json()["detail"]
             assert detail["message"] == "Data outside retention window"
         finally:
-            live_mod.get_trace_reader_service = original_svc
+            app.dependency_overrides.clear()
 
     def test_live_stream_200_for_recent_trace(self):
         """A trace within the retention window proceeds to streaming."""
-        mock_reader = MagicMock()
-        mock_reader.get_trace.return_value = {
-            "trace_start_time": _utcnow_naive() - timedelta(days=1),
-        }
+        recent_start = _utcnow_naive() - timedelta(days=1)
 
         async def mock_access(project_id: str, x_user_id=None):
             return ProjectAccessInfo(
@@ -502,11 +496,6 @@ class TestRetentionGate:
             )
 
         app.dependency_overrides[get_project_access] = mock_access
-
-        import rest.routers.live as live_mod
-
-        original_svc = live_mod.get_trace_reader_service
-        live_mod.get_trace_reader_service = lambda: mock_reader
 
         pubsub = MockPubSub([])
         mock_redis = MagicMock()
@@ -516,6 +505,10 @@ class TestRetentionGate:
             test_client = TestClient(app)
             with (
                 patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.1),
+                patch(
+                    "rest.routers.live._trace_start_time_in_clickhouse",
+                    return_value=recent_start,
+                ),
                 patch(
                     "rest.routers.live._completion_state_in_clickhouse",
                     return_value=(_utcnow_naive(), _utcnow_naive()),
@@ -528,4 +521,4 @@ class TestRetentionGate:
             events = parse_sse_events(resp.text)
             assert "event: trace_complete" in events
         finally:
-            live_mod.get_trace_reader_service = original_svc
+            app.dependency_overrides.clear()

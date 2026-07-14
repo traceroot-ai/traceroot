@@ -15,7 +15,6 @@ from starlette.responses import StreamingResponse
 
 from rest.retention import enforce_retention_by_time
 from rest.routers.deps import ProjectAccess
-from rest.services.trace_reader import get_trace_reader_service
 from shared.config import settings
 
 logger = logging.getLogger(__name__)
@@ -28,6 +27,30 @@ MAX_STREAM_SECONDS = 600  # 10 minutes — hard ceiling for idle connections
 # above the SDK's 5s default flush interval so a quiet window can't expire
 # between two batches of the same live trace.
 TRACE_COMPLETE_QUIET_SECONDS = settings.trace_complete_quiet_seconds
+
+
+def _trace_start_time_in_clickhouse(project_id: str, trace_id: str) -> datetime | None:
+    """Lightweight query: just the trace's start time for retention gating."""
+    from db.clickhouse.client import get_clickhouse_client
+
+    ch_client = get_clickhouse_client()
+    result = ch_client.query(
+        """
+        SELECT minIf(span_start_time, isNull(parent_span_id))
+        FROM (
+            SELECT parent_span_id, span_start_time FROM spans
+            WHERE project_id = {project_id:String}
+              AND trace_id   = {trace_id:String}
+            ORDER BY ch_update_time DESC
+            LIMIT 1 BY span_id
+        )
+        """,
+        parameters={"project_id": project_id, "trace_id": trace_id},
+    )
+    rows = result.result_rows
+    if not rows:
+        return None
+    return rows[0][0]
 
 
 def _completion_state_in_clickhouse(
@@ -86,10 +109,15 @@ async def live_trace_stream(
     reach the client before trace_complete closes the frontend stream.
     """
 
-    service = get_trace_reader_service()
-    trace = service.get_trace(project_id=project_id, trace_id=trace_id)
-    if trace:
-        enforce_retention_by_time(_access.billing_plan, trace.get("trace_start_time"))
+    # Lightweight retention check before streaming. This query only reads
+    # trace_start_time (no full trace load), so the window where live events
+    # could be missed is minimal. The 403 must be raised before
+    # StreamingResponse is returned — HTTPException inside a generator
+    # produces a 500, not a proper 403.
+    trace_start_time = await asyncio.to_thread(
+        _trace_start_time_in_clickhouse, project_id, trace_id
+    )
+    enforce_retention_by_time(_access.billing_plan, trace_start_time)
 
     async def event_generator():
         from shared.redis import get_async_redis_client
