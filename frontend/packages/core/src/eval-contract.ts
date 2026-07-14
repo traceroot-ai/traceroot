@@ -125,12 +125,18 @@ export interface RegisterRunResponse {
   dataset_version_id: string;
   /**
    * UI-relative path to the run, `/projects/<projectId>/evaluations/<runId>`. The
-   * backend owns the route shape; the SDK joins it to its own `host_url` to print a
-   * clickable run link. Not an absolute URL (the control plane can't reliably know
-   * its public origin) and not the bare projectId (that would hard-code the route in
-   * the SDK).
+   * backend owns the route shape. Kept for back-compat; prefer `run_url` for the
+   * printed link — joining `run_path` to the SDK's `host_url` only resolves when the
+   * API and UI share an origin (breaks in split-origin dev, where host_url is the API).
    */
   run_path: string;
+  /**
+   * Absolute, clickable run URL — `run_path` resolved against the control plane's
+   * configured public app origin (`NEXT_PUBLIC_APP_URL`). Correct regardless of how
+   * the API and UI origins are split, so the SDK should print this verbatim rather
+   * than reconstructing the link from `host_url`.
+   */
+  run_url: string;
 }
 
 /**

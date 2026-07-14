@@ -1021,6 +1021,10 @@
           "run_path": {
             "title": "Run Path",
             "type": "string"
+          },
+          "run_url": {
+            "title": "Run Url",
+            "type": "string"
           }
         },
         "required": [
@@ -1028,7 +1032,8 @@
           "evaluation_run_id",
           "run_number",
           "dataset_version_id",
-          "run_path"
+          "run_path",
+          "run_url"
         ],
         "title": "RegisterRunResponse",
         "type": "object"

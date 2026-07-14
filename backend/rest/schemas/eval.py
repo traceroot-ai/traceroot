@@ -101,10 +101,14 @@ class RegisterRunResponse(BaseModel):
     evaluation_run_id: str
     run_number: int
     dataset_version_id: str
-    # UI-relative path "/projects/<projectId>/evaluations/<runId>"; the SDK joins it to
-    # its own host_url to print a clickable run link. The gateway proxies the upstream
-    # body verbatim, so this is documentation/parity only — no logic here builds it.
+    # UI-relative path "/projects/<projectId>/evaluations/<runId>". Kept for back-compat;
+    # prefer run_url for the printed link.
     run_path: str
+    # Absolute clickable run URL — run_path resolved against the control plane's public
+    # app origin. Correct regardless of how the API/UI origins are split, so the SDK
+    # should print this verbatim rather than joining run_path to its own host_url. The
+    # gateway proxies the upstream body verbatim, so this is documentation/parity only.
+    run_url: str
 
 
 # --- (b) Upsert one test-case result with scores ----------------------------
