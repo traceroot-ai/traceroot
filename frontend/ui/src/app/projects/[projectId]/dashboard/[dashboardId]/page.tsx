@@ -22,10 +22,7 @@ export default function DashboardDetailPage() {
   // ── remote data ──────────────────────────────────────────────────────────────
   const { data: dashboard, error: dashboardError } = useDashboard(projectId, dashboardId);
 
-  const { updateLayout, createWidget, removeWidget } = useDashboardMutations(
-    projectId,
-    dashboardId,
-  );
+  const { updateLayout, removeWidget } = useDashboardMutations(projectId, dashboardId);
 
   // ── time range — the same URL-synced filter AND default the trace list uses ──
   const { dateFilter, customStartDate, customEndDate, setDateFilter, setCustomRange, timestamps } =
@@ -94,19 +91,6 @@ export default function DashboardDetailPage() {
       updateLayout.mutate(layout);
     },
     [updateLayout],
-  );
-
-  // ── duplicate widget ─────────────────────────────────────────────────────────
-  const handleDuplicate = useCallback(
-    (w: Widget) => {
-      createWidget.mutate({
-        title: `${w.title} (copy)`,
-        type: w.type,
-        spec: w.spec,
-        displayConfig: w.displayConfig,
-      });
-    },
-    [createWidget],
   );
 
   // ── delete widget ────────────────────────────────────────────────────────────
@@ -196,7 +180,6 @@ export default function DashboardDetailPage() {
               width={width}
               onLayoutChange={handleLayoutChange}
               onEdit={openEdit}
-              onDuplicate={handleDuplicate}
               onDelete={handleDelete}
             />
           )}
