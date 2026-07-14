@@ -1,10 +1,45 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   buildDigestSummaryPrompt,
   buildDigestSummaryTool,
   DIGEST_SUMMARY_MAX_PROMPT_CHARS,
   type DigestSummaryInput,
 } from "../digest-summary.js";
+
+const complete = vi.fn();
+const resolveDetectorApiKey = vi.fn();
+vi.mock("@earendil-works/pi-ai/compat", () => ({
+  complete: (...a: any[]) => complete(...a),
+  getEnvApiKey: vi.fn(),
+}));
+vi.mock("../../detection/sandbox-eval.js", () => ({
+  resolveDetectorApiKey: (...a: any[]) => resolveDetectorApiKey(...a),
+}));
+vi.mock("@traceroot/core/model-resolver", () => ({
+  resolvePiModel: vi.fn(() => ({
+    id: "claude-haiku-4-5",
+    provider: "anthropic",
+    api: "anthropic-messages",
+  })),
+  fetchProviderConfig: vi.fn(async () => null),
+}));
+vi.mock("@traceroot/core/llm-providers", () => ({
+  DETECTOR_SYSTEM_DEFAULT_MODEL_ID: "claude-haiku-4-5",
+}));
+
+// Dynamic import AFTER mocks, like detector-digest-processor.test.ts:
+async function callGenerate(cfgOverrides = {}) {
+  const { generateDigestSummary } = await import("../digest-summary.js");
+  return generateDigestSummary(
+    {
+      projectName: "Acme",
+      windowStart: new Date("2026-07-13T19:00:00Z"),
+      windowEnd: new Date("2026-07-13T19:10:00Z"),
+      detectors: [{ name: "D", findingCount: 2, sampleSummaries: ["a", "b"] }],
+    },
+    { workspaceId: "ws1", rcaModel: null, rcaProvider: null, rcaSource: null, ...cfgOverrides },
+  );
+}
 
 const WINDOW = {
   windowStart: new Date("2026-07-13T19:00:00Z"),
@@ -72,5 +107,77 @@ describe("buildDigestSummaryTool", () => {
     const tool = buildDigestSummaryTool();
     expect(tool.name).toBe("submit_digest_summary");
     expect((tool.parameters as any).required).toEqual(["summary"]);
+  });
+});
+
+describe("generateDigestSummary", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resolveDetectorApiKey.mockResolvedValue("sk-test");
+  });
+
+  it("returns the tool-call summary and usage on success", async () => {
+    complete.mockResolvedValue({
+      stopReason: "toolUse",
+      model: "claude-haiku-4-5",
+      provider: "anthropic",
+      usage: { input: 900, output: 60, cost: { total: 0.001 } },
+      content: [
+        {
+          type: "toolCall",
+          name: "submit_digest_summary",
+          arguments: { summary: "Stripe is down." },
+        },
+      ],
+    });
+    const r = await callGenerate();
+    expect(r).toEqual({
+      summary: "Stripe is down.",
+      usage: {
+        model: "claude-haiku-4-5",
+        provider: "anthropic",
+        isByok: false,
+        inputTokens: 900,
+        outputTokens: 60,
+        cost: 0.001,
+      },
+    });
+  });
+
+  it("returns null when the model never calls the tool", async () => {
+    complete.mockResolvedValue({
+      stopReason: "stop",
+      content: [{ type: "text", text: "hi" }],
+      usage: {},
+    });
+    expect(await callGenerate()).toBeNull();
+  });
+
+  it("returns null when complete() rejects", async () => {
+    complete.mockRejectedValue(new Error("boom"));
+    expect(await callGenerate()).toBeNull();
+  });
+
+  it("returns null when no API key resolves", async () => {
+    resolveDetectorApiKey.mockResolvedValue(null);
+    expect(await callGenerate()).toBeNull();
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it("returns null when the tool returns an empty summary", async () => {
+    complete.mockResolvedValue({
+      stopReason: "toolUse",
+      content: [{ type: "toolCall", name: "submit_digest_summary", arguments: { summary: "   " } }],
+      usage: {},
+    });
+    expect(await callGenerate()).toBeNull();
+  });
+});
+
+describe("parseDigestSummaryTimeoutMs", () => {
+  it("falls back to 15000 for empty and non-numeric values", async () => {
+    const { parseDigestSummaryTimeoutMs } = await import("../digest-summary.js");
+    expect(parseDigestSummaryTimeoutMs("")).toBe(15_000);
+    expect(parseDigestSummaryTimeoutMs("15s")).toBe(15_000);
   });
 });
