@@ -319,7 +319,7 @@ model AIMessage {
   id           String     @id @default(cuid()) @db.VarChar
   workspaceId  String     @map("workspace_id") @db.VarChar // direct workspace pointer for per-kind aggregation (detector scans have no session)
   sessionId    String?    @map("session_id") @db.VarChar // nullable: detector scans have no chat session
-  kind         String     @default("chat") @db.VarChar // "chat" | "rca" | "detector" — categorical tag for usage aggregation
+  kind         String     @default("chat") @db.VarChar // "chat" | "rca" | "detector" | "digest-summary" — categorical tag; usage metering aggregates only chat|rca|detector (digest-summary is recorded, not metered)
   role         String     @db.VarChar // user, assistant, tool
   content      String     @db.Text
   metadata     Json?      @db.JsonB // tool name, tool result, etc.

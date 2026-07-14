@@ -698,8 +698,9 @@ async def list_detector_window_summary(
     JSON-extracted from the finding payload with the same expression as the
     runs endpoints (one source of truth). UI consumers never set the flag, so
     their read cost is unchanged. The summaries read is best-effort: on any
-    error it is logged and the response is returned without
-    ``sample_summaries`` (counts intact) — it can never fail the endpoint.
+    error, including exceeding its per-query execution cap, it is logged and
+    the response is returned without ``sample_summaries`` (counts intact) — it
+    can never fail the endpoint.
     """
     ch = get_clickhouse_client()
 
@@ -819,7 +820,14 @@ async def list_detector_window_summary(
                 ORDER BY rank ASC, ts DESC
                 LIMIT {DIGEST_SUMMARY_MAX_TOTAL}
             """
-            summaries_result = ch.query(summaries_query, parameters=params)
+            # Bound the digest read: on a huge project a stalled summaries
+            # query must degrade to counts-only (via the except path, per the
+            # best-effort contract) instead of holding the worker's HTTP call.
+            summaries_result = ch.query(
+                summaries_query,
+                parameters=params,
+                settings={"max_execution_time": 10},
+            )
             for detector_id, summary in summaries_result.result_rows:
                 if detector_id in data:
                     data[detector_id].setdefault("sample_summaries", []).append(summary)
