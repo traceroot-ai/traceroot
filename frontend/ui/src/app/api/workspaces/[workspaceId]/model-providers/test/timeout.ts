@@ -21,6 +21,11 @@ export const TEST_CONNECTION_TIMEOUT_MS = resolveTimeoutMs(
   process.env.MODEL_PROVIDER_TEST_TIMEOUT_MS,
 );
 
+// A deadline breach, as opposed to a transport failure. Callers surface the two
+// differently: a timeout message is meaningful on its own, while a transport
+// error's raw text belongs in the detail line rather than the headline.
+export class TimeoutError extends Error {}
+
 // Run the full logical provider check under a single deadline. The timer stays
 // armed until `operation` settles, so it bounds not just the initial fetch() but
 // any subsequent response-body reads the operation performs.
@@ -34,7 +39,7 @@ export async function withTimeout<T>(
     return await operation(controller.signal);
   } catch (err) {
     if (controller.signal.aborted) {
-      throw new Error(`Connection timed out after ${timeoutMs}ms`);
+      throw new TimeoutError(`Connection timed out after ${timeoutMs}ms`);
     }
     throw err;
   } finally {

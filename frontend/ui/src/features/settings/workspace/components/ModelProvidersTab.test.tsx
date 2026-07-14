@@ -81,6 +81,43 @@ describe("ModelProvidersTab - Test Connection error display", () => {
     expect(button.parentElement?.contains(errorText)).toBe(false);
   });
 
+  it("renders a non-auth failure as a headline with the raw provider text demoted to a detail line", async () => {
+    mocks.testModelProvider.mockResolvedValue({
+      success: false,
+      error: "Connection failed",
+      detail: "HTTP 500: Internal Server Error",
+    });
+    renderTab();
+
+    fireEvent.click(await screen.findByRole("button", { name: /add provider/i }));
+    fireEvent.change(screen.getByRole("combobox", { name: /adapter/i }), {
+      target: { value: "openai" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("sk-..."), { target: { value: "k" } });
+    fireEvent.click(screen.getByRole("button", { name: /test connection/i }));
+
+    const headline = await screen.findByText("Connection failed");
+    const detail = screen.getByText("HTTP 500: Internal Server Error");
+    // The raw provider text is a sibling of the headline, styled as secondary.
+    expect(detail).not.toBe(headline);
+    expect(detail.className).toContain("text-muted-foreground");
+  });
+
+  it("surfaces a failed request itself, rather than leaving the user with no result", async () => {
+    mocks.testModelProvider.mockRejectedValue(new Error("Failed to fetch"));
+    renderTab();
+
+    fireEvent.click(await screen.findByRole("button", { name: /add provider/i }));
+    fireEvent.change(screen.getByRole("combobox", { name: /adapter/i }), {
+      target: { value: "openai" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("sk-..."), { target: { value: "k" } });
+    fireEvent.click(screen.getByRole("button", { name: /test connection/i }));
+
+    expect(await screen.findByText("Connection failed")).toBeTruthy();
+    expect(screen.getByText("Failed to fetch")).toBeTruthy();
+  });
+
   it("shows Connected inline next to the button on success, not the error block", async () => {
     mocks.testModelProvider.mockResolvedValue({ success: true });
     renderTab();
