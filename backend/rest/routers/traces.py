@@ -19,6 +19,7 @@ from rest.rate_limit import (
     limiter,
     resolve_limit,
 )
+from rest.retention import enforce_retention_by_time, enforce_retention_window
 from rest.routers.deps import RateLimitedProjectAccess
 from rest.schemas.traces import (
     FilterFieldsResponse,
@@ -61,6 +62,9 @@ async def list_traces(
     """List traces for a project with pagination and filtering."""
     # Parse + validate filters before the DB try-block so a bad predicate surfaces as a
     # 422 rather than being swallowed by the broad 500 handler below.
+    start_after, end_before = enforce_retention_window(
+        _access.billing_plan, start_after, end_before
+    )
     try:
         parsed_filters = parse_filters_param(filters)
     except ValueError as e:
@@ -166,6 +170,9 @@ async def get_filter_values(
         HTTPException: 404 if the field is not in the registry, 400 if it is not a
             distinct-query categorical.
     """
+    start_after, end_before = enforce_retention_window(
+        _access.billing_plan, start_after, end_before
+    )
     column = filter_columns.get_column(field)
     if column is None:
         raise HTTPException(
@@ -234,6 +241,8 @@ async def get_trace(
             detail="Trace not found",
         )
 
+    enforce_retention_by_time(_access.billing_plan, trace.get("trace_start_time"))
+
     hydrate_span_io(service, trace, project_id=project_id, trace_id=trace_id, groups=groups)
     return trace
 
@@ -253,6 +262,10 @@ async def get_span_io(
     """Get full input/output/metadata for a single span on demand."""
     service = get_trace_reader_service()
     try:
+        trace = service.get_trace(project_id=project_id, trace_id=trace_id)
+        if trace:
+            enforce_retention_by_time(_access.billing_plan, trace.get("trace_start_time"))
+
         result = service.get_span_io(
             project_id=project_id,
             trace_id=trace_id,
