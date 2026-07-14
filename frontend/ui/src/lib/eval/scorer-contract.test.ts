@@ -1,5 +1,5 @@
 /**
- * Phase 4 reporting contract: rich scorer metadata + run metadata are accepted, and
+ * Reporting contract: rich scorer metadata + run metadata are accepted, and
  * old SDK clients ({name, version} scorers, no metadata) remain valid.
  */
 import { describe, it, expect } from "vitest";

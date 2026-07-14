@@ -19,13 +19,9 @@ import { CopyButton } from "@/components/ui/copy-button";
 import { cn } from "@/lib/utils";
 import { getTrace } from "@/lib/api/traces";
 import { SpanKindIcon, useSpanIO } from "@/features/traces";
-import {
-  FormCard,
-  EditableValueBlock,
-  LineNumberedTextarea,
-  Timestamp,
-} from "@/features/offline-eval/components";
-import { datasetInitCode, datasetInitCodeTs } from "@/features/offline-eval/utils";
+import { FormCard, EditableValueBlock, Timestamp } from "@/features/offline-eval/components";
+import { tokenizeCode } from "@/features/offline-eval/components/syntax";
+import { useProject } from "@/features/projects/hooks";
 import {
   CAPTURE_REASON_LABEL,
   SPAN_KIND_LABEL,
@@ -42,15 +38,16 @@ import {
 /** Sentinel dataset-select value for "create a new dataset". */
 const NEW_DATASET = "__new__";
 
-/** How the optional expected outcome is set for a captured case. */
-type ExpectedMode = "none" | "recorded" | "corrected";
-
 /** Root = the span with no parent (the application / evaluation-item root). */
 function rootSpan(spans: Span[]): Span | undefined {
   return spans.find((s) => !s.parent_span_id) ?? spans[0];
 }
 
-/** Pretty-print JSON so metadata shows expanded and indented; leave other text. */
+/**
+ * Normalise a captured JSON blob (2-space indent); leave non-JSON text alone.
+ * The field's own `seedJson` preference decides the final shape it opens in —
+ * this just guarantees the seed is valid, canonical JSON when it is JSON.
+ */
 function prettyJson(raw: string | null | undefined): string {
   if (!raw) return "";
   try {
@@ -74,12 +71,12 @@ function boundaryHint(displayKind: string, spanName: string): string {
 }
 
 /**
- * "Save as test case" — a faithful port of the approved mock drawer, wired to the
+ * "Save as test case" — the capture drawer, wired to the
  * server. Opened from the existing trace viewer's span header. Self-contained: it
  * fetches the trace, walks its spans (up/down), lets you pick or create a
  * dataset, and persists via the server (which publishes a new dataset version).
- * The span's input becomes the proposed test input; its output is shown read-only
- * ("Recorded output") and is never treated as the expected answer.
+ * The span's input becomes the proposed test input; the single editable Output field
+ * seeds from the recorded output and, when edited, becomes the expected outcome.
  */
 export function SaveTestCaseDrawer({
   projectId,
@@ -111,8 +108,12 @@ export function SaveTestCaseDrawer({
   const [input, setInput] = React.useState("");
   const [metadata, setMetadata] = React.useState("");
   const [attachSource, setAttachSource] = React.useState(true);
-  const [expectedMode, setExpectedMode] = React.useState<ExpectedMode>("none");
-  const [correctedExpected, setCorrectedExpected] = React.useState("");
+  // The single editable Output field. It seeds from the recorded output; editing it
+  // makes the edit the EXPECTED outcome future runs are graded against, while the
+  // untouched recorded output is still stored separately. Left as-is, expected ==
+  // recorded — but all three fields (input, expected, recorded_output) are persisted.
+  const [output, setOutput] = React.useState("");
+  const [outputEdited, setOutputEdited] = React.useState(false);
   const [duplicate, setDuplicate] = React.useState<{ datasetId: string } | null>(null);
   const [feedback, setFeedback] = React.useState<{
     tone: "error" | "success";
@@ -125,15 +126,20 @@ export function SaveTestCaseDrawer({
     if (open) {
       setDatasetId("");
       setNewDatasetName("");
-      setSelectedSpanId(spanId);
       setAttachSource(true);
-      setExpectedMode("none");
-      setCorrectedExpected("");
+      setOutputEdited(false);
       setDuplicate(null);
       setFeedback(null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // Follow the tree: when the parent retargets the span — a click on a different
+  // span in the span tree while this drawer is open — select it here too. The
+  // drawer's own up/down nav sets internal state without changing this prop, so
+  // it keeps working; only a genuine tree selection re-syncs.
+  React.useEffect(() => {
+    setSelectedSpanId(spanId);
+  }, [spanId]);
 
   const spans = React.useMemo(() => trace?.spans ?? [], [trace]);
   const root = trace ? rootSpan(spans) : undefined;
@@ -147,11 +153,14 @@ export function SaveTestCaseDrawer({
   // per span on demand (getSpanIO), so read them from that hook, not the span.
   const { data: spanIO } = useSpanIO(projectId, traceId ?? "", span?.span_id ?? null);
 
-  // Input / recorded output / metadata follow the fetched span I/O (incl. nav).
+  // Input / output / metadata follow the fetched span I/O (incl. nav). Output reseeds
+  // from the recorded output on each span (nav resets any in-progress edit).
   React.useEffect(() => {
     if (open && spanIO) {
       setInput(spanIO.input ?? "");
       setMetadata(prettyJson(spanIO.metadata));
+      setOutput(spanIO.output ?? "");
+      setOutputEdited(false);
     }
   }, [open, spanIO]);
 
@@ -187,7 +196,11 @@ export function SaveTestCaseDrawer({
       }
       return res.json() as Promise<{ duplicate: boolean; testCaseId?: string; versionId?: string }>;
     },
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["datasets"] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["datasets"] });
+      // Refresh the span→dataset chips so the just-saved span is marked at once.
+      void qc.invalidateQueries({ queryKey: ["evaluations", "trace-test-cases"] });
+    },
   });
 
   if (!open || !traceId) return null;
@@ -229,17 +242,13 @@ export function SaveTestCaseDrawer({
       } catch {
         /* non-JSON metadata → not persisted */
       }
-      const expected =
-        expectedMode === "recorded"
-          ? recordedOutput || null
-          : expectedMode === "corrected"
-            ? correctedExpected.trim() || null
-            : null;
+      // The Output field IS the expected outcome (edited or not); the recorded output
+      // is always stored separately. Unedited → expected == recorded output.
       const res = await save.mutateAsync({
         datasetId: dsId,
         body: {
           input,
-          expected,
+          expected: output.trim() || null,
           recorded_output: recordedOutput || null,
           metadata: metadataObj,
           review: "needs_review",
@@ -358,83 +367,60 @@ export function SaveTestCaseDrawer({
           text={input}
           onChange={setInput}
           copyable
-          autoDetectKind
+          // Read + hand-edited most, and usually the most nested → expand it.
+          seedJson="expanded"
           boxed
           minRows={2}
+          collapsible
+          collapseResetKey={span?.span_id}
         />
 
         <div>
           <EditableValueBlock
-            label="Recorded output"
-            text={recordedOutput}
-            onChange={() => {}}
+            label="Output"
+            text={output}
+            onChange={(v) => {
+              setOutput(v);
+              setOutputEdited(true);
+            }}
             copyable
-            autoDetectKind
+            // Read and possibly hand-corrected — expand it like Input.
+            seedJson="expanded"
             boxed
             minRows={2}
-            readOnly
+            collapsible
+            collapseResetKey={span?.span_id}
           />
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            What happened in production. Kept separate from the expected outcome.
+          <p className="mt-1 flex items-start gap-1.5 text-[11px] text-muted-foreground">
+            <Info className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
+            {outputEdited ? (
+              <span>
+                Edited — your version becomes the{" "}
+                <span className="font-medium text-foreground">expected outcome</span>; the original
+                recorded output is still stored.
+              </span>
+            ) : (
+              <span>
+                The recorded production output. Leave it to grade against it, or edit to set a
+                corrected <span className="font-medium text-foreground">expected outcome</span> —
+                the recorded output is kept either way.
+              </span>
+            )}
           </p>
         </div>
-
-        <FormCard label="Expected outcome">
-          <div className="flex flex-col gap-1" role="radiogroup" aria-label="Expected outcome">
-            {(
-              [
-                ["none", "Not required"],
-                ["recorded", "Use recorded output"],
-                ["corrected", "Enter a corrected outcome"],
-              ] as Array<[ExpectedMode, string]>
-            ).map(([value, label]) => (
-              <label
-                key={value}
-                className={cn(
-                  "flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-[12px]",
-                  expectedMode === value ? "text-foreground" : "text-muted-foreground",
-                )}
-              >
-                <input
-                  type="radio"
-                  name="expected-outcome"
-                  value={value}
-                  checked={expectedMode === value}
-                  onChange={() => setExpectedMode(value)}
-                  className="h-3.5 w-3.5 accent-foreground"
-                />
-                {label}
-              </label>
-            ))}
-          </div>
-
-          {expectedMode === "recorded" && (
-            <p className="mt-2 flex items-start gap-1.5 rounded border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-700 dark:text-amber-300">
-              <Info className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
-              This will become the outcome future runs are evaluated against.
-            </p>
-          )}
-          {expectedMode === "corrected" && (
-            <div className="mt-2">
-              <LineNumberedTextarea
-                value={correctedExpected}
-                onChange={setCorrectedExpected}
-                minRows={2}
-                placeholder="Corrected expected outcome"
-                aria-label="Corrected expected outcome"
-              />
-            </div>
-          )}
-        </FormCard>
 
         <EditableValueBlock
           label="Metadata"
           text={metadata}
           onChange={setMetadata}
           copyable
-          autoDetectKind
+          // Incidental context, usually one or two short keys → keep it inline
+          // (seedFormat expands it anyway once it stops fitting on one line).
+          seedJson="compact"
           boxed
           minRows={2}
+          collapsible
+          collapseResetKey={span?.span_id}
         />
 
         <div className="border border-border">
@@ -544,15 +530,42 @@ export function TraceEvaluationChip({
   );
 }
 
-/** Small SDK-snippet card with a Python / TypeScript toggle (one shown at a time). */
-function DatasetSdkSnippet({ datasetName }: { datasetName: string }) {
-  const [lang, setLang] = React.useState<"python" | "typescript">("python");
-  const code = lang === "python" ? datasetInitCode(datasetName) : datasetInitCodeTs(datasetName);
+type Lang = "python" | "typescript";
+
+/** e.g. "Billing routing" → "billing-routing". */
+function slugify(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, "-");
+}
+
+/**
+ * A 4-line initDataset snippet for one language — identical in shape to the
+ * DatasetInfoChip. Indents differ on purpose: 4 spaces for
+ * Python (PEP 8), 2 for TypeScript (Prettier).
+ */
+function sdkSnippet(lang: Lang, projectName: string, datasetSlug: string, version: string): string {
+  if (lang === "python") {
+    return `traceroot.init_dataset("${projectName}", {\n    "dataset": "${datasetSlug}",\n    "version": "${version}",\n})`;
+  }
+  return `traceroot.initDataset("${projectName}", {\n  dataset: "${datasetSlug}",\n  version: "${version}",\n});`;
+}
+
+/** SDK init snippet with a Python / TypeScript toggle — one shown at a time. */
+function DatasetSdkSnippet({
+  projectName,
+  datasetName,
+  version,
+}: {
+  projectName: string;
+  datasetName: string;
+  version: string;
+}) {
+  const [lang, setLang] = React.useState<Lang>("python");
+  const code = sdkSnippet(lang, projectName, slugify(datasetName), version);
   return (
     <div className="overflow-hidden rounded border border-border">
       <div className="flex items-center justify-between border-b border-border bg-muted/50 px-1.5 py-1">
         <div className="flex items-center gap-0.5">
-          {(["python", "typescript"] as const).map((l) => (
+          {(["python", "typescript"] as Lang[]).map((l) => (
             <button
               key={l}
               type="button"
@@ -570,8 +583,14 @@ function DatasetSdkSnippet({ datasetName }: { datasetName: string }) {
         </div>
         <CopyButton value={code} className="h-6 w-6" iconClassName="h-3.5 w-3.5" title="Copy" />
       </div>
-      <pre className="max-h-48 overflow-auto whitespace-pre px-2.5 py-2 font-mono text-xs leading-relaxed">
-        {code}
+      {/* pb-6 so the horizontal scrollbar at the pre's bottom doesn't overlap the
+          last line (it scrolls in both axes with a small max height). */}
+      <pre className="max-h-48 overflow-auto whitespace-pre px-2.5 pb-6 pt-2 font-mono text-xs leading-relaxed">
+        {tokenizeCode(code).map((t, i) => (
+          <span key={i} className={t.cls || undefined}>
+            {t.text}
+          </span>
+        ))}
       </pre>
     </div>
   );
@@ -594,6 +613,8 @@ export function SpanDatasetChip({
   spanId: string;
 }) {
   const { data } = useTraceTestCases(projectId, traceId);
+  const { data: project } = useProject(projectId);
+  const projectName = project?.name ?? "your-project";
   const matches = (data?.data ?? []).filter((c) => c.sourceSpanId === spanId);
   if (matches.length === 0) return null;
   return (
@@ -629,7 +650,11 @@ export function SpanDatasetChip({
                 </span>
               </div>
             </div>
-            <DatasetSdkSnippet datasetName={c.datasetName} />
+            <DatasetSdkSnippet
+              projectName={projectName}
+              datasetName={c.datasetName}
+              version={c.datasetVersionLabel}
+            />
           </TooltipContent>
         </Tooltip>
       ))}

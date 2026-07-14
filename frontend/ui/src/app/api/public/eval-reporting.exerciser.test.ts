@@ -1,5 +1,5 @@
 /**
- * Local SDK contract exerciser (Phase 8).
+ * Local SDK contract exerciser.
  *
  * Drives the real public reporting Route Handlers end to end against an in-memory
  * fake prisma — the smallest thing that simulates what the SDK will eventually
@@ -98,6 +98,13 @@ describe("SDK reporting: full run lifecycle", () => {
     const runId = regBody.evaluation_run_id as string;
     expect(regBody.run_number).toBe(1);
     expect(regBody.dataset_version_id).toBe("dv1");
+    // UI-relative run path (back-compat).
+    expect(regBody.run_path).toBe(`/projects/${PROJECT_ID}/evaluations/${runId}`);
+    // Absolute clickable URL the SDK prints — run_path resolved against the app origin.
+    const appBase = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    expect(regBody.run_url).toBe(
+      new URL(`/projects/${PROJECT_ID}/evaluations/${runId}`, appBase).toString(),
+    );
     expect(fakePrisma.evaluation.rows).toHaveLength(1);
 
     // Idempotency: same client_run_id returns the same run, no duplicate.
