@@ -15,6 +15,12 @@ interface ProjectBreadcrumbProps {
   projectId: string;
   /** Final breadcrumb text (e.g., "Settings", trace name). If provided, project becomes a link. */
   current?: string;
+  /**
+   * Intermediate segments between the project and `current`, for nested pages —
+   * e.g. `[{ label: "Datasets", href: ".../datasets" }]` on a dataset detail page,
+   * so the trail reads Workspace / Project / Datasets / <name>. Each is a link.
+   */
+  trail?: Array<{ label: string; href?: string }>;
 }
 
 /**
@@ -31,7 +37,7 @@ interface ProjectBreadcrumbProps {
  * <ProjectBreadcrumb projectId={projectId} current={trace?.name} />
  * ```
  */
-export function ProjectBreadcrumb({ projectId, current }: ProjectBreadcrumbProps) {
+export function ProjectBreadcrumb({ projectId, current, trail }: ProjectBreadcrumbProps) {
   const { setHeaderContent } = useLayout();
   const pathname = usePathname();
   const { data: project } = useProject(projectId);
@@ -39,6 +45,9 @@ export function ProjectBreadcrumb({ projectId, current }: ProjectBreadcrumbProps
   const { data: workspace } = useWorkspace(project?.workspace_id || "", !!project?.workspace_id);
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
+  // Depend on the trail's content, not its array identity, so an inline-literal
+  // trail from a caller doesn't re-run the effect (and re-set the header) each render.
+  const trailKey = JSON.stringify(trail ?? []);
 
   useEffect(() => {
     const breadcrumbItems: BreadcrumbItem[] = [
@@ -57,7 +66,7 @@ export function ProjectBreadcrumb({ projectId, current }: ProjectBreadcrumbProps
       },
       {
         label: project?.name || "...",
-        href: current ? `/projects/${projectId}/traces` : undefined,
+        href: current || trail?.length ? `/projects/${projectId}/traces` : undefined,
         options: workspace?.projects?.map((p) => ({
           id: p.id,
           label: p.name,
@@ -73,13 +82,19 @@ export function ProjectBreadcrumb({ projectId, current }: ProjectBreadcrumbProps
       },
     ];
 
+    for (const segment of trail ?? []) {
+      breadcrumbItems.push({ label: segment.label, href: segment.href });
+    }
+
     if (current) {
       breadcrumbItems.push({ label: current });
     }
 
     setHeaderContent(<Breadcrumb items={breadcrumbItems} />);
     return () => setHeaderContent(null);
-  }, [setHeaderContent, project, workspace, workspaces, projectId, current, pathname]);
+    // trailKey encodes `trail`'s content (see above); listing trail itself would churn.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setHeaderContent, project, workspace, workspaces, projectId, current, trailKey, pathname]);
 
   return (
     <>
