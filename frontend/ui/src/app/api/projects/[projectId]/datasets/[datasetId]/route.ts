@@ -7,6 +7,7 @@ import {
   successResponse,
 } from "@/lib/auth-helpers";
 import { displayJsonValue } from "@/lib/eval/json-value";
+import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 
 type RouteParams = { params: Promise<{ projectId: string; datasetId: string }> };
 
@@ -35,11 +36,13 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     dataset.versions.find((v) => v.id === dataset.currentVersionId) ??
     null;
 
-  // Newest first for the UI table (latest-added test case at the top).
+  // Newest first for the UI table (latest-added test case at the top). Every case
+  // a publish writes shares one create_time, so testCaseId breaks the tie and the
+  // table does not reshuffle between two loads of the same version.
   const testCases = selectedVersion
     ? await prisma.testCase.findMany({
         where: { datasetVersionId: selectedVersion.id },
-        orderBy: { createTime: "desc" },
+        orderBy: [{ createTime: "desc" }, { testCaseId: "desc" }],
       })
     : [];
   const currentVersion = dataset.versions.find((v) => v.id === dataset.currentVersionId) ?? null;
@@ -95,7 +98,13 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   return successResponse({ dataset });
 }
 
-// DELETE — remove the dataset (cascades versions/test cases).
+// DELETE — remove the dataset and cascade its versions/test cases.
+//
+// Refused once anything has been evaluated: a run pins a dataset_version_id, and
+// that snapshot must stay byte-stable and pullable for as long as the run exists.
+// The database enforces it (evaluation_runs → dataset_versions is NoAction, so the
+// cascade cannot take a pinned version with it); this pre-check exists so the
+// answer is a deliberate 409 rather than a foreign-key error surfacing as a 500.
 export async function DELETE(_req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
@@ -109,6 +118,20 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
   });
   if (!existing) return errorResponse("Dataset not found", 404);
 
-  await prisma.dataset.delete({ where: { id: datasetId } });
+  const runCount = await prisma.evaluationRun.count({ where: { datasetId, projectId } });
+  if (runCount > 0) {
+    return errorResponse("Cannot delete a dataset that has evaluation runs", 409);
+  }
+
+  try {
+    await prisma.dataset.delete({ where: { id: datasetId } });
+  } catch (err) {
+    // A run registered between the count and the delete: the FK still holds the
+    // line, and the caller gets the same 409 instead of an unexplained 500.
+    if (isPrismaKnownError(err, "P2003") || isPrismaKnownError(err, "P2014")) {
+      return errorResponse("Cannot delete a dataset that has evaluation runs", 409);
+    }
+    throw err;
+  }
   return successResponse({ deleted: true });
 }

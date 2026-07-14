@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma, type Prisma, PublicUpsertDatasetRequestSchema } from "@traceroot/core";
 import { requireApiKeyProject } from "@/lib/eval/auth";
+import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
@@ -31,14 +32,23 @@ export async function GET(request: Request) {
     orderBy: { id: "desc" },
     take: limit + 1,
     ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
-    select: { id: true, name: true, description: true, currentVersionId: true, updateTime: true },
+    select: {
+      id: true,
+      clientDatasetId: true,
+      name: true,
+      description: true,
+      currentVersionId: true,
+      updateTime: true,
+    },
   });
 
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
   return NextResponse.json({
     datasets: page.map((d) => ({
-      dataset_id: d.id,
+      // The id the SDK addresses this dataset by: its own, or the row id for a
+      // dataset created in the UI. next_cursor stays an opaque row id.
+      dataset_id: d.clientDatasetId ?? d.id,
       name: d.name,
       description: d.description,
       current_dataset_version_id: d.currentVersionId,
@@ -51,7 +61,13 @@ export async function GET(request: Request) {
 // POST /api/public/datasets — upsert a dataset by its client-generated id (A2).
 // Idempotent within the project: re-sending the same dataset_id returns the
 // existing dataset (200) without creating a duplicate; a version is never created
-// here (see .../versions). An id owned by another project is 404 (not disclosed).
+// here (see .../versions).
+//
+// The client id is stored in `clientDatasetId`, unique per project — NOT as the
+// primary key. As a global PK one tenant could POST a handful of plausible names
+// ("prod-eval", "golden-set") and permanently block every other tenant from
+// creating them. Scoped to the project, two tenants can each own "prod-eval" and
+// neither can observe the other's.
 export async function POST(request: Request) {
   const auth = await requireApiKeyProject(request);
   if (auth.error) return auth.error;
@@ -69,17 +85,17 @@ export async function POST(request: Request) {
   }
   const c = parsed.data;
 
+  const key = { projectId, clientDatasetId: c.dataset_id };
+  const select = { id: true, name: true, description: true, currentVersionId: true };
+
   const existing = await prisma.dataset.findUnique({
-    where: { id: c.dataset_id },
-    select: { id: true, projectId: true, name: true, description: true, currentVersionId: true },
+    where: { projectId_clientDatasetId: key },
+    select,
   });
   if (existing) {
-    if (existing.projectId !== projectId) {
-      return NextResponse.json({ error: "Dataset not found" }, { status: 404 });
-    }
     return NextResponse.json(
       {
-        dataset_id: existing.id,
+        dataset_id: c.dataset_id,
         name: existing.name,
         description: existing.description,
         current_dataset_version_id: existing.currentVersionId,
@@ -88,23 +104,42 @@ export async function POST(request: Request) {
     );
   }
 
-  const created = await prisma.dataset.create({
-    data: {
-      id: c.dataset_id,
-      projectId,
-      name: c.name,
-      description: c.description ?? null,
-      metadata: (c.metadata ?? undefined) as Prisma.InputJsonValue | undefined,
-    },
-    select: { id: true, name: true, description: true, currentVersionId: true },
-  });
-  return NextResponse.json(
-    {
-      dataset_id: created.id,
-      name: created.name,
-      description: created.description,
-      current_dataset_version_id: created.currentVersionId,
-    },
-    { status: 201 },
-  );
+  try {
+    const created = await prisma.dataset.create({
+      data: {
+        ...key,
+        name: c.name,
+        description: c.description ?? null,
+        metadata: (c.metadata ?? undefined) as Prisma.InputJsonValue | undefined,
+      },
+      select,
+    });
+    return NextResponse.json(
+      {
+        dataset_id: c.dataset_id,
+        name: created.name,
+        description: created.description,
+        current_dataset_version_id: created.currentVersionId,
+      },
+      { status: 201 },
+    );
+  } catch (err) {
+    // Two first-time upserts of the same id raced: uq_dataset_project_client_id
+    // rejected the loser. Re-read and answer as the idempotent 200 this promises.
+    if (!isPrismaKnownError(err, "P2002")) throw err;
+    const raced = await prisma.dataset.findUnique({
+      where: { projectId_clientDatasetId: key },
+      select,
+    });
+    if (!raced) throw err;
+    return NextResponse.json(
+      {
+        dataset_id: c.dataset_id,
+        name: raced.name,
+        description: raced.description,
+        current_dataset_version_id: raced.currentVersionId,
+      },
+      { status: 200 },
+    );
+  }
 }

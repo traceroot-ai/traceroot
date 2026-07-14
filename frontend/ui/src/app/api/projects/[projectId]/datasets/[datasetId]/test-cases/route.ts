@@ -6,7 +6,13 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
-import { publishDatasetVersion, newTestCaseId, DatasetNotFound } from "@/lib/eval/versions";
+import {
+  publishDatasetVersion,
+  newTestCaseId,
+  DatasetNotFound,
+  VersionConflict,
+} from "@/lib/eval/versions";
+import { encodeJsonValue } from "@/lib/eval/json-value";
 
 type RouteParams = { params: Promise<{ projectId: string; datasetId: string }> };
 
@@ -69,8 +75,14 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
           ...current,
           {
             testCaseId,
-            input: c.input,
-            expected: c.expected ?? null,
+            // Stored JSON-ENCODED, the one on-disk encoding for these columns
+            // (the public publish path and the pull path agree on it). Written
+            // raw, a case authored here as the text "123" would come back from
+            // the public API as the number 123 — a type change inside a snapshot
+            // a run scores against.
+            input: encodeJsonValue(c.input),
+            expected:
+              c.expected === null || c.expected === undefined ? null : encodeJsonValue(c.expected),
             recordedOutput: c.recorded_output ?? null,
             metadata: (c.metadata ?? null) as Record<string, unknown> | null,
             review: c.review,
@@ -87,6 +99,11 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     return successResponse({ duplicate: false, ...result }, 201);
   } catch (err) {
     if (err instanceof DatasetNotFound) return errorResponse("Dataset not found", 404);
+    // Another publish kept winning the pointer swap; ask the caller to retry
+    // rather than surfacing the conflict as a 500.
+    if (err instanceof VersionConflict) {
+      return errorResponse("The dataset changed while saving; please retry", 409);
+    }
     throw err;
   }
 }

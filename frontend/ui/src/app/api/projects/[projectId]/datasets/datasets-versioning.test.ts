@@ -29,8 +29,10 @@ vi.mock("@traceroot/core", async (importOriginal) => {
 });
 
 import { fakePrisma } from "@/lib/eval/__tests__/fake-prisma";
+import { decodeJsonValue, encodeJsonValue } from "@/lib/eval/json-value";
 import { POST as saveTestCase } from "./[datasetId]/test-cases/route";
 import { PATCH as editTestCase } from "./[datasetId]/test-cases/[testCaseId]/route";
+import { GET as getDataset, DELETE as deleteDataset } from "./[datasetId]/route";
 
 const PROJECT_ID = "proj_1";
 
@@ -161,7 +163,125 @@ describe("editing a test case publishes a new version and leaves the old snapsho
     const v2Case = fakePrisma.testCase.rows.find(
       (c) => c.datasetVersionId === dataset.currentVersionId && c.testCaseId === "case-1",
     )!;
-    expect(v2Case.expected).toBe("account-management");
+    expect(decodeJsonValue(v2Case.expected as string)).toBe("account-management");
     expect(v2Case.review).toBe("needs_review"); // content edit demotes ready
+  });
+});
+
+describe("the stored encoding survives a UI round trip", () => {
+  it("keeps a genuine string that looks like a number a string", async () => {
+    // As an SDK publish would have written it: JSON-encoded, so "123" is a string.
+    fakePrisma.testCase.rows.push({
+      id: "row-str",
+      testCaseId: "case-str",
+      datasetVersionId: "dv1",
+      datasetId: "ds1",
+      projectId: PROJECT_ID,
+      input: encodeJsonValue("123"),
+      review: "ready",
+      captureReason: "manual",
+    });
+
+    // The UI shows it as `123` and saves that text back unchanged.
+    await editTestCase(req({ input: "123" }), p({ testCaseId: "case-str" }));
+
+    const dataset = fakePrisma.dataset.rows.find((d) => d.id === "ds1")!;
+    const edited = fakePrisma.testCase.rows.find(
+      (c) => c.datasetVersionId === dataset.currentVersionId && c.testCaseId === "case-str",
+    )!;
+    expect(decodeJsonValue(edited.input as string)).toBe("123");
+    expect(typeof decodeJsonValue(edited.input as string)).toBe("string");
+  });
+
+  it("keeps a structured value structured", async () => {
+    fakePrisma.testCase.rows.push({
+      id: "row-obj",
+      testCaseId: "case-obj",
+      datasetVersionId: "dv1",
+      datasetId: "ds1",
+      projectId: PROJECT_ID,
+      input: encodeJsonValue({ question: "why?" }),
+      review: "ready",
+      captureReason: "manual",
+    });
+
+    // The UI shows structured values as pretty JSON and saves the edited JSON.
+    await editTestCase(req({ input: '{\n  "question": "how?"\n}' }), p({ testCaseId: "case-obj" }));
+
+    const dataset = fakePrisma.dataset.rows.find((d) => d.id === "ds1")!;
+    const edited = fakePrisma.testCase.rows.find(
+      (c) => c.datasetVersionId === dataset.currentVersionId && c.testCaseId === "case-obj",
+    )!;
+    expect(decodeJsonValue(edited.input as string)).toEqual({ question: "how?" });
+  });
+
+  it("stores a case added in the UI JSON-encoded, not raw", async () => {
+    await saveTestCase(req({ input: "true" }), p());
+
+    const dataset = fakePrisma.dataset.rows.find((d) => d.id === "ds1")!;
+    const added = fakePrisma.testCase.rows.find(
+      (c) => c.datasetVersionId === dataset.currentVersionId && c.testCaseId !== "case-1",
+    )!;
+    expect(added.input).toBe('"true"');
+    expect(decodeJsonValue(added.input as string)).toBe("true"); // not the boolean
+  });
+});
+
+describe("reading a version's cases is deterministically ordered", () => {
+  it("breaks create_time ties on test_case_id instead of returning insertion order", async () => {
+    // Every case a publish writes shares one create_time (CURRENT_TIMESTAMP is the
+    // transaction start time), so the tie is the normal case, not an edge case.
+    const tie = new Date("2026-02-02T00:00:00.000Z");
+    fakePrisma.testCase.rows.length = 0;
+    for (const id of ["case-c", "case-a", "case-b"]) {
+      fakePrisma.testCase.rows.push({
+        id: `row-${id}`,
+        testCaseId: id,
+        datasetVersionId: "dv1",
+        datasetId: "ds1",
+        projectId: PROJECT_ID,
+        input: encodeJsonValue(id),
+        createTime: tie,
+        review: "ready",
+        captureReason: "manual",
+      });
+    }
+
+    const res = await getDataset(
+      { nextUrl: { searchParams: new URLSearchParams() } } as unknown as Parameters<
+        typeof getDataset
+      >[0],
+      p(),
+    );
+    const body = (await res.json()) as { testCases: { testCaseId: string }[] };
+    // The UI table is newest-first, so ties resolve on test_case_id descending.
+    expect(body.testCases.map((c) => c.testCaseId)).toEqual(["case-c", "case-b", "case-a"]);
+  });
+});
+
+describe("deleting a dataset", () => {
+  const del = () => deleteDataset({} as unknown as Parameters<typeof deleteDataset>[0], p());
+
+  it("removes a dataset that has never been evaluated", async () => {
+    const res = await del();
+    expect(res.status).toBe(200);
+    expect(fakePrisma.dataset.rows).toHaveLength(0);
+    expect(fakePrisma.datasetVersion.rows).toHaveLength(0);
+    expect(fakePrisma.testCase.rows).toHaveLength(0);
+  });
+
+  it("refuses with 409 once a run pinned one of its versions, instead of a 500", async () => {
+    fakePrisma.evaluationRun.rows.push({
+      id: "run1",
+      projectId: PROJECT_ID,
+      datasetId: "ds1",
+      datasetVersionId: "dv1",
+    });
+
+    const res = await del();
+    expect(res.status).toBe(409);
+    // The pinned snapshot is still there for the run that scored against it.
+    expect(fakePrisma.datasetVersion.rows).toHaveLength(1);
+    expect(fakePrisma.testCase.rows).toHaveLength(1);
   });
 });

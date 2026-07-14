@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { encodeJsonValue, decodeJsonValue, displayJsonValue } from "./json-value";
+import { encodeJsonValue, decodeJsonValue, displayJsonValue, encodeEditedText } from "./json-value";
 
 // The canonical public representation: encode-on-write, decode-on-read must round-trip
 // every JSON value type — the crux of the dataset value contract with the SDK.
@@ -58,5 +58,44 @@ describe("displayJsonValue (session/UI text form)", () => {
 
   it("passes legacy plain text through", () => {
     expect(displayJsonValue("plain legacy input")).toBe("plain legacy input");
+  });
+});
+
+// The UI edits values as the text displayJsonValue produced, so re-encoding has to
+// put back a value of the same kind — otherwise a UI save changes a case's type
+// inside an immutable snapshot a run scores against.
+describe("encodeEditedText (UI edit → stored encoding)", () => {
+  const roundTrip = (value: unknown, edited?: string) => {
+    const stored = encodeJsonValue(value);
+    return decodeJsonValue(encodeEditedText(stored, edited ?? displayJsonValue(stored)));
+  };
+
+  it("keeps a genuine JSON-looking string a string", () => {
+    expect(roundTrip("123")).toBe("123");
+    expect(roundTrip("true")).toBe("true");
+    expect(roundTrip("null")).toBe("null");
+    expect(roundTrip('{"a":1}')).toBe('{"a":1}');
+  });
+
+  it("keeps structured and scalar values in their own kind", () => {
+    expect(roundTrip({ a: 1 })).toEqual({ a: 1 });
+    expect(roundTrip([1, 2])).toEqual([1, 2]);
+    expect(roundTrip(42)).toBe(42);
+    expect(roundTrip(true)).toBe(true);
+  });
+
+  it("carries an edit through", () => {
+    expect(roundTrip("hello", "goodbye")).toBe("goodbye");
+    expect(roundTrip({ a: 1 }, '{"a": 2}')).toEqual({ a: 2 });
+    expect(roundTrip(42, "43")).toBe(43);
+  });
+
+  it("falls back to a string when a structured value is edited into free text", () => {
+    expect(roundTrip({ a: 1 }, "not json any more")).toBe("not json any more");
+  });
+
+  it("treats a legacy plain-text row as a string", () => {
+    expect(decodeJsonValue(encodeEditedText("legacy text", "123"))).toBe("123");
+    expect(decodeJsonValue(encodeEditedText(null, "123"))).toBe("123");
   });
 });

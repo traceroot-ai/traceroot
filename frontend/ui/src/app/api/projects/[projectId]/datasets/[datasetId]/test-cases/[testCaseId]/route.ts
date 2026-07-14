@@ -6,7 +6,8 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
-import { publishDatasetVersion, DatasetNotFound } from "@/lib/eval/versions";
+import { publishDatasetVersion, DatasetNotFound, VersionConflict } from "@/lib/eval/versions";
+import { encodeEditedText } from "@/lib/eval/json-value";
 
 type RouteParams = {
   params: Promise<{ projectId: string; datasetId: string; testCaseId: string }>;
@@ -62,8 +63,21 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
           const demote = touchesContent && seed.review === "ready" && patch.review === undefined;
           return {
             ...seed,
-            ...(patch.input !== undefined ? { input: patch.input } : {}),
-            ...(patch.expected !== undefined ? { expected: patch.expected } : {}),
+            // The UI edits values as text, but the column holds one encoding
+            // (JSON-encoded) shared with the SDK publish/pull paths. Re-encode
+            // against the value being replaced so an edit cannot silently change
+            // a case's type inside the snapshot a run scores against.
+            ...(patch.input !== undefined
+              ? { input: encodeEditedText(seed.input, patch.input) }
+              : {}),
+            ...(patch.expected !== undefined
+              ? {
+                  expected:
+                    patch.expected === null
+                      ? null
+                      : encodeEditedText(seed.expected, patch.expected),
+                }
+              : {}),
             ...(patch.metadata !== undefined
               ? { metadata: patch.metadata as Record<string, unknown> | null }
               : {}),
@@ -76,6 +90,9 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     return successResponse(result, 201);
   } catch (err) {
     if (err instanceof DatasetNotFound) return errorResponse("Dataset not found", 404);
+    if (err instanceof VersionConflict) {
+      return errorResponse("The dataset changed while saving; please retry", 409);
+    }
     throw err;
   }
 }

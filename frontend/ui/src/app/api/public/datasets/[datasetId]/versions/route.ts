@@ -3,15 +3,20 @@ import {
   prisma,
   PublishDatasetVersionRequestSchema,
   DATASET_VERSION_MAX_CHANGES,
+  DATASET_VERSION_MAX_BYTES,
+  serializedByteLength,
 } from "@traceroot/core";
 import { requireApiKeyProject } from "@/lib/eval/auth";
 import {
   publishDatasetVersion,
+  resolvePublicDataset,
   DatasetNotFound,
   VersionConflict,
   type TestCaseSeed,
 } from "@/lib/eval/versions";
 import { encodeJsonValue } from "@/lib/eval/json-value";
+import { readLimitedJson } from "@/lib/eval/body";
+import { isPrismaKnownError, prismaErrorTarget } from "@/lib/eval/prisma-errors";
 
 type RouteParams = { params: Promise<{ datasetId: string }> };
 
@@ -28,13 +33,19 @@ export async function POST(request: Request, { params }: RouteParams) {
   const { projectId } = auth;
   const { datasetId } = await params;
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  // Bound the body on the wire, BEFORE it is buffered and parsed: a count cap
+  // cannot stop 1000 changes each carrying a multi-megabyte `input`, and by the
+  // time a parsed payload could be measured it is already resident in memory.
+  const body = await readLimitedJson(request, DATASET_VERSION_MAX_BYTES);
+  if (!body.ok) {
+    return NextResponse.json(
+      body.status === 413
+        ? { error: body.error, limit_bytes: DATASET_VERSION_MAX_BYTES }
+        : { error: body.error },
+      { status: body.status },
+    );
   }
-  const parsed = PublishDatasetVersionRequestSchema.safeParse(body);
+  const parsed = PublishDatasetVersionRequestSchema.safeParse(body.value);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
   }
@@ -47,9 +58,28 @@ export async function POST(request: Request, { params }: RouteParams) {
     );
   }
 
+  // Per-value caps live in the contract; this bounds their SUM, which is what the
+  // transaction actually writes.
+  const totalBytes = c.changes.reduce(
+    (sum, ch) =>
+      ch.op !== "upsert"
+        ? sum
+        : sum +
+          serializedByteLength(ch.input) +
+          serializedByteLength(ch.expected) +
+          serializedByteLength(ch.metadata),
+    0,
+  );
+  if (totalBytes > DATASET_VERSION_MAX_BYTES) {
+    return NextResponse.json(
+      { error: "Publish payload too large", limit_bytes: DATASET_VERSION_MAX_BYTES },
+      { status: 413 },
+    );
+  }
+
   try {
     const result = await publishDatasetVersion({
-      datasetId,
+      clientDatasetId: datasetId,
       projectId,
       label: c.label,
       baseVersionId: c.base_version_id,
@@ -115,6 +145,41 @@ export async function POST(request: Request, { params }: RouteParams) {
         { status: 409 },
       );
     }
+    // Backstop for a constraint violation that outlived the retries in
+    // publishDatasetVersion. An SDK that retries on 409 and treats a repeated
+    // 200 as success must never see an opaque 500 here — least of all for an
+    // idempotency key, where a 500 leaves it unable to tell if the publish landed.
+    if (isPrismaKnownError(err, "P2002")) {
+      const dataset = await resolvePublicDataset(prisma, projectId, datasetId);
+      const target = prismaErrorTarget(err);
+      if (dataset && c.idempotency_key && target.includes("idempotency")) {
+        const landed = await prisma.datasetVersion.findFirst({
+          where: { datasetId: dataset.id, idempotencyKey: c.idempotency_key },
+          select: { id: true, versionNumber: true },
+        });
+        if (landed) {
+          return NextResponse.json(
+            {
+              dataset_id: datasetId,
+              dataset_version_id: landed.id,
+              version_number: landed.versionNumber,
+              case_count: await prisma.testCase.count({
+                where: { datasetVersionId: landed.id },
+              }),
+            },
+            { status: 200 },
+          );
+        }
+      }
+      return NextResponse.json(
+        {
+          error: "conflict",
+          base_version_id: c.base_version_id,
+          current_version_id: dataset?.currentVersionId ?? null,
+        },
+        { status: 409 },
+      );
+    }
     throw err;
   }
 }
@@ -127,10 +192,7 @@ export async function GET(request: Request, { params }: RouteParams) {
   const { projectId } = auth;
   const { datasetId } = await params;
 
-  const dataset = await prisma.dataset.findFirst({
-    where: { id: datasetId, projectId },
-    select: { id: true, currentVersionId: true },
-  });
+  const dataset = await resolvePublicDataset(prisma, projectId, datasetId);
   if (!dataset) return NextResponse.json({ error: "Dataset not found" }, { status: 404 });
 
   const url = new URL(request.url);
@@ -142,7 +204,7 @@ export async function GET(request: Request, { params }: RouteParams) {
   const cursor = url.searchParams.get("cursor");
 
   const rows = await prisma.datasetVersion.findMany({
-    where: { datasetId, projectId },
+    where: { datasetId: dataset.id, projectId },
     orderBy: { versionNumber: "desc" },
     take: limit + 1,
     ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),

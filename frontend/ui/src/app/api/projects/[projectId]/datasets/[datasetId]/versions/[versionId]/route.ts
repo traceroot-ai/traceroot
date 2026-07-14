@@ -6,6 +6,7 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { TEST_CASE_ORDER } from "@/lib/eval/versions";
 
 type RouteParams = {
   params: Promise<{ projectId: string; datasetId: string; versionId: string }>;
@@ -21,7 +22,9 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
 
   const version = await prisma.datasetVersion.findFirst({
     where: { id: versionId, datasetId, projectId },
-    include: { testCases: { orderBy: { createTime: "asc" } } },
+    // Same total order as the public pull: a version's cases read identically
+    // everywhere, including when every row shares one create_time.
+    include: { testCases: { orderBy: TEST_CASE_ORDER } },
   });
   if (!version) return errorResponse("Dataset version not found", 404);
 

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@traceroot/core";
 import { requireApiKeyProject } from "@/lib/eval/auth";
 import { decodeJsonValue } from "@/lib/eval/json-value";
+import { TEST_CASE_ORDER } from "@/lib/eval/versions";
 
 type RouteParams = { params: Promise<{ versionId: string }> };
 
@@ -15,13 +16,21 @@ export async function GET(request: Request, { params }: RouteParams) {
 
   const version = await prisma.datasetVersion.findFirst({
     where: { id: versionId, projectId },
-    include: { testCases: { orderBy: { createTime: "asc" } } },
+    include: {
+      dataset: { select: { clientDatasetId: true } },
+      // Pulling the same version twice must yield the same order. create_time
+      // alone does not: Postgres' CURRENT_TIMESTAMP default is the transaction
+      // start time, so every case a publish writes shares one value, and among
+      // ties the row order is whatever the plan happens to produce. testCaseId
+      // is unique within a version, so it makes the order total.
+      testCases: { orderBy: TEST_CASE_ORDER },
+    },
   });
   if (!version) return NextResponse.json({ error: "Dataset version not found" }, { status: 404 });
 
   return NextResponse.json({
     dataset_version_id: version.id,
-    dataset_id: version.datasetId,
+    dataset_id: version.dataset.clientDatasetId ?? version.datasetId,
     version_number: version.versionNumber,
     label: version.label,
     // input/expected are returned as NATIVE JSON values (decoded from the stored

@@ -343,6 +343,22 @@ export type CreateHumanScoreRequest = z.infer<typeof CreateHumanScoreRequestSche
 /** Max test-case changes accepted in one A4 publish; over this → 413 so the SDK chunks. */
 export const DATASET_VERSION_MAX_CHANGES = 1000;
 
+/**
+ * Size ceilings for a publish. A count cap alone is not a limit: 1000 changes each
+ * carrying an unbounded `input` is still unbounded, and the body is fully buffered
+ * and parsed before any per-item check can run. So the request is refused on the
+ * wire at DATASET_VERSION_MAX_BYTES, and each value is bounded individually here.
+ */
+export const DATASET_VERSION_MAX_BYTES = 8 * 1024 * 1024;
+export const DATASET_CASE_MAX_BYTES = 256 * 1024;
+
+/** UTF-8 size of a value's JSON form — what the request weighs and the column stores. */
+export function serializedByteLength(value: unknown): number {
+  const json = JSON.stringify(value ?? null);
+  if (json === undefined) return 0;
+  return new TextEncoder().encode(json).length;
+}
+
 /** A2 — upsert a dataset by its client-generated id (idempotent, no version). */
 export const PublicUpsertDatasetRequestSchema = z
   .object({

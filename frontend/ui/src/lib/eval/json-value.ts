@@ -34,6 +34,32 @@ export function decodeJsonValue(text: string | null | undefined): unknown {
 }
 
 /**
+ * Encode text submitted by the UI editor, preserving the kind of the value it edits.
+ *
+ * The UI edits values as text through `displayJsonValue`, which is lossy: a genuine
+ * string renders as-is and a structured value renders as pretty JSON, so the text
+ * alone cannot say which it was. Both write paths must nonetheless produce the one
+ * on-disk encoding (JSON-encoded), or a value silently changes type inside an
+ * immutable snapshot a run scores against. The previous stored value is the missing
+ * bit of type information:
+ *
+ * - the value was a string (or the row is legacy plain text) → the edit is a string,
+ *   so the genuine string "123" survives an edit instead of becoming the number 123;
+ * - the value was structured/scalar → the UI showed JSON, so parse the text back and
+ *   keep its kind, falling back to a string if the user typed something that is not
+ *   JSON any more.
+ */
+export function encodeEditedText(previous: string | null | undefined, text: string): string {
+  if (previous === null || previous === undefined) return encodeJsonValue(text);
+  if (typeof decodeJsonValue(previous) === "string") return encodeJsonValue(text);
+  try {
+    return encodeJsonValue(JSON.parse(text));
+  } catch {
+    return encodeJsonValue(text);
+  }
+}
+
+/**
  * A human-readable string for a decoded value, for the session/UI surface (which
  * edits values as text): a genuine string shows as-is; structured values show as
  * pretty JSON. Never shows a bare string quoted.
