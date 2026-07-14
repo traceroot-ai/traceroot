@@ -139,7 +139,7 @@ export function DatasetsView({ projectId }: { projectId: string }) {
                 onToggle={sel.toggleAll}
               />
               <th className={`${TH} w-[170px]`}>Last updated</th>
-              <th className={TH}>Dataset ID</th>
+              <th className={`${TH} w-[240px]`}>Dataset ID</th>
               <th className={TH}>Name</th>
               <th className={`${TH} w-[110px] text-right`}>Test cases</th>
               <th className={`${TH} w-[110px] text-right`}>Evaluations</th>
@@ -174,7 +174,10 @@ export function DatasetsView({ projectId }: { projectId: string }) {
                   <td className={`${TD} whitespace-nowrap text-muted-foreground`}>
                     <Timestamp iso={dataset.updateTime} />
                   </td>
-                  <td className={`${TD} font-mono text-[11px] text-muted-foreground`}>
+                  <td
+                    className={`${TD} max-w-[240px] truncate font-mono text-[11px] text-muted-foreground`}
+                    title={dataset.id}
+                  >
                     {dataset.id}
                   </td>
                   <td className={`${TD} font-medium`}>{dataset.name}</td>
