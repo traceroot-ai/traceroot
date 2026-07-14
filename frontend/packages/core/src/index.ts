@@ -23,6 +23,15 @@ export type {
   Account,
   GitHubInstallation,
   ModelProvider,
+  // Offline evaluation
+  Dataset,
+  DatasetVersion,
+  TestCase,
+  Evaluation,
+  EvaluationRun,
+  EvaluationResult,
+  Score,
+  HumanScore,
 } from "@prisma/client";
 
 // Constants & Zod schemas
