@@ -12,6 +12,7 @@ from rest.rate_limit import (
     limiter,
     resolve_limit,
 )
+from rest.retention import enforce_retention_window
 from rest.routers.deps import RateLimitedProjectAccess
 from rest.schemas.users import UserListResponse
 from rest.services.trace_reader import get_trace_reader_service
@@ -37,6 +38,9 @@ async def list_users(
     end_before: datetime | None = Query(None, description="Filter traces before this time"),
 ):
     """List unique users for a project with trace counts."""
+    start_after, end_before = enforce_retention_window(
+        _access.billing_plan, start_after, end_before
+    )
     try:
         service = get_trace_reader_service()
         result = service.list_users(
