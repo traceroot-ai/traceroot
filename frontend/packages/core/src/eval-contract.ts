@@ -44,9 +44,28 @@ export const HumanVerdictSchema = z.enum(HUMAN_VERDICTS);
 // Scorer descriptor — name + version recorded on every run and score
 // ---------------------------------------------------------------------------
 
+/** How a scorer's value is typed (inferred from the value when not declared). */
+export const SCORER_VALUE_TYPES = ["numeric", "boolean", "categorical"] as const;
+export const ScorerValueTypeSchema = z.enum(SCORER_VALUE_TYPES);
+export type ScorerValueType = (typeof SCORER_VALUE_TYPES)[number];
+
+/** Whether a higher or lower value is better; categorical scorers have no direction. */
+export const SCORER_DIRECTIONS = ["higher_is_better", "lower_is_better", "none"] as const;
+export const ScorerDirectionSchema = z.enum(SCORER_DIRECTIONS);
+export type ScorerDirection = (typeof SCORER_DIRECTIONS)[number];
+
+/**
+ * A scorer's descriptor. `name` + `version` are the identity used for cell
+ * comparison; the richer metadata is optional and back-compatible — an old SDK
+ * sending only `{name, version}` stays valid, and the backend defaults direction
+ * (numeric/boolean → higher-is-better, categorical → none) when it's absent.
+ */
 export const ScorerRefSchema = z.object({
   name: z.string().min(1).max(200),
   version: z.string().min(1).max(50),
+  value_type: ScorerValueTypeSchema.nullable().optional(),
+  direction: ScorerDirectionSchema.nullable().optional(),
+  threshold: z.number().nullable().optional(),
 });
 export type ScorerRef = z.infer<typeof ScorerRefSchema>;
 
@@ -88,6 +107,13 @@ export const RegisterRunRequestSchema = z
     client_run_id: z.string().min(1).max(128).nullable().optional(),
     baseline_run_id: z.string().min(1).max(64).nullable().optional(),
     case_count: z.number().int().nonnegative().nullable().optional(),
+    /**
+     * Structured run provenance (model, prompt, config, git repo/ref/commit, …).
+     * Free-form and optional — the current SDK does not send it, and its absence
+     * never rejects a run. Presented as informational secondary detail, never as
+     * an evaluation error, and never a source of secrets.
+     */
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
   })
   .strict();
 export type RegisterRunRequest = z.infer<typeof RegisterRunRequestSchema>;
