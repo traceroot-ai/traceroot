@@ -30,6 +30,8 @@ import { SpanTimelineView } from "./SpanTimelineView";
 import { TREE_LAYOUT } from "../utils";
 import { useTraceFindings, useRca } from "@/features/detectors/hooks/use-findings";
 import { TraceDetectorsTab } from "./TraceDetectorsTab";
+import { isRetentionError, getRetentionDetail } from "@/lib/api/retention";
+import { RetentionGateBanner } from "@/components/RetentionGateBanner";
 
 interface TraceViewerPanelProps {
   projectId: string;
@@ -436,6 +438,12 @@ export function TraceViewerPanel({
                     <div className="flex h-full items-center justify-center">
                       <LoadingState label="Loading trace..." />
                     </div>
+                  ) : error && isRetentionError(error) ? (
+                    <RetentionGateBanner
+                      projectId={projectId}
+                      detail={getRetentionDetail(error)!}
+                      variant="detail"
+                    />
                   ) : error || !trace ? (
                     <div className="flex h-full items-center justify-center">
                       <p className="text-sm text-destructive">Error loading trace</p>

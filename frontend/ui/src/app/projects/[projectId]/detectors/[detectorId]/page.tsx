@@ -14,6 +14,8 @@ import { DetectorRunsTable } from "@/features/detectors/components/detector-runs
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
 import { TraceViewerPanel } from "@/features/traces/components/TraceViewerPanel";
+import { isRetentionError, getRetentionDetail } from "@/lib/api/retention";
+import { RetentionGateBanner } from "@/components/RetentionGateBanner";
 
 /**
  * Which trace the consolidated panel shows. `kind` selects RCA auto-open:
@@ -209,6 +211,11 @@ export default function DetectorDetailPage() {
                 <div className="flex h-64 items-center justify-center">
                   <LoadingState label={`Loading ${noun}...`} />
                 </div>
+              );
+            }
+            if (err && isRetentionError(err)) {
+              return (
+                <RetentionGateBanner projectId={projectId} detail={getRetentionDetail(err)!} />
               );
             }
             if (err) {
