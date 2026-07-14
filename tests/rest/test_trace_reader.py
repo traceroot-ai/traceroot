@@ -209,8 +209,7 @@ class TestGetTraceSkeleton:
                         # ClickHouse has already extracted the path attrs; this
                         # is the small object the query re-packs, not the blob.
                         '{"traceroot.span.ids_path":["root-id"],'
-                        '"traceroot.span.path":["root","child"],'
-                        '"traceroot.span.starts_path":["1700000000000000000"]}',  # metadata
+                        '"traceroot.span.path":["root","child"]}',  # metadata
                         "file.py",  # git_source_file
                         12,  # git_source_line
                         "fn",  # git_source_function
@@ -240,18 +239,22 @@ class TestGetTraceSkeleton:
         assert "input_tokens" in plain_cols
         assert "output_tokens" in plain_cols
 
-        # Every span-path attribute is extracted, by its wire name.
-        from shared.span_attributes import SPAN_TREE_ATTRIBUTES
+        # The attributes the client consumes are extracted, by wire name.
+        # starts_path is deliberately NOT here: ingest preserves it and the live
+        # stream carries it, but nothing reads it yet, so the read path does not
+        # pay to extract and ship it. It lands with the code that uses it.
+        from shared.span_attributes import SPAN_IDS_PATH, SPAN_PATH, SPAN_STARTS_PATH
 
-        for attribute in SPAN_TREE_ATTRIBUTES:
-            assert f"'{attribute}'" in spans_sql
+        assert f"'{SPAN_IDS_PATH}'" in spans_sql
+        assert f"'{SPAN_PATH}'" in spans_sql
+        assert f"'{SPAN_STARTS_PATH}'" not in spans_sql
 
         # Guards the nested-query trap: the outer SELECT re-packs the extracted
         # columns by alias, so every alias it reads must be projected by the
         # subquery. Adding a column to one SELECT list and not the other is a
         # ClickHouse UNKNOWN_IDENTIFIER at runtime — i.e. every trace open 500s.
         outer_select = spans_sql.split("FROM (")[0]
-        for alias in ("tree_ids_path", "tree_name_path", "tree_starts_path"):
+        for alias in ("tree_ids_path", "tree_name_path"):
             assert f"AS {alias}" in inner_select, f"{alias} not projected by the subquery"
             assert alias in outer_select, f"{alias} not read by the outer SELECT"
         # Uses dedup subquery instead of FINAL for better read performance.
@@ -279,9 +282,7 @@ class TestGetTraceSkeleton:
         assert "input" not in span
         assert "output" not in span
         assert span["metadata"] == (
-            '{"traceroot.span.ids_path":["root-id"],'
-            '"traceroot.span.path":["root","child"],'
-            '"traceroot.span.starts_path":["1700000000000000000"]}'
+            '{"traceroot.span.ids_path":["root-id"],"traceroot.span.path":["root","child"]}'
         )
         assert span["span_id"] == "span-1"
         assert span["git_source_file"] == "file.py"

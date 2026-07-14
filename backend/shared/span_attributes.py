@@ -24,12 +24,16 @@ SPAN_IDS_PATH = "traceroot.span.ids_path"
 SPAN_STARTS_PATH = "traceroot.span.starts_path"
 """Ancestor start times as epoch-nanosecond decimal strings, aligned with SPAN_IDS_PATH.
 
-Both SDKs emit this. A synthesized ancestor otherwise has to borrow the start
+Both SDKs emit it and ingest preserves it, so it reaches the client on the live
+stream. Nothing reads it yet: a synthesized ancestor currently borrows the start
 time of the first child that referenced it, which is always later than the real
-one — enough to reorder concurrent branches against each other mid-run. The
-client uses this to give placeholders their true start instead; the read path
-returns it so that works on a page reload, not only on the live stream.
+one. The change that puts it to use (true placeholder starts) also adds it to
+the trace-detail read, so it works on a page reload and not only live.
 """
 
 SPAN_TREE_ATTRIBUTES = (SPAN_PATH, SPAN_IDS_PATH, SPAN_STARTS_PATH)
-"""The full set the trace-detail read returns so the client can rebuild the tree."""
+"""Everything the SDKs emit here — the set ingest must preserve into `metadata`.
+
+Not the same as what the trace-detail read returns: that returns only the
+attributes the client actually consumes.
+"""

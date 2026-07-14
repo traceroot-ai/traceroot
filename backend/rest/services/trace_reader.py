@@ -9,7 +9,6 @@ from rest.sql_utils import escape_ilike, to_utc_naive
 from shared.span_attributes import (
     SPAN_IDS_PATH,
     SPAN_PATH,
-    SPAN_STARTS_PATH,
     SPAN_TREE_ATTRIBUTES,
 )
 from worker.tokens.buckets import TokenBuckets, reconcile_cache_write_1h
@@ -473,9 +472,9 @@ class TraceReaderService:
         # parents have not been exported yet (children export first — spans are
         # only exported when they end). Extracting in ClickHouse keeps the full
         # attribute bag off the wire; on LLM-heavy traces it is ~4x smaller.
-        # The subquery must project the three path columns the outer SELECT
-        # reads — referencing them by alias means a missing projection fails
-        # loudly instead of silently returning the wrong shape.
+        # The subquery must project every path column the outer SELECT reads —
+        # referencing them by alias means a missing projection fails loudly
+        # instead of silently returning the wrong shape.
         spans_query = f"""
             SELECT
                 span_id, trace_id, parent_span_id, name, span_kind,
@@ -487,8 +486,7 @@ class TraceReaderService:
                     NULL,
                     toJSONString(map(
                         '{SPAN_IDS_PATH}', tree_ids_path,
-                        '{SPAN_PATH}', tree_name_path,
-                        '{SPAN_STARTS_PATH}', tree_starts_path
+                        '{SPAN_PATH}', tree_name_path
                     ))
                 ) AS metadata,
                 git_source_file, git_source_line, git_source_function
@@ -500,7 +498,6 @@ class TraceReaderService:
                     usage_details,
                     {_extract_span_path_attr(SPAN_IDS_PATH)} AS tree_ids_path,
                     {_extract_span_path_attr(SPAN_PATH)} AS tree_name_path,
-                    {_extract_span_path_attr(SPAN_STARTS_PATH)} AS tree_starts_path,
                     git_source_file, git_source_line, git_source_function
                 FROM spans
                 WHERE {spans_where_clause}
