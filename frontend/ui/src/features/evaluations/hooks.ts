@@ -63,12 +63,14 @@ export function useDatasets(
   });
 }
 
-export function useDataset(projectId: string, datasetId: string) {
+export function useDataset(projectId: string, datasetId: string, versionId?: string | null) {
+  const qs = versionId ? `?version_id=${encodeURIComponent(versionId)}` : "";
   return useQuery({
-    queryKey: ["datasets", "detail", projectId, datasetId],
+    queryKey: ["datasets", "detail", projectId, datasetId, versionId ?? null],
     queryFn: () =>
-      getJson<DatasetDetailResponse>(`/api/projects/${projectId}/datasets/${datasetId}`),
+      getJson<DatasetDetailResponse>(`/api/projects/${projectId}/datasets/${datasetId}${qs}`),
     enabled: !!projectId && !!datasetId,
+    placeholderData: (prev) => prev,
   });
 }
 
@@ -211,6 +213,7 @@ export function useEvaluationRuns(
   if (query.status) params.set("status", query.status);
   if (query.search_query) params.set("search_query", query.search_query);
   if (query.page !== undefined) params.set("page", String(query.page));
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
   const qs = params.toString();
   return useQuery({
     queryKey: [
@@ -222,6 +225,7 @@ export function useEvaluationRuns(
       query.status ?? null,
       query.search_query ?? null,
       query.page ?? 0,
+      query.limit ?? null,
     ],
     queryFn: () =>
       getJson<{ data: RunRow[]; meta: Meta }>(
@@ -313,6 +317,9 @@ export function useTraceTestCases(projectId: string, traceId: string) {
         `/api/projects/${projectId}/traces/${traceId}/test-cases`,
       ),
     enabled: !!projectId && !!traceId,
+    // Warmed when the trace opens (see the traces page) and reused as spans are
+    // selected, so the "Dataset:" chip appears without a per-span round trip.
+    staleTime: 60_000,
   });
 }
 

@@ -24,6 +24,13 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TBody, THead, TR, TRHead, Td, Th } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -49,11 +56,12 @@ import {
   TestCaseReviewDrawer,
   type TestCaseReviewTarget,
 } from "@/features/offline-eval/components";
+import { tokenizeCode } from "@/features/offline-eval/components/syntax";
 import { CAPTURE_REASON_LABEL, type ReviewStatus } from "@/features/offline-eval/types";
 import {
   caseDisplayId,
   changeSentiment,
-  datasetInitCode,
+  datasetPullCode,
   pct,
   scoreDisplay,
   SENTIMENT_CLASS,
@@ -61,6 +69,7 @@ import {
 } from "@/features/offline-eval/utils";
 import {
   useDataset,
+  useDatasets,
   useSaveTestCase,
   useUpdateTestCase,
   useEvaluationRuns,
@@ -123,7 +132,10 @@ export function DatasetDetailView({
   const { toast } = useToast();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { data, isLoading, error } = useDataset(projectId, datasetId);
+  // null = the current version. Selecting an older version loads its snapshot
+  // (read-only — editing always branches from the current version).
+  const [selectedVersionId, setSelectedVersionId] = React.useState<string | null>(null);
+  const { data, isLoading, error } = useDataset(projectId, datasetId, selectedVersionId);
   const save = useSaveTestCase(projectId, datasetId);
   const update = useUpdateTestCase(projectId, datasetId);
 
@@ -156,6 +168,9 @@ export function DatasetDetailView({
   const [codeOpen, setCodeOpen] = React.useState(false);
 
   const dataset = data?.dataset ?? null;
+  const versions = React.useMemo(() => data?.versions ?? [], [data]);
+  const selectedVersion = data?.selectedVersion ?? null;
+  const isCurrentVersion = data?.isCurrentVersion ?? true;
   const allCases = React.useMemo(() => data?.testCases ?? [], [data]);
 
   const cases = React.useMemo(() => {
@@ -168,6 +183,10 @@ export function DatasetDetailView({
 
   const caseIds = React.useMemo(() => cases.map((c) => c.id), [cases]);
   const sel = useRowSelection(caseIds);
+
+  // All datasets in the project, for the breadcrumb's dataset switcher.
+  const { data: allDatasetsData } = useDatasets(projectId, { limit: 200 });
+  const allDatasets = React.useMemo(() => allDatasetsData?.data ?? [], [allDatasetsData]);
 
   const evaluations = useEvaluationRuns(projectId, { dataset_id: datasetId });
   const runs = React.useMemo(() => evaluations.data?.data ?? [], [evaluations.data]);
@@ -288,10 +307,34 @@ export function DatasetDetailView({
 
   return (
     <>
-      <ProjectBreadcrumb projectId={projectId} current="Datasets" />
+      <ProjectBreadcrumb
+        projectId={projectId}
+        trail={[
+          {
+            // Just the dataset segment (no separate "Datasets" crumb) — a dropdown
+            // of all datasets, like the project segment. Its menu header still links
+            // to the Datasets list, so that page stays one click away.
+            label: dataset.name,
+            menuHeader: { label: "Datasets", href: `/projects/${projectId}/datasets` },
+            options: allDatasets.map((d) => ({
+              id: d.id,
+              label: d.name,
+              href: `/projects/${projectId}/datasets/${d.id}`,
+              isCurrent: d.id === dataset.id,
+            })),
+          },
+        ]}
+      />
       <div className="flex h-full flex-col text-[13px]">
         <EvalPageHeader
-          title={dataset.name}
+          title={
+            <span className="flex flex-wrap items-center gap-2">
+              <span>{dataset.name}</span>
+              <span className="font-mono text-xs font-normal text-muted-foreground">
+                {dataset.id}
+              </span>
+            </span>
+          }
           action={
             <Button size="sm" className="h-7 gap-1.5 text-[12px]" onClick={() => setRunOpen(true)}>
               <Play className="h-3.5 w-3.5" aria-hidden />
@@ -299,6 +342,43 @@ export function DatasetDetailView({
             </Button>
           }
         />
+
+        {/* Version bar — pick a snapshot to view (previous versions are read-only),
+            with its immutable version id + copy. */}
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-1.5 text-[12px]">
+          <span className="text-muted-foreground">Version</span>
+          <Select value={selectedVersion?.id ?? ""} onValueChange={(v) => setSelectedVersionId(v)}>
+            <SelectTrigger className="h-7 w-[240px] text-[12px]">
+              <SelectValue placeholder="Current version" />
+            </SelectTrigger>
+            <SelectContent>
+              {versions.map((v) => (
+                <SelectItem key={v.id} value={v.id} className="text-[12px]">
+                  v{v.versionNumber}
+                  {v.id === dataset.currentVersionId ? " (current)" : ""}
+                  {v.label ? ` · ${v.label}` : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {selectedVersion && (
+            <>
+              <span className="font-mono text-[11px] text-muted-foreground">
+                {selectedVersion.id}
+              </span>
+              <CopyButton
+                value={selectedVersion.id}
+                className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                title="Copy version ID"
+              />
+            </>
+          )}
+          {!isCurrentVersion && (
+            <span className="ml-auto rounded border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-700 dark:text-amber-300">
+              Viewing an older version — read only
+            </span>
+          )}
+        </div>
 
         <Tabs defaultValue="cases" className="flex min-h-0 flex-1 flex-col">
           <TabsList className="shrink-0 px-4 pt-2" aria-label="Dataset views">
@@ -330,6 +410,9 @@ export function DatasetDetailView({
                 size="sm"
                 className="h-7 gap-1.5 text-[12px]"
                 onClick={() => setImportOpen(true)}
+                // Editing branches from the current version, so it's disabled while
+                // viewing an older snapshot.
+                disabled={!isCurrentVersion}
               >
                 <Upload className="h-3.5 w-3.5" aria-hidden />
                 Import
@@ -339,7 +422,7 @@ export function DatasetDetailView({
                 size="sm"
                 className="h-7 gap-1.5 text-[12px]"
                 onClick={addEmptyRow}
-                disabled={save.isPending}
+                disabled={save.isPending || !isCurrentVersion}
               >
                 <Plus className="h-3.5 w-3.5" aria-hidden />
                 Row
@@ -421,7 +504,7 @@ export function DatasetDetailView({
                   onClick={() => setCodeOpen(true)}
                 >
                   <FileCode className="h-3.5 w-3.5" aria-hidden />
-                  Init code
+                  Pull code
                 </Button>
               </span>
             </SearchFilterBar>
@@ -542,6 +625,7 @@ export function DatasetDetailView({
           testCase={openCase}
           projectId={projectId}
           datasetId={datasetId}
+          readOnly={!isCurrentVersion}
           onClose={() => setOpenCaseId(null)}
           onReview={() => setReviewCaseId(openCase.id)}
           onNavigate={(dir) => {
@@ -580,19 +664,25 @@ export function DatasetDetailView({
       <Dialog open={codeOpen} onOpenChange={setCodeOpen}>
         <DialogContent className="max-w-[560px]">
           <DialogHeader>
-            <DialogTitle className="text-[13px] font-medium">
-              Create this dataset in code
-            </DialogTitle>
+            <DialogTitle className="text-[13px] font-medium">Pull this dataset in code</DialogTitle>
           </DialogHeader>
-          <pre className="overflow-x-auto rounded border border-border bg-muted/20 px-3 py-2.5 font-mono text-[11px] leading-relaxed">
-            {datasetInitCode(dataset.name)}
-          </pre>
+          {/* Padding on the wrapper, scroll on the inner <pre>: a horizontal
+              scrollbar can't eat the bottom padding (see run-evaluation-drawer). */}
+          <div className="rounded border border-border bg-muted/20 px-3 pb-5 pt-2.5">
+            <pre className="overflow-x-auto whitespace-pre font-mono text-[11px] leading-relaxed">
+              {tokenizeCode(datasetPullCode(dataset.id)).map((t, i) => (
+                <span key={i} className={t.cls || undefined}>
+                  {t.text}
+                </span>
+              ))}
+            </pre>
+          </div>
           <div className="flex justify-end">
             <Button
               size="sm"
               className="h-7 text-[12px]"
               onClick={() => {
-                navigator.clipboard?.writeText(datasetInitCode(dataset.name));
+                navigator.clipboard?.writeText(datasetPullCode(dataset.id));
                 toast({ title: "Copied", tone: "success" });
                 setCodeOpen(false);
               }}
@@ -632,6 +722,7 @@ function CasePanel({
   testCase,
   projectId,
   datasetId,
+  readOnly = false,
   onClose,
   onReview,
   onNavigate,
@@ -641,6 +732,9 @@ function CasePanel({
   testCase: TestCaseRow;
   projectId: string;
   datasetId: string;
+  /** Viewing an older snapshot: fields and Save are disabled (editing branches
+   * from the current version, not this one). */
+  readOnly?: boolean;
   onClose: () => void;
   onReview: () => void;
   onNavigate: (direction: "up" | "down") => void;
@@ -672,9 +766,10 @@ function CasePanel({
   }, [testCase.id, testCase.input, testCase.expected, initialMetadata]);
 
   const dirty =
-    inputText !== testCase.input ||
-    expectedText !== (testCase.expected ?? "") ||
-    metadataText !== initialMetadata;
+    !readOnly &&
+    (inputText !== testCase.input ||
+      expectedText !== (testCase.expected ?? "") ||
+      metadataText !== initialMetadata);
 
   // Metadata only persists when it parses to an object; a half-typed edit keeps
   // the prior value rather than blowing it away.
@@ -858,6 +953,7 @@ function CasePanel({
       {view === "details" ? (
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 text-[12px]">
           <EditableValueBlock
+            key={`input-${testCase.id}`}
             label="Input"
             text={inputText}
             onChange={setInputText}
@@ -865,8 +961,10 @@ function CasePanel({
             autoDetectKind
             boxed
             minRows={2}
+            readOnly={readOnly}
           />
           <EditableValueBlock
+            key={`expected-${testCase.id}`}
             label="Expected"
             text={expectedText}
             onChange={setExpectedText}
@@ -874,10 +972,12 @@ function CasePanel({
             autoDetectKind
             boxed
             minRows={2}
+            readOnly={readOnly}
           />
           {/* Recorded production output — read-only, kept separate from Expected. */}
           {testCase.recordedOutput !== null && (
             <EditableValueBlock
+              key={`recorded-${testCase.id}`}
               label="What happened in production"
               text={testCase.recordedOutput}
               onChange={() => {}}
@@ -889,14 +989,16 @@ function CasePanel({
             />
           )}
           <EditableValueBlock
+            key={`metadata-${testCase.id}`}
             label="Metadata"
             text={metadataText}
-            defaultKind="json"
+            defaultKind="pretty"
             onChange={setMetadataText}
             copyable
             autoDetectKind
             boxed
             minRows={2}
+            readOnly={readOnly}
           />
           <p className="text-[11px] leading-snug text-muted-foreground">
             Saving publishes a new dataset version — it changes what future runs are compared
