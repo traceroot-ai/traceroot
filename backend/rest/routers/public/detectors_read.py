@@ -18,6 +18,7 @@ from rest.rate_limit import (
     limiter,
     resolve_limit,
 )
+from rest.retention import enforce_retention_by_time, enforce_retention_window
 from rest.routers.public.deps import StampedAuth
 from rest.schemas.common import PaginationMeta
 from rest.schemas.public import (
@@ -50,6 +51,7 @@ async def list_detectors(
     ),
 ):
     """List the detectors in the API key's project (newest first)."""
+    start_after, end_before = enforce_retention_window(auth.billing_plan, start_after, end_before)
     try:
         items, total = service.list_detectors(
             project_id=auth.project_id,
@@ -89,6 +91,7 @@ async def list_findings(
     trace_id: str | None = Query(None, description="Filter to a single trace"),
 ):
     """List recent detector findings for the API key's project (newest first)."""
+    start_after, end_before = enforce_retention_window(auth.billing_plan, start_after, end_before)
     try:
         items, total = service.list_findings(
             project_id=auth.project_id,
@@ -122,7 +125,9 @@ async def get_finding(
     service: DetectorReaderService = Depends(get_detector_reader_service),
 ):
     """Get a single finding by id for the key's project."""
-    return _require_finding(lambda: service.get_finding(auth.project_id, finding_id))
+    return _require_finding(
+        lambda: service.get_finding(auth.project_id, finding_id), auth.billing_plan
+    )
 
 
 @router.get("/traces/{trace_id}/finding", response_model=FindingDetail)
@@ -137,10 +142,12 @@ async def get_finding_by_trace(
     service: DetectorReaderService = Depends(get_detector_reader_service),
 ):
     """Get the finding for a single trace (findings are 1-per-trace)."""
-    return _require_finding(lambda: service.get_finding_by_trace(auth.project_id, trace_id))
+    return _require_finding(
+        lambda: service.get_finding_by_trace(auth.project_id, trace_id), auth.billing_plan
+    )
 
 
-def _require_finding(fetch: Callable[[], FindingDetail | None]) -> FindingDetail:
+def _require_finding(fetch: Callable[[], FindingDetail | None], billing_plan: str) -> FindingDetail:
     """Run a reader fetch, mapping None -> 404 and reader errors -> a clean 500."""
     try:
         finding = fetch()
@@ -152,4 +159,5 @@ def _require_finding(fetch: Callable[[], FindingDetail | None]) -> FindingDetail
         ) from e
     if finding is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Finding not found")
+    enforce_retention_by_time(billing_plan, finding.timestamp)
     return finding

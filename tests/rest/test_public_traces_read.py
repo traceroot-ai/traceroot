@@ -4,7 +4,7 @@ GET /api/v1/public/traces and GET /api/v1/public/traces/{trace_id}. Reads are
 scoped to the API key's project; the client never supplies a project id.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
@@ -67,11 +67,15 @@ TRACE_DETAIL = {
 }
 
 
-def make_auth(project_id: str = "proj-A") -> AuthResult:
+def _now_naive():
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+def make_auth(project_id: str = "proj-A", billing_plan: str = "enterprise") -> AuthResult:
     return AuthResult(
         project_id=project_id,
         workspace_id="ws-1",
-        billing_plan="pro",
+        billing_plan=billing_plan,
         ingestion_blocked=False,
     )
 
@@ -401,3 +405,52 @@ class TestPublicReadRateLimiting:
         for name, resp in responses.items():
             assert resp.status_code == 200, f"{name}: {resp.text}"
             assert "X-RateLimit-Limit" in resp.headers, name
+
+
+class TestPublicTracesRetentionGate:
+    @pytest.fixture()
+    def free_client(self, mock_reader):
+        app.dependency_overrides[authenticate_api_key] = lambda: make_auth(billing_plan="free")
+
+        import rest.routers.public.traces_read as mod
+
+        original = mod.get_trace_reader_service
+        mod.get_trace_reader_service = lambda: mock_reader
+        yield TestClient(app)
+        mod.get_trace_reader_service = original
+
+    def test_list_clamps_default_query(self, free_client, mock_reader):
+        mock_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        resp = free_client.get("/api/v1/public/traces", headers=AUTH_HEADER)
+        assert resp.status_code == 200
+        kw = mock_reader.list_traces.call_args.kwargs
+        assert kw["start_after"] is not None
+
+    def test_list_403_when_start_after_outside_window(self, free_client):
+        old = _now_naive() - timedelta(days=30)
+        resp = free_client.get(
+            f"/api/v1/public/traces?start_after={old.isoformat()}",
+            headers=AUTH_HEADER,
+        )
+        assert resp.status_code == 403
+
+    def test_get_trace_403_when_outside_window(self, free_client, mock_reader):
+        old_trace = dict(TRACE_DETAIL, trace_start_time=datetime(2020, 1, 1))
+        mock_reader.get_trace.return_value = old_trace
+        resp = free_client.get("/api/v1/public/traces/abc123", headers=AUTH_HEADER)
+        assert resp.status_code == 403
+
+    def test_get_trace_200_when_in_window(self, free_client, mock_reader):
+        recent_trace = dict(TRACE_DETAIL, trace_start_time=_now_naive() - timedelta(days=5))
+        mock_reader.get_trace.return_value = recent_trace
+        resp = free_client.get("/api/v1/public/traces/abc123", headers=AUTH_HEADER)
+        assert resp.status_code == 200
+
+    def test_export_403_when_outside_window(self, free_client, mock_reader):
+        old_trace = dict(TRACE_DETAIL, trace_start_time=datetime(2020, 1, 1))
+        mock_reader.get_trace.return_value = old_trace
+        resp = free_client.get("/api/v1/public/traces/abc123/export", headers=AUTH_HEADER)
+        assert resp.status_code == 403
