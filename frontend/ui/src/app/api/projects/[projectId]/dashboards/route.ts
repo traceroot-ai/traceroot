@@ -11,11 +11,37 @@ type RouteParams = { params: Promise<{ projectId: string }> };
 const listArgs = (projectId: string) => ({
   where: { projectId },
   orderBy: [{ isDefault: "desc" as const }, { createTime: "asc" as const }],
-  select: { id: true, name: true, description: true, isDefault: true, updateTime: true },
+  select: {
+    id: true,
+    name: true,
+    description: true,
+    isDefault: true,
+    createdBy: true,
+    createTime: true,
+    updateTime: true,
+  },
 });
 
+// Dashboards are shared across a project's members, so the list shows who
+// created each one. createdBy holds a bare user id (no relation on the
+// model); resolve the display names in one batch and swap them in — a
+// deleted account resolves to null and renders as "—".
+async function withCreators<T extends { createdBy: string }>(dashboards: T[]) {
+  const ids = [...new Set(dashboards.map((d) => d.createdBy))];
+  const users = await prisma.user.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, name: true, email: true },
+  });
+  // || not ??: an empty-string name must fall through to the email too.
+  const byId = new Map(users.map((u) => [u.id, u.name || u.email]));
+  return dashboards.map(({ createdBy, ...d }) => ({
+    ...d,
+    creator: byId.get(createdBy) ?? null,
+  }));
+}
+
 // GET /api/projects/[projectId]/dashboards — list; lazily seeds the default
-// "Overview" dashboard the first time a project's dashboards are fetched.
+// "Default" dashboard the first time a project's dashboards are fetched.
 export async function GET(_req: NextRequest, { params }: RouteParams) {
   const auth = await requireProjectAuth(params);
   if (auth.error) return auth.error;
@@ -32,7 +58,8 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
         data: {
           id: defaultDashboardId(projectId),
           projectId,
-          name: "Overview",
+          name: "Default",
+          description: "Auto-created overview of traces, cost, tokens, and latency.",
           isDefault: true,
           createdBy: user.id,
           // layout keys MUST equal widget ids (react-grid-layout matches on `i`)
@@ -49,7 +76,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     dashboards = await prisma.dashboard.findMany(listArgs(projectId));
   }
 
-  return successResponse({ data: dashboards });
+  return successResponse({ data: await withCreators(dashboards) });
 }
 
 // POST /api/projects/[projectId]/dashboards — create a named dashboard
