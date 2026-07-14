@@ -4,6 +4,7 @@ These endpoints are protected by X-Internal-Secret header and not exposed public
 """
 
 import hmac
+import logging
 from datetime import datetime
 from typing import Annotated
 
@@ -18,7 +19,15 @@ from rest.schemas.detectors import (
 from rest.sql_utils import escape_ilike, to_utc_naive
 from shared.config import settings
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/internal", tags=["internal"])
+
+# Caps for the digest LLM-summary sample (see the window-summary endpoint).
+# Enforced in ClickHouse so a finding storm never materializes unbounded rows.
+DIGEST_SUMMARY_MAX_PER_DETECTOR = 10
+DIGEST_SUMMARY_MAX_TOTAL = 40
+DIGEST_SUMMARY_MAX_CHARS = 300
 
 
 def verify_internal_secret(
@@ -649,6 +658,13 @@ async def list_detector_window_summary(
     end_before: datetime | None = Query(
         None, description="Upper bound on detector_runs.timestamp (exclusive)"
     ),
+    include_summaries: bool = Query(
+        False,
+        description=(
+            "When true, also return recent per-detector finding summaries "
+            "(capped in SQL) for the digest LLM summary"
+        ),
+    ),
 ):
     """Aggregate run/finding counts and the latest triggered trace per detector.
 
@@ -673,6 +689,17 @@ async def list_detector_window_summary(
 
     Detectors with no runs in the window are omitted; the frontend defaults
     absent entries to {findingCount: 0, runCount: 0}.
+
+    When ``include_summaries`` is set, a second bounded query returns each
+    detector's most recent per-detector judge summaries within the window:
+    newest-first, at most ``DIGEST_SUMMARY_MAX_PER_DETECTOR`` per detector and
+    ``DIGEST_SUMMARY_MAX_TOTAL`` overall, each truncated to
+    ``DIGEST_SUMMARY_MAX_CHARS`` chars in SQL. The per-detector sentence is
+    JSON-extracted from the finding payload with the same expression as the
+    runs endpoints (one source of truth). UI consumers never set the flag, so
+    their read cost is unchanged. The summaries read is best-effort: on any
+    error it is logged and the response is returned without
+    ``sample_summaries`` (counts intact) — it can never fail the endpoint.
     """
     ch = get_clickhouse_client()
 
@@ -723,5 +750,83 @@ async def list_detector_window_summary(
             "run_count": int(row_dict["run_count"]),
             "sample_trace_ids": [latest_trace_id] if latest_trace_id else [],
         }
+
+    if include_summaries and any(v["finding_count"] > 0 for v in data.values()):
+        # Best-effort: a failed summaries read must never fail the endpoint —
+        # digest jobs have no BullMQ retries, so a thrown flush loses the
+        # alert permanently. On any error, log and return counts-only.
+        try:
+            # Same per-detector extraction as list_detector_runs / trace runs —
+            # keep the three expressions semantically identical modulo the
+            # finding-id column (r.latest_finding_id here vs r.finding_id in
+            # the runs endpoints).
+            summary_expr = (
+                "if("
+                "  r.latest_finding_id IS NOT NULL,"
+                "  JSONExtractString("
+                "    arrayFirst("
+                "      x -> JSONExtractString(x, 'detectorId') = r.detector_id,"
+                "      JSONExtractArrayRaw(f.payload)"
+                "    ),"
+                "    'summary'"
+                "  ),"
+                "  ''"
+                ")"
+            )
+            summaries_query = f"""
+                SELECT detector_id, summary
+                FROM (
+                    SELECT
+                        r.detector_id AS detector_id,
+                        substring({summary_expr}, 1, {DIGEST_SUMMARY_MAX_CHARS}) AS summary,
+                        r.ts AS ts,
+                        -- Rank-major allocation: every detector keeps its
+                        -- newest sentence before any detector gets its
+                        -- 2nd..10th, so one chatty detector cannot starve the
+                        -- others out of the overall budget.
+                        row_number() OVER (
+                            PARTITION BY r.detector_id ORDER BY r.ts DESC
+                        ) AS rank
+                    FROM (
+                        -- Probe side bounded BEFORE the join (window bound,
+                        -- non-null finding, per-detector cap), so the join
+                        -- probes at most {DIGEST_SUMMARY_MAX_PER_DETECTOR} x n_detectors rows.
+                        -- RCA-disabled detectors still consume budget here
+                        -- (the digest drops them later); accepted for v1.
+                        SELECT detector_id, latest_finding_id, ts
+                        FROM (
+                            SELECT
+                                detector_id,
+                                run_id,
+                                argMax(finding_id, timestamp) AS latest_finding_id,
+                                max(timestamp)                AS ts
+                            FROM detector_runs
+                            WHERE project_id = {{project_id:String}}
+                            GROUP BY detector_id, run_id
+                        )
+                        WHERE {window_clause} AND latest_finding_id IS NOT NULL
+                        ORDER BY detector_id, ts DESC
+                        LIMIT {DIGEST_SUMMARY_MAX_PER_DETECTOR} BY detector_id
+                    ) AS r
+                    INNER JOIN (
+                        SELECT finding_id, payload FROM detector_findings FINAL
+                        WHERE project_id = {{project_id:String}}
+                    ) AS f ON r.latest_finding_id = f.finding_id
+                    -- Empty summaries (payload without a matching entry) are
+                    -- filtered before ranking so they never eat sample slots.
+                    WHERE summary != ''
+                )
+                ORDER BY rank ASC, ts DESC
+                LIMIT {DIGEST_SUMMARY_MAX_TOTAL}
+            """
+            summaries_result = ch.query(summaries_query, parameters=params)
+            for detector_id, summary in summaries_result.result_rows:
+                if detector_id in data:
+                    data[detector_id].setdefault("sample_summaries", []).append(summary)
+        except Exception:
+            logger.exception(
+                "detector-window-summary: summaries read failed; "
+                "returning counts without sample_summaries"
+            )
 
     return {"data": data}
