@@ -797,7 +797,7 @@
   {
     "id": "tr-gemini-3-flash-preview",
     "modelName": "gemini-3-flash-preview",
-    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-3-flash-preview(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-3-flash(-preview)?(-[\\d-]+)?$",
     "provider": "google",
     "prices": {
       "input": 0.0000005,
