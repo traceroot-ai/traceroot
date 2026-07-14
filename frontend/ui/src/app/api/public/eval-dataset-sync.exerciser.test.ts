@@ -143,7 +143,8 @@ describe("A4: publish an immutable version from changes", () => {
     const v2 = body2.dataset_version_id as string;
     const v2Cases = fakePrisma.testCase.rows.filter((c) => c.datasetVersionId === v2);
     expect(v2Cases.map((c) => c.testCaseId).sort()).toEqual(["tc_1", "tc_3"]);
-    expect(v2Cases.find((c) => c.testCaseId === "tc_1")!.expected).toBe("refunds");
+    // Stored JSON-encoded (a genuine string is quoted); decodes back to "refunds".
+    expect(v2Cases.find((c) => c.testCaseId === "tc_1")!.expected).toBe('"refunds"');
     // The first version still holds its original two cases (immutable).
     expect(fakePrisma.testCase.rows.filter((c) => c.datasetVersionId === versionId)).toHaveLength(
       2,
@@ -192,6 +193,33 @@ describe("A4: publish an immutable version from changes", () => {
     const res = await publishVersion(req({ base_version_id: null, changes }), dsParams("ds1"));
     expect(res.status).toBe(413);
     expect((await readJson(res)).limit).toBe(1000);
+  });
+
+  it("stores input/expected JSON-encoded so native types round-trip (real SDK payloads)", async () => {
+    // The SDK sends native JSON values; the backend must not lose type info. A genuine
+    // JSON-looking string must be stored quoted so it is distinguishable from the value.
+    await publishVersion(
+      req({
+        base_version_id: null,
+        changes: [
+          { op: "upsert", test_case_id: "tc_obj", input: { a: 1, b: [2, 3] } },
+          { op: "upsert", test_case_id: "tc_num", input: 42 },
+          { op: "upsert", test_case_id: "tc_bool", input: true },
+          { op: "upsert", test_case_id: "tc_str", input: "hello" },
+          { op: "upsert", test_case_id: "tc_jsonstr", input: "123", expected: "true" },
+        ],
+      }),
+      dsParams("ds1"),
+    );
+    const stored = (id: string) =>
+      fakePrisma.testCase.rows.filter((c) => c.testCaseId === id).at(-1);
+    expect(stored("tc_obj")!.input).toBe('{"a":1,"b":[2,3]}');
+    expect(stored("tc_num")!.input).toBe("42");
+    expect(stored("tc_bool")!.input).toBe("true");
+    // Genuine strings are quoted, so "123"/"hello" never read back as a number/JSON.
+    expect(stored("tc_str")!.input).toBe('"hello"');
+    expect(stored("tc_jsonstr")!.input).toBe('"123"');
+    expect(stored("tc_jsonstr")!.expected).toBe('"true"');
   });
 });
 

@@ -11,16 +11,12 @@ import {
   VersionConflict,
   type TestCaseSeed,
 } from "@/lib/eval/versions";
+import { encodeJsonValue } from "@/lib/eval/json-value";
 
 type RouteParams = { params: Promise<{ datasetId: string }> };
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
-
-/** input/expected arrive as any JSON; store as text (non-strings are stringified). */
-function toText(value: unknown): string {
-  return typeof value === "string" ? value : JSON.stringify(value);
-}
 
 // POST /api/public/datasets/[datasetId]/versions — publish ONE immutable version
 // from a batch of test-case changes (A4). One call → one version, atomically.
@@ -72,8 +68,11 @@ export async function POST(request: Request, { params }: RouteParams) {
           const prev = byId.get(ch.test_case_id);
           byId.set(ch.test_case_id, {
             testCaseId: ch.test_case_id,
-            input: ch.input !== undefined ? toText(ch.input) : (prev?.input ?? ""),
-            expected: ch.expected === undefined ? (prev?.expected ?? null) : toText(ch.expected),
+            // Store input/expected JSON-ENCODED so native types (incl. genuine
+            // JSON-looking strings) round-trip on read. See lib/eval/json-value.
+            input: ch.input !== undefined ? encodeJsonValue(ch.input) : (prev?.input ?? ""),
+            expected:
+              ch.expected === undefined ? (prev?.expected ?? null) : encodeJsonValue(ch.expected),
             recordedOutput: prev?.recordedOutput ?? null,
             metadata: ch.metadata !== undefined ? ch.metadata : (prev?.metadata ?? null),
             review: prev?.review ?? "needs_review",
