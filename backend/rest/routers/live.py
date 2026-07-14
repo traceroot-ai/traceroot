@@ -126,7 +126,7 @@ async def live_trace_stream(
             _trace_start_time_in_clickhouse, project_id, trace_id
         )
         enforce_retention_by_time(_access.billing_plan, trace_start_time)
-    except Exception:
+    except BaseException:
         await pubsub.unsubscribe(channel)
         await pubsub.close()
         raise
