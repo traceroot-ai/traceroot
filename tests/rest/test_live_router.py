@@ -499,16 +499,26 @@ class TestRetentionGate:
 
         app.dependency_overrides[get_project_access] = mock_access
 
+        pubsub = MockPubSub([])
+        mock_redis = MagicMock()
+        mock_redis.pubsub.return_value = pubsub
+
         try:
             test_client = TestClient(app, raise_server_exceptions=False)
-            with patch(
-                "rest.routers.live._trace_start_time_in_clickhouse",
-                return_value=old_start,
+            with (
+                patch(
+                    "rest.routers.live._trace_start_time_in_clickhouse",
+                    return_value=old_start,
+                ),
+                patch("shared.redis.get_async_redis_client", return_value=mock_redis),
             ):
                 resp = test_client.get(ENDPOINT)
             assert resp.status_code == 403
             detail = resp.json()["detail"]
             assert detail["message"] == "Data outside retention window"
+            # Verify pubsub was cleaned up on 403
+            pubsub.unsubscribe.assert_awaited_once()
+            pubsub.close.assert_awaited_once()
         finally:
             app.dependency_overrides.clear()
 
