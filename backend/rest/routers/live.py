@@ -13,7 +13,9 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Request
 from starlette.responses import StreamingResponse
 
+from rest.retention import enforce_retention_by_time
 from rest.routers.deps import ProjectAccess
+from rest.services.trace_reader import get_trace_reader_service
 from shared.config import settings
 
 logger = logging.getLogger(__name__)
@@ -83,6 +85,11 @@ async def live_trace_stream(
     stream stays open for a short quiet window so late descendant spans still
     reach the client before trace_complete closes the frontend stream.
     """
+
+    service = get_trace_reader_service()
+    trace = service.get_trace(project_id=project_id, trace_id=trace_id)
+    if trace:
+        enforce_retention_by_time(_access.billing_plan, trace.get("trace_start_time"))
 
     async def event_generator():
         from shared.redis import get_async_redis_client

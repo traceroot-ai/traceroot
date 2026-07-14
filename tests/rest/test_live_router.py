@@ -61,11 +61,27 @@ def redis_message(payload: dict) -> dict:
 
 @pytest.fixture()
 def client():
+    mock_reader = MagicMock()
+
     async def mock_access(project_id: str, x_user_id=None):
-        return ProjectAccessInfo(project_id=project_id, user_id="u1", role="ADMIN")
+        return ProjectAccessInfo(
+            project_id=project_id,
+            user_id="u1",
+            role="ADMIN",
+            workspace_id="ws-test",
+            billing_plan="enterprise",
+        )
 
     app.dependency_overrides[get_project_access] = mock_access
+
+    import rest.routers.live as live_mod
+
+    original_svc = live_mod.get_trace_reader_service
+    live_mod.get_trace_reader_service = lambda: mock_reader
+
     yield TestClient(app)
+
+    live_mod.get_trace_reader_service = original_svc
 
 
 def parse_sse_events(text: str) -> list[str]:
@@ -139,12 +155,19 @@ class TestAlreadyCompleteTrace:
                 return_value=(_utcnow_naive(), _utcnow_naive()),
             ),
             patch("shared.redis.get_async_redis_client", return_value=mock_redis),
+            patch("rest.routers.live.get_trace_reader_service", return_value=MagicMock()),
         ):
             response = await live_router.live_trace_stream(
                 ConnectedRequest(),
                 PROJECT_ID,
                 TRACE_ID,
-                ProjectAccessInfo(project_id=PROJECT_ID, user_id="u1", role="ADMIN"),
+                ProjectAccessInfo(
+                    project_id=PROJECT_ID,
+                    user_id="u1",
+                    role="ADMIN",
+                    workspace_id="ws-test",
+                    billing_plan="enterprise",
+                ),
             )
             chunks = await collect_stream_chunks(response)
 
@@ -208,12 +231,19 @@ class TestAlreadyCompleteTrace:
             patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.01),
             patch("rest.routers.live._completion_state_in_clickhouse", return_value=(None, None)),
             patch("shared.redis.get_async_redis_client", return_value=mock_redis),
+            patch("rest.routers.live.get_trace_reader_service", return_value=MagicMock()),
         ):
             response = await live_router.live_trace_stream(
                 ConnectedRequest(),
                 PROJECT_ID,
                 TRACE_ID,
-                ProjectAccessInfo(project_id=PROJECT_ID, user_id="u1", role="ADMIN"),
+                ProjectAccessInfo(
+                    project_id=PROJECT_ID,
+                    user_id="u1",
+                    role="ADMIN",
+                    workspace_id="ws-test",
+                    billing_plan="enterprise",
+                ),
             )
             chunks = await collect_stream_chunks(response)
 
@@ -420,3 +450,82 @@ class TestHardDeadline:
 
         events = parse_sse_events(resp.text)
         assert events == ["event: stream_timeout"]
+
+
+class TestRetentionGate:
+    def test_live_stream_403_for_old_trace(self):
+        """A trace outside the retention window returns 403 before streaming."""
+        mock_reader = MagicMock()
+        mock_reader.get_trace.return_value = {
+            "trace_start_time": datetime(2020, 1, 1),
+        }
+
+        async def mock_access(project_id: str, x_user_id=None):
+            return ProjectAccessInfo(
+                project_id=project_id,
+                user_id="u1",
+                role="ADMIN",
+                workspace_id="ws-test",
+                billing_plan="free",
+            )
+
+        app.dependency_overrides[get_project_access] = mock_access
+
+        import rest.routers.live as live_mod
+
+        original_svc = live_mod.get_trace_reader_service
+        live_mod.get_trace_reader_service = lambda: mock_reader
+
+        try:
+            test_client = TestClient(app, raise_server_exceptions=False)
+            resp = test_client.get(ENDPOINT)
+            assert resp.status_code == 403
+            detail = resp.json()["detail"]
+            assert detail["message"] == "Data outside retention window"
+        finally:
+            live_mod.get_trace_reader_service = original_svc
+
+    def test_live_stream_200_for_recent_trace(self):
+        """A trace within the retention window proceeds to streaming."""
+        mock_reader = MagicMock()
+        mock_reader.get_trace.return_value = {
+            "trace_start_time": _utcnow_naive() - timedelta(days=1),
+        }
+
+        async def mock_access(project_id: str, x_user_id=None):
+            return ProjectAccessInfo(
+                project_id=project_id,
+                user_id="u1",
+                role="ADMIN",
+                workspace_id="ws-test",
+                billing_plan="free",
+            )
+
+        app.dependency_overrides[get_project_access] = mock_access
+
+        import rest.routers.live as live_mod
+
+        original_svc = live_mod.get_trace_reader_service
+        live_mod.get_trace_reader_service = lambda: mock_reader
+
+        pubsub = MockPubSub([])
+        mock_redis = MagicMock()
+        mock_redis.pubsub.return_value = pubsub
+
+        try:
+            test_client = TestClient(app)
+            with (
+                patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.1),
+                patch(
+                    "rest.routers.live._completion_state_in_clickhouse",
+                    return_value=(_utcnow_naive(), _utcnow_naive()),
+                ),
+                patch("shared.redis.get_async_redis_client", return_value=mock_redis),
+            ):
+                resp = test_client.get(ENDPOINT)
+
+            assert resp.status_code == 200
+            events = parse_sse_events(resp.text)
+            assert "event: trace_complete" in events
+        finally:
+            live_mod.get_trace_reader_service = original_svc
