@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -13,12 +13,16 @@ import { cn } from "@/lib/utils";
  */
 export function EvalPageHeader({
   title,
+  parent,
   purpose,
   backHref,
   backLabel,
   action,
 }: {
   title: React.ReactNode;
+  /** Parent section for a nested page: renders as a `Parent › title` breadcrumb
+   *  bar (the parent is a link back to the list), matching the detectors detail. */
+  parent?: { label: string; href: string };
   /** One plain sentence. Not marketing copy — a definition. */
   purpose?: React.ReactNode;
   backHref?: string;
@@ -28,7 +32,7 @@ export function EvalPageHeader({
 }) {
   return (
     <div className="shrink-0 border-b border-border px-4 py-3">
-      {backHref && (
+      {backHref && !parent && (
         <Link
           href={backHref}
           className="mb-1.5 inline-flex items-center gap-1 rounded text-[12px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
@@ -37,9 +41,22 @@ export function EvalPageHeader({
           {backLabel ?? "Back"}
         </Link>
       )}
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
-          <h1 className="text-[13px] font-medium">{title}</h1>
+          <div className="flex items-center gap-2">
+            {parent && (
+              <>
+                <Link
+                  href={parent.href}
+                  className="shrink-0 rounded text-[13px] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  {parent.label}
+                </Link>
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
+              </>
+            )}
+            <h1 className="min-w-0 text-[13px] font-medium">{title}</h1>
+          </div>
           {purpose && (
             <p className="mt-0.5 max-w-[70ch] text-[12px] leading-relaxed text-muted-foreground">
               {purpose}
