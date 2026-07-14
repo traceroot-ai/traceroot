@@ -56,7 +56,12 @@ async function fetchTraceFindings(
 ): Promise<{ findings: BackendFinding[] }> {
   const url = `/api/projects/${projectId}/traces/${traceId}/findings`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch trace findings: ${res.status}`);
+  if (!res.ok) {
+    const body = await res
+      .json()
+      .catch(() => ({ detail: `Failed to fetch trace findings: ${res.status}` }));
+    throw new ApiError(res.status, body.detail ?? `Failed to fetch trace findings: ${res.status}`);
+  }
   return res.json() as Promise<{ findings: BackendFinding[] }>;
 }
 
@@ -76,7 +81,10 @@ async function fetchRca(
 ): Promise<{ rca: DetectorRca | null }> {
   const url = `/api/projects/${projectId}/findings/${findingId}/rca`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch RCA: ${res.status}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ detail: `Failed to fetch RCA: ${res.status}` }));
+    throw new ApiError(res.status, body.detail ?? `Failed to fetch RCA: ${res.status}`);
+  }
   return res.json() as Promise<{ rca: DetectorRca | null }>;
 }
 
@@ -187,7 +195,15 @@ async function fetchTraceDetectorRuns(
 ): Promise<{ runs: BackendRun[] }> {
   const url = `/api/projects/${projectId}/traces/${traceId}/detector-runs`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch trace detector runs: ${res.status}`);
+  if (!res.ok) {
+    const body = await res
+      .json()
+      .catch(() => ({ detail: `Failed to fetch trace detector runs: ${res.status}` }));
+    throw new ApiError(
+      res.status,
+      body.detail ?? `Failed to fetch trace detector runs: ${res.status}`,
+    );
+  }
   return res.json() as Promise<{ runs: BackendRun[] }>;
 }
 
