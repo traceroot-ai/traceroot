@@ -1,0 +1,93 @@
+import { NextResponse } from "next/server";
+import { prisma, UpsertResultRequestSchema, type UpsertResultResponse } from "@traceroot/core";
+import { requireApiKeyProject } from "@/lib/eval/auth";
+
+type RouteParams = { params: Promise<{ runId: string }> };
+
+// POST /api/public/evaluation-runs/[runId]/results — SDK upserts one test-case
+// result. Idempotent on (run_id, test_case_id); re-sending replaces the result's
+// scores. trace_id may be null now and set on a later call (out-of-order OK).
+export async function POST(request: Request, { params }: RouteParams) {
+  const auth = await requireApiKeyProject(request);
+  if (auth.error) return auth.error;
+  const { projectId } = auth;
+  const { runId } = await params;
+
+  const run = await prisma.evaluationRun.findFirst({
+    where: { id: runId, projectId },
+    select: { id: true, evaluationId: true },
+  });
+  if (!run) return NextResponse.json({ error: "Evaluation run not found" }, { status: 404 });
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+  const parsed = UpsertResultRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
+  }
+  const r = parsed.data;
+
+  const resultFields = {
+    input: r.input,
+    expectedOutput: r.expected_output ?? null,
+    candidateOutput: r.candidate_output ?? null,
+    baselineOutput: r.baseline_output ?? null,
+    status: r.status,
+    mainScore: r.main_score ?? null,
+    change: r.change ?? null,
+    taskError: r.task_error ?? null,
+    durationMs: r.duration_ms ?? null,
+    cost: r.cost ?? null,
+    traceId: r.trace_id ?? null,
+  };
+  const scoreRows = r.scores.map((s) => ({
+    projectId,
+    scorerName: s.scorer_name,
+    scorerVersion: s.scorer_version,
+    numericValue: s.numeric_value ?? null,
+    boolValue: s.bool_value ?? null,
+    stringValue: s.string_value ?? null,
+    passed: s.passed ?? null,
+    explanation: s.explanation ?? null,
+    error: s.error ?? null,
+  }));
+
+  const resultId = await prisma.$transaction(async (tx) => {
+    const existing = await tx.evaluationResult.findFirst({
+      where: { runId, testCaseId: r.test_case_id },
+      select: { id: true },
+    });
+    if (existing) {
+      await tx.evaluationResult.update({ where: { id: existing.id }, data: resultFields });
+      await tx.score.deleteMany({ where: { resultId: existing.id } });
+      if (scoreRows.length > 0) {
+        await tx.score.createMany({
+          data: scoreRows.map((s) => ({ ...s, resultId: existing.id })),
+        });
+      }
+      return existing.id;
+    }
+    const created = await tx.evaluationResult.create({
+      data: {
+        runId,
+        evaluationId: run.evaluationId,
+        projectId,
+        testCaseId: r.test_case_id,
+        ...resultFields,
+      },
+      select: { id: true },
+    });
+    if (scoreRows.length > 0) {
+      await tx.score.createMany({ data: scoreRows.map((s) => ({ ...s, resultId: created.id })) });
+    }
+    return created.id;
+  });
+
+  return NextResponse.json({ evaluation_result_id: resultId } satisfies UpsertResultResponse, {
+    status: 200,
+  });
+}
