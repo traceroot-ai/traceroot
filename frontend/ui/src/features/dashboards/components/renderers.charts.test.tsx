@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { cloneElement, isValidElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WidgetQueryResult } from "../types";
@@ -247,9 +247,10 @@ describe("QueryWidgetRenderer", () => {
       const { container } = render(<QueryWidgetRenderer display="bar" result={result} />);
       const cells = container.querySelectorAll(".recharts-bar-rectangle");
       expect(cells.length).toBe(3);
-      expect(screen.getByText("api")).toBeTruthy();
-      expect(screen.getByText("worker")).toBeTruthy();
-      expect(screen.getByText("frontend")).toBeTruthy();
+      // each category shows exactly twice: on the axis AND in the legend row
+      for (const name of ["api", "worker", "frontend"]) {
+        expect(screen.getAllByText(name)).toHaveLength(2);
+      }
     });
   });
 
@@ -439,5 +440,72 @@ describe("unit formatting on charts and tables", () => {
     );
     const ticks = Array.from(container.querySelectorAll(".recharts-cartesian-axis-tick-value"));
     expect(ticks.some((t) => t.textContent?.includes("ms"))).toBe(true);
+  });
+});
+
+describe("chart legend", () => {
+  // RTL auto-cleanup needs vitest globals, which this config doesn't enable.
+  afterEach(cleanup);
+
+  it("multi-series line: legend lists series sorted with a window Total, single series gets none", () => {
+    const multi = makeResult(
+      ["bucket", "model_name", "value"],
+      [
+        ["2026-06-01T00:00:00", "gpt", 10],
+        ["2026-06-01T00:00:00", "claude", 30],
+        ["2026-06-01T01:00:00", "gpt", 5],
+      ],
+    );
+    const { unmount } = render(<QueryWidgetRenderer display="line" result={multi} agg="sum" />);
+    const legend = screen.getByRole("list", { name: "Chart legend" });
+    expect(legend).toBeTruthy();
+    const rows = screen.getAllByRole("listitem").map((r) => r.textContent);
+    // Total 45 leads, then series sorted descending: claude 30, gpt 15
+    expect(rows[0]).toContain("Total");
+    expect(rows[0]).toContain("45");
+    expect(rows[1]).toContain("claude");
+    expect(rows[1]).toContain("30");
+    expect(rows[2]).toContain("gpt");
+    expect(rows[2]).toContain("15");
+    unmount();
+
+    const single = makeResult(["bucket", "value"], [["2026-06-01T00:00:00", 10]]);
+    render(<QueryWidgetRenderer display="line" result={single} agg="sum" />);
+    expect(screen.queryByRole("list", { name: "Chart legend" })).toBeNull();
+  });
+
+  it("non-additive series legend shows per-series bucket averages and no Total", () => {
+    const multi = makeResult(
+      ["bucket", "model_name", "value"],
+      [
+        ["2026-06-01T00:00:00", "gpt", 100],
+        ["2026-06-01T01:00:00", "gpt", 200],
+        ["2026-06-01T00:00:00", "claude", 50],
+      ],
+    );
+    render(<QueryWidgetRenderer display="line" result={multi} agg="p95" />);
+    const legend = screen.getByRole("list", { name: "Chart legend" });
+    // gpt averages its two buckets (150); claude's gap bucket stays out of its average
+    expect(legend.textContent).toContain("150");
+    expect(legend.textContent).not.toContain("Total");
+  });
+  it("bar legend hover dims the other categories", () => {
+    const result = makeResult(
+      ["service", "value"],
+      [
+        ["api", 10],
+        ["worker", 20],
+      ],
+    );
+    const { container } = render(<QueryWidgetRenderer display="bar" result={result} />);
+    const rows = screen.getAllByRole("listitem");
+    // rows[0] is the Total row; rows[1] is "worker" (sorted first at 20)
+    fireEvent.mouseEnter(rows[1]);
+    const dimmed = container.querySelectorAll('.recharts-bar-rectangle path[fill-opacity="0.14"]');
+    expect(dimmed.length).toBe(1); // "api" dimmed (0.7 * 0.2)
+    fireEvent.mouseLeave(rows[1]);
+    expect(
+      container.querySelectorAll('.recharts-bar-rectangle path[fill-opacity="0.14"]').length,
+    ).toBe(0);
   });
 });
