@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { ApiError } from "@/lib/api/client";
 
 /** Snake-case shape returned by the backend for a trace's findings */
 export interface BackendFinding {
@@ -147,7 +148,10 @@ async function fetchRuns(
   const qs = params.toString();
   const url = `/api/projects/${projectId}/detectors/${detectorId}/runs${qs ? `?${qs}` : ""}`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch runs: ${res.status}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ detail: `Failed to fetch runs: ${res.status}` }));
+    throw new ApiError(res.status, body.detail ?? `Failed to fetch runs: ${res.status}`);
+  }
   return res.json() as Promise<RunsResponse>;
 }
 

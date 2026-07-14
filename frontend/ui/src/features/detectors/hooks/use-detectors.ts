@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { broadcastQueryInvalidation } from "@/lib/cross-tab-sync";
+import { ApiError } from "@/lib/api/client";
 
 export interface Detector {
   id: string;
@@ -61,7 +62,12 @@ async function fetchDetectorList(
   const qs = params.toString();
   const url = `/api/projects/${projectId}/detectors${qs ? `?${qs}` : ""}`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch detectors: ${res.status}`);
+  if (!res.ok) {
+    const body = await res
+      .json()
+      .catch(() => ({ detail: `Failed to fetch detectors: ${res.status}` }));
+    throw new ApiError(res.status, body.detail ?? `Failed to fetch detectors: ${res.status}`);
+  }
   return res.json() as Promise<DetectorListResponse>;
 }
 
