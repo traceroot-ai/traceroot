@@ -19,6 +19,20 @@ function parseMetadata(metadata: string | null): Record<string, unknown> {
   }
 }
 
+// Converts an epoch-nanosecond decimal string (traceroot.span.starts_path) to
+// an ISO timestamp. Uses exact BigInt integer division (not Number()/1e6 +
+// Math.floor) so ms-aligned inputs never truncate to ms-1 from double
+// rounding. The /^\d+$/ regex above guarantees BigInt(ns) won't throw.
+function nsStringToIso(ns: string): string | null {
+  if (!/^\d+$/.test(ns)) return null;
+  const ms = Number(BigInt(ns) / BigInt(1_000_000));
+  // 8.64e15 is the largest ms value Date can represent (±100,000,000 days
+  // from epoch); anything past that (e.g. a garbage/overlong digit string)
+  // would make toISOString() throw and crash the render path.
+  if (!Number.isFinite(ms) || ms <= 0 || ms > 8.64e15) return null;
+  return new Date(ms).toISOString();
+}
+
 /**
  * For every span that carries traceroot.span.ids_path (ancestor IDs, root→parent)
  * and traceroot.span.path (root→current names) in its metadata, create lightweight
@@ -43,23 +57,31 @@ export function enrichSpansWithPending(spans: Span[]): Span[] {
     const meta = parseMetadata(span.metadata ?? null);
     const idsPath = meta["traceroot.span.ids_path"] as string[] | undefined;
     const namePath = meta["traceroot.span.path"] as string[] | undefined;
+    const startsPath = meta["traceroot.span.starts_path"] as string[] | undefined;
 
     if (!idsPath || !namePath || idsPath.length === 0) continue;
     const ancestorNames = namePath.slice(0, -1);
     if (idsPath.length !== ancestorNames.length) continue;
 
+    // starts_path carries the ancestor chain's TRUE start times (epoch-ns,
+    // index-aligned with idsPath). Only trust it when the lengths match;
+    // otherwise every ancestor falls back to today's estimate (the
+    // descendant's own start), byte-identical to pre-starts_path behavior.
+    const hasStarts = !!startsPath && startsPath.length === idsPath.length;
+
     for (let i = 0; i < idsPath.length; i++) {
       const spanId = idsPath[i];
       const spanName = ancestorNames[i];
+      const candidateStart = (hasStarts && nsStringToIso(startsPath[i])) || span.span_start_time;
 
       if (existingSpanIds.has(spanId) && !pendingSpans.has(spanId)) continue;
 
       if (pendingSpans.has(spanId)) {
         const existing = pendingSpans.get(spanId)!;
         const existStart = parseTimestamp(existing.span_start_time);
-        const curStart = parseTimestamp(span.span_start_time);
+        const curStart = parseTimestamp(candidateStart);
         if (curStart < existStart) {
-          pendingSpans.set(spanId, { ...existing, span_start_time: span.span_start_time });
+          pendingSpans.set(spanId, { ...existing, span_start_time: candidateStart });
         }
         continue;
       }
@@ -71,7 +93,7 @@ export function enrichSpansWithPending(spans: Span[]): Span[] {
         parent_span_id: parentId,
         name: spanName,
         span_kind: SpanKind.SPAN,
-        span_start_time: span.span_start_time,
+        span_start_time: candidateStart,
         span_end_time: null,
         status: SpanStatus.OK,
         status_message: null,
