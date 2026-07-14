@@ -70,9 +70,15 @@ export async function POST(request: Request) {
         }
       }
 
+      // An evaluation is identified by (project, name) — runs of the same-named
+      // evaluation are additive (run #N) and comparable, even when the dataset id
+      // churns (e.g. the SDK creates a fresh Dataset each run). The per-run dataset /
+      // version is recorded on the run, and comparison flags a dataset mismatch. Oldest
+      // same-named evaluation wins so grouping is stable.
       const evaluation =
         (await tx.evaluation.findFirst({
-          where: { projectId, datasetId: req.dataset_id, name: req.evaluation_name },
+          where: { projectId, name: req.evaluation_name },
+          orderBy: { createTime: "asc" },
           select: { id: true },
         })) ??
         (await tx.evaluation.create({
