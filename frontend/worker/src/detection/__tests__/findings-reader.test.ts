@@ -53,4 +53,33 @@ describe("readDetectorWindowSummary", () => {
       "Backend API error: 500",
     );
   });
+
+  it("passes include_summaries=true and returns sample_summaries", async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        data: {
+          d1: {
+            finding_count: 3,
+            run_count: 9,
+            sample_trace_ids: ["t-abc"],
+            sample_summaries: ["Stripe charge timed out 4x", "parse_invoice error swallowed"],
+          },
+        },
+      }),
+    });
+
+    const summary = await readDetectorWindowSummary("proj-1", START, END, {
+      includeSummaries: true,
+    });
+
+    expect(mockFetch.mock.calls[0][0]).toContain("include_summaries=true");
+    expect(summary.d1.sample_summaries).toHaveLength(2);
+  });
+
+  it("omits include_summaries by default", async () => {
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ data: {} }) });
+    await readDetectorWindowSummary("proj-1", START, END);
+    expect(mockFetch.mock.calls[0][0]).not.toContain("include_summaries");
+  });
 });
