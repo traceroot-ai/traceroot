@@ -84,6 +84,9 @@ vi.mock("@/features/detectors/hooks/use-findings", () => ({
 }));
 
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
+vi.mock("@/components/RetentionGateBanner", () => ({
+  RetentionGateBanner: () => <div data-testid="retention-banner" />,
+}));
 vi.mock("@/components/search-filter-bar", () => ({ SearchFilterBar: () => null }));
 vi.mock("@/components/list-pagination", () => ({ ListPagination: () => null }));
 // The panel mock surfaces traceId + autoOpenRca and exposes close/navigate so
@@ -119,6 +122,7 @@ vi.mock("@/features/traces/components/TraceViewerPanel", () => ({
   ),
 }));
 
+import { ApiError } from "@/lib/api/client";
 import DetectorDetailPage from "./page";
 
 afterEach(() => {
@@ -273,5 +277,18 @@ describe("DetectorDetailPage", () => {
     render(<DetectorDetailPage />);
 
     expect(screen.getByText("No findings found")).toBeTruthy();
+  });
+
+  it("renders the retention banner when useRuns returns a 403 retention error", () => {
+    const retentionErr = new ApiError(403, {
+      message: "Data outside retention window",
+      retention_days: 15,
+      cutoff: "2026-06-29T00:00:00",
+      plan: "free",
+    });
+    mocks.useRuns.mockReturnValue({ data: undefined, isLoading: false, error: retentionErr });
+    render(<DetectorDetailPage />);
+
+    expect(screen.getByTestId("retention-banner")).toBeTruthy();
   });
 });
