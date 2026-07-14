@@ -10,6 +10,50 @@
 import { z } from "zod";
 
 // ---------------------------------------------------------------------------
+// Payload caps
+//
+// Every field of the API-key ingest surface is bounded here: route handlers have
+// no body-size limit of their own, so an unbounded field is buffered in full and
+// then persisted verbatim. Small fields are capped inline at their declaration
+// (ids 64/128, `description`/`string_value` 2000, `explanation`/`error` 5000,
+// `task_error` 10000); the large payload fields share the caps below.
+// ---------------------------------------------------------------------------
+
+/** Max characters of a stored text payload (`input`, `*_output`, dataset case values). */
+export const EVAL_PAYLOAD_TEXT_MAX = 1_000_000;
+/** Max characters of a free-form `metadata` object once serialized to JSON. */
+export const EVAL_METADATA_MAX = 64_000;
+/** Max scorers declared on one run, and max scores sent with one result. */
+export const EVAL_SCORER_LIST_MAX = 200;
+/** Max prompt messages, and max characters of each, on an llm_judge descriptor. */
+export const SCORER_MESSAGES_MAX = 50;
+export const SCORER_MESSAGE_CONTENT_MAX = 20_000;
+/** Max characters of a code scorer's `source` snippet. */
+export const SCORER_SOURCE_MAX = 50_000;
+
+/** Whether a value serializes to at most `max` characters (`false` if unserializable). */
+function withinJsonSize(value: unknown, max: number): boolean {
+  try {
+    return (JSON.stringify(value) ?? "").length <= max;
+  } catch {
+    return false;
+  }
+}
+
+/** Any JSON value, bounded by its serialized size. */
+const boundedJson = (max: number) =>
+  z.unknown().refine((v) => withinJsonSize(v, max), {
+    message: `value must serialize to at most ${max} characters`,
+  });
+
+/** Free-form JSON object, bounded by its serialized size. */
+const MetadataSchema = z
+  .record(z.string(), z.unknown())
+  .refine((v) => withinJsonSize(v, EVAL_METADATA_MAX), {
+    message: `metadata must serialize to at most ${EVAL_METADATA_MAX} characters`,
+  });
+
+// ---------------------------------------------------------------------------
 // Status vocabularies (string enums, validated here, documented in the schema)
 // ---------------------------------------------------------------------------
 
@@ -68,7 +112,7 @@ export const ScorerLanguageSchema = z.enum(SCORER_LANGUAGES);
 /** One prompt message of an LLM-judge scorer's definition. */
 export const ScorerMessageSchema = z.object({
   role: z.string().min(1).max(50),
-  content: z.string(),
+  content: z.string().max(SCORER_MESSAGE_CONTENT_MAX),
 });
 
 /**
@@ -82,6 +126,15 @@ export const ScorerMessageSchema = z.object({
  * This is a plain (non-strict) object: unknown keys are stripped, so a field must
  * be declared here to survive into the persisted per-run manifest that the scorer
  * registry reads back (see `lib/eval/scorer-registry.ts`).
+ *
+ * The three display-only vocabularies (`scorer_type`, `output_type`, `language`)
+ * degrade to null on an unrecognised value instead of rejecting, mirroring how
+ * undeclared keys are dropped: an SDK newer than the control plane must not fail
+ * run registration — and lose the run's every result and score — over a field
+ * that only decides how the Scorer detail renders. The known values stay listed
+ * in SCORER_TYPES / SCORER_OUTPUT_TYPES / SCORER_LANGUAGES above. This tolerance
+ * deliberately stops here: the vocabularies that drive persistence and
+ * aggregation (run/result status, `change`, value type, direction) still reject.
  */
 export const ScorerRefSchema = z.object({
   name: z.string().min(1).max(200),
@@ -89,17 +142,17 @@ export const ScorerRefSchema = z.object({
   value_type: ScorerValueTypeSchema.nullable().optional(),
   direction: ScorerDirectionSchema.nullable().optional(),
   threshold: z.number().nullable().optional(),
-  // SDK-reported definition (all optional; absent → "—" in the detail).
-  scorer_type: ScorerTypeSchema.nullable().optional(),
-  output_type: ScorerOutputTypeSchema.nullable().optional(),
+  // SDK-reported definition (all optional; absent or unrecognised → "—" in the detail).
+  scorer_type: ScorerTypeSchema.nullable().optional().catch(null),
+  output_type: ScorerOutputTypeSchema.nullable().optional().catch(null),
   description: z.string().max(2000).nullable().optional(),
-  metadata: z.unknown().nullable().optional(),
+  metadata: boundedJson(EVAL_METADATA_MAX).nullable().optional(),
   // llm_judge
   model: z.string().max(200).nullable().optional(),
-  messages: z.array(ScorerMessageSchema).nullable().optional(),
+  messages: z.array(ScorerMessageSchema).max(SCORER_MESSAGES_MAX).nullable().optional(),
   // code
-  language: ScorerLanguageSchema.nullable().optional(),
-  source: z.string().nullable().optional(),
+  language: ScorerLanguageSchema.nullable().optional().catch(null),
+  source: z.string().max(SCORER_SOURCE_MAX).nullable().optional(),
 });
 export type ScorerRef = z.infer<typeof ScorerRefSchema>;
 
@@ -136,7 +189,7 @@ export const RegisterRunRequestSchema = z
     candidate_version: z.string().min(1).max(200),
     main_score_name: z.string().min(1).max(200).nullable().optional(),
     environment: z.string().min(1).max(64).default("evaluation"),
-    scorers: z.array(ScorerRefSchema).default([]),
+    scorers: z.array(ScorerRefSchema).max(EVAL_SCORER_LIST_MAX).default([]),
     /** SDK-supplied idempotency key. */
     client_run_id: z.string().min(1).max(128).nullable().optional(),
     baseline_run_id: z.string().min(1).max(64).nullable().optional(),
@@ -147,7 +200,7 @@ export const RegisterRunRequestSchema = z
      * never rejects a run. Presented as informational secondary detail, never as
      * an evaluation error, and never a source of secrets.
      */
-    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+    metadata: MetadataSchema.nullable().optional(),
   })
   .strict();
 export type RegisterRunRequest = z.infer<typeof RegisterRunRequestSchema>;
@@ -176,23 +229,31 @@ export interface RegisterRunResponse {
 /**
  * Upsert one test-case result. Idempotent on (`run_id`, `test_case_id`).
  * `trace_id` may be null now and set on a later call (out-of-order arrival).
- * Sending `scores` replaces the result's scores.
+ *
+ * `scores` is genuinely optional and carries three distinct meanings, because the
+ * out-of-order flow this schema invites (POST the result with its scores, then
+ * re-POST later just to attach the OTel `trace_id`) must not destroy them:
+ *   - absent    → leave the result's existing scores untouched
+ *   - `[]`      → clear the result's scores
+ *   - non-empty → replace the result's scores with these
+ * Handlers must branch on `undefined` vs `[]`; do not re-add a `.default([])`
+ * here, which would collapse the first two cases into a silent delete.
  */
 export const UpsertResultRequestSchema = z
   .object({
     test_case_id: z.string().min(1).max(64),
     trace_id: z.string().min(1).max(64).nullable().optional(),
-    input: z.string(),
-    expected_output: z.string().nullable().optional(),
-    candidate_output: z.string().nullable().optional(),
-    baseline_output: z.string().nullable().optional(),
+    input: z.string().max(EVAL_PAYLOAD_TEXT_MAX),
+    expected_output: z.string().max(EVAL_PAYLOAD_TEXT_MAX).nullable().optional(),
+    candidate_output: z.string().max(EVAL_PAYLOAD_TEXT_MAX).nullable().optional(),
+    baseline_output: z.string().max(EVAL_PAYLOAD_TEXT_MAX).nullable().optional(),
     status: EvalResultStatusSchema,
     main_score: z.number().nullable().optional(),
     change: ResultChangeSchema.nullable().optional(),
     task_error: z.string().max(10000).nullable().optional(),
     duration_ms: z.number().int().nonnegative().nullable().optional(),
     cost: z.number().nonnegative().nullable().optional(),
-    scores: z.array(ScoreInputSchema).default([]),
+    scores: z.array(ScoreInputSchema).max(EVAL_SCORER_LIST_MAX).optional(),
   })
   .strict();
 export type UpsertResultRequest = z.infer<typeof UpsertResultRequestSchema>;
@@ -236,10 +297,10 @@ export const UpdateDatasetRequestSchema = z
 /** Save a trace/span as a new test case (publishes a new dataset version). */
 export const CreateTestCaseRequestSchema = z
   .object({
-    input: z.string(),
-    expected: z.string().nullable().optional(),
-    recorded_output: z.string().nullable().optional(),
-    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+    input: z.string().max(EVAL_PAYLOAD_TEXT_MAX),
+    expected: z.string().max(EVAL_PAYLOAD_TEXT_MAX).nullable().optional(),
+    recorded_output: z.string().max(EVAL_PAYLOAD_TEXT_MAX).nullable().optional(),
+    metadata: MetadataSchema.nullable().optional(),
     review: ReviewStatusSchema.default("needs_review"),
     capture_reason: CaptureReasonSchema.default("manual"),
     source_trace_id: z.string().max(64).nullable().optional(),
@@ -253,9 +314,9 @@ export type CreateTestCaseRequest = z.infer<typeof CreateTestCaseRequestSchema>;
 /** Edit a test case → publishes a new dataset version (old snapshots untouched). */
 export const UpdateTestCaseRequestSchema = z
   .object({
-    input: z.string().optional(),
-    expected: z.string().nullable().optional(),
-    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+    input: z.string().max(EVAL_PAYLOAD_TEXT_MAX).optional(),
+    expected: z.string().max(EVAL_PAYLOAD_TEXT_MAX).nullable().optional(),
+    metadata: MetadataSchema.nullable().optional(),
     review: ReviewStatusSchema.optional(),
   })
   .strict();
@@ -288,7 +349,7 @@ export const PublicUpsertDatasetRequestSchema = z
     dataset_id: z.string().min(1).max(64),
     name: z.string().min(1).max(200),
     description: z.string().max(2000).nullable().optional(),
-    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+    metadata: MetadataSchema.nullable().optional(),
   })
   .strict();
 export type PublicUpsertDatasetRequest = z.infer<typeof PublicUpsertDatasetRequestSchema>;
@@ -298,7 +359,7 @@ export const PublicUpdateDatasetRequestSchema = z
   .object({
     name: z.string().min(1).max(200).optional(),
     description: z.string().max(2000).nullable().optional(),
-    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+    metadata: MetadataSchema.nullable().optional(),
   })
   .strict();
 export type PublicUpdateDatasetRequest = z.infer<typeof PublicUpdateDatasetRequestSchema>;
@@ -306,9 +367,19 @@ export type PublicUpdateDatasetRequest = z.infer<typeof PublicUpdateDatasetReque
 const UpsertCaseChangeSchema = z.object({
   op: z.literal("upsert"),
   test_case_id: z.string().min(1).max(64),
-  input: z.unknown(),
-  expected: z.unknown().optional(),
-  metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+  /**
+   * Required — `upsert` is a full-case replace/add, and `TestCase.input` is
+   * NOT NULL, so a missing key here would create a permanent case with an empty
+   * input rather than 400. Both modifiers are load-bearing: `z.unknown()` on its
+   * own accepts an absent key (which is also why `expected` below needs no
+   * `.optional()` to be optional), the `.refine` rejects it with a readable
+   * message, and `.nonoptional()` makes it required in the inferred type too.
+   */
+  input: boundedJson(EVAL_PAYLOAD_TEXT_MAX)
+    .refine((v) => v !== undefined, { message: "input is required" })
+    .nonoptional(),
+  expected: boundedJson(EVAL_PAYLOAD_TEXT_MAX).optional(),
+  metadata: MetadataSchema.nullable().optional(),
   source_trace_id: z.string().max(64).nullable().optional(),
   source_span_id: z.string().max(64).nullable().optional(),
 });

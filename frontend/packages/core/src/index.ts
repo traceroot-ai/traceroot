@@ -37,6 +37,7 @@ export type {
 // Constants & Zod schemas
 export * from "./constants.ts";
 export * from "./schemas.ts";
+export * from "./eval-contract.ts";
 
 // LLM Providers
 export * from "./llm-providers.ts";

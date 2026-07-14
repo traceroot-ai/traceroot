@@ -13,15 +13,47 @@ Parity rules with the Zod source:
 - ``z.string().min(1).max(n)`` → ``Field(min_length=1, max_length=n)``.
 - ``z.number().int().nonnegative()`` → ``int`` with ``ge=0``; ``z.number()`` → ``float``.
 - ``.nullable().optional()`` → ``T | None = None``; ``.default(x)`` → default ``x``.
+- ``z.array(X).max(n)`` → ``list[X]`` with ``max_length=n``.
+- A display-only enum with ``.catch(null)`` → ``Literal[...] | None`` plus a
+  ``mode="before"`` validator that degrades an unrecognised value to ``None``.
 
 A cross-language drift test (``tests/rest/test_eval_contract_parity.py`` +
 ``eval-contract-parity.drift.test.ts``) feeds the same representative payloads to
 both layers and asserts identical accept/reject verdicts.
 """
 
-from typing import Any, Literal
+import json
+from typing import Any, Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
+
+# --- Payload caps (mirror the shared caps at the top of the Zod contract) ----
+
+#: Max characters of a stored text payload (``input``, ``*_output``).
+EVAL_PAYLOAD_TEXT_MAX = 1_000_000
+#: Max characters of a free-form ``metadata`` object once serialized to JSON.
+EVAL_METADATA_MAX = 64_000
+#: Max scorers declared on one run, and max scores sent with one result.
+EVAL_SCORER_LIST_MAX = 200
+#: Max prompt messages, and max characters of each, on an llm_judge descriptor.
+SCORER_MESSAGES_MAX = 50
+SCORER_MESSAGE_CONTENT_MAX = 20_000
+#: Max characters of a code scorer's ``source`` snippet.
+SCORER_SOURCE_MAX = 50_000
+
+
+def _check_json_size(value: Any, max_chars: int, field: str) -> Any:
+    """Mirror of the Zod ``withinJsonSize`` refinement on free-form JSON fields."""
+    if value is None:
+        return value
+    try:
+        serialized = json.dumps(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field} must be JSON-serializable") from exc
+    if len(serialized) > max_chars:
+        raise ValueError(f"{field} must serialize to at most {max_chars} characters")
+    return value
+
 
 # --- Status vocabularies (mirror the z.enum unions) -------------------------
 
@@ -50,7 +82,15 @@ class ScorerMessage(BaseModel):
     """One prompt message of an LLM-judge scorer's definition."""
 
     role: str = Field(min_length=1, max_length=50)
-    content: str
+    content: str = Field(max_length=SCORER_MESSAGE_CONTENT_MAX)
+
+
+#: The display-only vocabularies that degrade instead of rejecting (see ScorerRef).
+_DISPLAY_ONLY_VARIANTS: dict[str, frozenset[str]] = {
+    "scorer_type": frozenset(get_args(ScorerType)),
+    "output_type": frozenset(get_args(ScorerOutputType)),
+    "language": frozenset(get_args(ScorerLanguage)),
+}
 
 
 class ScorerRef(BaseModel):
@@ -61,6 +101,12 @@ class ScorerRef(BaseModel):
 
     The DEFINITION fields (``scorer_type``, prompt/source, config) let the read-only
     Scorer detail render an LLM judge's model + messages or a code scorer's snippet.
+
+    ``scorer_type`` / ``output_type`` / ``language`` are display-only, so an
+    unrecognised value from a newer SDK degrades to ``None`` rather than failing
+    run registration (which would lose the run's every result and score) —
+    matching ``.catch(null)`` on the Zod side. The vocabularies that drive
+    persistence and aggregation still reject.
     """
 
     name: str = Field(min_length=1, max_length=200)
@@ -68,17 +114,28 @@ class ScorerRef(BaseModel):
     value_type: ScorerValueType | None = None
     direction: ScorerDirection | None = None
     threshold: float | None = None
-    # SDK-reported definition (all optional; absent → "—" in the detail).
+    # SDK-reported definition (all optional; absent or unrecognised → "—" in the detail).
     scorer_type: ScorerType | None = None
     output_type: ScorerOutputType | None = None
     description: str | None = Field(default=None, max_length=2000)
     metadata: Any | None = None
     # llm_judge
     model: str | None = Field(default=None, max_length=200)
-    messages: list[ScorerMessage] | None = None
+    messages: list[ScorerMessage] | None = Field(default=None, max_length=SCORER_MESSAGES_MAX)
     # code
     language: ScorerLanguage | None = None
-    source: str | None = None
+    source: str | None = Field(default=None, max_length=SCORER_SOURCE_MAX)
+
+    @field_validator("scorer_type", "output_type", "language", mode="before")
+    @classmethod
+    def _degrade_unknown_variant(cls, v: Any, info: ValidationInfo) -> Any:
+        allowed = _DISPLAY_ONLY_VARIANTS[str(info.field_name)]
+        return v if isinstance(v, str) and v in allowed else None
+
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def _check_metadata_size(cls, v: Any) -> Any:
+        return _check_json_size(v, EVAL_METADATA_MAX, "metadata")
 
 
 class ScoreInput(BaseModel):
@@ -111,13 +168,18 @@ class RegisterRunRequest(BaseModel):
     candidate_version: str = Field(min_length=1, max_length=200)
     main_score_name: str | None = Field(default=None, min_length=1, max_length=200)
     environment: str = Field(default="evaluation", min_length=1, max_length=64)
-    scorers: list[ScorerRef] = Field(default_factory=list)
+    scorers: list[ScorerRef] = Field(default_factory=list, max_length=EVAL_SCORER_LIST_MAX)
     # SDK-supplied idempotency key.
     client_run_id: str | None = Field(default=None, min_length=1, max_length=128)
     baseline_run_id: str | None = Field(default=None, min_length=1, max_length=64)
     case_count: int | None = Field(default=None, ge=0)
     # Free-form run provenance (model, prompt, config, git repo/ref/commit, …).
     metadata: dict[str, Any] | None = None
+
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def _check_metadata_size(cls, v: Any) -> Any:
+        return _check_json_size(v, EVAL_METADATA_MAX, "metadata")
 
 
 class RegisterRunResponse(BaseModel):
@@ -141,24 +203,29 @@ class RegisterRunResponse(BaseModel):
 class UpsertResultRequest(BaseModel):
     """Upsert one test-case result. Idempotent on (``run_id``, ``test_case_id``).
     ``trace_id`` may be null now and set on a later call (out-of-order arrival).
-    Sending ``scores`` replaces the result's scores.
+
+    ``scores`` is genuinely optional and carries three distinct meanings, so the
+    out-of-order flow (POST the result with its scores, then re-POST later just to
+    attach the OTel ``trace_id``) cannot destroy them: absent → leave the existing
+    scores untouched, ``[]`` → clear them, non-empty → replace them. Do not give
+    this a ``default_factory=list``, which would collapse the first two cases.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     test_case_id: str = Field(min_length=1, max_length=64)
     trace_id: str | None = Field(default=None, min_length=1, max_length=64)
-    input: str
-    expected_output: str | None = None
-    candidate_output: str | None = None
-    baseline_output: str | None = None
+    input: str = Field(max_length=EVAL_PAYLOAD_TEXT_MAX)
+    expected_output: str | None = Field(default=None, max_length=EVAL_PAYLOAD_TEXT_MAX)
+    candidate_output: str | None = Field(default=None, max_length=EVAL_PAYLOAD_TEXT_MAX)
+    baseline_output: str | None = Field(default=None, max_length=EVAL_PAYLOAD_TEXT_MAX)
     status: EvalResultStatus
     main_score: float | None = None
     change: ResultChange | None = None
     task_error: str | None = Field(default=None, max_length=10000)
     duration_ms: int | None = Field(default=None, ge=0)
     cost: float | None = Field(default=None, ge=0)
-    scores: list[ScoreInput] = Field(default_factory=list)
+    scores: list[ScoreInput] | None = Field(default=None, max_length=EVAL_SCORER_LIST_MAX)
 
 
 class UpsertResultResponse(BaseModel):
