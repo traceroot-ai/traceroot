@@ -41,7 +41,7 @@ export function pct(value: number, digits = 1): string {
 
 /**
  * A 0–1 rate as a percentage, e.g. 0.857 → "85.7%". Server-backed evaluation main
- * scores are 0–1 fractions (unlike the mock's 0–100 values), so they use this.
+ * scores are 0–1 fractions (not 0–100 values), so they use this.
  */
 export function pctFraction(value: number, digits = 1): string {
   return pct(value * 100, digits);

@@ -1,5 +1,5 @@
 /**
- * Offline Evaluation — domain types (UI prototype).
+ * Offline Evaluation — domain types.
  *
  * v1 loop: an existing trace → select a span → save it as a test case →
  * dataset → run an evaluation → compare → inspect the resulting trace → review.
@@ -102,7 +102,7 @@ export interface HumanReview {
 // ---------------------------------------------------------------------------
 
 /**
- * A trace in the prototype: the genuine `TraceDetail` (rendered by the real
+ * A trace: the genuine `TraceDetail` (rendered by the real
  * SpanTreeView / SpanInfoPanel) plus the summary fields a list shows.
  */
 export interface ProtoTrace {

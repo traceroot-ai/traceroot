@@ -27,8 +27,8 @@ const TH =
 const TD = "border-r border-border/50 px-3 py-1.5 text-[12px]";
 
 /**
- * Dataset list — a faithful port of the offline-eval prototype's dataset
- * library, wired to the server: tracing-style search + date filter, row
+ * Dataset list — the dataset library, wired to the server: tracing-style
+ * search + date filter, row
  * selection with "N selected · Delete" beside the search, a three-dot
  * Edit/Delete menu, and right-side New/Edit panels.
  */

@@ -69,24 +69,6 @@ export function EvalPageHeader({
   );
 }
 
-/**
- * Standing marker that none of this is real. The prototype shows finished
- * runs that never happened; without this the screens are indistinguishable
- * from a working product.
- */
-export function PrototypeNotice({ className }: { className?: string }) {
-  return (
-    <p
-      className={cn(
-        "shrink-0 border-b border-border bg-muted/20 px-4 py-1.5 text-[11px] text-muted-foreground",
-        className,
-      )}
-    >
-      Design prototype — all data is hardcoded. Nothing runs, saves, or leaves the browser.
-    </p>
-  );
-}
-
 /** Body wrapper: consistent padding and scroll behaviour for every page. */
 export function EvalBody({
   children,

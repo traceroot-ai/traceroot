@@ -7,7 +7,6 @@ export { Timestamp } from "./timestamp";
 export { DatasetInfoChip } from "./dataset-info-chip";
 export {
   EvalPageHeader,
-  PrototypeNotice,
   EvalBody,
   DetailsSection,
   DetailRow,

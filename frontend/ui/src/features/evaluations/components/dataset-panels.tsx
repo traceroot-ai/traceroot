@@ -12,11 +12,10 @@ import {
 import { useCreateDataset, useUpdateDataset } from "../hooks";
 
 /**
- * Server-wired ports of the mock's New-dataset and Edit-dataset panels. Identical
- * chrome and fields (the shared DatasetFormFields), but persisting through the
- * real hooks with real toasts instead of the prototype's in-browser stubs. The
- * schema/metadata form cards are illustrative for now (the server persists name +
- * description); kept visible to match the approved design.
+ * Server-wired New-dataset and Edit-dataset panels, sharing DatasetFormFields
+ * and persisting through the real hooks with real toasts. The schema/metadata
+ * form cards are illustrative for now (the server persists name + description);
+ * kept visible by design.
  */
 
 /** "New dataset" — non-modal right slide-in, same shape as Save as test case. */
