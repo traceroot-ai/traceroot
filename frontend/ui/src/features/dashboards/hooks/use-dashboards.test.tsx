@@ -31,6 +31,7 @@ const fakeSummary: DashboardSummary = {
   name: "Overview",
   description: null,
   isDefault: true,
+  createTime: "2026-05-01T00:00:00Z",
   updateTime: "2026-06-01T00:00:00Z",
 };
 
@@ -66,11 +67,12 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 describe("useDashboards", () => {
   it("unwraps the data array from the list response", async () => {
-    vi.mocked(api.listDashboards).mockResolvedValue({ data: [fakeSummary] });
+    const listItem = { ...fakeSummary, creator: "Ada" };
+    vi.mocked(api.listDashboards).mockResolvedValue({ data: [listItem] });
     const { wrapper } = makeWrapper();
 
     const { result } = renderHook(() => useDashboards("proj-1"), { wrapper });
-    await waitFor(() => expect(result.current.data).toEqual([fakeSummary]));
+    await waitFor(() => expect(result.current.data).toEqual([listItem]));
     expect(api.listDashboards).toHaveBeenCalledWith("proj-1");
   });
 
