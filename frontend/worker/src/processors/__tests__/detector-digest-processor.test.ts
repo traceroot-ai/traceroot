@@ -5,6 +5,8 @@ const detectorFindMany = vi.fn();
 const projectFindUnique = vi.fn();
 const sendDigestAlertSlack = vi.fn();
 const sendDigestAlertEmail = vi.fn();
+const generateDigestSummary = vi.fn();
+const aiMessageCreate = vi.fn();
 
 vi.mock("../../detection/findings-reader.js", () => ({
   readDetectorWindowSummary: (...a: any[]) => readDetectorWindowSummary(...a),
@@ -14,7 +16,13 @@ vi.mock("@traceroot/core", () => ({
   prisma: {
     detector: { findMany: (...a: any[]) => detectorFindMany(...a) },
     project: { findUnique: (...a: any[]) => projectFindUnique(...a) },
+    aIMessage: { create: (...a: any[]) => aiMessageCreate(...a) },
   },
+  PlanType: { FREE: "free" },
+}));
+
+vi.mock("../../notifications/digest-summary.js", () => ({
+  generateDigestSummary: (...a: any[]) => generateDigestSummary(...a),
 }));
 
 vi.mock("../../notifications/slack.js", () => ({
@@ -33,8 +41,16 @@ vi.mock("../../queues/digest-queue.js", () => ({
 
 const PROJECT = {
   name: "Acme Corp",
+  rcaModel: null,
+  rcaProvider: null,
+  rcaSource: null,
   alertConfig: { emailAddresses: ["a@example.com"], slackChannelId: "C123" },
-  workspace: { id: "ws1", slackIntegration: { channelId: "C999", botToken: "enc-token" } },
+  workspace: {
+    id: "ws1",
+    billingPlan: "pro",
+    rcaBlocked: false,
+    slackIntegration: { channelId: "C999", botToken: "enc-token" },
+  },
 };
 
 beforeEach(() => {
@@ -50,6 +66,8 @@ beforeEach(() => {
   projectFindUnique.mockResolvedValue(PROJECT);
   sendDigestAlertSlack.mockResolvedValue(undefined);
   sendDigestAlertEmail.mockResolvedValue(undefined);
+  generateDigestSummary.mockResolvedValue(null);
+  aiMessageCreate.mockResolvedValue(undefined);
 });
 
 async function run() {
@@ -159,5 +177,75 @@ describe("flushDigest", () => {
     expect(detectorFindMany).not.toHaveBeenCalled();
     expect(sendDigestAlertSlack).not.toHaveBeenCalled();
     expect(sendDigestAlertEmail).not.toHaveBeenCalled();
+  });
+
+  it("passes the generated summary to both channels and writes an AIMessage", async () => {
+    readDetectorWindowSummary.mockResolvedValue({
+      d1: {
+        finding_count: 4,
+        run_count: 9,
+        sample_trace_ids: ["trace-d1"],
+        sample_summaries: ["s1", "s2"],
+      },
+    });
+    detectorFindMany.mockResolvedValue([{ id: "d1", name: "Latency", enableRca: true }]);
+    generateDigestSummary.mockResolvedValue({
+      summary: "Stripe is down.",
+      usage: {
+        model: "claude-haiku-4-5",
+        provider: "anthropic",
+        isByok: false,
+        inputTokens: 900,
+        outputTokens: 60,
+        cost: 0.001,
+      },
+    });
+    await run();
+    expect(readDetectorWindowSummary.mock.calls[0][3]).toEqual({ includeSummaries: true });
+    expect(generateDigestSummary.mock.calls[0][0].detectors).toEqual([
+      { name: "Latency", findingCount: 4, sampleSummaries: ["s1", "s2"] },
+    ]);
+    expect(sendDigestAlertSlack.mock.calls[0][0].summary).toBe("Stripe is down.");
+    expect(sendDigestAlertEmail.mock.calls[0][0].summary).toBe("Stripe is down.");
+    expect(aiMessageCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        workspaceId: "ws1",
+        kind: "digest-summary",
+        model: "claude-haiku-4-5",
+        cost: 0.001,
+      }),
+    });
+  });
+
+  it("sends the digest unchanged when summary generation returns null", async () => {
+    generateDigestSummary.mockResolvedValue(null);
+    await run();
+    expect(sendDigestAlertSlack.mock.calls[0][0].summary).toBeUndefined();
+    expect(sendDigestAlertEmail.mock.calls[0][0].summary).toBeUndefined();
+    expect(aiMessageCreate).not.toHaveBeenCalled();
+  });
+
+  it("skips summary generation entirely for rca-blocked free workspaces", async () => {
+    projectFindUnique.mockResolvedValue({
+      ...PROJECT,
+      workspace: { ...PROJECT.workspace, billingPlan: "free", rcaBlocked: true },
+    });
+    await run();
+    expect(generateDigestSummary).not.toHaveBeenCalled();
+    // Blocked workspaces also skip the extra ClickHouse summaries join.
+    expect(readDetectorWindowSummary.mock.calls[0][3]).toEqual({ includeSummaries: false });
+    expect(sendDigestAlertSlack).toHaveBeenCalledTimes(1); // digest still sends
+  });
+
+  it('skips summary generation when DIGEST_SUMMARY_ENABLED is exactly "false"', async () => {
+    process.env.DIGEST_SUMMARY_ENABLED = "false";
+    try {
+      await run();
+      expect(generateDigestSummary).not.toHaveBeenCalled();
+      expect(readDetectorWindowSummary.mock.calls[0][3]).toEqual({ includeSummaries: false });
+      expect(sendDigestAlertSlack).toHaveBeenCalledTimes(1); // digest still sends
+    } finally {
+      delete process.env.DIGEST_SUMMARY_ENABLED;
+    }
   });
 });
