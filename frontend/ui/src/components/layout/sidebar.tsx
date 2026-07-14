@@ -19,8 +19,6 @@ import {
   Database,
   FlaskConical,
   Ruler,
-  ShieldCheck,
-  Waypoints,
   type LucideIcon,
 } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
@@ -60,30 +58,24 @@ interface OfflineEvalNavItem {
 /**
  * Offline Evaluation (design prototype) section.
  *
- * Kept as a data array rather than the hand-written blocks above: six items is
- * past the point where copy-pasted Tooltip/Link blocks stay readable. Mirrors
- * the SettingsTab[] pattern in features/settings/settings-layout.tsx.
+ * Four items, in workflow order: look at what happened, keep the examples worth
+ * rerunning, see how a version did, and check how it was judged. There is no
+ * landing dashboard — the section opens on Traces.
  */
 const OFFLINE_EVAL_NAV: OfflineEvalNavItem[] = [
-  { id: "overview", label: "Overview", icon: Waypoints, href: "" },
   { id: "traces", label: "Traces", icon: Route, href: "/traces" },
   { id: "datasets", label: "Datasets", icon: Database, href: "/datasets" },
   { id: "experiments", label: "Experiments", icon: FlaskConical, href: "/experiments" },
   { id: "scorers", label: "Scorers", icon: Ruler, href: "/scorers" },
-  { id: "ci-gates", label: "CI Gates", icon: ShieldCheck, href: "/ci-gates" },
 ];
 
-/** Marks the offline-eval item matching the current path, longest-prefix first. */
+/** Marks the offline-eval item matching the current path. */
 function activeOfflineEvalId(pathname: string, base: string): string | null {
   if (!pathname.startsWith(base)) return null;
   const rest = pathname.slice(base.length);
-  // "" (overview) must lose to every real fragment, so check it last.
-  const match = OFFLINE_EVAL_NAV.filter((item) => item.href !== "").find((item) =>
-    rest.startsWith(item.href),
-  );
-  if (match) return match.id;
-  // Issue pages hang off the overview conceptually — keep Overview lit there.
-  return "overview";
+  // The bare base redirects to /traces, so treat it as Traces.
+  if (rest === "" || rest === "/") return "traces";
+  return OFFLINE_EVAL_NAV.find((item) => rest.startsWith(item.href))?.id ?? null;
 }
 
 export function Sidebar({ collapsed = false }: SidebarProps) {
