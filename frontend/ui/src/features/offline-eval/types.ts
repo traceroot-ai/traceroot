@@ -219,7 +219,9 @@ export type EvalResultStatus = "passed" | "failed" | "errored" | "not_scored";
 
 export const EVAL_RESULT_STATUS_LABEL: Record<EvalResultStatus, string> = {
   passed: "Passed",
-  failed: "Failed",
+  // "Did not pass" (scored below the scorer's bar), not "Failed" — a low score
+  // reads as a broken run otherwise. A crash is "Errored", kept distinct.
+  failed: "Did not pass",
   errored: "Errored",
   not_scored: "Not scored",
 };
