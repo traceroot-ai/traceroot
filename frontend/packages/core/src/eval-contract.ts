@@ -19,6 +19,7 @@ export const EVAL_RUN_STATUSES = [
   "completed_with_errors",
   "failed",
   "incomplete",
+  "cancelled",
 ] as const;
 export const EvalRunStatusSchema = z.enum(EVAL_RUN_STATUSES);
 export type EvalRunStatus = (typeof EVAL_RUN_STATUSES)[number];
@@ -195,3 +196,78 @@ export const CreateHumanScoreRequestSchema = z
   })
   .strict();
 export type CreateHumanScoreRequest = z.infer<typeof CreateHumanScoreRequestSchema>;
+
+// ---------------------------------------------------------------------------
+// API-key dataset authoring (SDK owns dataset_id / test_case_id; server owns
+// dataset_version_id / version_number). See contract-delta-dataset-and-lifecycle.
+//
+// input / expected are accepted as any JSON value and stored as text (a non-string
+// value is JSON-stringified), matching how the pull endpoints already return them.
+// ---------------------------------------------------------------------------
+
+/** Max test-case changes accepted in one A4 publish; over this → 413 so the SDK chunks. */
+export const DATASET_VERSION_MAX_CHANGES = 1000;
+
+/** A2 — upsert a dataset by its client-generated id (idempotent, no version). */
+export const PublicUpsertDatasetRequestSchema = z
+  .object({
+    dataset_id: z.string().min(1).max(64),
+    name: z.string().min(1).max(200),
+    description: z.string().max(2000).nullable().optional(),
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+  })
+  .strict();
+export type PublicUpsertDatasetRequest = z.infer<typeof PublicUpsertDatasetRequestSchema>;
+
+/** A3 — dataset metadata only; never mutates a published version. */
+export const PublicUpdateDatasetRequestSchema = z
+  .object({
+    name: z.string().min(1).max(200).optional(),
+    description: z.string().max(2000).nullable().optional(),
+    metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+  })
+  .strict();
+export type PublicUpdateDatasetRequest = z.infer<typeof PublicUpdateDatasetRequestSchema>;
+
+const UpsertCaseChangeSchema = z.object({
+  op: z.literal("upsert"),
+  test_case_id: z.string().min(1).max(64),
+  input: z.unknown(),
+  expected: z.unknown().optional(),
+  metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+  source_trace_id: z.string().max(64).nullable().optional(),
+  source_span_id: z.string().max(64).nullable().optional(),
+});
+const ArchiveCaseChangeSchema = z.object({
+  op: z.literal("archive"),
+  test_case_id: z.string().min(1).max(64),
+});
+const DeleteCaseChangeSchema = z.object({
+  op: z.literal("delete"),
+  test_case_id: z.string().min(1).max(64),
+});
+export const DatasetChangeSchema = z.discriminatedUnion("op", [
+  UpsertCaseChangeSchema,
+  ArchiveCaseChangeSchema,
+  DeleteCaseChangeSchema,
+]);
+export type DatasetChange = z.infer<typeof DatasetChangeSchema>;
+
+/**
+ * A4 — publish ONE immutable dataset version from a batch of changes.
+ *
+ * `base_version_id` is the version the edit was based on (null on first publish);
+ * a mismatch with the dataset's current version is a 409 conflict. `idempotency_key`
+ * makes a retried publish return the same version instead of a duplicate. The
+ * change cap (DATASET_VERSION_MAX_CHANGES) is enforced in the route as a 413, not
+ * here, so the SDK gets the limit back and chunks.
+ */
+export const PublishDatasetVersionRequestSchema = z
+  .object({
+    base_version_id: z.string().min(1).max(64).nullable(),
+    label: z.string().min(1).max(64).optional(),
+    changes: z.array(DatasetChangeSchema).min(1),
+    idempotency_key: z.string().min(1).max(128).nullable().optional(),
+  })
+  .strict();
+export type PublishDatasetVersionRequest = z.infer<typeof PublishDatasetVersionRequestSchema>;

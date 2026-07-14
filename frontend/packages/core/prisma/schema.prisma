@@ -459,6 +459,7 @@ model Dataset {
   projectId        String   @map("project_id") @db.VarChar
   name             String   @db.VarChar
   description      String?  @db.Text
+  metadata         Json?    @map("metadata") @db.JsonB // free-form, SDK-authored
   currentVersionId String?  @map("current_version_id") @db.VarChar
   createTime       DateTime @default(now()) @map("create_time") @db.Timestamp(6)
   updateTime       DateTime @updatedAt @map("update_time") @db.Timestamp(6)
@@ -481,6 +482,7 @@ model DatasetVersion {
   label         String   @db.VarChar // human label, e.g. "v12"
   note          String?  @db.Text
   createdBy     String?  @map("created_by") @db.VarChar
+  idempotencyKey String? @map("idempotency_key") @db.VarChar // SDK publish idempotency (A4)
   createTime    DateTime @default(now()) @map("create_time") @db.Timestamp(6)
 
   dataset   Dataset         @relation(fields: [datasetId], references: [id], onDelete: Cascade)
@@ -488,6 +490,7 @@ model DatasetVersion {
   runs      EvaluationRun[]
 
   @@unique([datasetId, versionNumber], map: "uq_dataset_version_number")
+  @@unique([datasetId, idempotencyKey], map: "uq_dataset_version_idempotency")
   @@index([projectId], map: "ix_dataset_version_project_id")
   @@map("dataset_versions")
 }
