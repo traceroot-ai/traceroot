@@ -46,7 +46,7 @@ function wrapper({ children }: { children: React.ReactNode }) {
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
 
-function renderWidget(spec: { limit?: number } = {}) {
+function renderWidget(spec: React.ComponentProps<typeof TraceFeedWidget>["spec"] = {}) {
   return render(<TraceFeedWidget projectId="p1" spec={spec} range={RANGE} />, { wrapper });
 }
 
@@ -152,11 +152,30 @@ describe("TraceFeedWidget", () => {
       {
         page: 0,
         limit: 25,
+        filters: [],
         start_after: RANGE.start.toISOString(),
         end_before: RANGE.end.toISOString(),
       },
       { id: "u1", email: "u@example.com" },
     );
+  });
+
+  it("passes spec.filters through as trace-list predicates, dropping invalid entries", async () => {
+    vi.mocked(getTraces).mockResolvedValue({
+      data: [makeTrace()],
+      meta: { page: 0, limit: 10, total: 1 },
+    });
+    renderWidget({
+      filters: [
+        { field: "errors", op: "gt", value: 0 },
+        // Stored specs are arbitrary JSON — a malformed entry must not reach the API.
+        { field: "errors", op: "gt", value: Number.NaN },
+      ],
+    });
+
+    await waitFor(() => expect(getTraces).toHaveBeenCalled());
+    const options = vi.mocked(getTraces).mock.calls[0][2];
+    expect(options?.filters).toEqual([{ field: "errors", op: "gt", value: 0 }]);
   });
 
   it("defaults the limit to 10 when spec.limit is not provided", async () => {

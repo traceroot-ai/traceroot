@@ -76,7 +76,16 @@ export interface DashboardSummary {
   name: string;
   description: string | null;
   isDefault: boolean;
+  createTime: string;
   updateTime: string;
+}
+
+// A dashboards-list row: the summary plus the creator's display name (or
+// email), which only the list route resolves — dashboards are shared across
+// a project's members, so the list shows who made each one. Null when the
+// creating account is gone.
+export interface DashboardListItem extends DashboardSummary {
+  creator: string | null;
 }
 
 export interface LayoutItem {

@@ -4,13 +4,16 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { useTraceApiUser } from "@/lib/hooks/use-trace-api-user";
 import { getTraces } from "@/lib/api/traces";
-import type { TraceListItem } from "@/types/api";
+import type { Predicate, TraceListItem } from "@/types/api";
+import { canonicalizeFilters, isValidPredicate } from "@/features/filters/predicate";
 import { formatDuration } from "@/lib/utils";
 import type { TimeRange } from "../types";
 
 interface TraceFeedWidgetProps {
   projectId: string;
-  spec: { limit?: number };
+  // Filters use the trace-list predicate wire format; the spec is stored
+  // JSON, so entries are validated before they reach the query.
+  spec: { limit?: number; filters?: Predicate[] };
   range: TimeRange;
 }
 
@@ -44,10 +47,18 @@ function fmtTime(iso: string): string {
 
 export function TraceFeedWidget({ projectId, spec, range }: TraceFeedWidgetProps) {
   const limit = spec.limit ?? 10;
+  const filters = (spec.filters ?? []).filter(isValidPredicate);
   const { user, sessionReady } = useTraceApiUser();
 
   const { data, isPending, isError } = useQuery({
-    queryKey: ["trace-feed", projectId, limit, range.start.getTime(), range.end.getTime()],
+    queryKey: [
+      "trace-feed",
+      projectId,
+      limit,
+      canonicalizeFilters(filters),
+      range.start.getTime(),
+      range.end.getTime(),
+    ],
     queryFn: () =>
       getTraces(
         projectId,
@@ -55,6 +66,7 @@ export function TraceFeedWidget({ projectId, spec, range }: TraceFeedWidgetProps
         {
           page: 0,
           limit,
+          filters,
           start_after: range.start.toISOString(),
           end_before: range.end.toISOString(),
         },

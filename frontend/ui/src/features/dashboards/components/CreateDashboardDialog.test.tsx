@@ -64,6 +64,24 @@ describe("CreateDashboardDialog", () => {
     expect(create.hasAttribute("disabled")).toBe(false);
   });
 
+  it("omits an empty description and sends a filled one trimmed", () => {
+    renderDialog();
+    fireEvent.change(screen.getByPlaceholderText("Dashboard name"), {
+      target: { value: "Spend" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    expect(createDashboard.mutate.mock.calls[0][0]).toEqual({ name: "Spend" });
+
+    fireEvent.change(screen.getByLabelText("Dashboard description"), {
+      target: { value: "  Monthly spend  " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    expect(createDashboard.mutate.mock.calls[1][0]).toEqual({
+      name: "Spend",
+      description: "Monthly spend",
+    });
+  });
+
   it("submits the trimmed name, then closes and navigates on success", () => {
     const { onOpenChange } = renderDialog();
 
