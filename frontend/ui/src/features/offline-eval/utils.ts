@@ -34,15 +34,28 @@ export const REVIEW_STATUS_VARIANT: Record<ReviewStatus, "success" | "warning"> 
   needs_review: "warning",
 };
 
-/** e.g. 93.8 → "93.8%" */
+/** e.g. 93.8 → "93.8%" (value already in 0–100 percentage points). */
 export function pct(value: number, digits = 1): string {
   return `${value.toFixed(digits)}%`;
+}
+
+/**
+ * A 0–1 rate as a percentage, e.g. 0.857 → "85.7%". Server-backed evaluation main
+ * scores are 0–1 fractions (unlike the mock's 0–100 values), so they use this.
+ */
+export function pctFraction(value: number, digits = 1): string {
+  return pct(value * 100, digits);
 }
 
 /** e.g. 22.4 → "+22.4", -9.5 → "−9.5" (true minus sign). */
 export function signed(value: number, digits = 1): string {
   const sign = value > 0 ? "+" : value < 0 ? "−" : "";
   return `${sign}${Math.abs(value).toFixed(digits)}`;
+}
+
+/** A 0–1 delta as signed percentage points, e.g. -0.143 → "−14.3". */
+export function signedPoints(value: number, digits = 1): string {
+  return signed(value * 100, digits);
 }
 
 /**
