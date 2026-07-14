@@ -50,22 +50,14 @@ function makeWidget(overrides: Partial<Widget> = {}): Widget {
 
 function renderCard(
   widget: Widget,
-  callbacks: Partial<{ onEdit: () => void; onDuplicate: () => void; onDelete: () => void }> = {},
+  callbacks: Partial<{ onEdit: () => void; onDelete: () => void }> = {},
 ) {
   const onEdit = callbacks.onEdit ?? vi.fn();
-  const onDuplicate = callbacks.onDuplicate ?? vi.fn();
   const onDelete = callbacks.onDelete ?? vi.fn();
   render(
-    <WidgetCard
-      projectId="p1"
-      widget={widget}
-      range={RANGE}
-      onEdit={onEdit}
-      onDuplicate={onDuplicate}
-      onDelete={onDelete}
-    />,
+    <WidgetCard projectId="p1" widget={widget} range={RANGE} onEdit={onEdit} onDelete={onDelete} />,
   );
-  return { onEdit, onDuplicate, onDelete };
+  return { onEdit, onDelete };
 }
 
 async function openMenu() {
@@ -97,29 +89,21 @@ describe("WidgetCard menu gating", () => {
     expect(screen.queryByRole("menuitem", { name: "Edit" })).toBeNull();
   });
 
-  it("always shows Duplicate and Delete, wired to their callbacks", async () => {
+  it("always shows Delete wired to its callback, and no Duplicate item", async () => {
     useWidgetData.mockReturnValue({ data: undefined, isPending: false, error: null });
-    const { onDuplicate, onDelete } = renderCard(makeWidget());
+    const { onDelete } = renderCard(makeWidget());
 
     await openMenu();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Duplicate" }));
-    expect(onDuplicate).toHaveBeenCalledTimes(1);
-
-    await openMenu();
+    expect(screen.queryByRole("menuitem", { name: "Duplicate" })).toBeNull();
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
     expect(onDelete).toHaveBeenCalledTimes(1);
   });
 
-  it("still shows Duplicate and Delete for a non-query widget", async () => {
-    const { onDuplicate, onDelete } = renderCard(
-      makeWidget({ type: "trace_feed", spec: { limit: 5 } }),
-    );
+  it("still shows Delete for a non-query widget", async () => {
+    const { onDelete } = renderCard(makeWidget({ type: "trace_feed", spec: { limit: 5 } }));
 
     await openMenu();
-    fireEvent.click(screen.getByRole("menuitem", { name: "Duplicate" }));
-    expect(onDuplicate).toHaveBeenCalledTimes(1);
-
-    await openMenu();
+    expect(screen.queryByRole("menuitem", { name: "Duplicate" })).toBeNull();
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
     expect(onDelete).toHaveBeenCalledTimes(1);
   });

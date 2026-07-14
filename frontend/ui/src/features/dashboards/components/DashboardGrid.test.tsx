@@ -73,7 +73,6 @@ describe("DashboardGrid", () => {
           width={1000}
           onLayoutChange={vi.fn()}
           onEdit={vi.fn()}
-          onDuplicate={vi.fn()}
           onDelete={vi.fn()}
         />,
       );
@@ -99,7 +98,6 @@ describe("DashboardGrid", () => {
           width={1000}
           onLayoutChange={vi.fn()}
           onEdit={vi.fn()}
-          onDuplicate={vi.fn()}
           onDelete={vi.fn()}
         />,
       );
@@ -118,7 +116,6 @@ describe("DashboardGrid", () => {
           width={1000}
           onLayoutChange={vi.fn()}
           onEdit={vi.fn()}
-          onDuplicate={vi.fn()}
           onDelete={vi.fn()}
         />,
       );
@@ -146,7 +143,6 @@ describe("DashboardGrid", () => {
           width={1000}
           onLayoutChange={onLayoutChange}
           onEdit={vi.fn()}
-          onDuplicate={vi.fn()}
           onDelete={vi.fn()}
         />,
       );
