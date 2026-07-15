@@ -78,7 +78,7 @@ describe("isEnumerableFilter", () => {
   const stringField = {
     type: "string" as const,
     label: "Model",
-    filterOps: ["=", "!=", "contains"],
+    filterOps: ["=", "contains"],
     groupable: true,
     aggs: [],
   };
@@ -86,7 +86,9 @@ describe("isEnumerableFilter", () => {
 
   it("true for string equality ops (dropdown of stored values)", () => {
     expect(isEnumerableFilter(stringField, "=")).toBe(true);
-    expect(isEnumerableFilter(stringField, "!=")).toBe(true);
+    // != left the widget vocabulary when it was reconciled with the
+    // trace-list filter, which has no not-equals
+    expect(isEnumerableFilter(stringField, "!=")).toBe(false);
   });
   it("false for contains (free text) and numeric fields", () => {
     expect(isEnumerableFilter(stringField, "contains")).toBe(false);
@@ -102,7 +104,7 @@ describe("filterOpLabel", () => {
   const stringField = {
     type: "string" as const,
     label: "Model",
-    filterOps: ["=", "!=", "contains"],
+    filterOps: ["=", "contains"],
     groupable: true,
     aggs: [],
   };
@@ -110,13 +112,12 @@ describe("filterOpLabel", () => {
 
   it("words string equality like the trace-list filter builder", () => {
     expect(filterOpLabel(stringField, "=")).toBe("is");
-    expect(filterOpLabel(stringField, "!=")).toBe("is not");
     expect(filterOpLabel(stringField, "contains")).toBe("contains");
   });
   it("uses the trace-list comparison symbols for numeric ops", () => {
     expect(filterOpLabel(numberField, ">=")).toBe("≥");
     expect(filterOpLabel(numberField, "<=")).toBe("≤");
-    expect(filterOpLabel(numberField, "!=")).toBe("≠");
+
     expect(filterOpLabel(numberField, "=")).toBe("=");
     expect(filterOpLabel(numberField, ">")).toBe(">");
     expect(filterOpLabel(numberField, "<")).toBe("<");

@@ -26,7 +26,7 @@ class WidgetFilter(_StrictModel):
     """A single filter predicate applied to a widget query."""
 
     field: str
-    op: Literal["=", "!=", "contains", ">", ">=", "<", "<="]
+    op: Literal["=", "contains", ">", ">=", "<", "<="]
     # min_length mirrors the frontend schema: an empty value means the filter
     # was never completed and would silently match only empty-valued rows.
     value: Annotated[str, StringConstraints(min_length=1)] | float
