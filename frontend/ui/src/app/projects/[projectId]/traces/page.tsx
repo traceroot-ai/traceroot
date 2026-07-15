@@ -31,6 +31,7 @@ import {
   TraceEvaluationChip,
   SpanDatasetChip,
 } from "@/features/evaluations/components/trace-integration";
+import { useTraceTestCases } from "@/features/evaluations/hooks";
 import { formatContentPreview } from "@/features/traces/utils";
 import { useSession as useAuthSession } from "@/lib/auth-client";
 
@@ -70,6 +71,9 @@ export default function TracesPage() {
   } = useListPageState();
 
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(traceIdFromUrl);
+  // Warm the span→dataset chip data as soon as a trace is selected, so the
+  // "Dataset:" chip is ready before the user opens a span (no per-span latency).
+  useTraceTestCases(projectId, selectedTraceId ?? "");
   // Save-as-test-case (offline eval): which span the drawer targets (undefined = root).
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveSpanId, setSaveSpanId] = useState<string | undefined>(undefined);
