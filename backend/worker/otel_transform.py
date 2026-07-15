@@ -38,6 +38,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from shared.enums import SpanKind, SpanStatus
+from shared.span_attributes import SPAN_IDS_PATH, SPAN_PATH, SPAN_TREE_ATTRIBUTES
 
 logger = logging.getLogger(__name__)
 
@@ -624,15 +625,40 @@ def transform_otel_to_clickhouse(
                             span_record["cost"] = usage["cost"]
 
                 # Extract metadata
-                # Priority: explicit traceroot.span.metadata > remaining attributes
+                # Priority: explicit traceroot.span.metadata > remaining attributes.
+                #
+                # The span-path attributes are merged in EITHER way. They are how
+                # the client rebuilds the tree of an in-flight trace, and the two
+                # branches used to be exclusive: a span that set explicit metadata
+                # had its paths dropped here and then rendered as an orphan while
+                # its parent was still open. That hit exactly the spans users
+                # annotate — usually leaves, whose long-lived parents are the ones
+                # still in flight — so the paths ride along with user metadata.
+                span_path_attrs = {
+                    key: span_attrs[key]
+                    for key in SPAN_TREE_ATTRIBUTES
+                    if span_attrs.get(key) is not None
+                }
                 explicit_metadata = span_attrs.get("traceroot.span.metadata")
                 if explicit_metadata is not None:
-                    if isinstance(explicit_metadata, str):
+                    parsed_explicit = explicit_metadata
+                    if isinstance(parsed_explicit, str):
+                        try:
+                            parsed_explicit = json.loads(parsed_explicit)
+                        except (TypeError, ValueError):
+                            parsed_explicit = None
+                    if isinstance(parsed_explicit, dict):
+                        span_record["metadata"] = json.dumps({**parsed_explicit, **span_path_attrs})
+                    elif isinstance(explicit_metadata, str):
+                        # Not a JSON object (free-text or a scalar): store it as
+                        # given. Nothing to merge into, so this span has no paths.
                         span_record["metadata"] = explicit_metadata
                     else:
                         span_record["metadata"] = json.dumps(explicit_metadata)
                 else:
-                    # Collect non-internal attributes as metadata
+                    # Collect non-internal attributes as metadata. The span-path
+                    # attributes are not "known" (they have no dedicated column),
+                    # so they already fall in here.
                     extra_attrs = {
                         k: v
                         for k, v in span_attrs.items()
@@ -722,8 +748,8 @@ def transform_otel_to_clickhouse(
                     # Actual root span — definitive, depth 0.
                     _trace_name_candidates[trace_id] = (0, span_name)
                 else:
-                    span_path_c = span_attrs.get("traceroot.span.path")
-                    ids_path_c = span_attrs.get("traceroot.span.ids_path")
+                    span_path_c = span_attrs.get(SPAN_PATH)
+                    ids_path_c = span_attrs.get(SPAN_IDS_PATH)
                     candidate_name = (
                         span_path_c[0]
                         if isinstance(span_path_c, (list, tuple)) and span_path_c
