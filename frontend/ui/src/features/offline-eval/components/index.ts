@@ -4,6 +4,7 @@
 
 export { StatusBadge, ReviewBadge } from "./badges";
 export { Timestamp } from "./timestamp";
+export { DatasetInfoChip } from "./dataset-info-chip";
 export {
   EvalPageHeader,
   PrototypeNotice,
