@@ -451,6 +451,32 @@ describe("runRcaSession", () => {
       }),
     ).rejects.toThrow(/Invalid API key for provider/);
   });
+
+  it("surfaces the raw message when the error frame's data isn't JSON", async () => {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+
+    // hono's own generic streamSSE `run()` wrapper (triggered when the route
+    // callback throws outside runAgent's own onError handling) writes
+    // `event: error` with a RAW string data payload — not our JSON shape.
+    const rawFrame = "event: error\ndata: Unexpected token in provider response\n\n";
+
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce(chunkedSseBody([rawFrame]));
+
+    const { runRcaSession } = await import("../detector-rca-processor.js");
+    await expect(
+      runRcaSession({
+        findingId: "f1",
+        projectId: "p1",
+        workspaceId: "ws1",
+        traceId: "t1",
+        findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+        hasGitHub: false,
+      }),
+    ).rejects.toThrow(/Unexpected token in provider response/);
+  });
 });
 
 describe("processRcaJob", () => {
