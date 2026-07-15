@@ -158,14 +158,24 @@ class ClickHouseClient:
     ):
         """Execute a query and return the result.
 
+        ``parameters`` and ``settings`` are different channels: parameters
+        bind *data* into the SQL's placeholders, settings tell the ClickHouse
+        server *how* it may execute this one query.
+
         Args:
             query (str): SQL text, optionally with ``{name:Type}`` server-side
                 parameter bindings.
             parameters (dict[str, Any] | None): Values for the server-side
                 bindings.
-            settings (dict[str, Any] | None): Per-query ClickHouse settings
-                forwarded to clickhouse-connect (e.g. ``max_execution_time``
-                to bound a best-effort read).
+            settings (dict[str, Any] | None): Per-query ClickHouse execution
+                settings, equivalent to a trailing ``SETTINGS ...`` clause on
+                the SQL (e.g. ``{"max_execution_time": 10}`` makes the server
+                abort this query once ~10s elapse — checked at data-processing
+                checkpoints, not a hard wall-clock kill — with a
+                TIMEOUT_EXCEEDED error, which surfaces here as a raised
+                exception). Scoped to the single query: other queries, the
+                session, and the server config are unaffected. ``None`` means
+                server/session defaults.
 
         Returns:
             QueryResult: The clickhouse-connect query result.
