@@ -127,29 +127,40 @@ describe("resolveProjectModel", () => {
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
-// Encodes SSE frames the way hono's streamSSE/writeSSE does (event: <name>\n
-// data: <json>\n\n) into a single chunk, then a terminal `done` read — enough
-// to exercise the line-buffering consumer in runRcaSession without a real stream.
-function sseBody(frames: Array<{ event?: string; data: unknown }>) {
-  const text = frames
+// Encodes SSE frames the way hono's streamSSE/writeSSE does: event: <name>\n
+// data: <json>\n\n.
+function sseText(frames: Array<{ event?: string; data: unknown }>): string {
+  return frames
     .map((f) => `${f.event ? `event: ${f.event}\n` : ""}data: ${JSON.stringify(f.data)}\n\n`)
     .join("");
-  const bytes = new TextEncoder().encode(text);
-  let delivered = false;
+}
+
+// Delivers pre-split string chunks one per reader.read() call, then a
+// terminal `done` read — lets tests simulate SSE bytes arriving split at
+// arbitrary (including hostile) boundaries across the underlying TCP stream.
+function chunkedSseBody(chunks: string[]) {
+  const encoded = chunks.map((c) => new TextEncoder().encode(c));
+  let i = 0;
   return {
     ok: true,
     body: {
       getReader: () => ({
         read: () => {
-          if (!delivered) {
-            delivered = true;
-            return Promise.resolve({ done: false, value: bytes });
+          if (i < encoded.length) {
+            const value = encoded[i];
+            i += 1;
+            return Promise.resolve({ done: false, value });
           }
           return Promise.resolve({ done: true, value: undefined });
         },
       }),
     },
   };
+}
+
+// Single-chunk delivery — the common case exercised by most tests below.
+function sseBody(frames: Array<{ event?: string; data: unknown }>) {
+  return chunkedSseBody([sseText(frames)]);
 }
 
 const textDeltaFrame = {
@@ -296,6 +307,9 @@ describe("runRcaSession", () => {
             event: "message_end",
             data: { type: "message_end", message: { stopReason: "end_turn" } },
           },
+          // The real producer's onDone handler writes this terminal frame
+          // (frontend/packages/agent/src/index.ts) after a successful run.
+          { event: "done", data: {} },
         ]),
       );
 
@@ -311,6 +325,131 @@ describe("runRcaSession", () => {
 
     expect(result.result).toBe("Root cause: found it. Code location: foo.ts:12.");
     expect(result.sessionId).toBe("s1");
+  });
+
+  it("accumulates identical text when the same frames arrive split across multiple chunks at hostile boundaries", async () => {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+
+    const frame1 = textDeltaFrame;
+    const frame2 = {
+      event: "message_update",
+      data: {
+        type: "message_update",
+        assistantMessageEvent: { type: "text_delta", delta: " Code location: foo.ts:12." },
+      },
+    };
+    const frame3 = {
+      event: "message_end",
+      data: { type: "message_end", message: { stopReason: "end_turn" } },
+    };
+    const frame4 = { event: "done", data: {} };
+    const frames = [frame1, frame2, frame3, frame4];
+
+    // Split hostilely: (1) frame1's `event:` line from its `data:` line, and
+    // (2) frame2's `data:` line mid-JSON, inside the delta string itself.
+    const f1Text = sseText([frame1]);
+    const f1SplitAt = f1Text.indexOf("data: ");
+    const f2Json = JSON.stringify(frame2.data);
+    const f2SplitInJson = f2Json.indexOf("Code location") + 5;
+
+    const chunks = [
+      f1Text.slice(0, f1SplitAt), // "event: message_update\n" only
+      f1Text.slice(f1SplitAt) + // rest of frame1
+        "event: message_update\ndata: " +
+        f2Json.slice(0, f2SplitInJson), // frame2's event + data prefix + half its JSON
+      f2Json.slice(f2SplitInJson) + "\n\n" + sseText([frame3, frame4]), // rest of frame2 + frame3 + frame4
+    ];
+
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce(chunkedSseBody(chunks))
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s2" }) })
+      .mockResolvedValueOnce(sseBody(frames));
+
+    const { runRcaSession } = await import("../detector-rca-processor.js");
+    const chunkedResult = await runRcaSession({
+      findingId: "f1",
+      projectId: "p1",
+      workspaceId: "ws1",
+      traceId: "t1",
+      findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+      hasGitHub: false,
+    });
+    const singleChunkResult = await runRcaSession({
+      findingId: "f1",
+      projectId: "p1",
+      workspaceId: "ws1",
+      traceId: "t1",
+      findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+      hasGitHub: false,
+    });
+
+    expect(chunkedResult.result).toBe("Root cause: found it. Code location: foo.ts:12.");
+    expect(chunkedResult.result).toBe(singleChunkResult.result);
+  });
+
+  it("throws with the agent's message when an `event: error` frame is split across chunks", async () => {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+
+    const errorText = sseText([
+      { event: "error", data: { message: "Invalid API key for provider" } },
+    ]);
+    const splitAt = errorText.indexOf("data: ");
+    const chunks = [errorText.slice(0, splitAt), errorText.slice(splitAt)];
+
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce(chunkedSseBody(chunks));
+
+    const { runRcaSession } = await import("../detector-rca-processor.js");
+    await expect(
+      runRcaSession({
+        findingId: "f1",
+        projectId: "p1",
+        workspaceId: "ws1",
+        traceId: "t1",
+        findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+        hasGitHub: false,
+      }),
+    ).rejects.toThrow(/Invalid API key for provider/);
+  });
+
+  it("resets the current event name at the blank line so an event-less frame after an error isn't misread as another error", async () => {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce(
+        sseBody([
+          { event: "error", data: { message: "Invalid API key for provider" } },
+          // No `event:` line — if the blank line terminating the previous
+          // frame failed to reset currentEventName, this would be
+          // misclassified as another "error" data payload and its lack of a
+          // `message` field would overwrite the real error with
+          // "unknown agent error".
+          {
+            data: {
+              type: "message_update",
+              assistantMessageEvent: { type: "text_delta", delta: "some text" },
+            },
+          },
+        ]),
+      );
+
+    const { runRcaSession } = await import("../detector-rca-processor.js");
+    await expect(
+      runRcaSession({
+        findingId: "f1",
+        projectId: "p1",
+        workspaceId: "ws1",
+        traceId: "t1",
+        findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+        hasGitHub: false,
+      }),
+    ).rejects.toThrow(/Invalid API key for provider/);
   });
 });
 
@@ -417,6 +556,9 @@ describe("processRcaJob", () => {
         }),
       }),
     );
+    // A failed RCA must still alert: scheduleDigestFlush runs from the catch
+    // block so the finding isn't silently dropped from the digest.
+    expect(digestAddMock).toHaveBeenCalledTimes(1);
   });
 
   it("records the RCA agent's error message into result when the agent stream fails", async () => {
@@ -464,6 +606,9 @@ describe("processRcaJob", () => {
         }),
       }),
     );
+    // A failed RCA must still alert: scheduleDigestFlush runs from the catch
+    // block so the finding isn't silently dropped from the digest.
+    expect(digestAddMock).toHaveBeenCalledTimes(1);
   });
 });
 
