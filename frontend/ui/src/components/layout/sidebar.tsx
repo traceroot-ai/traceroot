@@ -65,7 +65,7 @@ interface OfflineEvalNavItem {
 const OFFLINE_EVAL_NAV: OfflineEvalNavItem[] = [
   { id: "traces", label: "Traces", icon: Route, href: "/traces" },
   { id: "datasets", label: "Datasets", icon: Database, href: "/datasets" },
-  { id: "experiments", label: "Experiments", icon: FlaskConical, href: "/experiments" },
+  { id: "evaluations", label: "Evaluations", icon: FlaskConical, href: "/evaluations" },
   { id: "scorers", label: "Scorers", icon: Ruler, href: "/scorers" },
 ];
 
