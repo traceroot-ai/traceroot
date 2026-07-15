@@ -459,6 +459,13 @@ export default function TracesPage() {
               Save as test case
             </Button>
           )}
+          // Offline eval: while the "Save as test case" drawer is open, clicking a
+          // different span in the tree retargets the drawer to that span.
+          onSelectionChange={(selection: TraceSelection) => {
+            if (saveOpen) {
+              setSaveSpanId(selection.type === "span" ? selection.span.span_id : undefined);
+            }
+          }}
           // Offline eval: a trace-level chip when this trace came from a run, and
           // a per-span "Dataset:" chip marking a span already saved as a test case.
           spanExtraTags={(selection: TraceSelection) =>
