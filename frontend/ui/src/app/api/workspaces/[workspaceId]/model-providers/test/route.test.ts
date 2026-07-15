@@ -219,7 +219,7 @@ describe("POST model-providers/test - network providers succeed", () => {
     {
       name: "google",
       body: { adapter: "google", apiKey: "k" },
-      url: "https://generativelanguage.googleapis.com/v1beta/models",
+      url: "https://generativelanguage.googleapis.com/v1alpha/models",
     },
     {
       name: "openrouter",
