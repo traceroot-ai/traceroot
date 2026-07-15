@@ -16,3 +16,7 @@ export { TraceInspector } from "./trace-inspector";
 export { CreateDrawer, FormCard, AdvancedSection } from "./form-kit";
 export { SaveTestCaseDrawer } from "./save-test-case-drawer";
 export { ReviewPanel, type ReviewTarget } from "./review-panel";
+export { useRowSelection, SelectAllHeaderCell, SelectRowCell, BulkActionBar } from "./selection";
+export { ScoreChart, DistributionBar, type ChartSeries } from "./score-chart";
+export { UploadControl } from "./upload-control";
+export { useSeedTraceIO } from "./seed-trace-io";
