@@ -301,7 +301,8 @@ export function SpanInfoPanel({
                   <div className="inline-flex min-w-0 items-center gap-1.5 rounded bg-red-100 px-2 py-0.5 text-xs dark:bg-red-900/50">
                     <FileCode className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
                     <span className="min-w-0 break-all font-mono text-red-700 dark:text-red-300">
-                      {selection.span.git_source_file}{selection.span.git_source_line && (
+                      {selection.span.git_source_file}
+                      {selection.span.git_source_line && (
                         <span className="whitespace-nowrap">:{selection.span.git_source_line}</span>
                       )}
                     </span>
