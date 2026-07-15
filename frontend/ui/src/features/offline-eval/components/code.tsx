@@ -245,7 +245,7 @@ export function EditableValueBlock({
       <LineNumberedTextarea
         value={text}
         onChange={onChange}
-        minRows={2}
+        minRows={1}
         aria-label={ariaLabel ?? label}
       />
     </div>
