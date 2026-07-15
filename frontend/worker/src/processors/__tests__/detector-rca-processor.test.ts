@@ -127,6 +127,39 @@ describe("resolveProjectModel", () => {
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
 
+// Encodes SSE frames the way hono's streamSSE/writeSSE does (event: <name>\n
+// data: <json>\n\n) into a single chunk, then a terminal `done` read — enough
+// to exercise the line-buffering consumer in runRcaSession without a real stream.
+function sseBody(frames: Array<{ event?: string; data: unknown }>) {
+  const text = frames
+    .map((f) => `${f.event ? `event: ${f.event}\n` : ""}data: ${JSON.stringify(f.data)}\n\n`)
+    .join("");
+  const bytes = new TextEncoder().encode(text);
+  let delivered = false;
+  return {
+    ok: true,
+    body: {
+      getReader: () => ({
+        read: () => {
+          if (!delivered) {
+            delivered = true;
+            return Promise.resolve({ done: false, value: bytes });
+          }
+          return Promise.resolve({ done: true, value: undefined });
+        },
+      }),
+    },
+  };
+}
+
+const textDeltaFrame = {
+  event: "message_update",
+  data: {
+    type: "message_update",
+    assistantMessageEvent: { type: "text_delta", delta: "Root cause: found it." },
+  },
+};
+
 describe("runRcaSession", () => {
   it("calls resolveProjectModel and builds message body", async () => {
     fetchProviderConfigMock.mockResolvedValue({
@@ -139,12 +172,7 @@ describe("runRcaSession", () => {
 
     mockFetch
       .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
-      .mockResolvedValueOnce({
-        ok: true,
-        body: {
-          getReader: () => ({ read: () => Promise.resolve({ done: true, value: undefined }) }),
-        },
-      });
+      .mockResolvedValueOnce(sseBody([textDeltaFrame]));
 
     const { prisma: p } = await import("@traceroot/core");
     vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
@@ -164,6 +192,125 @@ describe("runRcaSession", () => {
 
     expect(result.sessionId).toBe("s1");
     expect(fetchProviderConfigMock).toHaveBeenCalledWith("ws1", "my-openai");
+  });
+
+  it("throws with the agent's message when the stream carries an `event: error` frame", async () => {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce(
+        sseBody([{ event: "error", data: { message: "Invalid API key for provider" } }]),
+      );
+
+    const { runRcaSession } = await import("../detector-rca-processor.js");
+    await expect(
+      runRcaSession({
+        findingId: "f1",
+        projectId: "p1",
+        workspaceId: "ws1",
+        traceId: "t1",
+        findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+        hasGitHub: false,
+      }),
+    ).rejects.toThrow(/Invalid API key for provider/);
+  });
+
+  it('throws when message_end reports stopReason "error"', async () => {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce(
+        sseBody([
+          {
+            event: "message_end",
+            data: {
+              type: "message_end",
+              message: { stopReason: "error", errorMessage: "Model overloaded" },
+            },
+          },
+        ]),
+      );
+
+    const { runRcaSession } = await import("../detector-rca-processor.js");
+    await expect(
+      runRcaSession({
+        findingId: "f1",
+        projectId: "p1",
+        workspaceId: "ws1",
+        traceId: "t1",
+        findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+        hasGitHub: false,
+      }),
+    ).rejects.toThrow(/Model overloaded/);
+  });
+
+  it("throws when the stream ends with no accumulated text", async () => {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce(
+        sseBody([
+          {
+            event: "message_end",
+            data: { type: "message_end", message: { stopReason: "end_turn" } },
+          },
+        ]),
+      );
+
+    const { runRcaSession } = await import("../detector-rca-processor.js");
+    await expect(
+      runRcaSession({
+        findingId: "f1",
+        projectId: "p1",
+        workspaceId: "ws1",
+        traceId: "t1",
+        findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+        hasGitHub: false,
+      }),
+    ).rejects.toThrow(/no output/i);
+  });
+
+  it("returns accumulated text unchanged for a healthy stream (regression guard)", async () => {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce(
+        sseBody([
+          textDeltaFrame,
+          {
+            event: "message_update",
+            data: {
+              type: "message_update",
+              assistantMessageEvent: { type: "text_delta", delta: " Code location: foo.ts:12." },
+            },
+          },
+          {
+            event: "message_end",
+            data: { type: "message_end", message: { stopReason: "end_turn" } },
+          },
+        ]),
+      );
+
+    const { runRcaSession } = await import("../detector-rca-processor.js");
+    const result = await runRcaSession({
+      findingId: "f1",
+      projectId: "p1",
+      workspaceId: "ws1",
+      traceId: "t1",
+      findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+      hasGitHub: false,
+    });
+
+    expect(result.result).toBe("Root cause: found it. Code location: foo.ts:12.");
+    expect(result.sessionId).toBe("s1");
   });
 });
 
@@ -188,12 +335,7 @@ describe("processRcaJob", () => {
 
     mockFetch
       .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
-      .mockResolvedValueOnce({
-        ok: true,
-        body: {
-          getReader: () => ({ read: () => Promise.resolve({ done: true, value: undefined }) }),
-        },
-      });
+      .mockResolvedValueOnce(sseBody([textDeltaFrame]));
 
     const { processRcaJob } = await import("../detector-rca-processor.js");
     await processRcaJob({
@@ -297,15 +439,10 @@ describe("processRcaJob — digest scheduling at the flush seam", () => {
       alertConfig,
     } as any);
 
-    // Agent session create + empty SSE stream → RCA completes with "".
+    // Agent session create + a healthy SSE stream → RCA completes with text.
     mockFetch
       .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
-      .mockResolvedValueOnce({
-        ok: true,
-        body: {
-          getReader: () => ({ read: () => Promise.resolve({ done: true, value: undefined }) }),
-        },
-      });
+      .mockResolvedValueOnce(sseBody([textDeltaFrame]));
 
     const { processRcaJob } = await import("../detector-rca-processor.js");
     await processRcaJob({
@@ -379,12 +516,7 @@ describe("processRcaJob — digest scheduling at the flush seam", () => {
 
     mockFetch
       .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
-      .mockResolvedValueOnce({
-        ok: true,
-        body: {
-          getReader: () => ({ read: () => Promise.resolve({ done: true, value: undefined }) }),
-        },
-      });
+      .mockResolvedValueOnce(sseBody([textDeltaFrame]));
 
     // RCA completes, then the digest enqueue fails on the success path.
     digestAddMock.mockRejectedValueOnce(new Error("redis down"));
