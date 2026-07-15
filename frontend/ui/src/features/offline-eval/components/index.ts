@@ -20,3 +20,7 @@ export { useRowSelection, SelectAllHeaderCell, SelectRowCell, BulkActionBar } fr
 export { ScoreChart, DistributionBar, type ChartSeries } from "./score-chart";
 export { UploadControl } from "./upload-control";
 export { useSeedTraceIO } from "./seed-trace-io";
+export { DatasetFormFields, emptyDatasetForm, type DatasetFormState } from "./dataset-form";
+export { DatasetActionsMenu } from "./dataset-actions-menu";
+export { NewDatasetDialog } from "./new-dataset-dialog";
+export { DatasetEditPanel } from "./dataset-edit-panel";
