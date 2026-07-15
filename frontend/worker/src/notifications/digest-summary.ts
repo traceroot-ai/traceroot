@@ -64,7 +64,10 @@ export function buildDigestSummaryPrompt(
   const header = `PROJECT: ${input.projectName}\nWINDOW: ${formatWindowRange(input.windowStart, input.windowEnd)}\n\n`;
 
   const sections: string[] = [];
-  let used = header.length;
+  // Reserve room for the omission tail up front so the assembled text can
+  // never exceed the cap, even when sections land exactly on the boundary.
+  const TAIL_RESERVE = 64; // "(+NNNNNN more detectors omitted from this sample)\n"
+  let used = header.length + TAIL_RESERVE;
   let omitted = 0;
   for (const d of ordered) {
     const section = detectorSection(d) + "\n\n";

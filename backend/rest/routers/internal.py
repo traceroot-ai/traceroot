@@ -774,6 +774,32 @@ async def list_detector_window_summary(
                 "  ''"
                 ")"
             )
+            # Probe side bounded BEFORE the join (window bound, non-null
+            # finding, per-detector cap), so the join probes at most
+            # DIGEST_SUMMARY_MAX_PER_DETECTOR x n_detectors rows. RCA-disabled
+            # detectors still consume budget here (the digest drops them
+            # later); accepted for v1. Written once and reused in the join's
+            # semi-filter below, at the cost of ClickHouse evaluating it twice
+            # (the runs collapse is far cheaper than a whole-history payload
+            # read).
+            sampled_probe = f"""
+                        SELECT detector_id, latest_finding_id, ts
+                        FROM (
+                            SELECT
+                                detector_id,
+                                run_id,
+                                argMax(finding_id, timestamp) AS latest_finding_id,
+                                max(timestamp)                AS ts
+                            FROM detector_runs
+                            WHERE project_id = {{project_id:String}}
+                            GROUP BY detector_id, run_id
+                        )
+                        WHERE {window_clause} AND latest_finding_id IS NOT NULL
+                        -- latest_finding_id tiebreaker: the probe is evaluated
+                        -- twice (FROM + IN); ties on ts must pick identical rows.
+                        ORDER BY detector_id, ts DESC, latest_finding_id
+                        LIMIT {DIGEST_SUMMARY_MAX_PER_DETECTOR} BY detector_id
+            """
             summaries_query = f"""
                 SELECT detector_id, summary
                 FROM (
@@ -792,29 +818,17 @@ async def list_detector_window_summary(
                             PARTITION BY r.detector_id ORDER BY r.ts DESC
                         ) AS rank
                     FROM (
-                        -- Probe side bounded BEFORE the join (window bound,
-                        -- non-null finding, per-detector cap), so the join
-                        -- probes at most {DIGEST_SUMMARY_MAX_PER_DETECTOR} x n_detectors rows.
-                        -- RCA-disabled detectors still consume budget here
-                        -- (the digest drops them later); accepted for v1.
-                        SELECT detector_id, latest_finding_id, ts
-                        FROM (
-                            SELECT
-                                detector_id,
-                                run_id,
-                                argMax(finding_id, timestamp) AS latest_finding_id,
-                                max(timestamp)                AS ts
-                            FROM detector_runs
-                            WHERE project_id = {{project_id:String}}
-                            GROUP BY detector_id, run_id
-                        )
-                        WHERE {window_clause} AND latest_finding_id IS NOT NULL
-                        ORDER BY detector_id, ts DESC
-                        LIMIT {DIGEST_SUMMARY_MAX_PER_DETECTOR} BY detector_id
+                        {sampled_probe}
                     ) AS r
                     INNER JOIN (
+                        -- Semi-join to the sampled finding ids so the FINAL
+                        -- read touches only those findings' payloads, not the
+                        -- project's whole finding history.
                         SELECT finding_id, payload FROM detector_findings FINAL
                         WHERE project_id = {{project_id:String}}
+                          AND finding_id IN (
+                            SELECT latest_finding_id FROM ({sampled_probe})
+                          )
                     ) AS f ON r.latest_finding_id = f.finding_id
                     -- Empty summaries (payload without a matching entry) are
                     -- filtered before ranking so they never eat sample slots.

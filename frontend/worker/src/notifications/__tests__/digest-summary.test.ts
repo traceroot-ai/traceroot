@@ -100,6 +100,22 @@ describe("buildDigestSummaryPrompt", () => {
     // Dropped detectors are disclosed so the model doesn't treat the list as complete.
     expect(p!.userText).toMatch(/\+\d+ more detectors omitted/);
   });
+
+  it("stays under the cap even when sections land exactly on the budget boundary", () => {
+    // Sweep section sizes so at least one packing lands flush against the
+    // budget; the omission tail must be reserved, never overflow the cap.
+    for (let sentenceLen = 280; sentenceLen <= 320; sentenceLen++) {
+      const detectors = Array.from({ length: 200 }, (_, i) => ({
+        name: `d-${i}`,
+        findingCount: 200 - i,
+        sampleSummaries: Array.from({ length: 10 }, () => "x".repeat(sentenceLen)),
+      }));
+      const p = buildDigestSummaryPrompt(input(detectors));
+      expect(p).not.toBeNull();
+      expect(p!.userText.length).toBeLessThanOrEqual(DIGEST_SUMMARY_MAX_PROMPT_CHARS);
+      expect(p!.userText).toMatch(/\+\d+ more detectors omitted/);
+    }
+  });
 });
 
 describe("buildDigestSummaryTool", () => {
