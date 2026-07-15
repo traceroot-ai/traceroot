@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   traceError: null as unknown,
   traceLoading: false,
   aiPanelOpen: false,
+  streamStatus: "ended" as string,
 }));
 
 // Layout context drives the fullscreen width math (sidebar width).
@@ -27,7 +28,12 @@ vi.mock("@tanstack/react-query", () => ({
   useQuery: () => ({ data: mocks.trace, isLoading: mocks.traceLoading, error: mocks.traceError }),
 }));
 vi.mock("@/lib/api", () => ({ getTrace: vi.fn() }));
-vi.mock("../hooks/use-trace-stream", () => ({ useTraceStream: vi.fn() }));
+vi.mock("../hooks/use-trace-stream", () => ({
+  useTraceStream: () => ({
+    isStreaming: mocks.streamStatus === "live",
+    streamStatus: mocks.streamStatus,
+  }),
+}));
 vi.mock("@/features/detectors/hooks/use-findings", () => ({
   useTraceFindings: () => ({ data: undefined }),
   useRca: () => ({ data: undefined }),
@@ -76,6 +82,7 @@ afterEach(() => {
   mocks.traceError = null;
   mocks.traceLoading = false;
   mocks.aiPanelOpen = false;
+  mocks.streamStatus = "ended";
 });
 
 describe("TraceViewerPanel layout", () => {
@@ -192,5 +199,26 @@ describe("TraceViewerPanel content states", () => {
     mocks.aiPanelOpen = true;
     renderPanel();
     expect(screen.getByTestId("ai-panel")).toBeTruthy();
+  });
+});
+
+describe("live stream status badge", () => {
+  it("shows the Live badge while the stream is live", () => {
+    mocks.streamStatus = "live";
+    renderPanel();
+    expect(screen.getByText("Live")).toBeTruthy();
+  });
+
+  it("shows a disconnected notice when reconnects are exhausted", () => {
+    mocks.streamStatus = "disconnected";
+    renderPanel();
+    expect(screen.getByText("Live view disconnected")).toBeTruthy();
+  });
+
+  it("shows no stream badge for a completed trace", () => {
+    mocks.streamStatus = "ended";
+    renderPanel();
+    expect(screen.queryByText("Live")).toBeNull();
+    expect(screen.queryByText("Live view disconnected")).toBeNull();
   });
 });
