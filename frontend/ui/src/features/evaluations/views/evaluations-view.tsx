@@ -1,8 +1,16 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
-import { Download, ListChecks, Ruler } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import {
+  ChevronDown,
+  ChevronRight,
+  Download,
+  GitCompare,
+  Layers,
+  ListChecks,
+  Ruler,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,10 +44,11 @@ import {
   useDatasets,
   useEvaluationRuns,
   useScorers,
+  useScorer,
   useDeleteRuns,
   type ScorerRegistryRow,
 } from "../hooks";
-import { EVAL_RUN_STATUS_LABEL, type EvalRunStatus } from "../types";
+import { EVAL_RUN_STATUS_LABEL, type EvalRunStatus, type RunRow } from "../types";
 import { RunEvaluationDrawer } from "../components/run-evaluation-drawer";
 
 // Run-centric: the Evaluations page is one table of immutable runs. Scorers is the
@@ -132,8 +141,275 @@ function formatElapsed(ms: number | null | undefined): string {
   return `${m}m ${rem}s`;
 }
 
+function ScoreValue({ value }: { value: number | null }) {
+  return value === null ? (
+    <span className="text-muted-foreground">—</span>
+  ) : (
+    <>{pctFraction(value)}</>
+  );
+}
+
+function ChangeValue({ value }: { value: number | null | undefined }) {
+  if (value === null || value === undefined)
+    return <span className="text-muted-foreground">—</span>;
+  return <span className={SENTIMENT_CLASS[changeSentiment(value)]}>{signedPoints(value)} pp</span>;
+}
+
+/**
+ * One immutable run row. Shared by the flat table and grouped mode (there is no
+ * second run-table implementation). `showEvaluation=false` hides the lineage line
+ * inside an expanded group, where the group header already names it. Clicking the
+ * evaluation name scopes the list to that lineage (?evaluation=<id>).
+ */
+function RunTableRow({
+  run: r,
+  projectId,
+  selected,
+  onToggle,
+  showEvaluation = true,
+  indent = false,
+}: {
+  run: RunRow;
+  projectId: string;
+  selected: boolean;
+  onToggle: () => void;
+  showEvaluation?: boolean;
+  indent?: boolean;
+}) {
+  const router = useRouter();
+  return (
+    <TR
+      interactive
+      selected={selected}
+      onClick={() => router.push(`/projects/${projectId}/evaluations/${r.id}`)}
+    >
+      <SelectRowCell
+        checked={selected}
+        onToggle={onToggle}
+        label={`Select ${r.evaluationName} #${r.runNumber}`}
+      />
+      <Td className={cn(indent && "pl-6")}>
+        {showEvaluation && (
+          <button
+            type="button"
+            className="rounded font-medium hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            title="Scope to this evaluation"
+            onClick={(e) => {
+              e.stopPropagation();
+              router.push(`/projects/${projectId}/evaluations?evaluation=${r.evaluationId}`);
+            }}
+          >
+            {r.evaluationName}
+          </button>
+        )}
+        <div className="text-[11px] text-muted-foreground">
+          Run #{r.runNumber} · <span className="font-mono">{r.candidateVersion}</span>
+        </div>
+      </Td>
+      <Td className="text-muted-foreground">
+        <div>{r.datasetName}</div>
+        <div className="text-[11px]">{r.datasetVersionLabel}</div>
+      </Td>
+      <Td className="text-right tabular-nums">
+        <ScoreValue value={r.mainScore} />
+      </Td>
+      <Td className="text-right tabular-nums">
+        <ChangeValue value={r.changeFromBaseline} />
+      </Td>
+      <Td className="text-right tabular-nums">
+        {/* Regressed TEST CASES; "—" when there's no trustworthy baseline to count against. */}
+        {r.regressedCaseCount === null || r.regressedCaseCount === undefined ? (
+          <span className="text-muted-foreground">—</span>
+        ) : r.regressedCaseCount === 0 ? (
+          <span className="text-muted-foreground">0</span>
+        ) : (
+          <span className={SENTIMENT_CLASS.bad}>{r.regressedCaseCount}</span>
+        )}
+      </Td>
+      <Td>
+        <RunStatusBadge status={r.status} />
+      </Td>
+      <Td className="text-right tabular-nums">
+        {r.errorCount === 0 ? <span className="text-muted-foreground">—</span> : r.errorCount}
+      </Td>
+      <Td className="whitespace-nowrap text-right tabular-nums text-muted-foreground">
+        {formatElapsed(r.elapsedMs)}
+      </Td>
+      <Td className="whitespace-nowrap text-right text-muted-foreground">
+        <Timestamp iso={r.startedAt} />
+      </Td>
+    </TR>
+  );
+}
+
+/** Newest run per evaluation lineage (runs arrive newest-first), keeping the latest
+ *  even when it's running/failed — never silently substituting an older one. */
+function latestPerEvaluation(runs: RunRow[]): RunRow[] {
+  const seen = new Set<string>();
+  const out: RunRow[] = [];
+  for (const r of runs) {
+    if (!seen.has(r.evaluationId)) {
+      seen.add(r.evaluationId);
+      out.push(r);
+    }
+  }
+  return out;
+}
+
+interface RunGroup {
+  evaluationId: string;
+  evaluationName: string;
+  datasetName: string | null;
+  runs: RunRow[]; // newest first
+}
+
+/** Group by the STABLE evaluation id (not display-name text). First seen is the latest. */
+function groupRunsByEvaluation(runs: RunRow[]): RunGroup[] {
+  const map = new Map<string, RunGroup>();
+  for (const r of runs) {
+    const g = map.get(r.evaluationId);
+    if (g) g.runs.push(r);
+    else
+      map.set(r.evaluationId, {
+        evaluationId: r.evaluationId,
+        evaluationName: r.evaluationName,
+        datasetName: r.datasetName,
+        runs: [r],
+      });
+  }
+  return [...map.values()];
+}
+
+/** Collapsed group summary: name, latest run + its candidate/score/change/status, and
+ *  the earlier-run count. Expands to the (reused) run rows. Relocates the removed
+ *  unique-evaluations tab's per-lineage aggregates. */
+function GroupHeaderRow({
+  group,
+  isOpen,
+  onToggle,
+  projectId,
+}: {
+  group: RunGroup;
+  isOpen: boolean;
+  onToggle: () => void;
+  projectId: string;
+}) {
+  const router = useRouter();
+  const latest = group.runs[0];
+  const earlier = group.runs.length - 1;
+  return (
+    <tr className="border-b border-border bg-muted/40">
+      <td colSpan={RUNS_COLUMN_COUNT} className="px-2 py-1.5">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px]">
+          <button
+            type="button"
+            onClick={onToggle}
+            className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+            aria-label={isOpen ? "Collapse" : "Expand"}
+            aria-expanded={isOpen}
+          >
+            {isOpen ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+          </button>
+          <button
+            type="button"
+            className="rounded font-medium hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            title="Scope to this evaluation"
+            onClick={() =>
+              router.push(`/projects/${projectId}/evaluations?evaluation=${group.evaluationId}`)
+            }
+          >
+            {group.evaluationName}
+          </button>
+          <span className="text-muted-foreground">
+            {group.runs.length} run{group.runs.length === 1 ? "" : "s"}
+            {earlier > 0 && ` · ${earlier} earlier`}
+          </span>
+          <span className="h-3 w-px bg-border" aria-hidden />
+          <span className="text-muted-foreground">
+            latest Run #{latest.runNumber} ·{" "}
+            <span className="font-mono">{latest.candidateVersion}</span>
+          </span>
+          <RunStatusBadge status={latest.status} />
+          <span className="tabular-nums">
+            <ScoreValue value={latest.mainScore} />
+          </span>
+          <span className="tabular-nums">
+            <ChangeValue value={latest.changeFromBaseline} />
+          </span>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+/** Compact lineage header shown when the list is scoped to one evaluation. */
+function LineageHeader({
+  run,
+  runCount,
+  projectId,
+}: {
+  run: RunRow;
+  runCount: number;
+  projectId: string;
+}) {
+  const router = useRouter();
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted/20 px-3 py-2 text-[12px]">
+      <ListChecks className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+      <span className="font-medium">{run.evaluationName}</span>
+      <span className="text-muted-foreground">
+        {run.datasetName ?? "—"} · {runCount} run{runCount === 1 ? "" : "s"} · latest
+      </span>
+      <RunStatusBadge status={run.status} />
+      <button
+        type="button"
+        onClick={() => router.push(`/projects/${projectId}/evaluations`)}
+        className="ml-auto rounded px-1.5 py-0.5 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground"
+      >
+        Clear filter
+      </button>
+    </div>
+  );
+}
+
+/** Small pill toggle for the restrained run-table controls. */
+function Toggle({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-[12px] transition-colors",
+        active
+          ? "border-foreground/30 bg-muted text-foreground"
+          : "border-input text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
 function RunsTab({ projectId }: { projectId: string }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // Scoping the list to one evaluation lineage lives in the URL (?evaluation=<id>) so
+  // browser back/forward and sharing work.
+  const scopedEvalId = searchParams.get("evaluation");
+
   const { toast } = useToast();
   const [keyword, setKeyword] = React.useState("");
   const [datasetFilter, setDatasetFilter] = React.useState(ALL);
@@ -143,17 +419,30 @@ function RunsTab({ projectId }: { projectId: string }) {
   );
   const [customStart, setCustomStart] = React.useState<Date | null>(null);
   const [customEnd, setCustomEnd] = React.useState<Date | null>(null);
+  const [latestOnly, setLatestOnly] = React.useState(false);
+  const [groupBy, setGroupBy] = React.useState(false);
+  const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
 
   const { data: datasetsData } = useDatasets(projectId, { limit: 200 });
   const { data, isLoading, error } = useEvaluationRuns(projectId, {
+    evaluation_id: scopedEvalId ?? undefined,
     search_query: keyword.trim() || undefined,
     dataset_id: datasetFilter === ALL ? undefined : datasetFilter,
     status: statusFilter === ALL ? undefined : statusFilter,
   });
-  const runs = React.useMemo(() => data?.data ?? [], [data]);
-  const filtered = keyword || datasetFilter !== ALL || statusFilter !== ALL;
+  const allRuns = React.useMemo(() => data?.data ?? [], [data]);
+  const filtered = !!keyword || datasetFilter !== ALL || statusFilter !== ALL;
 
-  // Row selection + bulk delete, matching the dataset cases table.
+  // Latest-only is a client-side convenience over the loaded page (newest-first);
+  // grouping is client-side on the stable evaluation id. When scoped to one lineage,
+  // grouping is meaningless (a single group) so it's suppressed.
+  const runs = React.useMemo(
+    () => (latestOnly ? latestPerEvaluation(allRuns) : allRuns),
+    [allRuns, latestOnly],
+  );
+  const grouped = groupBy && !scopedEvalId;
+  const groups = React.useMemo(() => (grouped ? groupRunsByEvaluation(runs) : []), [grouped, runs]);
+
   const runIds = React.useMemo(() => runs.map((r) => r.id), [runs]);
   const sel = useRowSelection(runIds);
   const deleteRuns = useDeleteRuns(projectId);
@@ -177,6 +466,31 @@ function RunsTab({ projectId }: { projectId: string }) {
       onError: () => toast({ title: "Could not delete runs", tone: "warning" }),
     });
   };
+
+  // Comparison is an action: select exactly two runs to compare. Newer → candidate,
+  // older → baseline (by start time); the compare page makes roles explicit + swappable.
+  const comparePair = React.useMemo(() => {
+    const chosen = runs.filter((r) => sel.has(r.id));
+    if (chosen.length !== 2) return null;
+    const [newer, older] = [...chosen].sort(
+      (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
+    );
+    return { candidate: newer.id, baseline: older.id };
+  }, [runs, sel]);
+  const openCompare = () => {
+    if (!comparePair) return;
+    router.push(
+      `/projects/${projectId}/evaluations/compare?baseline=${comparePair.baseline}&candidate=${comparePair.candidate}`,
+    );
+  };
+
+  const toggleGroup = (id: string) =>
+    setExpanded((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   return (
     <>
@@ -225,6 +539,16 @@ function RunsTab({ projectId }: { projectId: string }) {
           </SelectContent>
         </Select>
 
+        <Toggle active={latestOnly} onClick={() => setLatestOnly((v) => !v)}>
+          Latest only
+        </Toggle>
+        {!scopedEvalId && (
+          <Toggle active={groupBy} onClick={() => setGroupBy((v) => !v)}>
+            <Layers className="h-3.5 w-3.5" aria-hidden />
+            Group by evaluation
+          </Toggle>
+        )}
+
         <span className="flex-1" aria-hidden />
         <Button
           variant="ghost"
@@ -237,7 +561,28 @@ function RunsTab({ projectId }: { projectId: string }) {
         </Button>
       </SearchFilterBar>
 
-      <BulkActionBar count={sel.count} onDelete={deleteSelected} onClear={sel.clear} />
+      {scopedEvalId && allRuns[0] && (
+        <LineageHeader run={allRuns[0]} runCount={allRuns.length} projectId={projectId} />
+      )}
+
+      <BulkActionBar
+        count={sel.count}
+        onDelete={deleteSelected}
+        onClear={sel.clear}
+        extra={
+          comparePair && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 gap-1 px-1.5 text-[12px]"
+              onClick={openCompare}
+            >
+              <GitCompare className="h-3.5 w-3.5" aria-hidden />
+              Compare
+            </Button>
+          )
+        }
+      />
 
       <div className="min-h-0 flex-1 overflow-auto">
         <Table>
@@ -271,80 +616,44 @@ function RunsTab({ projectId }: { projectId: string }) {
             ) : runs.length === 0 ? (
               <Cell colSpan={RUNS_COLUMN_COUNT}>
                 <EmptyState>
-                  {filtered
+                  {filtered || scopedEvalId
                     ? "No runs match these filters."
                     : "No evaluation runs yet. Use Run evaluation for the SDK snippet."}
                 </EmptyState>
               </Cell>
+            ) : grouped ? (
+              groups.map((g) => (
+                <React.Fragment key={g.evaluationId}>
+                  <GroupHeaderRow
+                    group={g}
+                    isOpen={expanded.has(g.evaluationId)}
+                    onToggle={() => toggleGroup(g.evaluationId)}
+                    projectId={projectId}
+                  />
+                  {expanded.has(g.evaluationId) &&
+                    g.runs.map((r) => (
+                      <RunTableRow
+                        key={r.id}
+                        run={r}
+                        projectId={projectId}
+                        selected={sel.has(r.id)}
+                        onToggle={() => sel.toggle(r.id)}
+                        showEvaluation={false}
+                        indent
+                      />
+                    ))}
+                </React.Fragment>
+              ))
             ) : (
-              runs.map((r) => {
-                const errors = r.errorCount;
-                return (
-                  <TR
-                    key={r.id}
-                    interactive
-                    selected={sel.has(r.id)}
-                    onClick={() => router.push(`/projects/${projectId}/evaluations/${r.id}`)}
-                  >
-                    <SelectRowCell
-                      checked={sel.has(r.id)}
-                      onToggle={() => sel.toggle(r.id)}
-                      label={`Select ${r.evaluationName} #${r.runNumber}`}
-                    />
-                    {/* Two-line identity: the evaluation lineage, then the immutable
-                        run + candidate. No opaque DB id in the visible name. */}
-                    <Td>
-                      <div className="font-medium">{r.evaluationName}</div>
-                      <div className="text-[11px] text-muted-foreground">
-                        Run #{r.runNumber} · <span className="font-mono">{r.candidateVersion}</span>
-                      </div>
-                    </Td>
-                    <Td className="text-muted-foreground">
-                      <div>{r.datasetName}</div>
-                      <div className="text-[11px]">{r.datasetVersionLabel}</div>
-                    </Td>
-                    <Td className="text-right tabular-nums">
-                      {r.mainScore === null ? (
-                        <span className="text-muted-foreground">—</span>
-                      ) : (
-                        pctFraction(r.mainScore)
-                      )}
-                    </Td>
-                    <Td className="text-right tabular-nums">
-                      {r.changeFromBaseline === null ? (
-                        <span className="text-muted-foreground">—</span>
-                      ) : (
-                        <span className={SENTIMENT_CLASS[changeSentiment(r.changeFromBaseline)]}>
-                          {signedPoints(r.changeFromBaseline)} pp
-                        </span>
-                      )}
-                    </Td>
-                    <Td className="text-right tabular-nums">
-                      {/* Regressed TEST CASES (not score cells). "—" when there's no
-                          trustworthy baseline to count against. */}
-                      {r.regressedCaseCount === null || r.regressedCaseCount === undefined ? (
-                        <span className="text-muted-foreground">—</span>
-                      ) : r.regressedCaseCount === 0 ? (
-                        <span className="text-muted-foreground">0</span>
-                      ) : (
-                        <span className={SENTIMENT_CLASS.bad}>{r.regressedCaseCount}</span>
-                      )}
-                    </Td>
-                    <Td>
-                      <RunStatusBadge status={r.status} />
-                    </Td>
-                    <Td className="text-right tabular-nums">
-                      {errors === 0 ? <span className="text-muted-foreground">—</span> : errors}
-                    </Td>
-                    <Td className="whitespace-nowrap text-right tabular-nums text-muted-foreground">
-                      {formatElapsed(r.elapsedMs)}
-                    </Td>
-                    <Td className="whitespace-nowrap text-right text-muted-foreground">
-                      <Timestamp iso={r.startedAt} />
-                    </Td>
-                  </TR>
-                );
-              })
+              runs.map((r) => (
+                <RunTableRow
+                  key={r.id}
+                  run={r}
+                  projectId={projectId}
+                  selected={sel.has(r.id)}
+                  onToggle={() => sel.toggle(r.id)}
+                />
+              ))
             )}
           </TBody>
         </Table>
@@ -411,7 +720,7 @@ function ScorersTab({ projectId }: { projectId: string }) {
                   onToggle={sel.toggleAll}
                 />
                 <Th>Scorer</Th>
-                <Th className="w-[110px]">Type</Th>
+                <Th className="w-[110px]">Output</Th>
                 <Th className="w-[120px] text-right">Scores</Th>
                 <Th className="w-[120px] text-right">Error rate</Th>
               </TRHead>
@@ -482,7 +791,11 @@ function ScorersTab({ projectId }: { projectId: string }) {
         className="w-[360px] shrink-0 overflow-auto border-l border-border"
       >
         {selected ? (
-          <ScorerDetail key={`${selected.name}@${selected.version}`} scorer={selected} />
+          <ScorerDetail
+            key={`${selected.name}@${selected.version}`}
+            projectId={projectId}
+            scorer={selected}
+          />
         ) : (
           <EmptyState>Select a scorer to see what it reports.</EmptyState>
         )}
@@ -510,14 +823,26 @@ function ScorerFact({ label, children }: { label: string; children: React.ReactN
   );
 }
 
+/** For a field the SDK does not (yet) register — shown honestly, never fabricated. */
+function NotProvided() {
+  return <span className="italic text-muted-foreground">Not provided by SDK</span>;
+}
+
 /**
- * Scorer detail — everything TraceRoot has OBSERVED about a scorer (the SDK owns
- * its definition): value type + declared config, the score distribution, pass and
- * error rates with recent failures, and where it's used. All derived from the
- * scores it has reported.
+ * Scorer detail, organized around four questions — what it measures / reads / how it
+ * works / where it's used. A scorer is defined in the customer's SDK; TraceRoot shows
+ * ONLY what the SDK reported and what it observed from scores. Fields the SDK doesn't
+ * register (type, capabilities, judge prompt/model, code refs, scope, description,
+ * lifecycle) say "Not provided by SDK" rather than being invented from the name.
  */
-function ScorerDetail({ scorer }: { scorer: ScorerRegistryRow }) {
+function ScorerDetail({ projectId, scorer }: { projectId: string; scorer: ScorerRegistryRow }) {
   const maxCount = scorer.distribution?.reduce((m, d) => Math.max(m, d.count), 0) ?? 0;
+  const family = useScorer(projectId, scorer.name);
+  const versions = family.data?.versions ?? [];
+  const categories =
+    scorer.valueType === "categorical" && scorer.distribution
+      ? scorer.distribution.map((d) => d.label)
+      : null;
 
   return (
     <div className="flex flex-col">
@@ -526,39 +851,67 @@ function ScorerDetail({ scorer }: { scorer: ScorerRegistryRow }) {
           <h2 className="text-[13px] font-medium">{scorer.name}</h2>
           <span className="text-[11px] text-muted-foreground">{scorer.version}</span>
           <Badge variant="outline" className="ml-auto">
-            {VALUE_TYPE_LABEL[scorer.valueType]}
+            Defined in SDK
           </Badge>
         </div>
       </div>
 
-      <ScorerSection title="Config">
+      {/* 1 — What does it measure? */}
+      <ScorerSection title="What does it measure?">
         <dl>
-          <ScorerFact label="Value type">
+          <ScorerFact label="Output type">
             {VALUE_TYPE_LABEL[scorer.declaredValueType ?? scorer.valueType]}
             {scorer.declaredValueType === null && (
               <span className="ml-1 text-[11px] text-muted-foreground">(inferred)</span>
             )}
           </ScorerFact>
           <ScorerFact label="Direction">
-            {scorer.direction ? (
-              DIRECTION_LABEL[scorer.direction]
-            ) : (
-              <span className="text-muted-foreground">Not declared</span>
-            )}
+            {scorer.direction ? DIRECTION_LABEL[scorer.direction] : <NotProvided />}
           </ScorerFact>
           <ScorerFact label="Threshold">
-            {scorer.threshold !== null ? (
-              scorer.threshold
-            ) : (
-              <span className="text-muted-foreground">—</span>
-            )}
+            {scorer.threshold !== null ? scorer.threshold : <NotProvided />}
+          </ScorerFact>
+          {categories && (
+            <ScorerFact label="Categories (observed)">{categories.join(", ")}</ScorerFact>
+          )}
+          <ScorerFact label="Description">
+            <NotProvided />
+          </ScorerFact>
+          <ScorerFact label="Scope / target">
+            <NotProvided />
+          </ScorerFact>
+          <ScorerFact label="Expected output required">
+            <NotProvided />
           </ScorerFact>
         </dl>
       </ScorerSection>
 
-      <ScorerSection title="Scores">
+      {/* 2 — What does it read? */}
+      <ScorerSection title="What does it read?">
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          The SDK does not yet report a scorer&apos;s declared capabilities (which of input,
+          candidate output, expected output, metadata, tool calls or retrieval context it reads).{" "}
+          <NotProvided />.
+        </p>
+      </ScorerSection>
+
+      {/* 3 — How does it work? */}
+      <ScorerSection title="How does it work?">
+        <p className="text-[11px] leading-relaxed text-muted-foreground">
+          The scorer&apos;s type (rule, LLM judge or human) and its definition — a judge&apos;s
+          rubric/prompt/model, or a code scorer&apos;s language/module/source reference — live in
+          the SDK and are not registered with TraceRoot. <NotProvided />.
+        </p>
+      </ScorerSection>
+
+      {/* 4 — Where is it used? */}
+      <ScorerSection title="Where is it used?">
         <dl>
-          <ScorerFact label="Reported">{scorer.scoreCount.toLocaleString("en-US")}</ScorerFact>
+          <ScorerFact label="Evaluations">{scorer.evaluationCount}</ScorerFact>
+          <ScorerFact label="Runs">{scorer.runCount}</ScorerFact>
+          <ScorerFact label="Scored results">
+            {scorer.scoreCount.toLocaleString("en-US")}
+          </ScorerFact>
           {scorer.numeric && (
             <>
               <ScorerFact label="Mean">{scorer.numeric.mean.toFixed(3)}</ScorerFact>
@@ -570,34 +923,6 @@ function ScorerDetail({ scorer }: { scorer: ScorerRegistryRow }) {
           {scorer.passRate !== null && (
             <ScorerFact label="Pass rate">{(scorer.passRate * 100).toFixed(1)}%</ScorerFact>
           )}
-        </dl>
-      </ScorerSection>
-
-      {scorer.distribution && scorer.distribution.length > 0 && (
-        <ScorerSection title="Distribution">
-          <ul className="flex flex-col gap-1.5">
-            {scorer.distribution.map((d) => (
-              <li key={d.label} className="flex items-center gap-2 text-[11px]">
-                <span className="w-20 shrink-0 truncate" title={d.label}>
-                  {d.label}
-                </span>
-                <span className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                  <span
-                    className="block h-full rounded-full bg-foreground/70"
-                    style={{ width: `${maxCount > 0 ? (d.count / maxCount) * 100 : 0}%` }}
-                  />
-                </span>
-                <span className="w-10 shrink-0 text-right tabular-nums text-muted-foreground">
-                  {d.count}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </ScorerSection>
-      )}
-
-      <ScorerSection title="Reliability">
-        <dl>
           <ScorerFact label="Error rate">
             {scorer.errorCount === 0 ? (
               <span className="text-muted-foreground">0%</span>
@@ -607,25 +932,6 @@ function ScorerDetail({ scorer }: { scorer: ScorerRegistryRow }) {
               </span>
             )}
           </ScorerFact>
-        </dl>
-        {scorer.recentErrors.length > 0 && (
-          <ul className="mt-2 flex flex-col gap-1.5">
-            {scorer.recentErrors.map((e, i) => (
-              <li
-                key={i}
-                className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 font-mono text-[11px] leading-relaxed text-amber-700 dark:text-amber-300"
-              >
-                {e.message}
-              </li>
-            ))}
-          </ul>
-        )}
-      </ScorerSection>
-
-      <ScorerSection title="Usage">
-        <dl>
-          <ScorerFact label="Evaluations">{scorer.evaluationCount}</ScorerFact>
-          <ScorerFact label="Runs">{scorer.runCount}</ScorerFact>
           <ScorerFact label="Last used">
             {scorer.lastUsed ? (
               <Timestamp iso={scorer.lastUsed} className="inline" />
@@ -634,7 +940,79 @@ function ScorerDetail({ scorer }: { scorer: ScorerRegistryRow }) {
             )}
           </ScorerFact>
         </dl>
+
+        {scorer.distribution && scorer.distribution.length > 0 && (
+          <div className="mt-2">
+            <div className="mb-1 text-[11px] text-muted-foreground">Score distribution</div>
+            <ul className="flex flex-col gap-1.5">
+              {scorer.distribution.map((d) => (
+                <li key={d.label} className="flex items-center gap-2 text-[11px]">
+                  <span className="w-20 shrink-0 truncate" title={d.label}>
+                    {d.label}
+                  </span>
+                  <span className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                    <span
+                      className="block h-full rounded-full bg-foreground/70"
+                      style={{ width: `${maxCount > 0 ? (d.count / maxCount) * 100 : 0}%` }}
+                    />
+                  </span>
+                  <span className="w-10 shrink-0 text-right tabular-nums text-muted-foreground">
+                    {d.count}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {scorer.recentErrors.length > 0 && (
+          <div className="mt-2">
+            <div className="mb-1 text-[11px] text-muted-foreground">Recent scorer errors</div>
+            <ul className="flex flex-col gap-1.5">
+              {scorer.recentErrors.map((e, i) => (
+                <li
+                  key={i}
+                  className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 font-mono text-[11px] leading-relaxed text-amber-700 dark:text-amber-300"
+                >
+                  {e.message}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {versions.length > 1 && (
+          <div className="mt-2">
+            <div className="mb-1 text-[11px] text-muted-foreground">Version history</div>
+            <ul className="flex flex-col gap-0.5">
+              {versions.map((v) => (
+                <li
+                  key={v.version}
+                  className={cn(
+                    "flex items-center justify-between gap-2 rounded px-1.5 py-0.5 text-[11px]",
+                    v.version === scorer.version && "bg-muted/60",
+                  )}
+                >
+                  <span className="flex items-center gap-1.5">
+                    <span className="font-medium">{v.version}</span>
+                    {v.version === scorer.version && (
+                      <span className="text-[10px] text-muted-foreground">viewing</span>
+                    )}
+                  </span>
+                  <span className="tabular-nums text-muted-foreground">
+                    {v.scoreCount} scored{v.lastUsed ? " · " : ""}
+                    {v.lastUsed && <Timestamp iso={v.lastUsed} className="inline" />}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </ScorerSection>
+
+      <div className="border-t border-border px-3 py-2 text-[11px] text-muted-foreground">
+        Source: SDK · Scorers are defined in your SDK code and can&apos;t be created or edited here.
+      </div>
     </div>
   );
 }
