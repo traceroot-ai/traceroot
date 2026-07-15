@@ -788,7 +788,14 @@ async def list_detector_window_summary(
                             SELECT
                                 detector_id,
                                 run_id,
-                                argMax(finding_id, timestamp) AS latest_finding_id,
+                                -- Tuple ordering makes the pick deterministic
+                                -- when duplicate rows tie on timestamp: this
+                                -- probe is evaluated twice (FROM + IN) and
+                                -- both must select the same finding id.
+                                argMax(
+                                    finding_id,
+                                    (timestamp, coalesce(finding_id, ''))
+                                ) AS latest_finding_id,
                                 max(timestamp)                AS ts
                             FROM detector_runs
                             WHERE project_id = {{project_id:String}}
