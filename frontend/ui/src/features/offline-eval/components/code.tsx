@@ -213,7 +213,7 @@ export function LineNumberedTextarea({
   const gutterWidth = `calc(${digits}ch + 1rem)`;
 
   return (
-    <div className="relative overflow-hidden rounded border border-input bg-background font-mono text-[12px] leading-relaxed focus-within:ring-1 focus-within:ring-ring">
+    <div className="relative overflow-hidden rounded border border-input bg-background font-mono text-[11px] leading-relaxed focus-within:ring-1 focus-within:ring-ring">
       {/* Display layer — line numbers + (highlighted) content, wraps per line. */}
       <div aria-hidden className="pointer-events-none py-1.5">
         {Array.from({ length: totalLines }).map((_, i) => (
@@ -250,7 +250,8 @@ export function LineNumberedTextarea({
         placeholder={placeholder}
         aria-label={ariaLabel}
         className={cn(
-          "absolute inset-0 resize-none overflow-hidden whitespace-pre-wrap break-words bg-transparent py-1.5 pr-2 font-mono text-[12px] leading-relaxed text-transparent placeholder:text-muted-foreground focus:outline-none",
+          // Must match the display layer's font metrics exactly — the two are overlaid.
+          "absolute inset-0 resize-none overflow-hidden whitespace-pre-wrap break-words bg-transparent py-1.5 pr-2 font-mono text-[11px] leading-relaxed text-transparent placeholder:text-muted-foreground focus:outline-none",
           readOnly ? "cursor-default caret-transparent" : "caret-foreground",
         )}
         style={{ paddingLeft: `calc(${gutterWidth} + 0.5rem)` }}
@@ -483,7 +484,7 @@ export function EditableValueBlock({
   };
 
   const controls = (
-    <div className="flex items-center gap-0.5">
+    <div className="flex items-center gap-1">
       <Popover open={menuOpen} onOpenChange={setMenuOpen}>
         <PopoverTrigger asChild>
           <button
@@ -511,9 +512,12 @@ export function EditableValueBlock({
         </PopoverContent>
       </Popover>
       {copyable && (
+        // Sized to the read-only I/O section's copy affordance (16px box, 12px
+        // icon) so the header strip is the same height as ExpandableSection's.
         <CopyButton
           value={readOnly ? display : text}
-          className="h-6 w-6 text-muted-foreground hover:text-foreground"
+          className="h-4 w-4 text-muted-foreground hover:text-foreground"
+          iconClassName="h-3 w-3"
           title="Copy"
         />
       )}
