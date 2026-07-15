@@ -10,14 +10,14 @@ import { useWidgetFieldValues } from "../hooks/use-widget-data";
 const stringField: WidgetSchemaField = {
   type: "string",
   label: "Model",
-  filterOps: ["=", "!=", "contains"],
+  filterOps: ["=", "contains"],
   groupable: true,
   aggs: [],
 };
 const numberField: WidgetSchemaField = {
   type: "number",
   label: "Cost",
-  filterOps: [">", ">=", "<", "<=", "=", "!="],
+  filterOps: [">", ">=", "<", "<=", "="],
   groupable: false,
   aggs: ["sum"],
 };
@@ -153,10 +153,11 @@ describe("FilterRow value input", () => {
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: "is" }));
-    expect(screen.getByRole("option", { name: "is not" })).toBeTruthy();
+    // same vocabulary as the trace-list filter: no "is not"
+    expect(screen.queryByRole("option", { name: "is not" })).toBeNull();
     expect(screen.getByRole("option", { name: "contains" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("option", { name: "is not" }));
-    expect(onChange).toHaveBeenCalledWith(0, { op: "!=" });
+    fireEvent.click(screen.getByRole("option", { name: "contains" }));
+    expect(onChange).toHaveBeenCalledWith(0, { op: "contains" });
   });
 
   it("adorns cost and duration values with their unit like the trace-list builder", () => {

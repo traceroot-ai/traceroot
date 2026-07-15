@@ -12,8 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-FILTER_OPS_STRING = ("=", "!=", "contains")
-FILTER_OPS_NUMBER = (">", ">=", "<", "<=", "=", "!=")
+FILTER_OPS_STRING = ("=", "contains")
+FILTER_OPS_NUMBER = (">", ">=", "<", "<=", "=")
 AGGS_NUMBER = ("sum", "avg", "min", "max", "p50", "p95", "p99")
 
 
