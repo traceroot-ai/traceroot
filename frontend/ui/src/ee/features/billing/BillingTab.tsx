@@ -250,6 +250,12 @@ export function BillingTab({
         </div>
       </div>
 
+      {currentUsage?.updatedAt && (
+        <p className="text-xs text-muted-foreground">
+          Last updated: {new Date(currentUsage.updatedAt).toLocaleString()}
+        </p>
+      )}
+
       {/* Event Usage Section */}
       <div className="border">
         <div className="border-b bg-muted/30 px-4 py-3">
@@ -282,11 +288,6 @@ export function BillingTab({
               </span>
             </div>
           </div>
-          {currentUsage?.updatedAt && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              Last updated: {new Date(currentUsage.updatedAt).toLocaleString()}
-            </p>
-          )}
         </div>
       </div>
 
