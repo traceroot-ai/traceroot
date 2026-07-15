@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from worker.tokens.pricing import calculate_cost, get_model_price
+from worker.tokens.pricing import _strip_gateway_prefix, calculate_cost, get_model_price
 
 MATCHED_MODEL_NAME = "__matched_model_name"
 
@@ -172,6 +172,83 @@ DEEPSEEK_MODEL_CASES = [
     ("deepseek/deepseek-v4-pro", "deepseek-v4-pro"),
     ("deepseek-v4-pro-20260424", "deepseek-v4-pro"),
 ]
+
+
+# ---------------------------------------------------------------------------
+# Gateway/router prefix normalisation — unit tests for _strip_gateway_prefix
+# and integration tests against the real price table.
+# ---------------------------------------------------------------------------
+
+# Cases where a gateway/router prefix must be stripped before the bare model
+# name can be matched.  These previously returned None (issue #1556).
+GATEWAY_PREFIX_CASES = [
+    # vertex_ai/ — not included in any Gemini pattern
+    ("vertex_ai/gemini-2.5-pro", "gemini-2.5-pro"),
+    ("vertex_ai/gemini-2.5-flash", "gemini-2.5-flash"),
+    # azure/ on models whose patterns only cover openai/ (gpt-5.4 and below)
+    ("azure/gpt-5.4", "gpt-5.4"),
+    ("azure/gpt-5.4-mini", "gpt-5.4-mini"),
+    ("azure/gpt-5", "gpt-5"),
+    # openrouter/ — single prefix
+    ("openrouter/gpt-5", "gpt-5"),
+    ("openrouter/gemini-2.5-pro", "gemini-2.5-pro"),
+    ("openrouter/claude-opus-4-8", "claude-opus-4-8"),
+    # openrouter/ — double prefix (openrouter/provider/model)
+    ("openrouter/anthropic/claude-opus-4-8", "claude-opus-4-8"),
+    ("openrouter/openai/gpt-5", "gpt-5"),
+    ("openrouter/google/gemini-2.5-pro", "gemini-2.5-pro"),
+    # litellm/ — single prefix
+    ("litellm/gpt-5", "gpt-5"),
+    ("litellm/gemini-2.5-pro", "gemini-2.5-pro"),
+    # litellm/ — double prefix (litellm/provider/model)
+    ("litellm/openai/gpt-5", "gpt-5"),
+    ("litellm/anthropic/claude-opus-4-8", "claude-opus-4-8"),
+    # googleai/ — not included in any Gemini pattern
+    ("googleai/gemini-2.5-pro", "gemini-2.5-pro"),
+]
+
+
+class TestStripGatewayPrefix:
+    def test_no_prefix_unchanged(self):
+        assert _strip_gateway_prefix("gpt-5") == "gpt-5"
+
+    def test_single_known_prefix_stripped(self):
+        assert _strip_gateway_prefix("openai/gpt-5") == "gpt-5"
+        assert _strip_gateway_prefix("vertex_ai/gemini-2.5-pro") == "gemini-2.5-pro"
+        assert _strip_gateway_prefix("litellm/gpt-5") == "gpt-5"
+
+    def test_double_prefix_fully_stripped(self):
+        assert _strip_gateway_prefix("openrouter/anthropic/claude-opus-4-8") == "claude-opus-4-8"
+        assert _strip_gateway_prefix("litellm/openai/gpt-5") == "gpt-5"
+
+    def test_unknown_prefix_unchanged(self):
+        assert _strip_gateway_prefix("my-gateway/gpt-5") == "my-gateway/gpt-5"
+
+    def test_bedrock_dot_format_unchanged(self):
+        # Bedrock uses dots, not slashes — must not be altered.
+        assert (
+            _strip_gateway_prefix("us.anthropic.claude-opus-4-8-20260601-v1:0")
+            == "us.anthropic.claude-opus-4-8-20260601-v1:0"
+        )
+
+    def test_vertex_at_date_format_unchanged(self):
+        # Vertex AI bare format uses @date separator, no slash prefix.
+        assert _strip_gateway_prefix("claude-4-8-opus@20260601") == "claude-4-8-opus@20260601"
+
+
+class TestGatewayPrefixedModelIds:
+    @pytest.mark.parametrize("model_id,expected_name", GATEWAY_PREFIX_CASES)
+    def test_gateway_prefixed_model_resolves(self, real_cache, model_id, expected_name):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price(model_id)
+
+        assert price is not None, (
+            f"{model_id!r} should resolve to {expected_name!r} but returned None"
+        )
+        assert "input" in price and "output" in price
+        assert price[MATCHED_MODEL_NAME] == expected_name, (
+            f"{model_id!r} matched {price[MATCHED_MODEL_NAME]!r}, expected {expected_name!r}"
+        )
 
 
 @patch("worker.tokens.pricing._load_cache", _mock_load_cache)
