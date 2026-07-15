@@ -79,7 +79,10 @@ export function buildDigestSummaryPrompt(
     used += section.length;
   }
   if (sections.length === 0) return null; // budget too tight for even one — nothing useful to say
-  const tail = omitted > 0 ? `(+${omitted} more detectors omitted from this sample)\n` : "";
+  const tail =
+    omitted > 0
+      ? `(+${omitted} more detector${omitted === 1 ? "" : "s"} omitted from this sample)\n`
+      : "";
   return { systemPrompt: SYSTEM_PROMPT, userText: header + sections.join("") + tail };
 }
 
@@ -102,14 +105,17 @@ export function buildDigestSummaryTool(): Tool {
 
 /**
  * Hard cap on the single summary attempt; the digest never waits longer.
- * Validation cloned from the detector-eval timeout parser: finite, > 0, and
- * within the 32-bit setTimeout range; anything else falls back to 15s.
+ * Validation cloned from the detector-eval timeout parser: finite and > 0,
+ * anything else falls back to 15s. Values above 60s clamp to 60s — every
+ * digest flush awaits this timeout on a provider stall, so a fat-fingered
+ * env value must never hold alerts hostage for minutes (or days).
  * Exported for tests; called at call time (not module load) so env changes
  * apply per call.
  */
 export function parseDigestSummaryTimeoutMs(raw: string | undefined): number {
   const n = Number(raw);
-  return Number.isFinite(n) && n > 0 && n <= 2_147_483_647 ? n : 15_000;
+  if (!Number.isFinite(n) || n <= 0) return 15_000;
+  return Math.min(n, 60_000);
 }
 
 export interface DigestSummaryModelConfig {
@@ -158,7 +164,7 @@ export async function generateDigestSummary(
 
     const apiKey = await resolveDetectorApiKey(cfg.workspaceId, byokConfig, model.provider);
     if (!apiKey) {
-      console.log(`[DigestSummary] no API key for provider "${model.provider}"; skipping summary`);
+      console.warn(`[DigestSummary] no API key for provider "${model.provider}"; skipping summary`);
       return null;
     }
 

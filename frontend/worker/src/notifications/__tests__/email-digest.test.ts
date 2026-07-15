@@ -170,13 +170,14 @@ describe("sendDigestAlertEmail", () => {
 
   it("caps an over-long summary at the render cap with an ellipsis", async () => {
     const { sendDigestAlertEmail } = await import("../email.js");
-    await sendDigestAlertEmail({ ...baseParams, summary: "a".repeat(800) });
+    const { DIGEST_SUMMARY_RENDER_CAP: CAP } = await import("@traceroot/slack");
+    await sendDigestAlertEmail({ ...baseParams, summary: "a".repeat(CAP + 100) });
     const mail = sendMail.mock.calls[0][0];
-    // 699 chars + "…" = 700 total (DIGEST_SUMMARY_RENDER_CAP)
-    expect(mail.text).toContain("a".repeat(699) + "…");
-    expect(mail.text).not.toContain("a".repeat(700));
-    expect(mail.html).toContain("a".repeat(699) + "…");
-    expect(mail.html).not.toContain("a".repeat(700));
+    // CAP-1 chars + "…" = CAP total
+    expect(mail.text).toContain("a".repeat(CAP - 1) + "…");
+    expect(mail.text).not.toContain("a".repeat(CAP));
+    expect(mail.html).toContain("a".repeat(CAP - 1) + "…");
+    expect(mail.html).not.toContain("a".repeat(CAP));
   });
 
   it("is byte-identical to today when summary is absent", async () => {
