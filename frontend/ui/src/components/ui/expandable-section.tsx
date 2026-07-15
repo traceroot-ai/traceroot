@@ -8,6 +8,12 @@ interface ExpandableSectionProps {
   children: React.ReactNode;
   defaultOpen?: boolean;
   onCopy?: () => void;
+  /**
+   * Optional control(s) shown in the header, before the copy button (e.g. a format
+   * switcher). Clicks inside it don't toggle the section. Use non-`<button>` triggers
+   * here — the header is itself a button, so a nested native button is invalid.
+   */
+  headerAction?: React.ReactNode;
 }
 
 /**
@@ -18,6 +24,7 @@ export function ExpandableSection({
   children,
   defaultOpen = true,
   onCopy,
+  headerAction,
 }: ExpandableSectionProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
 
@@ -35,18 +42,25 @@ export function ExpandableSection({
           )}
           <span className="text-xs font-medium text-foreground">{title}</span>
         </div>
-        {onCopy && (
-          <div
-            onClick={(e) => {
-              e.stopPropagation();
-              onCopy();
-            }}
-            className="p-0.5 text-muted-foreground transition-colors hover:text-foreground"
-            title="Copy"
-          >
-            <Copy className="h-3 w-3" />
-          </div>
-        )}
+        <div className="flex items-center gap-1">
+          {headerAction && (
+            <div onClick={(e) => e.stopPropagation()} className="flex items-center">
+              {headerAction}
+            </div>
+          )}
+          {onCopy && (
+            <div
+              onClick={(e) => {
+                e.stopPropagation();
+                onCopy();
+              }}
+              className="p-0.5 text-muted-foreground transition-colors hover:text-foreground"
+              title="Copy"
+            >
+              <Copy className="h-3 w-3" />
+            </div>
+          )}
+        </div>
       </button>
       {isOpen && <div className="bg-background px-2.5 py-2">{children}</div>}
     </div>

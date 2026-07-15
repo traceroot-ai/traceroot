@@ -2,6 +2,16 @@
 
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import {
+  Clock,
+  Users,
+  Layers,
+  ChevronRight,
+  AlertCircle,
+  GitBranch,
+  GitCommitHorizontal,
+  FileCode,
+} from "lucide-react";
 import { ChevronRight, GitBranch, GitCommitHorizontal, FileCode, Loader2 } from "lucide-react";
 import { CopyButton } from "@/components/ui/copy-button";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
@@ -19,8 +29,7 @@ import {
   getTraceCostBreakdown,
 } from "../utils";
 import { SpanKindIcon } from "./SpanKindIcon";
-import { ContentRenderer } from "./ContentRenderer";
-import { ExpandableSection } from "@/components/ui/expandable-section";
+import { TraceIOSection } from "./TraceIOValue";
 import { useSpanIO } from "../hooks";
 
 interface SpanInfoPanelProps {
@@ -37,6 +46,17 @@ interface SpanInfoPanelProps {
    * the standard trace viewer is unaffected.
    */
   spanActions?: ReactNode;
+  /**
+   * Optional action rendered on the right of the header's title row, vertically
+   * centred against the name + timestamp block (e.g. offline-eval's "Save as
+   * test case"). Unset in production.
+   */
+  headerAction?: ReactNode;
+  /**
+   * Optional extra chips appended to the span-kind / latency badge row (e.g.
+   * offline-eval's "Dataset:" chip). Unset in production.
+   */
+  extraTags?: ReactNode;
 }
 
 /**
@@ -51,6 +71,8 @@ export function SpanInfoPanel({
   customStartDate,
   customEndDate,
   spanActions,
+  headerAction,
+  extraTags,
 }: SpanInfoPanelProps) {
   const router = useRouter();
 
@@ -106,36 +128,35 @@ export function SpanInfoPanel({
 
   // Show a spinner while a selected span's I/O is in flight; trace-level I/O is
   // already loaded so it never spins.
-  const renderIOContent = (content: string | null) =>
-    !isTrace && isLoadingIO ? (
-      <div className="flex items-center gap-2 py-3 text-xs text-muted-foreground">
-        <Loader2 className="h-3 w-3 animate-spin" />
-        Loading…
-      </div>
-    ) : (
-      <ContentRenderer key={selectionId} content={content} />
-    );
+  // A selected span's I/O is fetched on demand; trace-level I/O is already loaded.
+  const ioLoading = !isTrace && isLoadingIO;
 
   return (
     <div className="h-full overflow-y-auto">
       {/* Header */}
       <div className="sticky top-0 z-10 border-b border-border bg-background px-4 py-3">
-        <div className="mb-1 flex items-center gap-2">
-          <SpanKindIcon kind={kind} size="md" selected />
-          <h3 className="text-sm font-medium">{name}</h3>
-          <CopyButton
-            value={isTrace ? trace.trace_id : selection.span.span_id}
-            className="h-6 w-6 text-muted-foreground hover:text-foreground"
-            title="Copy ID"
-          />
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="mb-1 flex items-center gap-2">
+              <SpanKindIcon kind={kind} size="md" selected />
+              <h3 className="text-sm font-medium">{name}</h3>
+              <CopyButton
+                value={isTrace ? trace.trace_id : selection.span.span_id}
+                className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                title="Copy ID"
+              />
+            </div>
+            <div className="text-xs text-muted-foreground">{formatDate(timestamp)}</div>
+          </div>
+          {headerAction && <div className="shrink-0">{headerAction}</div>}
         </div>
-        <div className="mb-3 text-xs text-muted-foreground">{formatDate(timestamp)}</div>
         {/* Row 1: LLM related badges */}
         <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
             <span className="text-muted-foreground">Span Kind:</span>
             <span className="font-medium">{kind.toLowerCase()}</span>
           </div>
+          {extraTags}
           <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
             <DOMAIN_ICONS.latency className="h-3 w-3 text-muted-foreground" />
             <span className="text-muted-foreground">Latency:</span>
@@ -323,32 +344,29 @@ export function SpanInfoPanel({
           </div>
         )}
 
-        {/* Input */}
-        <ExpandableSection
+        {/* Input / Output / Metadata — each with a header format switcher. The key
+            resets the chosen format when a different span/trace is selected. */}
+        <TraceIOSection
+          key={`${selectionId}:input`}
           title="Input"
-          defaultOpen={true}
+          content={input}
+          loading={ioLoading}
           onCopy={input ? () => copyToClipboard(input) : undefined}
-        >
-          {renderIOContent(input)}
-        </ExpandableSection>
-
-        {/* Output */}
-        <ExpandableSection
+        />
+        <TraceIOSection
+          key={`${selectionId}:output`}
           title="Output"
-          defaultOpen={true}
+          content={output}
+          loading={ioLoading}
           onCopy={output ? () => copyToClipboard(output) : undefined}
-        >
-          {renderIOContent(output)}
-        </ExpandableSection>
-
-        {/* Metadata */}
-        <ExpandableSection
+        />
+        <TraceIOSection
+          key={`${selectionId}:metadata`}
           title="Metadata"
-          defaultOpen={true}
+          content={metadata}
+          loading={ioLoading}
           onCopy={metadata ? () => copyToClipboard(metadata) : undefined}
-        >
-          {renderIOContent(metadata)}
-        </ExpandableSection>
+        />
       </div>
     </div>
   );
