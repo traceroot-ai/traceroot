@@ -8,14 +8,30 @@
  * so every session — however it was constructed — is traced with full
  * agent/LLM/tool span semantics, no manual span code required.
  *
- * Tool availability is fixed when a session is created (there's no per-prompt
- * override), so this demo uses three short-lived sessions to show the
- * distinct span shapes TraceRoot captures:
+ * This demo plays out a small on-call incident end-to-end on ONE persistent
+ * `AgentSession`, narrowing and widening its tool set between phases instead
+ * of recreating the session (see "One session, changing tool sets" in the
+ * README for why that's possible, and why the session must be created
+ * without a `tools` allowlist for it to work):
  *
- *   1. no tools available                      → AGENT → LLM only
- *   2. write a function + a test, run it        → AGENT → TOOL (write) ×2,
- *      via bash                                    AGENT → TOOL (bash)
- *   3. read a file that does not exist          → AGENT → TOOL (read), ERROR status
+ *   incident_inv_2041                        (observe: agent)
+ *   ├─ recon                                 (observe: span) — read-only tools
+ *   │   ├─ AGENT  prompt 1: map the repo
+ *   │   │   └─ TOOL  ls, find
+ *   │   └─ AGENT  prompt 2: investigate the overcharge
+ *   │       └─ TOOL  grep, read, read (ERROR — config/pricing.json is missing)
+ *   ├─ remediate                             (observe: span) — full tool set
+ *   │   └─ AGENT  prompt 3: reproduce, fix, verify
+ *   │       └─ TOOL  bash (ERROR — failing test), edit, bash
+ *   └─ report                                (observe: span)
+ *       └─ AGENT  prompt 4: write POSTMORTEM.md
+ *           └─ TOOL  write
+ *
+ * Span count: 4 custom (root + 3 phases) + 4 AGENT (one per session.prompt()
+ * call) + 9 TOOL (ls, find, grep, read, read-ERROR, bash-ERROR, edit, bash,
+ * write — all 7 builtin tool types, 2 genuine ERROR spans) + roughly 7-13 LLM
+ * spans (one per model turn; fewer if the model batches several tool calls
+ * into a single turn) ≈ 24-30 spans total.
  *
  * Env vars required: OPENAI_API_KEY, TRACEROOT_API_KEY
  *
@@ -33,15 +49,25 @@ import {
   createAgentSession,
   ModelRegistry,
   type AgentSession,
-  type CreateAgentSessionOptions,
 } from '@earendil-works/pi-coding-agent';
 import { instrumentPiCodingAgent } from '@traceroot-ai/pi';
+import { TraceRoot, observe, usingAttributes } from '@traceroot-ai/traceroot';
+
+// TraceRoot.initialize() must run FIRST. instrumentPiCodingAgent() checks for
+// an already-registered global OpenTelemetry provider: if one exists, it
+// attaches to that SHARED pipeline (so the TraceRoot.shutdown() call at the
+// bottom of this file flushes both the pi spans and the observe()/
+// usingAttributes() spans this file creates directly). If instrumentation
+// ran first, it would find no provider yet, build its own PRIVATE export
+// pipeline, and commit to it for the life of the process — a
+// TraceRoot.initialize() call afterwards would never be seen by it.
+TraceRoot.initialize();
 
 // Instrument BEFORE creating any session — instrumentPiCodingAgent() patches
 // AgentSession.prototype, so this must run before createAgentSession() below.
-instrumentPiCodingAgent(pi, {
-  apiKey: process.env.TRACEROOT_API_KEY,
-});
+// No apiKey argument needed: in shared mode it rides on the pipeline
+// TraceRoot.initialize() just registered, which already read TRACEROOT_API_KEY.
+instrumentPiCodingAgent(pi);
 
 console.log('[Observability: TraceRoot]');
 
@@ -50,12 +76,86 @@ console.log('[Observability: TraceRoot]');
 // self-contained and don't touch wherever `pnpm demo` happens to run from.
 const workspace = join(fileURLToPath(new URL('.', import.meta.url)), 'workspace');
 rmSync(workspace, { recursive: true, force: true });
-mkdirSync(workspace, { recursive: true });
-// Mark the workspace CommonJS so the agent's generated require()-based files
-// (turn 2, below) run under `node` without hitting a module-type error.
+mkdirSync(join(workspace, 'src'), { recursive: true });
+mkdirSync(join(workspace, 'test'), { recursive: true });
+
+// Mark the workspace CommonJS so the seeded require()-based source and test
+// files run under `node` without hitting a module-type error.
 writeFileSync(
   join(workspace, 'package.json'),
-  JSON.stringify({ name: 'traceroot-pi-demo-workspace', private: true, type: 'commonjs' }, null, 2),
+  JSON.stringify({ name: 'checkout-pricing', private: true, type: 'commonjs' }, null, 2),
+);
+
+writeFileSync(
+  join(workspace, 'README.md'),
+  '# checkout-pricing\n\n' +
+    'Order-total calculation for a storefront checkout: sum item prices into a\n' +
+    'subtotal, then apply an optional coupon (flat-amount or percent-off) on top.\n',
+);
+
+// PLANTED BUG: the flat branch adds the coupon amount instead of subtracting
+// it, so a flat coupon *increases* the total — this is incident INV-2041. The
+// percent branch is correct. The config/pricing.json reference below is a
+// realistic dangling pointer (per-store overrides would live there if a store
+// had customized its coupon rules; none exists in this workspace), giving
+// recon a genuine tool error to hit rather than a staged one.
+writeFileSync(
+  join(workspace, 'src', 'pricing.js'),
+  `'use strict';
+
+// Per-store discount overrides, when a store has customized coupon rules,
+// live in config/pricing.json. Most stores don't have one and use these
+// defaults.
+function applyCoupon(subtotal, coupon) {
+  if (coupon.type === 'flat') {
+    return subtotal + coupon.amount;
+  }
+  if (coupon.type === 'percent') {
+    return subtotal * (1 - coupon.amount / 100);
+  }
+  throw new Error(\`Unknown coupon type: \${coupon.type}\`);
+}
+
+module.exports = { applyCoupon };
+`,
+);
+
+writeFileSync(
+  join(workspace, 'src', 'cart.js'),
+  `'use strict';
+
+const { applyCoupon } = require('./pricing');
+
+// Sums item prices and applies an optional coupon to get the cart total.
+function cartTotal(items, coupon) {
+  const subtotal = items.reduce((sum, item) => sum + item.price, 0);
+  return coupon ? applyCoupon(subtotal, coupon) : subtotal;
+}
+
+module.exports = { cartTotal };
+`,
+);
+
+// Plain assert — no test runner needed for a two-assertion smoke test, and an
+// uncaught throw from assert.strictEqual exits the process with a nonzero
+// code, which is all the demo needs for a genuine ERROR-status bash span.
+writeFileSync(
+  join(workspace, 'test', 'pricing.test.js'),
+  `'use strict';
+
+const assert = require('node:assert');
+const { applyCoupon } = require('../src/pricing');
+
+// $20 flat off a $100 subtotal should total $80. Fails today: the bug adds
+// the coupon amount instead of subtracting it.
+assert.strictEqual(applyCoupon(100, { type: 'flat', amount: 20 }), 80);
+
+// 10% off a $100 subtotal should total $90 — already correct, kept here so a
+// green run proves the fix didn't just special-case the flat branch.
+assert.strictEqual(applyCoupon(100, { type: 'percent', amount: 10 }), 90);
+
+console.log('pricing tests passed');
+`,
 );
 
 const authStorage = AuthStorage.create();
@@ -99,46 +199,115 @@ function logEvents(session: AgentSession): void {
   });
 }
 
-/** Runs one prompt on a freshly created, freshly disposed session. */
-async function runTurn(prompt: string, sessionOptions: Partial<CreateAgentSessionOptions>) {
+const INCIDENT_SUMMARY =
+  'Incident INV-2041: storefront checkout is overcharging customers who apply coupons.';
+
+const RECON_PROMPTS: readonly [string, string] = [
+  'Map the repo: use ls on the project root, then find to locate every .js file. ' +
+    'Briefly describe the project layout — no need to read file contents yet.',
+  `${INCIDENT_SUMMARY} Flat-amount coupons appear to increase the total instead of ` +
+    'reducing it. grep for coupon-related code, then read src/pricing.js. Also check ' +
+    'whether this store has a per-store override by reading config/pricing.json — if ' +
+    "that read fails, report the exact error rather than treating it as fatal. Give me " +
+    'your working theory of the bug.',
+];
+
+const REMEDIATE_PROMPT =
+  'Reproduce, fix, and verify. First run `node test/pricing.test.js` and tell me exactly ' +
+  'how it fails. Then make the minimal fix to src/pricing.js using the edit tool. Then ' +
+  're-run the same test and confirm it now passes.';
+
+const REPORT_PROMPT =
+  'Write POSTMORTEM.md in this directory documenting INV-2041: root cause, the fix ' +
+  'applied, and how it was verified. Keep it short — a few short sections, not an essay.';
+
+/**
+ * Read-only investigation. The agent physically cannot write, edit, or run
+ * shell commands here — enforced by tool availability rather than prompt
+ * engineering. Two prompts, one span: mapping the repo and diagnosing the
+ * bug are both "look, don't touch" work.
+ */
+async function recon(session: AgentSession, prompts: readonly [string, string]): Promise<void> {
+  return observe(
+    { name: 'recon', type: 'span' },
+    async ([mapPrompt, investigatePrompt]: readonly [string, string]) => {
+      await session.prompt(mapPrompt);
+      await session.prompt(investigatePrompt);
+    },
+    prompts,
+  );
+}
+
+/**
+ * Widen to the full tool set and let the agent reproduce, fix, and verify.
+ * setActiveToolsByName() takes effect on the NEXT turn — the session.prompt()
+ * call below — not retroactively; recon's already-completed turns keep
+ * whatever tool set was active when they ran.
+ */
+async function remediate(session: AgentSession, prompt: string): Promise<void> {
+  session.setActiveToolsByName(['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls']);
+  return observe({ name: 'remediate', type: 'span' }, (p: string) => session.prompt(p), prompt);
+}
+
+/** Document the incident. The write tool is already active from remediate(). */
+async function report(session: AgentSession, prompt: string): Promise<void> {
+  return observe({ name: 'report', type: 'span' }, (p: string) => session.prompt(p), prompt);
+}
+
+async function main(): Promise<void> {
   const { session } = await createAgentSession({
     cwd: workspace,
     model,
     authStorage,
     modelRegistry,
-    ...sessionOptions,
+    // Deliberately NO `tools` option here. Passing one would permanently cap
+    // the tool REGISTRY (not just the active set) to that allowlist, and
+    // setActiveToolsByName() could then never widen past it later. Creating
+    // with the full registry and narrowing immediately below is the only way
+    // to get least-privilege recon that can still widen for the fix. See
+    // "One session, changing tool sets" in the README.
   });
   logEvents(session);
+
+  // Narrow to a read-only set before the FIRST prompt. The default active set
+  // on a `tools`-less session would be read/bash/edit/write — already wider
+  // than recon should have — so this line, not the omission above, is what
+  // actually enforces least privilege for the recon phase.
+  session.setActiveToolsByName(['ls', 'find', 'grep', 'read']);
+
   try {
-    await session.prompt(prompt);
+    await usingAttributes(
+      { userId: 'example-user', sessionId: 'pi-agent-sdk-incident-session' },
+      () =>
+        observe(
+          { name: 'incident_inv_2041', type: 'agent' },
+          async (summary: string) => {
+            console.log(`\n--- ${summary} ---`);
+            await recon(session, RECON_PROMPTS);
+            await remediate(session, REMEDIATE_PROMPT);
+            await report(session, REPORT_PROMPT);
+          },
+          INCIDENT_SUMMARY,
+        ),
+    );
   } finally {
     session.dispose();
+    // Flush inside main()'s own finally, not a separate .finally() bolted
+    // onto the call below: shutdown() can itself reject (network failure,
+    // bad TRACEROOT_API_KEY, unreachable backend), and a rejection from a
+    // .finally() callback on an already-caught chain becomes an unhandled
+    // rejection nothing downstream consumes. Keeping it here means any
+    // shutdown failure flows through the single catch() below like every
+    // other error in this file. instrumentPiCodingAgent() attached to the
+    // shared pipeline TraceRoot.initialize() registered, so this one call
+    // flushes both the pi spans and the observe()/usingAttributes() spans
+    // created directly in this file.
+    await TraceRoot.shutdown();
+    console.log('\n[Traces exported]');
   }
 }
 
-async function main() {
-  console.log('\n--- Turn 1: no tools (pure AGENT → LLM) ---');
-  await runTurn('What is the capital of France? Answer in one word.', { noTools: 'all' });
-
-  console.log('\n--- Turn 2: write a function, then write + run a test for it ---');
-  await runTurn(
-    'Create add.js exporting a function add(a, b) that returns a + b (CommonJS, ' +
-      'module.exports). Then write test-add.js that requires add.js and asserts ' +
-      'add(2, 3) === 5, run it with node, and tell me whether it passed.',
-    { tools: ['write', 'bash'] },
-  );
-
-  console.log('\n--- Turn 3: tool error (read a file that does not exist) ---');
-  await runTurn(
-    'Use the read tool to read /tmp/definitely-does-not-exist-traceroot-demo.txt ' +
-      'and tell me exactly what error occurred.',
-    { tools: ['read'] },
-  );
-}
-
-main()
-  .then(() => console.log('\n[Traces exported]'))
-  .catch((error) => {
-    console.error(error);
-    process.exitCode = 1;
-  });
+main().catch((error: unknown) => {
+  console.error(error);
+  process.exitCode = 1;
+});
