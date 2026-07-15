@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, ChevronRight, ChevronsDownUp } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
@@ -137,58 +137,43 @@ export function ValueBlock({
   defaultKind?: ValueKind;
 }) {
   const [kind, setKind] = React.useState<ValueKind>(defaultKind);
-  const [minimized, setMinimized] = React.useState(false);
   const [menuOpen, setMenuOpen] = React.useState(false);
 
   return (
     <div>
       <div className="mb-1 flex items-center justify-between">
         <span className="text-[11px] font-medium text-muted-foreground">{label}</span>
-        <span className="flex items-center gap-1">
-          <Popover open={menuOpen} onOpenChange={setMenuOpen}>
-            <PopoverTrigger asChild>
+        <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              {KIND_LABEL[kind]}
+              <ChevronDown className="h-3 w-3" aria-hidden />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-28 p-1">
+            {KINDS.map((k) => (
               <button
+                key={k}
                 type="button"
-                className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                onClick={() => {
+                  setKind(k);
+                  setMenuOpen(false);
+                }}
+                className={cn(
+                  "flex w-full items-center rounded px-2 py-1 text-left text-[12px] transition-colors",
+                  k === kind ? "bg-muted/70" : "hover:bg-muted/50",
+                )}
               >
-                {KIND_LABEL[kind]}
-                <ChevronDown className="h-3 w-3" aria-hidden />
+                {KIND_LABEL[k]}
               </button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-28 p-1">
-              {KINDS.map((k) => (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={() => {
-                    setKind(k);
-                    setMenuOpen(false);
-                  }}
-                  className={cn(
-                    "flex w-full items-center rounded px-2 py-1 text-left text-[12px] transition-colors",
-                    k === kind ? "bg-muted/70" : "hover:bg-muted/50",
-                  )}
-                >
-                  {KIND_LABEL[k]}
-                </button>
-              ))}
-            </PopoverContent>
-          </Popover>
-          <button
-            type="button"
-            onClick={() => setMinimized((m) => !m)}
-            aria-label={minimized ? `Expand ${label}` : `Minimize ${label}`}
-            className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          >
-            {minimized ? (
-              <ChevronRight className="h-3.5 w-3.5" aria-hidden />
-            ) : (
-              <ChevronsDownUp className="h-3.5 w-3.5" aria-hidden />
-            )}
-          </button>
-        </span>
+            ))}
+          </PopoverContent>
+        </Popover>
       </div>
-      {!minimized && <CodeView text={formatValue(value, kind)} />}
+      <CodeView text={formatValue(value, kind)} />
     </div>
   );
 }
