@@ -118,3 +118,42 @@ class TestEnvironmentRoundTrip:
             )
             is False
         )
+
+
+class TestMistypedEnvironmentDoesNotReachInsert:
+    """A mis-typed `traceroot.environment` attribute (e.g. int/list from a
+    misbehaving SDK) must degrade to NULL at the transform layer rather than
+    reaching the Nullable(String) insert, where a non-string value would
+    raise during column serialization and fail the entire batch."""
+
+    def test_int_environment_carries_none_through_span_insert(self):
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[make_attr("traceroot.environment", 5)],
+                )
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-envfix")
+
+        rows, columns = _captured_insert(spans=spans)
+        env_index = columns.index("environment")
+        assert rows[0][env_index] is None
+
+    def test_int_environment_carries_none_through_trace_insert(self):
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[make_attr("traceroot.environment", 5)],
+                )
+            ]
+        )
+        traces, _ = transform_otel_to_clickhouse(payload, "proj-envfix")
+
+        rows, columns = _captured_insert(traces=traces)
+        env_index = columns.index("environment")
+        assert rows[0][env_index] is None
