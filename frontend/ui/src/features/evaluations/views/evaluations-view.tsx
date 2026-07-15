@@ -17,7 +17,14 @@ import { DATE_FILTER_OPTIONS, type DateFilterOption } from "@/lib/date-filter";
 import { Table, TBody, Td, Th, THead, TR, TRHead } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
-import { EmptyState, Timestamp } from "@/features/offline-eval/components";
+import {
+  EmptyState,
+  Timestamp,
+  useRowSelection,
+  SelectAllHeaderCell,
+  SelectRowCell,
+  BulkActionBar,
+} from "@/features/offline-eval/components";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import {
   changeSentiment,
@@ -30,6 +37,7 @@ import {
   useEvaluationRuns,
   useEvaluations,
   useScorers,
+  useDeleteRuns,
   type ScorerRegistryRow,
 } from "../hooks";
 import { EVAL_RUN_STATUS_LABEL, type EvalRunStatus } from "../types";
@@ -116,7 +124,7 @@ export function EvaluationsView({ projectId }: { projectId: string }) {
 // Runs — the flat execution list.
 // ---------------------------------------------------------------------------
 
-const RUNS_COLUMN_COUNT = 10;
+const RUNS_COLUMN_COUNT = 11;
 
 /** Human elapsed duration; "—" when unknown (never 0). */
 function formatElapsed(ms: number | null | undefined): string {
@@ -147,8 +155,33 @@ function RunsTab({ projectId }: { projectId: string }) {
     dataset_id: datasetFilter === ALL ? undefined : datasetFilter,
     status: statusFilter === ALL ? undefined : statusFilter,
   });
-  const runs = data?.data ?? [];
+  const runs = React.useMemo(() => data?.data ?? [], [data]);
   const filtered = keyword || datasetFilter !== ALL || statusFilter !== ALL;
+
+  // Row selection + bulk delete, matching the dataset cases table.
+  const runIds = React.useMemo(() => runs.map((r) => r.id), [runs]);
+  const sel = useRowSelection(runIds);
+  const deleteRuns = useDeleteRuns(projectId);
+  const deleteSelected = () => {
+    const ids = [...sel.selected];
+    if (ids.length === 0) return;
+    if (
+      !window.confirm(
+        `Delete ${ids.length} run${ids.length === 1 ? "" : "s"}? This can't be undone.`,
+      )
+    )
+      return;
+    deleteRuns.mutate(ids, {
+      onSuccess: () => {
+        sel.clear();
+        toast({
+          title: `Deleted ${ids.length} run${ids.length === 1 ? "" : "s"}`,
+          tone: "success",
+        });
+      },
+      onError: () => toast({ title: "Could not delete runs", tone: "warning" }),
+    });
+  };
 
   return (
     <>
@@ -209,10 +242,17 @@ function RunsTab({ projectId }: { projectId: string }) {
         </Button>
       </SearchFilterBar>
 
+      <BulkActionBar count={sel.count} onDelete={deleteSelected} onClear={sel.clear} />
+
       <div className="min-h-0 flex-1 overflow-auto">
         <Table>
           <THead>
             <TRHead>
+              <SelectAllHeaderCell
+                checked={sel.allSelected}
+                indeterminate={sel.someSelected}
+                onToggle={sel.toggleAll}
+              />
               <Th>Name</Th>
               <Th className="w-[140px]">Candidate version</Th>
               <Th>Dataset</Th>
@@ -249,8 +289,14 @@ function RunsTab({ projectId }: { projectId: string }) {
                   <TR
                     key={r.id}
                     interactive
+                    selected={sel.has(r.id)}
                     onClick={() => router.push(`/projects/${projectId}/evaluations/${r.id}`)}
                   >
+                    <SelectRowCell
+                      checked={sel.has(r.id)}
+                      onToggle={() => sel.toggle(r.id)}
+                      label={`Select ${r.evaluationName} #${r.runNumber}`}
+                    />
                     <Td className="font-medium">
                       {r.evaluationName}
                       <span className="ml-1.5 font-normal text-muted-foreground">
@@ -313,7 +359,8 @@ function RunsTab({ projectId }: { projectId: string }) {
 // Evaluations — one row per purpose (lineage), from the server.
 // ---------------------------------------------------------------------------
 
-const SUITES_COLUMN_COUNT = 6;
+// +1 for the leading selection checkbox column.
+const SUITES_COLUMN_COUNT = 7;
 
 function EvaluationsTab({
   projectId,
@@ -339,6 +386,11 @@ function EvaluationsTab({
       (s) => s.name.toLowerCase().includes(q) || (s.datasetName ?? "").toLowerCase().includes(q),
     );
   }, [data, keyword]);
+
+  // Row selection, matching the Runs tab. There is no delete API for an evaluation
+  // lineage, so the bar offers selection + Clear without a Delete action.
+  const suiteIds = React.useMemo(() => suites.map((s) => s.id), [suites]);
+  const sel = useRowSelection(suiteIds);
 
   return (
     <>
@@ -367,10 +419,17 @@ function EvaluationsTab({
         </Button>
       </SearchFilterBar>
 
+      <BulkActionBar count={sel.count} onClear={sel.clear} />
+
       <div className="min-h-0 flex-1 overflow-auto">
         <Table>
           <THead>
             <TRHead>
+              <SelectAllHeaderCell
+                checked={sel.allSelected}
+                indeterminate={sel.someSelected}
+                onToggle={sel.toggleAll}
+              />
               <Th>Evaluation</Th>
               <Th>Dataset</Th>
               <Th className="w-[90px] text-right">Runs</Th>
@@ -399,8 +458,14 @@ function EvaluationsTab({
                 <TR
                   key={suite.id}
                   interactive
+                  selected={sel.has(suite.id)}
                   onClick={() => suite.latestRun && onOpenRun(suite.latestRun.id)}
                 >
+                  <SelectRowCell
+                    checked={sel.has(suite.id)}
+                    onToggle={() => sel.toggle(suite.id)}
+                    label={`Select ${suite.name}`}
+                  />
                   <Td className="font-medium">
                     {suite.name}
                     <span className="ml-1.5 font-mono text-[11px] font-normal text-muted-foreground">
@@ -445,70 +510,117 @@ function EvaluationsTab({
 // the source of truth for the rest, rather than fabricating descriptive text.
 // ---------------------------------------------------------------------------
 
-const SCORERS_COLUMN_COUNT = 3;
+// +1 for the leading selection checkbox column.
+const SCORERS_COLUMN_COUNT = 5;
+
+const VALUE_TYPE_LABEL: Record<ScorerRegistryRow["valueType"], string> = {
+  numeric: "Numeric",
+  boolean: "Boolean",
+  categorical: "Categorical",
+  mixed: "Mixed",
+  unknown: "Unknown",
+};
+
+const DIRECTION_LABEL: Record<NonNullable<ScorerRegistryRow["direction"]>, string> = {
+  higher_is_better: "Higher is better",
+  lower_is_better: "Lower is better",
+  none: "No direction",
+};
 
 function ScorersTab({ projectId }: { projectId: string }) {
   const { data, isLoading, error } = useScorers(projectId);
-  const scorers = data?.data ?? [];
+  // Memoized so the derived id list (and therefore row selection) is stable
+  // across renders rather than churning on a fresh array identity.
+  const scorers = React.useMemo(() => data?.data ?? [], [data]);
   const [selectedKey, setSelectedKey] = React.useState<string | null>(null);
   const selected =
     scorers.find((s) => `${s.name}@${s.version}` === selectedKey) ?? scorers[0] ?? null;
 
+  // Checkbox selection, independent of which scorer the detail aside is showing.
+  // The registry is derived from reported runs, so there is nothing to delete —
+  // the bar offers selection + Clear only.
+  const scorerKeys = React.useMemo(() => scorers.map((s) => `${s.name}@${s.version}`), [scorers]);
+  const sel = useRowSelection(scorerKeys);
+
   return (
     <div className="flex min-h-0 flex-1">
-      <div className="min-w-0 flex-1 overflow-auto">
-        <Table>
-          <THead>
-            <TRHead>
-              <Th>Scorer</Th>
-              <Th className="w-[120px] text-right">Scores</Th>
-              <Th className="w-[120px] text-right">Error rate</Th>
-            </TRHead>
-          </THead>
-          <TBody>
-            {isLoading ? (
-              <Cell colSpan={SCORERS_COLUMN_COUNT}>
-                <EmptyState>Loading scorers...</EmptyState>
-              </Cell>
-            ) : error ? (
-              <Cell colSpan={SCORERS_COLUMN_COUNT}>
-                <EmptyState>Error loading scorers</EmptyState>
-              </Cell>
-            ) : scorers.length === 0 ? (
-              <Cell colSpan={SCORERS_COLUMN_COUNT}>
-                <EmptyState>
-                  No scorers yet. Scorers are defined in your SDK code and appear here once a run
-                  reports them.
-                </EmptyState>
-              </Cell>
-            ) : (
-              scorers.map((s) => {
-                const key = `${s.name}@${s.version}`;
-                return (
-                  <TR
-                    key={key}
-                    interactive
-                    selected={key === `${selected?.name}@${selected?.version}`}
-                    onClick={() => setSelectedKey(key)}
-                  >
-                    <Td>
-                      <span className="flex items-baseline gap-1.5">
-                        <span className="font-medium">{s.name}</span>
-                        <span className="text-[11px] text-muted-foreground">{s.version}</span>
-                      </span>
-                    </Td>
-                    <Td className="text-right tabular-nums text-muted-foreground">
-                      {s.scoreCount}
-                    </Td>
-                    <Td className="text-right tabular-nums text-muted-foreground">
-                      {s.errorRate === 0 ? "—" : `${(s.errorRate * 100).toFixed(1)}%`}
-                    </Td>
-                  </TR>
-                );
-              })
-            )}
-          </TBody>
-        </Table>
+      {/* Left column: the selection bar stays pinned above the scrolling table. */}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <BulkActionBar count={sel.count} onClear={sel.clear} />
+        <div className="min-h-0 flex-1 overflow-auto">
+          <Table>
+            <THead>
+              <TRHead>
+                <SelectAllHeaderCell
+                  checked={sel.allSelected}
+                  indeterminate={sel.someSelected}
+                  onToggle={sel.toggleAll}
+                />
+                <Th>Scorer</Th>
+                <Th className="w-[110px]">Type</Th>
+                <Th className="w-[120px] text-right">Scores</Th>
+                <Th className="w-[120px] text-right">Error rate</Th>
+              </TRHead>
+            </THead>
+            <TBody>
+              {isLoading ? (
+                <Cell colSpan={SCORERS_COLUMN_COUNT}>
+                  <EmptyState>Loading scorers...</EmptyState>
+                </Cell>
+              ) : error ? (
+                <Cell colSpan={SCORERS_COLUMN_COUNT}>
+                  <EmptyState>Error loading scorers</EmptyState>
+                </Cell>
+              ) : scorers.length === 0 ? (
+                <Cell colSpan={SCORERS_COLUMN_COUNT}>
+                  <EmptyState>
+                    No scorers yet. Scorers are defined in your SDK code and appear here once a run
+                    reports them.
+                  </EmptyState>
+                </Cell>
+              ) : (
+                scorers.map((s) => {
+                  const key = `${s.name}@${s.version}`;
+                  return (
+                    <TR
+                      key={key}
+                      interactive
+                      selected={key === `${selected?.name}@${selected?.version}`}
+                      onClick={() => setSelectedKey(key)}
+                    >
+                      <SelectRowCell
+                        checked={sel.has(key)}
+                        onToggle={() => sel.toggle(key)}
+                        label={`Select ${s.name} ${s.version}`}
+                      />
+                      <Td>
+                        <span className="flex items-baseline gap-1.5">
+                          <span className="font-medium">{s.name}</span>
+                          <span className="text-[11px] text-muted-foreground">{s.version}</span>
+                        </span>
+                      </Td>
+                      <Td>
+                        <Badge variant="outline">{VALUE_TYPE_LABEL[s.valueType]}</Badge>
+                      </Td>
+                      <Td className="text-right tabular-nums text-muted-foreground">
+                        {s.scoreCount}
+                      </Td>
+                      <Td className="text-right tabular-nums">
+                        {s.errorRate === 0 ? (
+                          <span className="text-muted-foreground">—</span>
+                        ) : (
+                          <span className={SENTIMENT_CLASS.bad}>
+                            {(s.errorRate * 100).toFixed(1)}%
+                          </span>
+                        )}
+                      </Td>
+                    </TR>
+                  );
+                })
+              )}
+            </TBody>
+          </Table>
+        </div>
       </div>
 
       <aside
@@ -534,38 +646,140 @@ function ScorerSection({ title, children }: { title: string; children: React.Rea
   );
 }
 
+/** A labelled scalar for the config/stats rows. */
+function ScorerFact({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-0.5">
+      <dt className="text-[11px] text-muted-foreground">{label}</dt>
+      <dd className="text-[12px] tabular-nums">{children}</dd>
+    </div>
+  );
+}
+
+/**
+ * Scorer detail — everything TraceRoot has OBSERVED about a scorer (the SDK owns
+ * its definition): value type + declared config, the score distribution, pass and
+ * error rates with recent failures, and where it's used. All derived from the
+ * scores it has reported.
+ */
 function ScorerDetail({ scorer }: { scorer: ScorerRegistryRow }) {
+  const maxCount = scorer.distribution?.reduce((m, d) => Math.max(m, d.count), 0) ?? 0;
+
   return (
     <div className="flex flex-col">
       <div className="px-3 py-2.5">
-        <div className="flex items-baseline gap-1.5">
+        <div className="flex flex-wrap items-baseline gap-1.5">
           <h2 className="text-[13px] font-medium">{scorer.name}</h2>
           <span className="text-[11px] text-muted-foreground">{scorer.version}</span>
+          <Badge variant="outline" className="ml-auto">
+            {VALUE_TYPE_LABEL[scorer.valueType]}
+          </Badge>
         </div>
       </div>
 
-      <ScorerSection title="Definition">
-        <p className="text-[12px] leading-relaxed text-muted-foreground">
-          This scorer is defined in your SDK code. What it measures, its type, scope, and score
-          format live with the code and are not reported to TraceRoot — only the scores it produces
-          are.
-        </p>
+      <ScorerSection title="Config">
+        <dl>
+          <ScorerFact label="Value type">
+            {VALUE_TYPE_LABEL[scorer.declaredValueType ?? scorer.valueType]}
+            {scorer.declaredValueType === null && (
+              <span className="ml-1 text-[11px] text-muted-foreground">(inferred)</span>
+            )}
+          </ScorerFact>
+          <ScorerFact label="Direction">
+            {scorer.direction ? (
+              DIRECTION_LABEL[scorer.direction]
+            ) : (
+              <span className="text-muted-foreground">Not declared</span>
+            )}
+          </ScorerFact>
+          <ScorerFact label="Threshold">
+            {scorer.threshold !== null ? (
+              scorer.threshold
+            ) : (
+              <span className="text-muted-foreground">—</span>
+            )}
+          </ScorerFact>
+        </dl>
       </ScorerSection>
 
-      <ScorerSection title="Scores reported">
-        <p className="text-[12px] tabular-nums text-muted-foreground">
-          {scorer.scoreCount.toLocaleString("en-US")}
-        </p>
+      <ScorerSection title="Scores">
+        <dl>
+          <ScorerFact label="Reported">{scorer.scoreCount.toLocaleString("en-US")}</ScorerFact>
+          {scorer.numeric && (
+            <>
+              <ScorerFact label="Mean">{scorer.numeric.mean.toFixed(3)}</ScorerFact>
+              <ScorerFact label="Range">
+                {scorer.numeric.min.toFixed(2)} – {scorer.numeric.max.toFixed(2)}
+              </ScorerFact>
+            </>
+          )}
+          {scorer.passRate !== null && (
+            <ScorerFact label="Pass rate">{(scorer.passRate * 100).toFixed(1)}%</ScorerFact>
+          )}
+        </dl>
       </ScorerSection>
 
-      <ScorerSection title="Error rate">
-        <p className="text-[12px] text-muted-foreground">
-          {scorer.errorCount === 0
-            ? "No failures in the runs reported so far."
-            : `${(scorer.errorRate * 100).toFixed(1)}% of results could not be judged (${scorer.errorCount.toLocaleString(
-                "en-US",
-              )} of ${scorer.scoreCount.toLocaleString("en-US")}).`}
-        </p>
+      {scorer.distribution && scorer.distribution.length > 0 && (
+        <ScorerSection title="Distribution">
+          <ul className="flex flex-col gap-1.5">
+            {scorer.distribution.map((d) => (
+              <li key={d.label} className="flex items-center gap-2 text-[11px]">
+                <span className="w-20 shrink-0 truncate" title={d.label}>
+                  {d.label}
+                </span>
+                <span className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                  <span
+                    className="block h-full rounded-full bg-foreground/70"
+                    style={{ width: `${maxCount > 0 ? (d.count / maxCount) * 100 : 0}%` }}
+                  />
+                </span>
+                <span className="w-10 shrink-0 text-right tabular-nums text-muted-foreground">
+                  {d.count}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </ScorerSection>
+      )}
+
+      <ScorerSection title="Reliability">
+        <dl>
+          <ScorerFact label="Error rate">
+            {scorer.errorCount === 0 ? (
+              <span className="text-muted-foreground">0%</span>
+            ) : (
+              <span className={SENTIMENT_CLASS.bad}>
+                {(scorer.errorRate * 100).toFixed(1)}% ({scorer.errorCount} of {scorer.scoreCount})
+              </span>
+            )}
+          </ScorerFact>
+        </dl>
+        {scorer.recentErrors.length > 0 && (
+          <ul className="mt-2 flex flex-col gap-1.5">
+            {scorer.recentErrors.map((e, i) => (
+              <li
+                key={i}
+                className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 font-mono text-[11px] leading-relaxed text-amber-700 dark:text-amber-300"
+              >
+                {e.message}
+              </li>
+            ))}
+          </ul>
+        )}
+      </ScorerSection>
+
+      <ScorerSection title="Usage">
+        <dl>
+          <ScorerFact label="Evaluations">{scorer.evaluationCount}</ScorerFact>
+          <ScorerFact label="Runs">{scorer.runCount}</ScorerFact>
+          <ScorerFact label="Last used">
+            {scorer.lastUsed ? (
+              <Timestamp iso={scorer.lastUsed} className="inline" />
+            ) : (
+              <span className="text-muted-foreground">—</span>
+            )}
+          </ScorerFact>
+        </dl>
       </ScorerSection>
     </div>
   );
