@@ -538,32 +538,40 @@ export function EditableValueBlock({
       onClick={() => setOpen((v) => !v)}
       aria-expanded={open}
       className={cn(
-        "flex items-center gap-1.5 rounded font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-        size === "sm" ? "text-[12px]" : "text-[11px]",
+        "flex items-center gap-1.5 rounded font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+        // Boxed matches the span detail panel's read-only I/O sections
+        // (ExpandableSection): foreground label, muted chevron. The inline
+        // variant keeps its lighter form-label look.
+        size === "sm"
+          ? "text-xs text-foreground"
+          : "text-[11px] text-muted-foreground hover:text-foreground",
       )}
     >
       {open ? (
-        <ChevronDown className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        <ChevronDown
+          className={cn("h-3.5 w-3.5 shrink-0", size === "sm" && "text-muted-foreground")}
+          aria-hidden
+        />
       ) : (
-        <ChevronRight className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        <ChevronRight
+          className={cn("h-3.5 w-3.5 shrink-0", size === "sm" && "text-muted-foreground")}
+          aria-hidden
+        />
       )}
       {label}
     </button>
   );
 
+  // Boxed chrome mirrors ExpandableSection (the read-only span I/O sections) so an
+  // editable Input/Output/Metadata field sits beside them without a style seam.
   if (boxed) {
     return (
-      <div className="border border-border">
-        <div
-          className={cn(
-            "flex items-center justify-between gap-2 bg-muted/50 px-3 py-1.5",
-            open && "border-b border-border",
-          )}
-        >
+      <div className="overflow-hidden rounded-md border border-border">
+        <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/50 px-2.5 py-1.5">
           {heading("sm")}
           {controls}
         </div>
-        {open && <div className="p-3">{field}</div>}
+        {open && <div className="bg-background px-2.5 py-2">{field}</div>}
       </div>
     );
   }
