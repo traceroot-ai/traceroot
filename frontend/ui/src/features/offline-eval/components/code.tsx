@@ -62,6 +62,82 @@ export function formatValue(value: unknown, kind: ValueKind): string {
   }
 }
 
+/** Trace-panel JSON token colors, mirrored so JSON reads the same everywhere. */
+const JSON_TOKEN_COLORS = {
+  key: "text-sky-600 dark:text-sky-400",
+  string: "text-green-700 dark:text-green-400",
+  number: "text-blue-600 dark:text-blue-400",
+  boolean: "text-purple-600 dark:text-purple-400",
+  null: "text-orange-600 dark:text-orange-400",
+  punctuation: "text-muted-foreground",
+};
+
+/**
+ * Splits valid JSON text into colored tokens, preserving every character so the
+ * result can sit exactly behind a textarea. Returns null when the text is empty
+ * or not valid JSON, so the field shows as plain text mid-edit.
+ */
+function tokenizeJson(text: string): { text: string; cls: string }[] | null {
+  if (text.trim() === "") return null;
+  try {
+    JSON.parse(text);
+  } catch {
+    return null;
+  }
+  const tokens: { text: string; cls: string }[] = [];
+  const n = text.length;
+  let i = 0;
+  while (i < n) {
+    const c = text[i];
+    if (c === '"') {
+      let j = i + 1;
+      while (j < n) {
+        if (text[j] === "\\") {
+          j += 2;
+          continue;
+        }
+        if (text[j] === '"') {
+          j += 1;
+          break;
+        }
+        j += 1;
+      }
+      let k = j;
+      while (k < n && /\s/.test(text[k])) k += 1;
+      const isKey = text[k] === ":";
+      tokens.push({
+        text: text.slice(i, j),
+        cls: isKey ? JSON_TOKEN_COLORS.key : JSON_TOKEN_COLORS.string,
+      });
+      i = j;
+    } else if (c === "-" || (c >= "0" && c <= "9")) {
+      let j = i + 1;
+      while (j < n && /[0-9.eE+-]/.test(text[j])) j += 1;
+      tokens.push({ text: text.slice(i, j), cls: JSON_TOKEN_COLORS.number });
+      i = j;
+    } else if (text.startsWith("true", i) || text.startsWith("false", i)) {
+      const word = text.startsWith("true", i) ? "true" : "false";
+      tokens.push({ text: word, cls: JSON_TOKEN_COLORS.boolean });
+      i += word.length;
+    } else if (text.startsWith("null", i)) {
+      tokens.push({ text: "null", cls: JSON_TOKEN_COLORS.null });
+      i += 4;
+    } else if ("{}[],:".includes(c)) {
+      tokens.push({ text: c, cls: JSON_TOKEN_COLORS.punctuation });
+      i += 1;
+    } else if (/\s/.test(c)) {
+      let j = i + 1;
+      while (j < n && /\s/.test(text[j])) j += 1;
+      tokens.push({ text: text.slice(i, j), cls: "" });
+      i = j;
+    } else {
+      tokens.push({ text: c, cls: "" });
+      i += 1;
+    }
+  }
+  return tokens;
+}
+
 function Gutter({ count }: { count: number }) {
   return (
     <div
@@ -85,27 +161,49 @@ export function LineNumberedTextarea({
   onChange,
   minRows = 1,
   placeholder,
+  highlightJson = false,
   "aria-label": ariaLabel,
 }: {
   value: string;
   onChange: (value: string) => void;
   minRows?: number;
   placeholder?: string;
+  /** When true, JSON content is syntax-highlighted (trace-panel colors). */
+  highlightJson?: boolean;
   "aria-label"?: string;
 }) {
   const lines = Math.max(value === "" ? 1 : value.split("\n").length, minRows);
+  const tokens = highlightJson ? tokenizeJson(value) : null;
   return (
     <div className="flex overflow-hidden rounded border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
       <Gutter count={lines} />
-      <textarea
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        rows={lines}
-        spellCheck={false}
-        placeholder={placeholder}
-        aria-label={ariaLabel}
-        className="flex-1 resize-none bg-transparent px-2 py-1.5 font-mono text-[12px] leading-relaxed placeholder:text-muted-foreground focus:outline-none"
-      />
+      <div className="relative flex-1">
+        {/* Colored layer sits exactly behind the transparent-text textarea. */}
+        {tokens && (
+          <pre
+            aria-hidden
+            className="pointer-events-none absolute inset-0 m-0 overflow-hidden whitespace-pre-wrap break-words px-2 py-1.5 font-mono text-[12px] leading-relaxed"
+          >
+            {tokens.map((t, i) => (
+              <span key={i} className={t.cls || undefined}>
+                {t.text}
+              </span>
+            ))}
+          </pre>
+        )}
+        <textarea
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          rows={lines}
+          spellCheck={false}
+          placeholder={placeholder}
+          aria-label={ariaLabel}
+          className={cn(
+            "relative block w-full resize-none whitespace-pre-wrap break-words bg-transparent px-2 py-1.5 font-mono text-[12px] leading-relaxed placeholder:text-muted-foreground focus:outline-none",
+            tokens && "text-transparent caret-foreground",
+          )}
+        />
+      </div>
     </div>
   );
 }
@@ -245,7 +343,8 @@ export function EditableValueBlock({
       <LineNumberedTextarea
         value={text}
         onChange={onChange}
-        minRows={2}
+        minRows={1}
+        highlightJson={kind === "json" || kind === "pretty"}
         aria-label={ariaLabel ?? label}
       />
     </div>
