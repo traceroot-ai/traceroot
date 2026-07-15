@@ -100,7 +100,13 @@ describe("SpanInfoPanel - Error box source location badges", () => {
     // 2. Verify git_source_file badge wrapping styles
     const expectedFilePath =
       "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/events.py:123";
-    const fileSpan = screen.getByText(expectedFilePath);
+    const fileSpan = screen.getByText((content, element) => {
+      const text = element?.textContent || "";
+      return (
+        text.replace(/\s+/g, "") === expectedFilePath.replace(/\s+/g, "") &&
+        element?.tagName.toLowerCase() === "span"
+      );
+    });
     expect(fileSpan).toBeTruthy();
     expect(fileSpan.className).toContain("min-w-0");
     expect(fileSpan.className).toContain("break-all");
@@ -124,6 +130,10 @@ describe("SpanInfoPanel - Error box source location badges", () => {
     expect(refParentDiv).toBeTruthy();
     expect(refParentDiv?.className).toContain("inline-flex");
     expect(refParentDiv?.className).not.toContain("min-w-0");
+
+    const refIcon = refParentDiv?.querySelector("svg");
+    expect(refIcon).toBeTruthy();
+    expect(refIcon?.getAttribute("class")).toContain("shrink-0");
 
     // 4. Verify the sibling error message text is rendered
     const errorMessage = screen.getByText("Traceback (most recent call last): ...");
@@ -170,5 +180,13 @@ describe("SpanInfoPanel - Error box source location badges", () => {
     expect(refParentLink?.tagName.toLowerCase()).toBe("a");
     expect(refParentLink?.className).toContain("inline-flex");
     expect(refParentLink?.className).not.toContain("min-w-0");
+
+    const headerRefIcon = refParentLink?.querySelector("svg");
+    expect(headerRefIcon).toBeTruthy();
+    expect(headerRefIcon?.getAttribute("class")).toContain("shrink-0");
+
+    const headerRefLabel = screen.getByText("Ref:");
+    expect(headerRefLabel).toBeTruthy();
+    expect(headerRefLabel.className).toContain("shrink-0");
   });
 });
