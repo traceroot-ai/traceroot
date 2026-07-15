@@ -4,6 +4,7 @@ import * as React from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { MarkdownView } from "@/components/ui/markdown-view";
 import { cn } from "@/lib/utils";
 
 /**
@@ -12,16 +13,17 @@ import { cn } from "@/lib/utils";
  * and minimised — the same shapes a trace value uses.
  */
 
-export type ValueKind = "yaml" | "text" | "json" | "pretty";
+export type ValueKind = "yaml" | "text" | "json" | "pretty" | "markdown";
 
 const KIND_LABEL: Record<ValueKind, string> = {
   yaml: "YAML",
   text: "Text",
   json: "JSON",
   pretty: "Pretty",
+  markdown: "Markdown",
 };
 
-const KINDS: ValueKind[] = ["yaml", "text", "json", "pretty"];
+const KINDS: ValueKind[] = ["yaml", "text", "json", "pretty", "markdown"];
 
 /** Minimal YAML for the flat values we hold. Empty → `null`, as requested. */
 function toYaml(value: unknown, indent = 0): string {
@@ -50,6 +52,11 @@ function toYaml(value: unknown, indent = 0): string {
 /** Formats a value for a given view kind. */
 export function formatValue(value: unknown, kind: ValueKind): string {
   switch (kind) {
+    // Markdown is a *rendering* of the raw text, so it carries the value through
+    // verbatim (an empty value stays empty rather than becoming the string "null").
+    case "markdown":
+      if (value === null || value === undefined) return "";
+      return typeof value === "string" ? value : JSON.stringify(value);
     case "text":
       if (value === null || value === undefined || value === "") return "null";
       return typeof value === "string" ? value : JSON.stringify(value);
@@ -323,7 +330,13 @@ export function ValueBlock({
           </PopoverContent>
         </Popover>
       </div>
-      <CodeView text={formatValue(value, kind)} />
+      {kind === "markdown" ? (
+        <div className="rounded border border-input bg-background px-2 py-1.5">
+          <MarkdownView content={formatValue(value, kind)} />
+        </div>
+      ) : (
+        <CodeView text={formatValue(value, kind)} />
+      )}
     </div>
   );
 }
@@ -472,6 +485,9 @@ export function EditableValueBlock({
     userSetKind.current = true;
     setKind(next);
     setMenuOpen(false);
+    // Markdown renders the text as-is rather than re-serializing it, so switching
+    // to it must never rewrite the stored value.
+    if (next === "markdown") return;
     // Reformat only when the current text is valid JSON; otherwise leave it be.
     try {
       const parsed = JSON.parse(readOnly ? display : text);
@@ -524,16 +540,30 @@ export function EditableValueBlock({
     </div>
   );
 
-  const field = (
-    <LineNumberedTextarea
-      value={readOnly ? display : text}
-      onChange={onChange}
-      minRows={minRows}
-      highlightJson={kind === "json" || kind === "pretty"}
-      readOnly={readOnly}
-      aria-label={ariaLabel ?? label}
-    />
-  );
+  // Markdown is a rendered preview of the text, so it replaces the editable field;
+  // switching back to any other format returns to editing the same raw value.
+  const field =
+    kind === "markdown" ? (
+      <div>
+        <div className="rounded border border-input bg-background px-2 py-1.5">
+          <MarkdownView content={readOnly ? display : text} />
+        </div>
+        {!readOnly && (
+          <p className="mt-1 text-[10px] text-muted-foreground">
+            Preview — switch to Text to edit.
+          </p>
+        )}
+      </div>
+    ) : (
+      <LineNumberedTextarea
+        value={readOnly ? display : text}
+        onChange={onChange}
+        minRows={minRows}
+        highlightJson={kind === "json" || kind === "pretty"}
+        readOnly={readOnly}
+        aria-label={ariaLabel ?? label}
+      />
+    );
 
   // Chevron + label: the whole thing toggles, matching the span detail panel.
   const heading = (size: "sm" | "xs") => (
