@@ -175,18 +175,27 @@ export function LineNumberedTextarea({
 }) {
   // Gutter numbers only the real content lines; the textarea can still be taller
   // (minRows) with blank, unnumbered space below — the way a code editor looks.
+  // The field never wraps, so every line maps 1:1 to a gutter number; long lines
+  // scroll horizontally, and the color layer tracks that scroll.
   const contentLines = value === "" ? 1 : value.split("\n").length;
   const rows = Math.max(contentLines, minRows);
   const tokens = highlightJson ? tokenizeJson(value) : null;
+  const preRef = React.useRef<HTMLPreElement>(null);
+  const syncScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
+    if (preRef.current) {
+      preRef.current.style.transform = `translateX(${-e.currentTarget.scrollLeft}px)`;
+    }
+  };
   return (
     <div className="flex overflow-hidden rounded border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
       <Gutter count={contentLines} />
-      <div className="relative flex-1">
+      <div className="relative min-w-0 flex-1 overflow-hidden">
         {/* Colored layer sits exactly behind the transparent-text textarea. */}
         {tokens && (
           <pre
+            ref={preRef}
             aria-hidden
-            className="pointer-events-none absolute inset-0 m-0 overflow-hidden whitespace-pre-wrap break-words px-2 py-1.5 font-mono text-[12px] leading-relaxed"
+            className="pointer-events-none absolute inset-0 m-0 whitespace-pre px-2 py-1.5 font-mono text-[12px] leading-relaxed"
           >
             {tokens.map((t, i) => (
               <span key={i} className={t.cls || undefined}>
@@ -198,12 +207,14 @@ export function LineNumberedTextarea({
         <textarea
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onScroll={syncScroll}
           rows={rows}
+          wrap="off"
           spellCheck={false}
           placeholder={placeholder}
           aria-label={ariaLabel}
           className={cn(
-            "relative block w-full resize-none whitespace-pre-wrap break-words bg-transparent px-2 py-1.5 font-mono text-[12px] leading-relaxed placeholder:text-muted-foreground focus:outline-none",
+            "relative block w-full resize-none overflow-x-auto whitespace-pre bg-transparent px-2 py-1.5 font-mono text-[12px] leading-relaxed placeholder:text-muted-foreground focus:outline-none",
             tokens && "text-transparent caret-foreground",
           )}
         />
@@ -314,7 +325,6 @@ export function EditableValueBlock({
   enlargeable = false,
   autoDetectKind = false,
   minRows = 1,
-  growRows,
   boxed = false,
 }: {
   label: string;
@@ -326,12 +336,6 @@ export function EditableValueBlock({
   enlargeable?: boolean;
   autoDetectKind?: boolean;
   minRows?: number;
-  /**
-   * When set, the field rests at `minRows` until the content grows past it, then
-   * springs to (at least) `growRows` — a small default that opens up once the
-   * value no longer fits.
-   */
-  growRows?: number;
   /** Wrap the block in a bordered card with a muted header strip (like FormCard). */
   boxed?: boolean;
 }) {
@@ -363,11 +367,9 @@ export function EditableValueBlock({
     }
   };
 
-  // Rest at minRows; once the content outgrows it, spring to growRows; enlarge
-  // opens it fully. LineNumberedTextarea still grows past this with more content.
-  const contentLines = text === "" ? 1 : text.split("\n").length;
-  const restingMin = growRows != null && contentLines > minRows ? growRows : minRows;
-  const effectiveMin = enlarged ? Math.max(restingMin, 24) : restingMin;
+  // Rest at minRows and grow one line at a time with the content; enlarge opens
+  // it fully.
+  const effectiveMin = enlarged ? Math.max(minRows, 24) : minRows;
 
   const controls = (
     <div className="flex items-center gap-0.5">
