@@ -193,17 +193,22 @@ export function LineNumberedTextarea({
   highlightJson?: boolean;
   "aria-label"?: string;
 }) {
-  const rawLines = value === "" ? [""] : value.split("\n");
-  const tokenLines = highlightJson ? tokenizeJsonByLine(value) : null;
-  const padLines = Math.max(0, minRows - rawLines.length);
-  const digits = Math.max(2, String(rawLines.length).length);
+  // Keep a real trailing empty line so the last line is always clickable — click
+  // it and type without pressing Enter first, and a 1-line value still shows an
+  // empty line 2. The parent value never keeps that trailing newline: it's added
+  // for display/editing and stripped from what onChange reports.
+  const textValue = value.endsWith("\n") ? value : value + "\n";
+  const rawLines = textValue.split("\n");
+  const tokenLines = highlightJson ? tokenizeJsonByLine(textValue) : null;
+  const totalLines = Math.max(rawLines.length, minRows);
+  const digits = Math.max(2, String(totalLines).length);
   const gutterWidth = `calc(${digits}ch + 1rem)`;
 
   return (
     <div className="relative overflow-hidden rounded border border-input bg-background font-mono text-[12px] leading-relaxed focus-within:ring-1 focus-within:ring-ring">
       {/* Display layer — line numbers + (highlighted) content, wraps per line. */}
       <div aria-hidden className="pointer-events-none py-1.5">
-        {rawLines.map((line, i) => (
+        {Array.from({ length: totalLines }).map((_, i) => (
           <div key={i} className="flex items-start">
             <span
               className="shrink-0 select-none border-r border-border bg-muted/40 px-2 text-right text-muted-foreground/50"
@@ -218,27 +223,19 @@ export function LineNumberedTextarea({
                       {t.text}
                     </span>
                   ))
-                : line}
+                : (rawLines[i] ?? "")}
               {"​"}
             </span>
-          </div>
-        ))}
-        {Array.from({ length: padLines }).map((_, k) => (
-          <div key={`pad-${k}`} className="flex items-start">
-            <span
-              className="shrink-0 border-r border-border bg-muted/40 px-2"
-              style={{ width: gutterWidth }}
-            >
-              {"​"}
-            </span>
-            <span className="flex-1 px-2">{"​"}</span>
           </div>
         ))}
       </div>
       {/* Editing layer — transparent text lined up over the display layer. */}
       <textarea
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
+        value={textValue}
+        onChange={(e) => {
+          const v = e.target.value;
+          onChange(v.endsWith("\n") ? v.slice(0, -1) : v);
+        }}
         spellCheck={false}
         placeholder={placeholder}
         aria-label={ariaLabel}
