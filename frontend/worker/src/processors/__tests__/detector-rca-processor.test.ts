@@ -410,7 +410,58 @@ describe("processRcaJob", () => {
     expect(detectorRcaUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { findingId: "f1" },
-        data: { status: "failed" },
+        data: expect.objectContaining({
+          status: "failed",
+          result: expect.stringContaining("Prisma error"),
+          completedAt: expect.any(Date),
+        }),
+      }),
+    );
+  });
+
+  it("records the RCA agent's error message into result when the agent stream fails", async () => {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.workspace, "findUnique").mockResolvedValue({
+      billingPlan: "pro",
+      rcaBlocked: false,
+    } as any);
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+    const detectorRcaUpdate = vi.spyOn(p.detectorRca, "update").mockResolvedValue({} as any);
+    vi.spyOn(p.gitHubInstallation, "count").mockResolvedValue(0);
+    vi.spyOn(p.project, "findUnique").mockResolvedValue({
+      rcaModel: null,
+      rcaProvider: null,
+      rcaSource: null,
+      alertConfig: { alertWindow: "30m" },
+    } as any);
+
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce(
+        sseBody([{ event: "error", data: { message: "Invalid API key for provider" } }]),
+      );
+
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    await expect(
+      processRcaJob({
+        data: {
+          findingId: "f1",
+          projectId: "p1",
+          traceId: "t1",
+          workspaceId: "ws1",
+          findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+        },
+      } as any),
+    ).rejects.toThrow(/Invalid API key for provider/);
+
+    expect(detectorRcaUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { findingId: "f1" },
+        data: expect.objectContaining({
+          status: "failed",
+          result: expect.stringContaining("Invalid API key for provider"),
+          completedAt: expect.any(Date),
+        }),
       }),
     );
   });

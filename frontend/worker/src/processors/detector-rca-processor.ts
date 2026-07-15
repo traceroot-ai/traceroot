@@ -390,8 +390,16 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
       },
     });
   } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
     await prisma.detectorRca
-      .update({ where: { findingId }, data: { status: "failed" } })
+      .update({
+        where: { findingId },
+        data: {
+          status: "failed",
+          result: `RCA failed: ${message}`,
+          completedAt: new Date(),
+        },
+      })
       .catch(() => {}); // best-effort
 
     await scheduleDigestFlush();
