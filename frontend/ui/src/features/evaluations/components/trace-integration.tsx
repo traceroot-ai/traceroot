@@ -28,7 +28,12 @@ import {
   type CaptureReason,
 } from "@/features/offline-eval/types";
 import type { Span } from "@/types/api";
-import { useDatasets, useCreateDataset, useTraceEvaluationResults } from "../hooks";
+import {
+  useDatasets,
+  useCreateDataset,
+  useTraceEvaluationResults,
+  useTraceTestCases,
+} from "../hooks";
 
 /** Sentinel dataset-select value for "create a new dataset". */
 const NEW_DATASET = "__new__";
@@ -532,5 +537,41 @@ export function TraceEvaluationChip({
         Run #{run.runNumber} · {run.candidateVersion}
       </span>
     </Link>
+  );
+}
+
+/**
+ * "Dataset:" chip shown on a span that already backs a test case — the trace-
+ * viewer marker for a span that's been saved to a dataset. Renders one chip per
+ * dataset the span belongs to (current version only), each linking to it, or
+ * nothing when the span isn't a saved case.
+ */
+export function SpanDatasetChip({
+  projectId,
+  traceId,
+  spanId,
+}: {
+  projectId: string;
+  traceId: string;
+  spanId: string;
+}) {
+  const { data } = useTraceTestCases(projectId, traceId);
+  const matches = (data?.data ?? []).filter((c) => c.sourceSpanId === spanId);
+  if (matches.length === 0) return null;
+  return (
+    <>
+      {matches.map((c) => (
+        <Link
+          key={`${c.datasetId}:${c.testCaseId}`}
+          href={`/projects/${projectId}/datasets/${c.datasetId}`}
+          className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors hover:bg-muted"
+          title={`In dataset ${c.datasetName}`}
+        >
+          <Database className="h-3 w-3 text-muted-foreground" aria-hidden />
+          <span className="text-muted-foreground">Dataset:</span>
+          <span className="font-medium">{c.datasetName}</span>
+        </Link>
+      ))}
+    </>
   );
 }

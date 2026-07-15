@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button";
 import {
   SaveTestCaseDrawer,
   TraceEvaluationChip,
+  SpanDatasetChip,
 } from "@/features/evaluations/components/trace-integration";
 import { formatContentPreview } from "@/features/traces/utils";
 import { useSession as useAuthSession } from "@/lib/auth-client";
@@ -421,11 +422,18 @@ export default function TracesPage() {
               Save as test case
             </Button>
           )}
-          // Offline eval: show an Evaluation chip when this trace came from a run.
+          // Offline eval: a trace-level chip when this trace came from a run, and
+          // a per-span "Dataset:" chip marking a span already saved as a test case.
           spanExtraTags={(selection: TraceSelection) =>
             selection.type === "trace" ? (
               <TraceEvaluationChip projectId={projectId} traceId={selectedTraceId} />
-            ) : null
+            ) : (
+              <SpanDatasetChip
+                projectId={projectId}
+                traceId={selectedTraceId}
+                spanId={selection.span.span_id}
+              />
+            )
           }
         />
       )}
