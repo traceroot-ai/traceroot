@@ -33,5 +33,7 @@ export {
   ValueBlock,
   EditableValueBlock,
   formatValue,
+  seedFormat,
+  type SeedJsonPreference,
   type ValueKind,
 } from "./code";
