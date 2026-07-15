@@ -99,6 +99,10 @@ async function checkEndpoint(
   });
 }
 
+function adapterBaseUrl(adapter: string, baseUrl?: string): string {
+  return (baseUrl || ADAPTER_DEFAULT_BASE_URL[adapter]).replace(/\/$/, "");
+}
+
 // POST /api/workspaces/[workspaceId]/model-providers/test
 export async function POST(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
@@ -155,8 +159,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       case "anthropic": {
         // Anthropic has no list-models endpoint; a minimal message call only
         // distinguishes an invalid key (401) from a reachable provider.
+        const anthropicBase = adapterBaseUrl(adapter, baseUrl);
         const check = await withTimeout(async (signal) => {
-          const res = await fetch("https://api.anthropic.com/v1/messages", {
+          const res = await fetch(`${anthropicBase}/v1/messages`, {
             method: "POST",
             headers: {
               "x-api-key": apiKey || "",
@@ -180,8 +185,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
 
       case "google": {
+        const googleBase = adapterBaseUrl(adapter, baseUrl);
         const check = await checkEndpoint(
-          "https://generativelanguage.googleapis.com/v1beta/models",
+          `${googleBase}/models`,
           { "x-goog-api-key": apiKey || "" },
         );
         if (!check.ok)
@@ -239,7 +245,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
 
       case "openrouter": {
-        const check = await checkEndpoint("https://openrouter.ai/api/v1/models", {
+        const openrouterBase = adapterBaseUrl(adapter, baseUrl);
+        const check = await checkEndpoint(`${openrouterBase}/models`, {
           Authorization: `Bearer ${apiKey}`,
         });
         if (!check.ok)
