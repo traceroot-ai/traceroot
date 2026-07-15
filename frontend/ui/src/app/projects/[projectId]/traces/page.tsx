@@ -83,6 +83,11 @@ export default function TracesPage() {
     `traceroot:traces:live:v1:${projectId}`,
     false,
   );
+  // Evaluation traces are excluded from the default list; this opt-in includes them.
+  const [includeEvaluations, setIncludeEvaluations] = useLocalStorage(
+    `traceroot:traces:include-evals:v1:${projectId}`,
+    false,
+  );
 
   // Fetch traces with combined query options + user filter from URL
   const { data, isLoading, error } = useTraces(
@@ -90,6 +95,7 @@ export default function TracesPage() {
     {
       ...queryOptions,
       user_id: userId || undefined,
+      include_evaluations: includeEvaluations || undefined,
     },
     { refetchInterval: autoRefresh ? 5000 : false },
   );
@@ -214,6 +220,33 @@ export default function TracesPage() {
                   className={cn(
                     "block h-3 w-3 rounded-full bg-background shadow-sm transition-transform duration-200",
                     autoRefresh ? "translate-x-3" : "translate-x-0",
+                  )}
+                />
+              </span>
+            </button>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={includeEvaluations}
+              onClick={() => setIncludeEvaluations(!includeEvaluations)}
+              title={
+                includeEvaluations
+                  ? "Evaluation traces shown — click to hide"
+                  : "Evaluation traces are hidden — click to include them"
+              }
+              className="flex items-center gap-2 rounded-md border border-border px-2.5 py-1 text-[12px] text-foreground transition-colors hover:border-foreground/40 hover:bg-muted"
+            >
+              Eval traces
+              <span
+                className={cn(
+                  "relative inline-flex h-4 w-7 shrink-0 rounded-full border-2 border-transparent transition-colors duration-200",
+                  includeEvaluations ? "bg-foreground" : "bg-input",
+                )}
+              >
+                <span
+                  className={cn(
+                    "block h-3 w-3 rounded-full bg-background shadow-sm transition-transform duration-200",
+                    includeEvaluations ? "translate-x-3" : "translate-x-0",
                   )}
                 />
               </span>
