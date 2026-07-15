@@ -152,10 +152,30 @@ function Gutter({ count }: { count: number }) {
   );
 }
 
+/** Splits whole-text JSON tokens into per-line arrays (newlines are consumed). */
+function tokenizeJsonByLine(text: string): { text: string; cls: string }[][] | null {
+  const tokens = tokenizeJson(text);
+  if (!tokens) return null;
+  const lines: { text: string; cls: string }[][] = [[]];
+  for (const tok of tokens) {
+    const parts = tok.text.split("\n");
+    parts.forEach((part, idx) => {
+      if (idx > 0) lines.push([]);
+      if (part !== "") lines[lines.length - 1].push({ text: part, cls: tok.cls });
+    });
+  }
+  return lines;
+}
+
 /**
- * Editable code field with a line-number gutter on the left. An empty value is
- * a single line "1" with an empty body. Grows with the content (no scroll sync
- * to keep the numbers aligned).
+ * Editable code field with a line-number gutter on the left.
+ *
+ * A wrapping display layer (line numbers + optional JSON colors) sits under a
+ * transparent-text textarea. Because both wrap with the same font/width, a long
+ * line wraps onto the next visual row while keeping a single line number pinned
+ * to its top — the way a real code editor renders wrapped lines. The box rests
+ * at `minRows` (blank, unnumbered space below the content) and grows one line
+ * per Enter.
  */
 export function LineNumberedTextarea({
   value,
@@ -173,52 +193,58 @@ export function LineNumberedTextarea({
   highlightJson?: boolean;
   "aria-label"?: string;
 }) {
-  // Gutter numbers only the real content lines; the textarea can still be taller
-  // (minRows) with blank, unnumbered space below — the way a code editor looks.
-  // The field never wraps, so every line maps 1:1 to a gutter number; long lines
-  // scroll horizontally, and the color layer tracks that scroll.
-  const contentLines = value === "" ? 1 : value.split("\n").length;
-  const rows = Math.max(contentLines, minRows);
-  const tokens = highlightJson ? tokenizeJson(value) : null;
-  const preRef = React.useRef<HTMLPreElement>(null);
-  const syncScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
-    if (preRef.current) {
-      preRef.current.style.transform = `translateX(${-e.currentTarget.scrollLeft}px)`;
-    }
-  };
+  const rawLines = value === "" ? [""] : value.split("\n");
+  const tokenLines = highlightJson ? tokenizeJsonByLine(value) : null;
+  const padLines = Math.max(0, minRows - rawLines.length);
+  const digits = Math.max(2, String(rawLines.length).length);
+  const gutterWidth = `calc(${digits}ch + 1rem)`;
+
   return (
-    <div className="flex overflow-hidden rounded border border-input bg-background focus-within:ring-1 focus-within:ring-ring">
-      <Gutter count={contentLines} />
-      <div className="relative min-w-0 flex-1 overflow-hidden">
-        {/* Colored layer sits exactly behind the transparent-text textarea. */}
-        {tokens && (
-          <pre
-            ref={preRef}
-            aria-hidden
-            className="pointer-events-none absolute inset-0 m-0 whitespace-pre px-2 py-1.5 font-mono text-[12px] leading-relaxed"
-          >
-            {tokens.map((t, i) => (
-              <span key={i} className={t.cls || undefined}>
-                {t.text}
-              </span>
-            ))}
-          </pre>
-        )}
-        <textarea
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onScroll={syncScroll}
-          rows={rows}
-          wrap="off"
-          spellCheck={false}
-          placeholder={placeholder}
-          aria-label={ariaLabel}
-          className={cn(
-            "relative block w-full resize-none overflow-x-auto whitespace-pre bg-transparent px-2 py-1.5 font-mono text-[12px] leading-relaxed placeholder:text-muted-foreground focus:outline-none",
-            tokens && "text-transparent caret-foreground",
-          )}
-        />
+    <div className="relative overflow-hidden rounded border border-input bg-background font-mono text-[12px] leading-relaxed focus-within:ring-1 focus-within:ring-ring">
+      {/* Display layer — line numbers + (highlighted) content, wraps per line. */}
+      <div aria-hidden className="pointer-events-none py-1.5">
+        {rawLines.map((line, i) => (
+          <div key={i} className="flex items-start">
+            <span
+              className="shrink-0 select-none border-r border-border bg-muted/40 px-2 text-right text-muted-foreground/50"
+              style={{ width: gutterWidth }}
+            >
+              {i + 1}
+            </span>
+            <span className="min-w-0 flex-1 whitespace-pre-wrap break-words px-2">
+              {tokenLines
+                ? (tokenLines[i] ?? []).map((t, ti) => (
+                    <span key={ti} className={t.cls || undefined}>
+                      {t.text}
+                    </span>
+                  ))
+                : line}
+              {"​"}
+            </span>
+          </div>
+        ))}
+        {Array.from({ length: padLines }).map((_, k) => (
+          <div key={`pad-${k}`} className="flex items-start">
+            <span
+              className="shrink-0 border-r border-border bg-muted/40 px-2"
+              style={{ width: gutterWidth }}
+            >
+              {"​"}
+            </span>
+            <span className="flex-1 px-2">{"​"}</span>
+          </div>
+        ))}
       </div>
+      {/* Editing layer — transparent text lined up over the display layer. */}
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        spellCheck={false}
+        placeholder={placeholder}
+        aria-label={ariaLabel}
+        className="absolute inset-0 resize-none overflow-hidden whitespace-pre-wrap break-words bg-transparent py-1.5 pr-2 font-mono text-[12px] leading-relaxed text-transparent caret-foreground placeholder:text-muted-foreground focus:outline-none"
+        style={{ paddingLeft: `calc(${gutterWidth} + 0.5rem)` }}
+      />
     </div>
   );
 }
