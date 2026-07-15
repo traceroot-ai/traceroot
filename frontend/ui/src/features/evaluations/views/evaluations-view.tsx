@@ -34,6 +34,7 @@ import {
   BulkActionBar,
 } from "@/features/offline-eval/components";
 import { ProjectBreadcrumb } from "@/features/projects/components";
+import { PassRate } from "../components/pass-rate";
 import {
   changeSentiment,
   pctFraction,
@@ -49,7 +50,6 @@ import {
   type ScorerRegistryRow,
 } from "../hooks";
 import { EVAL_RUN_STATUS_LABEL, type EvalRunStatus, type RunRow } from "../types";
-import { RunEvaluationDrawer } from "../components/run-evaluation-drawer";
 
 // Run-centric: the Evaluations page is one table of immutable runs. Scorers is the
 // SDK-authored catalog. There is no separate "unique evaluations", "all runs", or
@@ -78,7 +78,6 @@ const ALL = "__all__";
 
 export function EvaluationsView({ projectId }: { projectId: string }) {
   const [tab, setTab] = React.useState<Tab>("evaluations");
-  const [runOpen, setRunOpen] = React.useState(false);
 
   return (
     <div className="flex h-full flex-col text-[12px]">
@@ -109,17 +108,10 @@ export function EvaluationsView({ projectId }: { projectId: string }) {
             );
           })}
         </div>
-        {tab === "evaluations" && (
-          <Button size="sm" className="h-7 text-[12px]" onClick={() => setRunOpen(true)}>
-            Run evaluation
-          </Button>
-        )}
       </div>
 
       {tab === "evaluations" && <RunsTab projectId={projectId} />}
       {tab === "scorers" && <ScorersTab projectId={projectId} />}
-
-      <RunEvaluationDrawer projectId={projectId} open={runOpen} onOpenChange={setRunOpen} />
     </div>
   );
 }
@@ -128,7 +120,7 @@ export function EvaluationsView({ projectId }: { projectId: string }) {
 // Runs — the flat execution list.
 // ---------------------------------------------------------------------------
 
-const RUNS_COLUMN_COUNT = 10;
+const RUNS_COLUMN_COUNT = 11;
 
 /** Human elapsed duration; "—" when unknown (never 0). */
 function formatElapsed(ms: number | null | undefined): string {
@@ -212,6 +204,9 @@ function RunTableRow({
       </Td>
       <Td className="text-right tabular-nums">
         <ScoreValue value={r.mainScore} />
+      </Td>
+      <Td className="text-right tabular-nums">
+        <PassRate counts={r} />
       </Td>
       <Td className="text-right tabular-nums">
         <ChangeValue value={r.changeFromBaseline} />
@@ -596,6 +591,7 @@ function RunsTab({ projectId }: { projectId: string }) {
               <Th>Evaluation / Run</Th>
               <Th>Dataset</Th>
               <Th className="w-[110px] text-right">Main score</Th>
+              <Th className="w-[100px] text-right">Passed</Th>
               <Th className="w-[100px] text-right">Change</Th>
               <Th className="w-[100px] text-right">Regressions</Th>
               <Th className="w-[150px]">Status</Th>
@@ -618,7 +614,7 @@ function RunsTab({ projectId }: { projectId: string }) {
                 <EmptyState>
                   {filtered || scopedEvalId
                     ? "No runs match these filters."
-                    : "No evaluation runs yet. Use Run evaluation for the SDK snippet."}
+                    : "No evaluation runs yet. Report a run from your SDK and it appears here."}
                 </EmptyState>
               </Cell>
             ) : grouped ? (
