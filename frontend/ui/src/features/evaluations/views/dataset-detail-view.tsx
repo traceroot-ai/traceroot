@@ -2,15 +2,32 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronRight, Copy, Download, FileCode, Play, X } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronRight,
+  Copy,
+  Database,
+  Download,
+  Expand,
+  FileCode,
+  FileText,
+  History,
+  Play,
+  Plus,
+  Shrink,
+  SquareArrowOutUpRight,
+  Trash2,
+  Upload,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
-import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TBody, THead, TR, TRHead, Td, Th } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast";
+import { useLayout } from "@/components/layout/app-layout";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { DATE_FILTER_OPTIONS, type DateFilterOption } from "@/lib/date-filter";
 import { ProjectBreadcrumb } from "@/features/projects/components";
@@ -18,40 +35,60 @@ import { SpanKindIcon } from "@/features/traces";
 import { cn } from "@/lib/utils";
 import {
   EmptyState,
+  EvalBody,
   EvalPageHeader,
   ReviewBadge,
   EditableValueBlock,
+  SelectAllHeaderCell,
+  SelectRowCell,
   Timestamp,
-} from "@/features/offline-eval/components";
-import {
+  UploadControl,
+  useRowSelection,
   TestCaseReviewDrawer,
   type TestCaseReviewTarget,
-} from "../components/test-case-review-drawer";
-import { CAPTURE_REASON_LABEL } from "@/features/offline-eval/types";
-import {
-  changeSentiment,
-  pct,
-  SENTIMENT_CLASS,
-  signed,
-  truncate,
-} from "@/features/offline-eval/utils";
-import { useDataset, useUpdateTestCase, useEvaluationRuns } from "../hooks";
-import type { TestCaseRow, DatasetVersionRow, RunRow } from "../types";
+} from "@/features/offline-eval/components";
+import { CAPTURE_REASON_LABEL, type ReviewStatus } from "@/features/offline-eval/types";
+import { caseDisplayId, datasetInitCode, pct, truncate } from "@/features/offline-eval/utils";
+import { useDataset, useSaveTestCase, useUpdateTestCase, useEvaluationRuns } from "../hooks";
+import type { TestCaseRow } from "../types";
 import { RunEvaluationDrawer } from "../components/run-evaluation-drawer";
-import { RunStatusBadge } from "./evaluations-view";
 
+/** "Last 14 days" default, matching the traces/datasets lists. */
 const DEFAULT_DATE_FILTER =
   DATE_FILTER_OPTIONS.find((o) => o.id === "14d") ?? DATE_FILTER_OPTIONS[0];
 
-function metadataText(metadata: unknown): string {
-  return metadata && typeof metadata === "object" ? JSON.stringify(metadata, null, 2) : "";
+/** A dash for the list; empty reads as a placeholder, not a blank cell. */
+function orDash(value: string | null): React.ReactNode {
+  return value && value.trim() !== "" ? value : <span className="text-muted-foreground">-</span>;
+}
+
+/** Metadata is stored as unknown JSON; coerce to a flat record for display/edit. */
+function asRecord(metadata: unknown): Record<string, unknown> {
+  return metadata && typeof metadata === "object" && !Array.isArray(metadata)
+    ? (metadata as Record<string, unknown>)
+    : {};
+}
+
+function metadataPreview(metadata: unknown): React.ReactNode {
+  const entries = Object.entries(asRecord(metadata));
+  if (entries.length === 0) return <span className="text-muted-foreground">-</span>;
+  return (
+    <span className="font-mono text-[11px] text-muted-foreground">
+      {truncate(entries.map(([k, v]) => `${k}: ${String(v)}`).join(", "), 48)}
+    </span>
+  );
 }
 
 /**
- * Dataset detail — faithful port of the prototype's dataset detail, wired to the
- * server: an EvalPageHeader with a Run-evaluation action, Test cases / Evaluation
- * history tabs, the immutable version picker, and a slide-in case panel with the
- * Review-test-case flow. Editing a case publishes a new dataset version.
+ * Dataset detail — a faithful port of the prototype's dataset detail, wired to
+ * the server.
+ *
+ * Columns are Created · Input · Expected · Metadata (empty reads as "-"). New
+ * row adds an empty test case; Import is a centered dialog. Selecting rows
+ * offers Duplicate, Add to dataset, and Delete, with an X to cancel. Focusing a
+ * row slides in a panel from the right (the way a trace opens) showing the
+ * input, expected, and metadata as editable value blocks. Editing publishes a
+ * new immutable dataset version — an earlier run's snapshot is never rewritten.
  */
 export function DatasetDetailView({
   projectId,
@@ -62,16 +99,26 @@ export function DatasetDetailView({
 }) {
   const { toast } = useToast();
   const { data, isLoading, error } = useDataset(projectId, datasetId);
+  const save = useSaveTestCase(projectId, datasetId);
+  const update = useUpdateTestCase(projectId, datasetId);
 
+  const [openCaseId, setOpenCaseId] = React.useState<string | null>(null);
+  const [reviewCaseId, setReviewCaseId] = React.useState<string | null>(null);
   const [keyword, setKeyword] = React.useState("");
   const [caseDate, setCaseDate] = React.useState<DateFilterOption>(DEFAULT_DATE_FILTER);
   const [caseStart, setCaseStart] = React.useState<Date | null>(null);
   const [caseEnd, setCaseEnd] = React.useState<Date | null>(null);
+  const [historyKeyword, setHistoryKeyword] = React.useState("");
+  const [historyDate, setHistoryDate] = React.useState<DateFilterOption>(DEFAULT_DATE_FILTER);
+  const [historyStart, setHistoryStart] = React.useState<Date | null>(null);
+  const [historyEnd, setHistoryEnd] = React.useState<Date | null>(null);
   const [runOpen, setRunOpen] = React.useState(false);
-  const [openCaseId, setOpenCaseId] = React.useState<string | null>(null);
-  const [reviewCaseId, setReviewCaseId] = React.useState<string | null>(null);
+  const [importOpen, setImportOpen] = React.useState(false);
+  const [codeOpen, setCodeOpen] = React.useState(false);
 
+  const dataset = data?.dataset ?? null;
   const allCases = React.useMemo(() => data?.testCases ?? [], [data]);
+
   const cases = React.useMemo(() => {
     const q = keyword.trim().toLowerCase();
     if (!q) return allCases;
@@ -80,27 +127,35 @@ export function DatasetDetailView({
     );
   }, [allCases, keyword]);
 
-  const openCase = openCaseId ? (cases.find((c) => c.id === openCaseId) ?? null) : null;
-  const reviewCase = reviewCaseId ? (cases.find((c) => c.id === reviewCaseId) ?? null) : null;
-  const update = useUpdateTestCase(projectId, datasetId);
+  const caseIds = React.useMemo(() => cases.map((c) => c.id), [cases]);
+  const sel = useRowSelection(caseIds);
 
   const evaluations = useEvaluationRuns(projectId, { dataset_id: datasetId });
-  const runs = evaluations.data?.data ?? [];
+  const runs = React.useMemo(() => evaluations.data?.data ?? [], [evaluations.data]);
+  const visibleRuns = React.useMemo(() => {
+    const q = historyKeyword.trim().toLowerCase();
+    if (!q) return runs;
+    return runs.filter(
+      (r) =>
+        r.evaluationName.toLowerCase().includes(q) ||
+        (r.mainScoreName ?? "").toLowerCase().includes(q),
+    );
+  }, [runs, historyKeyword]);
+
+  const openCase = openCaseId ? (cases.find((c) => c.id === openCaseId) ?? null) : null;
+  const reviewCase = reviewCaseId ? (cases.find((c) => c.id === reviewCaseId) ?? null) : null;
 
   const reviewTarget = React.useMemo<TestCaseReviewTarget | null>(() => {
-    if (!reviewCase || !data) return null;
+    if (!reviewCase || !dataset) return null;
     return {
-      contextLabel: `${reviewCase.testCaseId} · ${data.dataset.name}`,
+      contextLabel: `${caseDisplayId(reviewCase.testCaseId)} · ${dataset.name}`,
       input: reviewCase.input,
       expected: reviewCase.expected,
       currentReview: reviewCase.review,
     };
-  }, [reviewCase, data]);
+  }, [reviewCase, dataset]);
 
-  const submitReview = (result: {
-    review: "needs_review" | "ready";
-    correctedExpected?: string;
-  }) => {
+  const submitReview = (result: { review: ReviewStatus; correctedExpected?: string }) => {
     if (!reviewCase) return;
     update.mutate(
       {
@@ -118,6 +173,48 @@ export function DatasetDetailView({
     setReviewCaseId(null);
   };
 
+  const addEmptyRow = () => {
+    save.mutate(
+      { input: "", review: "needs_review", capture_reason: "manual" },
+      { onSuccess: () => toast({ title: "Empty row added", tone: "success" }) },
+    );
+  };
+
+  const duplicateSelected = () => {
+    const chosen = cases.filter((c) => sel.has(c.id));
+    if (chosen.length === 0) return;
+    Promise.all(
+      chosen.map((c) =>
+        save.mutateAsync({
+          input: c.input,
+          expected: c.expected,
+          metadata: asRecord(c.metadata),
+          capture_reason: "manual",
+        }),
+      ),
+    )
+      .then(() => toast({ title: `Duplicated ${chosen.length}`, tone: "success" }))
+      .catch((e) =>
+        toast({ title: "Could not duplicate", description: String(e), tone: "warning" }),
+      );
+    sel.clear();
+  };
+
+  const addSelectedToDataset = () => {
+    if (sel.count === 0) return;
+    // Cross-dataset copy needs a target picker that isn't wired yet.
+    toast({ title: "Add to another dataset — coming soon", tone: "success" });
+    sel.clear();
+  };
+
+  const deleteSelected = () => {
+    if (sel.count === 0) return;
+    // Removing a case republishes the version without it — not wired yet, so the
+    // action stays honest rather than pretending rows were removed.
+    toast({ title: "Deleting cases — coming soon", tone: "success" });
+    sel.clear();
+  };
+
   if (isLoading) {
     return (
       <>
@@ -128,18 +225,23 @@ export function DatasetDetailView({
       </>
     );
   }
-  if (error || !data) {
+  if (error || !dataset || !data) {
     return (
       <>
         <ProjectBreadcrumb projectId={projectId} current="Datasets" />
-        <div className="flex h-64 flex-col items-center justify-center gap-2 text-[13px]">
-          <p className="text-destructive">Dataset not found</p>
-          <Link
-            href={`/projects/${projectId}/datasets`}
-            className="text-[12px] text-muted-foreground underline"
-          >
-            Back to datasets
-          </Link>
+        <div className="flex h-full flex-col text-[13px]">
+          <EvalPageHeader title="Dataset not found" />
+          <EvalBody>
+            <EmptyState>
+              No dataset with the id {datasetId}.{" "}
+              <Link
+                href={`/projects/${projectId}/datasets`}
+                className="underline underline-offset-2"
+              >
+                Back to datasets
+              </Link>
+            </EmptyState>
+          </EvalBody>
         </div>
       </>
     );
@@ -150,16 +252,7 @@ export function DatasetDetailView({
       <ProjectBreadcrumb projectId={projectId} current="Datasets" />
       <div className="flex h-full flex-col text-[13px]">
         <EvalPageHeader
-          title={
-            <span className="flex items-center gap-2">
-              {data.dataset.name}
-              {data.currentVersion && (
-                <VersionPicker current={data.currentVersion} versions={data.versions} />
-              )}
-            </span>
-          }
-          backHref={`/projects/${projectId}/datasets`}
-          backLabel="Datasets"
+          title={dataset.name}
           action={
             <Button size="sm" className="h-7 gap-1.5 text-[12px]" onClick={() => setRunOpen(true)}>
               <Play className="h-3.5 w-3.5" aria-hidden />
@@ -179,6 +272,7 @@ export function DatasetDetailView({
           </TabsList>
 
           <TabsContent value="cases" className="flex min-h-0 flex-1 flex-col">
+            {/* Toolbar — the standard SearchFilterBar (search + actions + date). */}
             <SearchFilterBar
               searchValue={keyword}
               onSearchChange={setKeyword}
@@ -192,13 +286,79 @@ export function DatasetDetailView({
                 setCaseEnd(e);
               }}
             >
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 gap-1.5 text-[12px]"
+                onClick={() => setImportOpen(true)}
+              >
+                <Upload className="h-3.5 w-3.5" aria-hidden />
+                Import
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 gap-1.5 text-[12px]"
+                onClick={addEmptyRow}
+                disabled={save.isPending}
+              >
+                <Plus className="h-3.5 w-3.5" aria-hidden />
+                Row
+              </Button>
+
+              {/* Selection actions appear beside the editing actions when rows are selected. */}
+              {sel.count > 0 && (
+                <span className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={sel.clear}
+                    aria-label="Cancel selection"
+                    className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    <X className="h-3.5 w-3.5" aria-hidden />
+                  </button>
+                  <span className="text-[12px] font-medium tabular-nums">{sel.count} selected</span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 gap-1 px-1.5 text-[12px] text-muted-foreground hover:text-foreground"
+                    onClick={duplicateSelected}
+                  >
+                    <Copy className="h-3.5 w-3.5" aria-hidden />
+                    Duplicate
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 gap-1 px-1.5 text-[12px] text-muted-foreground hover:text-foreground"
+                    onClick={addSelectedToDataset}
+                  >
+                    <Plus className="h-3.5 w-3.5" aria-hidden />
+                    Add to dataset
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 gap-1 px-1.5 text-[12px] text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    onClick={deleteSelected}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                    Delete
+                  </Button>
+                  <span className="h-4 w-px bg-border" aria-hidden />
+                </span>
+              )}
+
+              {/* Spacer keeps the dataset-level actions flush against the date filter. */}
               <span className="flex-1" aria-hidden />
+
+              {/* Dataset-level actions (no dropdown). */}
               <span className="flex items-center gap-1">
                 <Button
                   variant="ghost"
                   size="sm"
                   className="h-7 gap-1.5 px-1.5 text-[12px] text-muted-foreground hover:text-foreground"
-                  onClick={() => toast({ title: "Export coming soon", tone: "success" })}
+                  onClick={() => toast({ title: "Export — coming soon", tone: "success" })}
                 >
                   <Download className="h-3.5 w-3.5" aria-hidden />
                   Download
@@ -208,7 +368,7 @@ export function DatasetDetailView({
                   size="sm"
                   className="h-7 gap-1.5 px-1.5 text-[12px] text-muted-foreground hover:text-foreground"
                   onClick={() => {
-                    navigator.clipboard?.writeText(data.dataset.id);
+                    navigator.clipboard?.writeText(dataset.id);
                     toast({ title: "Dataset ID copied", tone: "success" });
                   }}
                 >
@@ -219,7 +379,7 @@ export function DatasetDetailView({
                   variant="ghost"
                   size="sm"
                   className="h-7 gap-1.5 px-1.5 text-[12px] text-muted-foreground hover:text-foreground"
-                  onClick={() => setRunOpen(true)}
+                  onClick={() => setCodeOpen(true)}
                 >
                   <FileCode className="h-3.5 w-3.5" aria-hidden />
                   Init code
@@ -227,22 +387,27 @@ export function DatasetDetailView({
               </span>
             </SearchFilterBar>
 
+            {/* Table + focused-case slide-in panel */}
             <div className="min-h-0 flex-1 overflow-auto">
               {cases.length === 0 ? (
                 <EmptyState>
                   {keyword
                     ? "No cases match your search."
-                    : "No test cases yet — open a trace, select the root or a span, and save it as a test case."}
+                    : "No test cases yet — use Row to add one, or open a trace, select the root or a span, and save it as a test case."}
                 </EmptyState>
               ) : (
                 <Table>
                   <THead>
                     <TRHead>
+                      <SelectAllHeaderCell
+                        checked={sel.allSelected}
+                        indeterminate={sel.someSelected}
+                        onToggle={sel.toggleAll}
+                      />
                       <Th className="w-[150px]">Created</Th>
                       <Th>Input</Th>
                       <Th>Expected</Th>
-                      <Th className="w-[120px]">Review</Th>
-                      <Th>Source span</Th>
+                      <Th>Metadata</Th>
                     </TRHead>
                   </THead>
                   <TBody>
@@ -253,24 +418,17 @@ export function DatasetDetailView({
                         selected={tc.id === openCaseId}
                         onClick={() => setOpenCaseId(tc.id)}
                       >
+                        <SelectRowCell
+                          checked={sel.has(tc.id)}
+                          onToggle={() => sel.toggle(tc.id)}
+                          label={`Select ${tc.testCaseId}`}
+                        />
                         <Td className="whitespace-nowrap text-muted-foreground">
                           <Timestamp iso={tc.createTime} />
                         </Td>
-                        <Td>{truncate(tc.input, 60)}</Td>
-                        <Td className="text-muted-foreground">{tc.expected ?? "—"}</Td>
-                        <Td>
-                          <ReviewBadge status={tc.review} />
-                        </Td>
-                        <Td className="text-muted-foreground">
-                          {tc.sourceSpanName ? (
-                            <span className="inline-flex items-center gap-1.5">
-                              <SpanKindIcon kind={(tc.sourceSpanKind ?? "SPAN") as never} />
-                              {tc.sourceSpanName}
-                            </span>
-                          ) : (
-                            "—"
-                          )}
-                        </Td>
+                        <Td>{orDash(truncate(tc.input, 60) || null)}</Td>
+                        <Td>{orDash(tc.expected)}</Td>
+                        <Td>{metadataPreview(tc.metadata)}</Td>
                       </TR>
                     ))}
                   </TBody>
@@ -280,42 +438,136 @@ export function DatasetDetailView({
           </TabsContent>
 
           <TabsContent value="history" className="flex min-h-0 flex-1 flex-col">
-            <div className="min-h-0 flex-1 overflow-auto">
-              {runs.length === 0 ? (
-                <EmptyState>Nothing has been run against this dataset yet.</EmptyState>
+            <SearchFilterBar
+              searchValue={historyKeyword}
+              onSearchChange={setHistoryKeyword}
+              searchPlaceholder="Search evaluations..."
+              dateFilter={historyDate}
+              customStartDate={historyStart}
+              customEndDate={historyEnd}
+              onDateFilterChange={setHistoryDate}
+              onCustomRangeChange={(s, e) => {
+                setHistoryStart(s);
+                setHistoryEnd(e);
+              }}
+            />
+            <EvalBody>
+              {visibleRuns.length === 0 ? (
+                <EmptyState>
+                  {historyKeyword
+                    ? "No evaluations match your search."
+                    : `Nothing has been run against ${dataset.name} yet.`}
+                </EmptyState>
               ) : (
                 <Table>
                   <THead>
                     <TRHead>
                       <Th className="w-[170px]">Ran at</Th>
-                      <Th>Candidate version</Th>
-                      <Th className="w-[110px] text-right">Main score</Th>
-                      <Th className="w-[100px] text-right">Change</Th>
-                      <Th className="w-[160px]">Status</Th>
+                      <Th>Evaluation</Th>
+                      <Th>Main score</Th>
+                      <Th className="text-right">Score</Th>
                     </TRHead>
                   </THead>
                   <TBody>
-                    {runs.map((r) => (
-                      <RunHistoryRow key={r.id} projectId={projectId} run={r} />
+                    {visibleRuns.map((run) => (
+                      <TR key={run.id}>
+                        <Td className="whitespace-nowrap text-muted-foreground">
+                          <Timestamp iso={run.startedAt} />
+                        </Td>
+                        <Td>
+                          <Link
+                            href={`/projects/${projectId}/evaluations/${run.id}`}
+                            className="rounded hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                          >
+                            {run.evaluationName}
+                          </Link>
+                        </Td>
+                        <Td className="text-muted-foreground">{run.mainScoreName ?? "—"}</Td>
+                        <Td className="text-right tabular-nums">
+                          {run.mainScore === null ? (
+                            <span className="text-muted-foreground">—</span>
+                          ) : (
+                            pct(run.mainScore)
+                          )}
+                        </Td>
+                      </TR>
                     ))}
                   </TBody>
                 </Table>
               )}
-            </div>
+            </EvalBody>
           </TabsContent>
         </Tabs>
       </div>
 
+      {/* Focused case — slides in from the right like a trace. */}
       {openCase && (
         <CasePanel
+          testCase={openCase}
           projectId={projectId}
           datasetId={datasetId}
-          testCase={openCase}
           onClose={() => setOpenCaseId(null)}
           onReview={() => setReviewCaseId(openCase.id)}
+          onNavigate={(dir) => {
+            const idx = cases.findIndex((c) => c.id === openCase.id);
+            const next = dir === "up" ? idx - 1 : idx + 1;
+            if (next >= 0 && next < cases.length) setOpenCaseId(cases[next].id);
+          }}
+          canNavigateUp={cases.findIndex((c) => c.id === openCase.id) > 0}
+          canNavigateDown={cases.findIndex((c) => c.id === openCase.id) < cases.length - 1}
         />
       )}
 
+      {/* Import — centered island. */}
+      <Dialog open={importOpen} onOpenChange={setImportOpen}>
+        <DialogContent className="max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle className="text-[13px] font-medium">Import test cases</DialogTitle>
+          </DialogHeader>
+          <UploadControl
+            onFile={(fileName) =>
+              toast({
+                title: "File selected — import coming soon",
+                description: `${fileName} would be imported.`,
+                tone: "success",
+              })
+            }
+          />
+          <p className="text-[11px] text-muted-foreground">
+            CSV or JSON. Bulk import isn&apos;t wired yet — add cases with Row, or save a span from
+            a trace.
+          </p>
+        </DialogContent>
+      </Dialog>
+
+      {/* Init code — the SDK snippet, in a dialog with a copy button. */}
+      <Dialog open={codeOpen} onOpenChange={setCodeOpen}>
+        <DialogContent className="max-w-[560px]">
+          <DialogHeader>
+            <DialogTitle className="text-[13px] font-medium">
+              Create this dataset in code
+            </DialogTitle>
+          </DialogHeader>
+          <pre className="overflow-x-auto rounded border border-border bg-muted/20 px-3 py-2.5 font-mono text-[11px] leading-relaxed">
+            {datasetInitCode(dataset.name)}
+          </pre>
+          <div className="flex justify-end">
+            <Button
+              size="sm"
+              className="h-7 text-[12px]"
+              onClick={() => {
+                navigator.clipboard?.writeText(datasetInitCode(dataset.name));
+                toast({ title: "Copied", tone: "success" });
+                setCodeOpen(false);
+              }}
+            >
+              Copy
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Launched from a dataset, so the snippet is prefilled with it. */}
       <RunEvaluationDrawer
         projectId={projectId}
         open={runOpen}
@@ -326,118 +578,98 @@ export function DatasetDetailView({
       <TestCaseReviewDrawer
         target={reviewTarget}
         open={reviewCaseId !== null}
-        onOpenChange={(o) => !o && setReviewCaseId(null)}
+        onOpenChange={(open) => !open && setReviewCaseId(null)}
         onSubmit={submitReview}
       />
     </>
   );
 }
 
-function RunHistoryRow({ projectId, run }: { projectId: string; run: RunRow }) {
-  const router = useRouter();
-  return (
-    <TR interactive onClick={() => router.push(`/projects/${projectId}/evaluations/${run.id}`)}>
-      <Td className="whitespace-nowrap text-muted-foreground">
-        <Timestamp iso={run.startedAt} />
-      </Td>
-      <Td className="font-mono text-[11px]">{run.candidateVersion}</Td>
-      <Td className="text-right tabular-nums">
-        {run.mainScore === null ? "—" : pct(run.mainScore)}
-      </Td>
-      <Td className="text-right tabular-nums">
-        {run.changeFromBaseline === null ? (
-          <span className="text-muted-foreground">—</span>
-        ) : (
-          <span className={SENTIMENT_CLASS[changeSentiment(run.changeFromBaseline)]}>
-            {signed(run.changeFromBaseline)} pp
-          </span>
-        )}
-      </Td>
-      <Td>
-        <RunStatusBadge status={run.status} />
-      </Td>
-    </TR>
-  );
-}
-
-function VersionPicker({
-  current,
-  versions,
-}: {
-  current: DatasetVersionRow;
-  versions: DatasetVersionRow[];
-}) {
-  const [open, setOpen] = React.useState(false);
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground">
-          {current.label}
-          <ChevronDown className="h-3 w-3" aria-hidden />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="max-h-[300px] w-64 overflow-y-auto p-1">
-        <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">
-          Immutable snapshots
-        </p>
-        {versions.map((v) => (
-          <div
-            key={v.id}
-            className={cn(
-              "flex items-center justify-between rounded px-2 py-1 text-[12px]",
-              v.id === current.id ? "bg-muted/70" : "",
-            )}
-          >
-            <span>
-              {v.label}
-              {v.id === current.id && (
-                <span className="ml-1.5 text-[10px] text-muted-foreground">current</span>
-              )}
-            </span>
-            <span className="text-[11px] text-muted-foreground">
-              <Timestamp iso={v.createTime} />
-            </span>
-          </div>
-        ))}
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-/** Slide-in case panel — matches the prototype's; editing publishes a version. */
+/**
+ * Slide-in case panel, matching the trace/span detail panel: a header with an
+ * icon, the row id, a copy button and the up/down/fullscreen/open-in-new-tab/
+ * close controls; then the created date; then Source / Captured chips (in place
+ * of a span kind). Input, expected, and metadata render as editable value
+ * blocks; saving any edit publishes a new immutable dataset version.
+ */
 function CasePanel({
+  testCase,
   projectId,
   datasetId,
-  testCase,
   onClose,
   onReview,
+  onNavigate,
+  canNavigateUp,
+  canNavigateDown,
 }: {
+  testCase: TestCaseRow;
   projectId: string;
   datasetId: string;
-  testCase: TestCaseRow;
   onClose: () => void;
   onReview: () => void;
+  onNavigate: (direction: "up" | "down") => void;
+  canNavigateUp: boolean;
+  canNavigateDown: boolean;
 }) {
   const { toast } = useToast();
-  const [expected, setExpected] = React.useState(testCase.expected ?? "");
+  const { sidebarCollapsed } = useLayout();
   const update = useUpdateTestCase(projectId, datasetId);
+  const [fullscreen, setFullscreen] = React.useState(false);
+  const [view, setView] = React.useState<"details" | "runs">("details");
+
+  // Editable buffers, seeded from the case and re-seeded when it changes.
+  // Input/expected are plain strings; metadata is edited as JSON and parsed back.
+  const initialMetadata = React.useMemo(() => {
+    const record = asRecord(testCase.metadata);
+    return Object.keys(record).length ? JSON.stringify(record, null, 2) : "";
+  }, [testCase.metadata]);
+  const [inputText, setInputText] = React.useState(testCase.input);
+  const [expectedText, setExpectedText] = React.useState(testCase.expected ?? "");
+  const [metadataText, setMetadataText] = React.useState(initialMetadata);
 
   React.useEffect(() => {
-    setExpected(testCase.expected ?? "");
-  }, [testCase.id, testCase.expected]);
+    setInputText(testCase.input);
+    setExpectedText(testCase.expected ?? "");
+    setMetadataText(initialMetadata);
+  }, [testCase.id, testCase.input, testCase.expected, initialMetadata]);
 
-  const dirty = expected.trim() !== (testCase.expected ?? "").trim();
-  const meta = metadataText(testCase.metadata);
-  const captureReason =
-    CAPTURE_REASON_LABEL[testCase.captureReason as keyof typeof CAPTURE_REASON_LABEL] ??
-    testCase.captureReason;
+  const dirty =
+    inputText !== testCase.input ||
+    expectedText !== (testCase.expected ?? "") ||
+    metadataText !== initialMetadata;
 
-  const saveExpected = () => {
+  // Metadata only persists when it parses to an object; a half-typed edit keeps
+  // the prior value rather than blowing it away.
+  const parseMetadata = (): Record<string, unknown> | null | undefined => {
+    if (metadataText.trim() === "") return null;
+    try {
+      const parsed = JSON.parse(metadataText);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, unknown>;
+      }
+    } catch {
+      /* invalid JSON mid-edit */
+    }
+    return undefined; // leave stored metadata untouched
+  };
+
+  const saveEdits = () => {
+    const patch: {
+      input?: string;
+      expected?: string | null;
+      metadata?: Record<string, unknown> | null;
+    } = {};
+    if (inputText !== testCase.input) patch.input = inputText;
+    if (expectedText !== (testCase.expected ?? "")) {
+      patch.expected = expectedText.trim() === "" ? null : expectedText;
+    }
+    if (metadataText !== initialMetadata) {
+      const parsed = parseMetadata();
+      if (parsed !== undefined) patch.metadata = parsed;
+    }
+    if (Object.keys(patch).length === 0) return;
     update.mutate(
-      {
-        testCaseId: testCase.testCaseId,
-        patch: { expected: expected.trim() === "" ? null : expected.trim() },
-      },
+      { testCaseId: testCase.testCaseId, patch },
       {
         onSuccess: () => toast({ title: "Saved — new dataset version published", tone: "success" }),
       },
@@ -445,33 +677,86 @@ function CasePanel({
   };
 
   return (
-    <div className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-[45%] min-w-[520px] max-w-[94vw] flex-col border-l border-border bg-background shadow-xl">
+    <div
+      className={cn(
+        "animate-slide-in-right fixed bottom-0 right-0 z-50 flex flex-col border-l border-border bg-background shadow-xl transition-[width,top] duration-200",
+        fullscreen
+          ? sidebarCollapsed
+            ? "top-14 w-[calc(100%-3.5rem)]"
+            : "top-14 w-[calc(100%-12rem)]"
+          : "top-0 w-[45%] min-w-[520px] max-w-[94vw]",
+      )}
+    >
+      {/* Header — same shape as the trace/span detail panel. */}
       <div className="shrink-0 border-b border-border bg-muted/30 px-4 py-3">
         <div className="flex items-start justify-between gap-2">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="text-sm font-medium">Test case</span>
+            <Database className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <span className="text-sm font-medium">Row</span>
             <span className="truncate font-mono text-xs text-muted-foreground">
-              {testCase.testCaseId}
+              {caseDisplayId(testCase.testCaseId)}
             </span>
             <CopyButton
               value={testCase.testCaseId}
               className="h-6 w-6 text-muted-foreground hover:text-foreground"
               title="Copy ID"
             />
-            <ReviewBadge status={testCase.review} />
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 p-0"
-            onClick={onClose}
-            aria-label="Close"
-          >
-            <X className="h-4 w-4" />
-          </Button>
+          <div className="flex shrink-0 items-center gap-1">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onNavigate("up")}
+              disabled={!canNavigateUp}
+              className="h-7 w-7 p-0"
+              title="Previous row"
+            >
+              <ArrowUp className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => onNavigate("down")}
+              disabled={!canNavigateDown}
+              className="h-7 w-7 p-0"
+              title="Next row"
+            >
+              <ArrowDown className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setFullscreen((v) => !v)}
+              className="h-7 w-7 p-0"
+              title={fullscreen ? "Restore default size" : "Expand to full screen"}
+            >
+              {fullscreen ? <Shrink className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.open(`/projects/${projectId}/datasets/${datasetId}`, "_blank")}
+              className="h-7 w-7 p-0"
+              title="Open in new tab"
+            >
+              <SquareArrowOutUpRight className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0"
+              onClick={onClose}
+              aria-label="Close"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
 
+        <Timestamp iso={testCase.createTime} className="mt-1 block text-xs text-muted-foreground" />
+
         <div className="mt-2 flex flex-wrap items-center gap-2">
+          <ReviewBadge status={testCase.review} />
           {testCase.sourceTraceId ? (
             <Link
               href={`/projects/${projectId}/traces?traceId=${testCase.sourceTraceId}&fullscreen=1`}
@@ -488,74 +773,117 @@ function CasePanel({
               <span className="font-medium">Added manually</span>
             </span>
           )}
+          {/* Why this case was captured — read-only context. */}
           <span className="inline-flex items-center gap-1.5 rounded-md border bg-muted/40 px-2.5 py-1 text-xs">
             <span className="text-muted-foreground">Captured:</span>
-            <span className="font-medium">{captureReason}</span>
+            <span className="font-medium">
+              {CAPTURE_REASON_LABEL[testCase.captureReason as keyof typeof CAPTURE_REASON_LABEL] ??
+                testCase.captureReason}
+            </span>
           </span>
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 text-[12px]">
-        <EditableValueBlock
-          label="Input"
-          text={testCase.input}
-          onChange={() => {}}
-          boxed
-          minRows={2}
-          readOnly
-        />
+      {/* View toggle — Details / Runs, where a trace shows Tree / Timeline. */}
+      <div className="flex h-10 shrink-0 items-center border-b border-border px-2">
+        <button
+          type="button"
+          onClick={() => setView("details")}
+          className={cn(
+            "flex items-center gap-2 rounded-md px-3 py-1 text-xs font-medium transition-all",
+            view === "details"
+              ? "bg-muted text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <FileText className="h-3.5 w-3.5" /> Details
+        </button>
+        <button
+          type="button"
+          onClick={() => setView("runs")}
+          className={cn(
+            "flex items-center gap-2 rounded-md px-3 py-1 text-xs font-medium transition-all",
+            view === "runs"
+              ? "bg-muted text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <History className="h-3.5 w-3.5" /> Runs
+        </button>
+      </div>
 
-        <div>
-          <p className="mb-1 text-[11px] text-muted-foreground">Expected outcome</p>
-          <div className="flex items-center gap-2">
-            <Input
-              value={expected}
-              onChange={(e) => setExpected(e.target.value)}
-              placeholder="No expected outcome — a scorer judges the output directly."
-              className="h-7 text-[12px]"
+      {view === "details" ? (
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 text-[12px]">
+          <EditableValueBlock
+            label="Input"
+            text={inputText}
+            onChange={setInputText}
+            copyable
+            autoDetectKind
+            boxed
+            minRows={2}
+          />
+          <EditableValueBlock
+            label="Expected"
+            text={expectedText}
+            onChange={setExpectedText}
+            copyable
+            autoDetectKind
+            boxed
+            minRows={2}
+          />
+          {/* Recorded production output — read-only, kept separate from Expected. */}
+          {testCase.recordedOutput !== null && (
+            <EditableValueBlock
+              label="What happened in production"
+              text={testCase.recordedOutput}
+              onChange={() => {}}
+              copyable
+              autoDetectKind
+              boxed
+              minRows={2}
+              readOnly
             />
-            <Button
-              size="sm"
-              className="h-7 shrink-0 text-[12px]"
-              disabled={!dirty || update.isPending}
-              onClick={saveExpected}
-            >
-              Save
-            </Button>
-          </div>
-          <p className="mt-1 text-[11px] text-muted-foreground">
+          )}
+          <EditableValueBlock
+            label="Metadata"
+            text={metadataText}
+            defaultKind="json"
+            onChange={setMetadataText}
+            copyable
+            autoDetectKind
+            boxed
+            minRows={2}
+          />
+          <p className="text-[11px] leading-snug text-muted-foreground">
             Saving publishes a new dataset version — it changes what future runs are compared
             against and never rewrites a snapshot an earlier run used.
           </p>
         </div>
+      ) : (
+        <div className="min-h-0 flex-1 overflow-auto p-4">
+          <EmptyState>
+            Per-case run history appears here once your application or CI reports evaluation results
+            for this test case.
+          </EmptyState>
+        </div>
+      )}
 
-        {testCase.recordedOutput !== null && (
-          <EditableValueBlock
-            label="What happened in production"
-            text={testCase.recordedOutput}
-            onChange={() => {}}
-            boxed
-            minRows={2}
-            readOnly
-          />
+      {/* Save (when edited) + Review — primary actions, at the bottom. */}
+      <div className="flex shrink-0 items-center gap-2 border-t border-border p-3">
+        {dirty && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 flex-1 text-[12px]"
+            disabled={update.isPending}
+            onClick={saveEdits}
+          >
+            Save changes
+          </Button>
         )}
-
-        {meta && (
-          <EditableValueBlock
-            label="Metadata"
-            text={meta}
-            onChange={() => {}}
-            defaultKind="json"
-            boxed
-            minRows={2}
-            readOnly
-          />
-        )}
-      </div>
-
-      <div className="shrink-0 border-t border-border p-3">
-        <Button size="sm" className="h-8 w-full text-[12px]" onClick={onReview}>
-          Review test case
+        <Button size="sm" className="h-8 flex-1 text-[12px]" onClick={onReview}>
+          Review
         </Button>
       </div>
     </div>

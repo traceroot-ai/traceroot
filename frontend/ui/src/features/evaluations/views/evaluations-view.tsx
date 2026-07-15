@@ -18,6 +18,7 @@ import { Table, TBody, Td, Th, THead, TR, TRHead } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { EmptyState, Timestamp } from "@/features/offline-eval/components";
+import { ProjectBreadcrumb } from "@/features/projects/components";
 import { changeSentiment, pct, SENTIMENT_CLASS, signed } from "@/features/offline-eval/utils";
 import {
   useDatasets,
@@ -58,6 +59,9 @@ export function EvaluationsView({ projectId }: { projectId: string }) {
 
   return (
     <div className="flex h-full flex-col text-[12px]">
+      {/* Populates the app's top breadcrumb bar (workspace / project). Without a
+          mounted ProjectBreadcrumb the header goes blank on this route. */}
+      <ProjectBreadcrumb projectId={projectId} current="Evaluations" />
       {/* Tab bar — same shape as the Traces page's Traces/Users/Sessions bar. */}
       <div className="flex items-center justify-between border-b border-border bg-background pr-3">
         <div className="flex">
