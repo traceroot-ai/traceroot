@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowDown,
   ArrowUp,
@@ -39,6 +40,7 @@ import {
   EvalPageHeader,
   ReviewBadge,
   EditableValueBlock,
+  EvalResultBadge,
   SelectAllHeaderCell,
   SelectRowCell,
   Timestamp,
@@ -47,15 +49,37 @@ import {
   TestCaseReviewDrawer,
   type TestCaseReviewTarget,
 } from "@/features/offline-eval/components";
+import { tokenizeCode } from "@/features/offline-eval/components/syntax";
 import { CAPTURE_REASON_LABEL, type ReviewStatus } from "@/features/offline-eval/types";
-import { caseDisplayId, datasetInitCode, pct, truncate } from "@/features/offline-eval/utils";
-import { useDataset, useSaveTestCase, useUpdateTestCase, useEvaluationRuns } from "../hooks";
+import {
+  caseDisplayId,
+  changeSentiment,
+  datasetInitCode,
+  pct,
+  scoreDisplay,
+  SENTIMENT_CLASS,
+  truncate,
+} from "@/features/offline-eval/utils";
+import {
+  useDataset,
+  useSaveTestCase,
+  useUpdateTestCase,
+  useEvaluationRuns,
+  useTestCaseRuns,
+} from "../hooks";
 import type { TestCaseRow } from "../types";
 import { RunEvaluationDrawer } from "../components/run-evaluation-drawer";
 
 /** "Last 14 days" default, matching the traces/datasets lists. */
 const DEFAULT_DATE_FILTER =
   DATE_FILTER_OPTIONS.find((o) => o.id === "14d") ?? DATE_FILTER_OPTIONS[0];
+
+/** Map a per-case change direction to a signed delta for the sentiment colour. */
+const CHANGE_DELTA: Record<"improved" | "regressed" | "unchanged", number> = {
+  improved: 1,
+  regressed: -1,
+  unchanged: 0,
+};
 
 /** A dash for the list; empty reads as a placeholder, not a blank cell. */
 function orDash(value: string | null): React.ReactNode {
@@ -98,11 +122,27 @@ export function DatasetDetailView({
   datasetId: string;
 }) {
   const { toast } = useToast();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { data, isLoading, error } = useDataset(projectId, datasetId);
   const save = useSaveTestCase(projectId, datasetId);
   const update = useUpdateTestCase(projectId, datasetId);
 
   const [openCaseId, setOpenCaseId] = React.useState<string | null>(null);
+
+  // Deep link: /datasets/[id]?case=<testCaseId> opens that case's panel once (e.g.
+  // "View source test case" from an evaluation result). Matched on the stable
+  // testCaseId, not the per-version row id.
+  const handledCaseParam = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    const caseParam = searchParams.get("case");
+    if (!caseParam || !data || handledCaseParam.current === caseParam) return;
+    const match = data.testCases.find((c) => c.testCaseId === caseParam);
+    if (match) {
+      setOpenCaseId(match.id);
+      handledCaseParam.current = caseParam;
+    }
+  }, [searchParams, data]);
   const [reviewCaseId, setReviewCaseId] = React.useState<string | null>(null);
   const [keyword, setKeyword] = React.useState("");
   const [caseDate, setCaseDate] = React.useState<DateFilterOption>(DEFAULT_DATE_FILTER);
@@ -470,18 +510,15 @@ export function DatasetDetailView({
                   </THead>
                   <TBody>
                     {visibleRuns.map((run) => (
-                      <TR key={run.id}>
+                      <TR
+                        key={run.id}
+                        interactive
+                        onClick={() => router.push(`/projects/${projectId}/evaluations/${run.id}`)}
+                      >
                         <Td className="whitespace-nowrap text-muted-foreground">
                           <Timestamp iso={run.startedAt} />
                         </Td>
-                        <Td>
-                          <Link
-                            href={`/projects/${projectId}/evaluations/${run.id}`}
-                            className="rounded hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                          >
-                            {run.evaluationName}
-                          </Link>
-                        </Td>
+                        <Td className="font-medium">{run.evaluationName}</Td>
                         <Td className="text-muted-foreground">{run.mainScoreName ?? "—"}</Td>
                         <Td className="text-right tabular-nums">
                           {run.mainScore === null ? (
@@ -548,8 +585,12 @@ export function DatasetDetailView({
               Create this dataset in code
             </DialogTitle>
           </DialogHeader>
-          <pre className="overflow-x-auto rounded border border-border bg-muted/20 px-3 py-2.5 font-mono text-[11px] leading-relaxed">
-            {datasetInitCode(dataset.name)}
+          <pre className="overflow-x-auto whitespace-pre rounded border border-border bg-muted/20 px-3 py-2.5 font-mono text-[11px] leading-relaxed">
+            {tokenizeCode(datasetInitCode(dataset.name)).map((t, i) => (
+              <span key={i} className={t.cls || undefined}>
+                {t.text}
+              </span>
+            ))}
           </pre>
           <div className="flex justify-end">
             <Button
@@ -614,6 +655,8 @@ function CasePanel({
   const { toast } = useToast();
   const { sidebarCollapsed } = useLayout();
   const update = useUpdateTestCase(projectId, datasetId);
+  const caseRuns = useTestCaseRuns(projectId, datasetId, testCase.testCaseId);
+  const runs = caseRuns.data?.data ?? [];
   const [fullscreen, setFullscreen] = React.useState(false);
   const [view, setView] = React.useState<"details" | "runs">("details");
 
@@ -809,12 +852,18 @@ function CasePanel({
           )}
         >
           <History className="h-3.5 w-3.5" /> Runs
+          {runs.length > 0 && (
+            <span className="rounded bg-muted px-1 text-[10px] tabular-nums text-muted-foreground">
+              {runs.length}
+            </span>
+          )}
         </button>
       </div>
 
       {view === "details" ? (
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4 text-[12px]">
           <EditableValueBlock
+            key={`input-${testCase.id}`}
             label="Input"
             text={inputText}
             onChange={setInputText}
@@ -824,6 +873,7 @@ function CasePanel({
             minRows={2}
           />
           <EditableValueBlock
+            key={`expected-${testCase.id}`}
             label="Expected"
             text={expectedText}
             onChange={setExpectedText}
@@ -835,6 +885,7 @@ function CasePanel({
           {/* Recorded production output — read-only, kept separate from Expected. */}
           {testCase.recordedOutput !== null && (
             <EditableValueBlock
+              key={`recorded-${testCase.id}`}
               label="What happened in production"
               text={testCase.recordedOutput}
               onChange={() => {}}
@@ -846,9 +897,10 @@ function CasePanel({
             />
           )}
           <EditableValueBlock
+            key={`metadata-${testCase.id}`}
             label="Metadata"
             text={metadataText}
-            defaultKind="json"
+            defaultKind="pretty"
             onChange={setMetadataText}
             copyable
             autoDetectKind
@@ -862,10 +914,63 @@ function CasePanel({
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-auto p-4">
-          <EmptyState>
-            Per-case run history appears here once your application or CI reports evaluation results
-            for this test case.
-          </EmptyState>
+          {runs.length === 0 ? (
+            <EmptyState>
+              No evaluation run has measured this test case yet. Runs appear here once your
+              application or CI reports them.
+            </EmptyState>
+          ) : (
+            <Table>
+              <THead>
+                <TRHead>
+                  <Th className="w-[150px]">Ran at</Th>
+                  <Th>Candidate version</Th>
+                  <Th className="w-[90px] text-right">Score</Th>
+                  <Th className="w-[100px]">Change</Th>
+                  <Th className="w-[110px]">Status</Th>
+                </TRHead>
+              </THead>
+              <TBody>
+                {runs.map((r) => (
+                  <TR key={r.resultId}>
+                    <Td className="whitespace-nowrap text-muted-foreground">
+                      <Timestamp iso={r.ranAt} />
+                    </Td>
+                    <Td>
+                      <Link
+                        href={`/projects/${projectId}/evaluations/${r.runId}`}
+                        className="rounded font-mono text-[11px] hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      >
+                        {r.candidateVersion}
+                      </Link>
+                      <span className="ml-1.5 text-[11px] text-muted-foreground">
+                        {r.evaluationName}
+                      </span>
+                    </Td>
+                    <Td className="text-right tabular-nums">
+                      {r.score === null ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : (
+                        scoreDisplay(r.score)
+                      )}
+                    </Td>
+                    <Td>
+                      {r.change === null ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : (
+                        <span className={SENTIMENT_CLASS[changeSentiment(CHANGE_DELTA[r.change])]}>
+                          {r.change}
+                        </span>
+                      )}
+                    </Td>
+                    <Td>
+                      <EvalResultBadge status={r.status as never} />
+                    </Td>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+          )}
         </div>
       )}
 
