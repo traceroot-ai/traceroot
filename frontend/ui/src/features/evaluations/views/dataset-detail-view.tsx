@@ -60,7 +60,12 @@ import { CAPTURE_REASON_LABEL, type ReviewStatus } from "@/features/offline-eval
 import {
   caseDisplayId,
   changeSentiment,
-  pct,
+  datasetPullCode,
+  datasetPullCodeTs,
+  datasetPullVersionCode,
+  datasetPullVersionCodeTs,
+  pctFraction,
+  signedPoints,
   scoreDisplay,
   SENTIMENT_CLASS,
   truncate,
@@ -75,7 +80,7 @@ import {
 } from "../hooks";
 import type { TestCaseRow } from "../types";
 import { RunEvaluationDrawer } from "../components/run-evaluation-drawer";
-import { DatasetPullCodeDrawer } from "../components/dataset-pull-code-drawer";
+import { PullCodeDrawer, type PullOption } from "../components/pull-code-drawer";
 
 /** "Last 14 days" default, matching the traces/datasets lists. */
 const DEFAULT_DATE_FILTER =
@@ -590,8 +595,9 @@ export function DatasetDetailView({
                     <TRHead>
                       <Th className="w-[170px]">Ran at</Th>
                       <Th>Evaluation</Th>
-                      <Th>Main score</Th>
-                      <Th className="text-right">Score</Th>
+                      <Th className="w-[140px]">Candidate version</Th>
+                      <Th className="w-[100px] text-right">Score</Th>
+                      <Th className="w-[100px] text-right">Change</Th>
                     </TRHead>
                   </THead>
                   <TBody>
@@ -605,12 +611,25 @@ export function DatasetDetailView({
                           <Timestamp iso={run.startedAt} />
                         </Td>
                         <Td className="font-medium">{run.evaluationName}</Td>
-                        <Td className="text-muted-foreground">{run.mainScoreName ?? "—"}</Td>
+                        <Td className="font-mono text-[11px]">{run.candidateVersion}</Td>
+                        {/* Same Score/Change presentation as the Evaluations Runs tab. */}
                         <Td className="text-right tabular-nums">
                           {run.mainScore === null ? (
                             <span className="text-muted-foreground">—</span>
                           ) : (
-                            pct(run.mainScore)
+                            pctFraction(run.mainScore)
+                          )}
+                        </Td>
+                        <Td className="text-right tabular-nums">
+                          {run.changeFromBaseline === null ||
+                          run.changeFromBaseline === undefined ? (
+                            <span className="text-muted-foreground">—</span>
+                          ) : (
+                            <span
+                              className={SENTIMENT_CLASS[changeSentiment(run.changeFromBaseline)]}
+                            >
+                              {signedPoints(run.changeFromBaseline)} pp
+                            </span>
                           )}
                         </Td>
                       </TR>
@@ -664,10 +683,42 @@ export function DatasetDetailView({
         </DialogContent>
       </Dialog>
 
-      {/* Pull code — a right-side slide-out, like the Run-evaluation starter code. */}
-      <DatasetPullCodeDrawer
-        datasetId={dataset.id}
-        datasetName={dataset.name}
+      {/* Pull code — the shared drawer: pull the latest version, or this exact one. */}
+      <PullCodeDrawer
+        title="Pull this dataset in code"
+        subtitle={
+          <>
+            Fetch <span className="font-medium text-foreground">{dataset.name}</span> to run an
+            evaluation against. Only the dataset is pullable — an evaluation or run id isn&apos;t.
+          </>
+        }
+        options={
+          [
+            {
+              id: "latest",
+              label: "Pull dataset (latest)",
+              note: "The dataset's CURRENT published version — moves as the dataset is edited.",
+              py: datasetPullCode(dataset.id),
+              ts: datasetPullCodeTs(dataset.id),
+            },
+            ...(selectedVersion
+              ? [
+                  {
+                    id: "version",
+                    label: "Pull this exact version",
+                    note: (
+                      <>
+                        The immutable snapshot{" "}
+                        <span className="font-mono">{selectedVersion.id}</span> — never changes.
+                      </>
+                    ),
+                    py: datasetPullVersionCode(selectedVersion.id),
+                    ts: datasetPullVersionCodeTs(selectedVersion.id),
+                  },
+                ]
+              : []),
+          ] satisfies PullOption[]
+        }
         open={codeOpen}
         onOpenChange={setCodeOpen}
       />
