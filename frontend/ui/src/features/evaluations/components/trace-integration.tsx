@@ -187,7 +187,11 @@ export function SaveTestCaseDrawer({
       }
       return res.json() as Promise<{ duplicate: boolean; testCaseId?: string; versionId?: string }>;
     },
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["datasets"] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["datasets"] });
+      // Refresh the span→dataset chips so the just-saved span is marked at once.
+      void qc.invalidateQueries({ queryKey: ["evaluations", "trace-test-cases"] });
+    },
   });
 
   if (!open || !traceId) return null;
