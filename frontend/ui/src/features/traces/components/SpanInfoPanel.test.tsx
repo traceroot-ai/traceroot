@@ -93,6 +93,10 @@ describe("SpanInfoPanel - Error box source location badges", () => {
     expect(repoParentDiv?.className).toContain("inline-flex");
     expect(repoParentDiv?.className).toContain("min-w-0");
 
+    const repoIcon = repoParentDiv?.querySelector("svg");
+    expect(repoIcon).toBeTruthy();
+    expect(repoIcon?.getAttribute("class")).toContain("shrink-0");
+
     // 2. Verify git_source_file badge wrapping styles
     const expectedFilePath =
       "/opt/homebrew/Cellar/python@3.14/3.14.6/Frameworks/Python.framework/Versions/3.14/lib/python3.14/asyncio/events.py:123";
@@ -105,6 +109,10 @@ describe("SpanInfoPanel - Error box source location badges", () => {
     expect(fileParentDiv).toBeTruthy();
     expect(fileParentDiv?.className).toContain("inline-flex");
     expect(fileParentDiv?.className).toContain("min-w-0");
+
+    const fileIcon = fileParentDiv?.querySelector("svg");
+    expect(fileIcon).toBeTruthy();
+    expect(fileIcon?.getAttribute("class")).toContain("shrink-0");
 
     // 3. Verify git_ref badge is NOT affected (no min-w-0, no break-all on span or parent)
     const refSpan = screen.getByText("a1b2c3d");
@@ -142,6 +150,14 @@ describe("SpanInfoPanel - Error box source location badges", () => {
     expect(repoParentLink?.tagName.toLowerCase()).toBe("a");
     expect(repoParentLink?.className).toContain("inline-flex");
     expect(repoParentLink?.className).toContain("min-w-0");
+
+    const headerRepoIcon = repoParentLink?.querySelector("svg");
+    expect(headerRepoIcon).toBeTruthy();
+    expect(headerRepoIcon?.getAttribute("class")).toContain("shrink-0");
+
+    const headerRepoLabel = screen.getByText("Repo:");
+    expect(headerRepoLabel).toBeTruthy();
+    expect(headerRepoLabel.className).toContain("shrink-0");
 
     // Verify header git_ref badge is NOT affected (no min-w-0, no break-all on span or parent)
     const refSpan = screen.getByText("a1b2c3d");
