@@ -18,7 +18,6 @@ import {
   Route,
   Database,
   FlaskConical,
-  Ruler,
   type LucideIcon,
 } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
@@ -58,15 +57,14 @@ interface OfflineEvalNavItem {
 /**
  * Offline Evaluation (design prototype) section.
  *
- * Four items, in workflow order: look at what happened, keep the examples worth
- * rerunning, see how a version did, and check how it was judged. There is no
- * landing dashboard — the section opens on Traces.
+ * Three items, in workflow order: look at what happened, keep the examples worth
+ * rerunning, and see how a version did. Scorers live as a tab on the Evaluations
+ * page, not as their own nav item. The section opens on Traces.
  */
 const OFFLINE_EVAL_NAV: OfflineEvalNavItem[] = [
   { id: "traces", label: "Traces", icon: Route, href: "/traces" },
   { id: "datasets", label: "Datasets", icon: Database, href: "/datasets" },
   { id: "evaluations", label: "Evaluations", icon: FlaskConical, href: "/evaluations" },
-  { id: "scorers", label: "Scorers", icon: Ruler, href: "/scorers" },
 ];
 
 /** Marks the offline-eval item matching the current path. */
@@ -75,6 +73,8 @@ function activeOfflineEvalId(pathname: string, base: string): string | null {
   const rest = pathname.slice(base.length);
   // The bare base redirects to /traces, so treat it as Traces.
   if (rest === "" || rest === "/") return "traces";
+  // Scorers is a tab on the Evaluations page; its route highlights Evaluations.
+  if (rest.startsWith("/scorers")) return "evaluations";
   return OFFLINE_EVAL_NAV.find((item) => rest.startsWith(item.href))?.id ?? null;
 }
 
