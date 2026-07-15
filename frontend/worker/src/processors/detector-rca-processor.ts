@@ -239,21 +239,34 @@ Output your findings in this format:
       if (line.startsWith("event: ")) {
         currentEventName = line.slice(7).trim();
       } else if (line.startsWith("data: ")) {
-        try {
-          const event = JSON.parse(line.slice(6));
-          if (currentEventName === "error") {
-            agentErrorMessage = event?.message || "unknown agent error";
-          } else if (
-            event.type === "message_update" &&
-            event.assistantMessageEvent?.type === "text_delta" &&
-            event.assistantMessageEvent.delta
-          ) {
-            rcaResult += event.assistantMessageEvent.delta;
-          } else if (event.type === "message_end" && event.message?.stopReason === "error") {
-            agentErrorMessage = event.message?.errorMessage || "unknown agent error";
+        const raw = line.slice(6);
+        if (currentEventName === "error") {
+          // Our own onError handler sends JSON (`{ message }`), but hono's
+          // generic streamSSE `run()` wrapper — triggered when the route
+          // callback throws outside that handler — sends the raw
+          // Error.message string instead. Fall back to the raw line whenever
+          // it isn't JSON with a `.message` field, so that error isn't lost.
+          try {
+            const parsed = JSON.parse(raw);
+            agentErrorMessage = parsed?.message || raw || "unknown agent error";
+          } catch {
+            agentErrorMessage = raw || "unknown agent error";
           }
-        } catch {
-          // skip malformed SSE lines
+        } else {
+          try {
+            const event = JSON.parse(raw);
+            if (
+              event.type === "message_update" &&
+              event.assistantMessageEvent?.type === "text_delta" &&
+              event.assistantMessageEvent.delta
+            ) {
+              rcaResult += event.assistantMessageEvent.delta;
+            } else if (event.type === "message_end" && event.message?.stopReason === "error") {
+              agentErrorMessage = event.message?.errorMessage || "unknown agent error";
+            }
+          } catch {
+            // skip malformed SSE lines
+          }
         }
       } else if (line === "") {
         currentEventName = undefined;
@@ -265,7 +278,10 @@ Output your findings in this format:
     throw new Error(`RCA agent failed: ${agentErrorMessage}`);
   }
   // An empty-but-clean stream is indistinguishable from a swallowed failure,
-  // so it fails and retries deliberately rather than being recorded as done.
+  // so it fails deliberately rather than being recorded as done. BullMQ
+  // retries this per the `attempts`/`backoff` set on the RCA job enqueue
+  // (detector-run-processor.ts), which is what actually catches transient
+  // causes like rate limits or provider 5xx.
   if (!rcaResult.trim()) {
     throw new Error("RCA agent produced no output");
   }
