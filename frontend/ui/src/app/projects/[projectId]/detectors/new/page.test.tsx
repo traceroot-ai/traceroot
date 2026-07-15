@@ -6,6 +6,8 @@ import { getTemplate } from "@/features/detectors/templates";
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   mutateAsync: vi.fn().mockResolvedValue({ id: "det-1" }),
+  createIsError: false,
+  createError: null as Error | null,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -16,8 +18,8 @@ vi.mock("@/features/detectors/hooks/use-detectors", () => ({
   useCreateDetector: () => ({
     mutateAsync: mocks.mutateAsync,
     isPending: false,
-    isError: false,
-    error: null,
+    isError: mocks.createIsError,
+    error: mocks.createError,
   }),
 }));
 vi.mock("@/features/projects/hooks", () => ({
@@ -48,6 +50,8 @@ afterEach(() => {
   cleanup();
   mocks.mutateAsync.mockClear();
   mocks.push.mockClear();
+  mocks.createIsError = false;
+  mocks.createError = null;
 });
 
 describe("NewDetectorPage", () => {
@@ -71,6 +75,13 @@ describe("NewDetectorPage", () => {
       detectionSource: "system",
     });
     expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/detectors");
+  });
+
+  it("shows error message when Create fails", () => {
+    mocks.createIsError = true;
+    mocks.createError = new Error("Quota exceeded");
+    render(<NewDetectorPage />);
+    expect(screen.getByText("Quota exceeded")).toBeDefined();
   });
 
   it("submits user-edited name and prompt over the template defaults", async () => {

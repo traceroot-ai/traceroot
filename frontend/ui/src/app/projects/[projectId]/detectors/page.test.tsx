@@ -5,6 +5,8 @@ import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   workspaceData: undefined as { role: string } | undefined,
+  deleteIsError: false,
+  deleteError: null as Error | null,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -45,7 +47,12 @@ vi.mock("@/features/detectors/hooks/use-detectors", () => ({
     error: null,
   }),
   useDetectorCounts: () => ({ data: {}, isLoading: false }),
-  useDeleteDetector: () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null }),
+  useDeleteDetector: () => ({
+    mutate: vi.fn(),
+    isPending: false,
+    isError: mocks.deleteIsError,
+    error: mocks.deleteError,
+  }),
 }));
 
 vi.mock("@/features/projects/hooks", () => ({
@@ -68,6 +75,8 @@ afterEach(() => {
   cleanup();
   mocks.push.mockClear();
   mocks.workspaceData = undefined;
+  mocks.deleteIsError = false;
+  mocks.deleteError = null;
 });
 
 describe("DetectorsPage", () => {
@@ -84,5 +93,13 @@ describe("DetectorsPage", () => {
     mocks.workspaceData = { role: "VIEWER" };
     render(<DetectorsPage />);
     expect(screen.queryByRole("button", { name: "New Detector" })).toBeNull();
+  });
+
+  it("shows error toast when delete mutation fails", () => {
+    mocks.workspaceData = { role: "ADMIN" };
+    mocks.deleteIsError = true;
+    mocks.deleteError = new Error("Permission denied");
+    render(<DetectorsPage />);
+    expect(screen.getByText("Permission denied")).toBeDefined();
   });
 });
