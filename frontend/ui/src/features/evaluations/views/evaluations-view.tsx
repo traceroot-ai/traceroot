@@ -19,7 +19,12 @@ import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { EmptyState, Timestamp } from "@/features/offline-eval/components";
 import { ProjectBreadcrumb } from "@/features/projects/components";
-import { changeSentiment, pct, SENTIMENT_CLASS, signed } from "@/features/offline-eval/utils";
+import {
+  changeSentiment,
+  pctFraction,
+  SENTIMENT_CLASS,
+  signedPoints,
+} from "@/features/offline-eval/utils";
 import {
   useDatasets,
   useEvaluationRuns,
@@ -111,7 +116,18 @@ export function EvaluationsView({ projectId }: { projectId: string }) {
 // Runs — the flat execution list.
 // ---------------------------------------------------------------------------
 
-const RUNS_COLUMN_COUNT = 8;
+const RUNS_COLUMN_COUNT = 10;
+
+/** Human elapsed duration; "—" when unknown (never 0). */
+function formatElapsed(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined) return "—";
+  if (ms < 1000) return `${ms}ms`;
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(1)}s`;
+  const m = Math.floor(s / 60);
+  const rem = Math.round(s % 60);
+  return `${m}m ${rem}s`;
+}
 
 function RunsTab({ projectId }: { projectId: string }) {
   const router = useRouter();
@@ -202,8 +218,10 @@ function RunsTab({ projectId }: { projectId: string }) {
               <Th>Dataset</Th>
               <Th className="w-[110px] text-right">Main score</Th>
               <Th className="w-[100px] text-right">Change</Th>
-              <Th className="w-[160px]">Status</Th>
+              <Th className="w-[100px] text-right">Regressions</Th>
+              <Th className="w-[150px]">Status</Th>
               <Th className="w-[80px] text-right">Errors</Th>
+              <Th className="w-[90px] text-right">Duration</Th>
               <Th className="w-[130px] text-right">Started</Th>
             </TRHead>
           </THead>
@@ -245,7 +263,7 @@ function RunsTab({ projectId }: { projectId: string }) {
                       {r.mainScore === null ? (
                         <span className="text-muted-foreground">—</span>
                       ) : (
-                        pct(r.mainScore)
+                        pctFraction(r.mainScore)
                       )}
                     </Td>
                     <Td className="text-right tabular-nums">
@@ -253,8 +271,19 @@ function RunsTab({ projectId }: { projectId: string }) {
                         <span className="text-muted-foreground">—</span>
                       ) : (
                         <span className={SENTIMENT_CLASS[changeSentiment(r.changeFromBaseline)]}>
-                          {signed(r.changeFromBaseline)} pp
+                          {signedPoints(r.changeFromBaseline)} pp
                         </span>
+                      )}
+                    </Td>
+                    <Td className="text-right tabular-nums">
+                      {/* Regressed TEST CASES (not score cells). "—" when there's no
+                          trustworthy baseline to count against. */}
+                      {r.regressedCaseCount === null || r.regressedCaseCount === undefined ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : r.regressedCaseCount === 0 ? (
+                        <span className="text-muted-foreground">0</span>
+                      ) : (
+                        <span className={SENTIMENT_CLASS.bad}>{r.regressedCaseCount}</span>
                       )}
                     </Td>
                     <Td>
@@ -262,6 +291,9 @@ function RunsTab({ projectId }: { projectId: string }) {
                     </Td>
                     <Td className="text-right tabular-nums">
                       {errors === 0 ? <span className="text-muted-foreground">—</span> : errors}
+                    </Td>
+                    <Td className="whitespace-nowrap text-right tabular-nums text-muted-foreground">
+                      {formatElapsed(r.elapsedMs)}
                     </Td>
                     <Td className="whitespace-nowrap text-right text-muted-foreground">
                       <Timestamp iso={r.startedAt} />
@@ -386,7 +418,7 @@ function EvaluationsTab({
                     {suite.latestRun?.mainScore == null ? (
                       <span className="text-muted-foreground">—</span>
                     ) : (
-                      pct(suite.latestRun.mainScore)
+                      pctFraction(suite.latestRun.mainScore)
                     )}
                   </Td>
                   <Td className="whitespace-nowrap text-right text-muted-foreground">

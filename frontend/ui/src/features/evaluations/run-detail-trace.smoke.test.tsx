@@ -22,9 +22,10 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
 
 // Controllable real-trace probe (shares TraceViewerPanel's cache key in real code).
-const traceState: { data: unknown; isFetching: boolean; refetch: () => void } = {
+const traceState: { data: unknown; isFetching: boolean; isError: boolean; refetch: () => void } = {
   data: undefined,
   isFetching: false,
+  isError: false,
   refetch: vi.fn(),
 };
 vi.mock("@/features/traces/hooks", async (importOriginal) => {
@@ -61,7 +62,7 @@ const RUN = {
   environment: "evaluation",
   status: "completed",
   baselineRunId: null,
-  mainScore: 90,
+  mainScore: 0.9,
   mainScoreName: "Routing accuracy",
   caseCount: 1,
   scoredCount: 1,
@@ -76,7 +77,33 @@ const RUN = {
   datasetVersionLabel: "v12",
   changeFromBaseline: null,
   errorCount: 0,
-  baselineComparable: true,
+  baselineComparable: false,
+  elapsedMs: 360000,
+  comparison: {
+    available: false,
+    trustworthy: false,
+    reasons: ["no_baseline"],
+    baseline: null,
+    mainScore: { candidate: 0.9, baseline: null, delta: null },
+    caseCounts: {
+      improved: 0,
+      regressed: 0,
+      unchanged: 0,
+      changed: 0,
+      unpaired: 1,
+      not_comparable: 0,
+    },
+    scoreCellCounts: {
+      improved: 0,
+      regressed: 0,
+      unchanged: 0,
+      changed: 0,
+      unpaired: 0,
+      not_comparable: 0,
+    },
+    scorers: [],
+    duration: { candidateMeanMs: null, baselineMeanMs: null, deltaMs: null, pairedCount: 0 },
+  },
 };
 
 function makeResult(traceId: string | null) {
@@ -99,6 +126,14 @@ function makeResult(traceId: string | null) {
     createTime: "2026-07-17T10:24:00Z",
     scores: [],
     humanScores: [],
+    comparison: {
+      caseChange: "unpaired",
+      pairing: "candidate_only",
+      mainScore: { candidate: 1, baseline: null, delta: null },
+      scorerCells: [],
+      regressedCellCount: 0,
+      comparableCellCount: 0,
+    },
   };
 }
 
@@ -132,6 +167,7 @@ beforeEach(() => {
   lastPanel = {};
   traceState.data = undefined;
   traceState.isFetching = false;
+  traceState.isError = false;
 });
 afterEach(() => cleanup());
 
@@ -146,13 +182,25 @@ describe("result → real trace", () => {
     expect(lastPanel.override).toBe(false); // real trace, not a reconstruction
   });
 
-  it("shows a pending state while a reported trace is still ingesting", async () => {
-    traceState.data = undefined; // reported traceId but not yet ingested
+  it("shows a pending state when a reported trace hasn't been ingested (404)", async () => {
+    traceState.data = undefined;
+    traceState.isError = true; // fetch failed → not ingested yet
     stubFetch(makeResult("tr_1"));
     mount();
     await openResult();
     expect(await screen.findByText(/still being ingested/i)).toBeDefined();
     expect(screen.queryByTestId("trace-panel")).toBeNull();
+  });
+
+  it("keeps the real trace panel (loading) rather than the pending panel while fetching", async () => {
+    traceState.data = undefined; // still loading, no error
+    stubFetch(makeResult("tr_1"));
+    mount();
+    await openResult();
+    // The real panel stays mounted (shows its own loading) — no pending swap/remount.
+    expect(await screen.findByTestId("trace-panel")).toBeDefined();
+    expect(lastPanel.override).toBe(false);
+    expect(screen.queryByText(/still being ingested/i)).toBeNull();
   });
 
   it("falls back to a clearly-labeled reconstructed trace when none was emitted", async () => {

@@ -33,8 +33,8 @@ const RUN = {
   candidateVersion: "git:4a91c02",
   environment: "ci",
   status: "completed_with_errors",
-  baselineRunId: null,
-  mainScore: 93.8,
+  baselineRunId: "run0",
+  mainScore: 0.938,
   mainScoreName: "Routing accuracy",
   caseCount: 24,
   scoredCount: 22,
@@ -47,9 +47,46 @@ const RUN = {
   evaluationName: "Billing routing",
   datasetName: "Billing routing",
   datasetVersionLabel: "v12",
-  changeFromBaseline: 22.4,
+  changeFromBaseline: 0.224,
   errorCount: 2,
   baselineComparable: true,
+  elapsedMs: 360000,
+  comparison: {
+    available: true,
+    trustworthy: true,
+    reasons: [],
+    baseline: { runId: "run0", runNumber: 26, candidateVersion: "git:0000000" },
+    mainScore: { candidate: 0.938, baseline: 0.714, delta: 0.224 },
+    caseCounts: {
+      improved: 1,
+      regressed: 0,
+      unchanged: 21,
+      changed: 0,
+      unpaired: 0,
+      not_comparable: 0,
+    },
+    scoreCellCounts: {
+      improved: 1,
+      regressed: 0,
+      unchanged: 21,
+      changed: 0,
+      unpaired: 0,
+      not_comparable: 0,
+    },
+    scorers: [
+      {
+        name: "routing-accuracy",
+        version: "v3",
+        valueType: "numeric",
+        direction: "higher_is_better",
+        candidateMean: 0.938,
+        baselineMean: 0.714,
+        delta: 0.224,
+        pairedCount: 22,
+      },
+    ],
+    duration: { candidateMeanMs: 1500, baselineMeanMs: 1400, deltaMs: 100, pairedCount: 22 },
+  },
 };
 
 const RESULT = {
@@ -83,6 +120,25 @@ const RESULT = {
     },
   ],
   humanScores: [],
+  comparison: {
+    caseChange: "improved",
+    pairing: "paired",
+    mainScore: { candidate: 1, baseline: 0, delta: 1 },
+    scorerCells: [
+      {
+        scorerName: "routing-accuracy",
+        scorerVersion: "v3",
+        valueType: "numeric",
+        direction: "higher_is_better",
+        candidateValue: 1,
+        baselineValue: 0,
+        delta: 1,
+        classification: "improved",
+      },
+    ],
+    regressedCellCount: 0,
+    comparableCellCount: 1,
+  },
 };
 
 function payloadFor(url: string): unknown {
@@ -104,7 +160,7 @@ function payloadFor(url: string): unknown {
             runNumber: 27,
             candidateVersion: "git:4a91c02",
             status: "completed_with_errors",
-            mainScore: 93.8,
+            mainScore: 0.938,
             startedAt: "2026-07-17T10:24:00Z",
             datasetVersionId: "dv1",
           },
