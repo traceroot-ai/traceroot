@@ -126,13 +126,13 @@ describe("generateDigestSummary", () => {
         {
           type: "toolCall",
           name: "submit_digest_summary",
-          arguments: { summary: "Stripe is down." },
+          arguments: { summary: "Payments API is down." },
         },
       ],
     });
     const r = await callGenerate();
     expect(r).toEqual({
-      summary: "Stripe is down.",
+      summary: "Payments API is down.",
       usage: {
         model: "claude-haiku-4-5",
         provider: "anthropic",
