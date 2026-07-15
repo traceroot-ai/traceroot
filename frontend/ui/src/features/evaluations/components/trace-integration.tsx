@@ -25,7 +25,8 @@ import {
   LineNumberedTextarea,
   Timestamp,
 } from "@/features/offline-eval/components";
-import { datasetInitCode, datasetInitCodeTs } from "@/features/offline-eval/utils";
+import { tokenizeCode } from "@/features/offline-eval/components/syntax";
+import { useProject } from "@/features/projects/hooks";
 import {
   CAPTURE_REASON_LABEL,
   SPAN_KIND_LABEL,
@@ -548,15 +549,42 @@ export function TraceEvaluationChip({
   );
 }
 
-/** Small SDK-snippet card with a Python / TypeScript toggle (one shown at a time). */
-function DatasetSdkSnippet({ datasetName }: { datasetName: string }) {
-  const [lang, setLang] = React.useState<"python" | "typescript">("python");
-  const code = lang === "python" ? datasetInitCode(datasetName) : datasetInitCodeTs(datasetName);
+type Lang = "python" | "typescript";
+
+/** e.g. "Billing routing" → "billing-routing". Matches the mock's slug. */
+function slugify(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, "-");
+}
+
+/**
+ * A 4-line initDataset snippet, Braintrust-style, for one language — identical in
+ * shape to the mock's DatasetInfoChip. Indents differ on purpose: 4 spaces for
+ * Python (PEP 8), 2 for TypeScript (Prettier).
+ */
+function sdkSnippet(lang: Lang, projectName: string, datasetSlug: string, version: string): string {
+  if (lang === "python") {
+    return `traceroot.init_dataset("${projectName}", {\n    "dataset": "${datasetSlug}",\n    "version": "${version}",\n})`;
+  }
+  return `traceroot.initDataset("${projectName}", {\n  dataset: "${datasetSlug}",\n  version: "${version}",\n});`;
+}
+
+/** SDK init snippet with a Python / TypeScript toggle — one shown at a time. */
+function DatasetSdkSnippet({
+  projectName,
+  datasetName,
+  version,
+}: {
+  projectName: string;
+  datasetName: string;
+  version: string;
+}) {
+  const [lang, setLang] = React.useState<Lang>("python");
+  const code = sdkSnippet(lang, projectName, slugify(datasetName), version);
   return (
     <div className="overflow-hidden rounded border border-border">
       <div className="flex items-center justify-between border-b border-border bg-muted/50 px-1.5 py-1">
         <div className="flex items-center gap-0.5">
-          {(["python", "typescript"] as const).map((l) => (
+          {(["python", "typescript"] as Lang[]).map((l) => (
             <button
               key={l}
               type="button"
@@ -575,7 +603,11 @@ function DatasetSdkSnippet({ datasetName }: { datasetName: string }) {
         <CopyButton value={code} className="h-6 w-6" iconClassName="h-3.5 w-3.5" title="Copy" />
       </div>
       <pre className="max-h-48 overflow-auto whitespace-pre px-2.5 py-2 font-mono text-xs leading-relaxed">
-        {code}
+        {tokenizeCode(code).map((t, i) => (
+          <span key={i} className={t.cls || undefined}>
+            {t.text}
+          </span>
+        ))}
       </pre>
     </div>
   );
@@ -598,6 +630,8 @@ export function SpanDatasetChip({
   spanId: string;
 }) {
   const { data } = useTraceTestCases(projectId, traceId);
+  const { data: project } = useProject(projectId);
+  const projectName = project?.name ?? "your-project";
   const matches = (data?.data ?? []).filter((c) => c.sourceSpanId === spanId);
   if (matches.length === 0) return null;
   return (
@@ -633,7 +667,11 @@ export function SpanDatasetChip({
                 </span>
               </div>
             </div>
-            <DatasetSdkSnippet datasetName={c.datasetName} />
+            <DatasetSdkSnippet
+              projectName={projectName}
+              datasetName={c.datasetName}
+              version={c.datasetVersionLabel}
+            />
           </TooltipContent>
         </Tooltip>
       ))}
