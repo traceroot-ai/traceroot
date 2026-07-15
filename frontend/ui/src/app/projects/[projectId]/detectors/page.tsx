@@ -55,7 +55,7 @@ export default function DetectorsPage() {
   const { data: project } = useProject(projectId);
   const { data: workspace } = useWorkspace(project?.workspace_id ?? "");
   const isAdmin = workspace?.role === "ADMIN";
-  const isMember = !project?.workspace_id || !workspace || workspace.role === "MEMBER" || isAdmin;
+  const isMember = workspace?.role === "MEMBER" || isAdmin;
 
   const { data, isLoading, error } = useDetectorList(projectId, {
     page: queryOptions.page,

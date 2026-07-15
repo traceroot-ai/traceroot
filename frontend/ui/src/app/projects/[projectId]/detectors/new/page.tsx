@@ -30,11 +30,7 @@ export default function NewDetectorPage() {
 
   const { data: project } = useProject(projectId);
   const { data: workspace } = useWorkspace(project?.workspace_id ?? "");
-  const isMember =
-    !project?.workspace_id ||
-    !workspace ||
-    workspace.role === "MEMBER" ||
-    workspace.role === "ADMIN";
+  const isMember = workspace?.role === "MEMBER" || workspace?.role === "ADMIN";
   const createMutation = useCreateDetector(projectId);
 
   const INITIAL_TEMPLATE = DETECTOR_TEMPLATES[0];

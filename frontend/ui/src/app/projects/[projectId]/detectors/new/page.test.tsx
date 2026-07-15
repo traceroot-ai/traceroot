@@ -24,7 +24,7 @@ vi.mock("@/features/projects/hooks", () => ({
   useProject: () => ({ data: undefined }),
 }));
 vi.mock("@/features/workspaces/hooks", () => ({
-  useWorkspace: () => ({ data: undefined }),
+  useWorkspace: () => ({ data: { role: "MEMBER" } }),
 }));
 vi.mock("@/features/projects/components", () => ({
   ProjectBreadcrumb: () => null,

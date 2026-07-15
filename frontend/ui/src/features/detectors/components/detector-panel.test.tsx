@@ -116,6 +116,7 @@ describe("DetectorPanel", () => {
 
   it("saves only the fields the user changed", () => {
     mocks.detector = baseDetector;
+    mocks.workspaceData = { role: "MEMBER" };
     const { onClose } = renderPanel();
     fireEvent.change(promptBox(), { target: { value: "new prompt" } });
     fireEvent.click(saveButton());
@@ -130,6 +131,7 @@ describe("DetectorPanel", () => {
 
   it("closes without a network call when nothing changed", () => {
     mocks.detector = baseDetector;
+    mocks.workspaceData = { role: "MEMBER" };
     const { onClose } = renderPanel();
     fireEvent.click(saveButton());
     expect(mocks.mutate).not.toHaveBeenCalled();

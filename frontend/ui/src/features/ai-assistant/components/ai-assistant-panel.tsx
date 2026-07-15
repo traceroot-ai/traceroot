@@ -50,7 +50,7 @@ export function AiAssistantPanel({ projectId, onClose, compact = false }: AiAssi
 
   const { data: workspace } = useWorkspace(workspaceId ?? "");
   const isAdmin = workspace?.role === "ADMIN";
-  const isMember = workspace === undefined || workspace.role === "MEMBER" || isAdmin;
+  const isMember = workspace?.role === "MEMBER" || isAdmin;
 
   // Check if any models are available (system or BYOK)
   const { data: llmModels } = useQuery({

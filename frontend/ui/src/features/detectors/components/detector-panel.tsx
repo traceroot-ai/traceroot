@@ -45,8 +45,7 @@ export function DetectorPanel({
   const { data: detector } = useDetector(projectId, detectorId);
   const { data: project } = useProject(projectId);
   const { data: workspace } = useWorkspace(workspaceId ?? "");
-  const isMember =
-    workspace === undefined || workspace.role === "MEMBER" || workspace.role === "ADMIN";
+  const isMember = workspace?.role === "MEMBER" || workspace?.role === "ADMIN";
 
   const [editName, setEditName] = useState("");
   const [editPrompt, setEditPrompt] = useState("");
