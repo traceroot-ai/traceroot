@@ -444,8 +444,18 @@ class TestListDetectorWindowSummary:
         body = resp.json()
         assert body == {
             "data": {
-                "d-a": {"finding_count": 7, "run_count": 100, "sample_trace_ids": ["t-a"]},
-                "d-b": {"finding_count": 0, "run_count": 25, "sample_trace_ids": []},
+                "d-a": {
+                    "finding_count": 7,
+                    "run_count": 100,
+                    "sample_trace_ids": ["t-a"],
+                    "sample_summaries": [],
+                },
+                "d-b": {
+                    "finding_count": 0,
+                    "run_count": 25,
+                    "sample_trace_ids": [],
+                    "sample_summaries": [],
+                },
             }
         }
 
@@ -584,5 +594,104 @@ class TestListDetectorWindowSummary:
             headers={"X-Internal-Secret": secret},
         )
         assert resp.json() == {
-            "data": {"d-a": {"finding_count": 0, "run_count": 10, "sample_trace_ids": []}}
+            "data": {
+                "d-a": {
+                    "finding_count": 0,
+                    "run_count": 10,
+                    "sample_trace_ids": [],
+                    "sample_summaries": [],
+                }
+            }
         }
+
+    # ── include_summaries (digest LLM-summary sample) ────────────────────────
+
+    def _fake_summaries(self, rows: list[tuple]):
+        # Rows are (detector_id, summary) from the capped summaries query,
+        # already rank-major ordered by the SQL.
+        return _make_query_result(rows=rows, column_names=["detector_id", "summary"])
+
+    def _get(self, client, secret, **extra_params):
+        return client.get(
+            "/api/v1/internal/detector-window-summary",
+            params={
+                "project_id": "p1",
+                "start_after": "2026-04-20T00:00:00Z",
+                **extra_params,
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+
+    def test_include_summaries_appends_rows_in_order(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [
+            self._fake_aggregate([("d-a", 100, 7, "t-a"), ("d-b", 25, 0, "")]),
+            self._fake_summaries([("d-a", "newest sentence"), ("d-a", "older sentence")]),
+        ]
+        resp = self._get(client, secret, include_summaries="true")
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["d-a"]["sample_summaries"] == ["newest sentence", "older sentence"]
+        assert data["d-b"]["sample_summaries"] == []
+        # Counts are untouched by the summaries read.
+        assert data["d-a"]["finding_count"] == 7
+
+    def test_summaries_query_is_capped_and_time_bounded(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [
+            self._fake_aggregate([("d-a", 10, 3, "t-a")]),
+            self._fake_summaries([]),
+        ]
+        self._get(client, secret, include_summaries="true")
+        assert mock_ch.query.call_count == 2
+        second = mock_ch.query.call_args_list[1]
+        sql = second.args[0] if second.args else second.kwargs.get("query")
+        # SQL-side caps: per-detector LIMIT BY, total LIMIT, UTF8-safe substring
+        # (a byte-based cut can hex-garble a multibyte summary), rank-major order.
+        assert "LIMIT 10 BY detector_id" in sql
+        assert "LIMIT 40" in sql
+        assert "substringUTF8" in sql
+        assert "ORDER BY rank ASC, ts DESC" in sql
+        # Bounded read: a stalled query degrades to counts-only via the except
+        # path rather than holding the caller open.
+        assert second.kwargs.get("settings") == {"max_execution_time": 10}
+
+    def test_include_summaries_defaults_off(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [self._fake_aggregate([("d-a", 100, 7, "t-a")])]
+        resp = self._get(client, secret)
+        assert resp.status_code == 200
+        assert mock_ch.query.call_count == 1
+        assert resp.json()["data"]["d-a"]["sample_summaries"] == []
+
+    def test_include_summaries_skips_query_when_nothing_triggered(self, client, mock_ch, secret):
+        # finding_count == 0 everywhere -> there is nothing to sample, so the
+        # second query is never issued even with the flag set.
+        mock_ch.query.side_effect = [self._fake_aggregate([("d-a", 10, 0, "")])]
+        resp = self._get(client, secret, include_summaries="true")
+        assert resp.status_code == 200
+        assert mock_ch.query.call_count == 1
+        assert resp.json()["data"]["d-a"]["sample_summaries"] == []
+
+    def test_summaries_read_failure_degrades_to_counts_only(self, client, mock_ch, secret):
+        # The summaries read is best-effort: a ClickHouse error (including the
+        # execution-time cap) must never fail the endpoint — counts still return.
+        mock_ch.query.side_effect = [
+            self._fake_aggregate([("d-a", 100, 7, "t-a")]),
+            RuntimeError("TIMEOUT_EXCEEDED"),
+        ]
+        resp = self._get(client, secret, include_summaries="true")
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["d-a"]["finding_count"] == 7
+        assert data["d-a"]["sample_summaries"] == []
+
+    def test_summaries_for_unknown_detector_ids_are_dropped(self, client, mock_ch, secret):
+        # Defensive: a summaries row whose detector is absent from the counts
+        # map (shouldn't happen — same window) is ignored, not KeyError'd.
+        mock_ch.query.side_effect = [
+            self._fake_aggregate([("d-a", 100, 7, "t-a")]),
+            self._fake_summaries([("d-ghost", "orphan sentence"), ("d-a", "kept sentence")]),
+        ]
+        resp = self._get(client, secret, include_summaries="true")
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["d-a"]["sample_summaries"] == ["kept sentence"]
+        assert "d-ghost" not in data
