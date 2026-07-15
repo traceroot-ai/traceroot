@@ -25,7 +25,7 @@ export const AGGS = ["count", "sum", "avg", "min", "max", "p50", "p95", "p99"] a
 
 export const WidgetFilterSchema = z.object({
   field: z.string().min(1),
-  op: z.enum(["=", "!=", "contains", ">", ">=", "<", "<="]),
+  op: z.enum(["=", "contains", ">", ">=", "<", "<="]),
   // min(1): a filter whose value was never picked (the builder's rows start
   // at "") must keep the spec incomplete, not save a widget that silently
   // matches only empty-valued rows.
@@ -149,21 +149,20 @@ export interface WidgetFieldValuesResponse {
  * `contains` stays free text and numeric fields take a number input.
  */
 export function isEnumerableFilter(field: WidgetSchemaField | undefined, op: string): boolean {
-  return !!field && field.type === "string" && (op === "=" || op === "!=");
+  return !!field && field.type === "string" && op === "=";
 }
 
 // Numeric comparison symbols shared with the trace-list filter chips.
-const NUMERIC_OP_SYMBOL: Record<string, string> = { ">=": "≥", "<=": "≤", "!=": "≠" };
+const NUMERIC_OP_SYMBOL: Record<string, string> = { ">=": "≥", "<=": "≤" };
 
 /**
  * Display label for a filter operator, matching the trace-list filter builder's
- * vocabulary: string equality reads as "is" / "is not"; numeric comparisons use
- * the same symbols (≥ ≤ ≠). Presentation only — the wire op is unchanged.
+ * vocabulary: string equality reads as "is"; numeric comparisons use the same
+ * symbols (≥ ≤). Presentation only — the wire op is unchanged.
  */
 export function filterOpLabel(field: WidgetSchemaField | undefined, op: string): string {
   if (field?.type === "string") {
     if (op === "=") return "is";
-    if (op === "!=") return "is not";
     return op;
   }
   return NUMERIC_OP_SYMBOL[op] ?? op;
