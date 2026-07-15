@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, ChevronRight, Maximize2, Minimize2 } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -347,9 +347,8 @@ function detectKind(text: string): ValueKind {
  * JSON), so plain text is never mangled.
  *
  * Optional extras (all off by default, so existing callers are unchanged):
- * `copyable` adds a copy button, `enlargeable` adds a taller/shorter toggle,
- * `autoDetectKind` picks JSON vs text from the initial content, and `minRows`
- * sets the resting height.
+ * `copyable` adds a copy button, `autoDetectKind` picks JSON vs text from the
+ * initial content, and `minRows` sets the resting height.
  */
 export function EditableValueBlock({
   label,
@@ -358,7 +357,6 @@ export function EditableValueBlock({
   defaultKind = "yaml",
   ariaLabel,
   copyable = false,
-  enlargeable = false,
   autoDetectKind = false,
   minRows = 1,
   boxed = false,
@@ -370,7 +368,6 @@ export function EditableValueBlock({
   defaultKind?: ValueKind;
   ariaLabel?: string;
   copyable?: boolean;
-  enlargeable?: boolean;
   autoDetectKind?: boolean;
   minRows?: number;
   /** Wrap the block in a bordered card with a muted header strip (like FormCard). */
@@ -380,7 +377,6 @@ export function EditableValueBlock({
 }) {
   const [kind, setKind] = React.useState<ValueKind>(defaultKind);
   const [menuOpen, setMenuOpen] = React.useState(false);
-  const [enlarged, setEnlarged] = React.useState(false);
   // Minimised via the header chevron, like the span detail panel's I/O sections.
   const [open, setOpen] = React.useState(true);
   const userSetKind = React.useRef(false);
@@ -416,23 +412,8 @@ export function EditableValueBlock({
     }
   };
 
-  // Rest at minRows and grow one line at a time with the content; enlarge opens
-  // it fully.
-  const effectiveMin = enlarged ? Math.max(minRows, 24) : minRows;
-
   const controls = (
     <div className="flex items-center gap-0.5">
-      {enlargeable && (
-        <button
-          type="button"
-          onClick={() => setEnlarged((v) => !v)}
-          title={enlarged ? "Shrink" : "Enlarge"}
-          aria-label={enlarged ? "Shrink field" : "Enlarge field"}
-          className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        >
-          {enlarged ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-        </button>
-      )}
       <Popover open={menuOpen} onOpenChange={setMenuOpen}>
         <PopoverTrigger asChild>
           <button
@@ -473,7 +454,7 @@ export function EditableValueBlock({
     <LineNumberedTextarea
       value={readOnly ? display : text}
       onChange={onChange}
-      minRows={effectiveMin}
+      minRows={minRows}
       highlightJson={kind === "json" || kind === "pretty"}
       readOnly={readOnly}
       aria-label={ariaLabel ?? label}
