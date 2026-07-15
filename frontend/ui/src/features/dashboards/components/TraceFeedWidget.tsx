@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { useTraceApiUser } from "@/lib/hooks/use-trace-api-user";
 import { getTraces } from "@/lib/api/traces";
@@ -46,6 +46,7 @@ function fmtTime(iso: string): string {
 }
 
 export function TraceFeedWidget({ projectId, spec, range }: TraceFeedWidgetProps) {
+  const router = useRouter();
   const limit = spec.limit ?? 10;
   const filters = (spec.filters ?? []).filter(isValidPredicate);
   const { user, sessionReady } = useTraceApiUser();
@@ -104,36 +105,35 @@ export function TraceFeedWidget({ projectId, spec, range }: TraceFeedWidgetProps
           </tr>
         </thead>
         <tbody>
-          {traces.map((trace: TraceListItem) => (
-            <tr key={trace.trace_id} className="border-t border-border/60">
-              <td className="whitespace-nowrap py-1 pr-3 text-muted-foreground">
-                <Link
-                  href={`/projects/${projectId}/traces?traceId=${trace.trace_id}`}
-                  className="hover:underline"
-                >
+          {traces.map((trace: TraceListItem) => {
+            const href = `/projects/${projectId}/traces?traceId=${trace.trace_id}`;
+            return (
+              <tr
+                key={trace.trace_id}
+                // The whole row opens the trace, like the list pages' rows; the
+                // hover prefetch stands in for the removed links' viewport prefetch.
+                onClick={() => router.push(href)}
+                onMouseEnter={() => router.prefetch(href)}
+                className="cursor-pointer border-t border-border/60 transition-colors hover:bg-muted/50"
+              >
+                <td className="whitespace-nowrap py-1 pr-3 text-muted-foreground">
                   {fmtTime(trace.trace_start_time)}
-                </Link>
-              </td>
-              <td className="max-w-[120px] truncate py-1 pr-3">
-                <Link
-                  href={`/projects/${projectId}/traces?traceId=${trace.trace_id}`}
-                  className="hover:underline"
-                  title={trace.name}
-                >
+                </td>
+                <td className="max-w-[120px] truncate py-1 pr-3" title={trace.name}>
                   {trace.name}
-                </Link>
-              </td>
-              <td className="py-1 pr-3">
-                <StatusChip errorCount={trace.error_count} />
-              </td>
-              <td className="py-1 pr-3 tabular-nums text-muted-foreground">
-                {fmtCost(trace.total_cost)}
-              </td>
-              <td className="py-1 tabular-nums text-muted-foreground">
-                {formatDuration(trace.duration_ms)}
-              </td>
-            </tr>
-          ))}
+                </td>
+                <td className="py-1 pr-3">
+                  <StatusChip errorCount={trace.error_count} />
+                </td>
+                <td className="py-1 pr-3 tabular-nums text-muted-foreground">
+                  {fmtCost(trace.total_cost)}
+                </td>
+                <td className="py-1 tabular-nums text-muted-foreground">
+                  {formatDuration(trace.duration_ms)}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
