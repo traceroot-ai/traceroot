@@ -186,10 +186,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
       case "google": {
         const googleBase = adapterBaseUrl(adapter, baseUrl);
-        const check = await checkEndpoint(
-          `${googleBase}/models`,
-          { "x-goog-api-key": apiKey || "" },
-        );
+        const check = await checkEndpoint(`${googleBase}/models`, {
+          "x-goog-api-key": apiKey || "",
+        });
         if (!check.ok)
           return successResponse({ success: false, error: check.error, detail: check.detail });
         break;
