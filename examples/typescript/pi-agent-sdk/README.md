@@ -12,20 +12,60 @@ pnpm install
 pnpm demo
 ```
 
-## What it does
+## The scenario
 
-Runs three short-lived `AgentSession`s against a scratch workspace to exercise the distinct span shapes TraceRoot captures for a coding agent:
+Incident INV-2041: a storefront checkout is overcharging customers who apply coupons. The demo seeds a tiny, deliberately-broken Node project into a scratch `workspace/` directory — `src/pricing.js` has a planted bug where the flat-coupon branch *adds* the discount instead of subtracting it — then drives a **single persistent `AgentSession`** through the incident end to end, the way an on-call engineer would actually use a coding agent: look before you touch, then fix, then write it up.
 
-1. **No tools** — a question the model can answer directly. Produces an `AGENT → LLM` span only.
-2. **Write + run** — write `add.js` and a test for it, then run the test with `node` via the `bash` tool. Produces `AGENT → TOOL (write)` ×2 and `AGENT → TOOL (bash)`.
-3. **Tool error** — read a file that doesn't exist. Produces `AGENT → TOOL (read)` with `ERROR` status.
+1. **Recon** (read-only tools: `ls`, `find`, `grep`, `read`)
+   - Prompt 1: map the repo with `ls` and `find`.
+   - Prompt 2: investigate the overcharge — `grep` for coupon logic, `read` `src/pricing.js`, and `read` `config/pricing.json` for a per-store override. That file doesn't exist, so this `read` call genuinely errors; the agent is told to report the error rather than treat it as fatal.
+2. **Remediate** (full tool set: `read`, `bash`, `edit`, `write`, `grep`, `find`, `ls`)
+   - Prompt 3: run `node test/pricing.test.js` first — it genuinely fails (nonzero exit) against the planted bug — fix `src/pricing.js` with `edit`, then re-run the test to confirm it now passes.
+3. **Report** (same full tool set)
+   - Prompt 4: write `POSTMORTEM.md` with the root cause, the fix, and how it was verified, using `write`.
 
-## Why three sessions instead of one?
+## Span tree
 
-Tool availability (`tools` / `noTools`) is set when an `AgentSession` is created — there's no per-prompt override. Each turn above needs a different tool configuration, so the demo creates a fresh session per turn rather than reusing one across all three.
+```
+incident_inv_2041                        (observe: agent)
+├─ recon                                 (observe: span)
+│   ├─ AGENT  prompt 1: map the repo
+│   │   └─ TOOL  ls, find
+│   └─ AGENT  prompt 2: investigate the overcharge
+│       └─ TOOL  grep, read, read (ERROR — config/pricing.json is missing)
+├─ remediate                             (observe: span)
+│   └─ AGENT  prompt 3: reproduce, fix, verify
+│       └─ TOOL  bash (ERROR — test fails pre-fix), edit, bash
+└─ report                                (observe: span)
+    └─ AGENT  prompt 4: write POSTMORTEM.md
+        └─ TOOL  write
+```
+
+Both `ERROR` spans are real failures, not staged ones: the `read config/pricing.json` call errors because that file was never created (a plausible dangling reference to a per-store override), and the first `bash` test run errors because the planted bug makes the assertion fail and the process exits nonzero.
+
+**Span count:**
+
+| Spans | Count | Source |
+|---|---|---|
+| Custom (`observe()`) | 4 | root `incident_inv_2041` + `recon` + `remediate` + `report` |
+| AGENT | 4 | one per `session.prompt()` call |
+| TOOL | 9 | `ls`, `find` \| `grep`, `read`, `read`(ERROR) \| `bash`(ERROR), `edit`, `bash` \| `write` — all 7 builtin tools, 2 genuine ERROR spans |
+| LLM | ~7-13 | one per model turn; fewer if the model batches several tool calls into a single turn |
+| **Total** | **≈24-30** | |
+
+## One session, changing tool sets
+
+Tool availability has two layers in `@earendil-works/pi-coding-agent`, and the distinction matters:
+
+- **`tools` / `noTools` at `createAgentSession()` time** filter the tool **registry** itself, permanently, for the life of the session. If you pass `tools: ['read', 'grep']` at creation, no later call can ever enable `bash`, `edit`, or `write` on that session — the registry simply doesn't contain them.
+- **`session.setActiveToolsByName(names)`** swaps the **active** set drawn from whatever registry the session has. It takes effect on the next turn, unknown names are silently ignored, and it never widens beyond the registry `tools`/`noTools` established at creation.
+
+So narrow-then-widen only works if the session is created with the full registry (no `tools` option) and narrowed immediately with `setActiveToolsByName()` before the first prompt. That's what this demo does: `createAgentSession()` is called without `tools`, then `session.setActiveToolsByName(['ls', 'find', 'grep', 'read'])` runs before recon's first prompt to get genuine least-privilege read-only access, and `session.setActiveToolsByName([...all seven])` widens it before remediate's prompt once the fix actually needs to write files and run shell commands. One session, one incident, tool sets that change shape as the investigation progresses — instead of three sessions standing in for three tool configurations.
 
 ## How the tracing works
 
-`instrumentPiCodingAgent()` patches `AgentSession.prototype` before any session is created, so every session — however it's built — is traced automatically with full agent/LLM/tool span semantics. There's no `observe()` call to add and no manual span code: the package instruments the SDK directly, independent of the generic `@traceroot-ai/traceroot` SDK used in the other examples in this directory.
+`instrumentPiCodingAgent()` patches `AgentSession.prototype` before any session is created, so every `session.prompt()` call is traced automatically with full agent/LLM/tool span semantics — no manual span code for those three layers.
+
+This example also uses the core `@traceroot-ai/traceroot` SDK's `observe()` and `usingAttributes()` directly, for the workflow-framing spans (`incident_inv_2041`, `recon`, `remediate`, `report`) that group the four prompts into the incident narrative. Both instrumentation paths must agree on where spans get exported, which is why initialization order matters: `TraceRoot.initialize()` runs first and registers the global OpenTelemetry pipeline; `instrumentPiCodingAgent()` then detects that pipeline and attaches to it instead of building its own. Get the order backwards and `instrumentPiCodingAgent()` commits to a private pipeline that a later `TraceRoot.initialize()` can never join. With the order right, a single `TraceRoot.shutdown()` at the end flushes everything — the pi spans and the `observe()`/`usingAttributes()` spans alike.
 
 See the [`@traceroot-ai/pi` README](https://github.com/traceroot-ai/traceroot-ts/tree/main/packages/pi) for the full configuration surface.
