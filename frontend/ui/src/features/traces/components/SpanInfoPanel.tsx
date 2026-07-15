@@ -197,8 +197,8 @@ export function SpanInfoPanel({
                 rel="noopener noreferrer"
                 className="inline-flex min-w-0 items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors hover:bg-muted"
               >
-                <GitBranch className="h-3 w-3 text-muted-foreground" />
-                <span className="text-muted-foreground">Repo:</span>
+                <GitBranch className="h-3 w-3 shrink-0 text-muted-foreground" />
+                <span className="shrink-0 text-muted-foreground">Repo:</span>
                 <span className="min-w-0 break-all font-mono font-medium">{trace.git_repo}</span>
               </a>
             )}
@@ -283,7 +283,7 @@ export function SpanInfoPanel({
               <div className="mb-2 flex flex-wrap items-center gap-2">
                 {trace.git_repo && (
                   <div className="inline-flex min-w-0 items-center gap-1.5 rounded bg-red-100 px-2 py-0.5 text-xs dark:bg-red-900/50">
-                    <GitBranch className="h-3 w-3 text-red-600 dark:text-red-400" />
+                    <GitBranch className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
                     <span className="min-w-0 break-all font-mono text-red-700 dark:text-red-300">
                       {trace.git_repo}
                     </span>
@@ -299,7 +299,7 @@ export function SpanInfoPanel({
                 )}
                 {selection.span.git_source_file && (
                   <div className="inline-flex min-w-0 items-center gap-1.5 rounded bg-red-100 px-2 py-0.5 text-xs dark:bg-red-900/50">
-                    <FileCode className="h-3 w-3 text-red-600 dark:text-red-400" />
+                    <FileCode className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
                     <span className="min-w-0 break-all font-mono text-red-700 dark:text-red-300">
                       {selection.span.git_source_file}
                       {selection.span.git_source_line && `:${selection.span.git_source_line}`}
