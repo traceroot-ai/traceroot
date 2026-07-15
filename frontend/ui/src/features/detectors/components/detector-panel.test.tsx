@@ -6,6 +6,19 @@ import type { Detector } from "../hooks/use-detectors";
 const mocks = vi.hoisted(() => ({
   detector: undefined as Detector | undefined,
   mutate: vi.fn(),
+  modelSelectorProps: undefined as
+    | {
+        autoSelectDefault?: boolean;
+        emptySelectionLabel?: string;
+        onChange: (value: {
+          model: string;
+          provider: string;
+          source: "system" | "byok";
+          adapter: string;
+        }) => void;
+        value: { model: string; provider: string; source: string; adapter: string };
+      }
+    | undefined,
 }));
 
 vi.mock("../hooks/use-detectors", () => ({
@@ -22,7 +35,51 @@ vi.mock("./agent-model-link", () => ({
   AgentModelLink: () => null,
 }));
 vi.mock("@/features/ai-assistant/components/model-selector", () => ({
-  ModelSelector: () => null,
+  ModelSelector: (props: {
+    autoSelectDefault?: boolean;
+    emptySelectionLabel?: string;
+    onChange: (value: {
+      model: string;
+      provider: string;
+      source: "system" | "byok";
+      adapter: string;
+    }) => void;
+    value: { model: string; provider: string; source: string; adapter: string };
+  }) => {
+    mocks.modelSelectorProps = props;
+    return (
+      <>
+        <button
+          type="button"
+          data-testid="select-system-model"
+          onClick={() =>
+            props.onChange({
+              model: "model-b",
+              provider: "provider-b",
+              source: "system",
+              adapter: "anthropic",
+            })
+          }
+        >
+          Select system model
+        </button>
+        <button
+          type="button"
+          data-testid="select-default-model"
+          onClick={() =>
+            props.onChange({
+              model: "",
+              provider: "",
+              source: "system",
+              adapter: "",
+            })
+          }
+        >
+          Select default model
+        </button>
+      </>
+    );
+  },
 }));
 vi.mock("./rca-toggle", () => ({
   RcaToggle: ({
@@ -80,6 +137,7 @@ const saveButton = () => screen.getByRole("button", { name: "Save" });
 afterEach(() => {
   cleanup();
   mocks.detector = undefined;
+  mocks.modelSelectorProps = undefined;
   mocks.mutate.mockReset();
 });
 
@@ -116,6 +174,65 @@ describe("DetectorPanel", () => {
     const options = mocks.mutate.mock.calls[0][1] as { onSuccess: () => void };
     options.onSuccess();
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("does not auto-pin a model when saving a default-tracking detector edit", () => {
+    mocks.detector = {
+      ...baseDetector,
+      detectionModel: null,
+      detectionProvider: null,
+      detectionSource: null,
+    };
+    renderPanel();
+
+    expect(mocks.modelSelectorProps?.autoSelectDefault).toBe(false);
+    expect(mocks.modelSelectorProps?.emptySelectionLabel).toBe("System default detector model");
+    expect(mocks.modelSelectorProps?.value).toMatchObject({
+      model: "",
+      provider: "",
+      source: "system",
+    });
+
+    fireEvent.change(promptBox(), { target: { value: "new prompt" } });
+    fireEvent.click(saveButton());
+
+    expect(mocks.mutate).toHaveBeenCalledTimes(1);
+    expect(mocks.mutate.mock.calls[0][0]).toEqual({ prompt: "new prompt" });
+  });
+
+  it("sends a complete selector tuple when pinning a model from default tracking", () => {
+    mocks.detector = {
+      ...baseDetector,
+      detectionModel: null,
+      detectionProvider: null,
+      detectionSource: null,
+    };
+    renderPanel();
+
+    fireEvent.click(screen.getByTestId("select-system-model"));
+    fireEvent.click(saveButton());
+
+    expect(mocks.mutate).toHaveBeenCalledTimes(1);
+    expect(mocks.mutate.mock.calls[0][0]).toEqual({
+      detectionModel: "model-b",
+      detectionProvider: "provider-b",
+      detectionSource: "system",
+    });
+  });
+
+  it("clears model and provider when returning a pinned detector to default tracking", () => {
+    mocks.detector = baseDetector;
+    renderPanel();
+
+    fireEvent.click(screen.getByTestId("select-default-model"));
+    fireEvent.click(saveButton());
+
+    expect(mocks.mutate).toHaveBeenCalledTimes(1);
+    expect(mocks.mutate.mock.calls[0][0]).toEqual({
+      detectionModel: "",
+      detectionProvider: "",
+      detectionSource: "system",
+    });
   });
 
   it("closes without a network call when nothing changed", () => {

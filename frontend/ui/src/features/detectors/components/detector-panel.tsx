@@ -237,9 +237,12 @@ export function DetectorPanel({
                 value={editModelSelection}
                 onChange={setEditModelSelection}
                 workspaceId={workspaceId}
+                autoSelectDefault={false}
+                emptySelectionLabel="System default detector model"
               />
               <p className="mt-1 text-[11px] text-muted-foreground">
-                Used to evaluate each trace for this detector.
+                Used to evaluate each trace. Unpinned detectors use the system default detector
+                model, separate from the Agent Model.
               </p>
             </div>
             {/* Agent Model — project-scoped, click to configure in settings */}
