@@ -183,7 +183,15 @@ export default function DashboardIndexPage() {
                           Edit
                         </button>
                         <button
-                          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-[12px] text-destructive hover:bg-destructive/10"
+                          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-[12px] text-destructive hover:bg-destructive/10 disabled:opacity-50 disabled:hover:bg-transparent"
+                          // The DELETE route rejects removing a project's last
+                          // dashboard (the list endpoint would only reseed it).
+                          disabled={dashboards.length === 1}
+                          title={
+                            dashboards.length === 1
+                              ? "Projects keep at least one dashboard"
+                              : undefined
+                          }
                           onClick={(e) => {
                             e.stopPropagation();
                             setDeleteTarget({ id: d.id, name: d.name });

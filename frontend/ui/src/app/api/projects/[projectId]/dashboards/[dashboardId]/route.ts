@@ -111,6 +111,14 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
   });
   if (!existing) return errorResponse("Dashboard not found", 404);
 
+  // The list endpoint reseeds the default dashboard whenever a project has
+  // zero dashboards, so deleting the last one would just resurrect a fresh
+  // seeded copy — block it instead (the list UI disables this path too).
+  const remaining = await prisma.dashboard.count({ where: { projectId } });
+  if (remaining <= 1) {
+    return errorResponse("Cannot delete a project's last dashboard", 409);
+  }
+
   try {
     await prisma.dashboard.delete({ where: { id: dashboardId } });
   } catch (e) {
