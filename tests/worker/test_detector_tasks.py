@@ -58,7 +58,13 @@ def mock_add_job(monkeypatch):
 
 
 def _detector(detector_id, sample_rate=100, conditions=None):
-    return {"id": detector_id, "sample_rate": sample_rate, "conditions": conditions or []}
+    """Detector with one explicit trigger; conditions=None means run-on-all."""
+    return {
+        "id": detector_id,
+        "sample_rate": sample_rate,
+        "trigger_count": 1,
+        "triggers": [conditions or []],
+    }
 
 
 def _patch_detectors(monkeypatch, detectors):
@@ -324,3 +330,113 @@ class TestTopLevelGuard:
     def test_never_raises(self, monkeypatch):
         monkeypatch.setattr(dt, "_get_redis", MagicMock(side_effect=RuntimeError("redis down")))
         dt.enqueue_detector_runs(PROJECT, {TRACE})
+
+
+# ── Trigger semantics: fail closed on a missing trigger row ─────────────
+
+
+def _det(detector_id, trigger_count, triggers, sample_rate=100):
+    return {
+        "id": detector_id,
+        "sample_rate": sample_rate,
+        "trigger_count": trigger_count,
+        "triggers": triggers,
+    }
+
+
+class TestPassesAnyTrigger:
+    def test_missing_trigger_row_fails_closed(self):
+        """No trigger row (trigger_count == 0) is a misconfiguration, not
+        "run on all" — the detector must not fire."""
+        assert dt._passes_any_trigger({"environment": "production"}, _det("d1", 0, [])) is False
+
+    def test_explicit_empty_conditions_runs_on_all(self):
+        """An explicit empty-conditions trigger is the one way to say
+        "runs on all completed traces"."""
+        assert dt._passes_any_trigger({"environment": "production"}, _det("d1", 1, [[]])) is True
+
+    def test_and_within_single_trigger(self):
+        """All conditions in a trigger must match — one miss blocks the fire."""
+        conds = [
+            {"field": "environment", "op": "=", "value": "production"},
+            {"field": "cost", "op": ">", "value": 50},
+        ]
+        det = _det("d1", 1, [conds])
+        assert dt._passes_any_trigger({"environment": "production", "cost": 100}, det) is True
+        assert dt._passes_any_trigger({"environment": "production", "cost": 10}, det) is False
+        assert dt._passes_any_trigger({"environment": "staging", "cost": 100}, det) is False
+
+    def test_or_across_triggers(self):
+        """Forward-compat: if a detector ever has several triggers, any one
+        matching fires it (OR across triggers, AND within each)."""
+        t_prod = [{"field": "environment", "op": "=", "value": "production"}]
+        t_stag = [{"field": "environment", "op": "=", "value": "staging"}]
+        det = _det("d1", 2, [t_prod, t_stag])
+        assert dt._passes_any_trigger({"environment": "staging"}, det) is True
+        assert dt._passes_any_trigger({"environment": "dev"}, det) is False
+
+    def test_malformed_conditions_fail_closed(self):
+        """A trigger row whose conditions were malformed (dropped by the
+        parser) leaves nothing to match — the detector must not fire."""
+        assert dt._passes_any_trigger({"environment": "production"}, _det("d1", 1, [])) is False
+
+
+class TestParseDetectorRows:
+    """Normalization of (id, sample_rate, trigger_count, trigger_conditions)
+    rows from the aggregated active-detectors query."""
+
+    def test_no_trigger_rows_yields_empty_triggers(self):
+        [det] = dt._parse_detector_rows([("d1", 100, 0, None)])
+        assert det == {"id": "d1", "sample_rate": 100, "trigger_count": 0, "triggers": []}
+
+    def test_json_string_aggregate_is_parsed(self):
+        raw = json.dumps([[{"field": "environment", "op": "=", "value": "production"}]])
+        [det] = dt._parse_detector_rows([("d1", 50, 1, raw)])
+        assert det["trigger_count"] == 1
+        assert det["triggers"] == [[{"field": "environment", "op": "=", "value": "production"}]]
+
+    def test_list_of_lists_passes_through(self):
+        triggers = [[], [{"field": "cost", "op": ">", "value": 5}]]
+        [det] = dt._parse_detector_rows([("d1", 100, 2, triggers)])
+        assert det["triggers"] == triggers
+
+    def test_non_list_trigger_elements_are_dropped(self):
+        """A stray null/object where a conditions array belongs must not be
+        coerced into "match all" — it is dropped (and the detector then
+        fails closed via trigger_count vs. empty triggers)."""
+        [det] = dt._parse_detector_rows([("d1", 100, 1, [None, {"field": "x"}])])
+        assert det["triggers"] == []
+        assert det["trigger_count"] == 1
+
+
+class TestFailClosedEnqueue:
+    def test_trigger_less_detector_never_fires(self, fake_redis, mock_add_job, monkeypatch):
+        """End-to-end through enqueue_detector_runs: a trigger-less detector
+        stays out of the job while an explicit run-on-all detector fires."""
+        _patch_detectors(
+            monkeypatch,
+            [
+                _det("d-no-trigger", 0, []),
+                _det("d-run-all", 1, [[]]),
+            ],
+        )
+        _patch_summaries(monkeypatch, {TRACE: {"environment": "staging"}})
+
+        dt.enqueue_detector_runs(PROJECT, {TRACE})
+
+        mock_add_job.assert_called_once_with(
+            f"{PROJECT}--{TRACE}",
+            {"traceId": TRACE, "detectorIds": ["d-run-all"], "projectId": PROJECT},
+        )
+        assert _lock_state(fake_redis)["detector_ids"] == ["d-run-all"]
+
+    def test_only_trigger_less_detectors_marks_sampled_out(
+        self, fake_redis, mock_add_job, monkeypatch
+    ):
+        _patch_detectors(monkeypatch, [_det("d-no-trigger", 0, [])])
+        _patch_summaries(monkeypatch, {TRACE: {"environment": "staging"}})
+
+        dt.enqueue_detector_runs(PROJECT, {TRACE})
+
+        mock_add_job.assert_not_called()
+        assert _lock_state(fake_redis)["state"] == "sampled_out"

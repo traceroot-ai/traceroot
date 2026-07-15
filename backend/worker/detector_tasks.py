@@ -196,6 +196,32 @@ def _passes_trigger(trace_summary: dict, conditions: list[dict]) -> bool:
     return all(_eval_condition(trace_summary, c) for c in conditions)
 
 
+def _passes_any_trigger(trace_summary: dict, detector: dict) -> bool:
+    """Whether a detector's trigger(s) select this trace.
+
+    Fail closed: a detector with no trigger row is misconfigured, not
+    "run on all" — an explicit empty-conditions trigger is the only way to
+    fire on every trace (the trigger editor renders that state as "Runs on
+    all completed traces."). OR across triggers, AND within each trigger
+    (empty conditions = match all); today a detector has at most one trigger
+    (unique index on detector_triggers.detector_id), the OR only matters if
+    multi-trigger ever ships.
+
+    Args:
+        trace_summary (dict): Trace summary fields used for evaluation.
+        detector (dict): Parsed detector row with ``trigger_count`` and
+            ``triggers`` (see :func:`_parse_detector_rows`).
+
+    Returns:
+        bool: True if any trigger's conditions all pass, False otherwise —
+            including when the detector has no trigger row, or when its only
+            trigger's conditions were malformed and dropped by the parser.
+    """
+    if detector["trigger_count"] == 0:
+        return False
+    return any(_passes_trigger(trace_summary, conds) for conds in detector["triggers"])
+
+
 def _get_trace_summaries(project_id: str, trace_ids: list[str]) -> dict[str, dict]:
     """
     Query ClickHouse for the fields needed for trigger evaluation.
@@ -229,10 +255,52 @@ def _get_trace_summaries(project_id: str, trace_ids: list[str]) -> dict[str, dic
     return summaries
 
 
+def _parse_detector_rows(rows) -> list[dict]:
+    """Normalize aggregated detector rows into detector dicts.
+
+    Args:
+        rows: ``(id, sample_rate, trigger_count, trigger_conditions)`` tuples
+            from the aggregated active-detectors query. ``trigger_conditions``
+            is NULL when the detector has no trigger rows, else a JSON array
+            holding each trigger's own conditions array; psycopg2 may hand the
+            aggregate back already parsed or as a JSON string.
+
+    Returns:
+        list[dict]: One dict per detector with keys ``id``, ``sample_rate``,
+            ``trigger_count`` and ``triggers`` (list of per-trigger condition
+            lists). A stray non-list element where a conditions array belongs
+            is dropped rather than coerced — combined with ``trigger_count``
+            that makes a malformed trigger fail closed instead of degrading
+            into "match all".
+    """
+    detectors = []
+    for detector_id, sample_rate, trigger_count, trigger_conditions in rows:
+        if trigger_conditions is None:
+            triggers: list = []
+        elif isinstance(trigger_conditions, str):
+            triggers = json.loads(trigger_conditions)
+        else:
+            triggers = trigger_conditions
+
+        detectors.append(
+            {
+                "id": detector_id,
+                "sample_rate": sample_rate,
+                "trigger_count": trigger_count,
+                "triggers": [t for t in triggers if isinstance(t, list)],
+            }
+        )
+    return detectors
+
+
 def _get_active_detectors(project_id: str) -> list[dict]:
     """
     Fetch active detectors and their trigger conditions from PostgreSQL using psycopg2.
-    Returns list of dicts with keys: id, sample_rate, conditions.
+    Aggregates to exactly one row per detector so trigger cardinality can never
+    fan out into duplicate evaluations or duplicate detector ids, and carries a
+    trigger count so "no trigger row" stays distinguishable from an explicit
+    empty-conditions trigger.
+    Returns list of dicts with keys: id, sample_rate, trigger_count, triggers.
     """
     import psycopg2
 
@@ -243,10 +311,16 @@ def _get_active_detectors(project_id: str) -> list[dict]:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT d.id, d.sample_rate, dt.conditions
+                SELECT
+                    d.id,
+                    d.sample_rate,
+                    COUNT(dt.detector_id) AS trigger_count,
+                    jsonb_agg(dt.conditions)
+                        FILTER (WHERE dt.detector_id IS NOT NULL) AS trigger_conditions
                 FROM detectors d
                 LEFT JOIN detector_triggers dt ON dt.detector_id = d.id
                 WHERE d.project_id = %s AND d.enabled = TRUE
+                GROUP BY d.id, d.sample_rate
                 """,
                 (project_id,),
             )
@@ -254,27 +328,7 @@ def _get_active_detectors(project_id: str) -> list[dict]:
     finally:
         conn.close()
 
-    detectors = []
-    for detector_id, sample_rate, conditions in rows:
-        # conditions is a JSON field; psycopg2 may return dict or None
-        if conditions is None:
-            cond_list = []
-        elif isinstance(conditions, list):
-            cond_list = conditions
-        elif isinstance(conditions, str):
-            cond_list = json.loads(conditions)
-        else:
-            # Already parsed by psycopg2 (dict/list from JSONB)
-            cond_list = conditions if isinstance(conditions, list) else []
-
-        detectors.append(
-            {
-                "id": detector_id,
-                "sample_rate": sample_rate,
-                "conditions": cond_list,
-            }
-        )
-    return detectors
+    return _parse_detector_rows(rows)
 
 
 def _claim_and_enqueue(
@@ -298,7 +352,7 @@ def _claim_and_enqueue(
         project_id (str): Project that owns the trace.
         trace_id (str): Trace whose root span arrived in this batch.
         detectors (list[dict]): Active detectors, each a dict with ``id``,
-            ``sample_rate`` and ``conditions``.
+            ``sample_rate``, ``trigger_count`` and ``triggers``.
         summary (dict): Trace summary fields used for trigger evaluation (e.g.
             ``environment``).
 
@@ -324,7 +378,7 @@ def _claim_and_enqueue(
         triggered_ids = [
             d["id"]
             for d in detectors
-            if _passes_trigger(summary, d["conditions"])
+            if _passes_any_trigger(summary, d)
             and _sample_passes(trace_id, d["id"], d["sample_rate"])
         ]
 
