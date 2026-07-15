@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
-import { Breadcrumb, BreadcrumbItem } from "@/components/layout/breadcrumb";
+import { Breadcrumb, type BreadcrumbItem } from "@/components/layout/breadcrumb";
 import { useProject } from "../hooks";
 import { projectSwitchHref } from "../utils";
 import { CreateProjectDialog } from "./CreateProjectDialog";
@@ -18,9 +18,11 @@ interface ProjectBreadcrumbProps {
   /**
    * Intermediate segments between the project and `current`, for nested pages —
    * e.g. `[{ label: "Datasets", href: ".../datasets" }]` on a dataset detail page,
-   * so the trail reads Workspace / Project / Datasets / <name>. Each is a link.
+   * so the trail reads Workspace / Project / Datasets / <name>. A plain segment is
+   * a link; a segment with `options` renders as a dropdown selector (like the
+   * workspace/project segments), e.g. to switch between datasets.
    */
-  trail?: Array<{ label: string; href?: string }>;
+  trail?: BreadcrumbItem[];
 }
 
 /**
@@ -83,7 +85,7 @@ export function ProjectBreadcrumb({ projectId, current, trail }: ProjectBreadcru
     ];
 
     for (const segment of trail ?? []) {
-      breadcrumbItems.push({ label: segment.label, href: segment.href });
+      breadcrumbItems.push(segment);
     }
 
     if (current) {

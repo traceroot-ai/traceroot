@@ -54,7 +54,7 @@ import { CAPTURE_REASON_LABEL, type ReviewStatus } from "@/features/offline-eval
 import {
   caseDisplayId,
   changeSentiment,
-  datasetInitCode,
+  datasetPullCode,
   pct,
   scoreDisplay,
   SENTIMENT_CLASS,
@@ -62,6 +62,7 @@ import {
 } from "@/features/offline-eval/utils";
 import {
   useDataset,
+  useDatasets,
   useSaveTestCase,
   useUpdateTestCase,
   useEvaluationRuns,
@@ -169,6 +170,10 @@ export function DatasetDetailView({
 
   const caseIds = React.useMemo(() => cases.map((c) => c.id), [cases]);
   const sel = useRowSelection(caseIds);
+
+  // All datasets in the project, for the breadcrumb's dataset switcher.
+  const { data: allDatasetsData } = useDatasets(projectId, { limit: 200 });
+  const allDatasets = React.useMemo(() => allDatasetsData?.data ?? [], [allDatasetsData]);
 
   const evaluations = useEvaluationRuns(projectId, { dataset_id: datasetId });
   const runs = React.useMemo(() => evaluations.data?.data ?? [], [evaluations.data]);
@@ -291,8 +296,21 @@ export function DatasetDetailView({
     <>
       <ProjectBreadcrumb
         projectId={projectId}
-        trail={[{ label: "Datasets", href: `/projects/${projectId}/datasets` }]}
-        current={dataset.name}
+        trail={[
+          { label: "Datasets", href: `/projects/${projectId}/datasets` },
+          {
+            // The dataset name is a dropdown of all datasets, like the project
+            // segment — pick another to jump straight to its detail page.
+            label: dataset.name,
+            menuHeader: { label: "Datasets", href: `/projects/${projectId}/datasets` },
+            options: allDatasets.map((d) => ({
+              id: d.id,
+              label: d.name,
+              href: `/projects/${projectId}/datasets/${d.id}`,
+              isCurrent: d.id === dataset.id,
+            })),
+          },
+        ]}
       />
       <div className="flex h-full flex-col text-[13px]">
         <EvalPageHeader
@@ -302,11 +320,6 @@ export function DatasetDetailView({
               <span className="font-mono text-xs font-normal text-muted-foreground">
                 {dataset.id}
               </span>
-              <CopyButton
-                value={dataset.id}
-                className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                title="Copy dataset ID"
-              />
             </span>
           }
           action={
@@ -438,7 +451,7 @@ export function DatasetDetailView({
                   onClick={() => setCodeOpen(true)}
                 >
                   <FileCode className="h-3.5 w-3.5" aria-hidden />
-                  Init code
+                  Pull code
                 </Button>
               </span>
             </SearchFilterBar>
@@ -597,23 +610,25 @@ export function DatasetDetailView({
       <Dialog open={codeOpen} onOpenChange={setCodeOpen}>
         <DialogContent className="max-w-[560px]">
           <DialogHeader>
-            <DialogTitle className="text-[13px] font-medium">
-              Create this dataset in code
-            </DialogTitle>
+            <DialogTitle className="text-[13px] font-medium">Pull this dataset in code</DialogTitle>
           </DialogHeader>
-          <pre className="overflow-x-auto whitespace-pre rounded border border-border bg-muted/20 px-3 py-2.5 font-mono text-[11px] leading-relaxed">
-            {tokenizeCode(datasetInitCode(dataset.name)).map((t, i) => (
-              <span key={i} className={t.cls || undefined}>
-                {t.text}
-              </span>
-            ))}
-          </pre>
+          {/* Padding on the wrapper, scroll on the inner <pre>: a horizontal
+              scrollbar can't eat the bottom padding (see run-evaluation-drawer). */}
+          <div className="rounded border border-border bg-muted/20 px-3 pb-5 pt-2.5">
+            <pre className="overflow-x-auto whitespace-pre font-mono text-[11px] leading-relaxed">
+              {tokenizeCode(datasetPullCode(dataset.id)).map((t, i) => (
+                <span key={i} className={t.cls || undefined}>
+                  {t.text}
+                </span>
+              ))}
+            </pre>
+          </div>
           <div className="flex justify-end">
             <Button
               size="sm"
               className="h-7 text-[12px]"
               onClick={() => {
-                navigator.clipboard?.writeText(datasetInitCode(dataset.name));
+                navigator.clipboard?.writeText(datasetPullCode(dataset.id));
                 toast({ title: "Copied", tone: "success" });
                 setCodeOpen(false);
               }}
