@@ -16,7 +16,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { getTrace } from "@/lib/api/traces";
-import { SpanKindIcon } from "@/features/traces";
+import { SpanKindIcon, useSpanIO } from "@/features/traces";
 import {
   FormCard,
   EditableValueBlock,
@@ -134,14 +134,22 @@ export function SaveTestCaseDrawer({
   }, [trace, selectedSpanId, spans, root]);
   const isRoot = !!span && !span.parent_span_id;
 
-  // Input / recorded output / metadata follow the selected span (incl. nav).
+  // The trace-detail response OMITS span input/output/metadata — they are fetched
+  // per span on demand (getSpanIO), so read them from that hook, not the span.
+  const { data: spanIO } = useSpanIO(projectId, traceId ?? "", span?.span_id ?? null);
+
+  // Input / recorded output / metadata follow the fetched span I/O (incl. nav).
   React.useEffect(() => {
-    if (open && span) {
-      setInput(span.input ?? "");
-      setMetadata(prettyJson(span.metadata));
-      setDuplicate(null);
+    if (open && spanIO) {
+      setInput(spanIO.input ?? "");
+      setMetadata(prettyJson(spanIO.metadata));
     }
-  }, [open, span]);
+  }, [open, spanIO]);
+
+  // Reset the duplicate note whenever the selected span changes.
+  React.useEffect(() => {
+    if (open) setDuplicate(null);
+  }, [open, span?.span_id]);
 
   // Non-modal: Escape closes this panel without touching the trace behind it.
   React.useEffect(() => {
@@ -178,7 +186,7 @@ export function SaveTestCaseDrawer({
   const creatingNew = datasetId === NEW_DATASET;
   const dataset = datasets.find((item) => item.id === datasetId);
   const displayKind = isRoot ? "trace" : (span?.span_kind ?? "SPAN");
-  const recordedOutput = span?.output ?? "";
+  const recordedOutput = spanIO?.output ?? "";
   const currentIndex = span ? spans.findIndex((s) => s.span_id === span.span_id) : -1;
   const canNavigateUp = currentIndex > 0;
   const canNavigateDown = currentIndex >= 0 && currentIndex < spans.length - 1;
