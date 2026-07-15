@@ -24,4 +24,10 @@ export { DatasetFormFields, emptyDatasetForm, type DatasetFormState } from "./da
 export { DatasetActionsMenu } from "./dataset-actions-menu";
 export { NewDatasetDialog } from "./new-dataset-dialog";
 export { DatasetEditPanel } from "./dataset-edit-panel";
-export { LineNumberedTextarea, ValueBlock, formatValue, type ValueKind } from "./code";
+export {
+  LineNumberedTextarea,
+  ValueBlock,
+  EditableValueBlock,
+  formatValue,
+  type ValueKind,
+} from "./code";
