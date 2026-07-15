@@ -23,6 +23,9 @@ vi.mock("@traceroot/core", () => ({
     ZAI: "zai",
   },
   ADAPTER_DEFAULT_BASE_URL: {
+    anthropic: "https://api.anthropic.com",
+    google: "https://generativelanguage.googleapis.com/v1alpha",
+    openrouter: "https://openrouter.ai/api/v1",
     deepseek: "https://api.deepseek.com/v1",
     xai: "https://api.x.ai/v1",
     moonshot: "https://api.moonshot.ai/v1",
@@ -265,6 +268,49 @@ describe("POST model-providers/test - network providers succeed", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.anthropic.com/v1/messages",
       expect.objectContaining({ method: "POST", signal: expect.any(AbortSignal) }),
+    );
+  });
+
+  it("anthropic with baseUrl posts to the custom endpoint", async () => {
+    fetchMock.mockResolvedValue(okResponse());
+    const res = await POST(
+      makeRequest({ adapter: "anthropic", apiKey: "k", baseUrl: "https://proxy.test/" }),
+      makeParams(),
+    );
+    expect(await res.json()).toEqual({ success: true });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://proxy.test/v1/messages",
+      expect.objectContaining({ method: "POST", signal: expect.any(AbortSignal) }),
+    );
+  });
+
+  it("google with baseUrl checks models on the custom endpoint", async () => {
+    fetchMock.mockResolvedValue(okResponse());
+    const res = await POST(
+      makeRequest({ adapter: "google", apiKey: "k", baseUrl: "https://proxy.test/v1alpha/" }),
+      makeParams(),
+    );
+    expect(await res.json()).toEqual({ success: true });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://proxy.test/v1alpha/models",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+  });
+
+  it("openrouter with baseUrl checks models on the custom endpoint", async () => {
+    fetchMock.mockResolvedValue(okResponse());
+    const res = await POST(
+      makeRequest({
+        adapter: "openrouter",
+        apiKey: "k",
+        baseUrl: "https://proxy.test/api/v1/",
+      }),
+      makeParams(),
+    );
+    expect(await res.json()).toEqual({ success: true });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://proxy.test/api/v1/models",
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
   });
 });
