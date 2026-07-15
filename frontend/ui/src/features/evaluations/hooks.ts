@@ -10,8 +10,6 @@ import type {
   EvaluationRow,
   RunRow,
   RunDetailResponse,
-  EvalResultStatus,
-  ScoreRow,
 } from "./types";
 
 interface Meta {
@@ -63,14 +61,12 @@ export function useDatasets(
   });
 }
 
-export function useDataset(projectId: string, datasetId: string, versionId?: string | null) {
-  const qs = versionId ? `?version_id=${encodeURIComponent(versionId)}` : "";
+export function useDataset(projectId: string, datasetId: string) {
   return useQuery({
-    queryKey: ["datasets", "detail", projectId, datasetId, versionId ?? null],
+    queryKey: ["datasets", "detail", projectId, datasetId],
     queryFn: () =>
-      getJson<DatasetDetailResponse>(`/api/projects/${projectId}/datasets/${datasetId}${qs}`),
+      getJson<DatasetDetailResponse>(`/api/projects/${projectId}/datasets/${datasetId}`),
     enabled: !!projectId && !!datasetId,
-    placeholderData: (prev) => prev,
   });
 }
 
@@ -131,11 +127,7 @@ export function useSaveTestCase(projectId: string, datasetId: string) {
         "POST",
         input,
       ),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["datasets"] });
-      // Refresh the trace's span→dataset chips so a just-saved span is marked.
-      void qc.invalidateQueries({ queryKey: ["evaluations", "trace-test-cases"] });
-    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["datasets"] }),
   });
 }
 
@@ -157,30 +149,6 @@ export function useUpdateTestCase(projectId: string, datasetId: string) {
         args.patch,
       ),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["datasets"] }),
-  });
-}
-
-export interface TestCaseRunRow {
-  resultId: string;
-  runId: string;
-  runNumber: number;
-  candidateVersion: string;
-  evaluationName: string;
-  ranAt: string;
-  score: number | null;
-  status: string;
-  change: "improved" | "regressed" | "unchanged" | null;
-}
-
-/** Every evaluation run that measured a given test case (newest first). */
-export function useTestCaseRuns(projectId: string, datasetId: string, testCaseId: string | null) {
-  return useQuery({
-    queryKey: ["datasets", projectId, datasetId, "test-case-runs", testCaseId],
-    queryFn: () =>
-      getJson<{ data: TestCaseRunRow[] }>(
-        `/api/projects/${projectId}/datasets/${datasetId}/test-cases/${testCaseId}/runs`,
-      ),
-    enabled: !!projectId && !!datasetId && !!testCaseId,
   });
 }
 
@@ -213,7 +181,6 @@ export function useEvaluationRuns(
   if (query.status) params.set("status", query.status);
   if (query.search_query) params.set("search_query", query.search_query);
   if (query.page !== undefined) params.set("page", String(query.page));
-  if (query.limit !== undefined) params.set("limit", String(query.limit));
   const qs = params.toString();
   return useQuery({
     queryKey: [
@@ -225,7 +192,6 @@ export function useEvaluationRuns(
       query.status ?? null,
       query.search_query ?? null,
       query.page ?? 0,
-      query.limit ?? null,
     ],
     queryFn: () =>
       getJson<{ data: RunRow[]; meta: Meta }>(
@@ -260,83 +226,5 @@ export function useCreateHumanScore(projectId: string, resultId: string) {
         input,
       ),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["evaluations", "run"] }),
-  });
-}
-
-export interface TraceEvaluationResultRow {
-  id: string;
-  runId: string;
-  testCaseId: string;
-  traceId: string | null;
-  status: EvalResultStatus;
-  mainScore: number | null;
-  scores: ScoreRow[];
-  run: {
-    id: string;
-    runNumber: number;
-    candidateVersion: string;
-    datasetId: string;
-    datasetVersionId: string;
-    evaluation: { id: string; name: string };
-    datasetVersion: { label: string };
-  };
-}
-
-/** Evaluation results a trace produced — the trace -> evaluation-run link. */
-export function useTraceEvaluationResults(projectId: string, traceId: string) {
-  return useQuery({
-    queryKey: ["evaluations", "trace-results", projectId, traceId],
-    queryFn: () =>
-      getJson<{ data: TraceEvaluationResultRow[] }>(
-        `/api/projects/${projectId}/traces/${traceId}/evaluation-results`,
-      ),
-    enabled: !!projectId && !!traceId,
-  });
-}
-
-export interface TraceTestCaseRow {
-  testCaseId: string;
-  datasetId: string;
-  datasetName: string;
-  sourceSpanId: string | null;
-  review: string;
-  datasetVersionLabel: string;
-  datasetUpdatedAt: string;
-  caseCount: number;
-}
-
-/**
- * Dataset test cases captured from a given trace, keyed by source span. Powers
- * the "In <dataset>" chip that marks a span already saved as a test case.
- */
-export function useTraceTestCases(projectId: string, traceId: string) {
-  return useQuery({
-    queryKey: ["evaluations", "trace-test-cases", projectId, traceId],
-    queryFn: () =>
-      getJson<{ data: TraceTestCaseRow[] }>(
-        `/api/projects/${projectId}/traces/${traceId}/test-cases`,
-      ),
-    enabled: !!projectId && !!traceId,
-    // Warmed when the trace opens (see the traces page) and reused as spans are
-    // selected, so the "Dataset:" chip appears without a per-span round trip.
-    staleTime: 60_000,
-  });
-}
-
-export interface ScorerRegistryRow {
-  name: string;
-  version: string;
-  scoreCount: number;
-  errorCount: number;
-  errorRate: number;
-}
-
-/** Read-only scorer registry, aggregated from reported runs. */
-export function useScorers(projectId: string) {
-  return useQuery({
-    queryKey: ["evaluations", "scorers", projectId],
-    queryFn: () =>
-      getJson<{ data: ScorerRegistryRow[] }>(`/api/projects/${projectId}/evaluations/scorers`),
-    enabled: !!projectId,
   });
 }
