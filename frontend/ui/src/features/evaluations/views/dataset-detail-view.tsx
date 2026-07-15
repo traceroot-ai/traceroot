@@ -56,12 +56,10 @@ import {
   TestCaseReviewDrawer,
   type TestCaseReviewTarget,
 } from "@/features/offline-eval/components";
-import { tokenizeCode } from "@/features/offline-eval/components/syntax";
 import { CAPTURE_REASON_LABEL, type ReviewStatus } from "@/features/offline-eval/types";
 import {
   caseDisplayId,
   changeSentiment,
-  datasetPullCode,
   pct,
   scoreDisplay,
   SENTIMENT_CLASS,
@@ -77,6 +75,7 @@ import {
 } from "../hooks";
 import type { TestCaseRow } from "../types";
 import { RunEvaluationDrawer } from "../components/run-evaluation-drawer";
+import { DatasetPullCodeDrawer } from "../components/dataset-pull-code-drawer";
 
 /** "Last 14 days" default, matching the traces/datasets lists. */
 const DEFAULT_DATE_FILTER =
@@ -665,38 +664,13 @@ export function DatasetDetailView({
         </DialogContent>
       </Dialog>
 
-      {/* Init code — the SDK snippet, in a dialog with a copy button. */}
-      <Dialog open={codeOpen} onOpenChange={setCodeOpen}>
-        <DialogContent className="max-w-[560px]">
-          <DialogHeader>
-            <DialogTitle className="text-[13px] font-medium">Pull this dataset in code</DialogTitle>
-          </DialogHeader>
-          {/* Padding on the wrapper, scroll on the inner <pre>: a horizontal
-              scrollbar can't eat the bottom padding (see run-evaluation-drawer). */}
-          <div className="rounded border border-border bg-muted/20 px-3 pb-5 pt-2.5">
-            <pre className="overflow-x-auto whitespace-pre font-mono text-[11px] leading-relaxed">
-              {tokenizeCode(datasetPullCode(dataset.id)).map((t, i) => (
-                <span key={i} className={t.cls || undefined}>
-                  {t.text}
-                </span>
-              ))}
-            </pre>
-          </div>
-          <div className="flex justify-end">
-            <Button
-              size="sm"
-              className="h-7 text-[12px]"
-              onClick={() => {
-                navigator.clipboard?.writeText(datasetPullCode(dataset.id));
-                toast({ title: "Copied", tone: "success" });
-                setCodeOpen(false);
-              }}
-            >
-              Copy
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Pull code — a right-side slide-out, like the Run-evaluation starter code. */}
+      <DatasetPullCodeDrawer
+        datasetId={dataset.id}
+        datasetName={dataset.name}
+        open={codeOpen}
+        onOpenChange={setCodeOpen}
+      />
 
       {/* Launched from a dataset, so the snippet is prefilled with it. */}
       <RunEvaluationDrawer
