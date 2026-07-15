@@ -253,6 +253,8 @@ export function BillingTab({
       {currentUsage?.updatedAt && (
         <p className="text-xs text-muted-foreground">
           Last updated: {new Date(currentUsage.updatedAt).toLocaleString()}
+          {" · "}
+          Covers: {currentPlan === PlanType.FREE ? "all-time" : "this billing period"}
         </p>
       )}
 
