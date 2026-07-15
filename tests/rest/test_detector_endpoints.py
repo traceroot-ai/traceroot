@@ -650,6 +650,9 @@ class TestListDetectorWindowSummary:
         assert "LIMIT 40" in sql
         assert "substringUTF8" in sql
         assert "ORDER BY rank ASC, ts DESC" in sql
+        # Semi-join: the FINAL read must touch only the sampled findings'
+        # payloads, never the project's whole finding history.
+        assert "finding_id IN (" in sql
         # Bounded read: a stalled query degrades to counts-only via the except
         # path rather than holding the caller open.
         assert second.kwargs.get("settings") == {"max_execution_time": 10}
