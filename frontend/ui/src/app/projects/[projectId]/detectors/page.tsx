@@ -54,11 +54,8 @@ export default function DetectorsPage() {
 
   const { data: project } = useProject(projectId);
   const { data: workspace } = useWorkspace(project?.workspace_id ?? "");
-  const isMember =
-    !project?.workspace_id ||
-    !workspace ||
-    workspace.role === "MEMBER" ||
-    workspace.role === "ADMIN";
+  const isAdmin = workspace?.role === "ADMIN";
+  const isMember = !project?.workspace_id || !workspace || workspace.role === "MEMBER" || isAdmin;
 
   const { data, isLoading, error } = useDetectorList(projectId, {
     page: queryOptions.page,
@@ -276,7 +273,7 @@ export default function DetectorsPage() {
                               <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
                               Edit
                             </button>
-                            {isMember && (
+                            {isAdmin && (
                               <button
                                 className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-[12px] text-destructive hover:bg-destructive/10"
                                 onClick={(e) => {
