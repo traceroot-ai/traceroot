@@ -238,14 +238,15 @@ describe("flushDigest", () => {
   });
 
   it('skips summary generation when DIGEST_SUMMARY_ENABLED is exactly "false"', async () => {
-    process.env.DIGEST_SUMMARY_ENABLED = "false";
+    // vi.stubEnv restores the pre-test value (set or unset) on unstub.
+    vi.stubEnv("DIGEST_SUMMARY_ENABLED", "false");
     try {
       await run();
       expect(generateDigestSummary).not.toHaveBeenCalled();
       expect(readDetectorWindowSummary.mock.calls[0][3]).toEqual({ includeSummaries: false });
       expect(sendDigestAlertSlack).toHaveBeenCalledTimes(1); // digest still sends
     } finally {
-      delete process.env.DIGEST_SUMMARY_ENABLED;
+      vi.unstubAllEnvs();
     }
   });
 });

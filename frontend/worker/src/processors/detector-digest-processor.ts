@@ -48,9 +48,9 @@ export async function flushDigest(job: DigestFlushJob): Promise<void> {
   // summaries join. Kill switch: summaries are enabled unless the env var is
   // exactly "false". Free-plan gate mirrors RCA so blocked workspaces spend
   // no LLM tokens.
-  const killSwitchOff = process.env.DIGEST_SUMMARY_ENABLED === "false";
+  const summariesKilled = process.env.DIGEST_SUMMARY_ENABLED === "false";
   const summaryAllowed =
-    !killSwitchOff && !(recipients.rcaBlocked && recipients.billingPlan === PlanType.FREE);
+    !summariesKilled && !(recipients.rcaBlocked && recipients.billingPlan === PlanType.FREE);
   const summary = await readDetectorWindowSummary(projectId, start, end, {
     includeSummaries: summaryAllowed,
   });
@@ -126,7 +126,7 @@ export async function flushDigest(job: DigestFlushJob): Promise<void> {
     }
   } else {
     console.log(
-      `[Digest] skip summary project=${projectId} reason=${killSwitchOff ? "kill-switch" : "rca-blocked-free-plan"}`,
+      `[Digest] skip summary project=${projectId} reason=${summariesKilled ? "kill-switch" : "rca-blocked-free-plan"}`,
     );
   }
 

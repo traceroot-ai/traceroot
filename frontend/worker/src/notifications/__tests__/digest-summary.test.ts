@@ -101,6 +101,17 @@ describe("buildDigestSummaryPrompt", () => {
     expect(p!.userText).toMatch(/\+\d+ more detectors omitted/);
   });
 
+  it("singularizes the omission tail when exactly one detector is dropped", () => {
+    const p = buildDigestSummaryPrompt(
+      input([
+        { name: "big", findingCount: 2, sampleSummaries: ["x".repeat(15_000)] },
+        { name: "bumped", findingCount: 1, sampleSummaries: ["y".repeat(2_000)] },
+      ]),
+    );
+    expect(p).not.toBeNull();
+    expect(p!.userText).toMatch(/\+1 more detector omitted/);
+  });
+
   it("stays under the cap even when sections land exactly on the budget boundary", () => {
     // Sweep section sizes so at least one packing lands flush against the
     // budget; the omission tail must be reserved, never overflow the cap.
@@ -188,6 +199,17 @@ describe("generateDigestSummary", () => {
     });
     expect(await callGenerate()).toBeNull();
   });
+
+  it("returns null when the response resolved as aborted (timeout)", async () => {
+    // pi-ai can RESOLVE an aborted call with stopReason "aborted" instead of
+    // rejecting — the timeout branch must still degrade to null.
+    complete.mockResolvedValue({
+      stopReason: "aborted",
+      content: [],
+      usage: {},
+    });
+    expect(await callGenerate()).toBeNull();
+  });
 });
 
 describe("parseDigestSummaryTimeoutMs", () => {
@@ -195,5 +217,12 @@ describe("parseDigestSummaryTimeoutMs", () => {
     const { parseDigestSummaryTimeoutMs } = await import("../digest-summary.js");
     expect(parseDigestSummaryTimeoutMs("")).toBe(15_000);
     expect(parseDigestSummaryTimeoutMs("15s")).toBe(15_000);
+  });
+
+  it("clamps oversized values to 60s so a bad env var cannot stall digests", async () => {
+    const { parseDigestSummaryTimeoutMs } = await import("../digest-summary.js");
+    expect(parseDigestSummaryTimeoutMs("2147483647")).toBe(60_000);
+    expect(parseDigestSummaryTimeoutMs("1e9")).toBe(60_000);
+    expect(parseDigestSummaryTimeoutMs("30000")).toBe(30_000);
   });
 });
