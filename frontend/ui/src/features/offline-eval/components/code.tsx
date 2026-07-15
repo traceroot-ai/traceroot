@@ -343,6 +343,58 @@ function detectKind(text: string): ValueKind {
   return "text";
 }
 
+/** Longest single-line JSON that still reads well inline. */
+const COMPACT_MAX_CHARS = 100;
+
+/** True when no member is itself an object/array, so one line stays readable. */
+function isFlat(value: unknown): boolean {
+  const members = Array.isArray(value)
+    ? value
+    : value && typeof value === "object"
+      ? Object.values(value as Record<string, unknown>)
+      : [];
+  return members.every((v) => v === null || typeof v !== "object");
+}
+
+/** How a field wants a JSON value presented when it is first seeded. */
+export type SeedJsonPreference = "expanded" | "compact";
+
+/**
+ * The format a freshly-captured value should be shown (and stored) in.
+ *
+ * Without this, the mode is whatever the instrumented app happened to emit —
+ * the same logical value reads as Pretty or compact depending on whether
+ * upstream used an indent. Seeding makes it a property of the FIELD instead:
+ * values you read and edit closely (input, recorded output) expand; incidental
+ * ones (metadata) stay on one line.
+ *
+ * `compact` is honoured only while the value actually fits on a line — a large
+ * or nested value falls back to Pretty, since a one-liner is only better while
+ * it stays one line. Non-JSON text is returned untouched (never mangled).
+ */
+export function seedFormat(
+  text: string,
+  prefer: SeedJsonPreference,
+): { kind: ValueKind; text: string } {
+  const trimmed = text.trim();
+  if (trimmed === "" || !(trimmed.startsWith("{") || trimmed.startsWith("["))) {
+    return { kind: "text", text };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return { kind: "text", text }; // looks like JSON but isn't
+  }
+  if (prefer === "compact") {
+    const compact = formatValue(parsed, "json");
+    if (compact.length <= COMPACT_MAX_CHARS && isFlat(parsed)) {
+      return { kind: "json", text: compact };
+    }
+  }
+  return { kind: "pretty", text: formatValue(parsed, "pretty") };
+}
+
 /**
  * Editable counterpart to ValueBlock. The text is controlled by the caller;
  * switching the view kind reformats it best-effort (only when it parses as
@@ -360,6 +412,7 @@ export function EditableValueBlock({
   ariaLabel,
   copyable = false,
   autoDetectKind = false,
+  seedJson,
   minRows = 1,
   boxed = false,
   readOnly = false,
@@ -371,6 +424,12 @@ export function EditableValueBlock({
   ariaLabel?: string;
   copyable?: boolean;
   autoDetectKind?: boolean;
+  /**
+   * Present (and normalise) a seeded JSON value per this field's role rather
+   * than following however it was serialised upstream. Supersedes
+   * `autoDetectKind`. See `seedFormat`.
+   */
+  seedJson?: SeedJsonPreference;
   minRows?: number;
   /** Wrap the block in a bordered card with a muted header strip (like FormCard). */
   boxed?: boolean;
@@ -389,14 +448,24 @@ export function EditableValueBlock({
     if (readOnly) setDisplay(text);
   }, [readOnly, text]);
 
-  // Follow the content's type — text vs JSON vs pretty JSON — whenever a new value
-  // is seeded (e.g. navigating between cases re-seeds this field), unless the user
-  // has pinned a format from the switcher. setKind is a no-op when unchanged.
+  // Pick the format whenever a new value is seeded (e.g. navigating between cases
+  // re-seeds this field), unless the user has pinned one from the switcher.
+  // `seedJson` chooses by FIELD ROLE and normalises the text once so the stored
+  // value is canonical; `autoDetectKind` just follows the content. setKind is a
+  // no-op when unchanged, and the text guard stops the normalise from looping.
   React.useEffect(() => {
-    if (autoDetectKind && !userSetKind.current && text.trim() !== "") {
-      setKind(detectKind(text));
+    if (userSetKind.current || text.trim() === "") return;
+    if (seedJson) {
+      const seeded = seedFormat(text, seedJson);
+      setKind(seeded.kind);
+      if (seeded.text !== text) {
+        if (readOnly) setDisplay(seeded.text);
+        else onChange(seeded.text);
+      }
+      return;
     }
-  }, [autoDetectKind, text]);
+    if (autoDetectKind) setKind(detectKind(text));
+  }, [autoDetectKind, seedJson, text, readOnly, onChange]);
 
   const changeKind = (next: ValueKind) => {
     userSetKind.current = true;
