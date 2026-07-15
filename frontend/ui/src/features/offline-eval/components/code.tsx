@@ -333,7 +333,9 @@ function detectKind(text: string): ValueKind {
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
     try {
       JSON.parse(trimmed);
-      return "json";
+      // Already pretty-printed (multi-line) JSON should read as "Pretty", not
+      // "JSON" — otherwise the mode label contradicts the indented content.
+      return trimmed.includes("\n") ? "pretty" : "json";
     } catch {
       /* looks like JSON but isn't — fall through to text */
     }
@@ -380,7 +382,6 @@ export function EditableValueBlock({
   // Minimised via the header chevron, like the span detail panel's I/O sections.
   const [open, setOpen] = React.useState(true);
   const userSetKind = React.useRef(false);
-  const detected = React.useRef(false);
   // Read-only fields reformat locally (the parent value never changes), so the
   // format switcher still works without touching the source of truth.
   const [display, setDisplay] = React.useState(text);
@@ -388,11 +389,11 @@ export function EditableValueBlock({
     if (readOnly) setDisplay(text);
   }, [readOnly, text]);
 
-  // Detect JSON vs text once, when the value first arrives (e.g. after a dialog
-  // seeds it), unless the user has already chosen a format from the switcher.
+  // Follow the content's type — text vs JSON vs pretty JSON — whenever a new value
+  // is seeded (e.g. navigating between cases re-seeds this field), unless the user
+  // has pinned a format from the switcher. setKind is a no-op when unchanged.
   React.useEffect(() => {
-    if (autoDetectKind && !userSetKind.current && !detected.current && text.trim() !== "") {
-      detected.current = true;
+    if (autoDetectKind && !userSetKind.current && text.trim() !== "") {
       setKind(detectKind(text));
     }
   }, [autoDetectKind, text]);
