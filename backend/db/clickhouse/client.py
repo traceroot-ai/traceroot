@@ -150,9 +150,27 @@ class ClickHouseClient:
             ],
         )
 
-    def query(self, query: str, parameters: dict[str, Any] | None = None):
-        """Execute a query and return the result."""
-        return self._client.query(query, parameters=parameters)
+    def query(
+        self,
+        query: str,
+        parameters: dict[str, Any] | None = None,
+        settings: dict[str, Any] | None = None,
+    ):
+        """Execute a query and return the result.
+
+        Args:
+            query (str): SQL text, optionally with ``{name:Type}`` server-side
+                parameter bindings.
+            parameters (dict[str, Any] | None): Values for the server-side
+                bindings.
+            settings (dict[str, Any] | None): Per-query ClickHouse settings
+                forwarded to clickhouse-connect (e.g. ``max_execution_time``
+                to bound a best-effort read).
+
+        Returns:
+            QueryResult: The clickhouse-connect query result.
+        """
+        return self._client.query(query, parameters=parameters, settings=settings)
 
     def close(self) -> None:
         """Close the client connection."""
