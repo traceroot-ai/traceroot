@@ -5,7 +5,11 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { ProjectBreadcrumb } from "@/features/projects/components";
-import { useDashboard, useDashboardMutations } from "@/features/dashboards/hooks/use-dashboards";
+import {
+  isDashboardGone,
+  useDashboard,
+  useDashboardMutations,
+} from "@/features/dashboards/hooks/use-dashboards";
 import { DashboardGrid } from "@/features/dashboards/components/DashboardGrid";
 import type { TimeRange, Widget } from "@/features/dashboards/types";
 import { DateFilterSelect } from "@/components/date-filter-select";
@@ -64,15 +68,11 @@ export default function DashboardDetailPage() {
     router.push(`/projects/${projectId}/dashboard/${dashboardId}/widgets/${w.id}/edit`);
 
   // ── deleted / missing dashboard redirect ─────────────────────────────────────
-  // fetchNextApi doesn't carry the HTTP status, so gone-ness is detected from
-  // the API's error message. The exact match keeps "Project not found" (a
-  // deleted project) and auth failures from redirecting; only a genuinely
-  // missing dashboard leaves the page. Everything else keeps the user here —
-  // the detail query's 30s poll retries, with a failure notice while empty.
-  const dashboardGone =
-    dashboardError instanceof Error &&
-    (dashboardError.message === "Dashboard not found" ||
-      /API error: 404/i.test(dashboardError.message));
+  // Any permanent failure leaves the page: the dashboard or its project was
+  // deleted (404), or access was revoked (403) — the 30s poll can never
+  // recover from those, so retrying in place would strand the user. Transient
+  // failures keep the user here with a failure notice while the poll retries.
+  const dashboardGone = isDashboardGone(dashboardError);
   useEffect(() => {
     if (dashboardGone) {
       // Invalidate the list so a stale cache can't bounce the user back here.
