@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useDashboard, useDashboardMutations } from "../hooks/use-dashboards";
+import { isDashboardGone, useDashboard, useDashboardMutations } from "../hooks/use-dashboards";
 import { useWidgetPreview, useWidgetSchema } from "../hooks/use-widget-data";
 import { DEFAULT_RANGE_ID, RANGE_PRESETS, makeRange } from "../range-presets";
 import { readStoredDateFilter, writeStoredDateFilter } from "@/lib/date-filter-storage";
@@ -122,7 +122,9 @@ export function WidgetBuilderPage({
   }, [isEdit, hydrated, widget]);
 
   useEffect(() => {
-    if (dashboardError) router.replace(`/projects/${projectId}/dashboard`);
+    // Leave only when the dashboard is permanently gone; a transient blip
+    // must not dump the user's draft — the detail query's poll retries.
+    if (isDashboardGone(dashboardError)) router.replace(`/projects/${projectId}/dashboard`);
   }, [dashboardError, projectId, router]);
 
   useEffect(() => {
