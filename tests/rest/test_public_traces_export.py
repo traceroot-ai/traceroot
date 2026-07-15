@@ -235,6 +235,20 @@ class TestExportBundle:
         assert span["metadata"] is None
         mock_reader.get_trace_spans_io.assert_not_called()
 
+    def test_export_fields_skeleton_drops_span_tree_metadata(self, client, mock_reader):
+        """The reader's span-path subset (for the dashboard's live-tree repair)
+        must not reach an export bundle that did not ask for metadata."""
+        trace = copy.deepcopy(TRACE_DETAIL)
+        trace["spans"][0]["metadata"] = (
+            '{"traceroot.span.ids_path":["root-id"],"traceroot.span.path":["root","child"]}'
+        )
+        mock_reader.get_trace.return_value = trace
+        body = client.get(
+            "/api/v1/public/traces/abc123/export?fields=skeleton", headers=AUTH
+        ).json()
+        assert body["spans"][0]["metadata"] is None
+        assert body["trace"]["spans"][0]["metadata"] is None
+
     def test_export_trace_equals_get_at_equal_fields(self, client, mock_reader):
         """The invariant holds at equal projection: export?fields=full == get?fields=full."""
         io_map = {

@@ -6,6 +6,11 @@ from datetime import UTC, datetime, timedelta
 from db.clickhouse import get_clickhouse_client
 from rest.services.filters.translate import Predicate, build_conditions
 from rest.sql_utils import escape_ilike, to_utc_naive
+from shared.span_attributes import (
+    SPAN_IDS_PATH,
+    SPAN_PATH,
+    SPAN_TREE_ATTRIBUTES,
+)
 from worker.tokens.buckets import TokenBuckets, reconcile_cache_write_1h
 from worker.tokens.pricing import cost_breakdown_from_buckets, get_model_price
 
@@ -89,6 +94,20 @@ def span_cost_details(
         cache_write_1h=cache_write_1h,
     )
     return cost_breakdown_from_buckets(get_model_price(model_name), buckets) or {}
+
+
+def _extract_span_path_attr(attribute: str) -> str:
+    """SQL that pulls one span-path attribute out of the stored metadata blob.
+
+    `metadata` is Nullable(String); JSONExtract cannot return an Array from a
+    Nullable argument, hence the ifNull. Missing keys, a NULL blob, malformed
+    JSON and non-object JSON all yield an empty array.
+    """
+    # The name is interpolated into SQL, so it must come from the constants — the
+    # same "never trust the caller" rule the filter translator applies.
+    if attribute not in SPAN_TREE_ATTRIBUTES:
+        raise ValueError(f"Not a known span-path attribute: {attribute!r}")
+    return f"JSONExtract(ifNull(metadata, ''), '{attribute}', 'Array(String)')"
 
 
 class TraceReaderService:
@@ -360,10 +379,19 @@ class TraceReaderService:
         """Get single trace with span skeletons (no per-span I/O).
 
         Returns trace metadata plus lightweight span skeletons that omit the
-        large free-text input/output/metadata blobs. This keeps the payload
-        sub-MB even for large traces. Per-span I/O is fetched on demand via
-        get_span_io(). Columnar storage means dropping those columns from the
-        SELECT avoids reading them entirely — no schema change needed.
+        large free-text input/output blobs. This keeps the payload sub-MB even
+        for large traces. Per-span I/O is fetched on demand via get_span_io().
+        Columnar storage means dropping those columns from the SELECT avoids
+        reading them entirely — no schema change needed.
+
+        Each span's ``metadata`` is NOT the stored blob: ClickHouse extracts
+        only the SDK span-path attributes from it and the query re-packs them
+        into a small JSON object under the same key. The dashboard needs them to
+        rebuild the tree of an in-flight trace, whose children are exported
+        before their parents. Requesting the ``metadata`` field group replaces
+        this subset with the full blob (see ``rest.projection``); the public
+        routes drop it entirely, since API clients build trees from
+        ``parent_span_id`` (see ``drop_span_tree_metadata``).
 
         Trace-level input/output/metadata (on the trace row) are kept: they're
         small and already present.
@@ -428,20 +456,39 @@ class TraceReaderService:
 
         spans_where_clause = " AND ".join(spans_conditions)
 
-        # Fetch span skeletons — omit the large input/output/metadata blobs to
-        # keep the payload lightweight (fetched per-span on demand instead).
-        # usage_details is kept (small map) to derive cost_details. Duration is
-        # derived on the client from start/end so in-progress spans can grow
-        # against `now()` for live traces.
+        # Fetch span skeletons — omit the large input/output blobs and the full
+        # metadata bag (fetched per-span on demand instead). usage_details is
+        # kept (small map) to derive cost_details. Duration is derived on the
+        # client from start/end so in-progress spans can grow against `now()`
+        # for live traces.
         # span_start_time is DateTime64(3) (ms), so sub-ms parallel siblings tie;
         # the span_end_time + span_id tie-breakers give a stable, deterministic
         # order (clients sort the same way — keep these columns in sync).
+        #
+        # `metadata` here is NOT the stored blob: the subquery extracts just the
+        # SDK span-path attributes and the outer SELECT re-packs them into a
+        # small JSON object under the same key the client already parses. The
+        # client needs them to synthesize pending ancestors for spans whose
+        # parents have not been exported yet (children export first — spans are
+        # only exported when they end). Extracting in ClickHouse keeps the full
+        # attribute bag off the wire; on LLM-heavy traces it is ~4x smaller.
+        # The subquery must project every path column the outer SELECT reads —
+        # referencing them by alias means a missing projection fails loudly
+        # instead of silently returning the wrong shape.
         spans_query = f"""
             SELECT
                 span_id, trace_id, parent_span_id, name, span_kind,
                 span_start_time, span_end_time, status, status_message,
                 model_name, cost, input_tokens, output_tokens, total_tokens,
                 usage_details,
+                if(
+                    empty(tree_ids_path) AND empty(tree_name_path),
+                    NULL,
+                    toJSONString(map(
+                        '{SPAN_IDS_PATH}', tree_ids_path,
+                        '{SPAN_PATH}', tree_name_path
+                    ))
+                ) AS metadata,
                 git_source_file, git_source_line, git_source_function
             FROM (
                 SELECT
@@ -449,6 +496,8 @@ class TraceReaderService:
                     span_start_time, span_end_time, status, status_message,
                     model_name, cost, input_tokens, output_tokens, total_tokens,
                     usage_details,
+                    {_extract_span_path_attr(SPAN_IDS_PATH)} AS tree_ids_path,
+                    {_extract_span_path_attr(SPAN_PATH)} AS tree_name_path,
                     git_source_file, git_source_line, git_source_function
                 FROM spans
                 WHERE {spans_where_clause}
@@ -487,9 +536,11 @@ class TraceReaderService:
                         int(row[12]) if row[12] is not None else None,  # output_tokens
                         dict(row[14]) if row[14] else {},  # usage_details
                     ),
-                    "git_source_file": row[15],
-                    "git_source_line": int(row[16]) if row[16] is not None else None,
-                    "git_source_function": row[17],
+                    # Already reduced to the span-path subset by the query.
+                    "metadata": row[15],
+                    "git_source_file": row[16],
+                    "git_source_line": int(row[17]) if row[17] is not None else None,
+                    "git_source_function": row[18],
                 }
             )
 

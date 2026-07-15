@@ -284,6 +284,55 @@ class TestPublicGetTrace:
         assert resp.json()["detail"] == "Failed to get trace"
 
 
+class TestPublicGetTraceDropsSpanTreeMetadata:
+    """The reader leaves a span-path metadata subset on skeleton spans for the
+    dashboard's live-tree repair. API clients build trees from parent_span_id and
+    their contract is `metadata: null` unless requested — so the public routes
+    must drop it rather than hand back a partial blob nothing marks as partial.
+    """
+
+    def _trace_with_tree_metadata(self):
+        trace = dict(TRACE_DETAIL)
+        trace["spans"] = [
+            dict(
+                TRACE_DETAIL["spans"][0],
+                metadata=(
+                    '{"traceroot.span.ids_path":["root-id"],"traceroot.span.path":["root","child"]}'
+                ),
+            )
+        ]
+        return trace
+
+    def test_default_skeleton_drops_the_subset(self, client, mock_reader):
+        mock_reader.get_trace.return_value = self._trace_with_tree_metadata()
+        resp = client.get("/api/v1/public/traces/abc123", headers=AUTH_HEADER)
+        assert resp.status_code == 200
+        assert resp.json()["spans"][0]["metadata"] is None
+
+    def test_fields_io_drops_the_subset(self, client, mock_reader):
+        """`fields=io` asks for input/output, not metadata — so metadata stays
+        null rather than leaking the internal path subset."""
+        mock_reader.get_trace.return_value = self._trace_with_tree_metadata()
+        mock_reader.get_trace_spans_io.return_value = {
+            "span-1": {"input": "the-in", "output": "the-out"}
+        }
+        resp = client.get("/api/v1/public/traces/abc123?fields=io", headers=AUTH_HEADER)
+        assert resp.status_code == 200
+        span = resp.json()["spans"][0]
+        assert span["input"] == "the-in"
+        assert span["metadata"] is None
+
+    def test_fields_metadata_returns_the_full_blob(self, client, mock_reader):
+        """When metadata IS requested the full stored blob replaces the subset."""
+        mock_reader.get_trace.return_value = self._trace_with_tree_metadata()
+        mock_reader.get_trace_spans_io.return_value = {
+            "span-1": {"metadata": '{"user":"real-blob"}'}
+        }
+        resp = client.get("/api/v1/public/traces/abc123?fields=metadata", headers=AUTH_HEADER)
+        assert resp.status_code == 200
+        assert resp.json()["spans"][0]["metadata"] == '{"user":"real-blob"}'
+
+
 class TestPublicTraceReadAuth:
     def test_missing_api_key_returns_401(self):
         test_client = TestClient(app, raise_server_exceptions=False)

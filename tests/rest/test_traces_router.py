@@ -375,3 +375,52 @@ class TestGetSpanIO:
         assert len(spans) == 2
         assert spans[1]["model_name"] == "gpt-4o"
         assert spans[1]["cost"] == 0.005
+
+
+class TestDashboardKeepsSpanTreeMetadata:
+    """The dashboard route MUST return the reader's span-path metadata subset.
+
+    This is the delivery path the live-tree repair depends on: children are
+    exported before their parents, so mid-run the client only reconnects the
+    tree because these path attributes ride along on the skeleton. The public
+    routes deliberately drop them (their contract is `metadata: null`), which
+    makes "drop them on this route too, for consistency" an inviting cleanup —
+    one that would silently reintroduce the orphaned-tree bug. These tests fail
+    if anyone does that.
+    """
+
+    TREE_METADATA = '{"traceroot.span.ids_path":["root-id"],"traceroot.span.path":["root","child"]}'
+
+    def _trace_with_tree_metadata(self):
+        trace = copy.deepcopy(TRACE_DETAIL)
+        trace["spans"][0]["metadata"] = self.TREE_METADATA
+        return trace
+
+    def test_default_skeleton_preserves_the_subset(self, client, mock_trace_reader):
+        mock_trace_reader.get_trace.return_value = self._trace_with_tree_metadata()
+        response = client.get("/api/v1/projects/test-project/traces/abc123")
+        assert response.status_code == 200
+        assert response.json()["spans"][0]["metadata"] == self.TREE_METADATA
+        mock_trace_reader.get_trace_spans_io.assert_not_called()
+
+    def test_fields_io_preserves_the_subset(self, client, mock_trace_reader):
+        """`fields=io` does not request metadata, so the subset stays — the
+        dashboard still needs it to build the tree."""
+        mock_trace_reader.get_trace.return_value = self._trace_with_tree_metadata()
+        mock_trace_reader.get_trace_spans_io.return_value = {
+            "span-1": {"input": "the-in", "output": "the-out"}
+        }
+        response = client.get("/api/v1/projects/test-project/traces/abc123?fields=io")
+        assert response.status_code == 200
+        span = response.json()["spans"][0]
+        assert span["input"] == "the-in"
+        assert span["metadata"] == self.TREE_METADATA
+
+    def test_fields_full_replaces_subset_with_the_real_blob(self, client, mock_trace_reader):
+        mock_trace_reader.get_trace.return_value = self._trace_with_tree_metadata()
+        mock_trace_reader.get_trace_spans_io.return_value = {
+            "span-1": {"input": "i", "output": "o", "metadata": '{"user":"real-blob"}'}
+        }
+        response = client.get("/api/v1/projects/test-project/traces/abc123?fields=full")
+        assert response.status_code == 200
+        assert response.json()["spans"][0]["metadata"] == '{"user":"real-blob"}'
