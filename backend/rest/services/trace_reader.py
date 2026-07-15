@@ -207,6 +207,14 @@ class TraceReaderService:
         self._distinct_cache[cache_key] = (now + DISTINCT_VALUES_CACHE_TTL_SECONDS, rows)
         return rows
 
+    def has_traces(self, project_id: str) -> bool:
+        """Check if a project has ever ingested any spans (ignores retention)."""
+        result = self._client.query(
+            "SELECT 1 FROM spans WHERE project_id = {project_id:String} LIMIT 1",
+            parameters={"project_id": project_id},
+        )
+        return len(result.result_rows) > 0
+
     def list_traces(
         self,
         project_id: str,

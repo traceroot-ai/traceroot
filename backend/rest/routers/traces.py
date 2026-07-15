@@ -37,6 +37,20 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/projects/{project_id}/traces", tags=["Traces"])
 
 
+@router.get("/exists")
+async def traces_exist(
+    project_id: str,
+    _access: RateLimitedProjectAccess,
+):
+    """Check if a project has ever ingested traces (bypasses retention).
+
+    Returns a boolean — no trace data is exposed, so retention gating
+    is intentionally skipped. Used by the frontend onboarding probe.
+    """
+    service = get_trace_reader_service()
+    return {"exists": service.has_traces(project_id)}
+
+
 @router.get("", response_model=TraceListResponse)
 @limiter.shared_limit(
     resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt

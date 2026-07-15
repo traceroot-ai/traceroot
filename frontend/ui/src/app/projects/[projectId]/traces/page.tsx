@@ -20,7 +20,7 @@ import {
   buildUrlWithFilters,
 } from "@/lib/utils";
 import type { TraceListItem } from "@/types/api";
-import { useTraces, usePrefetchTraces } from "@/features/traces/hooks";
+import { useTraces, usePrefetchTraces, useTracesExist } from "@/features/traces/hooks";
 import { isRetentionError, getRetentionDetail } from "@/lib/api/retention";
 import { RetentionGateBanner } from "@/components/RetentionGateBanner";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
@@ -84,24 +84,21 @@ export default function TracesPage() {
 
   const prefetchTraces = usePrefetchTraces(projectId);
 
-  // Check if project has EVER sent traces (no date filter) — controls onboarding visibility.
-  // staleTime: Infinity because once a project has traces it always will (immutable fact).
-  // refetchInterval polls every 3s while onboarding is shown so the page auto-transitions
-  // when the first trace arrives, without requiring a manual refresh.
-  const { data: anyTracesData, isPending: hasEverTracedPending } = useTraces(
-    projectId,
-    { limit: 1 },
-    {
-      staleTime: Infinity,
-      refetchInterval: (query: unknown) => {
-        const hasTraces =
-          ((query as { state?: { data?: { data?: unknown[] } } })?.state?.data?.data?.length ?? 0) >
-          0;
-        return hasTraces ? false : 3000;
-      },
+  // Check if project has EVER sent traces — controls onboarding visibility.
+  // Uses a dedicated endpoint that bypasses retention gating (returns a
+  // boolean, not trace data) so projects with only retention-expired data
+  // don't incorrectly show the onboarding screen.
+  // staleTime: Infinity because once a project has traces it always will.
+  // refetchInterval polls every 3s while onboarding is shown so the page
+  // auto-transitions when the first trace arrives.
+  const { data: existsData, isPending: hasEverTracedPending } = useTracesExist(projectId, {
+    refetchInterval: (query: unknown) => {
+      const exists =
+        (query as { state?: { data?: { exists?: boolean } } })?.state?.data?.exists ?? false;
+      return exists ? false : 3000;
     },
-  );
-  const hasEverTraced = (anyTracesData?.data?.length ?? 0) > 0;
+  });
+  const hasEverTraced = existsData?.exists ?? false;
   // Auth-gated React Query reports isLoading: false while disabled (TanStack v5),
   // so derive a single "still figuring it out" flag from auth + the probe's isPending.
   const checking = authPending || hasEverTracedPending;
