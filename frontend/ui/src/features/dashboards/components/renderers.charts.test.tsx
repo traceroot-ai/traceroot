@@ -489,6 +489,42 @@ describe("chart legend", () => {
     expect(legend.textContent).toContain("150");
     expect(legend.textContent).not.toContain("Total");
   });
+  it("builds no legend from a stale bucketed result on a categorical display", () => {
+    // keepPreviousData hands the pie/bar renderer the previous line query's
+    // bucketed rows for a beat after a display switch; those rows have no
+    // `name`, which used to render literal "undefined" legend labels.
+    const bucketed = makeResult(
+      ["bucket", "model_name", "value"],
+      [
+        ["2026-06-01T00:00:00", "gpt", 10],
+        ["2026-06-01T00:00:00", "claude", 30],
+        ["2026-06-01T01:00:00", "gpt", 5],
+      ],
+    );
+    const { unmount } = render(<QueryWidgetRenderer display="pie" result={bucketed} agg="sum" />);
+    expect(screen.queryByText("undefined")).toBeNull();
+    expect(screen.queryByRole("list", { name: "Chart legend" })).toBeNull();
+    unmount();
+
+    // Same for a no-breakdown bucketed shape ([bucket, value]).
+    const single = makeResult(["bucket", "value"], [["2026-06-01T00:00:00", 10]]);
+    render(<QueryWidgetRenderer display="bar" result={single} agg="sum" />);
+    expect(screen.queryByText("undefined")).toBeNull();
+    expect(screen.queryByRole("list", { name: "Chart legend" })).toBeNull();
+  });
+
+  it("builds no legend from a stale categorical result on a timeseries display", () => {
+    const categorical = makeResult(
+      ["service", "value"],
+      [
+        ["api", 10],
+        ["worker", 20],
+      ],
+    );
+    render(<QueryWidgetRenderer display="line" result={categorical} agg="sum" />);
+    expect(screen.queryByRole("list", { name: "Chart legend" })).toBeNull();
+  });
+
   it("bar legend hover dims the other categories", () => {
     const result = makeResult(
       ["service", "value"],

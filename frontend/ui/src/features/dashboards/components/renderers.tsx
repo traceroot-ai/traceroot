@@ -250,6 +250,10 @@ function legendFor(
   result: WidgetQueryResult,
   additive: boolean,
 ): { entries: LegendEntry[]; total: number | null } | null {
+  // Guard the result's shape, not just the display: keepPreviousData serves
+  // the previous spec's result for a beat after a display/spec switch, and
+  // pivoting a categorical result here would fabricate series entries.
+  if (result.columns[0] !== "bucket") return null;
   const { seriesKeys, data } = pivotRows(result.columns, result.rows, additive ? 0 : null);
   if (seriesKeys.length <= 1) return null;
   const entries = seriesKeys.map((k, i) => {
@@ -269,6 +273,10 @@ function categoricalLegend(
   result: WidgetQueryResult,
   additive: boolean,
 ): { entries: LegendEntry[]; total: number | null } | null {
+  // Categorical results are exactly [dim, value]; anything else is a stale
+  // mismatched shape (see legendFor) whose rows have no `name` and would
+  // render literal "undefined" labels.
+  if (result.columns.length !== 2 || result.columns[0] === "bucket") return null;
   const { data } = pivotRows(result.columns, result.rows);
   if (data.length <= 1) return null;
   const entries = data.map((r, i) => {
