@@ -289,10 +289,26 @@ export function DatasetDetailView({
 
   return (
     <>
-      <ProjectBreadcrumb projectId={projectId} current="Datasets" />
+      <ProjectBreadcrumb
+        projectId={projectId}
+        trail={[{ label: "Datasets", href: `/projects/${projectId}/datasets` }]}
+        current={dataset.name}
+      />
       <div className="flex h-full flex-col text-[13px]">
         <EvalPageHeader
-          title={dataset.name}
+          title={
+            <span className="flex flex-wrap items-center gap-2">
+              <span>{dataset.name}</span>
+              <span className="font-mono text-xs font-normal text-muted-foreground">
+                {dataset.id}
+              </span>
+              <CopyButton
+                value={dataset.id}
+                className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                title="Copy dataset ID"
+              />
+            </span>
+          }
           action={
             <Button size="sm" className="h-7 gap-1.5 text-[12px]" onClick={() => setRunOpen(true)}>
               <Play className="h-3.5 w-3.5" aria-hidden />
