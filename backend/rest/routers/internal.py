@@ -779,7 +779,10 @@ async def list_detector_window_summary(
                 FROM (
                     SELECT
                         r.detector_id AS detector_id,
-                        substring({summary_expr}, 1, {DIGEST_SUMMARY_MAX_CHARS}) AS summary,
+                        -- substringUTF8, not substring: a byte-offset cut can
+                        -- split a multibyte char, and clickhouse-connect
+                        -- replaces an undecodable string with its hex dump.
+                        substringUTF8({summary_expr}, 1, {DIGEST_SUMMARY_MAX_CHARS}) AS summary,
                         r.ts AS ts,
                         -- Rank-major allocation: every detector keeps its
                         -- newest sentence before any detector gets its

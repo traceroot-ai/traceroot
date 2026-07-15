@@ -190,7 +190,7 @@ describe("flushDigest", () => {
     });
     detectorFindMany.mockResolvedValue([{ id: "d1", name: "Latency", enableRca: true }]);
     generateDigestSummary.mockResolvedValue({
-      summary: "Stripe is down.",
+      summary: "Payments API is down.",
       usage: {
         model: "claude-haiku-4-5",
         provider: "anthropic",
@@ -205,8 +205,8 @@ describe("flushDigest", () => {
     expect(generateDigestSummary.mock.calls[0][0].detectors).toEqual([
       { name: "Latency", findingCount: 4, sampleSummaries: ["s1", "s2"] },
     ]);
-    expect(sendDigestAlertSlack.mock.calls[0][0].summary).toBe("Stripe is down.");
-    expect(sendDigestAlertEmail.mock.calls[0][0].summary).toBe("Stripe is down.");
+    expect(sendDigestAlertSlack.mock.calls[0][0].summary).toBe("Payments API is down.");
+    expect(sendDigestAlertEmail.mock.calls[0][0].summary).toBe("Payments API is down.");
     expect(aiMessageCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
         workspaceId: "ws1",

@@ -160,11 +160,11 @@ describe("sendDigestAlertEmail", () => {
     const { sendDigestAlertEmail } = await import("../email.js");
     await sendDigestAlertEmail({
       ...baseParams,
-      summary: 'Stripe <b>"charge"</b> failing & retrying.',
+      summary: 'Payments <b>"charge"</b> failing & retrying.',
     });
     const mail = sendMail.mock.calls[0][0];
-    expect(mail.text).toContain('Stripe <b>"charge"</b> failing & retrying.'); // text body: verbatim
-    expect(mail.html).toContain("Stripe &lt;b&gt;"); // html: escaped
+    expect(mail.text).toContain('Payments <b>"charge"</b> failing & retrying.'); // text body: verbatim
+    expect(mail.html).toContain("Payments &lt;b&gt;"); // html: escaped
     expect(mail.html).not.toContain('<b>"charge"</b>');
   });
 
@@ -188,8 +188,9 @@ describe("sendDigestAlertEmail", () => {
     const blank = sendMail.mock.calls[0][0];
     expect(blank.html).toBe(without.html);
     expect(blank.text).toBe(without.text);
-    // New-vs-OLD: also compare against the pre-change capture from the guard
-    // above (inline the stashed baseline or read it from the scratch file).
+    // New-vs-OLD: also compare against the pre-change capture, so a template
+    // regression can't hide behind a blank-vs-absent equality that would still
+    // hold if both outputs drifted together.
     expect(without.html).toBe(PRE_CHANGE_BASELINE_HTML);
     expect(without.text).toBe(PRE_CHANGE_BASELINE_TEXT);
   });

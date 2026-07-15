@@ -137,13 +137,13 @@ describe("buildDigestAlertBlocks", () => {
   it("renders the summary as the first section under the header, escaped and capped", () => {
     const withSummary = buildDigestAlertBlocks({
       ...digestBase,
-      summary: "Stripe <charge> is down & retrying.",
+      summary: "Payments <charge> is down & retrying.",
     });
     const without = buildDigestAlertBlocks(digestBase);
     expect(withSummary.length).toBe(without.length + 1);
     const summaryBlock = withSummary[2] as any; // header, divider, summary
     expect(summaryBlock.type).toBe("section");
-    expect(summaryBlock.text.text).toBe("Stripe &lt;charge&gt; is down &amp; retrying.");
+    expect(summaryBlock.text.text).toBe("Payments &lt;charge&gt; is down &amp; retrying.");
 
     const long = buildDigestAlertBlocks({ ...digestBase, summary: "x".repeat(2000) }) as any[];
     expect(long[2].text.text.length).toBeLessThanOrEqual(700);

@@ -63,7 +63,7 @@ describe("readDetectorWindowSummary", () => {
             finding_count: 3,
             run_count: 9,
             sample_trace_ids: ["t-abc"],
-            sample_summaries: ["Stripe charge timed out 4x", "parse_invoice error swallowed"],
+            sample_summaries: ["payments charge timed out 4x", "parse_invoice error swallowed"],
           },
         },
       }),
