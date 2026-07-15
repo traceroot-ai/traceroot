@@ -4,6 +4,7 @@ import * as React from "react";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
+import { LineNumberedTextarea } from "./code";
 
 /**
  * The shared dataset form — used by both the "New dataset" centered dialog and
@@ -81,9 +82,6 @@ function Card({
   );
 }
 
-const jsonBlockClass =
-  "w-full resize-vertical border border-input bg-background px-3 py-2 font-mono text-[12px] leading-relaxed placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring";
-
 export function DatasetFormFields({
   state,
   onChange,
@@ -119,12 +117,10 @@ export function DatasetFormFields({
       </Card>
 
       <Card label="Metadata" optional>
-        <textarea
+        <LineNumberedTextarea
           value={state.metadata}
-          onChange={(e) => set("metadata", e.target.value)}
-          rows={2}
-          placeholder={'{\n  "team": "support"\n}'}
-          className={jsonBlockClass}
+          onChange={(v) => set("metadata", v)}
+          aria-label="Metadata"
         />
       </Card>
 
@@ -168,14 +164,14 @@ function SchemaCard({
     <Card label={label} action={<Switch checked={enabled} onCheckedChange={onToggle} />}>
       <p className="text-[11px] leading-relaxed text-muted-foreground">{explanation}</p>
       {enabled && (
-        <textarea
-          value={value}
-          onChange={(e) => onValueChange(e.target.value)}
-          rows={7}
-          spellCheck={false}
-          className={cn(jsonBlockClass, "mt-2")}
-          aria-label={`${label} JSON`}
-        />
+        <div className="mt-2">
+          <LineNumberedTextarea
+            value={value}
+            onChange={onValueChange}
+            minRows={3}
+            aria-label={`${label} JSON`}
+          />
+        </div>
       )}
     </Card>
   );
