@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Download, FlaskConical, ListChecks, Ruler } from "lucide-react";
+import { Download, ListChecks, Ruler } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,7 +35,6 @@ import {
 import {
   useDatasets,
   useEvaluationRuns,
-  useEvaluations,
   useScorers,
   useDeleteRuns,
   type ScorerRegistryRow,
@@ -43,11 +42,14 @@ import {
 import { EVAL_RUN_STATUS_LABEL, type EvalRunStatus } from "../types";
 import { RunEvaluationDrawer } from "../components/run-evaluation-drawer";
 
-type Tab = "runs" | "evaluations" | "scorers";
+// Run-centric: the Evaluations page is one table of immutable runs. Scorers is the
+// SDK-authored catalog. There is no separate "unique evaluations", "all runs", or
+// "compare" tab — lineage is reached by grouping/filtering, and comparison is an
+// action that opens a shareable /evaluations/compare route.
+type Tab = "evaluations" | "scorers";
 
 const TABS: Array<{ id: Tab; label: string; icon: typeof ListChecks }> = [
-  { id: "runs", label: "Runs", icon: ListChecks },
-  { id: "evaluations", label: "Evaluations", icon: FlaskConical },
+  { id: "evaluations", label: "Evaluations", icon: ListChecks },
   { id: "scorers", label: "Scorers", icon: Ruler },
 ];
 
@@ -66,8 +68,7 @@ export function RunStatusBadge({ status }: { status: EvalRunStatus }) {
 const ALL = "__all__";
 
 export function EvaluationsView({ projectId }: { projectId: string }) {
-  const router = useRouter();
-  const [tab, setTab] = React.useState<Tab>("runs");
+  const [tab, setTab] = React.useState<Tab>("evaluations");
   const [runOpen, setRunOpen] = React.useState(false);
 
   return (
@@ -99,20 +100,14 @@ export function EvaluationsView({ projectId }: { projectId: string }) {
             );
           })}
         </div>
-        {tab !== "scorers" && (
+        {tab === "evaluations" && (
           <Button size="sm" className="h-7 text-[12px]" onClick={() => setRunOpen(true)}>
             Run evaluation
           </Button>
         )}
       </div>
 
-      {tab === "runs" && <RunsTab projectId={projectId} />}
-      {tab === "evaluations" && (
-        <EvaluationsTab
-          projectId={projectId}
-          onOpenRun={(runId) => router.push(`/projects/${projectId}/evaluations/${runId}`)}
-        />
-      )}
+      {tab === "evaluations" && <RunsTab projectId={projectId} />}
       {tab === "scorers" && <ScorersTab projectId={projectId} />}
 
       <RunEvaluationDrawer projectId={projectId} open={runOpen} onOpenChange={setRunOpen} />
@@ -124,7 +119,7 @@ export function EvaluationsView({ projectId }: { projectId: string }) {
 // Runs — the flat execution list.
 // ---------------------------------------------------------------------------
 
-const RUNS_COLUMN_COUNT = 11;
+const RUNS_COLUMN_COUNT = 10;
 
 /** Human elapsed duration; "—" when unknown (never 0). */
 function formatElapsed(ms: number | null | undefined): string {
@@ -253,8 +248,7 @@ function RunsTab({ projectId }: { projectId: string }) {
                 indeterminate={sel.someSelected}
                 onToggle={sel.toggleAll}
               />
-              <Th>Name</Th>
-              <Th className="w-[140px]">Candidate version</Th>
+              <Th>Evaluation / Run</Th>
               <Th>Dataset</Th>
               <Th className="w-[110px] text-right">Main score</Th>
               <Th className="w-[100px] text-right">Change</Th>
@@ -297,14 +291,18 @@ function RunsTab({ projectId }: { projectId: string }) {
                       onToggle={() => sel.toggle(r.id)}
                       label={`Select ${r.evaluationName} #${r.runNumber}`}
                     />
-                    <Td className="font-medium">
-                      {r.evaluationName}
-                      <span className="ml-1.5 font-normal text-muted-foreground">
-                        #{r.runNumber}
-                      </span>
+                    {/* Two-line identity: the evaluation lineage, then the immutable
+                        run + candidate. No opaque DB id in the visible name. */}
+                    <Td>
+                      <div className="font-medium">{r.evaluationName}</div>
+                      <div className="text-[11px] text-muted-foreground">
+                        Run #{r.runNumber} · <span className="font-mono">{r.candidateVersion}</span>
+                      </div>
                     </Td>
-                    <Td className="font-mono text-[11px]">{r.candidateVersion}</Td>
-                    <Td className="text-muted-foreground">{r.datasetName}</Td>
+                    <Td className="text-muted-foreground">
+                      <div>{r.datasetName}</div>
+                      <div className="text-[11px]">{r.datasetVersionLabel}</div>
+                    </Td>
                     <Td className="text-right tabular-nums">
                       {r.mainScore === null ? (
                         <span className="text-muted-foreground">—</span>
@@ -347,150 +345,6 @@ function RunsTab({ projectId }: { projectId: string }) {
                   </TR>
                 );
               })
-            )}
-          </TBody>
-        </Table>
-      </div>
-    </>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Evaluations — one row per purpose (lineage), from the server.
-// ---------------------------------------------------------------------------
-
-// +1 for the leading selection checkbox column.
-const SUITES_COLUMN_COUNT = 7;
-
-function EvaluationsTab({
-  projectId,
-  onOpenRun,
-}: {
-  projectId: string;
-  onOpenRun: (runId: string) => void;
-}) {
-  const { toast } = useToast();
-  const [keyword, setKeyword] = React.useState("");
-  const [dateFilter, setDateFilter] = React.useState<DateFilterOption>(
-    DATE_FILTER_OPTIONS.find((o) => o.id === "14d") ?? DATE_FILTER_OPTIONS[0],
-  );
-  const [customStart, setCustomStart] = React.useState<Date | null>(null);
-  const [customEnd, setCustomEnd] = React.useState<Date | null>(null);
-
-  const { data, isLoading, error } = useEvaluations(projectId);
-  const suites = React.useMemo(() => {
-    const all = data?.data ?? [];
-    const q = keyword.trim().toLowerCase();
-    if (!q) return all;
-    return all.filter(
-      (s) => s.name.toLowerCase().includes(q) || (s.datasetName ?? "").toLowerCase().includes(q),
-    );
-  }, [data, keyword]);
-
-  // Row selection, matching the Runs tab. There is no delete API for an evaluation
-  // lineage, so the bar offers selection + Clear without a Delete action.
-  const suiteIds = React.useMemo(() => suites.map((s) => s.id), [suites]);
-  const sel = useRowSelection(suiteIds);
-
-  return (
-    <>
-      <SearchFilterBar
-        searchValue={keyword}
-        onSearchChange={setKeyword}
-        searchPlaceholder="Search evaluations..."
-        dateFilter={dateFilter}
-        customStartDate={customStart}
-        customEndDate={customEnd}
-        onDateFilterChange={setDateFilter}
-        onCustomRangeChange={(s, e) => {
-          setCustomStart(s);
-          setCustomEnd(e);
-        }}
-      >
-        <span className="flex-1" aria-hidden />
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 gap-1.5 px-1.5 text-[12px] text-muted-foreground hover:text-foreground"
-          onClick={() => toast({ title: "Export coming soon", tone: "success" })}
-        >
-          <Download className="h-3.5 w-3.5" aria-hidden />
-          Download
-        </Button>
-      </SearchFilterBar>
-
-      <BulkActionBar count={sel.count} onClear={sel.clear} />
-
-      <div className="min-h-0 flex-1 overflow-auto">
-        <Table>
-          <THead>
-            <TRHead>
-              <SelectAllHeaderCell
-                checked={sel.allSelected}
-                indeterminate={sel.someSelected}
-                onToggle={sel.toggleAll}
-              />
-              <Th>Evaluation</Th>
-              <Th>Dataset</Th>
-              <Th className="w-[90px] text-right">Runs</Th>
-              <Th className="w-[150px]">Latest candidate</Th>
-              <Th className="w-[130px] text-right">Latest score</Th>
-              <Th className="w-[130px] text-right">Last run</Th>
-            </TRHead>
-          </THead>
-          <TBody>
-            {isLoading ? (
-              <Cell colSpan={SUITES_COLUMN_COUNT}>
-                <EmptyState>Loading evaluations...</EmptyState>
-              </Cell>
-            ) : error ? (
-              <Cell colSpan={SUITES_COLUMN_COUNT}>
-                <EmptyState>Error loading evaluations</EmptyState>
-              </Cell>
-            ) : suites.length === 0 ? (
-              <Cell colSpan={SUITES_COLUMN_COUNT}>
-                <EmptyState>
-                  {keyword ? "No evaluations match your search." : "No evaluations yet."}
-                </EmptyState>
-              </Cell>
-            ) : (
-              suites.map((suite) => (
-                <TR
-                  key={suite.id}
-                  interactive
-                  selected={sel.has(suite.id)}
-                  onClick={() => suite.latestRun && onOpenRun(suite.latestRun.id)}
-                >
-                  <SelectRowCell
-                    checked={sel.has(suite.id)}
-                    onToggle={() => sel.toggle(suite.id)}
-                    label={`Select ${suite.name}`}
-                  />
-                  <Td className="font-medium">
-                    {suite.name}
-                    <span className="ml-1.5 font-mono text-[11px] font-normal text-muted-foreground">
-                      {suite.id}
-                    </span>
-                  </Td>
-                  <Td className="text-muted-foreground">{suite.datasetName ?? "—"}</Td>
-                  <Td className="text-right tabular-nums text-muted-foreground">
-                    {suite.runCount}
-                  </Td>
-                  <Td className="font-mono text-[11px]">
-                    {suite.latestRun?.candidateVersion ?? "—"}
-                  </Td>
-                  <Td className="text-right tabular-nums">
-                    {suite.latestRun?.mainScore == null ? (
-                      <span className="text-muted-foreground">—</span>
-                    ) : (
-                      pctFraction(suite.latestRun.mainScore)
-                    )}
-                  </Td>
-                  <Td className="whitespace-nowrap text-right text-muted-foreground">
-                    {suite.latestRun ? <Timestamp iso={suite.latestRun.startedAt} /> : "—"}
-                  </Td>
-                </TR>
-              ))
             )}
           </TBody>
         </Table>
