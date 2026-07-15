@@ -36,7 +36,7 @@ export function SessionHistory({
   projectId,
   onSelect,
   onDelete,
-  canDelete = true,
+  canDelete = false,
 }: SessionHistoryProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);

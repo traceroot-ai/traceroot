@@ -2,7 +2,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 
-const mocks = vi.hoisted(() => ({ push: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  push: vi.fn(),
+  workspaceData: undefined as { role: string } | undefined,
+}));
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "proj-1" }),
@@ -42,10 +45,15 @@ vi.mock("@/features/detectors/hooks/use-detectors", () => ({
     error: null,
   }),
   useDetectorCounts: () => ({ data: {}, isLoading: false }),
-  useDeleteDetector: () => ({ mutate: vi.fn(), isPending: false }),
+  useDeleteDetector: () => ({ mutate: vi.fn(), isPending: false, isError: false, error: null }),
 }));
 
-vi.mock("@/features/projects/hooks", () => ({ useProject: () => ({ data: undefined }) }));
+vi.mock("@/features/projects/hooks", () => ({
+  useProject: () => ({ data: { workspace_id: "ws-1" } }),
+}));
+vi.mock("@/features/workspaces/hooks", () => ({
+  useWorkspace: () => ({ data: mocks.workspaceData }),
+}));
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
 vi.mock("@/components/search-filter-bar", () => ({ SearchFilterBar: () => null }));
 vi.mock("@/components/list-pagination", () => ({ ListPagination: () => null }));
@@ -59,14 +67,22 @@ import DetectorsPage from "./page";
 afterEach(() => {
   cleanup();
   mocks.push.mockClear();
+  mocks.workspaceData = undefined;
 });
 
 describe("DetectorsPage", () => {
   it("carries the selected time range into the detector detail URL on row click", () => {
+    mocks.workspaceData = { role: "ADMIN" };
     render(<DetectorsPage />);
 
     fireEvent.click(screen.getByText("My Detector"));
 
     expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/detectors/det-1?date_filter=7d");
+  });
+
+  it("hides the New Detector button for VIEWER role", () => {
+    mocks.workspaceData = { role: "VIEWER" };
+    render(<DetectorsPage />);
+    expect(screen.queryByRole("button", { name: "New Detector" })).toBeNull();
   });
 });

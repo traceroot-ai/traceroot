@@ -12,6 +12,7 @@ const session: AISession = {
   title: "Test session",
   createTime: new Date().toISOString(),
   projectId: "proj-1",
+  status: "active",
 };
 
 afterEach(() => {
@@ -20,7 +21,7 @@ afterEach(() => {
 });
 
 describe("SessionHistory — canDelete prop", () => {
-  it("shows the delete icon when canDelete is true (default)", () => {
+  it("shows the delete icon when canDelete is true", () => {
     render(
       <SessionHistory
         sessions={[session]}
@@ -28,6 +29,7 @@ describe("SessionHistory — canDelete prop", () => {
         projectId="proj-1"
         onSelect={vi.fn()}
         onDelete={vi.fn()}
+        canDelete={true}
       />,
     );
     expect(document.querySelector("svg + svg, span + svg")).toBeTruthy();

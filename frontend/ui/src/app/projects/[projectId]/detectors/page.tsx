@@ -17,6 +17,7 @@ import {
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
 import { useProject } from "@/features/projects/hooks";
+import { useWorkspace } from "@/features/workspaces/hooks";
 import { DeleteDetectorDialog } from "@/features/detectors/components/delete-detector-dialog";
 import { DetectorPanel } from "@/features/detectors/components/detector-panel";
 import { getTemplate } from "@/features/detectors/templates";
@@ -52,6 +53,12 @@ export default function DetectorsPage() {
     });
 
   const { data: project } = useProject(projectId);
+  const { data: workspace } = useWorkspace(project?.workspace_id ?? "");
+  const isMember =
+    !project?.workspace_id ||
+    !workspace ||
+    workspace.role === "MEMBER" ||
+    workspace.role === "ADMIN";
 
   const { data, isLoading, error } = useDetectorList(projectId, {
     page: queryOptions.page,
@@ -100,13 +107,15 @@ export default function DetectorsPage() {
         {/* Page header */}
         <div className="flex items-center justify-between border-b border-border px-4 py-2">
           <h1 className="text-[13px] font-medium">Detectors</h1>
-          <Button
-            size="sm"
-            className="h-7 text-[12px]"
-            onClick={() => router.push(`/projects/${projectId}/detectors/new`)}
-          >
-            New Detector
-          </Button>
+          {isMember && (
+            <Button
+              size="sm"
+              className="h-7 text-[12px]"
+              onClick={() => router.push(`/projects/${projectId}/detectors/new`)}
+            >
+              New Detector
+            </Button>
+          )}
         </div>
 
         {/* Search / time-range filter */}
@@ -138,13 +147,15 @@ export default function DetectorsPage() {
               <p className="text-[12px] text-muted-foreground">
                 Create a detector to automatically analyze your traces.
               </p>
-              <Button
-                size="sm"
-                className="mt-1 h-7 text-[12px]"
-                onClick={() => router.push(`/projects/${projectId}/detectors/new`)}
-              >
-                New Detector
-              </Button>
+              {isMember && (
+                <Button
+                  size="sm"
+                  className="mt-1 h-7 text-[12px]"
+                  onClick={() => router.push(`/projects/${projectId}/detectors/new`)}
+                >
+                  New Detector
+                </Button>
+              )}
             </div>
           ) : isEmptySearch ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
@@ -265,17 +276,19 @@ export default function DetectorsPage() {
                               <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
                               Edit
                             </button>
-                            <button
-                              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-[12px] text-destructive hover:bg-destructive/10"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setDeleteTarget({ id: detector.id, name: detector.name });
-                                setActionsOpen(null);
-                              }}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                              Delete
-                            </button>
+                            {isMember && (
+                              <button
+                                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-[12px] text-destructive hover:bg-destructive/10"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeleteTarget({ id: detector.id, name: detector.name });
+                                  setActionsOpen(null);
+                                }}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                                Delete
+                              </button>
+                            )}
                           </PopoverContent>
                         </Popover>
                       </td>
@@ -311,6 +324,12 @@ export default function DetectorsPage() {
             detectors.findIndex((d) => d.id === selectedDetectorId) < detectors.length - 1
           }
         />
+      )}
+
+      {deleteMutation.isError && (
+        <p className="fixed bottom-4 right-4 rounded border border-destructive bg-background px-3 py-2 text-[12px] text-destructive shadow">
+          {(deleteMutation.error as Error)?.message ?? "Failed to delete detector"}
+        </p>
       )}
 
       {deleteTarget && (

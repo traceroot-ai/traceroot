@@ -20,8 +20,7 @@ const mocks = vi.hoisted(() => ({
         }>;
       }
     | undefined,
-  members: undefined as Array<{ user_id: string; role: string }> | undefined,
-  userId: undefined as string | undefined,
+  workspaceData: undefined as { role: string } | undefined,
   sessionHistoryCanDelete: undefined as boolean | undefined,
   onClose: vi.fn(),
 }));
@@ -30,7 +29,6 @@ vi.mock("@tanstack/react-query", () => ({
   useQuery: ({ queryKey }: { queryKey: string[] }) => {
     if (queryKey[0] === "project") return { data: mocks.projectData };
     if (queryKey[0] === "llm-models") return { data: mocks.llmModels };
-    if (queryKey[0] === "workspace-members") return { data: mocks.members };
     return { data: undefined };
   },
 }));
@@ -38,11 +36,10 @@ vi.mock("@tanstack/react-query", () => ({
 vi.mock("@/lib/api", () => ({
   getProject: vi.fn(),
   getAvailableLLMModels: vi.fn(),
-  getMembers: vi.fn(),
 }));
 
-vi.mock("@/lib/auth-client", () => ({
-  useSession: () => ({ data: mocks.userId ? { user: { id: mocks.userId } } : undefined }),
+vi.mock("@/features/workspaces/hooks", () => ({
+  useWorkspace: () => ({ data: mocks.workspaceData }),
 }));
 
 vi.mock("./ai-chat-context", () => ({
@@ -78,8 +75,7 @@ afterEach(() => {
   cleanup();
   mocks.projectData = undefined;
   mocks.llmModels = undefined;
-  mocks.members = undefined;
-  mocks.userId = undefined;
+  mocks.workspaceData = undefined;
   mocks.sessionHistoryCanDelete = undefined;
   mocks.onClose.mockReset();
 });
@@ -98,8 +94,7 @@ describe("AiAssistantPanel — canDelete passed to SessionHistory", () => {
       ],
       byokProviders: [],
     };
-    mocks.members = [{ user_id: "user-admin", role: "ADMIN" }];
-    mocks.userId = "user-admin";
+    mocks.workspaceData = { role: "ADMIN" };
 
     render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
 
@@ -119,8 +114,7 @@ describe("AiAssistantPanel — canDelete passed to SessionHistory", () => {
       ],
       byokProviders: [],
     };
-    mocks.members = [{ user_id: "user-member", role: "MEMBER" }];
-    mocks.userId = "user-member";
+    mocks.workspaceData = { role: "MEMBER" };
 
     render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
 

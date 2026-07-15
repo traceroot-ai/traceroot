@@ -13,10 +13,18 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push }),
 }));
 vi.mock("@/features/detectors/hooks/use-detectors", () => ({
-  useCreateDetector: () => ({ mutateAsync: mocks.mutateAsync, isPending: false }),
+  useCreateDetector: () => ({
+    mutateAsync: mocks.mutateAsync,
+    isPending: false,
+    isError: false,
+    error: null,
+  }),
 }));
 vi.mock("@/features/projects/hooks", () => ({
   useProject: () => ({ data: undefined }),
+}));
+vi.mock("@/features/workspaces/hooks", () => ({
+  useWorkspace: () => ({ data: undefined }),
 }));
 vi.mock("@/features/projects/components", () => ({
   ProjectBreadcrumb: () => null,

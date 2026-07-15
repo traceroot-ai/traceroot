@@ -8,8 +8,8 @@ import { MessageList } from "./message-list";
 import { MessageInput } from "./message-input";
 import { SessionHistory } from "./session-history";
 import { useAiChatContext } from "./ai-chat-context";
-import { getProject, getAvailableLLMModels, getMembers } from "@/lib/api";
-import { useSession } from "@/lib/auth-client";
+import { getProject, getAvailableLLMModels } from "@/lib/api";
+import { useWorkspace } from "@/features/workspaces/hooks";
 
 interface AiAssistantPanelProps {
   projectId?: string;
@@ -48,13 +48,9 @@ export function AiAssistantPanel({ projectId, onClose, compact = false }: AiAssi
   // workspaceId from project (only available on project pages)
   const workspaceId = project?.workspace_id;
 
-  const { data: authSession } = useSession();
-  const { data: members } = useQuery({
-    queryKey: ["workspace-members", workspaceId],
-    queryFn: () => getMembers(workspaceId!),
-    enabled: !!workspaceId,
-  });
-  const isAdmin = members?.find((m) => m.user_id === authSession?.user?.id)?.role === "ADMIN";
+  const { data: workspace } = useWorkspace(workspaceId ?? "");
+  const isAdmin = workspace?.role === "ADMIN";
+  const isMember = workspace === undefined || workspace.role === "MEMBER" || isAdmin;
 
   // Check if any models are available (system or BYOK)
   const { data: llmModels } = useQuery({
@@ -193,7 +189,7 @@ export function AiAssistantPanel({ projectId, onClose, compact = false }: AiAssi
       {/* Input */}
       <MessageInput
         onSend={handleSend}
-        disabled={!projectId || !hasModels}
+        disabled={!projectId || !hasModels || !isMember}
         workspaceId={workspaceId}
         actions={
           isStreaming && (

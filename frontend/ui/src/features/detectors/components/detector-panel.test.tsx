@@ -6,14 +6,23 @@ import type { Detector } from "../hooks/use-detectors";
 const mocks = vi.hoisted(() => ({
   detector: undefined as Detector | undefined,
   mutate: vi.fn(),
+  workspaceData: undefined as { role: string } | undefined,
 }));
 
 vi.mock("../hooks/use-detectors", () => ({
   useDetector: () => ({ data: mocks.detector }),
-  useUpdateDetector: () => ({ mutate: mocks.mutate, isPending: false }),
+  useUpdateDetector: () => ({
+    mutate: mocks.mutate,
+    isPending: false,
+    isError: false,
+    error: null,
+  }),
 }));
 vi.mock("@/features/projects/hooks", () => ({
   useProject: () => ({ data: undefined }),
+}));
+vi.mock("@/features/workspaces/hooks", () => ({
+  useWorkspace: () => ({ data: mocks.workspaceData }),
 }));
 vi.mock("./trigger-editor", () => ({
   TriggerEditor: () => null,
@@ -80,6 +89,7 @@ const saveButton = () => screen.getByRole("button", { name: "Save" });
 afterEach(() => {
   cleanup();
   mocks.detector = undefined;
+  mocks.workspaceData = undefined;
   mocks.mutate.mockReset();
 });
 
@@ -130,6 +140,13 @@ describe("DetectorPanel", () => {
     mocks.detector = baseDetector;
     renderPanel("det-2");
     expect(promptBox().value).toBe("");
+    expect((saveButton() as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("disables Save for VIEWER role", () => {
+    mocks.detector = baseDetector;
+    mocks.workspaceData = { role: "VIEWER" };
+    renderPanel();
     expect((saveButton() as HTMLButtonElement).disabled).toBe(true);
   });
 });

@@ -20,6 +20,7 @@ import type { TriggerCondition } from "@/features/detectors/components/trigger-e
 import { AgentModelLink } from "@/features/detectors/components/agent-model-link";
 import { RcaToggle } from "@/features/detectors/components/rca-toggle";
 import { useProject } from "@/features/projects/hooks";
+import { useWorkspace } from "@/features/workspaces/hooks";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 
 export default function NewDetectorPage() {
@@ -28,6 +29,12 @@ export default function NewDetectorPage() {
   const projectId = params.projectId as string;
 
   const { data: project } = useProject(projectId);
+  const { data: workspace } = useWorkspace(project?.workspace_id ?? "");
+  const isMember =
+    !project?.workspace_id ||
+    !workspace ||
+    workspace.role === "MEMBER" ||
+    workspace.role === "ADMIN";
   const createMutation = useCreateDetector(projectId);
 
   const INITIAL_TEMPLATE = DETECTOR_TEMPLATES[0];
@@ -225,6 +232,11 @@ export default function NewDetectorPage() {
             </div>
 
             {/* Footer */}
+            {createMutation.isError && (
+              <p className="text-[11px] text-destructive">
+                {(createMutation.error as Error)?.message ?? "Failed to create detector"}
+              </p>
+            )}
             <div className="flex justify-end gap-2 pt-1">
               <Button
                 type="button"
@@ -239,7 +251,7 @@ export default function NewDetectorPage() {
                 type="submit"
                 size="sm"
                 className="h-7 text-[12px]"
-                disabled={createMutation.isPending || !name.trim() || !prompt.trim()}
+                disabled={createMutation.isPending || !name.trim() || !prompt.trim() || !isMember}
               >
                 {createMutation.isPending ? "Creating..." : "Create Detector"}
               </Button>
