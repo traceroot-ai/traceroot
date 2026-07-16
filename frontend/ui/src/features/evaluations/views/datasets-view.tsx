@@ -2,19 +2,12 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { DATE_FILTER_OPTIONS, type DateFilterOption } from "@/lib/date-filter";
 import { useToast } from "@/components/ui/toast";
 import { ProjectBreadcrumb } from "@/features/projects/components";
-import {
-  DatasetActionsMenu,
-  SelectAllHeaderCell,
-  SelectRowCell,
-  Timestamp,
-  useRowSelection,
-} from "@/features/offline-eval/components";
+import { DatasetActionsMenu, Timestamp } from "@/features/offline-eval/components";
 import { useDatasets, useDeleteDataset, useEvaluations } from "../hooks";
 import type { DatasetRow } from "../types";
 import { NewDatasetPanel, DatasetEditPanel } from "../components/dataset-panels";
@@ -27,10 +20,9 @@ const TH =
 const TD = "border-r border-border/50 px-3 py-1.5 text-[12px]";
 
 /**
- * Dataset list — a faithful port of the offline-eval prototype's dataset
- * library, wired to the server: tracing-style search + date filter, row
- * selection with "N selected · Delete" beside the search, a three-dot
- * Edit/Delete menu, and right-side New/Edit panels.
+ * Dataset list — the dataset library, wired to the server: tracing-style
+ * search + date filter, a three-dot Edit/Delete menu, and right-side New/Edit
+ * panels.
  */
 export function DatasetsView({ projectId }: { projectId: string }) {
   const router = useRouter();
@@ -60,23 +52,11 @@ export function DatasetsView({ projectId }: { projectId: string }) {
     return map;
   }, [evaluationsData]);
 
-  const ids = React.useMemo(() => datasets.map((d) => d.id), [datasets]);
-  const sel = useRowSelection(ids);
-
   const deleteOne = (dataset: DatasetRow) => {
     del.mutate(dataset.id, {
       onSuccess: () => toast({ title: `Deleted ${dataset.name}`, tone: "success" }),
       onError: (e) => toast({ title: "Could not delete", description: String(e), tone: "warning" }),
     });
-  };
-
-  const deleteSelected = () => {
-    const chosen = [...sel.selected];
-    if (chosen.length === 0) return;
-    Promise.all(chosen.map((id) => del.mutateAsync(id)))
-      .then(() => toast({ title: `${chosen.length} deleted`, tone: "success" }))
-      .catch((e) => toast({ title: "Could not delete", description: String(e), tone: "warning" }));
-    sel.clear();
   };
 
   return (
@@ -104,28 +84,6 @@ export function DatasetsView({ projectId }: { projectId: string }) {
           setCustomEnd(e);
         }}
       >
-        {sel.count > 0 && (
-          <span className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={sel.clear}
-              aria-label="Cancel selection"
-              className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            >
-              <X className="h-3.5 w-3.5" aria-hidden />
-            </button>
-            <span className="text-[12px] font-medium tabular-nums">{sel.count} selected</span>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 gap-1 px-1.5 text-[12px] text-destructive hover:bg-destructive/10 hover:text-destructive"
-              onClick={deleteSelected}
-            >
-              <Trash2 className="h-3.5 w-3.5" aria-hidden />
-              Delete
-            </Button>
-          </span>
-        )}
         <span className="flex-1" aria-hidden />
       </SearchFilterBar>
 
@@ -133,11 +91,6 @@ export function DatasetsView({ projectId }: { projectId: string }) {
         <table className="w-full">
           <thead className="sticky top-0 bg-background">
             <tr className="border-b border-border bg-muted/50">
-              <SelectAllHeaderCell
-                checked={sel.allSelected}
-                indeterminate={sel.someSelected}
-                onToggle={sel.toggleAll}
-              />
               <th className={`${TH} w-[170px]`}>Last updated</th>
               <th className={`${TH} w-[240px]`}>Dataset ID</th>
               <th className={TH}>Name</th>
@@ -166,11 +119,6 @@ export function DatasetsView({ projectId }: { projectId: string }) {
                   onClick={() => router.push(`/projects/${projectId}/datasets/${dataset.id}`)}
                   className="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-muted/50"
                 >
-                  <SelectRowCell
-                    checked={sel.has(dataset.id)}
-                    onToggle={() => sel.toggle(dataset.id)}
-                    label={`Select ${dataset.name}`}
-                  />
                   <td className={`${TD} whitespace-nowrap text-muted-foreground`}>
                     <Timestamp iso={dataset.updateTime} />
                   </td>
