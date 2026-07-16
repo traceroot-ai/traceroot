@@ -91,7 +91,11 @@ export default function TracesPage() {
   // staleTime: Infinity because once a project has traces it always will.
   // refetchInterval polls every 3s while onboarding is shown so the page
   // auto-transitions when the first trace arrives.
-  const { data: existsData, isPending: hasEverTracedPending } = useTracesExist(projectId, {
+  const {
+    data: existsData,
+    isPending: hasEverTracedPending,
+    error: existsError,
+  } = useTracesExist(projectId, {
     refetchInterval: (query: unknown) => {
       const exists =
         (query as { state?: { data?: { exists?: boolean } } })?.state?.data?.exists ?? false;
@@ -108,7 +112,7 @@ export default function TracesPage() {
 
   const traces = data?.data || [];
   const total = data?.meta?.total ?? 0;
-  const showGettingStarted = !checking && !hasEverTraced;
+  const showGettingStarted = !checking && !hasEverTraced && !existsError;
 
   // Hide AI button during loading AND when GettingStarted is shown
   const shouldHideAiButton = checking || showGettingStarted;

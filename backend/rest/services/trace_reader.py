@@ -117,6 +117,10 @@ class TraceReaderService:
         self._client = get_clickhouse_client()
         # Per-(project, column, window) cache of distinct values: key -> (expiry, rows).
         self._distinct_cache: dict[tuple, tuple[float, list[dict]]] = {}
+        # has_traces cache: project_id -> (expiry, result). True results never
+        # expire (a project that has traces always will); False results expire
+        # after 10s so the onboarding poll doesn't scan all partitions every 3s.
+        self._has_traces_cache: dict[str, tuple[float, bool]] = {}
 
     def get_distinct_span_values(
         self,
@@ -209,11 +213,20 @@ class TraceReaderService:
 
     def has_traces(self, project_id: str) -> bool:
         """Check if a project has ever ingested any spans (ignores retention)."""
+        cached = self._has_traces_cache.get(project_id)
+        if cached is not None:
+            expiry, value = cached
+            if value or time.monotonic() < expiry:
+                return value
+
         result = self._client.query(
             "SELECT 1 FROM spans WHERE project_id = {project_id:String} LIMIT 1",
             parameters={"project_id": project_id},
         )
-        return len(result.result_rows) > 0
+        found = len(result.result_rows) > 0
+        ttl = float("inf") if found else 10.0
+        self._has_traces_cache[project_id] = (time.monotonic() + ttl, found)
+        return found
 
     def list_traces(
         self,

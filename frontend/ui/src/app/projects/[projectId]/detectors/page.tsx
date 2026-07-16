@@ -82,10 +82,20 @@ export default function DetectorsPage() {
     search_query: queryOptions.search_query,
   });
 
-  const { data: counts, isLoading: countsLoading } = useDetectorCounts(projectId, {
+  const {
+    data: counts,
+    isLoading: countsLoading,
+    error: countsError,
+  } = useDetectorCounts(projectId, {
     start_after: queryOptions.start_after,
     end_before: queryOptions.end_before,
   });
+
+  const retentionError = isRetentionError(error)
+    ? error
+    : isRetentionError(countsError)
+      ? countsError
+      : null;
 
   const deleteMutation = useDeleteDetector(projectId);
   const detectors = data?.data ?? [];
@@ -150,8 +160,11 @@ export default function DetectorsPage() {
             <div className="flex h-64 items-center justify-center">
               <p className="text-[13px] text-muted-foreground">Loading detectors...</p>
             </div>
-          ) : error && isRetentionError(error) ? (
-            <RetentionGateBanner projectId={projectId} detail={getRetentionDetail(error)!} />
+          ) : retentionError ? (
+            <RetentionGateBanner
+              projectId={projectId}
+              detail={getRetentionDetail(retentionError)!}
+            />
           ) : error ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
               <p className="text-[13px] text-destructive">Error loading detectors</p>

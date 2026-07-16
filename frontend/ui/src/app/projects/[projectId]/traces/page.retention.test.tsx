@@ -16,7 +16,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@tanstack/react-query", () => ({
-  useQueryClient: () => ({ prefetchQuery: vi.fn() }),
+  useQueryClient: () => ({ prefetchQuery: vi.fn(), invalidateQueries: vi.fn() }),
 }));
 
 vi.mock("@/components/layout/app-layout", () => ({
@@ -34,6 +34,7 @@ vi.mock("@/features/traces/hooks", () => ({
     error: mocks.tracesError,
   }),
   usePrefetchTraces: () => vi.fn(),
+  useTracesExist: () => ({ data: { exists: true }, isPending: false }),
 }));
 
 vi.mock("@/lib/hooks/use-list-page-state", () => ({

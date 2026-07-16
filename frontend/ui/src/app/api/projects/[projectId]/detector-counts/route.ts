@@ -1,9 +1,38 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { requireAuth, requireProjectAccess, errorResponse } from "@/lib/auth-helpers";
+import { prisma, PlanType } from "@traceroot/core";
 import { env } from "@/env";
 
 const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
 const INTERNAL_API_SECRET = env.INTERNAL_API_SECRET || "";
+
+const PLAN_RETENTION_DAYS: Record<string, number | null> = {
+  [PlanType.FREE]: 15,
+  [PlanType.STARTER]: 30,
+  [PlanType.PRO]: 90,
+  [PlanType.ENTERPRISE]: null,
+};
+const FAIL_CLOSED_DAYS = 15;
+
+function checkRetention(billingPlan: string, startAfter: string): NextResponse | null {
+  const days = PLAN_RETENTION_DAYS[billingPlan] ?? FAIL_CLOSED_DAYS;
+  if (days === null) return null;
+  const cutoff = new Date(Date.now() - days * 86_400_000 - 3_600_000);
+  if (new Date(startAfter) < cutoff) {
+    return NextResponse.json(
+      {
+        detail: {
+          message: "Data outside retention window",
+          retention_days: days,
+          cutoff: cutoff.toISOString(),
+          plan: billingPlan,
+        },
+      },
+      { status: 403 },
+    );
+  }
+  return null;
+}
 
 type RouteParams = { params: Promise<{ projectId: string }> };
 
@@ -26,6 +55,14 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   if (!startAfter) {
     return errorResponse("start_after is required", 400);
   }
+
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: accessResult.project.workspaceId },
+    select: { billingPlan: true },
+  });
+  const billingPlan = workspace?.billingPlan || PlanType.FREE;
+  const retentionError = checkRetention(billingPlan, startAfter);
+  if (retentionError) return retentionError;
 
   const backendParams = new URLSearchParams({
     project_id: projectId,

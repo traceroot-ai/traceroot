@@ -28,11 +28,15 @@ def _to_naive_utc(dt: datetime) -> datetime:
 
 
 def get_retention_cutoff(billing_plan: str) -> datetime | None:
-    """Return the cutoff datetime (naive UTC) for a plan, or None if unlimited."""
+    """Return the cutoff datetime (naive UTC) for a plan, or None if unlimited.
+
+    Adds a 1-hour buffer so "Last N days" filters don't race against the
+    server clock and falsely 403 at the exact boundary.
+    """
     days = _PLAN_RETENTION_DAYS.get(billing_plan, _FAIL_CLOSED_DAYS)
     if days is None:
         return None
-    return datetime.now(UTC).replace(tzinfo=None) - timedelta(days=days)
+    return datetime.now(UTC).replace(tzinfo=None) - timedelta(days=days, hours=1)
 
 
 def _retention_403(billing_plan: str, cutoff: datetime) -> HTTPException:

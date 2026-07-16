@@ -38,7 +38,12 @@ router = APIRouter(prefix="/projects/{project_id}/traces", tags=["Traces"])
 
 
 @router.get("/exists")
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
 async def traces_exist(
+    request: Request,
+    response: Response,
     project_id: str,
     _access: RateLimitedProjectAccess,
 ):
