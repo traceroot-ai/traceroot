@@ -194,6 +194,7 @@ export function LineNumberedTextarea({
   collapsed = false,
   collapseAt = 500,
   onExpand,
+  fontClassName = "text-[11px] leading-[18px]",
   "aria-label": ariaLabel,
 }: {
   value: string;
@@ -211,6 +212,9 @@ export function LineNumberedTextarea({
   collapsed?: boolean;
   collapseAt?: number;
   onExpand?: () => void;
+  /** Override the font size + line-height. The line-height must be a whole pixel
+   *  so the display and textarea layers stay aligned. Defaults to 11px / 18px. */
+  fontClassName?: string;
   "aria-label"?: string;
 }) {
   const isCollapsed = collapsed && value.length > collapseAt;
@@ -237,7 +241,12 @@ export function LineNumberedTextarea({
     // line-height (e.g. leading-relaxed → 17.875px at 11px) is rounded per block
     // box in the display layer but flows continuously in the textarea, so the two
     // drift apart as lines accumulate and the textarea's last line gets clipped.
-    <div className="relative overflow-hidden rounded border border-input bg-background font-mono text-[11px] leading-[18px] focus-within:ring-1 focus-within:ring-ring">
+    <div
+      className={cn(
+        "relative overflow-hidden rounded border border-input bg-background font-mono focus-within:ring-1 focus-within:ring-ring",
+        fontClassName,
+      )}
+    >
       {/* Display layer — line numbers + (highlighted) content, wraps per line.
           Collapsed has no textarea overlay, so it must take pointer events (the
           inline expand control lives here). */}
@@ -304,7 +313,8 @@ export function LineNumberedTextarea({
           className={cn(
             // Must match the display layer's font metrics exactly — the two are
             // overlaid, so the line-height is the same whole pixel value.
-            "absolute inset-0 resize-none overflow-hidden whitespace-pre-wrap break-words bg-transparent pb-2 pr-2 pt-1.5 font-mono text-[11px] leading-[18px] text-transparent placeholder:text-muted-foreground focus:outline-none",
+            "absolute inset-0 resize-none overflow-hidden whitespace-pre-wrap break-words bg-transparent pb-2 pr-2 pt-1.5 font-mono text-transparent placeholder:text-muted-foreground focus:outline-none",
+            fontClassName,
             readOnly ? "cursor-default caret-transparent" : "caret-foreground",
           )}
           style={{ paddingLeft: `calc(${gutterWidth} + 0.5rem)` }}
