@@ -8,7 +8,6 @@
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "^0.80.0",
-    "@traceroot-ai/pi": "0.1.0",
     "@traceroot-ai/traceroot": "^0.1.7",
     "dotenv": "^16.4.5"
   },
