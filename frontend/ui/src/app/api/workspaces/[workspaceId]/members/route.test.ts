@@ -156,4 +156,13 @@ describe("workspace members POST seat limit", () => {
     expect(res.status).toBe(409);
     expect(workspaceFindUnique).not.toHaveBeenCalled();
   });
+
+  it("cleans up a stale invite when the target is already a member (legacy data)", async () => {
+    memberFindUnique.mockResolvedValue({ id: "existing" });
+    inviteFindUnique.mockResolvedValue({ id: "inv1", email: "u2@x.com", workspaceId: "w1" });
+    const res = await post({ userId: "u2", role: "MEMBER" });
+    expect(res.status).toBe(409);
+    expect(inviteDelete).toHaveBeenCalledWith({ where: { id: "inv1" } });
+    expect(workspaceFindUnique).not.toHaveBeenCalled();
+  });
 });
