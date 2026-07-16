@@ -10,6 +10,7 @@ import type {
   EvaluationRow,
   RunRow,
   RunDetailResponse,
+  CompareRunsResponse,
   EvalResultStatus,
   ScoreRow,
 } from "./types";
@@ -63,12 +64,14 @@ export function useDatasets(
   });
 }
 
-export function useDataset(projectId: string, datasetId: string) {
+export function useDataset(projectId: string, datasetId: string, versionId?: string | null) {
+  const qs = versionId ? `?version_id=${encodeURIComponent(versionId)}` : "";
   return useQuery({
-    queryKey: ["datasets", "detail", projectId, datasetId],
+    queryKey: ["datasets", "detail", projectId, datasetId, versionId ?? null],
     queryFn: () =>
-      getJson<DatasetDetailResponse>(`/api/projects/${projectId}/datasets/${datasetId}`),
+      getJson<DatasetDetailResponse>(`/api/projects/${projectId}/datasets/${datasetId}${qs}`),
     enabled: !!projectId && !!datasetId,
+    placeholderData: (prev) => prev,
   });
 }
 
@@ -129,7 +132,11 @@ export function useSaveTestCase(projectId: string, datasetId: string) {
         "POST",
         input,
       ),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["datasets"] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["datasets"] });
+      // Refresh the trace's span→dataset chips so a just-saved span is marked.
+      void qc.invalidateQueries({ queryKey: ["evaluations", "trace-test-cases"] });
+    },
   });
 }
 
@@ -151,6 +158,30 @@ export function useUpdateTestCase(projectId: string, datasetId: string) {
         args.patch,
       ),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["datasets"] }),
+  });
+}
+
+export interface TestCaseRunRow {
+  resultId: string;
+  runId: string;
+  runNumber: number;
+  candidateVersion: string;
+  evaluationName: string;
+  ranAt: string;
+  score: number | null;
+  status: string;
+  change: "improved" | "regressed" | "unchanged" | null;
+}
+
+/** Every evaluation run that measured a given test case (newest first). */
+export function useTestCaseRuns(projectId: string, datasetId: string, testCaseId: string | null) {
+  return useQuery({
+    queryKey: ["datasets", projectId, datasetId, "test-case-runs", testCaseId],
+    queryFn: () =>
+      getJson<{ data: TestCaseRunRow[] }>(
+        `/api/projects/${projectId}/datasets/${datasetId}/test-cases/${testCaseId}/runs`,
+      ),
+    enabled: !!projectId && !!datasetId && !!testCaseId,
   });
 }
 
@@ -183,6 +214,7 @@ export function useEvaluationRuns(
   if (query.status) params.set("status", query.status);
   if (query.search_query) params.set("search_query", query.search_query);
   if (query.page !== undefined) params.set("page", String(query.page));
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
   const qs = params.toString();
   return useQuery({
     queryKey: [
@@ -194,6 +226,7 @@ export function useEvaluationRuns(
       query.status ?? null,
       query.search_query ?? null,
       query.page ?? 0,
+      query.limit ?? null,
     ],
     queryFn: () =>
       getJson<{ data: RunRow[]; meta: Meta }>(
@@ -210,6 +243,24 @@ export function useEvaluationRun(projectId: string, runId: string) {
     queryFn: () =>
       getJson<RunDetailResponse>(`/api/projects/${projectId}/evaluations/runs/${runId}`),
     enabled: !!projectId && !!runId,
+  });
+}
+
+/** Compare two arbitrary runs (candidate vs baseline) of the same evaluation. */
+export function useCompareRuns(
+  projectId: string,
+  candidateId: string | null,
+  baselineId: string | null,
+) {
+  return useQuery({
+    queryKey: ["evaluations", "compare", projectId, candidateId, baselineId],
+    queryFn: () =>
+      getJson<CompareRunsResponse>(
+        `/api/projects/${projectId}/evaluations/compare?candidate=${encodeURIComponent(
+          candidateId!,
+        )}&baseline=${encodeURIComponent(baselineId!)}`,
+      ),
+    enabled: !!projectId && !!candidateId && !!baselineId && candidateId !== baselineId,
   });
 }
 
@@ -262,12 +313,101 @@ export function useTraceEvaluationResults(projectId: string, traceId: string) {
   });
 }
 
+export interface TraceTestCaseRow {
+  testCaseId: string;
+  datasetId: string;
+  datasetName: string;
+  sourceSpanId: string | null;
+  review: string;
+  datasetVersionLabel: string;
+  datasetUpdatedAt: string;
+  caseCount: number;
+}
+
+/**
+ * Dataset test cases captured from a given trace, keyed by source span. Powers
+ * the "In <dataset>" chip that marks a span already saved as a test case.
+ */
+export function useTraceTestCases(projectId: string, traceId: string) {
+  return useQuery({
+    queryKey: ["evaluations", "trace-test-cases", projectId, traceId],
+    queryFn: () =>
+      getJson<{ data: TraceTestCaseRow[] }>(
+        `/api/projects/${projectId}/traces/${traceId}/test-cases`,
+      ),
+    enabled: !!projectId && !!traceId,
+    // Warmed when the trace opens (see the traces page) and reused as spans are
+    // selected, so the "Dataset:" chip appears without a per-span round trip.
+    staleTime: 60_000,
+  });
+}
+
+/** Delete one or more evaluation runs (cascades their results + scores). */
+export function useDeleteRuns(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (runIds: string[]) =>
+      Promise.all(
+        runIds.map((id) =>
+          sendJson<{ deleted: boolean }>(
+            `/api/projects/${projectId}/evaluations/runs/${id}`,
+            "DELETE",
+            undefined,
+          ),
+        ),
+      ),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["evaluations", "runs"] }),
+  });
+}
+
 export interface ScorerRegistryRow {
   name: string;
   version: string;
   scoreCount: number;
   errorCount: number;
   errorRate: number;
+  /** Inferred from which value column the scores populate. */
+  valueType: "numeric" | "boolean" | "categorical" | "mixed" | "unknown";
+  /** Declared metadata from the run's scorers JSON (when the SDK sends it). */
+  declaredValueType: "numeric" | "boolean" | "categorical" | null;
+  direction: "higher_is_better" | "lower_is_better" | "none" | null;
+  threshold: number | null;
+  /** Numeric summary over successfully-scored numeric values (else null). */
+  numeric: { mean: number; min: number; max: number; count: number } | null;
+  /** Fraction of scores marked passed (else null when the scorer sets no `passed`). */
+  passRate: number | null;
+  /** Boolean (true/false) or categorical value counts, most-common first. */
+  distribution: Array<{ label: string; count: number }> | null;
+  runCount: number;
+  evaluationCount: number;
+  lastUsed: string | null;
+  recentErrors: Array<{ message: string; at: string }>;
+  /** Always "SDK": the catalog only shows what the SDK reported. */
+  source: "SDK";
+  // SDK-reported scorer DEFINITION (offline-eval/sdk-ask/scorer-definition-reporting.md).
+  // Every field is optional — absent → "Not provided by SDK", never inferred.
+  scorerType: "llm_judge" | "code" | null;
+  outputType: "score" | "classification" | null;
+  description: string | null;
+  metadata: unknown | null;
+  model: string | null;
+  messages: Array<{ role: string; content: string }> | null;
+  language: "python" | "typescript" | null;
+  sourceCode: string | null;
+}
+
+/** One scorer family (all versions of a name) + a family-level usage summary. */
+export interface ScorerFamilyResponse {
+  name: string;
+  versions: ScorerRegistryRow[];
+  usage: {
+    runCount: number;
+    evaluationCount: number;
+    scoreCount: number;
+    errorCount: number;
+    lastUsed: string | null;
+  };
+  source: "SDK";
 }
 
 /** Read-only scorer registry, aggregated from reported runs. */
@@ -277,5 +417,17 @@ export function useScorers(projectId: string) {
     queryFn: () =>
       getJson<{ data: ScorerRegistryRow[] }>(`/api/projects/${projectId}/evaluations/scorers`),
     enabled: !!projectId,
+  });
+}
+
+/** One scorer family (its versions + usage), for the scorer detail. */
+export function useScorer(projectId: string, name: string | null) {
+  return useQuery({
+    queryKey: ["evaluations", "scorer", projectId, name],
+    queryFn: () =>
+      getJson<ScorerFamilyResponse>(
+        `/api/projects/${projectId}/evaluations/scorers/${encodeURIComponent(name!)}`,
+      ),
+    enabled: !!projectId && !!name,
   });
 }

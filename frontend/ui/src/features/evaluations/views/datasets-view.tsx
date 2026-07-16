@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Download, Trash2, X } from "lucide-react";
+import { Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { DATE_FILTER_OPTIONS, type DateFilterOption } from "@/lib/date-filter";
@@ -127,15 +127,6 @@ export function DatasetsView({ projectId }: { projectId: string }) {
           </span>
         )}
         <span className="flex-1" aria-hidden />
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 gap-1.5 px-1.5 text-[12px] text-muted-foreground hover:text-foreground"
-          onClick={() => toast({ title: "Export coming soon", tone: "success" })}
-        >
-          <Download className="h-3.5 w-3.5" aria-hidden />
-          Download
-        </Button>
       </SearchFilterBar>
 
       <div className="min-h-0 flex-1 overflow-auto">

@@ -9,7 +9,6 @@ import {
   ChevronRight,
   Copy,
   Database,
-  Download,
   Expand,
   FileCode,
   FileText,
@@ -59,15 +58,12 @@ import {
 import { CAPTURE_REASON_LABEL, type ReviewStatus } from "@/features/offline-eval/types";
 import {
   caseDisplayId,
-  changeSentiment,
   datasetPullCode,
   datasetPullCodeTs,
   datasetPullVersionCode,
   datasetPullVersionCodeTs,
   pctFraction,
-  signedPoints,
   scoreDisplay,
-  SENTIMENT_CLASS,
   truncate,
 } from "@/features/offline-eval/utils";
 import {
@@ -85,13 +81,6 @@ import { PullCodeDrawer, type PullOption } from "../components/pull-code-drawer"
 /** "Last 14 days" default, matching the traces/datasets lists. */
 const DEFAULT_DATE_FILTER =
   DATE_FILTER_OPTIONS.find((o) => o.id === "14d") ?? DATE_FILTER_OPTIONS[0];
-
-/** Map a per-case change direction to a signed delta for the sentiment colour. */
-const CHANGE_DELTA: Record<"improved" | "regressed" | "unchanged", number> = {
-  improved: 1,
-  regressed: -1,
-  unchanged: 0,
-};
 
 /** A dash for the list; empty reads as a placeholder, not a blank cell. */
 function orDash(value: string | null): React.ReactNode {
@@ -489,15 +478,6 @@ export function DatasetDetailView({
                   variant="ghost"
                   size="sm"
                   className="h-7 gap-1.5 px-1.5 text-[12px] text-muted-foreground hover:text-foreground"
-                  onClick={() => toast({ title: "Export — coming soon", tone: "success" })}
-                >
-                  <Download className="h-3.5 w-3.5" aria-hidden />
-                  Download
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 gap-1.5 px-1.5 text-[12px] text-muted-foreground hover:text-foreground"
                   onClick={() => {
                     navigator.clipboard?.writeText(dataset.id);
                     toast({ title: "Dataset ID copied", tone: "success" });
@@ -597,7 +577,7 @@ export function DatasetDetailView({
                       <Th>Evaluation</Th>
                       <Th className="w-[140px]">Candidate version</Th>
                       <Th className="w-[100px] text-right">Score</Th>
-                      <Th className="w-[100px] text-right">Change</Th>
+                      <Th className="w-[100px] text-right">Cost</Th>
                     </TRHead>
                   </THead>
                   <TBody>
@@ -612,7 +592,6 @@ export function DatasetDetailView({
                         </Td>
                         <Td className="font-medium">{run.evaluationName}</Td>
                         <Td className="font-mono text-[11px]">{run.candidateVersion}</Td>
-                        {/* Same Score/Change presentation as the Evaluations Runs tab. */}
                         <Td className="text-right tabular-nums">
                           {run.mainScore === null ? (
                             <span className="text-muted-foreground">—</span>
@@ -620,17 +599,10 @@ export function DatasetDetailView({
                             pctFraction(run.mainScore)
                           )}
                         </Td>
-                        <Td className="text-right tabular-nums">
-                          {run.changeFromBaseline === null ||
-                          run.changeFromBaseline === undefined ? (
-                            <span className="text-muted-foreground">—</span>
-                          ) : (
-                            <span
-                              className={SENTIMENT_CLASS[changeSentiment(run.changeFromBaseline)]}
-                            >
-                              {signedPoints(run.changeFromBaseline)} pp
-                            </span>
-                          )}
+                        <Td className="text-right tabular-nums text-muted-foreground">
+                          {run.cost === null || run.cost === undefined
+                            ? "—"
+                            : `$${run.cost < 1 ? run.cost.toFixed(4) : run.cost.toFixed(2)}`}
                         </Td>
                       </TR>
                     ))}
@@ -1049,7 +1021,6 @@ function CasePanel({
                   <Th className="w-[150px]">Ran at</Th>
                   <Th>Candidate version</Th>
                   <Th className="w-[90px] text-right">Score</Th>
-                  <Th className="w-[100px]">Change</Th>
                   <Th className="w-[110px]">Status</Th>
                 </TRHead>
               </THead>
@@ -1075,15 +1046,6 @@ function CasePanel({
                         <span className="text-muted-foreground">—</span>
                       ) : (
                         scoreDisplay(r.score)
-                      )}
-                    </Td>
-                    <Td>
-                      {r.change === null ? (
-                        <span className="text-muted-foreground">—</span>
-                      ) : (
-                        <span className={SENTIMENT_CLASS[changeSentiment(CHANGE_DELTA[r.change])]}>
-                          {r.change}
-                        </span>
                       )}
                     </Td>
                     <Td>

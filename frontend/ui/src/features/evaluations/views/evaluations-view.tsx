@@ -5,14 +5,16 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   ChevronDown,
   ChevronRight,
-  Download,
   GitCompare,
   Layers,
   ListChecks,
   Ruler,
+  Search,
+  X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -23,6 +25,9 @@ import {
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { DATE_FILTER_OPTIONS, type DateFilterOption } from "@/lib/date-filter";
 import { Table, TBody, Td, Th, THead, TR, TRHead } from "@/components/ui/table";
+import { Input } from "@/components/ui/input";
+import { CopyButton } from "@/components/ui/copy-button";
+import { HighlightedCode } from "@/features/offline-eval/components/syntax";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import {
@@ -35,12 +40,7 @@ import {
 } from "@/features/offline-eval/components";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { PassRate } from "../components/pass-rate";
-import {
-  changeSentiment,
-  pctFraction,
-  SENTIMENT_CLASS,
-  signedPoints,
-} from "@/features/offline-eval/utils";
+import { pctFraction, SENTIMENT_CLASS } from "@/features/offline-eval/utils";
 import {
   useDatasets,
   useEvaluationRuns,
@@ -120,7 +120,7 @@ export function EvaluationsView({ projectId }: { projectId: string }) {
 // Runs — the flat execution list.
 // ---------------------------------------------------------------------------
 
-const RUNS_COLUMN_COUNT = 11;
+const RUNS_COLUMN_COUNT = 10;
 
 /** Human elapsed duration; "—" when unknown (never 0). */
 function formatElapsed(ms: number | null | undefined): string {
@@ -141,10 +141,10 @@ function ScoreValue({ value }: { value: number | null }) {
   );
 }
 
-function ChangeValue({ value }: { value: number | null | undefined }) {
-  if (value === null || value === undefined)
-    return <span className="text-muted-foreground">—</span>;
-  return <span className={SENTIMENT_CLASS[changeSentiment(value)]}>{signedPoints(value)} pp</span>;
+/** Total run cost; "—" when no case reported a cost (never a misleading $0). */
+function formatCost(cost: number | null | undefined): React.ReactNode {
+  if (cost === null || cost === undefined) return <span className="text-muted-foreground">—</span>;
+  return `$${cost < 1 ? cost.toFixed(4) : cost.toFixed(2)}`;
 }
 
 /**
@@ -208,19 +208,7 @@ function RunTableRow({
       <Td className="text-right tabular-nums">
         <PassRate counts={r} />
       </Td>
-      <Td className="text-right tabular-nums">
-        <ChangeValue value={r.changeFromBaseline} />
-      </Td>
-      <Td className="text-right tabular-nums">
-        {/* Regressed TEST CASES; "—" when there's no trustworthy baseline to count against. */}
-        {r.regressedCaseCount === null || r.regressedCaseCount === undefined ? (
-          <span className="text-muted-foreground">—</span>
-        ) : r.regressedCaseCount === 0 ? (
-          <span className="text-muted-foreground">0</span>
-        ) : (
-          <span className={SENTIMENT_CLASS.bad}>{r.regressedCaseCount}</span>
-        )}
-      </Td>
+      <Td className="text-right tabular-nums text-muted-foreground">{formatCost(r.cost)}</Td>
       <Td>
         <RunStatusBadge status={r.status} />
       </Td>
@@ -275,27 +263,97 @@ function groupRunsByEvaluation(runs: RunRow[]): RunGroup[] {
   return [...map.values()];
 }
 
-/** Collapsed group summary: name, latest run + its candidate/score/change/status, and
- *  the earlier-run count. Expands to the (reused) run rows. Relocates the removed
- *  unique-evaluations tab's per-lineage aggregates. */
+/** Per-lineage aggregate across a group's runs — pooled where a total is meaningful
+ *  (passed, cost, errors, duration) and averaged for the score. */
+function aggregateGroup(runs: RunRow[]) {
+  let passedCount = 0,
+    failedCount = 0,
+    erroredCount = 0,
+    notScoredCount = 0,
+    errors = 0,
+    durationMs = 0,
+    hasDuration = false,
+    scoreSum = 0,
+    scoreN = 0,
+    cost = 0,
+    hasCost = false;
+  for (const r of runs) {
+    passedCount += r.passedCount ?? 0;
+    failedCount += r.failedCount ?? 0;
+    erroredCount += r.erroredCount ?? 0;
+    notScoredCount += r.notScoredCount ?? 0;
+    errors += r.errorCount ?? 0;
+    if (r.elapsedMs != null) {
+      durationMs += r.elapsedMs;
+      hasDuration = true;
+    }
+    if (r.mainScore != null) {
+      scoreSum += r.mainScore;
+      scoreN += 1;
+    }
+    if (r.cost != null) {
+      cost += r.cost;
+      hasCost = true;
+    }
+  }
+  return {
+    counts: { passedCount, failedCount, erroredCount, notScoredCount },
+    errors,
+    durationMs: hasDuration ? durationMs : null,
+    avgScore: scoreN > 0 ? scoreSum / scoreN : null,
+    cost: hasCost ? cost : null,
+  };
+}
+
+/** Tiny muted caption under an aggregate value, naming how it was rolled up. */
+function AggCaption({ children }: { children: React.ReactNode }) {
+  return <div className="text-[10px] font-normal text-muted-foreground">{children}</div>;
+}
+
+/** Collapsed group summary: the evaluation name + run count, and per-column aggregate
+ *  totals across the lineage aligned under the same columns as the run rows. Expands to
+ *  the (reused) run rows. */
 function GroupHeaderRow({
   group,
   isOpen,
   onToggle,
   projectId,
+  selected,
+  indeterminate,
+  onToggleSelect,
 }: {
   group: RunGroup;
   isOpen: boolean;
   onToggle: () => void;
   projectId: string;
+  selected: boolean;
+  indeterminate: boolean;
+  onToggleSelect: () => void;
 }) {
   const router = useRouter();
   const latest = group.runs[0];
   const earlier = group.runs.length - 1;
+  const agg = React.useMemo(() => aggregateGroup(group.runs), [group.runs]);
   return (
-    <tr className="border-b border-border bg-muted/40">
-      <td colSpan={RUNS_COLUMN_COUNT} className="px-2 py-1.5">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px]">
+    <TR className="bg-muted/40 font-medium">
+      {/* Group selection: selects/deselects every run in the lineage at once. */}
+      <td
+        className="w-8 border-r border-border/50 px-3 py-1.5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <Checkbox
+          checked={selected}
+          indeterminate={indeterminate}
+          onCheckedChange={onToggleSelect}
+          aria-label={
+            selected
+              ? `Deselect all runs in ${group.evaluationName}`
+              : `Select all runs in ${group.evaluationName}`
+          }
+        />
+      </td>
+      <Td>
+        <div className="flex items-center gap-1.5">
           <button
             type="button"
             onClick={onToggle}
@@ -311,7 +369,7 @@ function GroupHeaderRow({
           </button>
           <button
             type="button"
-            className="rounded font-medium hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className="rounded hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             title="Scope to this evaluation"
             onClick={() =>
               router.push(`/projects/${projectId}/evaluations?evaluation=${group.evaluationId}`)
@@ -319,25 +377,47 @@ function GroupHeaderRow({
           >
             {group.evaluationName}
           </button>
-          <span className="text-muted-foreground">
-            {group.runs.length} run{group.runs.length === 1 ? "" : "s"}
-            {earlier > 0 && ` · ${earlier} earlier`}
-          </span>
-          <span className="h-3 w-px bg-border" aria-hidden />
-          <span className="text-muted-foreground">
-            latest Run #{latest.runNumber} ·{" "}
-            <span className="font-mono">{latest.candidateVersion}</span>
-          </span>
-          <RunStatusBadge status={latest.status} />
-          <span className="tabular-nums">
-            <ScoreValue value={latest.mainScore} />
-          </span>
-          <span className="tabular-nums">
-            <ChangeValue value={latest.changeFromBaseline} />
-          </span>
         </div>
-      </td>
-    </tr>
+        <div className="pl-6 text-[11px] font-normal text-muted-foreground">
+          {group.runs.length} run{group.runs.length === 1 ? "" : "s"}
+          {earlier > 0 && ` · ${earlier} earlier`}
+        </div>
+      </Td>
+      <Td className="text-muted-foreground">{group.datasetName}</Td>
+      <Td className="text-right tabular-nums">
+        <ScoreValue value={agg.avgScore} />
+        {agg.avgScore !== null && <AggCaption>avg</AggCaption>}
+      </Td>
+      <Td className="text-right font-normal tabular-nums">
+        <PassRate counts={agg.counts} />
+      </Td>
+      <Td className="text-right tabular-nums text-muted-foreground">
+        {formatCost(agg.cost)}
+        {agg.cost !== null && <AggCaption>total</AggCaption>}
+      </Td>
+      <Td>
+        <RunStatusBadge status={latest.status} />
+        <AggCaption>latest</AggCaption>
+      </Td>
+      <Td className="text-right tabular-nums">
+        {agg.errors === 0 ? (
+          <span className="text-muted-foreground">—</span>
+        ) : (
+          <>
+            {agg.errors}
+            <AggCaption>total</AggCaption>
+          </>
+        )}
+      </Td>
+      <Td className="whitespace-nowrap text-right tabular-nums text-muted-foreground">
+        {formatElapsed(agg.durationMs)}
+        {agg.durationMs !== null && <AggCaption>total</AggCaption>}
+      </Td>
+      <Td className="whitespace-nowrap text-right font-normal text-muted-foreground">
+        <Timestamp iso={latest.startedAt} />
+        <AggCaption>latest</AggCaption>
+      </Td>
+    </TR>
   );
 }
 
@@ -545,15 +625,6 @@ function RunsTab({ projectId }: { projectId: string }) {
         )}
 
         <span className="flex-1" aria-hidden />
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 gap-1.5 px-1.5 text-[12px] text-muted-foreground hover:text-foreground"
-          onClick={() => toast({ title: "Export coming soon", tone: "success" })}
-        >
-          <Download className="h-3.5 w-3.5" aria-hidden />
-          Download
-        </Button>
       </SearchFilterBar>
 
       {scopedEvalId && allRuns[0] && (
@@ -592,8 +663,7 @@ function RunsTab({ projectId }: { projectId: string }) {
               <Th>Dataset</Th>
               <Th className="w-[110px] text-right">Main score</Th>
               <Th className="w-[100px] text-right">Passed</Th>
-              <Th className="w-[100px] text-right">Change</Th>
-              <Th className="w-[100px] text-right">Regressions</Th>
+              <Th className="w-[100px] text-right">Cost</Th>
               <Th className="w-[150px]">Status</Th>
               <Th className="w-[80px] text-right">Errors</Th>
               <Th className="w-[90px] text-right">Duration</Th>
@@ -618,28 +688,36 @@ function RunsTab({ projectId }: { projectId: string }) {
                 </EmptyState>
               </Cell>
             ) : grouped ? (
-              groups.map((g) => (
-                <React.Fragment key={g.evaluationId}>
-                  <GroupHeaderRow
-                    group={g}
-                    isOpen={expanded.has(g.evaluationId)}
-                    onToggle={() => toggleGroup(g.evaluationId)}
-                    projectId={projectId}
-                  />
-                  {expanded.has(g.evaluationId) &&
-                    g.runs.map((r) => (
-                      <RunTableRow
-                        key={r.id}
-                        run={r}
-                        projectId={projectId}
-                        selected={sel.has(r.id)}
-                        onToggle={() => sel.toggle(r.id)}
-                        showEvaluation={false}
-                        indent
-                      />
-                    ))}
-                </React.Fragment>
-              ))
+              groups.map((g) => {
+                const groupIds = g.runs.map((r) => r.id);
+                const groupAll = groupIds.every((id) => sel.has(id));
+                const groupSome = !groupAll && groupIds.some((id) => sel.has(id));
+                return (
+                  <React.Fragment key={g.evaluationId}>
+                    <GroupHeaderRow
+                      group={g}
+                      isOpen={expanded.has(g.evaluationId)}
+                      onToggle={() => toggleGroup(g.evaluationId)}
+                      projectId={projectId}
+                      selected={groupAll}
+                      indeterminate={groupSome}
+                      onToggleSelect={() => sel.setMany(groupIds, !groupAll)}
+                    />
+                    {expanded.has(g.evaluationId) &&
+                      g.runs.map((r) => (
+                        <RunTableRow
+                          key={r.id}
+                          run={r}
+                          projectId={projectId}
+                          selected={sel.has(r.id)}
+                          onToggle={() => sel.toggle(r.id)}
+                          showEvaluation={false}
+                          indent
+                        />
+                      ))}
+                  </React.Fragment>
+                );
+              })
             ) : (
               runs.map((r) => (
                 <RunTableRow
@@ -690,133 +768,164 @@ function ScorersTab({ projectId }: { projectId: string }) {
   const { data, isLoading, error } = useScorers(projectId);
   // Memoized so the derived id list (and therefore row selection) is stable
   // across renders rather than churning on a fresh array identity.
-  const scorers = React.useMemo(() => data?.data ?? [], [data]);
-  const [selectedKey, setSelectedKey] = React.useState<string | null>(null);
-  const selected =
-    scorers.find((s) => `${s.name}@${s.version}` === selectedKey) ?? scorers[0] ?? null;
+  const allScorers = React.useMemo(() => data?.data ?? [], [data]);
+  const [keyword, setKeyword] = React.useState("");
+  const scorers = React.useMemo(() => {
+    const q = keyword.trim().toLowerCase();
+    if (!q) return allScorers;
+    return allScorers.filter(
+      (s) => s.name.toLowerCase().includes(q) || s.version.toLowerCase().includes(q),
+    );
+  }, [allScorers, keyword]);
 
-  // Checkbox selection, independent of which scorer the detail aside is showing.
-  // The registry is derived from reported runs, so there is nothing to delete —
-  // the bar offers selection + Clear only.
+  // A clicked scorer opens the detail panel (the right slide-in, no backdrop) rather
+  // than a persistent split-pane.
+  const [openKey, setOpenKey] = React.useState<string | null>(null);
+  const active = allScorers.find((s) => `${s.name}@${s.version}` === openKey) ?? null;
+
+  // Checkbox selection, independent of which scorer the panel is showing. The registry
+  // is derived from reported runs, so there is nothing to delete — the bar offers
+  // selection + Clear only.
   const scorerKeys = React.useMemo(() => scorers.map((s) => `${s.name}@${s.version}`), [scorers]);
   const sel = useRowSelection(scorerKeys);
 
   return (
-    <div className="flex min-h-0 flex-1">
-      {/* Left column: the selection bar stays pinned above the scrolling table. */}
-      <div className="flex min-w-0 flex-1 flex-col">
-        <BulkActionBar count={sel.count} onClear={sel.clear} />
-        <div className="min-h-0 flex-1 overflow-auto">
-          <Table>
-            <THead>
-              <TRHead>
-                <SelectAllHeaderCell
-                  checked={sel.allSelected}
-                  indeterminate={sel.someSelected}
-                  onToggle={sel.toggleAll}
-                />
-                <Th>Scorer</Th>
-                <Th className="w-[110px]">Output</Th>
-                <Th className="w-[120px] text-right">Scores</Th>
-                <Th className="w-[120px] text-right">Error rate</Th>
-              </TRHead>
-            </THead>
-            <TBody>
-              {isLoading ? (
-                <Cell colSpan={SCORERS_COLUMN_COUNT}>
-                  <EmptyState>Loading scorers...</EmptyState>
-                </Cell>
-              ) : error ? (
-                <Cell colSpan={SCORERS_COLUMN_COUNT}>
-                  <EmptyState>Error loading scorers</EmptyState>
-                </Cell>
-              ) : scorers.length === 0 ? (
-                <Cell colSpan={SCORERS_COLUMN_COUNT}>
-                  <EmptyState>
-                    No scorers yet. Scorers are defined in your SDK code and appear here once a run
-                    reports them.
-                  </EmptyState>
-                </Cell>
-              ) : (
-                scorers.map((s) => {
-                  const key = `${s.name}@${s.version}`;
-                  return (
-                    <TR
-                      key={key}
-                      interactive
-                      selected={key === `${selected?.name}@${selected?.version}`}
-                      onClick={() => setSelectedKey(key)}
-                    >
-                      <SelectRowCell
-                        checked={sel.has(key)}
-                        onToggle={() => sel.toggle(key)}
-                        label={`Select ${s.name} ${s.version}`}
-                      />
-                      <Td>
-                        <span className="flex items-baseline gap-1.5">
-                          <span className="font-medium">{s.name}</span>
-                          <span className="text-[11px] text-muted-foreground">{s.version}</span>
-                        </span>
-                      </Td>
-                      <Td>
-                        <Badge variant="outline">{VALUE_TYPE_LABEL[s.valueType]}</Badge>
-                      </Td>
-                      <Td className="text-right tabular-nums text-muted-foreground">
-                        {s.scoreCount}
-                      </Td>
-                      <Td className="text-right tabular-nums">
-                        {s.errorRate === 0 ? (
-                          <span className="text-muted-foreground">—</span>
-                        ) : (
-                          <span className={SENTIMENT_CLASS.bad}>
-                            {(s.errorRate * 100).toFixed(1)}%
-                          </span>
-                        )}
-                      </Td>
-                    </TR>
-                  );
-                })
-              )}
-            </TBody>
-          </Table>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="border-b border-border bg-background px-3 py-1.5">
+        <div className="relative min-w-[12rem] max-w-md flex-1">
+          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search scorers..."
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            className="h-8 pl-8 text-[12px]"
+          />
         </div>
       </div>
+      <BulkActionBar count={sel.count} onClear={sel.clear} />
+      <div className="min-h-0 flex-1 overflow-auto">
+        <Table>
+          <THead>
+            <TRHead>
+              <SelectAllHeaderCell
+                checked={sel.allSelected}
+                indeterminate={sel.someSelected}
+                onToggle={sel.toggleAll}
+              />
+              <Th>Scorer</Th>
+              <Th className="w-[110px]">Output</Th>
+              <Th className="w-[120px] text-right">Scores</Th>
+              <Th className="w-[120px] text-right">Error rate</Th>
+            </TRHead>
+          </THead>
+          <TBody>
+            {isLoading ? (
+              <Cell colSpan={SCORERS_COLUMN_COUNT}>
+                <EmptyState>Loading scorers...</EmptyState>
+              </Cell>
+            ) : error ? (
+              <Cell colSpan={SCORERS_COLUMN_COUNT}>
+                <EmptyState>Error loading scorers</EmptyState>
+              </Cell>
+            ) : allScorers.length === 0 ? (
+              <Cell colSpan={SCORERS_COLUMN_COUNT}>
+                <EmptyState>
+                  No scorers yet. Scorers are defined in your SDK code and appear here once a run
+                  reports them.
+                </EmptyState>
+              </Cell>
+            ) : scorers.length === 0 ? (
+              <Cell colSpan={SCORERS_COLUMN_COUNT}>
+                <EmptyState>No scorers match “{keyword}”.</EmptyState>
+              </Cell>
+            ) : (
+              scorers.map((s) => {
+                const key = `${s.name}@${s.version}`;
+                return (
+                  <TR
+                    key={key}
+                    interactive
+                    selected={key === openKey}
+                    onClick={() => setOpenKey(key)}
+                  >
+                    <SelectRowCell
+                      checked={sel.has(key)}
+                      onToggle={() => sel.toggle(key)}
+                      label={`Select ${s.name} ${s.version}`}
+                    />
+                    <Td>
+                      <span className="flex items-baseline gap-1.5">
+                        <span className="font-medium">{s.name}</span>
+                        <span className="text-[11px] text-muted-foreground">{s.version}</span>
+                      </span>
+                    </Td>
+                    <Td>
+                      <Badge variant="outline">{VALUE_TYPE_LABEL[s.valueType]}</Badge>
+                    </Td>
+                    <Td className="text-right tabular-nums text-muted-foreground">
+                      {s.scoreCount}
+                    </Td>
+                    <Td className="text-right tabular-nums">
+                      {s.errorRate === 0 ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : (
+                        <span className={SENTIMENT_CLASS.bad}>
+                          {(s.errorRate * 100).toFixed(1)}%
+                        </span>
+                      )}
+                    </Td>
+                  </TR>
+                );
+              })
+            )}
+          </TBody>
+        </Table>
+      </div>
 
-      <aside
-        aria-label="Scorer detail"
-        className="w-[360px] shrink-0 overflow-auto border-l border-border"
-      >
-        {selected ? (
-          <ScorerDetail
-            key={`${selected.name}@${selected.version}`}
-            projectId={projectId}
-            scorer={selected}
-          />
-        ) : (
-          <EmptyState>Select a scorer to see what it reports.</EmptyState>
-        )}
-      </aside>
+      {active && (
+        <ScorerDetailPanel
+          key={`${active.name}@${active.version}`}
+          projectId={projectId}
+          scorer={active}
+          onClose={() => setOpenKey(null)}
+        />
+      )}
     </div>
   );
 }
 
-function ScorerSection({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="border-t border-border px-3 py-2.5">
-      <h3 className="text-[11px] font-medium text-muted-foreground">{title}</h3>
-      <div className="mt-1.5">{children}</div>
-    </section>
-  );
+const SCORER_TYPE_LABEL: Record<"llm_judge" | "code", string> = {
+  llm_judge: "LLM judge",
+  code: "Code",
+};
+const OUTPUT_TYPE_LABEL: Record<"score" | "classification", string> = {
+  score: "Score",
+  classification: "Classification",
+};
+const LANGUAGE_LABEL: Record<"python" | "typescript", string> = {
+  python: "Python",
+  typescript: "TypeScript",
+};
+
+/** The scorer's type — declared by the SDK, or derived from which definition fields it
+ *  reported (code source ⇒ code; model/messages ⇒ judge). Never guessed from the name. */
+function scorerKind(s: ScorerRegistryRow): "llm_judge" | "code" | null {
+  if (s.scorerType) return s.scorerType;
+  if (s.sourceCode) return "code";
+  if (s.model || s.messages) return "llm_judge";
+  return null;
 }
 
-/** A labelled scalar for the config/stats rows. */
-function ScorerFact({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-3 py-0.5">
-      <dt className="text-[11px] text-muted-foreground">{label}</dt>
-      <dd className="text-[12px] tabular-nums">{children}</dd>
-    </div>
-  );
+/** Output type (Score / Classification): the SDK's declared value wins; otherwise it's
+ *  inferred from the declared/observed value type, and flagged as inferred. */
+function outputTypeOf(s: ScorerRegistryRow): { text: string; inferred: boolean } | null {
+  if (s.outputType) return { text: OUTPUT_TYPE_LABEL[s.outputType], inferred: false };
+  const vt =
+    s.declaredValueType ??
+    (s.valueType !== "unknown" && s.valueType !== "mixed" ? s.valueType : null);
+  if (vt === "categorical") return { text: "Classification", inferred: true };
+  if (vt === "numeric" || vt === "boolean") return { text: "Score", inferred: true };
+  return null;
 }
 
 /** For a field the SDK does not (yet) register — shown honestly, never fabricated. */
@@ -824,106 +933,264 @@ function NotProvided() {
   return <span className="italic text-muted-foreground">Not provided by SDK</span>;
 }
 
+/** Bordered card with a muted header strip — mirrors the detector detail panel. */
+function ScorerCard({
+  title,
+  action,
+  children,
+}: {
+  title: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="border border-border">
+      <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/50 px-3 py-1.5">
+        <span className="text-[12px] font-medium text-muted-foreground">{title}</span>
+        {action}
+      </div>
+      <div className="p-3">{children}</div>
+    </div>
+  );
+}
+
+/** A labelled fact row inside a card. */
+function ScorerFact({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start justify-between gap-6 py-0.5">
+      <dt className="shrink-0 text-[11px] text-muted-foreground">{label}</dt>
+      <dd className="min-w-0 text-right text-[12px]">{children}</dd>
+    </div>
+  );
+}
+
 /**
- * Scorer detail, organized around four questions — what it measures / reads / how it
- * works / where it's used. A scorer is defined in the customer's SDK; TraceRoot shows
- * ONLY what the SDK reported and what it observed from scores. Fields the SDK doesn't
- * register (type, capabilities, judge prompt/model, code refs, scope, description,
- * lifecycle) say "Not provided by SDK" rather than being invented from the name.
+ * Read-only scorer detail — a bigger, detector-style subpage (mirrors DetectorPanel's
+ * 70%-width right slide-in with bordered cards). It does NOT dim/blur the page behind it
+ * and closes on Escape or ✕. A scorer is defined in the customer's SDK; TraceRoot shows
+ * ONLY what the SDK reported (see offline-eval/sdk-ask/scorer-definition-reporting.md) —
+ * anything unreported reads "Not provided by SDK", never invented from the name.
  */
-function ScorerDetail({ projectId, scorer }: { projectId: string; scorer: ScorerRegistryRow }) {
+export function ScorerDetailPanel({
+  projectId,
+  scorer,
+  onClose,
+}: {
+  projectId: string;
+  scorer: ScorerRegistryRow;
+  onClose: () => void;
+}) {
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onClose]);
+
+  const kind = scorerKind(scorer);
+
+  return (
+    <div
+      role="dialog"
+      aria-label="Scorer detail"
+      className="animate-slide-in-right fixed bottom-0 right-0 top-0 z-50 flex w-[70%] max-w-[980px] flex-col border-l border-border bg-background shadow-xl"
+    >
+      {/* Header — detector-panel style */}
+      <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border bg-muted/30 px-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <Ruler className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="text-[13px] font-medium">Scorer</span>
+          <span className="truncate text-[13px] text-muted-foreground">{scorer.name}</span>
+          <span className="shrink-0 text-[11px] text-muted-foreground">{scorer.version}</span>
+          {kind && <Badge variant="outline">{SCORER_TYPE_LABEL[kind]}</Badge>}
+          <Badge variant="outline">Defined in SDK</Badge>
+          <CopyButton
+            value={`${scorer.name}@${scorer.version}`}
+            className="h-5 w-5 text-muted-foreground hover:text-foreground"
+            iconClassName="h-3 w-3"
+            title="Copy scorer id"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="rounded-sm text-muted-foreground hover:text-foreground"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-auto text-[12px]">
+        <ScorerDetail projectId={projectId} scorer={scorer} kind={kind} />
+      </div>
+    </div>
+  );
+}
+
+function ScorerDetail({
+  projectId,
+  scorer,
+  kind,
+}: {
+  projectId: string;
+  scorer: ScorerRegistryRow;
+  kind: "llm_judge" | "code" | null;
+}) {
   const maxCount = scorer.distribution?.reduce((m, d) => Math.max(m, d.count), 0) ?? 0;
   const family = useScorer(projectId, scorer.name);
   const versions = family.data?.versions ?? [];
-  const categories =
-    scorer.valueType === "categorical" && scorer.distribution
-      ? scorer.distribution.map((d) => d.label)
+  const ot = outputTypeOf(scorer);
+  const metadataText =
+    scorer.metadata != null &&
+    (typeof scorer.metadata !== "object" || Object.keys(scorer.metadata).length > 0)
+      ? JSON.stringify(scorer.metadata, null, 2)
       : null;
 
   return (
-    <div className="flex flex-col">
-      <div className="px-3 py-2.5">
-        <div className="flex flex-wrap items-baseline gap-1.5">
-          <h2 className="text-[13px] font-medium">{scorer.name}</h2>
-          <span className="text-[11px] text-muted-foreground">{scorer.version}</span>
-          <Badge variant="outline" className="ml-auto">
-            Defined in SDK
-          </Badge>
-        </div>
-      </div>
+    <div className="flex flex-col gap-3 p-4">
+      {/* Type-specific top half */}
+      {kind === "code" ? (
+        <ScorerCard
+          title={`Code${scorer.language ? ` · ${LANGUAGE_LABEL[scorer.language]}` : ""}`}
+          action={
+            scorer.sourceCode ? (
+              <CopyButton
+                value={scorer.sourceCode}
+                className="h-5 w-5 text-muted-foreground hover:text-foreground"
+                iconClassName="h-3 w-3"
+                title="Copy code"
+              />
+            ) : undefined
+          }
+        >
+          {scorer.sourceCode ? (
+            <HighlightedCode
+              code={scorer.sourceCode}
+              className="max-h-[45vh] overflow-auto whitespace-pre font-mono text-[11px] leading-relaxed"
+            />
+          ) : (
+            <NotProvided />
+          )}
+        </ScorerCard>
+      ) : kind === "llm_judge" ? (
+        <>
+          <ScorerCard title="Model">
+            {scorer.model ? (
+              <span className="font-mono text-[12px]">{scorer.model}</span>
+            ) : (
+              <NotProvided />
+            )}
+          </ScorerCard>
+          <ScorerCard title="Messages">
+            {scorer.messages && scorer.messages.length > 0 ? (
+              <div className="flex flex-col gap-2">
+                {scorer.messages.map((m, i) => (
+                  <div key={i} className="border border-border">
+                    <div className="border-b border-border bg-muted/30 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                      {m.role}
+                    </div>
+                    <pre className="max-h-[30vh] overflow-auto whitespace-pre-wrap px-2 py-1.5 font-mono text-[11px] leading-relaxed">
+                      {m.content}
+                    </pre>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <NotProvided />
+            )}
+          </ScorerCard>
+        </>
+      ) : (
+        <ScorerCard title="Definition">
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            The SDK hasn&apos;t reported this scorer&apos;s type or definition — an LLM judge&apos;s
+            model &amp; messages, or a code scorer&apos;s snippet. <NotProvided />.
+          </p>
+        </ScorerCard>
+      )}
 
-      {/* 1 — What does it measure? */}
-      <ScorerSection title="What does it measure?">
+      {/* Shared configuration */}
+      <ScorerCard title="Configuration">
         <dl>
           <ScorerFact label="Output type">
-            {VALUE_TYPE_LABEL[scorer.declaredValueType ?? scorer.valueType]}
-            {scorer.declaredValueType === null && (
-              <span className="ml-1 text-[11px] text-muted-foreground">(inferred)</span>
+            {ot ? (
+              <>
+                {ot.text}
+                {ot.inferred && (
+                  <span className="ml-1 text-[11px] text-muted-foreground">(inferred)</span>
+                )}
+              </>
+            ) : (
+              <NotProvided />
+            )}
+          </ScorerFact>
+          <ScorerFact label="Pass threshold">
+            {scorer.threshold !== null ? (
+              <span className="tabular-nums">{scorer.threshold}</span>
+            ) : (
+              <NotProvided />
             )}
           </ScorerFact>
           <ScorerFact label="Direction">
             {scorer.direction ? DIRECTION_LABEL[scorer.direction] : <NotProvided />}
           </ScorerFact>
-          <ScorerFact label="Threshold">
-            {scorer.threshold !== null ? scorer.threshold : <NotProvided />}
-          </ScorerFact>
-          {categories && (
-            <ScorerFact label="Categories (observed)">{categories.join(", ")}</ScorerFact>
-          )}
           <ScorerFact label="Description">
-            <NotProvided />
-          </ScorerFact>
-          <ScorerFact label="Scope / target">
-            <NotProvided />
-          </ScorerFact>
-          <ScorerFact label="Expected output required">
-            <NotProvided />
+            {scorer.description ? scorer.description : <NotProvided />}
           </ScorerFact>
         </dl>
-      </ScorerSection>
+      </ScorerCard>
 
-      {/* 2 — What does it read? */}
-      <ScorerSection title="What does it read?">
-        <p className="text-[11px] leading-relaxed text-muted-foreground">
-          The SDK does not yet report a scorer&apos;s declared capabilities (which of input,
-          candidate output, expected output, metadata, tool calls or retrieval context it reads).{" "}
-          <NotProvided />.
-        </p>
-      </ScorerSection>
+      {/* Metadata */}
+      <ScorerCard title="Metadata">
+        {metadataText ? (
+          <HighlightedCode
+            code={metadataText}
+            className="max-h-[30vh] overflow-auto whitespace-pre font-mono text-[11px] leading-relaxed"
+          />
+        ) : (
+          <NotProvided />
+        )}
+      </ScorerCard>
 
-      {/* 3 — How does it work? */}
-      <ScorerSection title="How does it work?">
-        <p className="text-[11px] leading-relaxed text-muted-foreground">
-          The scorer&apos;s type (rule, LLM judge or human) and its definition — a judge&apos;s
-          rubric/prompt/model, or a code scorer&apos;s language/module/source reference — live in
-          the SDK and are not registered with TraceRoot. <NotProvided />.
-        </p>
-      </ScorerSection>
-
-      {/* 4 — Where is it used? */}
-      <ScorerSection title="Where is it used?">
+      {/* Observed usage — honest stats derived from reported scores. */}
+      <ScorerCard title="Observed usage">
         <dl>
-          <ScorerFact label="Evaluations">{scorer.evaluationCount}</ScorerFact>
-          <ScorerFact label="Runs">{scorer.runCount}</ScorerFact>
+          <ScorerFact label="Evaluations">
+            <span className="tabular-nums">{scorer.evaluationCount}</span>
+          </ScorerFact>
+          <ScorerFact label="Runs">
+            <span className="tabular-nums">{scorer.runCount}</span>
+          </ScorerFact>
           <ScorerFact label="Scored results">
-            {scorer.scoreCount.toLocaleString("en-US")}
+            <span className="tabular-nums">{scorer.scoreCount.toLocaleString("en-US")}</span>
           </ScorerFact>
           {scorer.numeric && (
             <>
-              <ScorerFact label="Mean">{scorer.numeric.mean.toFixed(3)}</ScorerFact>
+              <ScorerFact label="Mean">
+                <span className="tabular-nums">{scorer.numeric.mean.toFixed(3)}</span>
+              </ScorerFact>
               <ScorerFact label="Range">
-                {scorer.numeric.min.toFixed(2)} – {scorer.numeric.max.toFixed(2)}
+                <span className="tabular-nums">
+                  {scorer.numeric.min.toFixed(2)} – {scorer.numeric.max.toFixed(2)}
+                </span>
               </ScorerFact>
             </>
           )}
           {scorer.passRate !== null && (
-            <ScorerFact label="Pass rate">{(scorer.passRate * 100).toFixed(1)}%</ScorerFact>
+            <ScorerFact label="Pass rate">
+              <span className="tabular-nums">{(scorer.passRate * 100).toFixed(1)}%</span>
+            </ScorerFact>
           )}
           <ScorerFact label="Error rate">
             {scorer.errorCount === 0 ? (
-              <span className="text-muted-foreground">0%</span>
+              <span className="tabular-nums text-muted-foreground">0%</span>
             ) : (
-              <span className={SENTIMENT_CLASS.bad}>
+              <span className={cn("tabular-nums", SENTIMENT_CLASS.bad)}>
                 {(scorer.errorRate * 100).toFixed(1)}% ({scorer.errorCount} of {scorer.scoreCount})
               </span>
             )}
@@ -938,12 +1205,12 @@ function ScorerDetail({ projectId, scorer }: { projectId: string; scorer: Scorer
         </dl>
 
         {scorer.distribution && scorer.distribution.length > 0 && (
-          <div className="mt-2">
+          <div className="mt-3">
             <div className="mb-1 text-[11px] text-muted-foreground">Score distribution</div>
             <ul className="flex flex-col gap-1.5">
               {scorer.distribution.map((d) => (
                 <li key={d.label} className="flex items-center gap-2 text-[11px]">
-                  <span className="w-20 shrink-0 truncate" title={d.label}>
+                  <span className="w-24 shrink-0 truncate" title={d.label}>
                     {d.label}
                   </span>
                   <span className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
@@ -962,7 +1229,7 @@ function ScorerDetail({ projectId, scorer }: { projectId: string; scorer: Scorer
         )}
 
         {scorer.recentErrors.length > 0 && (
-          <div className="mt-2">
+          <div className="mt-3">
             <div className="mb-1 text-[11px] text-muted-foreground">Recent scorer errors</div>
             <ul className="flex flex-col gap-1.5">
               {scorer.recentErrors.map((e, i) => (
@@ -978,7 +1245,7 @@ function ScorerDetail({ projectId, scorer }: { projectId: string; scorer: Scorer
         )}
 
         {versions.length > 1 && (
-          <div className="mt-2">
+          <div className="mt-3">
             <div className="mb-1 text-[11px] text-muted-foreground">Version history</div>
             <ul className="flex flex-col gap-0.5">
               {versions.map((v) => (
@@ -1004,11 +1271,7 @@ function ScorerDetail({ projectId, scorer }: { projectId: string; scorer: Scorer
             </ul>
           </div>
         )}
-      </ScorerSection>
-
-      <div className="border-t border-border px-3 py-2 text-[11px] text-muted-foreground">
-        Source: SDK · Scorers are defined in your SDK code and can&apos;t be created or edited here.
-      </div>
+      </ScorerCard>
     </div>
   );
 }
