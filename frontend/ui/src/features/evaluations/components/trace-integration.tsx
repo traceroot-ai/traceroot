@@ -51,7 +51,11 @@ function rootSpan(spans: Span[]): Span | undefined {
   return spans.find((s) => !s.parent_span_id) ?? spans[0];
 }
 
-/** Pretty-print JSON so metadata shows expanded and indented; leave other text. */
+/**
+ * Normalise a captured JSON blob (2-space indent); leave non-JSON text alone.
+ * The field's own `seedJson` preference decides the final shape it opens in —
+ * this just guarantees the seed is valid, canonical JSON when it is JSON.
+ */
 function prettyJson(raw: string | null | undefined): string {
   if (!raw) return "";
   try {
@@ -363,7 +367,8 @@ export function SaveTestCaseDrawer({
           text={input}
           onChange={setInput}
           copyable
-          autoDetectKind
+          // Read + hand-edited most, and usually the most nested → expand it.
+          seedJson="expanded"
           boxed
           minRows={2}
         />
@@ -374,7 +379,9 @@ export function SaveTestCaseDrawer({
             text={recordedOutput}
             onChange={() => {}}
             copyable
-            autoDetectKind
+            // May become the expected outcome future runs are graded against, so
+            // it has to be readable at a glance → expand it like Input.
+            seedJson="expanded"
             boxed
             minRows={2}
             readOnly
@@ -437,7 +444,9 @@ export function SaveTestCaseDrawer({
           text={metadata}
           onChange={setMetadata}
           copyable
-          autoDetectKind
+          // Incidental context, usually one or two short keys → keep it inline
+          // (seedFormat expands it anyway once it stops fitting on one line).
+          seedJson="compact"
           boxed
           minRows={2}
         />
