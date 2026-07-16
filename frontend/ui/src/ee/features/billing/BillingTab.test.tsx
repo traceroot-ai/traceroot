@@ -120,4 +120,21 @@ describe("BillingTab", () => {
     expect(screen.getByText("Spans")).toBeTruthy();
     expect(screen.getByText(/Last updated:/)).toBeTruthy();
   });
+
+  it("omits the quota suffix on total events for an unlimited plan", () => {
+    const usage: UsageStats = {
+      traces: 5,
+      spans: 3,
+      tokens: 0,
+      updatedAt: "2026-07-01T00:00:00.000Z",
+    };
+
+    render(
+      <BillingTab workspaceId="ws_1" currentPlan={PlanType.ENTERPRISE} currentUsage={usage} />,
+    );
+
+    const totalEventsRow = screen.getByText("Total events").closest("div");
+    expect(totalEventsRow?.textContent).toContain("8");
+    expect(totalEventsRow?.textContent).not.toContain("/");
+  });
 });
