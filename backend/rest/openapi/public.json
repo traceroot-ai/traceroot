@@ -1633,7 +1633,7 @@
     },
     "/api/v1/public/traces": {
       "get": {
-        "description": "List recent traces for the API key's project (newest first).",
+        "description": "List recent traces for the API key's project (newest first).\n\nOffline-evaluation traces are excluded by default; pass\n``include_evaluations=true`` to include them.",
         "operationId": "list_traces_api_v1_public_traces_get",
         "parameters": [
           {
@@ -1686,6 +1686,18 @@
               ],
               "description": "Only traces that started before this time (exclusive, ISO 8601)",
               "title": "End Before"
+            }
+          },
+          {
+            "description": "Include offline-evaluation traces (environment=evaluation). Excluded by default so evaluation runs do not appear in the production trace list.",
+            "in": "query",
+            "name": "include_evaluations",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Include offline-evaluation traces (environment=evaluation). Excluded by default so evaluation runs do not appear in the production trace list.",
+              "title": "Include Evaluations",
+              "type": "boolean"
             }
           }
         ],
