@@ -631,6 +631,37 @@ class TestInternalTraceIngest:
         resp = client.post(self.URL, content=_otlp_body())
         assert resp.status_code == 403
 
+    def test_accepts_project_id_via_header(self, client, secret, mock_ch):
+        """The OTLP exporter strips query strings from its endpoint URL, so the
+        worker SDK sends X-Project-Id; the route must honor it without a query."""
+        resp = client.post(
+            "/api/v1/internal/traces",
+            content=_otlp_body(),
+            headers={"X-Internal-Secret": secret, "X-Project-Id": "proj-hdr"},
+        )
+        assert resp.status_code == 200
+        spans = mock_ch.insert_spans_batch.call_args[0][0]
+        assert spans and all(s["project_id"] == "proj-hdr" for s in spans)
+
+    def test_header_wins_over_query_param(self, client, secret, mock_ch):
+        resp = client.post(
+            self.URL,  # carries project_id=proj-1 in the query
+            content=_otlp_body(),
+            headers={"X-Internal-Secret": secret, "X-Project-Id": "proj-hdr"},
+        )
+        assert resp.status_code == 200
+        spans = mock_ch.insert_spans_batch.call_args[0][0]
+        assert spans and all(s["project_id"] == "proj-hdr" for s in spans)
+
+    def test_missing_project_id_everywhere_is_rejected(self, client, secret, mock_ch):
+        resp = client.post(
+            "/api/v1/internal/traces",
+            content=_otlp_body(),
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 400
+        mock_ch.insert_spans_batch.assert_not_called()
+
     def test_rejects_malformed_trace_id(self, client, secret, mock_ch):
         """An 8-byte trace id decodes to 16 hex chars and must be rejected."""
         resp = client.post(

@@ -747,7 +747,10 @@ _SPAN_ID_RE = re.compile(r"^[0-9a-f]{16}$")
 @router.post("/traces", dependencies=[Depends(verify_internal_secret)])
 async def ingest_internal_traces(
     request: Request,
-    project_id: str = Query(..., description="Project to attribute the self-trace to"),
+    project_id: str | None = Query(
+        default=None, description="Project to attribute the self-trace to"
+    ),
+    x_project_id: Annotated[str | None, Header()] = None,
 ) -> dict:
     """Ingest detector self-traces (OTLP protobuf) directly into ClickHouse.
 
@@ -763,17 +766,28 @@ async def ingest_internal_traces(
     Args:
         request (Request): Raw request; body is OTLP protobuf, optionally
             gzip-compressed (Content-Encoding: gzip).
-        project_id (str): Project to attribute the self-trace to; trusted
-            because the route is secret-gated.
+        project_id (str | None): Project to attribute the self-trace to,
+            as a query parameter; trusted because the route is secret-gated.
+        x_project_id (str | None): Same, as the X-Project-Id header. The
+            worker SDK sends the header because the OTLP exporter strips
+            query strings from its endpoint URL; the header wins when both
+            are given, and one of the two is required.
 
     Returns:
         dict: ``{"ok": True}`` on success.
 
     Raises:
-        HTTPException: 400 on an empty body, an undecodable payload, a trace
-            id that is not exactly 32 lowercase hex chars, or a span/parent
-            id that is present but not exactly 16.
+        HTTPException: 400 on a missing project id, an empty body, an
+            undecodable payload, a trace id that is not exactly 32 lowercase
+            hex chars, or a span/parent id that is present but not exactly 16.
     """
+    project_id = x_project_id or project_id
+    if not project_id:
+        raise HTTPException(
+            status_code=400,
+            detail="project id required (X-Project-Id header or project_id query param)",
+        )
+
     body = await request.body()
     if not body:
         raise HTTPException(status_code=400, detail="Empty request body")
