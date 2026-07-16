@@ -314,6 +314,8 @@ export function EditableValueBlock({
   enlargeable = false,
   autoDetectKind = false,
   minRows = 1,
+  growRows,
+  boxed = false,
 }: {
   label: string;
   text: string;
@@ -324,6 +326,14 @@ export function EditableValueBlock({
   enlargeable?: boolean;
   autoDetectKind?: boolean;
   minRows?: number;
+  /**
+   * When set, the field rests at `minRows` until the content grows past it, then
+   * springs to (at least) `growRows` — a small default that opens up once the
+   * value no longer fits.
+   */
+  growRows?: number;
+  /** Wrap the block in a bordered card with a muted header strip (like FormCard). */
+  boxed?: boolean;
 }) {
   const [kind, setKind] = React.useState<ValueKind>(defaultKind);
   const [menuOpen, setMenuOpen] = React.useState(false);
@@ -353,68 +363,90 @@ export function EditableValueBlock({
     }
   };
 
+  // Rest at minRows; once the content outgrows it, spring to growRows; enlarge
+  // opens it fully. LineNumberedTextarea still grows past this with more content.
+  const contentLines = text === "" ? 1 : text.split("\n").length;
+  const restingMin = growRows != null && contentLines > minRows ? growRows : minRows;
+  const effectiveMin = enlarged ? Math.max(restingMin, 24) : restingMin;
+
+  const controls = (
+    <div className="flex items-center gap-0.5">
+      {enlargeable && (
+        <button
+          type="button"
+          onClick={() => setEnlarged((v) => !v)}
+          title={enlarged ? "Shrink" : "Enlarge"}
+          aria-label={enlarged ? "Shrink field" : "Enlarge field"}
+          className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          {enlarged ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+        </button>
+      )}
+      <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            {KIND_LABEL[kind]}
+            <ChevronDown className="h-3 w-3" aria-hidden />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-28 p-1">
+          {KINDS.map((k) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => changeKind(k)}
+              className={cn(
+                "flex w-full items-center rounded px-2 py-1 text-left text-[12px] transition-colors",
+                k === kind ? "bg-muted/70" : "hover:bg-muted/50",
+              )}
+            >
+              {KIND_LABEL[k]}
+            </button>
+          ))}
+        </PopoverContent>
+      </Popover>
+      {copyable && (
+        <CopyButton
+          value={text}
+          className="h-6 w-6 text-muted-foreground hover:text-foreground"
+          title="Copy"
+        />
+      )}
+    </div>
+  );
+
+  const field = (
+    <LineNumberedTextarea
+      value={text}
+      onChange={onChange}
+      minRows={effectiveMin}
+      highlightJson={kind === "json" || kind === "pretty"}
+      aria-label={ariaLabel ?? label}
+    />
+  );
+
+  if (boxed) {
+    return (
+      <div className="border border-border">
+        <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/50 px-3 py-1.5">
+          <span className="text-[12px] font-medium text-muted-foreground">{label}</span>
+          {controls}
+        </div>
+        <div className="p-3">{field}</div>
+      </div>
+    );
+  }
+
   return (
     <div>
       <div className="mb-1 flex items-center justify-between gap-2">
         <span className="text-[11px] font-medium text-muted-foreground">{label}</span>
-        <div className="flex items-center gap-0.5">
-          {enlargeable && (
-            <button
-              type="button"
-              onClick={() => setEnlarged((v) => !v)}
-              title={enlarged ? "Shrink" : "Enlarge"}
-              aria-label={enlarged ? "Shrink field" : "Enlarge field"}
-              className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            >
-              {enlarged ? (
-                <Minimize2 className="h-3.5 w-3.5" />
-              ) : (
-                <Maximize2 className="h-3.5 w-3.5" />
-              )}
-            </button>
-          )}
-          <Popover open={menuOpen} onOpenChange={setMenuOpen}>
-            <PopoverTrigger asChild>
-              <button
-                type="button"
-                className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              >
-                {KIND_LABEL[kind]}
-                <ChevronDown className="h-3 w-3" aria-hidden />
-              </button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-28 p-1">
-              {KINDS.map((k) => (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={() => changeKind(k)}
-                  className={cn(
-                    "flex w-full items-center rounded px-2 py-1 text-left text-[12px] transition-colors",
-                    k === kind ? "bg-muted/70" : "hover:bg-muted/50",
-                  )}
-                >
-                  {KIND_LABEL[k]}
-                </button>
-              ))}
-            </PopoverContent>
-          </Popover>
-          {copyable && (
-            <CopyButton
-              value={text}
-              className="h-6 w-6 text-muted-foreground hover:text-foreground"
-              title="Copy"
-            />
-          )}
-        </div>
+        {controls}
       </div>
-      <LineNumberedTextarea
-        value={text}
-        onChange={onChange}
-        minRows={enlarged ? Math.max(minRows, 24) : minRows}
-        highlightJson={kind === "json" || kind === "pretty"}
-        aria-label={ariaLabel ?? label}
-      />
+      {field}
     </div>
   );
 }
