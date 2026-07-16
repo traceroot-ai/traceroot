@@ -1075,7 +1075,7 @@ function ScorerDetail({
       {/* Definition — leads with the exact type: LLM judge, Python, or TypeScript. */}
       <div className="flex items-baseline gap-2">
         <h3 className="text-[13px] font-semibold">Definition</h3>
-        <span className="text-[13px] font-medium text-foreground">{typeLabel ?? "—"}</span>
+        <span className="text-[13px] font-medium text-muted-foreground">{typeLabel ?? "—"}</span>
       </div>
       {/* Type-specific body */}
       {kind === "code" ? (
