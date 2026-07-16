@@ -4,7 +4,7 @@
  * `@earendil-works/pi-coding-agent` is the library form of the `pi` coding
  * agent: instead of an interactive CLI, you drive an `AgentSession` from your
  * own Node process and it reads/writes files and runs shell commands in a
- * real working directory. `@traceroot-ai/pi` patches `AgentSession.prototype`
+ * real working directory. `TraceRoot.initialize()` instruments `AgentSession`
  * so every session — however it was constructed — is traced with full
  * agent/LLM/tool span semantics, no manual span code required.
  *
@@ -50,24 +50,18 @@ import {
   ModelRegistry,
   type AgentSession,
 } from '@earendil-works/pi-coding-agent';
-import { instrumentPiCodingAgent } from '@traceroot-ai/pi';
 import { TraceRoot, observe, usingAttributes } from '@traceroot-ai/traceroot';
 
-// TraceRoot.initialize() must run FIRST. instrumentPiCodingAgent() checks for
-// an already-registered global OpenTelemetry provider: if one exists, it
-// attaches to that SHARED pipeline (so the TraceRoot.shutdown() call at the
-// bottom of this file flushes both the pi spans and the observe()/
-// usingAttributes() spans this file creates directly). If instrumentation
-// ran first, it would find no provider yet, build its own PRIVATE export
-// pipeline, and commit to it for the life of the process — a
-// TraceRoot.initialize() call afterwards would never be seen by it.
-TraceRoot.initialize();
-
-// Instrument BEFORE creating any session — instrumentPiCodingAgent() patches
-// AgentSession.prototype, so this must run before createAgentSession() below.
-// No apiKey argument needed: in shared mode it rides on the pipeline
-// TraceRoot.initialize() just registered, which already read TRACEROOT_API_KEY.
-instrumentPiCodingAgent(pi);
+// One call wires the pi instrumentation (via instrumentModules.piCodingAgent)
+// and registers the OpenTelemetry pipeline. It must run BEFORE
+// createAgentSession() below, because wiring pi patches AgentSession's
+// prototype. The pi spans and the observe()/usingAttributes() spans this file
+// creates directly all flow through that one pipeline, flushed by the
+// TraceRoot.shutdown() call at the bottom. apiKey falls back to
+// TRACEROOT_API_KEY when omitted.
+TraceRoot.initialize({
+  instrumentModules: { piCodingAgent: pi },
+});
 
 console.log('[Observability: TraceRoot]');
 
@@ -298,10 +292,10 @@ async function main(): Promise<void> {
     // .finally() callback on an already-caught chain becomes an unhandled
     // rejection nothing downstream consumes. Keeping it here means any
     // shutdown failure flows through the single catch() below like every
-    // other error in this file. instrumentPiCodingAgent() attached to the
-    // shared pipeline TraceRoot.initialize() registered, so this one call
-    // flushes both the pi spans and the observe()/usingAttributes() spans
-    // created directly in this file.
+    // other error in this file. The pi instrumentation rides the pipeline
+    // TraceRoot.initialize() registered, so this one call flushes both the pi
+    // spans and the observe()/usingAttributes() spans created directly in this
+    // file.
     await TraceRoot.shutdown();
     console.log('\n[Traces exported]');
   }

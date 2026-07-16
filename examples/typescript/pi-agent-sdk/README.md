@@ -64,8 +64,8 @@ So narrow-then-widen only works if the session is created with the full registry
 
 ## How the tracing works
 
-`instrumentPiCodingAgent()` patches `AgentSession.prototype` before any session is created, so every `session.prompt()` call is traced automatically with full agent/LLM/tool span semantics — no manual span code for those three layers.
+`TraceRoot.initialize({ instrumentModules: { piCodingAgent: pi } })` instruments `AgentSession` before any session is created, so every `session.prompt()` call is traced automatically with full agent/LLM/tool span semantics — no manual span code for those three layers.
 
-This example also uses the core `@traceroot-ai/traceroot` SDK's `observe()` and `usingAttributes()` directly, for the workflow-framing spans (`incident_inv_2041`, `recon`, `remediate`, `report`) that group the four prompts into the incident narrative. Both instrumentation paths must agree on where spans get exported, which is why initialization order matters: `TraceRoot.initialize()` runs first and registers the global OpenTelemetry pipeline; `instrumentPiCodingAgent()` then detects that pipeline and attaches to it instead of building its own. Get the order backwards and `instrumentPiCodingAgent()` commits to a private pipeline that a later `TraceRoot.initialize()` can never join. With the order right, a single `TraceRoot.shutdown()` at the end flushes everything — the pi spans and the `observe()`/`usingAttributes()` spans alike.
+This example also uses the core `@traceroot-ai/traceroot` SDK's `observe()` and `usingAttributes()` directly, for the workflow-framing spans (`incident_inv_2041`, `recon`, `remediate`, `report`) that group the four prompts into the incident narrative. Both the pi spans and these direct spans flow through the one OpenTelemetry pipeline `TraceRoot.initialize()` registers, so a single `TraceRoot.shutdown()` at the end flushes everything. `initialize()` must run before `createAgentSession()`, since wiring pi patches `AgentSession`'s prototype.
 
-See the [`@traceroot-ai/pi` README](https://github.com/traceroot-ai/traceroot-ts/tree/main/packages/pi) for the full configuration surface.
+See the [pi integration docs](https://traceroot.ai/docs/integrations/pi) for the full configuration surface.
