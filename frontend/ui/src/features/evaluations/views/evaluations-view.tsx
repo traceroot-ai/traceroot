@@ -2,8 +2,20 @@
 
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronDown, ChevronRight, Layers, ListChecks, Ruler, Search, X } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronDown,
+  ChevronRight,
+  Layers,
+  ListChecks,
+  Ruler,
+  Search,
+  X,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { ModelSelector } from "@/features/ai-assistant/components/model-selector";
 import {
   Select,
   SelectContent,
@@ -18,7 +30,7 @@ import { Input } from "@/components/ui/input";
 import { CopyButton } from "@/components/ui/copy-button";
 import { HighlightedCode } from "@/features/offline-eval/components/syntax";
 import { cn } from "@/lib/utils";
-import { EmptyState, Timestamp } from "@/features/offline-eval/components";
+import { EmptyState, Timestamp, LineNumberedTextarea } from "@/features/offline-eval/components";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { PassRate } from "../components/pass-rate";
 import { pctFraction, SENTIMENT_CLASS } from "@/features/offline-eval/utils";
@@ -610,6 +622,15 @@ function ScorersTab({ projectId }: { projectId: string }) {
   // than a persistent split-pane.
   const [openKey, setOpenKey] = React.useState<string | null>(null);
   const active = allScorers.find((s) => `${s.name}@${s.version}` === openKey) ?? null;
+  const activeIndex = scorers.findIndex((s) => `${s.name}@${s.version}` === openKey);
+  const navigateScorer = (dir: "up" | "down") => {
+    if (activeIndex === -1) return;
+    const next = dir === "up" ? activeIndex - 1 : activeIndex + 1;
+    if (next >= 0 && next < scorers.length) {
+      const s = scorers[next];
+      setOpenKey(`${s.name}@${s.version}`);
+    }
+  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -694,12 +715,12 @@ function ScorersTab({ projectId }: { projectId: string }) {
                       )}
                     </Td>
                     <Td className="text-right tabular-nums">
-                      {s.errorRate === 0 ? (
-                        <span className="text-muted-foreground">—</span>
-                      ) : (
+                      {s.errorRate > 0 ? (
                         <span className={SENTIMENT_CLASS.bad}>
                           {(s.errorRate * 100).toFixed(1)}%
                         </span>
+                      ) : (
+                        <span className="text-muted-foreground">0%</span>
                       )}
                     </Td>
                     <Td className="whitespace-nowrap text-right text-muted-foreground">
@@ -722,6 +743,9 @@ function ScorersTab({ projectId }: { projectId: string }) {
           key={`${active.name}@${active.version}`}
           scorer={active}
           onClose={() => setOpenKey(null)}
+          onNavigate={navigateScorer}
+          canNavigateUp={activeIndex > 0}
+          canNavigateDown={activeIndex !== -1 && activeIndex < scorers.length - 1}
         />
       )}
     </div>
@@ -795,9 +819,15 @@ function ScorerCard({
 export function ScorerDetailPanel({
   scorer,
   onClose,
+  onNavigate,
+  canNavigateUp,
+  canNavigateDown,
 }: {
   scorer: ScorerRegistryRow;
   onClose: () => void;
+  onNavigate?: (dir: "up" | "down") => void;
+  canNavigateUp?: boolean;
+  canNavigateDown?: boolean;
 }) {
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -837,14 +867,41 @@ export function ScorerDetailPanel({
             title="Copy scorer id"
           />
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          className="rounded-sm text-muted-foreground hover:text-foreground"
-        >
-          <X className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          {onNavigate && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onNavigate("up")}
+                disabled={!canNavigateUp}
+                className="h-7 w-7 p-0"
+                title="Previous scorer"
+              >
+                <ArrowUp className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onNavigate("down")}
+                disabled={!canNavigateDown}
+                className="h-7 w-7 p-0"
+                title="Next scorer"
+              >
+                <ArrowDown className="h-4 w-4" />
+              </Button>
+            </>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onClose}
+            aria-label="Close"
+            className="h-7 w-7 p-0"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto text-[12px]">
@@ -861,26 +918,24 @@ function ScorerDetail({
   scorer: ScorerRegistryRow;
   kind: "llm_judge" | "code" | null;
 }) {
+  const systemPrompt = scorer.messages?.find((m) => m.role === "system")?.content ?? null;
   return (
     <div className="flex flex-col gap-3 p-4">
-      {/* Name */}
+      {/* Name — read-only, in the detector's editable-field chrome. */}
       <ScorerCard title="Name">
-        <div className="flex items-baseline gap-2">
-          <span className="text-[13px] font-medium text-foreground">{scorer.name}</span>
-          <span className="text-[11px] text-muted-foreground">
-            {fmtScorerVersion(scorer.version)}
-          </span>
-        </div>
+        <Input value={scorer.name} readOnly className="h-7 text-[13px]" />
       </ScorerCard>
 
-      {/* Model — LLM judge only (a code scorer runs no model). */}
+      {/* Model — the detector's model dropdown, rendered read-only (the wrapper
+          blocks pointer + focus, so it shows the model but never opens). */}
       {kind === "llm_judge" && (
         <ScorerCard title="Model">
-          {scorer.model ? (
-            <span className="font-mono text-[12px]">{scorer.model}</span>
-          ) : (
-            <NotProvided />
-          )}
+          <div className="pointer-events-none [&_*]:pointer-events-none">
+            <ModelSelector
+              value={{ model: scorer.model ?? "", provider: "", source: "system", adapter: "" }}
+              onChange={() => {}}
+            />
+          </div>
         </ScorerCard>
       )}
 
@@ -910,29 +965,38 @@ function ScorerDetail({
         </ScorerCard>
       ) : (
         <ScorerCard title="Prompt">
-          {scorer.messages && scorer.messages.length > 0 ? (
-            <div className="divide-y divide-border">
-              {scorer.messages.map((m, i) => (
-                <div key={i} className="py-2 first:pt-0 last:pb-0">
-                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                    {m.role}
-                  </div>
-                  <pre className="max-h-[30vh] overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed">
-                    {m.content}
-                  </pre>
-                </div>
-              ))}
-            </div>
+          {systemPrompt ? (
+            <LineNumberedTextarea
+              value={systemPrompt}
+              onChange={() => {}}
+              readOnly
+              aria-label="System prompt"
+            />
           ) : (
             <NotProvided />
           )}
         </ScorerCard>
       )}
 
-      {/* Pass threshold — the read-only analogue of the detector's Sampling. */}
+      {/* Pass threshold — read-only draggable bar, mirroring the detector's Sampling. */}
       <ScorerCard title="Pass threshold">
         {scorer.threshold !== null ? (
-          <span className="text-[12px] tabular-nums">{scorer.threshold}</span>
+          <div className="flex items-center gap-3">
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={Math.min(1, Math.max(0, scorer.threshold))}
+              readOnly
+              tabIndex={-1}
+              aria-label="Pass threshold"
+              className="pointer-events-none flex-1 accent-foreground"
+            />
+            <span className="w-12 shrink-0 text-right text-[13px] tabular-nums text-muted-foreground">
+              {scorer.threshold}
+            </span>
+          </div>
         ) : (
           <NotProvided />
         )}
