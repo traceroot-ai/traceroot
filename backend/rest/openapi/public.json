@@ -1017,13 +1017,18 @@
           "run_number": {
             "title": "Run Number",
             "type": "integer"
+          },
+          "run_path": {
+            "title": "Run Path",
+            "type": "string"
           }
         },
         "required": [
           "evaluation_id",
           "evaluation_run_id",
           "run_number",
-          "dataset_version_id"
+          "dataset_version_id",
+          "run_path"
         ],
         "title": "RegisterRunResponse",
         "type": "object"
