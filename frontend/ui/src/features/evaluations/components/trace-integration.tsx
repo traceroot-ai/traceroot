@@ -70,13 +70,69 @@ function boundaryHint(displayKind: string, spanName: string): string {
   return "This tests this step from its input.";
 }
 
+/** Collapse threshold — mirrors the span-detail I/O renderer's STRING_TRUNCATE_AT. */
+const COLLAPSE_AT = 500;
+
+/**
+ * Caps a long editable field behind a "…expand (N more characters)" control — the same
+ * organizing the span-detail I/O panel uses — so a big Input/Output/Metadata value
+ * doesn't flood the save panel. Short values render untouched. Expand-only; re-collapses
+ * when the selected span changes (via `resetKey`), matching the span-detail behavior.
+ */
+function CollapsibleField({
+  text,
+  resetKey,
+  children,
+}: {
+  text: string;
+  resetKey?: string;
+  children: React.ReactNode;
+}) {
+  const [expanded, setExpanded] = React.useState(false);
+  React.useEffect(() => {
+    setExpanded(false);
+  }, [resetKey]);
+
+  if (text.length <= COLLAPSE_AT) return <>{children}</>;
+  if (expanded) {
+    return (
+      <div>
+        {children}
+        <button
+          type="button"
+          onClick={() => setExpanded(false)}
+          className="mt-1 text-[11px] text-muted-foreground hover:text-foreground"
+        >
+          collapse
+        </button>
+      </div>
+    );
+  }
+  const hidden = text.length - COLLAPSE_AT;
+  return (
+    <div>
+      <div className="relative max-h-40 overflow-hidden">
+        {children}
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-background to-transparent" />
+      </div>
+      <button
+        type="button"
+        onClick={() => setExpanded(true)}
+        className="mt-1 text-[11px] text-muted-foreground hover:text-foreground"
+      >
+        …expand ({hidden.toLocaleString()} more characters)
+      </button>
+    </div>
+  );
+}
+
 /**
  * "Save as test case" — a faithful port of the approved mock drawer, wired to the
  * server. Opened from the existing trace viewer's span header. Self-contained: it
  * fetches the trace, walks its spans (up/down), lets you pick or create a
  * dataset, and persists via the server (which publishes a new dataset version).
- * The span's input becomes the proposed test input; its output is shown read-only
- * ("Recorded output") and is never treated as the expected answer.
+ * The span's input becomes the proposed test input; the single editable Output field
+ * seeds from the recorded output and, when edited, becomes the expected outcome.
  */
 export function SaveTestCaseDrawer({
   projectId,
@@ -362,31 +418,35 @@ export function SaveTestCaseDrawer({
           </p>
         </FormCard>
 
-        <EditableValueBlock
-          label="Input"
-          text={input}
-          onChange={setInput}
-          copyable
-          // Read + hand-edited most, and usually the most nested → expand it.
-          seedJson="expanded"
-          boxed
-          minRows={2}
-        />
-
-        <div>
+        <CollapsibleField text={input} resetKey={span?.span_id}>
           <EditableValueBlock
-            label="Output"
-            text={output}
-            onChange={(v) => {
-              setOutput(v);
-              setOutputEdited(true);
-            }}
+            label="Input"
+            text={input}
+            onChange={setInput}
             copyable
-            // Read and possibly hand-corrected — expand it like Input.
+            // Read + hand-edited most, and usually the most nested → expand it.
             seedJson="expanded"
             boxed
             minRows={2}
           />
+        </CollapsibleField>
+
+        <div>
+          <CollapsibleField text={output} resetKey={span?.span_id}>
+            <EditableValueBlock
+              label="Output"
+              text={output}
+              onChange={(v) => {
+                setOutput(v);
+                setOutputEdited(true);
+              }}
+              copyable
+              // Read and possibly hand-corrected — expand it like Input.
+              seedJson="expanded"
+              boxed
+              minRows={2}
+            />
+          </CollapsibleField>
           <p className="mt-1 flex items-start gap-1.5 text-[11px] text-muted-foreground">
             <Info className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
             {outputEdited ? (
@@ -405,17 +465,19 @@ export function SaveTestCaseDrawer({
           </p>
         </div>
 
-        <EditableValueBlock
-          label="Metadata"
-          text={metadata}
-          onChange={setMetadata}
-          copyable
-          // Incidental context, usually one or two short keys → keep it inline
-          // (seedFormat expands it anyway once it stops fitting on one line).
-          seedJson="compact"
-          boxed
-          minRows={2}
-        />
+        <CollapsibleField text={metadata} resetKey={span?.span_id}>
+          <EditableValueBlock
+            label="Metadata"
+            text={metadata}
+            onChange={setMetadata}
+            copyable
+            // Incidental context, usually one or two short keys → keep it inline
+            // (seedFormat expands it anyway once it stops fitting on one line).
+            seedJson="compact"
+            boxed
+            minRows={2}
+          />
+        </CollapsibleField>
 
         <div className="border border-border">
           <div className="flex items-center justify-between border-b border-border bg-muted/50 px-3 py-1.5">
