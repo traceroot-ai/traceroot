@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, Maximize2, Minimize2 } from "lucide-react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -183,6 +183,7 @@ export function LineNumberedTextarea({
   minRows = 1,
   placeholder,
   highlightJson = false,
+  readOnly = false,
   "aria-label": ariaLabel,
 }: {
   value: string;
@@ -191,19 +192,31 @@ export function LineNumberedTextarea({
   placeholder?: string;
   /** When true, JSON content is syntax-highlighted (trace-panel colors). */
   highlightJson?: boolean;
+  /** Display only — selectable and syntax-coloured, but not editable. */
+  readOnly?: boolean;
   "aria-label"?: string;
 }) {
-  const rawLines = value === "" ? [""] : value.split("\n");
-  const tokenLines = highlightJson ? tokenizeJsonByLine(value) : null;
-  const padLines = Math.max(0, minRows - rawLines.length);
-  const digits = Math.max(2, String(rawLines.length).length);
+  // Keep a real trailing empty line so the last line is always clickable — click
+  // it and type without pressing Enter first, and a 1-line value still shows an
+  // empty line 2. The parent value never keeps that trailing newline: it's added
+  // for display/editing and stripped from what onChange reports.
+  //
+  // The newline is appended *unconditionally*. Appending it only when the value
+  // didn't already end in one meant pressing Enter (which makes the value end in
+  // a newline) was cancelled out by the strip below, so the line count — and the
+  // box height — never grew.
+  const textValue = `${value}\n`;
+  const rawLines = textValue.split("\n");
+  const tokenLines = highlightJson ? tokenizeJsonByLine(textValue) : null;
+  const totalLines = Math.max(rawLines.length, minRows);
+  const digits = Math.max(2, String(totalLines).length);
   const gutterWidth = `calc(${digits}ch + 1rem)`;
 
   return (
     <div className="relative overflow-hidden rounded border border-input bg-background font-mono text-[12px] leading-relaxed focus-within:ring-1 focus-within:ring-ring">
       {/* Display layer — line numbers + (highlighted) content, wraps per line. */}
       <div aria-hidden className="pointer-events-none py-1.5">
-        {rawLines.map((line, i) => (
+        {Array.from({ length: totalLines }).map((_, i) => (
           <div key={i} className="flex items-start">
             <span
               className="shrink-0 select-none border-r border-border bg-muted/40 px-2 text-right text-muted-foreground/50"
@@ -218,31 +231,28 @@ export function LineNumberedTextarea({
                       {t.text}
                     </span>
                   ))
-                : line}
+                : (rawLines[i] ?? "")}
               {"​"}
             </span>
-          </div>
-        ))}
-        {Array.from({ length: padLines }).map((_, k) => (
-          <div key={`pad-${k}`} className="flex items-start">
-            <span
-              className="shrink-0 border-r border-border bg-muted/40 px-2"
-              style={{ width: gutterWidth }}
-            >
-              {"​"}
-            </span>
-            <span className="flex-1 px-2">{"​"}</span>
           </div>
         ))}
       </div>
       {/* Editing layer — transparent text lined up over the display layer. */}
       <textarea
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
+        value={textValue}
+        onChange={(e) => {
+          if (readOnly) return;
+          const v = e.target.value;
+          onChange(v.endsWith("\n") ? v.slice(0, -1) : v);
+        }}
+        readOnly={readOnly}
         spellCheck={false}
         placeholder={placeholder}
         aria-label={ariaLabel}
-        className="absolute inset-0 resize-none overflow-hidden whitespace-pre-wrap break-words bg-transparent py-1.5 pr-2 font-mono text-[12px] leading-relaxed text-transparent caret-foreground placeholder:text-muted-foreground focus:outline-none"
+        className={cn(
+          "absolute inset-0 resize-none overflow-hidden whitespace-pre-wrap break-words bg-transparent py-1.5 pr-2 font-mono text-[12px] leading-relaxed text-transparent placeholder:text-muted-foreground focus:outline-none",
+          readOnly ? "cursor-default caret-transparent" : "caret-foreground",
+        )}
         style={{ paddingLeft: `calc(${gutterWidth} + 0.5rem)` }}
       />
     </div>
@@ -337,9 +347,8 @@ function detectKind(text: string): ValueKind {
  * JSON), so plain text is never mangled.
  *
  * Optional extras (all off by default, so existing callers are unchanged):
- * `copyable` adds a copy button, `enlargeable` adds a taller/shorter toggle,
- * `autoDetectKind` picks JSON vs text from the initial content, and `minRows`
- * sets the resting height.
+ * `copyable` adds a copy button, `autoDetectKind` picks JSON vs text from the
+ * initial content, and `minRows` sets the resting height.
  */
 export function EditableValueBlock({
   label,
@@ -348,10 +357,10 @@ export function EditableValueBlock({
   defaultKind = "yaml",
   ariaLabel,
   copyable = false,
-  enlargeable = false,
   autoDetectKind = false,
   minRows = 1,
   boxed = false,
+  readOnly = false,
 }: {
   label: string;
   text: string;
@@ -359,17 +368,25 @@ export function EditableValueBlock({
   defaultKind?: ValueKind;
   ariaLabel?: string;
   copyable?: boolean;
-  enlargeable?: boolean;
   autoDetectKind?: boolean;
   minRows?: number;
   /** Wrap the block in a bordered card with a muted header strip (like FormCard). */
   boxed?: boolean;
+  /** Display only — same look and format switcher, but the text can't be edited. */
+  readOnly?: boolean;
 }) {
   const [kind, setKind] = React.useState<ValueKind>(defaultKind);
   const [menuOpen, setMenuOpen] = React.useState(false);
-  const [enlarged, setEnlarged] = React.useState(false);
+  // Minimised via the header chevron, like the span detail panel's I/O sections.
+  const [open, setOpen] = React.useState(true);
   const userSetKind = React.useRef(false);
   const detected = React.useRef(false);
+  // Read-only fields reformat locally (the parent value never changes), so the
+  // format switcher still works without touching the source of truth.
+  const [display, setDisplay] = React.useState(text);
+  React.useEffect(() => {
+    if (readOnly) setDisplay(text);
+  }, [readOnly, text]);
 
   // Detect JSON vs text once, when the value first arrives (e.g. after a dialog
   // seeds it), unless the user has already chosen a format from the switcher.
@@ -386,30 +403,17 @@ export function EditableValueBlock({
     setMenuOpen(false);
     // Reformat only when the current text is valid JSON; otherwise leave it be.
     try {
-      const parsed = JSON.parse(text);
-      onChange(formatValue(parsed, next));
+      const parsed = JSON.parse(readOnly ? display : text);
+      const formatted = formatValue(parsed, next);
+      if (readOnly) setDisplay(formatted);
+      else onChange(formatted);
     } catch {
       /* not JSON — keep the text as typed */
     }
   };
 
-  // Rest at minRows and grow one line at a time with the content; enlarge opens
-  // it fully.
-  const effectiveMin = enlarged ? Math.max(minRows, 24) : minRows;
-
   const controls = (
     <div className="flex items-center gap-0.5">
-      {enlargeable && (
-        <button
-          type="button"
-          onClick={() => setEnlarged((v) => !v)}
-          title={enlarged ? "Shrink" : "Enlarge"}
-          aria-label={enlarged ? "Shrink field" : "Enlarge field"}
-          className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        >
-          {enlarged ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-        </button>
-      )}
       <Popover open={menuOpen} onOpenChange={setMenuOpen}>
         <PopoverTrigger asChild>
           <button
@@ -438,7 +442,7 @@ export function EditableValueBlock({
       </Popover>
       {copyable && (
         <CopyButton
-          value={text}
+          value={readOnly ? display : text}
           className="h-6 w-6 text-muted-foreground hover:text-foreground"
           title="Copy"
         />
@@ -448,22 +452,48 @@ export function EditableValueBlock({
 
   const field = (
     <LineNumberedTextarea
-      value={text}
+      value={readOnly ? display : text}
       onChange={onChange}
-      minRows={effectiveMin}
+      minRows={minRows}
       highlightJson={kind === "json" || kind === "pretty"}
+      readOnly={readOnly}
       aria-label={ariaLabel ?? label}
     />
+  );
+
+  // Chevron + label: the whole thing toggles, matching the span detail panel.
+  const heading = (size: "sm" | "xs") => (
+    <button
+      type="button"
+      onClick={() => setOpen((v) => !v)}
+      aria-expanded={open}
+      className={cn(
+        "flex items-center gap-1.5 rounded font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+        size === "sm" ? "text-[12px]" : "text-[11px]",
+      )}
+    >
+      {open ? (
+        <ChevronDown className="h-3.5 w-3.5 shrink-0" aria-hidden />
+      ) : (
+        <ChevronRight className="h-3.5 w-3.5 shrink-0" aria-hidden />
+      )}
+      {label}
+    </button>
   );
 
   if (boxed) {
     return (
       <div className="border border-border">
-        <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/50 px-3 py-1.5">
-          <span className="text-[12px] font-medium text-muted-foreground">{label}</span>
+        <div
+          className={cn(
+            "flex items-center justify-between gap-2 bg-muted/50 px-3 py-1.5",
+            open && "border-b border-border",
+          )}
+        >
+          {heading("sm")}
           {controls}
         </div>
-        <div className="p-3">{field}</div>
+        {open && <div className="p-3">{field}</div>}
       </div>
     );
   }
@@ -471,10 +501,10 @@ export function EditableValueBlock({
   return (
     <div>
       <div className="mb-1 flex items-center justify-between gap-2">
-        <span className="text-[11px] font-medium text-muted-foreground">{label}</span>
+        {heading("xs")}
         {controls}
       </div>
-      {field}
+      {open && field}
     </div>
   );
 }
