@@ -16,6 +16,7 @@ import {
   UserRoundSearch,
   Eye,
   Database,
+  FlaskConical,
 } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -222,10 +223,26 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                   </TooltipContent>
                 )}
               </Tooltip>
-              {/* No "Evaluations" entry yet: its route (/projects/[projectId]/evaluations)
-                  doesn't ship until the PR that lands the evaluations backend — a
-                  permanent nav item pointing at a 404 would ship to every project
-                  the moment this branch merges. Add it back alongside that PR. */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link
+                    href={`/projects/${projectId}/evaluations`}
+                    className={cn(
+                      "flex items-center gap-2 py-2 text-[13px] transition-colors",
+                      collapsed ? "justify-center px-2" : "px-3",
+                      pathname.includes("/evaluations") ? "bg-muted" : "hover:bg-muted/50",
+                    )}
+                  >
+                    <FlaskConical className="h-3.5 w-3.5 shrink-0" />
+                    {!collapsed && "Evaluations"}
+                  </Link>
+                </TooltipTrigger>
+                {collapsed && (
+                  <TooltipContent side="right" sideOffset={16}>
+                    Evaluations
+                  </TooltipContent>
+                )}
+              </Tooltip>
             </>
           ) : (
             // Default navigation (Workspaces)
