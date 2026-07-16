@@ -34,7 +34,9 @@ import { Button } from "@/components/ui/button";
 import {
   SaveTestCaseDrawer,
   TraceEvaluationChip,
+  SpanDatasetChip,
 } from "@/features/evaluations/components/trace-integration";
+import { useTraceTestCases } from "@/features/evaluations/hooks";
 import { formatContentPreview } from "@/features/traces/utils";
 import { useSession as useAuthSession } from "@/lib/auth-client";
 
@@ -76,6 +78,9 @@ export default function TracesPage() {
   } = useListPageState({ retentionDays: retention.retentionDays });
 
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(traceIdFromUrl);
+  // Warm the span→dataset chip data as soon as a trace is selected, so the
+  // "Dataset:" chip is ready before the user opens a span (no per-span latency).
+  useTraceTestCases(projectId, selectedTraceId ?? "");
   // Save-as-test-case (offline eval): which span the drawer targets (undefined = root).
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveSpanId, setSaveSpanId] = useState<string | undefined>(undefined);
@@ -433,11 +438,18 @@ export default function TracesPage() {
               Save as test case
             </Button>
           )}
-          // Offline eval: show an Evaluation chip when this trace came from a run.
+          // Offline eval: a trace-level chip when this trace came from a run, and
+          // a per-span "Dataset:" chip marking a span already saved as a test case.
           spanExtraTags={(selection: TraceSelection) =>
             selection.type === "trace" ? (
               <TraceEvaluationChip projectId={projectId} traceId={selectedTraceId} />
-            ) : null
+            ) : (
+              <SpanDatasetChip
+                projectId={projectId}
+                traceId={selectedTraceId}
+                spanId={selection.span.span_id}
+              />
+            )
           }
           // Customer surface, so state the scope explicitly rather than inheriting it:
           // the reader already defaults to customer traffic, so this is defense in depth,
