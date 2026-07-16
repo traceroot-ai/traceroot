@@ -7,8 +7,8 @@ import { cn } from "@/lib/utils";
 /**
  * CSV / JSON upload control for creating a dataset or importing rows.
  *
- * Prototype-only: it accepts a file so the flow feels real and reports the name,
- * but nothing is parsed or stored. `onFile` lets the caller show a confirmation.
+ * It accepts a file and reports the name, but nothing is parsed or stored.
+ * `onFile` lets the caller show a confirmation.
  */
 export function UploadControl({
   onFile,

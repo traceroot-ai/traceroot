@@ -71,7 +71,7 @@ function boundaryHint(displayKind: string, spanName: string): string {
 }
 
 /**
- * "Save as test case" — a faithful port of the approved mock drawer, wired to the
+ * "Save as test case" — the capture drawer, wired to the
  * server. Opened from the existing trace viewer's span header. Self-contained: it
  * fetches the trace, walks its spans (up/down), lets you pick or create a
  * dataset, and persists via the server (which publishes a new dataset version).
@@ -532,14 +532,14 @@ export function TraceEvaluationChip({
 
 type Lang = "python" | "typescript";
 
-/** e.g. "Billing routing" → "billing-routing". Matches the mock's slug. */
+/** e.g. "Billing routing" → "billing-routing". */
 function slugify(name: string): string {
   return name.trim().toLowerCase().replace(/\s+/g, "-");
 }
 
 /**
- * A 4-line initDataset snippet, Braintrust-style, for one language — identical in
- * shape to the mock's DatasetInfoChip. Indents differ on purpose: 4 spaces for
+ * A 4-line initDataset snippet for one language — identical in shape to the
+ * DatasetInfoChip. Indents differ on purpose: 4 spaces for
  * Python (PEP 8), 2 for TypeScript (Prettier).
  */
 function sdkSnippet(lang: Lang, projectName: string, datasetSlug: string, version: string): string {
