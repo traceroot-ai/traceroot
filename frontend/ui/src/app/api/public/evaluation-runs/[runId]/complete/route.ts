@@ -6,6 +6,8 @@ type RouteParams = { params: Promise<{ runId: string }> };
 
 // POST /api/public/evaluation-runs/[runId]/complete — SDK marks a run
 // completed/completed_with_errors/failed/incomplete with final counts.
+// Completion is one-way and idempotent: a replay keeps the completion timestamp
+// the first call stamped, and a finished run cannot be moved back to running.
 export async function POST(request: Request, { params }: RouteParams) {
   const auth = await requireApiKeyProject(request);
   if (auth.error) return auth.error;
@@ -14,7 +16,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
   const run = await prisma.evaluationRun.findFirst({
     where: { id: runId, projectId },
-    select: { id: true },
+    select: { id: true, status: true, completedAt: true },
   });
   if (!run) return NextResponse.json({ error: "Evaluation run not found" }, { status: 404 });
 
@@ -31,6 +33,16 @@ export async function POST(request: Request, { params }: RouteParams) {
   const c = parsed.data;
 
   const terminal = c.status !== "running";
+  // A finished run stays finished. Accepting "running" here would leave status
+  // and completedAt describing different things for the same row, so readers
+  // filtering on status disagree with readers filtering on completedAt IS NULL.
+  if (!terminal && run.status !== "running") {
+    return NextResponse.json(
+      { error: `Run is already ${run.status} and cannot be reopened` },
+      { status: 409 },
+    );
+  }
+
   const updated = await prisma.evaluationRun.update({
     where: { id: runId },
     data: {
@@ -46,7 +58,9 @@ export async function POST(request: Request, { params }: RouteParams) {
       ...(c.scorer_error_count !== undefined && c.scorer_error_count !== null
         ? { scorerErrorCount: c.scorer_error_count }
         : {}),
-      ...(terminal ? { completedAt: new Date() } : {}),
+      // Keep the first completion's timestamp: a retried /complete must not move
+      // the run's recorded finish time (and with it its reported duration).
+      ...(terminal ? { completedAt: run.completedAt ?? new Date() } : {}),
     },
     select: { id: true, status: true },
   });
