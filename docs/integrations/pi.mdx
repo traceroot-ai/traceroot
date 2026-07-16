@@ -1,29 +1,22 @@
 ---
 title: pi SDK
-description: Instrument embedded pi coding-agent sessions with TraceRoot
+description: Trace embedded pi coding-agent sessions with TraceRoot
 ---
 
-Trace [pi](https://pi.dev) coding-agent sessions you embed in your own Node process with
-the pi support built into `@traceroot-ai/traceroot`. `@earendil-works/pi-coding-agent` is
-the library form of pi — you drive an `AgentSession` yourself instead of running the
-interactive CLI — and `TraceRoot.initialize()` instruments `AgentSession` so every session
-is traced with full agent/LLM/tool span semantics, no manual span code required.
+Automatically capture agent runs, LLM calls, tool executions, and token usage from [pi](https://pi.dev) coding-agent sessions you drive with `@earendil-works/pi-coding-agent` — the library form of pi, where you run an `AgentSession` from your own Node process instead of the interactive CLI.
 
 <Note>
-  Driving pi programmatically from your own code is what this integration is for.
-  Running the interactive `pi` CLI instead? Grab the
+  Running the interactive `pi` CLI instead? Use the
   [TraceRoot pi extension](https://github.com/traceroot-ai/traceroot-pi-extension).
 </Note>
 
 ## Setup
 
-Install TraceRoot alongside the SDK it instruments:
-
 ```bash
 npm install @traceroot-ai/traceroot @earendil-works/pi-coding-agent
 ```
 
-Call `TraceRoot.initialize()` before creating any session — it installs the instrumentation:
+Call `TraceRoot.initialize()` before creating any session:
 
 ```typescript
 import * as pi from '@earendil-works/pi-coding-agent';
@@ -38,8 +31,7 @@ TraceRoot.initialize({
 
 ## Usage
 
-Create and run a session as usual — every session created after instrumentation is
-traced automatically:
+Create and run sessions as usual — every session is traced automatically:
 
 ```typescript
 import { AuthStorage, createAgentSession, ModelRegistry } from '@earendil-works/pi-coding-agent';
@@ -56,7 +48,7 @@ try {
 }
 ```
 
-Each `session.prompt()` call is captured as a nested trace:
+Each `session.prompt()` becomes a nested trace, with tool spans under the LLM span that requested them:
 
 ```
 AgentSession.prompt              # AGENT span — one per prompt() call
@@ -65,8 +57,6 @@ AgentSession.prompt              # AGENT span — one per prompt() call
     ├── write: test-add.js
     └── bash: node test-add.js
 ```
-
-Tool spans nest under the LLM span that requested them.
 
 ## What Gets Captured
 
@@ -79,9 +69,7 @@ Tool spans nest under the LLM span that requested them.
 | Tokens | Input, output, and cache read/write counts |
 | Latency | Duration per span |
 
-`captureContent` and `captureToolIo` (both default `true`) control whether prompt/response
-text and tool arguments/results are attached to spans; set either to `false` to keep that
-content off exported spans. Pass them through the `{ module, config }` form:
+`captureContent` and `captureToolIo` (both default `true`) control whether prompt/response text and tool arguments/results are attached to spans. Pass them through the `{ module, config }` form:
 
 ```typescript
 TraceRoot.initialize({
@@ -93,8 +81,6 @@ TraceRoot.initialize({
 
 ## Run the example
 
-Clone the repo and run a complete session end-to-end.
-
 <Card title="TypeScript" icon="js" href="https://github.com/traceroot-ai/traceroot/tree/main/examples/typescript/pi-agent-sdk">
-  Run the TypeScript example
+  Run a complete session end-to-end.
 </Card>
