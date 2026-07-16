@@ -47,10 +47,6 @@ async function main(): Promise<void> {
   // Sync standard model pricing from JSON → DB
   await syncStandardPrices();
 
-  // Run once immediately so the first usage snapshot lands within seconds
-  // of startup instead of waiting for the next cron tick (up to ~1h away).
-  await runStartupBillingPass();
-
   // Schedule billing job (default: every hour at minute 5)
   const billingCron = process.env.USAGE_METERING_CRON || "5 * * * *";
   cron.schedule(billingCron, async () => {
@@ -63,6 +59,11 @@ async function main(): Promise<void> {
       console.error("[Billing Worker] Billing job failed:", error);
     }
   });
+
+  // Fire once immediately so the first usage snapshot lands within seconds
+  // of startup instead of waiting for the next cron tick (up to ~1h away).
+  // Not awaited: a slow/not-yet-ready backend must not delay cron registration.
+  void runStartupBillingPass();
 
   console.log("[Billing Worker] Scheduled jobs:");
   console.log(`  - Billing: ${billingCron}`);
