@@ -11,6 +11,8 @@ import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { SessionDetailPanel } from "@/features/traces/components/SessionDetailPanel";
 import { useSessions } from "@/features/traces/hooks";
+import { isRetentionError, getRetentionDetail } from "@/lib/api/retention";
+import { RetentionGateBanner } from "@/components/RetentionGateBanner";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useSession as useAuthSession } from "@/lib/auth-client";
 import {
@@ -132,6 +134,8 @@ export default function SessionsPage() {
             <div className="flex h-64 items-center justify-center">
               <LoadingState label="Loading sessions..." />
             </div>
+          ) : error && isRetentionError(error) ? (
+            <RetentionGateBanner projectId={projectId} detail={getRetentionDetail(error)!} />
           ) : error && !data ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
               <p className="text-[13px] text-destructive">Error loading sessions</p>
