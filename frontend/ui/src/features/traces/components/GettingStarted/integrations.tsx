@@ -23,7 +23,7 @@ const PYTHON_INSTALL_COMMAND = "pip install traceroot";
 const TYPESCRIPT_INSTALL_COMMAND = "npm install @traceroot-ai/traceroot";
 const MASTRA_INSTALL_COMMAND =
   "npm install @traceroot-ai/mastra @mastra/core @mastra/observability";
-const PI_INSTALL_COMMAND = "npm install @traceroot-ai/pi @earendil-works/pi-coding-agent";
+const PI_INSTALL_COMMAND = "npm install @traceroot-ai/traceroot @earendil-works/pi-coding-agent";
 
 // Ordered to mirror the docs integrations overview (frameworks first, then model
 // providers, alphabetical within each group). Keep this in sync with
@@ -290,11 +290,10 @@ TraceRoot.initialize({
       typescript: {
         installCommand: PI_INSTALL_COMMAND,
         initSnippet: `import * as pi from "@earendil-works/pi-coding-agent";
-import { instrumentPiCodingAgent } from "@traceroot-ai/pi";
+import { TraceRoot } from "@traceroot-ai/traceroot";
 
-// Instrument BEFORE creating any session.
-instrumentPiCodingAgent(pi, {
-  apiKey: process.env.TRACEROOT_API_KEY,
+TraceRoot.initialize({
+  instrumentModules: { piCodingAgent: pi },
 });`,
       },
     },
