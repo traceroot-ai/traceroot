@@ -255,13 +255,21 @@ class TraceReaderService:
         # the span sub-queries reuse start_after (above) as a span-scan lower bound.
         conditions.extend(build_conditions(filters or [], params))
 
-        # Exclude offline-evaluation traces by default (trace-level, NULL-safe so
-        # untagged production traces are always kept). Shared by page + count.
-        if not include_evaluations:
-            conditions.append("(t.environment IS NULL OR t.environment != {excluded_env:String})")
-            params["excluded_env"] = "evaluation"
-
         where_clause = " AND ".join(conditions)
+
+        # Exclude offline-evaluation traces by default. This MUST be applied AFTER the
+        # ReplacingMergeTree dedup, never to the raw rows: an eval trace can have a shallow
+        # placeholder row (environment NULL, written when a child span arrives before the
+        # root) alongside the full root row (environment 'evaluation'). Filtering raw rows
+        # would drop the full row but keep the NULL shallow row, defeating the exclusion —
+        # so we filter the deduped latest row (NULL-safe, keeping untagged production
+        # traces). Shared by the page and count queries below.
+        env_clause = ""
+        if not include_evaluations:
+            env_clause = "environment IS NULL OR environment != {excluded_env:String}"
+            params["excluded_env"] = "evaluation"
+        page_env_where = f"WHERE ({env_clause})" if env_clause else ""
+        count_env_where = f"WHERE ({env_clause})" if env_clause else ""
 
         # Page the traces FIRST (cheap: trace metadata only, deduped via LIMIT 1 BY
         # instead of FINAL), then aggregate spans for ONLY that page's trace_ids.
@@ -277,12 +285,13 @@ class TraceReaderService:
                 FROM (
                     SELECT
                         t.trace_id, t.project_id, t.name, t.trace_start_time,
-                        t.user_id, t.session_id, t.input, t.output
+                        t.user_id, t.session_id, t.input, t.output, t.environment
                     FROM traces AS t
                     WHERE {where_clause}
                     ORDER BY t.ch_update_time DESC
                     LIMIT 1 BY t.project_id, t.trace_id
                 )
+                {page_env_where}
                 ORDER BY trace_start_time DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             ),
@@ -333,11 +342,19 @@ class TraceReaderService:
         result = self._client.query(query, parameters=params)
         rows = result.result_rows
 
-        # Get total count (count(DISTINCT) dedupes ReplacingMergeTree rows; no FINAL)
+        # Total count: dedup per trace_id (argMax by ch_update_time collapses the
+        # ReplacingMergeTree rows to the latest one, like the page's LIMIT 1 BY), THEN
+        # apply the evaluation exclusion to that deduped row — so the count matches the
+        # page and can't be inflated by a shallow NULL-environment placeholder row.
         count_query = f"""
-            SELECT count(DISTINCT t.trace_id)
-            FROM traces AS t
-            WHERE {where_clause}
+            SELECT count()
+            FROM (
+                SELECT t.trace_id, argMax(t.environment, t.ch_update_time) AS environment
+                FROM traces AS t
+                WHERE {where_clause}
+                GROUP BY t.trace_id
+            )
+            {count_env_where}
         """
         count_result = self._client.query(count_query, parameters=params)
         total = count_result.result_rows[0][0] if count_result.result_rows else 0
