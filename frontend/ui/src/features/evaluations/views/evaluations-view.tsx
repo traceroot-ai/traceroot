@@ -120,10 +120,10 @@ export function EvaluationsView({ projectId }: { projectId: string }) {
 // Runs — the flat execution list.
 // ---------------------------------------------------------------------------
 
-const RUNS_COLUMN_COUNT = 10;
+const RUNS_COLUMN_COUNT = 9;
 
 /** Human elapsed duration; "—" when unknown (never 0). */
-function formatElapsed(ms: number | null | undefined): string {
+export function formatElapsed(ms: number | null | undefined): string {
   if (ms === null || ms === undefined) return "—";
   if (ms < 1000) return `${ms}ms`;
   const s = ms / 1000;
@@ -133,7 +133,7 @@ function formatElapsed(ms: number | null | undefined): string {
   return `${m}m ${rem}s`;
 }
 
-function ScoreValue({ value }: { value: number | null }) {
+export function ScoreValue({ value }: { value: number | null }) {
   return value === null ? (
     <span className="text-muted-foreground">—</span>
   ) : (
@@ -142,7 +142,7 @@ function ScoreValue({ value }: { value: number | null }) {
 }
 
 /** Total run cost; "—" when no case reported a cost (never a misleading $0). */
-function formatCost(cost: number | null | undefined): React.ReactNode {
+export function formatCost(cost: number | null | undefined): React.ReactNode {
   if (cost === null || cost === undefined) return <span className="text-muted-foreground">—</span>;
   return `$${cost < 1 ? cost.toFixed(4) : cost.toFixed(2)}`;
 }
@@ -209,14 +209,11 @@ function RunTableRow({
         <PassRate counts={r} />
       </Td>
       <Td className="text-right tabular-nums text-muted-foreground">{formatCost(r.cost)}</Td>
-      <Td>
-        <RunStatusBadge status={r.status} />
-      </Td>
-      <Td className="text-right tabular-nums">
-        {r.errorCount === 0 ? <span className="text-muted-foreground">—</span> : r.errorCount}
-      </Td>
       <Td className="whitespace-nowrap text-right tabular-nums text-muted-foreground">
         {formatElapsed(r.elapsedMs)}
+      </Td>
+      <Td>
+        <RunStatusBadge status={r.status} />
       </Td>
       <Td className="whitespace-nowrap text-right text-muted-foreground">
         <Timestamp iso={r.startedAt} />
@@ -264,13 +261,12 @@ function groupRunsByEvaluation(runs: RunRow[]): RunGroup[] {
 }
 
 /** Per-lineage aggregate across a group's runs — pooled where a total is meaningful
- *  (passed, cost, errors, duration) and averaged for the score. */
+ *  (passed, cost, duration) and averaged for the score. */
 function aggregateGroup(runs: RunRow[]) {
   let passedCount = 0,
     failedCount = 0,
     erroredCount = 0,
     notScoredCount = 0,
-    errors = 0,
     durationMs = 0,
     hasDuration = false,
     scoreSum = 0,
@@ -282,7 +278,6 @@ function aggregateGroup(runs: RunRow[]) {
     failedCount += r.failedCount ?? 0;
     erroredCount += r.erroredCount ?? 0;
     notScoredCount += r.notScoredCount ?? 0;
-    errors += r.errorCount ?? 0;
     if (r.elapsedMs != null) {
       durationMs += r.elapsedMs;
       hasDuration = true;
@@ -298,7 +293,6 @@ function aggregateGroup(runs: RunRow[]) {
   }
   return {
     counts: { passedCount, failedCount, erroredCount, notScoredCount },
-    errors,
     durationMs: hasDuration ? durationMs : null,
     avgScore: scoreN > 0 ? scoreSum / scoreN : null,
     cost: hasCost ? cost : null,
@@ -395,23 +389,13 @@ function GroupHeaderRow({
         {formatCost(agg.cost)}
         {agg.cost !== null && <AggCaption>total</AggCaption>}
       </Td>
-      <Td>
-        <RunStatusBadge status={latest.status} />
-        <AggCaption>latest</AggCaption>
-      </Td>
-      <Td className="text-right tabular-nums">
-        {agg.errors === 0 ? (
-          <span className="text-muted-foreground">—</span>
-        ) : (
-          <>
-            {agg.errors}
-            <AggCaption>total</AggCaption>
-          </>
-        )}
-      </Td>
       <Td className="whitespace-nowrap text-right tabular-nums text-muted-foreground">
         {formatElapsed(agg.durationMs)}
         {agg.durationMs !== null && <AggCaption>total</AggCaption>}
+      </Td>
+      <Td>
+        <RunStatusBadge status={latest.status} />
+        <AggCaption>latest</AggCaption>
       </Td>
       <Td className="whitespace-nowrap text-right font-normal text-muted-foreground">
         <Timestamp iso={latest.startedAt} />
@@ -664,10 +648,9 @@ function RunsTab({ projectId }: { projectId: string }) {
               <Th className="w-[110px] text-right">Main score</Th>
               <Th className="w-[100px] text-right">Passed</Th>
               <Th className="w-[100px] text-right">Cost</Th>
-              <Th className="w-[150px]">Status</Th>
-              <Th className="w-[80px] text-right">Errors</Th>
               <Th className="w-[90px] text-right">Duration</Th>
-              <Th className="w-[130px] text-right">Started</Th>
+              <Th className="w-[150px]">Status</Th>
+              <Th className="w-[130px] text-right">Timestamp</Th>
             </TRHead>
           </THead>
           <TBody>
@@ -1102,38 +1085,40 @@ function ScorerDetail({
           )}
         </ScorerCard>
       ) : kind === "llm_judge" ? (
-        <>
-          <ScorerCard title="Model">
-            {scorer.model ? (
-              <span className="font-mono text-[12px]">{scorer.model}</span>
+        // One "Prompt" card: the model sits in the header; messages are role-labelled
+        // rows separated by dividers (no card-in-card nesting).
+        <ScorerCard
+          title="Prompt"
+          action={
+            scorer.model ? (
+              <span className="font-mono text-[11px] text-muted-foreground">{scorer.model}</span>
             ) : (
-              <NotProvided />
-            )}
-          </ScorerCard>
-          <ScorerCard title="Messages">
-            {scorer.messages && scorer.messages.length > 0 ? (
-              <div className="flex flex-col gap-2">
-                {scorer.messages.map((m, i) => (
-                  <div key={i} className="border border-border">
-                    <div className="border-b border-border bg-muted/30 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                      {m.role}
-                    </div>
-                    <pre className="max-h-[30vh] overflow-auto whitespace-pre-wrap px-2 py-1.5 font-mono text-[11px] leading-relaxed">
-                      {m.content}
-                    </pre>
+              <span className="text-[11px] text-muted-foreground">— no model</span>
+            )
+          }
+        >
+          {scorer.messages && scorer.messages.length > 0 ? (
+            <div className="divide-y divide-border">
+              {scorer.messages.map((m, i) => (
+                <div key={i} className="py-2 first:pt-0 last:pb-0">
+                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                    {m.role}
                   </div>
-                ))}
-              </div>
-            ) : (
-              <NotProvided />
-            )}
-          </ScorerCard>
-        </>
+                  <pre className="max-h-[30vh] overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed">
+                    {m.content}
+                  </pre>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <NotProvided />
+          )}
+        </ScorerCard>
       ) : (
         <ScorerCard title="Definition">
           <p className="text-[11px] leading-relaxed text-muted-foreground">
-            The SDK hasn&apos;t reported this scorer&apos;s type or definition — an LLM judge&apos;s
-            model &amp; messages, or a code scorer&apos;s snippet. <NotProvided />.
+            The SDK hasn&apos;t reported this scorer&apos;s definition — an LLM judge&apos;s model
+            &amp; messages, or a code scorer&apos;s snippet.
           </p>
         </ScorerCard>
       )}

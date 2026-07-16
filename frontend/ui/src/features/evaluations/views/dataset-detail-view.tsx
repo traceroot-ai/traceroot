@@ -13,7 +13,6 @@ import {
   FileCode,
   FileText,
   History,
-  Play,
   Plus,
   Shrink,
   SquareArrowOutUpRight,
@@ -46,7 +45,6 @@ import {
   EvalPageHeader,
   ReviewBadge,
   EditableValueBlock,
-  EvalResultBadge,
   SelectAllHeaderCell,
   SelectRowCell,
   Timestamp,
@@ -56,14 +54,12 @@ import {
   type TestCaseReviewTarget,
 } from "@/features/offline-eval/components";
 import { CAPTURE_REASON_LABEL, type ReviewStatus } from "@/features/offline-eval/types";
+import { RunStatusBadge, ScoreValue, formatCost, formatElapsed } from "./evaluations-view";
+import { PassRate } from "../components/pass-rate";
 import {
   caseDisplayId,
   datasetPullCode,
   datasetPullCodeTs,
-  datasetPullVersionCode,
-  datasetPullVersionCodeTs,
-  pctFraction,
-  scoreDisplay,
   truncate,
 } from "@/features/offline-eval/utils";
 import {
@@ -75,7 +71,6 @@ import {
   useTestCaseRuns,
 } from "../hooks";
 import type { TestCaseRow } from "../types";
-import { RunEvaluationDrawer } from "../components/run-evaluation-drawer";
 import { PullCodeDrawer, type PullOption } from "../components/pull-code-drawer";
 
 /** "Last 14 days" default, matching the traces/datasets lists. */
@@ -156,7 +151,6 @@ export function DatasetDetailView({
   const [historyDate, setHistoryDate] = React.useState<DateFilterOption>(DEFAULT_DATE_FILTER);
   const [historyStart, setHistoryStart] = React.useState<Date | null>(null);
   const [historyEnd, setHistoryEnd] = React.useState<Date | null>(null);
-  const [runOpen, setRunOpen] = React.useState(false);
   const [importOpen, setImportOpen] = React.useState(false);
   const [codeOpen, setCodeOpen] = React.useState(false);
 
@@ -326,18 +320,7 @@ export function DatasetDetailView({
               <span className="font-mono text-xs font-normal text-muted-foreground">
                 {dataset.id}
               </span>
-              <CopyButton
-                value={dataset.id}
-                className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                title="Copy dataset ID"
-              />
             </span>
-          }
-          action={
-            <Button size="sm" className="h-7 gap-1.5 text-[12px]" onClick={() => setRunOpen(true)}>
-              <Play className="h-3.5 w-3.5" aria-hidden />
-              Run evaluation
-            </Button>
           }
         />
 
@@ -478,18 +461,6 @@ export function DatasetDetailView({
                   variant="ghost"
                   size="sm"
                   className="h-7 gap-1.5 px-1.5 text-[12px] text-muted-foreground hover:text-foreground"
-                  onClick={() => {
-                    navigator.clipboard?.writeText(dataset.id);
-                    toast({ title: "Dataset ID copied", tone: "success" });
-                  }}
-                >
-                  <Copy className="h-3.5 w-3.5" aria-hidden />
-                  Copy ID
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 gap-1.5 px-1.5 text-[12px] text-muted-foreground hover:text-foreground"
                   onClick={() => setCodeOpen(true)}
                 >
                   <FileCode className="h-3.5 w-3.5" aria-hidden />
@@ -537,9 +508,13 @@ export function DatasetDetailView({
                         <Td className="whitespace-nowrap text-muted-foreground">
                           <Timestamp iso={tc.createTime} />
                         </Td>
-                        <Td>{orDash(truncate(tc.input, 60) || null)}</Td>
-                        <Td>{orDash(tc.expected)}</Td>
-                        <Td>{metadataPreview(tc.metadata)}</Td>
+                        <Td className="max-w-[320px] truncate" title={tc.input || undefined}>
+                          {orDash(tc.input || null)}
+                        </Td>
+                        <Td className="max-w-[320px] truncate" title={tc.expected ?? undefined}>
+                          {orDash(tc.expected)}
+                        </Td>
+                        <Td className="max-w-[240px] truncate">{metadataPreview(tc.metadata)}</Td>
                       </TR>
                     ))}
                   </TBody>
@@ -573,11 +548,14 @@ export function DatasetDetailView({
                 <Table>
                   <THead>
                     <TRHead>
-                      <Th className="w-[170px]">Ran at</Th>
-                      <Th>Evaluation</Th>
-                      <Th className="w-[140px]">Candidate version</Th>
-                      <Th className="w-[100px] text-right">Score</Th>
+                      <Th>Evaluation / Run</Th>
+                      <Th>Dataset</Th>
+                      <Th className="w-[110px] text-right">Main score</Th>
+                      <Th className="w-[100px] text-right">Passed</Th>
                       <Th className="w-[100px] text-right">Cost</Th>
+                      <Th className="w-[90px] text-right">Duration</Th>
+                      <Th className="w-[150px]">Status</Th>
+                      <Th className="w-[130px] text-right">Timestamp</Th>
                     </TRHead>
                   </THead>
                   <TBody>
@@ -587,22 +565,34 @@ export function DatasetDetailView({
                         interactive
                         onClick={() => router.push(`/projects/${projectId}/evaluations/${run.id}`)}
                       >
-                        <Td className="whitespace-nowrap text-muted-foreground">
-                          <Timestamp iso={run.startedAt} />
+                        <Td>
+                          <div className="font-medium">{run.evaluationName}</div>
+                          <div className="text-[11px] text-muted-foreground">
+                            Run #{run.runNumber} ·{" "}
+                            <span className="font-mono">{run.candidateVersion}</span>
+                          </div>
                         </Td>
-                        <Td className="font-medium">{run.evaluationName}</Td>
-                        <Td className="font-mono text-[11px]">{run.candidateVersion}</Td>
+                        <Td className="text-muted-foreground">
+                          <div>{run.datasetName}</div>
+                          <div className="text-[11px]">{run.datasetVersionLabel}</div>
+                        </Td>
                         <Td className="text-right tabular-nums">
-                          {run.mainScore === null ? (
-                            <span className="text-muted-foreground">—</span>
-                          ) : (
-                            pctFraction(run.mainScore)
-                          )}
+                          <ScoreValue value={run.mainScore} />
+                        </Td>
+                        <Td className="text-right tabular-nums">
+                          <PassRate counts={run} />
                         </Td>
                         <Td className="text-right tabular-nums text-muted-foreground">
-                          {run.cost === null || run.cost === undefined
-                            ? "—"
-                            : `$${run.cost < 1 ? run.cost.toFixed(4) : run.cost.toFixed(2)}`}
+                          {formatCost(run.cost)}
+                        </Td>
+                        <Td className="whitespace-nowrap text-right tabular-nums text-muted-foreground">
+                          {formatElapsed(run.elapsedMs)}
+                        </Td>
+                        <Td>
+                          <RunStatusBadge status={run.status} />
+                        </Td>
+                        <Td className="whitespace-nowrap text-right text-muted-foreground">
+                          <Timestamp iso={run.startedAt} />
                         </Td>
                       </TR>
                     ))}
@@ -620,6 +610,7 @@ export function DatasetDetailView({
           testCase={openCase}
           projectId={projectId}
           datasetId={datasetId}
+          datasetName={dataset.name}
           readOnly={!isCurrentVersion}
           onClose={() => setOpenCaseId(null)}
           onReview={() => setReviewCaseId(openCase.id)}
@@ -655,7 +646,7 @@ export function DatasetDetailView({
         </DialogContent>
       </Dialog>
 
-      {/* Pull code — the shared drawer: pull the latest version, or this exact one. */}
+      {/* Pull code — the shared drawer: one snippet that fetches the dataset. */}
       <PullCodeDrawer
         title="Pull this dataset in code"
         subtitle={
@@ -668,39 +659,15 @@ export function DatasetDetailView({
           [
             {
               id: "latest",
-              label: "Pull dataset (latest)",
-              note: "The dataset's CURRENT published version — moves as the dataset is edited.",
+              label: "Pull dataset",
+              note: "Fetches the dataset's current published version when the run starts.",
               py: datasetPullCode(dataset.id),
               ts: datasetPullCodeTs(dataset.id),
             },
-            ...(selectedVersion
-              ? [
-                  {
-                    id: "version",
-                    label: "Pull this exact version",
-                    note: (
-                      <>
-                        The immutable snapshot{" "}
-                        <span className="font-mono">{selectedVersion.id}</span> — never changes.
-                      </>
-                    ),
-                    py: datasetPullVersionCode(selectedVersion.id),
-                    ts: datasetPullVersionCodeTs(selectedVersion.id),
-                  },
-                ]
-              : []),
           ] satisfies PullOption[]
         }
         open={codeOpen}
         onOpenChange={setCodeOpen}
-      />
-
-      {/* Launched from a dataset, so the snippet is prefilled with it. */}
-      <RunEvaluationDrawer
-        projectId={projectId}
-        open={runOpen}
-        onOpenChange={setRunOpen}
-        datasetId={datasetId}
       />
 
       <TestCaseReviewDrawer
@@ -724,6 +691,7 @@ function CasePanel({
   testCase,
   projectId,
   datasetId,
+  datasetName,
   readOnly = false,
   onClose,
   onReview,
@@ -734,6 +702,7 @@ function CasePanel({
   testCase: TestCaseRow;
   projectId: string;
   datasetId: string;
+  datasetName: string;
   /** Viewing an older snapshot: fields and Save are disabled (editing branches
    * from the current version, not this one). */
   readOnly?: boolean;
@@ -744,6 +713,7 @@ function CasePanel({
   canNavigateDown: boolean;
 }) {
   const { toast } = useToast();
+  const router = useRouter();
   const { sidebarCollapsed } = useLayout();
   const update = useUpdateTestCase(projectId, datasetId);
   const caseRuns = useTestCaseRuns(projectId, datasetId, testCase.testCaseId);
@@ -963,6 +933,7 @@ function CasePanel({
             autoDetectKind
             boxed
             minRows={2}
+            collapsible
             readOnly={readOnly}
           />
           <EditableValueBlock
@@ -974,6 +945,7 @@ function CasePanel({
             autoDetectKind
             boxed
             minRows={2}
+            collapsible
             readOnly={readOnly}
           />
           {/* Recorded production output — read-only, kept separate from Expected. */}
@@ -987,6 +959,7 @@ function CasePanel({
               autoDetectKind
               boxed
               minRows={2}
+              collapsible
               readOnly
             />
           )}
@@ -1000,6 +973,7 @@ function CasePanel({
             autoDetectKind
             boxed
             minRows={2}
+            collapsible
             readOnly={readOnly}
           />
           <p className="text-[11px] leading-snug text-muted-foreground">
@@ -1018,38 +992,27 @@ function CasePanel({
             <Table>
               <THead>
                 <TRHead>
-                  <Th className="w-[150px]">Ran at</Th>
-                  <Th>Candidate version</Th>
-                  <Th className="w-[90px] text-right">Score</Th>
-                  <Th className="w-[110px]">Status</Th>
+                  <Th>Evaluation / Run</Th>
+                  <Th>Dataset</Th>
+                  <Th className="w-[110px] text-right">Main score</Th>
                 </TRHead>
               </THead>
               <TBody>
                 {runs.map((r) => (
-                  <TR key={r.resultId}>
-                    <Td className="whitespace-nowrap text-muted-foreground">
-                      <Timestamp iso={r.ranAt} />
-                    </Td>
+                  <TR
+                    key={r.resultId}
+                    interactive
+                    onClick={() => router.push(`/projects/${projectId}/evaluations/${r.runId}`)}
+                  >
                     <Td>
-                      <Link
-                        href={`/projects/${projectId}/evaluations/${r.runId}`}
-                        className="rounded font-mono text-[11px] hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                      >
-                        {r.candidateVersion}
-                      </Link>
-                      <span className="ml-1.5 text-[11px] text-muted-foreground">
-                        {r.evaluationName}
-                      </span>
+                      <div className="font-medium">{r.evaluationName}</div>
+                      <div className="text-[11px] text-muted-foreground">
+                        Run #{r.runNumber} · <span className="font-mono">{r.candidateVersion}</span>
+                      </div>
                     </Td>
+                    <Td className="text-muted-foreground">{datasetName}</Td>
                     <Td className="text-right tabular-nums">
-                      {r.score === null ? (
-                        <span className="text-muted-foreground">—</span>
-                      ) : (
-                        scoreDisplay(r.score)
-                      )}
-                    </Td>
-                    <Td>
-                      <EvalResultBadge status={r.status as never} />
+                      <ScoreValue value={r.score} />
                     </Td>
                   </TR>
                 ))}
