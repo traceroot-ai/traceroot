@@ -1,6 +1,33 @@
 """Tests for detector trigger condition evaluation."""
 
-from worker.detector_tasks import _eval_condition, _passes_trigger
+from worker.detector_tasks import _detector_runs_on_trace, _eval_condition, _passes_trigger
+
+# ── Tests for _detector_runs_on_trace (evaluation-trace skip) ──────────
+
+
+def test_detector_runs_on_production_trace():
+    """A normal production trace triggers detectors."""
+    summary = {"environment": "production"}
+    assert _detector_runs_on_trace(summary, {"id": "d1"}) is True
+
+
+def test_detector_runs_on_untagged_trace():
+    """An untagged (environment None/missing) trace is treated as normal."""
+    assert _detector_runs_on_trace({}, {"id": "d1"}) is True
+    assert _detector_runs_on_trace({"environment": None}, {"id": "d1"}) is True
+
+
+def test_detector_skips_evaluation_trace_by_default():
+    """An offline-evaluation trace is skipped by default (no opt-in)."""
+    summary = {"environment": "evaluation"}
+    assert _detector_runs_on_trace(summary, {"id": "d1"}) is False
+
+
+def test_detector_runs_on_evaluation_trace_when_opted_in():
+    """A detector explicitly opted into evaluation traces runs on them."""
+    summary = {"environment": "evaluation"}
+    assert _detector_runs_on_trace(summary, {"id": "d1", "run_on_evaluation": True}) is True
+
 
 # ── Tests for _eval_condition ──────────────────────────────────────
 

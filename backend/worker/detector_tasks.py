@@ -277,6 +277,20 @@ def _get_active_detectors(project_id: str) -> list[dict]:
     return detectors
 
 
+def _detector_runs_on_trace(summary: dict, detector: dict) -> bool:
+    """Whether a detector should run on this trace given its classification.
+
+    Offline-evaluation traces (``environment == "evaluation"``) are skipped by
+    default so production detectors do not run on evaluation runs — preventing
+    detector noise and any detector→evaluation→detector recursion. A detector can
+    opt in via ``run_on_evaluation`` (reserved for an explicit future config); until
+    that flag exists on the detector, the default is to skip.
+    """
+    if summary.get("environment") == "evaluation":
+        return bool(detector.get("run_on_evaluation", False))
+    return True
+
+
 def _claim_and_enqueue(
     redis_client,
     project_id: str,
@@ -324,7 +338,8 @@ def _claim_and_enqueue(
         triggered_ids = [
             d["id"]
             for d in detectors
-            if _passes_trigger(summary, d["conditions"])
+            if _detector_runs_on_trace(summary, d)
+            and _passes_trigger(summary, d["conditions"])
             and _sample_passes(trace_id, d["id"], d["sample_rate"])
         ]
 
