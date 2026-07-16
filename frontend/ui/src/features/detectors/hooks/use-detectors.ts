@@ -162,7 +162,12 @@ async function fetchDetectorCounts(
   const params = new URLSearchParams({ start_after: startAfter });
   if (endBefore) params.set("end_before", endBefore);
   const res = await fetch(`/api/projects/${projectId}/detector-counts?${params.toString()}`);
-  if (!res.ok) throw new Error(`Failed to fetch detector counts: ${res.status}`);
+  if (!res.ok) {
+    const body = await res
+      .json()
+      .catch(() => ({ detail: `Failed to fetch detector counts: ${res.status}` }));
+    throw new ApiError(res.status, body.detail ?? `Failed to fetch detector counts: ${res.status}`);
+  }
   const body = (await res.json()) as { data: Record<string, DetectorCountsItem> };
   return body.data;
 }
