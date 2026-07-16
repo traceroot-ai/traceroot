@@ -22,6 +22,7 @@ from typing import Annotated
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import JSONResponse
 
 from rest.routers.public.deps import AuthResult, authenticate_api_key
 from shared.config import settings
@@ -35,9 +36,43 @@ Auth = Annotated[AuthResult, Depends(authenticate_api_key)]
 # Forward everything except hop-by-hop / host-specific headers.
 _SKIP_REQUEST_HEADERS = {"host", "content-length", "connection", "accept-encoding"}
 
+# Shown when an upstream failure carries no usable message (non-JSON body, HTML
+# error page, unexpected structure). Deliberately generic so nothing internal leaks.
+_GENERIC_UPSTREAM_ERROR = "Evaluation request failed"
+
+
+def _normalized_error(upstream: httpx.Response) -> JSONResponse:
+    """Re-serialize an upstream non-2xx into the canonical ``{"detail": ...}`` shape.
+
+    The Next.js control plane returns ``{"error": ...}`` (and occasionally
+    ``{"detail": ...}``); the public API contract is uniformly ``{"detail": ...}``.
+    We surface only a safe human-readable *string* message and never the raw
+    upstream body — which could be an HTML error page, a stack trace, or unexpected
+    structure — falling back to a generic message otherwise. The upstream HTTP
+    status is preserved.
+    """
+    detail = _GENERIC_UPSTREAM_ERROR
+    try:
+        data = upstream.json()
+    except ValueError:
+        data = None
+    if isinstance(data, dict):
+        # Prefer an already-canonical `detail`, else accept Next.js's `error`.
+        message = data.get("detail")
+        if not (isinstance(message, str) and message.strip()):
+            message = data.get("error")
+        if isinstance(message, str) and message.strip():
+            detail = message.strip()
+    return JSONResponse(status_code=upstream.status_code, content={"detail": detail})
+
 
 async def _forward(request: Request, subpath: str) -> Response:
-    """Proxy the current request to the Next.js ``/api/public/<subpath>`` route."""
+    """Proxy the current request to the Next.js ``/api/public/<subpath>`` route.
+
+    Successful (2xx/3xx) responses pass through verbatim. Upstream failures are
+    normalized to ``{"detail": ...}`` (see ``_normalized_error``); a transport
+    failure reaching the control plane is a native 503 in the same shape.
+    """
     url = f"{settings.traceroot_ui_url.rstrip('/')}/api/public/{subpath}"
     body = await request.body()
     headers = {k: v for k, v in request.headers.items() if k.lower() not in _SKIP_REQUEST_HEADERS}
@@ -56,6 +91,9 @@ async def _forward(request: Request, subpath: str) -> Response:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Evaluation service unavailable",
         ) from e
+
+    if upstream.status_code >= 400:
+        return _normalized_error(upstream)
 
     return Response(
         content=upstream.content,
