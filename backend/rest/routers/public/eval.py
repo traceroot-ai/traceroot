@@ -18,13 +18,22 @@ against Postgres.
 """
 
 import logging
-from typing import Annotated
+from typing import Annotated, Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 
 from rest.routers.public.deps import AuthResult, authenticate_api_key
+from rest.schemas.eval import (
+    CompleteRunRequest,
+    CompleteRunResponse,
+    ErrorResponse,
+    RegisterRunRequest,
+    RegisterRunResponse,
+    UpsertResultRequest,
+    UpsertResultResponse,
+)
 from shared.config import settings
 
 logger = logging.getLogger(__name__)
@@ -121,12 +130,61 @@ async def dataset_versions(subpath: str, request: Request, auth: Auth) -> Respon
     return await _forward(request, f"dataset-versions/{subpath}")
 
 
-# --- Evaluation runs (register / results / scores / human-score / complete) -
-@router.api_route("/evaluation-runs", methods=["POST"], include_in_schema=False)
-async def evaluation_runs_root(request: Request, auth: Auth) -> Response:
+# --- Evaluation runs (Phase-4 write path) -----------------------------------
+# The three reporting endpoints are explicit, typed, and published to OpenAPI so
+# the CLI can codegen a real client. They still forward the (now request-validated)
+# body to the Prisma-owned Next.js handlers — no persistence is duplicated here.
+# The response_model documents the success shape; the actual body is the upstream
+# response passed through by ``_forward``. These are registered before the catch-all
+# below so they win for their exact paths.
+
+_EVAL_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    400: {"model": ErrorResponse, "description": "Invalid request"},
+    404: {"model": ErrorResponse, "description": "Not found"},
+}
+
+
+@router.post(
+    "/evaluation-runs",
+    response_model=RegisterRunResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses=_EVAL_ERROR_RESPONSES,
+    summary="Register an evaluation run",
+)
+async def register_run(payload: RegisterRunRequest, request: Request, auth: Auth) -> Response:
+    """Register/start a run. Idempotent on ``client_run_id`` within an evaluation."""
     return await _forward(request, "evaluation-runs")
 
 
+@router.post(
+    "/evaluation-runs/{run_id}/results",
+    response_model=UpsertResultResponse,
+    responses=_EVAL_ERROR_RESPONSES,
+    summary="Upsert one test-case result with scores",
+)
+async def upsert_result(
+    run_id: str, payload: UpsertResultRequest, request: Request, auth: Auth
+) -> Response:
+    """Upsert one test-case result (and its scores). Idempotent on (run, test case)."""
+    return await _forward(request, f"evaluation-runs/{run_id}/results")
+
+
+@router.post(
+    "/evaluation-runs/{run_id}/complete",
+    response_model=CompleteRunResponse,
+    responses=_EVAL_ERROR_RESPONSES,
+    summary="Complete/finalize an evaluation run",
+)
+async def complete_run(
+    run_id: str, payload: CompleteRunRequest, request: Request, auth: Auth
+) -> Response:
+    """Complete/fail a run, reporting final completeness counts."""
+    return await _forward(request, f"evaluation-runs/{run_id}/complete")
+
+
+# Remaining untyped run subpaths (additive per-scorer scores, human review) stay a
+# hidden catch-all until they're typed in a later phase. Registered last so it does
+# not shadow the explicit routes above.
 @router.api_route("/evaluation-runs/{subpath:path}", methods=["POST"], include_in_schema=False)
 async def evaluation_runs_sub(subpath: str, request: Request, auth: Auth) -> Response:
     return await _forward(request, f"evaluation-runs/{subpath}")
