@@ -382,6 +382,17 @@ def transform_otel_to_clickhouse(
 
                 # Build span record
                 environment = span_attrs.get("traceroot.environment")
+                # Offline-evaluation spans classify as the "evaluation" environment even
+                # though the SDK does not stamp traceroot.environment. The root eval span
+                # carries this onto the trace record (root-upgrade block below), so eval
+                # traces can be excluded from the default Traces list and skipped by
+                # detectors without a per-span scan.
+                if environment is None and span_kind in (
+                    SpanKind.EVALUATION,
+                    SpanKind.TASK,
+                    SpanKind.SCORER,
+                ):
+                    environment = "evaluation"
                 span_record = {
                     "span_id": span_id,
                     "trace_id": trace_id,
