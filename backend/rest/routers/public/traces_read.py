@@ -62,7 +62,17 @@ async def list_traces(
         None,
         description="Only traces that started before this time (exclusive, ISO 8601)",
     ),
+    include_evaluations: bool = Query(
+        False,
+        description="Include offline-evaluation traces (environment=evaluation). "
+        "Excluded by default so evaluation runs do not appear in the production trace list.",
+    ),
 ):
+    """List recent traces for the API key's project (newest first).
+
+    Offline-evaluation traces are excluded by default; pass
+    ``include_evaluations=true`` to include them.
+    """
     """List recent traces for the API key's project (newest first)."""
     start_after, end_before = clamp_retention_window(auth.billing_plan, start_after, end_before)
     try:
@@ -72,6 +82,7 @@ async def list_traces(
             limit=limit,
             start_after=start_after,
             end_before=end_before,
+            include_evaluations=include_evaluations,
         )
     except Exception as e:
         logger.exception(f"Error listing traces: {e}")

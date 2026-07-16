@@ -78,6 +78,11 @@ async def list_traces(
     filters: str | None = Query(
         None, description="URL-encoded JSON array of {field, op, value} filter predicates"
     ),
+    include_evaluations: bool = Query(
+        False,
+        description="Include offline-evaluation traces (environment=evaluation), "
+        "which are excluded by default.",
+    ),
 ):
     """List traces for a project with pagination and filtering."""
     # Parse + validate filters before the DB try-block so a bad predicate surfaces as a
@@ -99,6 +104,7 @@ async def list_traces(
             end_before=end_before,
             search_query=search_query,
             filters=parsed_filters,
+            include_evaluations=include_evaluations,
         )
         return result
     except Exception as e:

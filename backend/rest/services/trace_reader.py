@@ -391,8 +391,15 @@ class TraceReaderService:
         end_before: datetime | None = None,
         search_query: str | None = None,
         filters: list[Predicate] | None = None,
+        include_evaluations: bool = False,
     ) -> dict:
-        """List traces with aggregated metrics from spans."""
+        """List traces with aggregated metrics from spans.
+
+        Offline-evaluation traces (``environment = 'evaluation'``) are excluded by
+        default so they do not pollute the production/staging Traces list; pass
+        ``include_evaluations=True`` to include them. The predicate is trace-level and
+        shared by the page and count queries (below), so counts and pagination match.
+        """
         offset = page * limit
 
         # Build WHERE conditions
@@ -442,6 +449,12 @@ class TraceReaderService:
         # SHARED conditions so they land in both the page query and the count query;
         # the span sub-queries reuse start_after (above) as a span-scan lower bound.
         conditions.extend(build_conditions(filters or [], params))
+
+        # Exclude offline-evaluation traces by default (trace-level, NULL-safe so
+        # untagged production traces are always kept). Shared by page + count.
+        if not include_evaluations:
+            conditions.append("(t.environment IS NULL OR t.environment != {excluded_env:String})")
+            params["excluded_env"] = "evaluation"
 
         where_clause = " AND ".join(conditions)
 
