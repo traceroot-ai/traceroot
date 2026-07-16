@@ -1131,9 +1131,42 @@
         "title": "ScoreInput",
         "type": "object"
       },
-      "ScorerRef": {
-        "description": "A scorer's descriptor. ``name`` + ``version`` are the comparison identity;\nthe richer metadata is optional and back-compatible (an old SDK sending only\n``{name, version}`` stays valid). Mirrors the non-strict ``ScorerRefSchema``,\nso unknown keys are ignored rather than rejected.",
+      "ScorerMessage": {
+        "description": "One prompt message of an LLM-judge scorer's definition.",
         "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "role": {
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "content"
+        ],
+        "title": "ScorerMessage",
+        "type": "object"
+      },
+      "ScorerRef": {
+        "description": "A scorer's descriptor. ``name`` + ``version`` are the comparison identity;\nthe richer metadata is optional and back-compatible (an old SDK sending only\n``{name, version}`` stays valid). Mirrors the non-strict ``ScorerRefSchema``,\nso unknown keys are ignored rather than rejected.\n\nThe DEFINITION fields (``scorer_type``, prompt/source, config) let the read-only\nScorer detail render an LLM judge's model + messages or a code scorer's snippet.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
           "direction": {
             "anyOf": [
               {
@@ -1150,11 +1183,102 @@
             ],
             "title": "Direction"
           },
+          "language": {
+            "anyOf": [
+              {
+                "enum": [
+                  "python",
+                  "typescript"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "messages": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ScorerMessage"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Messages"
+          },
+          "metadata": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
           "name": {
             "maxLength": 200,
             "minLength": 1,
             "title": "Name",
             "type": "string"
+          },
+          "output_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "score",
+                  "classification"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Type"
+          },
+          "scorer_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "llm_judge",
+                  "code"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scorer Type"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
           },
           "threshold": {
             "anyOf": [
