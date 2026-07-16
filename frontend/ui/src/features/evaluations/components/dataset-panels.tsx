@@ -1,17 +1,9 @@
 "use client";
 
 import * as React from "react";
-import { Check, Copy, Database } from "lucide-react";
+import { Check, Copy, Database, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
-import {
-  Drawer,
-  DrawerBody,
-  DrawerContent,
-  DrawerFooter,
-  DrawerHeader,
-  DrawerTitle,
-} from "@/components/ui/drawer";
 import {
   DatasetFormFields,
   emptyDatasetForm,
@@ -24,15 +16,9 @@ import { useCreateDataset, useUpdateDataset } from "../hooks";
  * and persisting through the real hooks with real toasts. The schema/metadata
  * form cards are illustrative for now (the server persists name + description);
  * kept visible by design.
- *
- * Both panels are built on the shared `Drawer` (Radix Dialog underneath) rather
- * than a hand-rolled `fixed` overlay, so they get a real focus trap, scroll
- * lock, Escape handling, and `role="dialog"`/`aria-modal` for free — matching
- * `form-kit.tsx`'s `CreateDrawer` and keeping the two panels consistent with
- * each other instead of each reinventing (or half-reinventing) the same thing.
  */
 
-/** "New dataset" — right slide-in drawer, same shape as Save as test case. */
+/** "New dataset" — non-modal right slide-in, same shape as Save as test case. */
 export function NewDatasetPanel({
   projectId,
   open,
@@ -49,6 +35,20 @@ export function NewDatasetPanel({
   React.useEffect(() => {
     if (open) setState(emptyDatasetForm());
   }, [open]);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onOpenChange(false);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [open, onOpenChange]);
+
+  if (!open) return null;
 
   const canCreate = state.name.trim() !== "";
   const handleCreate = () => {
@@ -67,38 +67,46 @@ export function NewDatasetPanel({
   };
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent width="w-[560px]">
-        <DrawerHeader className="pr-10">
-          <DrawerTitle>New dataset</DrawerTitle>
-        </DrawerHeader>
-        <DrawerBody>
-          <DatasetFormFields state={state} onChange={setState} />
-        </DrawerBody>
-        <DrawerFooter className="justify-end">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 text-[12px]"
-            onClick={() => onOpenChange(false)}
-          >
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            className="h-7 text-[12px]"
-            onClick={handleCreate}
-            disabled={!canCreate || create.isPending}
-          >
-            {create.isPending ? "Creating…" : "Create dataset"}
-          </Button>
-        </DrawerFooter>
-      </DrawerContent>
-    </Drawer>
+    <div className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-[560px] max-w-[96vw] flex-col border-l border-border bg-background shadow-xl">
+      <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
+        <h2 className="text-[13px] font-semibold">New dataset</h2>
+        <button
+          type="button"
+          onClick={() => onOpenChange(false)}
+          aria-label="Close"
+          className="rounded-sm text-muted-foreground opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-1 focus:ring-ring"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-auto p-4">
+        <DatasetFormFields state={state} onChange={setState} />
+      </div>
+
+      <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-4 py-3">
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 text-[12px]"
+          onClick={() => onOpenChange(false)}
+        >
+          Cancel
+        </Button>
+        <Button
+          size="sm"
+          className="h-7 text-[12px]"
+          onClick={handleCreate}
+          disabled={!canCreate || create.isPending}
+        >
+          {create.isPending ? "Creating…" : "Create dataset"}
+        </Button>
+      </div>
+    </div>
   );
 }
 
-/** "Edit dataset" — right slide-in drawer, modelled on the detector edit panel. */
+/** "Edit dataset" — right slide-in, modelled on the detector edit panel. */
 export function DatasetEditPanel({
   projectId,
   dataset,
@@ -139,16 +147,10 @@ export function DatasetEditPanel({
     );
   };
 
-  // Mounted only while editing (see datasets-view.tsx), so it is always "open";
-  // a dismiss of any kind (Escape, overlay click, the drawer's own close button)
-  // routes through onClose the same way Cancel does.
   return (
-    <Drawer open onOpenChange={(next) => !next && onClose()}>
-      <DrawerContent width="w-[560px]">
-        {/* Visually-hidden title for the Radix a11y contract; the visible
-            identity strip below (name + copyable id) is the real header. */}
-        <DrawerTitle className="sr-only">Edit dataset {dataset.name}</DrawerTitle>
-        <div className="flex h-10 flex-shrink-0 items-center gap-2 border-b border-border bg-muted/30 px-4 pr-10">
+    <div className="animate-slide-in-right fixed bottom-0 right-0 top-0 z-50 flex w-[560px] max-w-[96vw] flex-col border-l border-border bg-background shadow-xl">
+      <div className="flex h-10 flex-shrink-0 items-center justify-between border-b border-border bg-muted/30 px-4">
+        <div className="flex min-w-0 items-center gap-2">
           <Database className="h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="text-[13px] font-medium">Dataset</span>
           <span className="truncate text-[13px] text-muted-foreground">{dataset.name}</span>
@@ -162,25 +164,34 @@ export function DatasetEditPanel({
             {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
           </button>
         </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={onClose}
+          className="h-7 w-7 p-0"
+          aria-label="Close"
+        >
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
 
-        <DrawerBody>
-          <DatasetFormFields state={state} onChange={setState} />
-        </DrawerBody>
+      <div className="flex-1 overflow-y-auto p-4">
+        <DatasetFormFields state={state} onChange={setState} />
+      </div>
 
-        <DrawerFooter className="justify-end">
-          <Button variant="outline" size="sm" onClick={onClose} className="h-7 text-[12px]">
-            Cancel
-          </Button>
-          <Button
-            size="sm"
-            onClick={handleSave}
-            className="h-7 text-[12px]"
-            disabled={update.isPending}
-          >
-            {update.isPending ? "Saving…" : "Save"}
-          </Button>
-        </DrawerFooter>
-      </DrawerContent>
-    </Drawer>
+      <div className="flex flex-shrink-0 justify-end gap-2 border-t border-border px-4 py-3">
+        <Button variant="outline" size="sm" onClick={onClose} className="h-7 text-[12px]">
+          Cancel
+        </Button>
+        <Button
+          size="sm"
+          onClick={handleSave}
+          className="h-7 text-[12px]"
+          disabled={update.isPending}
+        >
+          {update.isPending ? "Saving…" : "Save"}
+        </Button>
+      </div>
+    </div>
   );
 }
