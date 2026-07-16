@@ -5,11 +5,17 @@ names trace/sessions/users use), the COUNT-driven pagination metadata, and
 the {data, meta} response envelope.
 """
 
+import gzip
+import inspect
+import logging
 from datetime import datetime
 from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
+from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
+    ExportTraceServiceRequest,
+)
 
 from rest.main import app
 from shared.config import settings
@@ -586,3 +592,201 @@ class TestListDetectorWindowSummary:
         assert resp.json() == {
             "data": {"d-a": {"finding_count": 0, "run_count": 10, "sample_trace_ids": []}}
         }
+
+
+# =============================================================================
+# /traces (internal OTLP ingest for detector self-traces)
+# =============================================================================
+
+
+def _otlp_body(
+    trace_id: bytes = b"\xab" * 16,
+    compress: bool = False,
+    extra_trace_ids: tuple[bytes, ...] = (),
+    span_id: bytes = b"\x01" * 8,
+    parent_span_id: bytes | None = None,
+) -> bytes:
+    """Serialize an OTLP ExportTraceServiceRequest with one span per trace id."""
+    request = ExportTraceServiceRequest()
+    resource_spans = request.resource_spans.add()
+    scope_spans = resource_spans.scope_spans.add()
+    scope_spans.scope.name = "test-internal-ingest"
+    for index, tid in enumerate((trace_id, *extra_trace_ids)):
+        span = scope_spans.spans.add()
+        span.trace_id = tid
+        span.span_id = span_id if index == 0 else bytes([index + 1]) * 8
+        if index == 0 and parent_span_id is not None:
+            span.parent_span_id = parent_span_id
+        span.name = "detector-run"
+        span.start_time_unix_nano = 1700000000000000000
+        span.end_time_unix_nano = 1700000001000000000
+    body = request.SerializeToString()
+    return gzip.compress(body) if compress else body
+
+
+class TestInternalTraceIngest:
+    URL = "/api/v1/internal/traces?project_id=proj-1"
+
+    def test_rejects_missing_secret(self, client):
+        resp = client.post(self.URL, content=_otlp_body())
+        assert resp.status_code == 403
+
+    def test_accepts_project_id_via_header(self, client, secret, mock_ch):
+        """The OTLP exporter strips query strings from its endpoint URL, so the
+        worker SDK sends X-Project-Id; the route must honor it without a query."""
+        resp = client.post(
+            "/api/v1/internal/traces",
+            content=_otlp_body(),
+            headers={"X-Internal-Secret": secret, "X-Project-Id": "proj-hdr"},
+        )
+        assert resp.status_code == 200
+        spans = mock_ch.insert_spans_batch.call_args[0][0]
+        assert spans and all(s["project_id"] == "proj-hdr" for s in spans)
+
+    def test_header_wins_over_query_param(self, client, secret, mock_ch):
+        resp = client.post(
+            self.URL,  # carries project_id=proj-1 in the query
+            content=_otlp_body(),
+            headers={"X-Internal-Secret": secret, "X-Project-Id": "proj-hdr"},
+        )
+        assert resp.status_code == 200
+        spans = mock_ch.insert_spans_batch.call_args[0][0]
+        assert spans and all(s["project_id"] == "proj-hdr" for s in spans)
+
+    def test_missing_project_id_everywhere_is_rejected(self, client, secret, mock_ch):
+        resp = client.post(
+            "/api/v1/internal/traces",
+            content=_otlp_body(),
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 400
+        mock_ch.insert_spans_batch.assert_not_called()
+
+    def test_rejects_malformed_trace_id(self, client, secret, mock_ch):
+        """An 8-byte trace id decodes to 16 hex chars and must be rejected."""
+        resp = client.post(
+            self.URL,
+            content=_otlp_body(trace_id=b"\xab" * 8),
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 400
+        mock_ch.insert_spans_batch.assert_not_called()
+        mock_ch.insert_traces_batch.assert_not_called()
+
+    def test_rejects_empty_and_invalid_bodies(self, client, secret, mock_ch, caplog):
+        resp = client.post(self.URL, content=b"", headers={"X-Internal-Secret": secret})
+        assert resp.status_code == 400
+
+        # An undecodable body means a bug in our own tracer — it must leave
+        # a warning breadcrumb, not fail silently.
+        with caplog.at_level(logging.WARNING):
+            resp = client.post(
+                self.URL, content=b"not-protobuf-at-all", headers={"X-Internal-Secret": secret}
+            )
+        assert resp.status_code == 400
+        assert any("protobuf" in record.getMessage().lower() for record in caplog.records)
+        mock_ch.insert_spans_batch.assert_not_called()
+
+    def test_zero_span_payload_is_ok(self, client, secret, mock_ch):
+        """A valid payload with no spans no-ops cleanly instead of erroring."""
+        request = ExportTraceServiceRequest()
+        request.resource_spans.add().scope_spans.add().scope.name = "empty-batch"
+
+        resp = client.post(
+            self.URL,
+            content=request.SerializeToString(),
+            headers={"X-Internal-Secret": secret},
+        )
+
+        assert resp.status_code == 200
+        assert resp.json() == {"ok": True}
+        assert mock_ch.insert_spans_batch.call_args[0][0] == []
+        assert mock_ch.insert_traces_batch.call_args[0][0] == []
+
+    def test_rejects_malformed_span_id(self, client, secret, mock_ch):
+        """A 4-byte span id decodes to 8 hex chars and must be rejected."""
+        resp = client.post(
+            self.URL,
+            content=_otlp_body(span_id=b"\x01" * 4),
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 400
+        mock_ch.insert_spans_batch.assert_not_called()
+        mock_ch.insert_traces_batch.assert_not_called()
+
+    def test_rejects_malformed_parent_span_id(self, client, secret, mock_ch):
+        """parent_span_id must be absent (root span) or a full 16-hex id."""
+        resp = client.post(
+            self.URL,
+            content=_otlp_body(parent_span_id=b"\x02" * 4),
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 400
+        mock_ch.insert_spans_batch.assert_not_called()
+        mock_ch.insert_traces_batch.assert_not_called()
+
+    def test_accepts_valid_parent_span_id(self, client, secret, mock_ch):
+        resp = client.post(
+            self.URL,
+            content=_otlp_body(parent_span_id=b"\x02" * 8),
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        spans = mock_ch.insert_spans_batch.call_args[0][0]
+        assert spans[0]["parent_span_id"] == "02" * 8
+
+    def test_multi_trace_payload_validates_every_id(self, client, secret, mock_ch):
+        """One malformed id among several traces rejects the whole payload."""
+        resp = client.post(
+            self.URL,
+            content=_otlp_body(extra_trace_ids=(b"\xcd" * 8,)),
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 400
+        mock_ch.insert_spans_batch.assert_not_called()
+        mock_ch.insert_traces_batch.assert_not_called()
+
+    def test_inserts_detector_source_spans_before_trace(self, client, secret, mock_ch):
+        """Rows land with source='detector'; spans insert before the trace row."""
+        resp = client.post(self.URL, content=_otlp_body(), headers={"X-Internal-Secret": secret})
+        assert resp.status_code == 200
+        assert resp.json() == {"ok": True}
+
+        spans = mock_ch.insert_spans_batch.call_args[0][0]
+        traces = mock_ch.insert_traces_batch.call_args[0][0]
+        assert spans and all(s["source"] == "detector" for s in spans)
+        assert traces and all(t["source"] == "detector" for t in traces)
+        assert all(s["project_id"] == "proj-1" for s in spans)
+        assert all(t["project_id"] == "proj-1" for t in traces)
+        assert all(t["trace_id"] == "ab" * 16 for t in traces)
+
+        # Spans first: a partial failure must not leave a trace row that
+        # points at missing spans.
+        call_order = [name for name, _args, _kw in mock_ch.method_calls]
+        assert call_order.index("insert_spans_batch") < call_order.index("insert_traces_batch")
+
+    def test_rejects_corrupt_gzip_body(self, client, secret, mock_ch, caplog):
+        with caplog.at_level(logging.WARNING):
+            resp = client.post(
+                self.URL,
+                content=b"\x1f\x8b-not-actually-gzip",
+                headers={"X-Internal-Secret": secret, "Content-Encoding": "gzip"},
+            )
+        assert resp.status_code == 400
+        assert any("gzip" in record.getMessage().lower() for record in caplog.records)
+        mock_ch.insert_spans_batch.assert_not_called()
+
+    def test_accepts_gzip_body(self, client, secret, mock_ch):
+        resp = client.post(
+            self.URL,
+            content=_otlp_body(compress=True),
+            headers={"X-Internal-Secret": secret, "Content-Encoding": "gzip"},
+        )
+        assert resp.status_code == 200
+        assert mock_ch.insert_spans_batch.called
+
+    def test_route_never_references_detection_enqueue(self):
+        """Anti-recursion by construction: the module cannot enqueue detection."""
+        import rest.routers.internal as internal_module
+
+        assert "enqueue_detector_runs" not in inspect.getsource(internal_module)

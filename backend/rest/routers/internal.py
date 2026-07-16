@@ -3,20 +3,29 @@
 These endpoints are protected by X-Internal-Secret header and not exposed publicly.
 """
 
+import gzip
 import hmac
+import logging
+import re
+import zlib
 from datetime import datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from google.protobuf.message import DecodeError
 from pydantic import BaseModel, Field
 
 from db.clickhouse.client import get_clickhouse_client
+from rest.routers.public.traces import decode_otlp_protobuf
 from rest.schemas.detectors import (
     DetectorWindowSummaryResponse,
     RunListResponse,
 )
 from rest.sql_utils import escape_ilike, to_utc_naive
 from shared.config import settings
+from worker.otel_transform import transform_otel_to_clickhouse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
@@ -725,3 +734,102 @@ async def list_detector_window_summary(
         }
 
     return {"data": data}
+
+
+# =============================================================================
+# Internal OTLP trace ingest (detector self-traces)
+# =============================================================================
+
+_TRACE_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+_SPAN_ID_RE = re.compile(r"^[0-9a-f]{16}$")
+
+
+@router.post("/traces", dependencies=[Depends(verify_internal_secret)])
+async def ingest_internal_traces(
+    request: Request,
+    project_id: str | None = Query(
+        default=None, description="Project to attribute the self-trace to"
+    ),
+    x_project_id: Annotated[str | None, Header()] = None,
+) -> dict:
+    """Ingest detector self-traces (OTLP protobuf) directly into ClickHouse.
+
+    Trusted, internal-only counterpart of the public OTLP ingest: the worker's
+    internal-mode SDK tracer posts here with the shared secret, spans run
+    through the same transform as customer traffic (trust_source=True), and
+    the rows are inserted in-process — no S3 hop and no detection enqueue, so
+    a detector can never scan its own emission. Spans are inserted before the
+    trace row so a partial failure cannot leave a trace row that points at
+    missing spans. Every record is force-stamped source='detector' regardless
+    of payload content.
+
+    Args:
+        request (Request): Raw request; body is OTLP protobuf, optionally
+            gzip-compressed (Content-Encoding: gzip).
+        project_id (str | None): Project to attribute the self-trace to,
+            as a query parameter; trusted because the route is secret-gated.
+        x_project_id (str | None): Same, as the X-Project-Id header. The
+            worker SDK sends the header because the OTLP exporter strips
+            query strings from its endpoint URL; the header wins when both
+            are given, and one of the two is required.
+
+    Returns:
+        dict: ``{"ok": True}`` on success.
+
+    Raises:
+        HTTPException: 400 on a missing project id, an empty body, an
+            undecodable payload, a trace id that is not exactly 32 lowercase
+            hex chars, or a span/parent id that is present but not exactly 16.
+    """
+    project_id = x_project_id or project_id
+    if not project_id:
+        raise HTTPException(
+            status_code=400,
+            detail="project id required (X-Project-Id header or project_id query param)",
+        )
+
+    body = await request.body()
+    if not body:
+        raise HTTPException(status_code=400, detail="Empty request body")
+
+    if "gzip" in request.headers.get("content-encoding", "").lower():
+        try:
+            body = gzip.decompress(body)
+        except (OSError, EOFError, zlib.error) as e:
+            # The only caller is our own worker tracer, so this means a bug
+            # on our side — leave a breadcrumb (never the payload).
+            logger.warning("Internal trace ingest: invalid gzip body: %s", e)
+            raise HTTPException(status_code=400, detail="Invalid gzip body") from None
+
+    try:
+        otel_data = decode_otlp_protobuf(body)
+    except DecodeError as e:
+        logger.warning("Internal trace ingest: invalid OTLP protobuf: %s", e)
+        raise HTTPException(status_code=400, detail="Invalid OTLP protobuf") from None
+
+    traces, spans = transform_otel_to_clickhouse(otel_data, project_id, trust_source=True)
+
+    # Defense in depth: client-forced ids are only accepted in internal mode,
+    # and even there they must look like real trace ids (dashless run_id).
+    trace_ids = {t["trace_id"] for t in traces} | {s["trace_id"] for s in spans}
+    for trace_id in trace_ids:
+        if not _TRACE_ID_RE.match(trace_id):
+            raise HTTPException(status_code=400, detail="trace_id must be 32 hex chars")
+    for span in spans:
+        if not _SPAN_ID_RE.match(span["span_id"]):
+            raise HTTPException(status_code=400, detail="span_id must be 16 hex chars")
+        parent_span_id = span.get("parent_span_id")
+        # None is a root span, and every self-trace has exactly one — the
+        # parent id is only constrained when present.
+        if parent_span_id is not None and not _SPAN_ID_RE.match(parent_span_id):
+            raise HTTPException(
+                status_code=400, detail="parent_span_id must be 16 hex chars when present"
+            )
+
+    for record in (*traces, *spans):
+        record["source"] = "detector"
+
+    ch = get_clickhouse_client()
+    ch.insert_spans_batch(spans)
+    ch.insert_traces_batch(traces)
+    return {"ok": True}
