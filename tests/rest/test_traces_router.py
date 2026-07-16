@@ -4,7 +4,7 @@ Uses FastAPI TestClient with mocked dependencies — no ClickHouse needed.
 """
 
 import copy
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
@@ -90,7 +90,7 @@ def client(mock_trace_reader):
             user_id="test-user",
             role="ADMIN",
             workspace_id="ws-test",
-            billing_plan="free",
+            billing_plan="enterprise",
         )
 
     app.dependency_overrides[get_project_access] = mock_get_access
@@ -103,6 +103,20 @@ def client(mock_trace_reader):
     yield TestClient(app)
 
     traces_mod.get_trace_reader_service = original
+
+
+class TestTracesExist:
+    def test_returns_true_when_traces_exist(self, client, mock_trace_reader):
+        mock_trace_reader.has_traces.return_value = True
+        response = client.get("/api/v1/projects/test-project/traces/exists")
+        assert response.status_code == 200
+        assert response.json() == {"exists": True}
+
+    def test_returns_false_when_no_traces(self, client, mock_trace_reader):
+        mock_trace_reader.has_traces.return_value = False
+        response = client.get("/api/v1/projects/test-project/traces/exists")
+        assert response.status_code == 200
+        assert response.json() == {"exists": False}
 
 
 class TestListTraces:
@@ -424,3 +438,127 @@ class TestDashboardKeepsSpanTreeMetadata:
         response = client.get("/api/v1/projects/test-project/traces/abc123?fields=full")
         assert response.status_code == 200
         assert response.json()["spans"][0]["metadata"] == '{"user":"real-blob"}'
+
+
+@pytest.fixture()
+def free_plan_client(mock_trace_reader):
+    """TestClient with free-plan billing for retention gate tests."""
+
+    async def mock_get_access(project_id: str, x_user_id=None):
+        return ProjectAccessInfo(
+            project_id=project_id,
+            user_id="test-user",
+            role="ADMIN",
+            workspace_id="ws-test",
+            billing_plan="free",
+        )
+
+    app.dependency_overrides[get_project_access] = mock_get_access
+
+    import rest.routers.traces as traces_mod
+
+    original = traces_mod.get_trace_reader_service
+    traces_mod.get_trace_reader_service = lambda: mock_trace_reader
+
+    yield TestClient(app)
+
+    traces_mod.get_trace_reader_service = original
+
+
+def _now_naive():
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+class TestRetentionGate:
+    """Retention access-window enforcement on trace endpoints."""
+
+    def test_list_traces_clamps_default_query(self, free_plan_client, mock_trace_reader):
+        """Default list (no start_after) clamps to the plan's cutoff."""
+        mock_trace_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        response = free_plan_client.get("/api/v1/projects/test-project/traces")
+        assert response.status_code == 200
+        kw = mock_trace_reader.list_traces.call_args.kwargs
+        assert kw["start_after"] is not None
+
+    def test_list_traces_403_when_start_after_outside_window(self, free_plan_client):
+        old = (_now_naive() - timedelta(days=30)).isoformat()
+        response = free_plan_client.get(f"/api/v1/projects/test-project/traces?start_after={old}")
+        assert response.status_code == 403
+        detail = response.json()["detail"]
+        assert detail["message"] == "Data outside retention window"
+        assert detail["retention_days"] == 15
+
+    def test_get_filter_values_403_when_outside_window(self, free_plan_client):
+        old = (_now_naive() - timedelta(days=30)).isoformat()
+        response = free_plan_client.get(
+            f"/api/v1/projects/test-project/traces/filter-values/model_name?start_after={old}"
+        )
+        assert response.status_code == 403
+
+    def test_get_trace_403_when_trace_outside_window(self, free_plan_client, mock_trace_reader):
+        old_trace = {**TRACE_DETAIL, "trace_start_time": datetime(2020, 1, 1)}
+        mock_trace_reader.get_trace.return_value = old_trace
+        response = free_plan_client.get("/api/v1/projects/test-project/traces/old-trace")
+        assert response.status_code == 403
+
+    def test_get_trace_200_when_trace_in_window(self, free_plan_client, mock_trace_reader):
+        recent_trace = {
+            **TRACE_DETAIL,
+            "trace_start_time": _now_naive() - timedelta(days=5),
+        }
+        mock_trace_reader.get_trace.return_value = recent_trace
+        response = free_plan_client.get("/api/v1/projects/test-project/traces/recent-trace")
+        assert response.status_code == 200
+
+    def test_get_span_io_403_when_trace_outside_window(self, free_plan_client, mock_trace_reader):
+        mock_trace_reader.get_trace.return_value = {
+            "trace_start_time": datetime(2020, 1, 1),
+        }
+        mock_trace_reader.get_span_io.return_value = SPAN_IO
+        response = free_plan_client.get(
+            "/api/v1/projects/test-project/traces/old-trace/spans/span-1/io"
+        )
+        assert response.status_code == 403
+
+    def test_get_span_io_200_when_trace_in_window(self, free_plan_client, mock_trace_reader):
+        mock_trace_reader.get_trace.return_value = {
+            "trace_start_time": _now_naive() - timedelta(days=1),
+        }
+        mock_trace_reader.get_span_io.return_value = SPAN_IO
+        response = free_plan_client.get(
+            "/api/v1/projects/test-project/traces/abc123/spans/span-1/io"
+        )
+        assert response.status_code == 200
+
+
+class TestRetentionGateEnterprise:
+    """Enterprise plan has no retention limit — uses the main client fixture (enterprise)."""
+
+    def test_enterprise_list_no_clamp(self, client, mock_trace_reader):
+        mock_trace_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        response = client.get("/api/v1/projects/test-project/traces")
+        assert response.status_code == 200
+        kw = mock_trace_reader.list_traces.call_args.kwargs
+        assert kw["start_after"] is None
+
+    def test_enterprise_old_start_after_passes(self, client, mock_trace_reader):
+        mock_trace_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        response = client.get(
+            "/api/v1/projects/test-project/traces?start_after=2020-01-01T00:00:00"
+        )
+        assert response.status_code == 200
+
+    def test_enterprise_old_trace_accessible(self, client, mock_trace_reader):
+        old_trace = {**TRACE_DETAIL, "trace_start_time": datetime(2020, 1, 1)}
+        mock_trace_reader.get_trace.return_value = old_trace
+        response = client.get("/api/v1/projects/test-project/traces/old")
+        assert response.status_code == 200

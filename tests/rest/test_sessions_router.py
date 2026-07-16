@@ -1,6 +1,6 @@
 """Unit tests for session query endpoints."""
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
@@ -26,6 +26,29 @@ def client(mock_trace_reader):
             user_id="test-user",
             role="ADMIN",
             workspace_id="ws-test",
+            billing_plan="enterprise",
+        )
+
+    app.dependency_overrides[get_project_access] = mock_get_access
+
+    import rest.routers.sessions as sessions_mod
+
+    original = sessions_mod.get_trace_reader_service
+    sessions_mod.get_trace_reader_service = lambda: mock_trace_reader
+
+    yield TestClient(app)
+
+    sessions_mod.get_trace_reader_service = original
+
+
+@pytest.fixture()
+def free_plan_client(mock_trace_reader):
+    async def mock_get_access(project_id: str, x_user_id=None):
+        return ProjectAccessInfo(
+            project_id=project_id,
+            user_id="test-user",
+            role="ADMIN",
+            workspace_id="ws-test",
             billing_plan="free",
         )
 
@@ -39,6 +62,10 @@ def client(mock_trace_reader):
     yield TestClient(app)
 
     sessions_mod.get_trace_reader_service = original
+
+
+def _now_naive():
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 class TestListSessions:
@@ -266,3 +293,39 @@ class TestGetSession:
         assert traces[1]["input"] == "second"
         assert traces[2]["input"] == "third"
         assert traces[2]["status"] == "error"
+
+
+class TestRetentionGate:
+    """Sessions enforce retention — 403 on explicit out-of-window, clamp when unset."""
+
+    def test_list_sessions_clamps_default_query(self, free_plan_client, mock_trace_reader):
+        mock_trace_reader.list_sessions.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        response = free_plan_client.get("/api/v1/projects/test-project/sessions")
+        assert response.status_code == 200
+        kw = mock_trace_reader.list_sessions.call_args.kwargs
+        assert kw["start_after"] is not None
+
+    def test_list_sessions_rejects_old_start_after_with_403(
+        self, free_plan_client, mock_trace_reader
+    ):
+        """Sessions enforce retention — 403 on explicit out-of-window requests."""
+        old = _now_naive() - timedelta(days=30)
+        response = free_plan_client.get(
+            f"/api/v1/projects/test-project/sessions?start_after={old.isoformat()}"
+        )
+        assert response.status_code == 403
+        detail = response.json()["detail"]
+        assert detail["retention_days"] == 15
+        assert detail["plan"] == "free"
+
+    def test_get_session_rejects_old_start_after_with_403(
+        self, free_plan_client, mock_trace_reader
+    ):
+        old = _now_naive() - timedelta(days=30)
+        response = free_plan_client.get(
+            f"/api/v1/projects/test-project/sessions/sess-1?start_after={old.isoformat()}"
+        )
+        assert response.status_code == 403

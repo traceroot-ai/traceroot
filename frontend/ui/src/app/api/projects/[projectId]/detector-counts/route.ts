@@ -1,5 +1,7 @@
 import { NextRequest } from "next/server";
 import { requireAuth, requireProjectAccess, errorResponse } from "@/lib/auth-helpers";
+import { prisma, PlanType } from "@traceroot/core";
+import { checkRetention } from "@/lib/server/retention";
 import { env } from "@/env";
 
 const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
@@ -26,6 +28,14 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   if (!startAfter) {
     return errorResponse("start_after is required", 400);
   }
+
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: accessResult.project.workspaceId },
+    select: { billingPlan: true },
+  });
+  const billingPlan = workspace?.billingPlan || PlanType.FREE;
+  const retentionError = checkRetention(billingPlan, startAfter);
+  if (retentionError) return retentionError;
 
   const backendParams = new URLSearchParams({
     project_id: projectId,

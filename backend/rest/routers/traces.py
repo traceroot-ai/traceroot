@@ -19,6 +19,7 @@ from rest.rate_limit import (
     limiter,
     resolve_limit,
 )
+from rest.retention import enforce_retention_by_time, enforce_retention_window
 from rest.routers.deps import RateLimitedProjectAccess
 from rest.schemas.traces import (
     FilterFieldsResponse,
@@ -34,6 +35,25 @@ from rest.services.trace_reader import get_trace_reader_service
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/projects/{project_id}/traces", tags=["Traces"])
+
+
+@router.get("/exists")
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def traces_exist(
+    request: Request,
+    response: Response,
+    project_id: str,
+    _access: RateLimitedProjectAccess,
+):
+    """Check if a project has ever ingested traces (bypasses retention).
+
+    Returns a boolean — no trace data is exposed, so retention gating
+    is intentionally skipped. Used by the frontend onboarding probe.
+    """
+    service = get_trace_reader_service()
+    return {"exists": service.has_traces(project_id)}
 
 
 @router.get("", response_model=TraceListResponse)
@@ -61,6 +81,9 @@ async def list_traces(
     """List traces for a project with pagination and filtering."""
     # Parse + validate filters before the DB try-block so a bad predicate surfaces as a
     # 422 rather than being swallowed by the broad 500 handler below.
+    start_after, end_before = enforce_retention_window(
+        _access.billing_plan, start_after, end_before
+    )
     try:
         parsed_filters = parse_filters_param(filters)
     except ValueError as e:
@@ -166,6 +189,9 @@ async def get_filter_values(
         HTTPException: 404 if the field is not in the registry, 400 if it is not a
             distinct-query categorical.
     """
+    start_after, end_before = enforce_retention_window(
+        _access.billing_plan, start_after, end_before
+    )
     column = filter_columns.get_column(field)
     if column is None:
         raise HTTPException(
@@ -234,6 +260,8 @@ async def get_trace(
             detail="Trace not found",
         )
 
+    enforce_retention_by_time(_access.billing_plan, trace.get("trace_start_time"))
+
     hydrate_span_io(service, trace, project_id=project_id, trace_id=trace_id, groups=groups)
     return trace
 
@@ -253,6 +281,10 @@ async def get_span_io(
     """Get full input/output/metadata for a single span on demand."""
     service = get_trace_reader_service()
     try:
+        trace = service.get_trace(project_id=project_id, trace_id=trace_id)
+        if trace:
+            enforce_retention_by_time(_access.billing_plan, trace.get("trace_start_time"))
+
         result = service.get_span_io(
             project_id=project_id,
             trace_id=trace_id,

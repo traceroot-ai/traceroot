@@ -62,7 +62,7 @@ def make_auth(project_id: str = "proj-A") -> AuthResult:
     return AuthResult(
         project_id=project_id,
         workspace_id="ws-1",
-        billing_plan="pro",
+        billing_plan="enterprise",
         ingestion_blocked=False,
     )
 
@@ -323,7 +323,7 @@ class TestPublicUrlAcrossStack:
         app.dependency_overrides[authenticate_api_key] = lambda: AuthResult(
             project_id="proj-A",
             workspace_id="ws-1",
-            billing_plan="pro",
+            billing_plan="enterprise",
             ingestion_blocked=False,
             project_name="P",
             workspace_name="W",

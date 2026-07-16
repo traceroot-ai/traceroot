@@ -1,16 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-vi.mock("next/server", () => ({ NextRequest: class {} }));
+vi.mock("next/server", () => ({
+  NextRequest: class {},
+  NextResponse: { json: (body: unknown, init?: { status?: number }) => Response.json(body, init) },
+}));
 
 vi.mock("@/env", () => ({ env: { INTERNAL_API_SECRET: "test-secret" } }));
 
 const rcaFindManyMock = vi.fn();
+const workspaceFindUniqueMock = vi.fn();
 vi.mock("@traceroot/core", () => ({
   prisma: {
     detectorRca: {
       findMany: (...args: unknown[]) => rcaFindManyMock(...args),
     },
+    workspace: {
+      findUnique: (...args: unknown[]) => workspaceFindUniqueMock(...args),
+    },
   },
+  PlanType: { FREE: "free", STARTER: "starter", PRO: "pro", ENTERPRISE: "enterprise" },
 }));
 
 const requireAuthMock = vi.fn();
@@ -55,11 +63,13 @@ function run(findingId: string | null, extra: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   rcaFindManyMock.mockReset();
+  workspaceFindUniqueMock.mockReset();
   requireAuthMock.mockReset();
   requireProjectAccessMock.mockReset();
   backendFetchMock.mockReset();
   requireAuthMock.mockResolvedValue({ user: { id: "user-1" } });
-  requireProjectAccessMock.mockResolvedValue({});
+  requireProjectAccessMock.mockResolvedValue({ project: { workspaceId: "ws-1" } });
+  workspaceFindUniqueMock.mockResolvedValue({ billingPlan: "free" });
 });
 
 describe("GET .../detectors/[detectorId]/runs — auth & proxy", () => {
@@ -123,6 +133,50 @@ describe("GET .../detectors/[detectorId]/runs — auth & proxy", () => {
     await GET(makeRequest(), makeParams());
     url = new URL(backendFetchMock.mock.calls[0][0] as string);
     expect(url.searchParams.has("identified")).toBe(false);
+  });
+});
+
+describe("GET .../runs — retention gate", () => {
+  it("returns 403 when start_after is outside the free plan retention window", async () => {
+    const old = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    const res = await GET(makeRequest({ start_after: old }), makeParams());
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { detail: { retention_days: number; plan: string } };
+    expect(body.detail.retention_days).toBe(15);
+    expect(body.detail.plan).toBe("free");
+    expect(backendFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("passes through when start_after is within the retention window", async () => {
+    const recent = new Date(Date.now() - 5 * 86_400_000).toISOString();
+    backendFetchMock.mockResolvedValue(backendResponse({ data: [], meta: {} }));
+    const res = await GET(makeRequest({ start_after: recent }), makeParams());
+    expect(res.status).toBe(200);
+    expect(backendFetchMock).toHaveBeenCalled();
+  });
+
+  it("clamps to retention cutoff when no start_after is provided", async () => {
+    backendFetchMock.mockResolvedValue(backendResponse({ data: [], meta: {} }));
+    const res = await GET(makeRequest(), makeParams());
+    expect(res.status).toBe(200);
+    expect(workspaceFindUniqueMock).toHaveBeenCalled();
+    const url = new URL(backendFetchMock.mock.calls[0][0] as string);
+    expect(url.searchParams.has("start_after")).toBe(true);
+  });
+
+  it("returns 403 for malformed start_after values", async () => {
+    const res = await GET(makeRequest({ start_after: "not-a-date" }), makeParams());
+    expect(res.status).toBe(403);
+    expect(backendFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("allows wider window for enterprise plans", async () => {
+    workspaceFindUniqueMock.mockResolvedValue({ billingPlan: "enterprise" });
+    const old = new Date(Date.now() - 365 * 86_400_000).toISOString();
+    backendFetchMock.mockResolvedValue(backendResponse({ data: [], meta: {} }));
+    const res = await GET(makeRequest({ start_after: old }), makeParams());
+    expect(res.status).toBe(200);
+    expect(backendFetchMock).toHaveBeenCalled();
   });
 });
 

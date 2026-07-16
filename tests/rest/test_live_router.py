@@ -59,13 +59,32 @@ def redis_message(payload: dict) -> dict:
     return {"type": "message", "data": json.dumps(payload)}
 
 
+@pytest.fixture(autouse=True)
+def _mock_retention_lookup():
+    """All tests mock the lightweight retention timestamp query so it never
+    hits real ClickHouse.  Enterprise tests bypass retention regardless of the
+    value; retention-specific tests override this with their own patch."""
+    with patch(
+        "rest.routers.live._trace_start_time_in_clickhouse",
+        return_value=_utcnow_naive(),
+    ):
+        yield
+
+
 @pytest.fixture()
 def client():
     async def mock_access(project_id: str, x_user_id=None):
-        return ProjectAccessInfo(project_id=project_id, user_id="u1", role="ADMIN")
+        return ProjectAccessInfo(
+            project_id=project_id,
+            user_id="u1",
+            role="ADMIN",
+            workspace_id="ws-test",
+            billing_plan="enterprise",
+        )
 
     app.dependency_overrides[get_project_access] = mock_access
     yield TestClient(app)
+    app.dependency_overrides.clear()
 
 
 def parse_sse_events(text: str) -> list[str]:
@@ -144,7 +163,13 @@ class TestAlreadyCompleteTrace:
                 ConnectedRequest(),
                 PROJECT_ID,
                 TRACE_ID,
-                ProjectAccessInfo(project_id=PROJECT_ID, user_id="u1", role="ADMIN"),
+                ProjectAccessInfo(
+                    project_id=PROJECT_ID,
+                    user_id="u1",
+                    role="ADMIN",
+                    workspace_id="ws-test",
+                    billing_plan="enterprise",
+                ),
             )
             chunks = await collect_stream_chunks(response)
 
@@ -213,7 +238,13 @@ class TestAlreadyCompleteTrace:
                 ConnectedRequest(),
                 PROJECT_ID,
                 TRACE_ID,
-                ProjectAccessInfo(project_id=PROJECT_ID, user_id="u1", role="ADMIN"),
+                ProjectAccessInfo(
+                    project_id=PROJECT_ID,
+                    user_id="u1",
+                    role="ADMIN",
+                    workspace_id="ws-test",
+                    billing_plan="enterprise",
+                ),
             )
             chunks = await collect_stream_chunks(response)
 
@@ -306,6 +337,36 @@ class TestSubscribeBeforeCheckInvariant:
             client.get(ENDPOINT)
 
         assert call_order.index("subscribe") < call_order.index("clickhouse_check")
+
+    def test_events_published_during_clickhouse_check_are_not_lost(self, client):
+        """Simulates a Celery worker publishing a span to Redis while the
+        ClickHouse completion check is running. Because subscribe happens
+        before the check, the event must appear in the SSE output."""
+        pubsub = MockPubSub([])
+        mock_redis = MagicMock()
+        mock_redis.pubsub.return_value = pubsub
+
+        def check_that_injects_a_message(project_id, trace_id):
+            # Simulate a Celery worker publishing while ClickHouse is queried:
+            # inject a span message into the pubsub queue mid-check.
+            pubsub._messages.append(
+                redis_message({"type": "spans", "spans": [{"span_id": "concurrent"}]})
+            )
+            return _utcnow_naive(), _utcnow_naive()
+
+        with (
+            patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.1),
+            patch(
+                "rest.routers.live._completion_state_in_clickhouse",
+                side_effect=check_that_injects_a_message,
+            ),
+            patch("shared.redis.get_async_redis_client", return_value=mock_redis),
+        ):
+            resp = client.get(ENDPOINT)
+
+        events = parse_sse_events(resp.text)
+        assert "event: spans" in events, "span published during ClickHouse check was lost"
+        assert events[-1] == "event: trace_complete"
 
 
 class TestQuietWindowAnchoring:
@@ -420,3 +481,84 @@ class TestHardDeadline:
 
         events = parse_sse_events(resp.text)
         assert events == ["event: stream_timeout"]
+
+
+class TestRetentionGate:
+    def test_live_stream_403_for_old_trace(self):
+        """A trace outside the retention window returns 403 before streaming."""
+        old_start = datetime(2020, 1, 1)
+
+        async def mock_access(project_id: str, x_user_id=None):
+            return ProjectAccessInfo(
+                project_id=project_id,
+                user_id="u1",
+                role="ADMIN",
+                workspace_id="ws-test",
+                billing_plan="free",
+            )
+
+        app.dependency_overrides[get_project_access] = mock_access
+
+        pubsub = MockPubSub([])
+        mock_redis = MagicMock()
+        mock_redis.pubsub.return_value = pubsub
+
+        try:
+            test_client = TestClient(app, raise_server_exceptions=False)
+            with (
+                patch(
+                    "rest.routers.live._trace_start_time_in_clickhouse",
+                    return_value=old_start,
+                ),
+                patch("shared.redis.get_async_redis_client", return_value=mock_redis),
+            ):
+                resp = test_client.get(ENDPOINT)
+            assert resp.status_code == 403
+            detail = resp.json()["detail"]
+            assert detail["message"] == "Data outside retention window"
+            # Verify pubsub was cleaned up on 403
+            pubsub.unsubscribe.assert_awaited_once()
+            pubsub.close.assert_awaited_once()
+        finally:
+            app.dependency_overrides.clear()
+
+    def test_live_stream_200_for_recent_trace(self):
+        """A trace within the retention window proceeds to streaming."""
+        recent_start = _utcnow_naive() - timedelta(days=1)
+
+        async def mock_access(project_id: str, x_user_id=None):
+            return ProjectAccessInfo(
+                project_id=project_id,
+                user_id="u1",
+                role="ADMIN",
+                workspace_id="ws-test",
+                billing_plan="free",
+            )
+
+        app.dependency_overrides[get_project_access] = mock_access
+
+        pubsub = MockPubSub([])
+        mock_redis = MagicMock()
+        mock_redis.pubsub.return_value = pubsub
+
+        try:
+            test_client = TestClient(app)
+            with (
+                patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.1),
+                patch(
+                    "rest.routers.live._trace_start_time_in_clickhouse",
+                    return_value=recent_start,
+                ),
+                patch(
+                    "rest.routers.live._completion_state_in_clickhouse",
+                    return_value=(_utcnow_naive(), _utcnow_naive()),
+                ),
+                patch("shared.redis.get_async_redis_client", return_value=mock_redis),
+            ):
+                resp = test_client.get(ENDPOINT)
+
+            assert resp.status_code == 200
+            events = parse_sse_events(resp.text)
+            assert "event: trace_complete" in events
+        finally:
+            app.dependency_overrides.clear()

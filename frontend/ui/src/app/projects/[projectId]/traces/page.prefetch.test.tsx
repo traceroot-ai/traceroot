@@ -16,6 +16,7 @@ vi.mock("@/features/traces/hooks", () => ({
     error: null,
   }),
   usePrefetchTraces: () => prefetch,
+  useTracesExist: () => ({ data: { exists: true }, isPending: false }),
 }));
 vi.mock("@/lib/hooks/use-list-page-state", () => ({
   useListPageState: () => ({

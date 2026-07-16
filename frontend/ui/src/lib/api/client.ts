@@ -7,6 +7,19 @@ import { clientEnv } from "@/env.client";
 // Python backend URL for trace APIs only
 const TRACE_API_BASE = clientEnv.NEXT_PUBLIC_API_URL;
 
+export class ApiError extends Error {
+  status: number;
+  detail: unknown;
+
+  constructor(status: number, detail: unknown) {
+    const message = typeof detail === "string" ? detail : `API error: ${status}`;
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
 /**
  * Fetch from Next.js API routes (no auth headers needed, uses cookies)
  */
@@ -71,7 +84,7 @@ export async function fetchTraceApi<T>(
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: "Unknown error" }));
-    throw new Error(error.detail || `API error: ${response.status}`);
+    throw new ApiError(response.status, error.detail ?? `API error: ${response.status}`);
   }
 
   if (response.status === 204) {

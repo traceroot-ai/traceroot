@@ -28,6 +28,7 @@ from rest.rate_limit import (
     limiter,
     resolve_limit,
 )
+from rest.retention import enforce_retention_by_time, enforce_retention_window
 from rest.routers.public.deps import StampedAuth
 from rest.routers.public.serialize import export_bundle, public_trace_detail
 from rest.schemas.public import (
@@ -63,6 +64,7 @@ async def list_traces(
     ),
 ):
     """List recent traces for the API key's project (newest first)."""
+    start_after, end_before = enforce_retention_window(auth.billing_plan, start_after, end_before)
     try:
         service = get_trace_reader_service()
         result = service.list_traces(
@@ -118,7 +120,7 @@ async def get_trace(
             or outside the key's project, 500 on a reader failure.
     """
     groups = _resolve_fields(fields, default=SKELETON)
-    trace = _require_trace(auth.project_id, trace_id, groups)
+    trace = _require_trace(auth.project_id, trace_id, groups, auth.billing_plan)
     return public_trace_detail(trace, auth.project_id)
 
 
@@ -158,7 +160,7 @@ async def export_trace(
             or outside the key's project, 500 on a reader failure.
     """
     groups = _resolve_fields(fields, default=FULL)
-    trace = _require_trace(auth.project_id, trace_id, groups)
+    trace = _require_trace(auth.project_id, trace_id, groups, auth.billing_plan)
     return export_bundle(trace, auth.project_id)
 
 
@@ -182,7 +184,9 @@ def _resolve_fields(fields: str | None, *, default: frozenset[str]) -> frozenset
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
 
-def _require_trace(project_id: str, trace_id: str, groups: frozenset[str]) -> dict:
+def _require_trace(
+    project_id: str, trace_id: str, groups: frozenset[str], billing_plan: str
+) -> dict:
     """Fetch a trace scoped to the project at the requested projection.
 
     Centralizing the read here keeps `get` and `export` consistent: a reader
@@ -226,4 +230,5 @@ def _require_trace(project_id: str, trace_id: str, groups: frozenset[str]) -> di
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Trace not found",
         )
+    enforce_retention_by_time(billing_plan, trace.get("trace_start_time"))
     return trace
