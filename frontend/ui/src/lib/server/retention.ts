@@ -10,8 +10,9 @@ const PLAN_RETENTION_DAYS: Record<string, number | null> = {
 const FAIL_CLOSED_DAYS = 15;
 
 export function checkRetention(billingPlan: string, startAfter: string): NextResponse | null {
-  const days =
-    billingPlan in PLAN_RETENTION_DAYS ? PLAN_RETENTION_DAYS[billingPlan] : FAIL_CLOSED_DAYS;
+  const days = Object.prototype.hasOwnProperty.call(PLAN_RETENTION_DAYS, billingPlan)
+    ? PLAN_RETENTION_DAYS[billingPlan]
+    : FAIL_CLOSED_DAYS;
   if (days === null) return null;
   const cutoff = new Date(Date.now() - days * 86_400_000 - 3_600_000);
   if (new Date(startAfter) < cutoff) {
@@ -31,8 +32,9 @@ export function checkRetention(billingPlan: string, startAfter: string): NextRes
 }
 
 export function getRetentionCutoff(billingPlan: string): string | null {
-  const days =
-    billingPlan in PLAN_RETENTION_DAYS ? PLAN_RETENTION_DAYS[billingPlan] : FAIL_CLOSED_DAYS;
+  const days = Object.prototype.hasOwnProperty.call(PLAN_RETENTION_DAYS, billingPlan)
+    ? PLAN_RETENTION_DAYS[billingPlan]
+    : FAIL_CLOSED_DAYS;
   if (days === null) return null;
   return new Date(Date.now() - days * 86_400_000 - 3_600_000).toISOString();
 }
