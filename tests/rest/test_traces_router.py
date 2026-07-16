@@ -105,6 +105,20 @@ def client(mock_trace_reader):
     traces_mod.get_trace_reader_service = original
 
 
+class TestTracesExist:
+    def test_returns_true_when_traces_exist(self, client, mock_trace_reader):
+        mock_trace_reader.has_traces.return_value = True
+        response = client.get("/api/v1/projects/test-project/traces/exists")
+        assert response.status_code == 200
+        assert response.json() == {"exists": True}
+
+    def test_returns_false_when_no_traces(self, client, mock_trace_reader):
+        mock_trace_reader.has_traces.return_value = False
+        response = client.get("/api/v1/projects/test-project/traces/exists")
+        assert response.status_code == 200
+        assert response.json() == {"exists": False}
+
+
 class TestListTraces:
     def test_200(self, client, mock_trace_reader):
         mock_trace_reader.list_traces.return_value = {

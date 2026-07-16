@@ -164,6 +164,12 @@ describe("GET .../runs — retention gate", () => {
     expect(url.searchParams.has("start_after")).toBe(true);
   });
 
+  it("returns 403 for malformed start_after values", async () => {
+    const res = await GET(makeRequest({ start_after: "not-a-date" }), makeParams());
+    expect(res.status).toBe(403);
+    expect(backendFetchMock).not.toHaveBeenCalled();
+  });
+
   it("allows wider window for enterprise plans", async () => {
     workspaceFindUniqueMock.mockResolvedValue({ billingPlan: "enterprise" });
     const old = new Date(Date.now() - 365 * 86_400_000).toISOString();
