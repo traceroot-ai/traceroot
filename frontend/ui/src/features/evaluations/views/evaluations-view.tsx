@@ -856,7 +856,9 @@ function ScorersTab({ projectId }: { projectId: string }) {
                     <Td>
                       <span className="flex items-baseline gap-1.5">
                         <span className="font-medium">{s.name}</span>
-                        <span className="text-[11px] text-muted-foreground">{s.version}</span>
+                        <span className="text-[11px] text-muted-foreground">
+                          {fmtScorerVersion(s.version)}
+                        </span>
                       </span>
                     </Td>
                     <Td>
@@ -894,10 +896,12 @@ function ScorersTab({ projectId }: { projectId: string }) {
   );
 }
 
-const SCORER_TYPE_LABEL: Record<"llm_judge" | "code", string> = {
-  llm_judge: "LLM judge",
-  code: "Code",
-};
+/** Display a scorer version as "v1" — prefix a bare numeric version with "v"; leave a
+ *  sentinel like "unversioned" or an already-prefixed "v3" untouched. */
+function fmtScorerVersion(v: string): string {
+  return /^\d/.test(v) ? `v${v}` : v;
+}
+
 const OUTPUT_TYPE_LABEL: Record<"score" | "classification", string> = {
   score: "Score",
   classification: "Classification",
@@ -916,6 +920,17 @@ function scorerKind(s: ScorerRegistryRow): "llm_judge" | "code" | null {
   return null;
 }
 
+/** The precise type shown at the top of the definition section and in the header:
+ *  "LLM judge" for a judge, the language ("Python"/"TypeScript") for a code scorer. */
+function definitionTypeLabel(
+  s: ScorerRegistryRow,
+  kind: "llm_judge" | "code" | null,
+): string | null {
+  if (kind === "llm_judge") return "LLM judge";
+  if (kind === "code") return s.language ? LANGUAGE_LABEL[s.language] : "Code";
+  return null;
+}
+
 /** Output type (Score / Classification): the SDK's declared value wins; otherwise it's
  *  inferred from the declared/observed value type, and flagged as inferred. */
 function outputTypeOf(s: ScorerRegistryRow): { text: string; inferred: boolean } | null {
@@ -928,9 +943,9 @@ function outputTypeOf(s: ScorerRegistryRow): { text: string; inferred: boolean }
   return null;
 }
 
-/** For a field the SDK does not (yet) register — shown honestly, never fabricated. */
+/** For a field the SDK does not (yet) register — shown as a plain em dash. */
 function NotProvided() {
-  return <span className="italic text-muted-foreground">Not provided by SDK</span>;
+  return <span className="text-muted-foreground">—</span>;
 }
 
 /** Bordered card with a muted header strip — mirrors the detector detail panel. */
@@ -1005,9 +1020,12 @@ export function ScorerDetailPanel({
           <Ruler className="h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="text-[13px] font-medium">Scorer</span>
           <span className="truncate text-[13px] text-muted-foreground">{scorer.name}</span>
-          <span className="shrink-0 text-[11px] text-muted-foreground">{scorer.version}</span>
-          {kind && <Badge variant="outline">{SCORER_TYPE_LABEL[kind]}</Badge>}
-          <Badge variant="outline">Defined in SDK</Badge>
+          <span className="shrink-0 text-[11px] text-muted-foreground">
+            {fmtScorerVersion(scorer.version)}
+          </span>
+          {definitionTypeLabel(scorer, kind) && (
+            <Badge variant="outline">{definitionTypeLabel(scorer, kind)}</Badge>
+          )}
           <CopyButton
             value={`${scorer.name}@${scorer.version}`}
             className="h-5 w-5 text-muted-foreground hover:text-foreground"
@@ -1051,12 +1069,18 @@ function ScorerDetail({
       ? JSON.stringify(scorer.metadata, null, 2)
       : null;
 
+  const typeLabel = definitionTypeLabel(scorer, kind);
   return (
     <div className="flex flex-col gap-3 p-4">
-      {/* Type-specific top half */}
+      {/* Definition — leads with the exact type: LLM judge, Python, or TypeScript. */}
+      <div className="flex items-baseline gap-2">
+        <h3 className="text-[13px] font-semibold">Definition</h3>
+        <span className="text-[13px] font-medium text-foreground">{typeLabel ?? "—"}</span>
+      </div>
+      {/* Type-specific body */}
       {kind === "code" ? (
         <ScorerCard
-          title={`Code${scorer.language ? ` · ${LANGUAGE_LABEL[scorer.language]}` : ""}`}
+          title="Source"
           action={
             scorer.sourceCode ? (
               <CopyButton
@@ -1257,7 +1281,7 @@ function ScorerDetail({
                   )}
                 >
                   <span className="flex items-center gap-1.5">
-                    <span className="font-medium">{v.version}</span>
+                    <span className="font-medium">{fmtScorerVersion(v.version)}</span>
                     {v.version === scorer.version && (
                       <span className="text-[10px] text-muted-foreground">viewing</span>
                     )}
