@@ -64,7 +64,6 @@ import {
 } from "@/features/offline-eval/utils";
 import {
   useDataset,
-  useDatasets,
   useSaveTestCase,
   useUpdateTestCase,
   useEvaluationRuns,
@@ -171,10 +170,6 @@ export function DatasetDetailView({
   const caseIds = React.useMemo(() => cases.map((c) => c.id), [cases]);
   const sel = useRowSelection(caseIds);
 
-  // All datasets in the project, for the breadcrumb's dataset switcher.
-  const { data: allDatasetsData } = useDatasets(projectId, { limit: 200 });
-  const allDatasets = React.useMemo(() => allDatasetsData?.data ?? [], [allDatasetsData]);
-
   const evaluations = useEvaluationRuns(projectId, { dataset_id: datasetId });
   const runs = React.useMemo(() => evaluations.data?.data ?? [], [evaluations.data]);
   const visibleRuns = React.useMemo(() => {
@@ -263,7 +258,7 @@ export function DatasetDetailView({
   if (isLoading) {
     return (
       <>
-        <ProjectBreadcrumb projectId={projectId} current="Datasets" />
+        <ProjectBreadcrumb projectId={projectId} />
         <div className="flex h-64 items-center justify-center text-[13px] text-muted-foreground">
           Loading dataset...
         </div>
@@ -273,9 +268,12 @@ export function DatasetDetailView({
   if (error || !dataset || !data) {
     return (
       <>
-        <ProjectBreadcrumb projectId={projectId} current="Datasets" />
+        <ProjectBreadcrumb projectId={projectId} />
         <div className="flex h-full flex-col text-[13px]">
-          <EvalPageHeader title="Dataset not found" />
+          <EvalPageHeader
+            parent={{ label: "Datasets", href: `/projects/${projectId}/datasets` }}
+            title="Dataset not found"
+          />
           <EvalBody>
             <EmptyState>
               No dataset with the id {datasetId}.{" "}
@@ -294,26 +292,10 @@ export function DatasetDetailView({
 
   return (
     <>
-      <ProjectBreadcrumb
-        projectId={projectId}
-        trail={[
-          {
-            // Just the dataset segment (no separate "Datasets" crumb) — a dropdown
-            // of all datasets, like the project segment. Its menu header still links
-            // to the Datasets list, so that page stays one click away.
-            label: dataset.name,
-            menuHeader: { label: "Datasets", href: `/projects/${projectId}/datasets` },
-            options: allDatasets.map((d) => ({
-              id: d.id,
-              label: d.name,
-              href: `/projects/${projectId}/datasets/${d.id}`,
-              isCurrent: d.id === dataset.id,
-            })),
-          },
-        ]}
-      />
+      <ProjectBreadcrumb projectId={projectId} />
       <div className="flex h-full flex-col text-[13px]">
         <EvalPageHeader
+          parent={{ label: "Datasets", href: `/projects/${projectId}/datasets` }}
           title={
             <span className="flex flex-wrap items-center gap-2">
               <span>{dataset.name}</span>
@@ -995,6 +977,7 @@ function CasePanel({
                   <Th>Evaluation / Run</Th>
                   <Th>Dataset</Th>
                   <Th className="w-[110px] text-right">Main score</Th>
+                  <Th className="w-[130px] text-right">Timestamp</Th>
                 </TRHead>
               </THead>
               <TBody>
@@ -1013,6 +996,9 @@ function CasePanel({
                     <Td className="text-muted-foreground">{datasetName}</Td>
                     <Td className="text-right tabular-nums">
                       <ScoreValue value={r.score} />
+                    </Td>
+                    <Td className="whitespace-nowrap text-right text-muted-foreground">
+                      <Timestamp iso={r.ranAt} />
                     </Td>
                   </TR>
                 ))}
