@@ -15,7 +15,8 @@ const PLAN_RETENTION_DAYS: Record<string, number | null> = {
 const FAIL_CLOSED_DAYS = 15;
 
 function checkRetention(billingPlan: string, startAfter: string): NextResponse | null {
-  const days = PLAN_RETENTION_DAYS[billingPlan] ?? FAIL_CLOSED_DAYS;
+  const days =
+    billingPlan in PLAN_RETENTION_DAYS ? PLAN_RETENTION_DAYS[billingPlan] : FAIL_CLOSED_DAYS;
   if (days === null) return null;
   const cutoff = new Date(Date.now() - days * 86_400_000 - 3_600_000);
   if (new Date(startAfter) < cutoff) {
