@@ -12,6 +12,24 @@ import { runBillingJob, runStartupBillingPass, closeClickHouseClient } from "./e
 // Graceful shutdown handling
 let isShuttingDown = false;
 
+// Guards against a cron tick and the startup pass (or two overlapping cron
+// ticks) running runBillingJob() concurrently against the same stale
+// currentUsage, which would double-report overage deltas to Stripe.
+let billingPassInFlight = false;
+
+async function runExclusiveBillingPass(job: () => Promise<void>): Promise<void> {
+  if (billingPassInFlight) {
+    console.log("[Billing Worker] Skipping billing pass: previous pass still running");
+    return;
+  }
+  billingPassInFlight = true;
+  try {
+    await job();
+  } finally {
+    billingPassInFlight = false;
+  }
+}
+
 async function shutdown(signal: string): Promise<void> {
   if (isShuttingDown) return;
   isShuttingDown = true;
@@ -53,17 +71,21 @@ async function main(): Promise<void> {
     if (isShuttingDown) return;
 
     console.log("[Billing Worker] Running scheduled billing job...");
-    try {
-      await runBillingJob();
-    } catch (error) {
-      console.error("[Billing Worker] Billing job failed:", error);
-    }
+    await runExclusiveBillingPass(async () => {
+      try {
+        await runBillingJob();
+      } catch (error) {
+        console.error("[Billing Worker] Billing job failed:", error);
+      }
+    });
   });
 
   // Fire once immediately so the first usage snapshot lands within seconds
   // of startup instead of waiting for the next cron tick (up to ~1h away).
   // Not awaited: a slow/not-yet-ready backend must not delay cron registration.
-  void runStartupBillingPass();
+  // Goes through the same exclusive-pass guard as the cron callback so an
+  // early tick can't run concurrently with it.
+  void runExclusiveBillingPass(runStartupBillingPass);
 
   console.log("[Billing Worker] Scheduled jobs:");
   console.log(`  - Billing: ${billingCron}`);
