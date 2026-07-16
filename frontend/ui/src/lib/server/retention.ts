@@ -15,7 +15,8 @@ export function checkRetention(billingPlan: string, startAfter: string): NextRes
     : FAIL_CLOSED_DAYS;
   if (days === null) return null;
   const cutoff = new Date(Date.now() - days * 86_400_000 - 3_600_000);
-  if (new Date(startAfter) < cutoff) {
+  const parsed = new Date(startAfter);
+  if (isNaN(parsed.getTime()) || parsed < cutoff) {
     return NextResponse.json(
       {
         detail: {
