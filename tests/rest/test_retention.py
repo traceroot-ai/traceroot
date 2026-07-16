@@ -21,19 +21,19 @@ class TestGetRetentionCutoff:
     def test_free_plan_returns_15_day_cutoff(self):
         cutoff = get_retention_cutoff("free")
         assert cutoff is not None
-        expected = _now_naive() - timedelta(days=15)
+        expected = _now_naive() - timedelta(days=15, hours=1)
         assert abs((cutoff - expected).total_seconds()) < 2
 
     def test_starter_plan_returns_30_day_cutoff(self):
         cutoff = get_retention_cutoff("starter")
         assert cutoff is not None
-        expected = _now_naive() - timedelta(days=30)
+        expected = _now_naive() - timedelta(days=30, hours=1)
         assert abs((cutoff - expected).total_seconds()) < 2
 
     def test_pro_plan_returns_90_day_cutoff(self):
         cutoff = get_retention_cutoff("pro")
         assert cutoff is not None
-        expected = _now_naive() - timedelta(days=90)
+        expected = _now_naive() - timedelta(days=90, hours=1)
         assert abs((cutoff - expected).total_seconds()) < 2
 
     def test_enterprise_plan_returns_none(self):
@@ -42,7 +42,7 @@ class TestGetRetentionCutoff:
     def test_unknown_plan_fails_closed_to_15_days(self):
         cutoff = get_retention_cutoff("bogus")
         assert cutoff is not None
-        expected = _now_naive() - timedelta(days=15)
+        expected = _now_naive() - timedelta(days=15, hours=1)
         assert abs((cutoff - expected).total_seconds()) < 2
 
     def test_cutoff_is_naive(self):
@@ -60,7 +60,7 @@ class TestEnforceRetentionWindow:
     def test_no_start_after_clamps_to_cutoff(self):
         result_sa, result_eb = enforce_retention_window("free", None, None)
         assert result_sa is not None
-        expected = _now_naive() - timedelta(days=15)
+        expected = _now_naive() - timedelta(days=15, hours=1)
         assert abs((result_sa - expected).total_seconds()) < 2
         assert result_eb is None
 
@@ -130,13 +130,13 @@ class TestClampRetentionWindow:
     def test_no_start_after_clamps_to_cutoff(self):
         result_sa, _ = clamp_retention_window("free", None)
         assert result_sa is not None
-        expected = _now_naive() - timedelta(days=15)
+        expected = _now_naive() - timedelta(days=15, hours=1)
         assert abs((result_sa - expected).total_seconds()) < 2
 
     def test_old_start_after_clamps_instead_of_403(self):
         old = _now_naive() - timedelta(days=30)
         result_sa, _ = clamp_retention_window("free", old)
-        expected = _now_naive() - timedelta(days=15)
+        expected = _now_naive() - timedelta(days=15, hours=1)
         assert abs((result_sa - expected).total_seconds()) < 2
 
     def test_recent_start_after_passes_through(self):
@@ -147,5 +147,5 @@ class TestClampRetentionWindow:
     def test_tz_aware_old_start_after_clamps(self):
         old = datetime.now(UTC) - timedelta(days=30)
         result_sa, _ = clamp_retention_window("free", old)
-        expected = _now_naive() - timedelta(days=15)
+        expected = _now_naive() - timedelta(days=15, hours=1)
         assert abs((result_sa - expected).total_seconds()) < 2

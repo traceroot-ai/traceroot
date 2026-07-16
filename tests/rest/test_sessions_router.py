@@ -308,37 +308,24 @@ class TestRetentionGate:
         kw = mock_trace_reader.list_sessions.call_args.kwargs
         assert kw["start_after"] is not None
 
-    def test_list_sessions_clamps_old_start_after_instead_of_403(
+    def test_list_sessions_rejects_old_start_after_with_403(
         self, free_plan_client, mock_trace_reader
     ):
-        """Sessions always clamp — never 403."""
-        mock_trace_reader.list_sessions.return_value = {
-            "data": [],
-            "meta": {"page": 0, "limit": 50, "total": 0},
-        }
+        """Sessions enforce retention — 403 on explicit out-of-window requests."""
         old = _now_naive() - timedelta(days=30)
         response = free_plan_client.get(
             f"/api/v1/projects/test-project/sessions?start_after={old.isoformat()}"
         )
-        assert response.status_code == 200
-        kw = mock_trace_reader.list_sessions.call_args.kwargs
-        cutoff_approx = _now_naive() - timedelta(days=15)
-        assert abs((kw["start_after"] - cutoff_approx).total_seconds()) < 5
+        assert response.status_code == 403
+        detail = response.json()["detail"]
+        assert detail["retention_days"] == 15
+        assert detail["plan"] == "free"
 
-    def test_get_session_clamps_old_start_after(self, free_plan_client, mock_trace_reader):
-        mock_trace_reader.get_session.return_value = {
-            "session_id": "sess-1",
-            "traces": [],
-            "user_ids": [],
-            "trace_count": 0,
-            "first_trace_time": None,
-            "last_trace_time": None,
-            "duration_ms": 0,
-            "total_input_tokens": None,
-            "total_output_tokens": None,
-        }
+    def test_get_session_rejects_old_start_after_with_403(
+        self, free_plan_client, mock_trace_reader
+    ):
         old = _now_naive() - timedelta(days=30)
         response = free_plan_client.get(
             f"/api/v1/projects/test-project/sessions/sess-1?start_after={old.isoformat()}"
         )
-        assert response.status_code == 200
+        assert response.status_code == 403
