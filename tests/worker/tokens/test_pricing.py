@@ -173,6 +173,12 @@ DEEPSEEK_MODEL_CASES = [
     ("deepseek-v4-pro-20260424", "deepseek-v4-pro"),
 ]
 
+KIMI_MODEL_CASES = [
+    ("kimi-k3", "kimi-k3"),
+    ("moonshot/kimi-k3", "kimi-k3"),
+    ("kimi-k3-20260716", "kimi-k3"),
+]
+
 
 @patch("worker.tokens.pricing._load_cache", _mock_load_cache)
 class TestGetModelPrice:
@@ -266,6 +272,30 @@ class TestDeepSeekModelIds:
     def test_deepseek_v4_pro_calculates_cost(self, real_cache):
         with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
             result = calculate_cost("deepseek-v4-pro", "Hello world", "Hi there")
+
+        assert result["input_tokens"] is not None
+        assert result["input_tokens"] > 0
+        assert result["output_tokens"] is not None
+        assert result["output_tokens"] > 0
+        assert result["cost"] is not None
+        assert result["cost"] > 0
+
+
+class TestKimiModelIds:
+    @pytest.mark.parametrize("model_id,expected_name", KIMI_MODEL_CASES)
+    def test_matches_expected_model(self, real_cache, model_id, expected_name):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price(model_id)
+
+        assert price is not None, f"{model_id} should match a pricing entry but returned None"
+        assert "input" in price and "output" in price
+        assert price[MATCHED_MODEL_NAME] == expected_name, (
+            f"{model_id} matched a different entry than {expected_name}"
+        )
+
+    def test_kimi_k3_calculates_cost(self, real_cache):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            result = calculate_cost("kimi-k3", "Hello world", "Hi there")
 
         assert result["input_tokens"] is not None
         assert result["input_tokens"] > 0
