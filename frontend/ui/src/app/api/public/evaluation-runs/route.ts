@@ -132,12 +132,9 @@ export async function POST(request: Request) {
           baselineRunId: req.baseline_run_id ?? null,
           mainScoreName: req.main_score_name ?? null,
           caseCount,
-          // The full scorer manifest — identity ({name, version}), config
-          // (value_type/direction/threshold) and the read-only DEFINITION
-          // (scorer_type, prompt/source) — rides along in this JSON column when the
-          // SDK sends it; a legacy {name, version} scorer stays valid. Cast because
-          // the scorer metadata field is typed `unknown` (arbitrary JSON).
-          scorers: req.scorers as unknown as Prisma.InputJsonValue,
+          // Rich scorer metadata (value_type/direction/threshold) rides along in this
+          // JSON column when the SDK sends it; legacy {name, version} stays valid.
+          scorers: req.scorers,
           metadata: (req.metadata ?? undefined) as Prisma.InputJsonValue | undefined,
           clientRunId: req.client_run_id ?? null,
         },
