@@ -270,12 +270,12 @@ export function LineNumberedTextarea({
           <div className="flex items-start">
             <span
               aria-hidden
-              className="shrink-0 select-none border-r border-border bg-muted/40 px-2 text-right text-muted-foreground/50"
+              className="shrink-0 select-none border-r border-border bg-muted/40 px-2 pt-2 text-right text-muted-foreground/50"
               style={{ width: gutterWidth }}
             >
               {"​"}
             </span>
-            <span className="min-w-0 flex-1 whitespace-pre-wrap break-words px-2">
+            <span className="min-w-0 flex-1 whitespace-pre-wrap break-words px-2 pt-2">
               <button
                 type="button"
                 onClick={onExpand}
@@ -623,7 +623,7 @@ export function EditableValueBlock({
               <button
                 type="button"
                 onClick={() => setFieldExpanded(true)}
-                className="mt-1 cursor-pointer text-[11px] text-muted-foreground hover:text-foreground"
+                className="mt-2 cursor-pointer text-[11px] text-muted-foreground hover:text-foreground"
               >
                 …expand ({(collapseValue.length - COLLAPSE_AT).toLocaleString()} more characters)
               </button>
