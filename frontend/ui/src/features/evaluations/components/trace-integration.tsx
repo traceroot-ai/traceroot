@@ -130,15 +130,21 @@ export function SaveTestCaseDrawer({
     if (open) {
       setDatasetId("");
       setNewDatasetName("");
-      setSelectedSpanId(spanId);
       setAttachSource(true);
       setExpectedMode("none");
       setCorrectedExpected("");
       setDuplicate(null);
       setFeedback(null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // Follow the tree: when the parent retargets the span — a click on a different
+  // span in the span tree while this drawer is open — select it here too. The
+  // drawer's own up/down nav sets internal state without changing this prop, so
+  // it keeps working; only a genuine tree selection re-syncs.
+  React.useEffect(() => {
+    setSelectedSpanId(spanId);
+  }, [spanId]);
 
   const spans = React.useMemo(() => trace?.spans ?? [], [trace]);
   const root = trace ? rootSpan(spans) : undefined;
