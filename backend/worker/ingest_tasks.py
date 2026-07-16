@@ -8,6 +8,7 @@ import logging
 from collections import defaultdict
 from datetime import datetime
 
+from shared.enums import SpanKind
 from worker.celery_app import app
 
 logger = logging.getLogger(__name__)
@@ -66,14 +67,62 @@ def _publish_live_spans(spans: list[dict], project_id: str) -> None:
         logger.warning("Failed to publish live spans to Redis", exc_info=True)
 
 
-def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -> None:
-    """Denormalize each evaluation trace's total cost onto its EvaluationResult row.
+def _task_cost_by_trace(rows) -> dict[str, float]:
+    """Per-trace span-cost sum EXCLUDING the scorer subtree (scorer spans + descendants).
 
-    The SDK doesn't report per-case cost — it lives in the trace as summed provider-usage
-    span cost (otel_transform sets `cost` only on LLM leaf spans, so `sum(cost)` over a
-    trace is its total, no double count). This lets the runs table read `result.cost`
+    An evaluation trace is ``EVALUATION(root) -> TASK -> SCORER`` (see the SDK eval
+    engine). A scorer can itself call an LLM — an ``llm_judge`` self-instruments its
+    model call, and a hand-rolled ``@scorer`` function may call a provider directly —
+    and that LLM span lands in the SAME trace under the SCORER span. Folding its cost
+    into the result would over-report what it costs to run the CANDIDATE, so we drop
+    every scorer span and its whole subtree and sum only the remaining (task) spans.
+
+    ``rows`` are ``(trace_id, span_id, parent_span_id, span_kind, cost)``. ``cost`` is
+    set only on LLM leaf spans (otel_transform), so this is a no-op unless a leaf has one.
+    """
+    from collections import defaultdict
+
+    per_trace: dict[str, dict] = defaultdict(
+        lambda: {"children": defaultdict(list), "kind": {}, "cost": {}}
+    )
+    for trace_id, span_id, parent_span_id, span_kind, cost in rows:
+        t = per_trace[trace_id]
+        t["kind"][span_id] = span_kind
+        t["cost"][span_id] = cost
+        if parent_span_id:
+            t["children"][parent_span_id].append(span_id)
+
+    result: dict[str, float] = {}
+    for trace_id, t in per_trace.items():
+        excluded: set[str] = set()
+        stack = [sid for sid, kind in t["kind"].items() if kind == SpanKind.SCORER]
+        while stack:
+            sid = stack.pop()
+            if sid in excluded:
+                continue
+            excluded.add(sid)
+            stack.extend(t["children"].get(sid, ()))
+        total = 0.0
+        for sid, cost in t["cost"].items():
+            if sid in excluded or cost is None:
+                continue
+            total += float(cost)
+        result[trace_id] = total
+    return result
+
+
+def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -> None:
+    """Denormalize each evaluation trace's CANDIDATE-TASK cost onto its EvaluationResult.
+
+    The SDK doesn't report per-case cost, so we derive it from the trace's LLM-span cost,
+    scoped to the candidate task (the scorer subtree is excluded — see
+    ``_task_cost_by_trace`` for why). This lets the runs table read ``result.cost``
     directly. Idempotent + self-healing: recomputed on every batch, so late-arriving
-    spans update the total; never writes 0 (a cost-less trace leaves `cost` NULL).
+    spans update the total; never writes 0 (a cost-less trace leaves ``cost`` NULL).
+
+    NOTE: once the SDK reports an authoritative per-result cost
+    (offline-eval/sdk-ask/report-task-cost.md), this derivation must DEFER to it rather
+    than overwrite — it exists only because per-result cost is absent today.
     """
     if not trace_ids:
         return
@@ -98,15 +147,15 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
             if not eval_trace_ids:
                 return
 
+            # Pull the full span tree (not just cost-bearing spans) so the scorer
+            # subtree can be identified and excluded before summing.
             rows = ch_client.query(
-                "SELECT trace_id, sum(cost) FROM spans FINAL"
-                " WHERE project_id = {pid:String} AND trace_id IN {ids:Array(String)}"
-                " AND cost IS NOT NULL GROUP BY trace_id",
+                "SELECT trace_id, span_id, parent_span_id, span_kind, cost FROM spans FINAL"
+                " WHERE project_id = {pid:String} AND trace_id IN {ids:Array(String)}",
                 parameters={"pid": project_id, "ids": eval_trace_ids},
             ).result_rows
 
-            for trace_id, total in rows:
-                cost = float(total) if total is not None else 0.0
+            for trace_id, cost in _task_cost_by_trace(rows).items():
                 if cost <= 0:
                     continue
                 cur.execute(
