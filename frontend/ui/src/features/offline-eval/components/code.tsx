@@ -177,3 +177,77 @@ export function ValueBlock({
     </div>
   );
 }
+
+/**
+ * Editable counterpart to ValueBlock. The text is controlled by the caller;
+ * switching the view kind reformats it best-effort (only when it parses as
+ * JSON), so plain text is never mangled.
+ */
+export function EditableValueBlock({
+  label,
+  text,
+  onChange,
+  defaultKind = "yaml",
+  ariaLabel,
+}: {
+  label: string;
+  text: string;
+  onChange: (text: string) => void;
+  defaultKind?: ValueKind;
+  ariaLabel?: string;
+}) {
+  const [kind, setKind] = React.useState<ValueKind>(defaultKind);
+  const [menuOpen, setMenuOpen] = React.useState(false);
+
+  const changeKind = (next: ValueKind) => {
+    setKind(next);
+    setMenuOpen(false);
+    // Reformat only when the current text is valid JSON; otherwise leave it be.
+    try {
+      const parsed = JSON.parse(text);
+      onChange(formatValue(parsed, next));
+    } catch {
+      /* not JSON — keep the text as typed */
+    }
+  };
+
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-[11px] font-medium text-muted-foreground">{label}</span>
+        <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              {KIND_LABEL[kind]}
+              <ChevronDown className="h-3 w-3" aria-hidden />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-28 p-1">
+            {KINDS.map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => changeKind(k)}
+                className={cn(
+                  "flex w-full items-center rounded px-2 py-1 text-left text-[12px] transition-colors",
+                  k === kind ? "bg-muted/70" : "hover:bg-muted/50",
+                )}
+              >
+                {KIND_LABEL[k]}
+              </button>
+            ))}
+          </PopoverContent>
+        </Popover>
+      </div>
+      <LineNumberedTextarea
+        value={text}
+        onChange={onChange}
+        minRows={1}
+        aria-label={ariaLabel ?? label}
+      />
+    </div>
+  );
+}
