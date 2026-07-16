@@ -191,6 +191,9 @@ export function LineNumberedTextarea({
   placeholder,
   highlightJson = false,
   readOnly = false,
+  collapsed = false,
+  collapseAt = 500,
+  onExpand,
   "aria-label": ariaLabel,
 }: {
   value: string;
@@ -201,18 +204,28 @@ export function LineNumberedTextarea({
   highlightJson?: boolean;
   /** Display only — selectable and syntax-coloured, but not editable. */
   readOnly?: boolean;
+  /** Clip a long value to `collapseAt` chars and show an inline "…expand" as the
+   *  last line INSIDE the box (like the span-detail I/O). Editing is suspended while
+   *  collapsed — the transparent textarea isn't mounted — so the inline control is
+   *  clickable. Expanding is the caller's to handle via `onExpand`. */
+  collapsed?: boolean;
+  collapseAt?: number;
+  onExpand?: () => void;
   "aria-label"?: string;
 }) {
+  const isCollapsed = collapsed && value.length > collapseAt;
+  const shown = isCollapsed ? value.slice(0, collapseAt) : value;
   // Keep a real trailing empty line so the last line is always clickable — click
   // it and type without pressing Enter first, and a 1-line value still shows an
   // empty line 2. The parent value never keeps that trailing newline: it's added
-  // for display/editing and stripped from what onChange reports.
+  // for display/editing and stripped from what onChange reports. (When collapsed
+  // there's no editing, so no trailing line is needed.)
   //
   // The newline is appended *unconditionally*. Appending it only when the value
   // didn't already end in one meant pressing Enter (which makes the value end in
   // a newline) was cancelled out by the strip below, so the line count — and the
   // box height — never grew.
-  const textValue = `${value}\n`;
+  const textValue = isCollapsed ? shown : `${value}\n`;
   const rawLines = textValue.split("\n");
   const tokenLines = highlightJson ? tokenizeJsonByLine(textValue) : null;
   const totalLines = Math.max(rawLines.length, minRows);
@@ -225,8 +238,13 @@ export function LineNumberedTextarea({
     // box in the display layer but flows continuously in the textarea, so the two
     // drift apart as lines accumulate and the textarea's last line gets clipped.
     <div className="relative overflow-hidden rounded border border-input bg-background font-mono text-[11px] leading-[18px] focus-within:ring-1 focus-within:ring-ring">
-      {/* Display layer — line numbers + (highlighted) content, wraps per line. */}
-      <div aria-hidden className="pointer-events-none pb-2 pt-1.5">
+      {/* Display layer — line numbers + (highlighted) content, wraps per line.
+          Collapsed has no textarea overlay, so it must take pointer events (the
+          inline expand control lives here). */}
+      <div
+        aria-hidden={!isCollapsed}
+        className={cn("pb-2 pt-1.5", !isCollapsed && "pointer-events-none")}
+      >
         {Array.from({ length: totalLines }).map((_, i) => (
           <div key={i} className="flex items-start">
             <span
@@ -247,27 +265,51 @@ export function LineNumberedTextarea({
             </span>
           </div>
         ))}
-      </div>
-      {/* Editing layer — transparent text lined up over the display layer. */}
-      <textarea
-        value={textValue}
-        onChange={(e) => {
-          if (readOnly) return;
-          const v = e.target.value;
-          onChange(v.endsWith("\n") ? v.slice(0, -1) : v);
-        }}
-        readOnly={readOnly}
-        spellCheck={false}
-        placeholder={placeholder}
-        aria-label={ariaLabel}
-        className={cn(
-          // Must match the display layer's font metrics exactly — the two are
-          // overlaid, so the line-height is the same whole pixel value.
-          "absolute inset-0 resize-none overflow-hidden whitespace-pre-wrap break-words bg-transparent pb-2 pr-2 pt-1.5 font-mono text-[11px] leading-[18px] text-transparent placeholder:text-muted-foreground focus:outline-none",
-          readOnly ? "cursor-default caret-transparent" : "caret-foreground",
+        {/* Inline "…expand" as the final line, sitting with the text inside the box. */}
+        {isCollapsed && (
+          <div className="flex items-start">
+            <span
+              aria-hidden
+              className="shrink-0 select-none border-r border-border bg-muted/40 px-2 text-right text-muted-foreground/50"
+              style={{ width: gutterWidth }}
+            >
+              {"​"}
+            </span>
+            <span className="min-w-0 flex-1 whitespace-pre-wrap break-words px-2">
+              <button
+                type="button"
+                onClick={onExpand}
+                className="cursor-pointer align-baseline text-muted-foreground hover:text-foreground"
+              >
+                …expand ({(value.length - collapseAt).toLocaleString()} more characters)
+              </button>
+            </span>
+          </div>
         )}
-        style={{ paddingLeft: `calc(${gutterWidth} + 0.5rem)` }}
-      />
+      </div>
+      {/* Editing layer — transparent text lined up over the display layer. Omitted
+          while collapsed so the inline expand control above stays clickable. */}
+      {!isCollapsed && (
+        <textarea
+          value={textValue}
+          onChange={(e) => {
+            if (readOnly) return;
+            const v = e.target.value;
+            onChange(v.endsWith("\n") ? v.slice(0, -1) : v);
+          }}
+          readOnly={readOnly}
+          spellCheck={false}
+          placeholder={placeholder}
+          aria-label={ariaLabel}
+          className={cn(
+            // Must match the display layer's font metrics exactly — the two are
+            // overlaid, so the line-height is the same whole pixel value.
+            "absolute inset-0 resize-none overflow-hidden whitespace-pre-wrap break-words bg-transparent pb-2 pr-2 pt-1.5 font-mono text-[11px] leading-[18px] text-transparent placeholder:text-muted-foreground focus:outline-none",
+            readOnly ? "cursor-default caret-transparent" : "caret-foreground",
+          )}
+          style={{ paddingLeft: `calc(${gutterWidth} + 0.5rem)` }}
+        />
+      )}
     </div>
   );
 }
@@ -561,13 +603,34 @@ export function EditableValueBlock({
     </div>
   );
 
+  // A long value clips to an in-field "…expand" control that sits INSIDE the code
+  // block, inline with the text (like the span-detail I/O renderer) — not a button
+  // below the card. Expand-only; re-collapses when `collapseResetKey` changes.
+  const collapseValue = readOnly ? display : text;
+  const isCollapsed = collapsible && collapseValue.length > COLLAPSE_AT && !fieldExpanded;
+
   // Markdown is a rendered preview of the text, so it replaces the editable field;
   // switching back to any other format returns to editing the same raw value.
   const field =
     kind === "markdown" ? (
       <div>
         <div className="rounded border border-input bg-background px-2 py-1.5">
-          <MarkdownView content={readOnly ? display : text} />
+          {isCollapsed ? (
+            <div>
+              <div className="max-h-40 overflow-hidden">
+                <MarkdownView content={readOnly ? display : text} />
+              </div>
+              <button
+                type="button"
+                onClick={() => setFieldExpanded(true)}
+                className="mt-1 cursor-pointer text-[11px] text-muted-foreground hover:text-foreground"
+              >
+                …expand ({(collapseValue.length - COLLAPSE_AT).toLocaleString()} more characters)
+              </button>
+            </div>
+          ) : (
+            <MarkdownView content={readOnly ? display : text} />
+          )}
         </div>
         {!readOnly && (
           <p className="mt-1 text-[10px] text-muted-foreground">
@@ -582,42 +645,11 @@ export function EditableValueBlock({
         minRows={minRows}
         highlightJson={kind === "json" || kind === "pretty"}
         readOnly={readOnly}
+        collapsed={isCollapsed}
+        collapseAt={COLLAPSE_AT}
+        onExpand={() => setFieldExpanded(true)}
         aria-label={ariaLabel ?? label}
       />
-    );
-
-  // A long value collapses behind an in-field "…expand" control INSIDE the body —
-  // below the header, clipping only the value (not the whole card). Same threshold
-  // and styling as the span-detail I/O renderer. Short values render untouched.
-  const collapseValue = readOnly ? display : text;
-  const body =
-    !collapsible || collapseValue.length <= COLLAPSE_AT ? (
-      field
-    ) : fieldExpanded ? (
-      <div>
-        {field}
-        <button
-          type="button"
-          onClick={() => setFieldExpanded(false)}
-          className="mt-1 text-[11px] text-muted-foreground hover:text-foreground"
-        >
-          collapse
-        </button>
-      </div>
-    ) : (
-      <div>
-        <div className="relative max-h-40 overflow-hidden">
-          {field}
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-background to-transparent" />
-        </div>
-        <button
-          type="button"
-          onClick={() => setFieldExpanded(true)}
-          className="mt-1 text-[11px] text-muted-foreground hover:text-foreground"
-        >
-          …expand ({(collapseValue.length - COLLAPSE_AT).toLocaleString()} more characters)
-        </button>
-      </div>
     );
 
   // Chevron + label: the whole thing toggles, matching the span detail panel.
@@ -665,7 +697,7 @@ export function EditableValueBlock({
           {heading("sm")}
           {controls}
         </div>
-        {open && <div className="bg-background px-2.5 py-2">{body}</div>}
+        {open && <div className="bg-background px-2.5 py-2">{field}</div>}
       </div>
     );
   }
@@ -676,7 +708,7 @@ export function EditableValueBlock({
         {heading("xs")}
         {controls}
       </div>
-      {open && body}
+      {open && field}
     </div>
   );
 }
