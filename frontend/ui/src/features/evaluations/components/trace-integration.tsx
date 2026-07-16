@@ -116,7 +116,10 @@ export function SaveTestCaseDrawer({
   const [input, setInput] = React.useState("");
   const [metadata, setMetadata] = React.useState("");
   const [attachSource, setAttachSource] = React.useState(true);
-  const [expectedMode, setExpectedMode] = React.useState<ExpectedMode>("none");
+  // Default to grading against the recorded output — the common case is capturing
+  // a good production run as the expected outcome. Switch to "Not required" or a
+  // corrected value as needed.
+  const [expectedMode, setExpectedMode] = React.useState<ExpectedMode>("recorded");
   const [correctedExpected, setCorrectedExpected] = React.useState("");
   const [duplicate, setDuplicate] = React.useState<{ datasetId: string } | null>(null);
   const [feedback, setFeedback] = React.useState<{
@@ -131,7 +134,7 @@ export function SaveTestCaseDrawer({
       setDatasetId("");
       setNewDatasetName("");
       setAttachSource(true);
-      setExpectedMode("none");
+      setExpectedMode("recorded");
       setCorrectedExpected("");
       setDuplicate(null);
       setFeedback(null);
