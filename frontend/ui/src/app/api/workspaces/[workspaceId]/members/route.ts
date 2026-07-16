@@ -100,19 +100,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   if (existingMembership) {
     // Self-healing for legacy data: routes prior to this fix could create a
     // membership without deleting the matching invite (mirrors accept-route's
-    // cleanup on its own already-a-member branch).
-    const staleInvite = await prisma.invite.findUnique({
-      where: {
-        email_workspaceId: {
-          email: targetUser.email.toLowerCase(),
-          workspaceId,
-        },
-      },
+    // cleanup on its own already-a-member branch). deleteMany is a no-op
+    // (not a throw) when no row matches, so a concurrent request that
+    // already cleaned up the same stale invite can't turn this best-effort
+    // cleanup into an unhandled 500.
+    await prisma.invite.deleteMany({
+      where: { email: targetUser.email.toLowerCase(), workspaceId },
     });
-
-    if (staleInvite) {
-      await prisma.invite.delete({ where: { id: staleInvite.id } });
-    }
 
     return errorResponse("User is already a member of this workspace", 409);
   }

@@ -7,6 +7,7 @@ const {
   memberCreate,
   inviteFindUnique,
   inviteDelete,
+  inviteDeleteMany,
   requireWorkspaceMembershipMock,
 } = vi.hoisted(() => ({
   workspaceFindUnique: vi.fn(),
@@ -15,6 +16,7 @@ const {
   memberCreate: vi.fn(),
   inviteFindUnique: vi.fn(),
   inviteDelete: vi.fn(),
+  inviteDeleteMany: vi.fn(),
   requireWorkspaceMembershipMock: vi.fn(),
 }));
 
@@ -26,7 +28,7 @@ vi.mock("@traceroot/core", async (orig) => {
       workspace: { findUnique: workspaceFindUnique },
       user: { findUnique: userFindUnique },
       workspaceMember: { findUnique: memberFindUnique, create: memberCreate },
-      invite: { findUnique: inviteFindUnique, delete: inviteDelete },
+      invite: { findUnique: inviteFindUnique, delete: inviteDelete, deleteMany: inviteDeleteMany },
       $transaction: vi.fn((ops: unknown[]) => Promise.all(ops)),
     },
   };
@@ -67,6 +69,7 @@ describe("workspace members POST seat limit", () => {
       .mockResolvedValue({ id: "m1", role: "MEMBER", createTime: new Date() });
     inviteFindUnique.mockReset().mockResolvedValue(null);
     inviteDelete.mockReset().mockResolvedValue({ id: "inv1" });
+    inviteDeleteMany.mockReset().mockResolvedValue({ count: 0 });
     workspaceFindUnique.mockReset().mockResolvedValue({
       id: "w1",
       billingPlan: "free",
@@ -159,10 +162,12 @@ describe("workspace members POST seat limit", () => {
 
   it("cleans up a stale invite when the target is already a member (legacy data)", async () => {
     memberFindUnique.mockResolvedValue({ id: "existing" });
-    inviteFindUnique.mockResolvedValue({ id: "inv1", email: "u2@x.com", workspaceId: "w1" });
+    inviteDeleteMany.mockResolvedValue({ count: 1 });
     const res = await post({ userId: "u2", role: "MEMBER" });
     expect(res.status).toBe(409);
-    expect(inviteDelete).toHaveBeenCalledWith({ where: { id: "inv1" } });
+    expect(inviteDeleteMany).toHaveBeenCalledWith({
+      where: { email: "u2@x.com", workspaceId: "w1" },
+    });
     expect(workspaceFindUnique).not.toHaveBeenCalled();
   });
 });
