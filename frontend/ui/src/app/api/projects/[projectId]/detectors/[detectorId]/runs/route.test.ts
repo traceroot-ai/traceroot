@@ -155,11 +155,13 @@ describe("GET .../runs — retention gate", () => {
     expect(backendFetchMock).toHaveBeenCalled();
   });
 
-  it("skips retention check when no start_after is provided", async () => {
+  it("clamps to retention cutoff when no start_after is provided", async () => {
     backendFetchMock.mockResolvedValue(backendResponse({ data: [], meta: {} }));
     const res = await GET(makeRequest(), makeParams());
     expect(res.status).toBe(200);
-    expect(workspaceFindUniqueMock).not.toHaveBeenCalled();
+    expect(workspaceFindUniqueMock).toHaveBeenCalled();
+    const url = new URL(backendFetchMock.mock.calls[0][0] as string);
+    expect(url.searchParams.has("start_after")).toBe(true);
   });
 
   it("allows wider window for enterprise plans", async () => {
