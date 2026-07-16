@@ -117,9 +117,9 @@ class TraceReaderService:
         self._client = get_clickhouse_client()
         # Per-(project, column, window) cache of distinct values: key -> (expiry, rows).
         self._distinct_cache: dict[tuple, tuple[float, list[dict]]] = {}
-        # has_traces cache: project_id -> (expiry, result). True results never
-        # expire (a project that has traces always will); False results expire
-        # after 10s so the onboarding poll doesn't scan all partitions every 3s.
+        # has_traces cache: project_id -> (expiry, result). True results use a
+        # long TTL (1 hour); False results expire after 10s so the onboarding
+        # poll doesn't scan all partitions every 3s. Bounded to 1024 entries.
         self._has_traces_cache: dict[str, tuple[float, bool]] = {}
 
     def get_distinct_span_values(
@@ -211,12 +211,15 @@ class TraceReaderService:
         self._distinct_cache[cache_key] = (now + DISTINCT_VALUES_CACHE_TTL_SECONDS, rows)
         return rows
 
+    _HAS_TRACES_CACHE_MAX = 1024
+
     def has_traces(self, project_id: str) -> bool:
         """Check if a project has ever ingested any spans (ignores retention)."""
+        now = time.monotonic()
         cached = self._has_traces_cache.get(project_id)
         if cached is not None:
             expiry, value = cached
-            if value or time.monotonic() < expiry:
+            if now < expiry:
                 return value
 
         result = self._client.query(
@@ -224,8 +227,10 @@ class TraceReaderService:
             parameters={"project_id": project_id},
         )
         found = len(result.result_rows) > 0
-        ttl = float("inf") if found else 10.0
-        self._has_traces_cache[project_id] = (time.monotonic() + ttl, found)
+        ttl = 3600.0 if found else 10.0
+        if len(self._has_traces_cache) >= self._HAS_TRACES_CACHE_MAX:
+            self._has_traces_cache.pop(next(iter(self._has_traces_cache)))
+        self._has_traces_cache[project_id] = (now + ttl, found)
         return found
 
     def list_traces(

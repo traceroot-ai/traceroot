@@ -1,39 +1,11 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { prisma, PlanType } from "@traceroot/core";
 import { requireAuth, requireProjectAccess, errorResponse } from "@/lib/auth-helpers";
+import { checkRetention, getRetentionCutoff } from "@/lib/server/retention";
 import { env } from "@/env";
 
 const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
 const INTERNAL_API_SECRET = env.INTERNAL_API_SECRET || "";
-
-const PLAN_RETENTION_DAYS: Record<string, number | null> = {
-  [PlanType.FREE]: 15,
-  [PlanType.STARTER]: 30,
-  [PlanType.PRO]: 90,
-  [PlanType.ENTERPRISE]: null,
-};
-const FAIL_CLOSED_DAYS = 15;
-
-function checkRetention(billingPlan: string, startAfter: string): NextResponse | null {
-  const days =
-    billingPlan in PLAN_RETENTION_DAYS ? PLAN_RETENTION_DAYS[billingPlan] : FAIL_CLOSED_DAYS;
-  if (days === null) return null;
-  const cutoff = new Date(Date.now() - days * 86_400_000 - 3_600_000);
-  if (new Date(startAfter) < cutoff) {
-    return NextResponse.json(
-      {
-        detail: {
-          message: "Data outside retention window",
-          retention_days: days,
-          cutoff: cutoff.toISOString(),
-          plan: billingPlan,
-        },
-      },
-      { status: 403 },
-    );
-  }
-  return null;
-}
 
 type RouteParams = { params: Promise<{ projectId: string; detectorId: string }> };
 
@@ -53,19 +25,23 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   const rawPage = parseInt(searchParams.get("page") ?? "0", 10);
   const limit = isNaN(rawLimit) ? 50 : Math.min(Math.max(rawLimit, 1), 200);
   const page = isNaN(rawPage) ? 0 : Math.max(rawPage, 0);
-  const startAfter = searchParams.get("start_after");
+  let startAfter = searchParams.get("start_after");
   const endBefore = searchParams.get("end_before");
   const searchQuery = searchParams.get("search_query");
   const identified = searchParams.get("identified");
 
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: accessResult.project.workspaceId },
+    select: { billingPlan: true },
+  });
+  const billingPlan = workspace?.billingPlan || PlanType.FREE;
+
   if (startAfter) {
-    const workspace = await prisma.workspace.findUnique({
-      where: { id: accessResult.project.workspaceId },
-      select: { billingPlan: true },
-    });
-    const billingPlan = workspace?.billingPlan || PlanType.FREE;
     const retentionError = checkRetention(billingPlan, startAfter);
     if (retentionError) return retentionError;
+  } else {
+    const cutoff = getRetentionCutoff(billingPlan);
+    if (cutoff) startAfter = cutoff;
   }
 
   const backendParams = new URLSearchParams({

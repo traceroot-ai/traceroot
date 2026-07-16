@@ -296,7 +296,7 @@ class TestGetSession:
 
 
 class TestRetentionGate:
-    """Sessions use clamp-only — never 403."""
+    """Sessions enforce retention — 403 on explicit out-of-window, clamp when unset."""
 
     def test_list_sessions_clamps_default_query(self, free_plan_client, mock_trace_reader):
         mock_trace_reader.list_sessions.return_value = {
