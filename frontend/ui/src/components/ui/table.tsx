@@ -42,13 +42,30 @@ export interface TRProps extends React.HTMLAttributes<HTMLTableRowElement> {
   interactive?: boolean;
 }
 
-export function TR({ className, selected, interactive, ...props }: TRProps) {
+export function TR({ className, selected, interactive, onClick, onKeyDown, ...props }: TRProps) {
   return (
     <tr
       data-selected={selected ? "true" : undefined}
+      // Interactive rows are otherwise mouse-only: no way to reach onClick from
+      // the keyboard, and no indication one exists (WCAG 2.1.1). tabIndex + a
+      // role + Enter/Space activation give every consumer of `interactive` the
+      // same keyboard path a real link/button would have, without each one
+      // having to re-implement it.
+      tabIndex={interactive && onClick ? 0 : undefined}
+      role={interactive && onClick ? "button" : undefined}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (interactive && onClick && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          onClick(e as unknown as React.MouseEvent<HTMLTableRowElement>);
+        }
+        onKeyDown?.(e);
+      }}
       className={cn(
         "border-b border-border/50 transition-colors last:border-0",
         interactive && "cursor-pointer",
+        interactive &&
+          "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring",
         selected ? "bg-muted" : interactive && "hover:bg-muted/50",
         className,
       )}
