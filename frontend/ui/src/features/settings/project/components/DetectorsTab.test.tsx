@@ -87,7 +87,7 @@ vi.mock("@/features/ai-assistant/components/model-selector", async () => {
       );
     },
   };
-}));
+});
 vi.mock("@/features/detectors/components/alert-channels-editor", () => ({
   AlertChannelsEditor: () => null,
 }));
