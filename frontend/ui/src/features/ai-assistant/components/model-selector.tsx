@@ -13,7 +13,7 @@ export interface ModelSelection {
   model: string;
   provider: string;
   source: "system" | "byok";
-  adapter: string; // e.g. "anthropic" | "openai" — needed for SDK routing
+  adapter: string; // e.g. "anthropic" | "openai" - needed for SDK routing
 }
 
 interface ModelSelectorProps {
@@ -39,53 +39,24 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
   const models = flattenAvailableModels(data);
 
   // Reconcile the incoming selection against the catalog:
-  //   1. exact match on (model, provider, source) → check adapter; backfill if empty/wrong
+  //   1. exact match on (model, provider, source): check adapter; backfill if empty/wrong
   //   2. model-id-only match (legacy/hydrated state where the parent only has
-  //      `model` saved, e.g. `project.rca_model: string`) → backfill the rest
-  //   3. no match → preserve the current selection if the user already picked
+  //      `model` saved, e.g. `project.rca_model: string`): backfill the rest
+  //   3. no match: preserve the current selection if the user already picked
   //      one, and only auto-pick a default when the model is still empty.
   // Without case 2 the selector would silently auto-pick a default when a
   // partially-hydrated saved selection arrives, clobbering the user's choice.
   useEffect(() => {
     if (models.length === 0) return;
 
-    const exact = models.find(
-      (m) => m.id === value.model && m.provider === value.provider && m.source === value.source,
-    );
-    const modelOnly =
-      !exact && value.model && !value.provider ? models.find((m) => m.id === value.model) : null;
-    const match = exact ?? modelOnly;
-
-    if (!match) {
-      if (!value.model) {
-        const pick = pickDefaultModel(models);
-        if (pick) {
-          onChange({
-            model: pick.id,
-            provider: pick.provider,
-            source: pick.source,
-            adapter: pick.adapter,
-          });
-        }
-      }
-      return;
-    }
-
-    // Match found — backfill any stale/empty fields (notably `adapter`, which
-    // legacy selections often store as `""` and which `currentExists`-style
-    // checks elsewhere ignore).
+    const next = reconcileModelSelection(value, models, { pickDefaultWhenEmpty: true });
     if (
-      match.id !== value.model ||
-      match.provider !== value.provider ||
-      match.source !== value.source ||
-      match.adapter !== value.adapter
+      next.model !== value.model ||
+      next.provider !== value.provider ||
+      next.source !== value.source ||
+      next.adapter !== value.adapter
     ) {
-      onChange({
-        model: match.id,
-        provider: match.provider,
-        source: match.source,
-        adapter: match.adapter,
-      });
+      onChange(next);
     }
   }, [models, value, onChange]);
 
@@ -114,7 +85,7 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
           {models.map((m) => {
             const key = modelKey(m);
             const isSelected = key === selectedKey;
-            // Show provider tag for BYOK models to distinguish from system ones
+            // Show provider tag for BYOK models to distinguish from system ones.
             const showProvider = m.source === "byok";
             return (
               <button
