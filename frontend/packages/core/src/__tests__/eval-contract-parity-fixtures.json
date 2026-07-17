@@ -1,5 +1,5 @@
 {
-  "_comment": "Shared representative payloads for the eval reporting write contract. BOTH the Zod schemas (eval-contract-parity.drift.test.ts) and the gateway Pydantic models (tests/rest/test_eval_contract_parity.py) are asserted to agree on every accept/reject verdict here, guarding against drift across the two-hop layers. Keep this the single source of truth; add a case here and both layers must agree. Boundary max-length cases are omitted (symmetric by construction); the meaningful parity checks are required/optional, nullability, enums, strict-unknown-key rejection, non-strict scorer key stripping, and non-negative numeric bounds.",
+  "_comment": "Shared representative payloads for the eval reporting write contract. BOTH the Zod schemas (eval-contract-parity.drift.test.ts) and the gateway Pydantic models (tests/rest/test_eval_contract_parity.py) are asserted to agree on every verdict here, guarding against drift across the two-hop layers. Keep this the single source of truth; add a case here and both layers must agree. Three buckets: `valid` (both accept), `invalid` (both reject), and `degraded` (both accept AND normalize to the same value, for the display-only vocabularies that catch-to-null instead of rejecting and the non-strict scorer that strips unknown keys - an `expect` path reads `a.0.b` out of the parsed payload, and a missing key reads as null on both sides). What is worth a fixture: required/optional, nullability, enums, strict-unknown-key rejection, non-strict key stripping, numeric bounds, and above all JSON TYPE coercion, where the layers genuinely disagreed - pydantic's lax mode coerced `\"0.5\"`, `\"3\"`, `true` and `1` into numbers and booleans that Zod's non-coercive primitives reject, so the gateway accepted bodies the control plane 400s on. Note `24.0` and `24` are the same JSON value, so an integral float stays VALID on an integer field. Symmetric-by-construction max-length cases are still omitted; the structural roster in eval-contract-shape.json covers bounds, and catches the one-sided OPTIONAL field no fixture can.",
   "register": {
     "schema": "RegisterRunRequestSchema",
     "valid": [
@@ -58,6 +58,69 @@
           "candidate_version": "git:abc123",
           "scorers": [{ "name": "routing-accuracy", "version": "v3", "unknown_scorer_field": "x" }]
         }
+      },
+      {
+        "name": "llm_judge_scorer_definition",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "scorers": [
+            {
+              "name": "faithfulness",
+              "version": "v1",
+              "scorer_type": "llm_judge",
+              "output_type": "score",
+              "value_type": "numeric",
+              "direction": "higher_is_better",
+              "threshold": 0.7,
+              "model": "claude-sonnet",
+              "description": "Judges whether the answer is grounded in the retrieved context.",
+              "metadata": { "temperature": 0 },
+              "messages": [
+                { "role": "system", "content": "grade this" },
+                { "role": "user", "content": "{{input}}" }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "name": "code_scorer_definition",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "scorers": [
+            {
+              "name": "exact-match",
+              "version": "v1",
+              "scorer_type": "code",
+              "output_type": "classification",
+              "value_type": "boolean",
+              "language": "python",
+              "source": "def score(a, b):\n    return a == b"
+            }
+          ]
+        }
+      },
+      {
+        "name": "case_count_at_js_safe_integer_ceiling",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "case_count": 9007199254740991
+        }
+      },
+      {
+        "name": "integral_float_case_count",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "case_count": 24.0
+        }
       }
     ],
     "invalid": [
@@ -99,6 +162,111 @@
           "candidate_version": "git:abc123",
           "scorers": [{ "name": "routing-accuracy" }]
         }
+      },
+      {
+        "name": "case_count_as_string",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "case_count": "24"
+        }
+      },
+      {
+        "name": "case_count_as_boolean",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "case_count": true
+        }
+      },
+      {
+        "name": "case_count_beyond_js_safe_integer",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "case_count": 9007199254740992
+        }
+      },
+      {
+        "name": "evaluation_name_as_number",
+        "payload": {
+          "evaluation_name": 123,
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123"
+        }
+      },
+      {
+        "name": "scorer_threshold_as_string",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "scorers": [{ "name": "routing-accuracy", "version": "v3", "threshold": "0.5" }]
+        }
+      },
+      {
+        "name": "scorer_message_with_empty_role",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "scorers": [
+            {
+              "name": "faithfulness",
+              "version": "v1",
+              "messages": [{ "role": "", "content": "grade this" }]
+            }
+          ]
+        }
+      },
+      {
+        "name": "scorer_message_missing_content",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "scorers": [
+            { "name": "faithfulness", "version": "v1", "messages": [{ "role": "system" }] }
+          ]
+        }
+      }
+    ],
+    "degraded": [
+      {
+        "name": "unrecognised_display_only_vocabularies_become_null",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "scorers": [
+            {
+              "name": "faithfulness",
+              "version": "v1",
+              "scorer_type": "regex",
+              "output_type": "histogram",
+              "language": "go"
+            }
+          ]
+        },
+        "expect": {
+          "scorers.0.scorer_type": null,
+          "scorers.0.output_type": null,
+          "scorers.0.language": null,
+          "scorers.0.name": "faithfulness"
+        }
+      },
+      {
+        "name": "unknown_scorer_key_is_stripped",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "scorers": [{ "name": "routing-accuracy", "version": "v3", "unknown_scorer_field": "x" }]
+        },
+        "expect": { "scorers.0.unknown_scorer_field": null }
       }
     ]
   },
@@ -193,6 +361,16 @@
             }
           ]
         }
+      },
+      {
+        "name": "integral_float_duration",
+        "payload": {
+          "test_case_id": "case-7",
+          "input": "q",
+          "status": "passed",
+          "duration_ms": 1200.0,
+          "cost": 0
+        }
       }
     ],
     "invalid": [
@@ -242,6 +420,68 @@
       {
         "name": "empty_test_case_id",
         "payload": { "test_case_id": "", "input": "x", "status": "passed" }
+      },
+      {
+        "name": "input_as_number",
+        "payload": { "test_case_id": "case-1", "input": 123, "status": "passed" }
+      },
+      {
+        "name": "main_score_as_string",
+        "payload": {
+          "test_case_id": "case-1",
+          "input": "x",
+          "status": "passed",
+          "main_score": "0.5"
+        }
+      },
+      {
+        "name": "cost_as_string",
+        "payload": { "test_case_id": "case-1", "input": "x", "status": "passed", "cost": "1.5" }
+      },
+      {
+        "name": "duration_ms_as_boolean",
+        "payload": {
+          "test_case_id": "case-1",
+          "input": "x",
+          "status": "passed",
+          "duration_ms": true
+        }
+      },
+      {
+        "name": "score_bool_value_as_string",
+        "payload": {
+          "test_case_id": "case-1",
+          "input": "x",
+          "status": "passed",
+          "scores": [{ "scorer_name": "s", "scorer_version": "v1", "bool_value": "yes" }]
+        }
+      },
+      {
+        "name": "score_passed_as_number",
+        "payload": {
+          "test_case_id": "case-1",
+          "input": "x",
+          "status": "passed",
+          "scores": [{ "scorer_name": "s", "scorer_version": "v1", "passed": 1 }]
+        }
+      },
+      {
+        "name": "score_numeric_value_as_string",
+        "payload": {
+          "test_case_id": "case-1",
+          "input": "x",
+          "status": "passed",
+          "scores": [{ "scorer_name": "s", "scorer_version": "v1", "numeric_value": "0.9" }]
+        }
+      },
+      {
+        "name": "explicit_null_scores",
+        "payload": {
+          "test_case_id": "case-1",
+          "input": "x",
+          "status": "passed",
+          "scores": null
+        }
       }
     ]
   },
@@ -261,6 +501,10 @@
       },
       { "name": "minimal", "payload": { "status": "completed" } },
       {
+        "name": "integral_float_counts",
+        "payload": { "status": "completed", "case_count": 24.0, "scored_count": 22.0 }
+      },
+      {
         "name": "explicit_nulls",
         "payload": {
           "status": "failed",
@@ -277,7 +521,14 @@
       { "name": "bad_status_enum", "payload": { "status": "done" } },
       { "name": "unknown_key", "payload": { "status": "completed", "extra": 1 } },
       { "name": "negative_count", "payload": { "status": "completed", "case_count": -2 } },
-      { "name": "fractional_count", "payload": { "status": "completed", "scored_count": 1.5 } }
+      { "name": "fractional_count", "payload": { "status": "completed", "scored_count": 1.5 } },
+      { "name": "main_score_as_string", "payload": { "status": "completed", "main_score": "0.5" } },
+      { "name": "case_count_as_string", "payload": { "status": "completed", "case_count": "3" } },
+      {
+        "name": "scored_count_as_boolean",
+        "payload": { "status": "completed", "scored_count": true }
+      },
+      { "name": "status_as_number", "payload": { "status": 1 } }
     ]
   }
 }

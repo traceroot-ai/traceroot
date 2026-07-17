@@ -8,7 +8,9 @@ handlers — the gateway forwards the (validated) body on and never duplicates i
 
 Parity rules with the Zod source:
 - ``z.string().min(1).max(n)`` → ``Field(min_length=1, max_length=n)``.
-- ``z.number().int().nonnegative()`` → ``int`` with ``ge=0``; ``z.number()`` → ``float``.
+- ``z.number().int().nonnegative()`` → ``JsonNonNegativeInt``; ``z.number()`` →
+  ``JsonFloat``; ``z.boolean()`` → ``JsonBool`` (see the JSON-strict scalars below —
+  plain ``int``/``float``/``bool`` would coerce where Zod does not).
 - ``.nullable().optional()`` → ``T | None = None``; ``.default(x)`` → default ``x``.
 - ``z.array(X).max(n)`` → ``list[X]`` with ``max_length=n``.
 - A display-only enum with ``.catch(null)`` → ``Literal[...] | None`` plus a
@@ -27,13 +29,69 @@ still enforced here so a malformed payload never reaches the control plane.
 
 A cross-language drift test (``tests/rest/test_eval_contract_parity.py`` +
 ``eval-contract-parity.drift.test.ts``) feeds the same representative payloads to
-both layers and asserts identical accept/reject verdicts.
+both layers and asserts identical accept/reject verdicts, and compares every model
+here against the shared structural roster (``eval-contract-shape.json``) so that a
+field added or re-bounded on one layer only fails without needing a fixture for it.
 """
 
 import json
-from typing import Any, Literal, get_args
+from typing import Annotated, Any, Literal, get_args
 
-from pydantic import BaseModel, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, BeforeValidator, Field, ValidationInfo, field_validator
+
+# --- JSON-strict scalars ----------------------------------------------------
+#
+# Pydantic's default (lax) mode coerces across JSON types — ``"0.5"`` validates as
+# a float, ``"3"`` and ``true`` as an int, ``"yes"`` and ``1`` as a bool. Zod's
+# ``z.number()`` / ``z.boolean()`` do none of that. Left alone, the gateway would
+# ACCEPT a body the control plane then 400s on, which is the exact two-hop failure
+# this contract pairing exists to prevent (the gateway forwards the raw, un-normalized
+# bytes upstream, so its coercion never even reaches the writer).
+#
+# Blanket ``ConfigDict(strict=True)`` is the wrong tool: it also rejects ``24.0`` on
+# an int field, which Zod's ``z.number().int()`` accepts — JSON has no int/float
+# distinction, so ``24.0`` and ``24`` are the same wire value. These per-field types
+# reject only the cross-type coercions, keeping the integral-float case valid.
+
+
+def _json_number(v: Any) -> Any:
+    """Reject the values ``z.number()`` rejects: JSON strings and booleans."""
+    if isinstance(v, (bool, str)):
+        raise ValueError("must be a JSON number (a string or boolean is not coerced)")
+    return v
+
+
+def _json_int(v: Any) -> Any:
+    """As ``_json_number``, but also accept an integral float (``24.0`` == ``24`` on the wire)."""
+    if isinstance(v, (bool, str)):
+        raise ValueError("must be a JSON number (a string or boolean is not coerced)")
+    if isinstance(v, float) and v.is_integer():
+        return int(v)
+    return v
+
+
+def _json_bool(v: Any) -> Any:
+    """Reject the values ``z.boolean()`` rejects: everything that is not a JSON boolean."""
+    if not isinstance(v, bool):
+        raise ValueError("must be a JSON boolean (a string or number is not coerced)")
+    return v
+
+
+#: ``z.number()`` — a JSON number, never a coerced string/boolean.
+JsonFloat = Annotated[float, BeforeValidator(_json_number)]
+#: ``z.boolean()`` — a JSON boolean, never a coerced string/number.
+JsonBool = Annotated[bool, BeforeValidator(_json_bool)]
+#: ``Number.MAX_SAFE_INTEGER``. Zod's ``z.number().int()`` is ``Number.isSafeInteger``,
+#: so the control plane rejects anything past this — an unbounded ``int`` here would
+#: accept a count the control plane then 400s on. Python has no such ceiling of its own.
+JSON_SAFE_INT_MAX = 9_007_199_254_740_991
+# The bounds must precede the validator in the Annotated chain: applied after it,
+# pydantic cannot fold `ge`/`le` into the integer/number core schema and publishes raw
+# `"ge": 0` keywords instead of JSON Schema's `"minimum": 0`.
+#: ``z.number().int().nonnegative()``.
+JsonNonNegativeInt = Annotated[int, Field(ge=0, le=JSON_SAFE_INT_MAX), BeforeValidator(_json_int)]
+#: ``z.number().nonnegative()``.
+JsonNonNegativeFloat = Annotated[float, Field(ge=0), BeforeValidator(_json_number)]
 
 # --- Payload caps (mirror the shared caps at the top of the Zod contract) ----
 
@@ -121,7 +179,7 @@ class ScorerRef(BaseModel):
     version: str = Field(min_length=1, max_length=50)
     value_type: ScorerValueType | None = None
     direction: ScorerDirection | None = None
-    threshold: float | None = None
+    threshold: JsonFloat | None = None
     # SDK-reported definition (all optional; absent or unrecognised → "—" in the detail).
     scorer_type: ScorerType | None = None
     output_type: ScorerOutputType | None = None
@@ -151,10 +209,10 @@ class ScoreInput(BaseModel):
 
     scorer_name: str = Field(min_length=1, max_length=200)
     scorer_version: str = Field(min_length=1, max_length=50)
-    numeric_value: float | None = None
-    bool_value: bool | None = None
+    numeric_value: JsonFloat | None = None
+    bool_value: JsonBool | None = None
     string_value: str | None = Field(default=None, max_length=2000)
-    passed: bool | None = None
+    passed: JsonBool | None = None
     explanation: str | None = Field(default=None, max_length=5000)
     error: str | None = Field(default=None, max_length=5000)
 
@@ -176,7 +234,7 @@ class RegisterRunRequest(BaseModel):
     # SDK-supplied idempotency key.
     client_run_id: str | None = Field(default=None, min_length=1, max_length=128)
     baseline_run_id: str | None = Field(default=None, min_length=1, max_length=64)
-    case_count: int | None = Field(default=None, ge=0)
+    case_count: JsonNonNegativeInt | None = None
     # Free-form run provenance (model, prompt, config, git repo/ref/commit, …).
     metadata: dict[str, Any] | None = None
 
@@ -226,14 +284,18 @@ class UpsertResultRequest(BaseModel):
     candidate_output: str | None = Field(default=None, max_length=EVAL_PAYLOAD_TEXT_MAX)
     baseline_output: str | None = Field(default=None, max_length=EVAL_PAYLOAD_TEXT_MAX)
     status: EvalResultStatus
-    main_score: float | None = None
+    main_score: JsonFloat | None = None
     change: ResultChange | None = None
     task_error: str | None = Field(default=None, max_length=10000)
-    duration_ms: int | None = Field(default=None, ge=0)
-    cost: float | None = Field(default=None, ge=0)
+    duration_ms: JsonNonNegativeInt | None = None
+    cost: JsonNonNegativeFloat | None = None
     # None (absent) and [] (explicit clear) mean different things to the writer, so
-    # this deliberately has no default_factory.
-    scores: list[ScoreInput] | None = Field(default=None, max_length=EVAL_SCORER_LIST_MAX)
+    # this deliberately has no default_factory. The annotation is NOT ``| None``: the
+    # Zod field is ``.optional()`` and not ``.nullable()``, so an explicit
+    # ``"scores": null`` is a 400 upstream and must not be accepted (and forwarded)
+    # here. Absence is carried by the default, which pydantic never validates, so the
+    # attribute is still ``None`` when the key was omitted.
+    scores: list[ScoreInput] = Field(default=None, max_length=EVAL_SCORER_LIST_MAX)
 
 
 class UpsertResultResponse(BaseModel):
@@ -247,11 +309,11 @@ class CompleteRunRequest(BaseModel):
     """Complete/fail a run, reporting final completeness counts."""
 
     status: EvalRunStatus
-    main_score: float | None = None
-    case_count: int | None = Field(default=None, ge=0)
-    scored_count: int | None = Field(default=None, ge=0)
-    task_error_count: int | None = Field(default=None, ge=0)
-    scorer_error_count: int | None = Field(default=None, ge=0)
+    main_score: JsonFloat | None = None
+    case_count: JsonNonNegativeInt | None = None
+    scored_count: JsonNonNegativeInt | None = None
+    task_error_count: JsonNonNegativeInt | None = None
+    scorer_error_count: JsonNonNegativeInt | None = None
 
 
 class CompleteRunResponse(BaseModel):
