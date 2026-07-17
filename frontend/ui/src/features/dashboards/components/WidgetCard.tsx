@@ -73,14 +73,12 @@ export function WidgetCard({
   widget,
   range,
   onEdit,
-  onDuplicate,
   onDelete,
 }: {
   projectId: string;
   widget: Widget;
   range: TimeRange;
   onEdit: () => void;
-  onDuplicate: () => void;
   onDelete: () => void;
 }) {
   return (
@@ -102,7 +100,6 @@ export function WidgetCard({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
             {widget.type === "query" && <DropdownMenuItem onSelect={onEdit}>Edit</DropdownMenuItem>}
-            <DropdownMenuItem onSelect={onDuplicate}>Duplicate</DropdownMenuItem>
             <DropdownMenuItem onSelect={onDelete} className="text-red-600 focus:text-red-600">
               Delete
             </DropdownMenuItem>
