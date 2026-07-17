@@ -957,7 +957,7 @@ function ScorerDetail({
           {scorer.sourceCode ? (
             <HighlightedCode
               code={scorer.sourceCode}
-              className="max-h-[45vh] overflow-auto whitespace-pre font-mono text-[11px] leading-relaxed"
+              className="max-h-[45vh] overflow-auto whitespace-pre font-mono text-[12px] leading-relaxed"
             />
           ) : (
             <NotProvided />
@@ -970,6 +970,7 @@ function ScorerDetail({
               value={systemPrompt}
               onChange={() => {}}
               readOnly
+              fontClassName="text-[12px] leading-[20px]"
               aria-label="System prompt"
             />
           ) : (
