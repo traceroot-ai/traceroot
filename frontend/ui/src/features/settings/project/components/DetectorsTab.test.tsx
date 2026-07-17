@@ -51,8 +51,7 @@ vi.mock("@/features/projects/hooks", () => ({
 }));
 vi.mock("@/lib/api", () => ({
   updateProject: (...a: unknown[]) => mocks.updateProject(...a),
-  getAvailableLLMModels: () =>
-    mocks.getAvailableLLMModels?.() ?? Promise.resolve(mocks.llmModels),
+  getAvailableLLMModels: () => mocks.getAvailableLLMModels?.() ?? Promise.resolve(mocks.llmModels),
 }));
 vi.mock("@/features/integrations/hooks/useSlackIntegration", () => ({
   useSlackStatus: () => ({ data: undefined }),
