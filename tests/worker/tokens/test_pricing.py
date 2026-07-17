@@ -60,6 +60,16 @@ def real_cache() -> list[dict]:
 
 
 OPENAI_MODEL_CASES = [
+    ("gpt-5.6-sol", "gpt-5.6-sol"),
+    ("openai/gpt-5.6-sol", "gpt-5.6-sol"),
+    ("azure/gpt-5.6-sol", "gpt-5.6-sol"),
+    ("gpt-5.6-sol-2026-07-09", "gpt-5.6-sol"),
+    ("gpt-5.6-terra", "gpt-5.6-terra"),
+    ("openai/gpt-5.6-terra", "gpt-5.6-terra"),
+    ("azure/gpt-5.6-terra", "gpt-5.6-terra"),
+    ("gpt-5.6-luna", "gpt-5.6-luna"),
+    ("openai/gpt-5.6-luna", "gpt-5.6-luna"),
+    ("azure/gpt-5.6-luna", "gpt-5.6-luna"),
     ("gpt-5.5", "gpt-5.5"),
     ("openai/gpt-5.5", "gpt-5.5"),
     ("azure/gpt-5.5", "gpt-5.5"),
@@ -138,6 +148,7 @@ GEMINI_MODEL_CASES = [
     ("gemini-3.1-pro-preview-customtools", "gemini-3.1-pro-preview"),
     ("gemini-3.1-flash-lite", "gemini-3.1-flash-lite"),
     ("gemini-3.1-flash-lite-preview", "gemini-3.1-flash-lite-preview"),
+    ("google/gemini-3-flash", "gemini-3-flash-preview"),
     ("gemini-3-flash-preview", "gemini-3-flash-preview"),
     ("gemini-2.5-pro", "gemini-2.5-pro"),
     ("gemini-2.5-flash", "gemini-2.5-flash"),
@@ -211,6 +222,20 @@ class TestOpenAIModelIds:
         assert result["output_tokens"] > 0
         assert result["cost"] is not None
         assert result["cost"] > 0
+
+
+class TestGpt56CachePricing:
+    """gpt-5.6 is the first OpenAI family with non-null cacheWrite pricing."""
+
+    @pytest.mark.parametrize("model_name", ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"])
+    def test_cache_write_is_1_25x_input_rate(self, real_cache, model_name):
+        entry = next(e for e in real_cache if e["model_name"] == model_name)
+        assert entry["prices"]["cacheWrite"] == pytest.approx(entry["prices"]["input"] * 1.25)
+
+    @pytest.mark.parametrize("model_name", ["gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"])
+    def test_cache_read_is_90_percent_discount(self, real_cache, model_name):
+        entry = next(e for e in real_cache if e["model_name"] == model_name)
+        assert entry["prices"]["cacheRead"] == pytest.approx(entry["prices"]["input"] * 0.10)
 
 
 class TestGeminiModelIds:
@@ -343,6 +368,13 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     ("anthropic.claude-haiku-4-5-20251001-v1:0", "claude-haiku-4-5"),
     ("us.anthropic.claude-sonnet-4-5-20250929-v1:0", "claude-sonnet-4-5"),
     ("us.anthropic.claude-opus-4-5-20251101-v1:0", "claude-opus-4-5"),
+    # Sonnet 5 — plain, Bedrock (CRIS + bare), Vertex (@date)
+    ("claude-sonnet-5", "claude-sonnet-5"),
+    ("anthropic/claude-sonnet-5", "claude-sonnet-5"),
+    ("us.anthropic.claude-sonnet-5-20260601-v1:0", "claude-sonnet-5"),
+    ("global.anthropic.claude-sonnet-5-20260601-v1:0", "claude-sonnet-5"),
+    ("anthropic.claude-sonnet-5-20260601-v1:0", "claude-sonnet-5"),
+    ("claude-sonnet-5@20260601", "claude-sonnet-5"),
     ("us.anthropic.claude-sonnet-4-6-20251015-v1:0", "claude-sonnet-4-6"),
     ("us.anthropic.claude-opus-4-6-20251015-v1:0", "claude-opus-4-6"),
     ("us.anthropic.claude-sonnet-4-20250514-v1:0", "claude-sonnet-4"),

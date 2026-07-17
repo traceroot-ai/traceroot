@@ -35,7 +35,7 @@ RUN cd packages/core && npx prisma generate \
 # `.js` with explicit relative-import extensions, so no tsconfig patching is needed.
 RUN cd packages/core && \
     pnpm build && \
-    node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); p.main='./dist/index.js'; p.exports={'.':{types:'./dist/index.d.ts',import:'./dist/index.js'},'./model-resolver':{types:'./dist/model-resolver.d.ts',import:'./dist/model-resolver.js'}}; fs.writeFileSync('package.json',JSON.stringify(p,null,2))"
+    node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); p.main='./dist/index.js'; p.exports={'.':{types:'./dist/index.d.ts',import:'./dist/index.js'},'./model-resolver':{types:'./dist/model-resolver.d.ts',import:'./dist/model-resolver.js'},'./llm-providers':{types:'./dist/llm-providers.d.ts',import:'./dist/llm-providers.js'}}; fs.writeFileSync('package.json',JSON.stringify(p,null,2))"
 RUN cd packages/agent && pnpm build
 
 FROM node:20-alpine AS runner

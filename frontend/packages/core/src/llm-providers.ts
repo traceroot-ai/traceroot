@@ -76,6 +76,15 @@ export interface LLMModelDef {
 // ──────────────────────────────────────────────
 // System models — always available via env vars.
 // ──────────────────────────────────────────────
+/**
+ * Detector-specific hosted screening model.
+ *
+ * This is intentionally not `resolvePiModel(undefined, null)`: detector evals
+ * use a stable cheap-and-fast model instead of the general provider-priority
+ * fallback used by other model resolution paths.
+ */
+export const DETECTOR_SYSTEM_DEFAULT_MODEL_ID = "claude-haiku-4-5";
+
 export const SYSTEM_MODELS: {
   provider: string;
   envVar: string;
@@ -93,6 +102,7 @@ export const SYSTEM_MODELS: {
       { id: "claude-opus-4-8", label: "claude-opus-4-8" },
       { id: "claude-opus-4-7", label: "claude-opus-4-7" },
       { id: "claude-opus-4-6", label: "claude-opus-4-6" },
+      { id: "claude-sonnet-5", label: "claude-sonnet-5" },
       { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6" },
       { id: "claude-opus-4-5", label: "claude-opus-4-5" },
       { id: "claude-sonnet-4-5", label: "claude-sonnet-4-5" },
@@ -140,6 +150,10 @@ export const PROVIDER_PRIORITY: LLMAdapter[] = [
 // Adapters NOT listed here (azure, amazon-bedrock, openrouter) use free-text input.
 export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
   openai: [
+    // Limited partner preview as of 2026-07-09 — not yet accessible via self-serve API keys.
+    { id: "gpt-5.6-sol", label: "gpt-5.6-sol" },
+    { id: "gpt-5.6-terra", label: "gpt-5.6-terra" },
+    { id: "gpt-5.6-luna", label: "gpt-5.6-luna" },
     { id: "gpt-5.5", label: "gpt-5.5" },
     { id: "gpt-5.5-pro", label: "gpt-5.5-pro" },
     { id: "gpt-5.4", label: "gpt-5.4" },
@@ -157,6 +171,7 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "claude-opus-4-8", label: "claude-opus-4-8" },
     { id: "claude-opus-4-7", label: "claude-opus-4-7" },
     { id: "claude-opus-4-6", label: "claude-opus-4-6" },
+    { id: "claude-sonnet-5", label: "claude-sonnet-5" },
     { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6" },
     { id: "claude-opus-4-5", label: "claude-opus-4-5" },
     { id: "claude-sonnet-4-5", label: "claude-sonnet-4-5" },
@@ -177,6 +192,7 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "deepseek-chat", label: "deepseek-chat" },
   ],
   xai: [
+    { id: "grok-4.5", label: "grok-4.5" },
     { id: "grok-4.20", label: "grok-4.20" },
     { id: "grok-4", label: "grok-4" },
   ],

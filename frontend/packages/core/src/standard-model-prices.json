@@ -52,6 +52,19 @@
     }
   },
   {
+    "id": "tr-claude-sonnet-5",
+    "modelName": "claude-sonnet-5",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-sonnet-5(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-sonnet-5(-[\\d-]+)?(-v\\d+:\\d+)?|claude-sonnet-5(@[\\d-]+)?)$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 0.000003,
+      "output": 0.000015,
+      "cacheRead": 0.0000003,
+      "cacheWrite": 0.00000375,
+      "cacheWrite1h": 0.000006
+    }
+  },
+  {
     "id": "tr-claude-sonnet-4-6",
     "modelName": "claude-sonnet-4-6",
     "matchPattern": "(?i)^(anthropic\\/)?(claude-sonnet-4-6(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-sonnet-4-6(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-6-sonnet(@[\\d-]+)?)$",
@@ -101,6 +114,42 @@
       "cacheRead": 0.0000001,
       "cacheWrite": 0.00000125,
       "cacheWrite1h": 0.000002
+    }
+  },
+  {
+    "id": "tr-gpt-5-6-sol",
+    "modelName": "gpt-5.6-sol",
+    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-5\\.6-sol)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.000005,
+      "output": 0.00003,
+      "cacheRead": 0.0000005,
+      "cacheWrite": 0.00000625
+    }
+  },
+  {
+    "id": "tr-gpt-5-6-terra",
+    "modelName": "gpt-5.6-terra",
+    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-5\\.6-terra)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.0000025,
+      "output": 0.000015,
+      "cacheRead": 0.00000025,
+      "cacheWrite": 0.000003125
+    }
+  },
+  {
+    "id": "tr-gpt-5-6-luna",
+    "modelName": "gpt-5.6-luna",
+    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-5\\.6-luna)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.000001,
+      "output": 0.000006,
+      "cacheRead": 0.0000001,
+      "cacheWrite": 0.00000125
     }
   },
   {
@@ -748,7 +797,7 @@
   {
     "id": "tr-gemini-3-flash-preview",
     "modelName": "gemini-3-flash-preview",
-    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-3-flash-preview(-[\\d-]+)?$",
+    "matchPattern": "(?i)^(google\\/|models\\/)?gemini-3-flash(-preview)?(-[\\d-]+)?$",
     "provider": "google",
     "prices": {
       "input": 0.0000005,

@@ -71,7 +71,12 @@ export async function fetchTraceApi<T>(
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: "Unknown error" }));
-    throw new Error(error.detail || `API error: ${response.status}`);
+    const d = (error as { detail?: unknown }).detail;
+    throw new Error(
+      typeof d === "string"
+        ? d
+        : ((d as { message?: string } | undefined)?.message ?? `API error: ${response.status}`),
+    );
   }
 
   if (response.status === 204) {

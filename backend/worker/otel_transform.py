@@ -38,6 +38,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from shared.enums import SpanKind, SpanStatus
+from shared.span_attributes import SPAN_IDS_PATH, SPAN_PATH, SPAN_TREE_ATTRIBUTES
 
 logger = logging.getLogger(__name__)
 
@@ -325,6 +326,7 @@ def transform_otel_to_clickhouse(
     # Shortest ids_path = closest to root. Used to correct eager trace names
     # when the first span in a batch isn't the closest-to-root span for that trace.
     _trace_name_candidates: dict[str, tuple[int, str]] = {}
+    trace_git_attrs: dict[str, dict[str, str | None]] = {}
 
     # camelCase: resourceSpans
     resource_spans = otel_data.get("resourceSpans", [])
@@ -623,15 +625,40 @@ def transform_otel_to_clickhouse(
                             span_record["cost"] = usage["cost"]
 
                 # Extract metadata
-                # Priority: explicit traceroot.span.metadata > remaining attributes
+                # Priority: explicit traceroot.span.metadata > remaining attributes.
+                #
+                # The span-path attributes are merged in EITHER way. They are how
+                # the client rebuilds the tree of an in-flight trace, and the two
+                # branches used to be exclusive: a span that set explicit metadata
+                # had its paths dropped here and then rendered as an orphan while
+                # its parent was still open. That hit exactly the spans users
+                # annotate — usually leaves, whose long-lived parents are the ones
+                # still in flight — so the paths ride along with user metadata.
+                span_path_attrs = {
+                    key: span_attrs[key]
+                    for key in SPAN_TREE_ATTRIBUTES
+                    if span_attrs.get(key) is not None
+                }
                 explicit_metadata = span_attrs.get("traceroot.span.metadata")
                 if explicit_metadata is not None:
-                    if isinstance(explicit_metadata, str):
+                    parsed_explicit = explicit_metadata
+                    if isinstance(parsed_explicit, str):
+                        try:
+                            parsed_explicit = json.loads(parsed_explicit)
+                        except (TypeError, ValueError):
+                            parsed_explicit = None
+                    if isinstance(parsed_explicit, dict):
+                        span_record["metadata"] = json.dumps({**parsed_explicit, **span_path_attrs})
+                    elif isinstance(explicit_metadata, str):
+                        # Not a JSON object (free-text or a scalar): store it as
+                        # given. Nothing to merge into, so this span has no paths.
                         span_record["metadata"] = explicit_metadata
                     else:
                         span_record["metadata"] = json.dumps(explicit_metadata)
                 else:
-                    # Collect non-internal attributes as metadata
+                    # Collect non-internal attributes as metadata. The span-path
+                    # attributes are not "known" (they have no dedicated column),
+                    # so they already fall in here.
                     extra_attrs = {
                         k: v
                         for k, v in span_attrs.items()
@@ -654,9 +681,13 @@ def transform_otel_to_clickhouse(
                 # Priority: root span values overwrite, child span values only set if empty
                 span_user_id = _extract_user_id(span_attrs)
                 span_session_id = _extract_session_id(span_attrs)
+                span_git_ref = span_attrs.get("traceroot.git.ref")
+                span_git_repo = span_attrs.get("traceroot.git.repo")
 
                 if trace_id not in trace_attrs:
                     trace_attrs[trace_id] = {"user_id": None, "session_id": None}
+                if trace_id not in trace_git_attrs:
+                    trace_git_attrs[trace_id] = {"git_ref": None, "git_repo": None}
 
                 if not parent_span_id:
                     # Root span: always use its values if present (overwrites child values)
@@ -666,6 +697,12 @@ def transform_otel_to_clickhouse(
                     trace_attrs[trace_id]["session_id"] = (
                         span_session_id or trace_attrs[trace_id]["session_id"]
                     )
+                    trace_git_attrs[trace_id]["git_ref"] = (
+                        span_git_ref or trace_git_attrs[trace_id]["git_ref"]
+                    )
+                    trace_git_attrs[trace_id]["git_repo"] = (
+                        span_git_repo or trace_git_attrs[trace_id]["git_repo"]
+                    )
                 else:
                     # Child span: only set if not already set (first child wins)
                     trace_attrs[trace_id]["user_id"] = (
@@ -673,6 +710,12 @@ def transform_otel_to_clickhouse(
                     )
                     trace_attrs[trace_id]["session_id"] = (
                         trace_attrs[trace_id]["session_id"] or span_session_id
+                    )
+                    trace_git_attrs[trace_id]["git_ref"] = (
+                        trace_git_attrs[trace_id]["git_ref"] or span_git_ref
+                    )
+                    trace_git_attrs[trace_id]["git_repo"] = (
+                        trace_git_attrs[trace_id]["git_repo"] or span_git_repo
                     )
 
                 # Eager trace creation:
@@ -692,6 +735,10 @@ def transform_otel_to_clickhouse(
                         "user_id": trace_attrs[trace_id]["user_id"],
                         "session_id": trace_attrs[trace_id]["session_id"],
                     }
+                    if trace_git_attrs[trace_id]["git_ref"] is not None:
+                        traces[trace_id]["git_ref"] = trace_git_attrs[trace_id]["git_ref"]
+                    if trace_git_attrs[trace_id]["git_repo"] is not None:
+                        traces[trace_id]["git_repo"] = trace_git_attrs[trace_id]["git_repo"]
 
                 # Track the best-known root name for this trace using the span
                 # closest to the root (shortest ids_path). Batches may contain
@@ -701,8 +748,8 @@ def transform_otel_to_clickhouse(
                     # Actual root span — definitive, depth 0.
                     _trace_name_candidates[trace_id] = (0, span_name)
                 else:
-                    span_path_c = span_attrs.get("traceroot.span.path")
-                    ids_path_c = span_attrs.get("traceroot.span.ids_path")
+                    span_path_c = span_attrs.get(SPAN_PATH)
+                    ids_path_c = span_attrs.get(SPAN_IDS_PATH)
                     candidate_name = (
                         span_path_c[0]
                         if isinstance(span_path_c, (list, tuple)) and span_path_c
@@ -715,9 +762,6 @@ def transform_otel_to_clickhouse(
 
                 if not parent_span_id:
                     # Root span arrived — upgrade to full trace with rich metadata
-                    git_ref = span_attrs.get("traceroot.git.ref")
-                    git_repo = span_attrs.get("traceroot.git.repo")
-
                     traces[trace_id].update(
                         {
                             "trace_start_time": start_time,
@@ -729,10 +773,10 @@ def transform_otel_to_clickhouse(
 
                     if environment is not None:
                         traces[trace_id]["environment"] = environment
-                    if git_ref is not None:
-                        traces[trace_id]["git_ref"] = git_ref
-                    if git_repo is not None:
-                        traces[trace_id]["git_repo"] = git_repo
+                    if trace_git_attrs[trace_id]["git_ref"] is not None:
+                        traces[trace_id]["git_ref"] = trace_git_attrs[trace_id]["git_ref"]
+                    if trace_git_attrs[trace_id]["git_repo"] is not None:
+                        traces[trace_id]["git_repo"] = trace_git_attrs[trace_id]["git_repo"]
 
                     # Extract trace-level metadata
                     trace_metadata = span_attrs.get("traceroot.trace.metadata")
@@ -771,5 +815,15 @@ def transform_otel_to_clickhouse(
                 traces[trace_id]["user_id"] = attrs["user_id"]
             if attrs["session_id"] and not traces[trace_id].get("session_id"):
                 traces[trace_id]["session_id"] = attrs["session_id"]
+
+    # Git repo/ref are stamped on every SDK span, but the root span often arrives
+    # last in live streaming. Promote the first child values so repo/ref are visible
+    # while the trace is still running, then let root values overwrite when present.
+    for trace_id, attrs in trace_git_attrs.items():
+        if trace_id in traces:
+            if attrs["git_ref"] is not None:
+                traces[trace_id]["git_ref"] = attrs["git_ref"]
+            if attrs["git_repo"] is not None:
+                traces[trace_id]["git_repo"] = attrs["git_repo"]
 
     return list(traces.values()), spans
