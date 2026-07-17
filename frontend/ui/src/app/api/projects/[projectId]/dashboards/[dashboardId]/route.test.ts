@@ -8,6 +8,7 @@ vi.mock("next/server", () => ({ NextRequest: class {} }));
 vi.mock("@/env", () => ({ env: { INTERNAL_API_SECRET: "test-secret" } }));
 
 const dashboardFindFirstMock = vi.fn();
+const dashboardCountMock = vi.fn();
 const dashboardUpdateMock = vi.fn();
 const dashboardDeleteMock = vi.fn();
 const widgetFindFirstMock = vi.fn();
@@ -20,6 +21,7 @@ vi.mock("@traceroot/core", () => ({
   prisma: {
     dashboard: {
       findFirst: (...args: unknown[]) => dashboardFindFirstMock(...args),
+      count: (...args: unknown[]) => dashboardCountMock(...args),
       update: (...args: unknown[]) => dashboardUpdateMock(...args),
       delete: (...args: unknown[]) => dashboardDeleteMock(...args),
     },
@@ -86,8 +88,12 @@ const fakeWidget = {
 
 beforeEach(() => {
   dashboardFindFirstMock.mockReset();
+  dashboardCountMock.mockReset();
   dashboardUpdateMock.mockReset();
   dashboardDeleteMock.mockReset();
+  // Default: the project has other dashboards, so DELETE's last-dashboard
+  // guard doesn't trip.
+  dashboardCountMock.mockResolvedValue(2);
   widgetFindFirstMock.mockReset();
   widgetCreateMock.mockReset();
   widgetUpdateMock.mockReset();
@@ -267,6 +273,18 @@ describe("DELETE /dashboards/[dashboardId]", () => {
     const res = (await DELETE(makeRequest(), makeParams("proj-1", "dash-999"))) as MockResponse;
     expect(res.status).toBe(404);
     expect(dashboardDeleteMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 409 for the project's last dashboard (deleting it would only trigger a reseed)", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    dashboardCountMock.mockResolvedValue(1);
+
+    const res = (await DELETE(makeRequest(), makeParams())) as MockResponse;
+    expect(res.status).toBe(409);
+    expect(dashboardDeleteMock).not.toHaveBeenCalled();
+    // The count is scoped to the project, not global.
+    const [call] = dashboardCountMock.mock.calls;
+    expect((call[0] as { where: Record<string, unknown> }).where.projectId).toBe("proj-1");
   });
 
   it("returns 401 when unauthenticated", async () => {
