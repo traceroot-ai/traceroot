@@ -220,9 +220,13 @@ export function LineNumberedTextarea({
   const gutterWidth = `calc(${digits}ch + 1rem)`;
 
   return (
-    <div className="relative overflow-hidden rounded border border-input bg-background font-mono text-[11px] leading-relaxed focus-within:ring-1 focus-within:ring-ring">
+    // The line-height is pinned to a whole pixel on BOTH layers. A fractional
+    // line-height (e.g. leading-relaxed → 17.875px at 11px) is rounded per block
+    // box in the display layer but flows continuously in the textarea, so the two
+    // drift apart as lines accumulate and the textarea's last line gets clipped.
+    <div className="relative overflow-hidden rounded border border-input bg-background font-mono text-[11px] leading-[18px] focus-within:ring-1 focus-within:ring-ring">
       {/* Display layer — line numbers + (highlighted) content, wraps per line. */}
-      <div aria-hidden className="pointer-events-none py-1.5">
+      <div aria-hidden className="pointer-events-none pb-2 pt-1.5">
         {Array.from({ length: totalLines }).map((_, i) => (
           <div key={i} className="flex items-start">
             <span
@@ -257,8 +261,9 @@ export function LineNumberedTextarea({
         placeholder={placeholder}
         aria-label={ariaLabel}
         className={cn(
-          // Must match the display layer's font metrics exactly — the two are overlaid.
-          "absolute inset-0 resize-none overflow-hidden whitespace-pre-wrap break-words bg-transparent py-1.5 pr-2 font-mono text-[11px] leading-relaxed text-transparent placeholder:text-muted-foreground focus:outline-none",
+          // Must match the display layer's font metrics exactly — the two are
+          // overlaid, so the line-height is the same whole pixel value.
+          "absolute inset-0 resize-none overflow-hidden whitespace-pre-wrap break-words bg-transparent pb-2 pr-2 pt-1.5 font-mono text-[11px] leading-[18px] text-transparent placeholder:text-muted-foreground focus:outline-none",
           readOnly ? "cursor-default caret-transparent" : "caret-foreground",
         )}
         style={{ paddingLeft: `calc(${gutterWidth} + 0.5rem)` }}
