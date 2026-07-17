@@ -16,6 +16,7 @@ const widgetUpdateMock = vi.fn();
 const widgetDeleteMock = vi.fn();
 
 vi.mock("@traceroot/core", () => ({
+  Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
   prisma: {
     dashboard: {
       findFirst: (...args: unknown[]) => dashboardFindFirstMock(...args),
@@ -516,5 +517,134 @@ describe("PATCH /dashboards/[dashboardId] — name length cap", () => {
     const ok = (await PATCH(makeRequest({ name: "x".repeat(50) }), makeParams())) as MockResponse;
     expect(ok.status).toBe(200);
     expect(dashboardUpdateMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Hardening: role gate, layout entry validation, description cap, races
+// ---------------------------------------------------------------------------
+describe("mutation hardening", () => {
+  it("gates mutations on MEMBER role but leaves GET viewer-accessible", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    dashboardUpdateMock.mockResolvedValue(fakeDashboard);
+
+    await GET(makeRequest(), makeParams());
+    expect(requireProjectAccessMock).toHaveBeenLastCalledWith("user-1", "proj-1", undefined);
+
+    await PATCH(makeRequest({ name: "renamed" }), makeParams());
+    expect(requireProjectAccessMock).toHaveBeenLastCalledWith("user-1", "proj-1", "MEMBER");
+
+    await DELETE(makeRequest(), makeParams());
+    expect(requireProjectAccessMock).toHaveBeenLastCalledWith("user-1", "proj-1", "MEMBER");
+
+    await widgetPOST(makeRequest({ title: "t", type: "query", spec: {} }), makeParams());
+    expect(requireProjectAccessMock).toHaveBeenLastCalledWith("user-1", "proj-1", "MEMBER");
+
+    await widgetPATCH(makeRequest({ title: "t" }), makeWidgetParams());
+    expect(requireProjectAccessMock).toHaveBeenLastCalledWith("user-1", "proj-1", "MEMBER");
+
+    await widgetDELETE(makeRequest(), makeWidgetParams());
+    expect(requireProjectAccessMock).toHaveBeenLastCalledWith("user-1", "proj-1", "MEMBER");
+  });
+
+  it("rejects layout entries that are not {i, x, y, w, h} placements", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    for (const bad of [
+      [null],
+      ["x"],
+      [{ i: "w1", x: "a", y: 0, w: 4, h: 4 }],
+      [{ x: 0, y: 0, w: 4, h: 4 }],
+      [{ i: "w1", x: 0, y: 0, w: 4, h: Infinity }],
+    ]) {
+      const res = (await PATCH(makeRequest({ layout: bad }), makeParams())) as MockResponse;
+      expect(res.status).toBe(400);
+    }
+    expect(dashboardUpdateMock).not.toHaveBeenCalled();
+
+    const ok = (await PATCH(
+      makeRequest({ layout: [{ i: "w1", x: 0, y: 0, w: 4, h: 4 }] }),
+      makeParams(),
+    )) as MockResponse;
+    expect(ok.status).toBe(200);
+  });
+
+  it("rejects negative coordinates and strips unknown keys from layout entries", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+
+    const negative = (await PATCH(
+      makeRequest({ layout: [{ i: "w1", x: -1, y: 0, w: 4, h: 4 }] }),
+      makeParams(),
+    )) as MockResponse;
+    expect(negative.status).toBe(400);
+
+    dashboardUpdateMock.mockResolvedValue(fakeDashboard);
+    await PATCH(
+      makeRequest({
+        // static/isDraggable would be honored by react-grid-layout for every
+        // member if persisted; only the placement keys may reach storage.
+        layout: [{ i: "w1", x: 0, y: 0, w: 4, h: 4, static: true, isDraggable: false }],
+      }),
+      makeParams(),
+    );
+    const [call] = dashboardUpdateMock.mock.calls;
+    expect((call[0] as { data: { layout: unknown } }).data.layout).toEqual([
+      { i: "w1", x: 0, y: 0, w: 4, h: 4 },
+    ]);
+  });
+
+  it("caps the dashboard description at 500 characters", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    const res = (await PATCH(
+      makeRequest({ description: "x".repeat(501) }),
+      makeParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(400);
+    expect(dashboardUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it("caps the widget title at 100 characters on POST and PATCH", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    const post = (await widgetPOST(
+      makeRequest({ title: "x".repeat(101), type: "query", spec: {} }),
+      makeParams(),
+    )) as MockResponse;
+    expect(post.status).toBe(400);
+
+    widgetFindFirstMock.mockResolvedValue({ ...fakeWidget, dashboard: { isDefault: false } });
+    const patch = (await widgetPATCH(
+      makeRequest({ title: "x".repeat(101) }),
+      makeWidgetParams(),
+    )) as MockResponse;
+    expect(patch.status).toBe(400);
+    expect(widgetUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it("maps a concurrent delete (Prisma P2025) to 404 instead of 500", async () => {
+    const { Prisma } = await import("@prisma/client");
+    const gone = new Prisma.PrismaClientKnownRequestError("gone", {
+      code: "P2025",
+      clientVersion: "test",
+    });
+
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    dashboardUpdateMock.mockRejectedValue(gone);
+    const patch = (await PATCH(makeRequest({ name: "renamed" }), makeParams())) as MockResponse;
+    expect(patch.status).toBe(404);
+
+    dashboardDeleteMock.mockRejectedValue(gone);
+    const del = (await DELETE(makeRequest(), makeParams())) as MockResponse;
+    expect(del.status).toBe(404);
+
+    widgetFindFirstMock.mockResolvedValue({ ...fakeWidget, dashboard: { isDefault: false } });
+    widgetUpdateMock.mockRejectedValue(gone);
+    const wpatch = (await widgetPATCH(
+      makeRequest({ title: "renamed" }),
+      makeWidgetParams(),
+    )) as MockResponse;
+    expect(wpatch.status).toBe(404);
+
+    widgetDeleteMock.mockRejectedValue(gone);
+    const wdel = (await widgetDELETE(makeRequest(), makeWidgetParams())) as MockResponse;
+    expect(wdel.status).toBe(404);
   });
 });

@@ -1,10 +1,10 @@
 import { NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
-import { prisma } from "@traceroot/core";
+import { prisma, Role } from "@traceroot/core";
 import { errorResponse, successResponse } from "@/lib/auth-helpers";
 import { parseJsonObject, requireProjectAuth } from "@/lib/route-helpers";
 import { defaultDashboardId, seedWidgets } from "@/lib/dashboard-seed";
-import { DASHBOARD_NAME_MAX } from "@/features/dashboards/types";
+import { DASHBOARD_DESCRIPTION_MAX, DASHBOARD_NAME_MAX } from "@/features/dashboards/types";
 
 type RouteParams = { params: Promise<{ projectId: string }> };
 
@@ -54,7 +54,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
 
 // POST /api/projects/[projectId]/dashboards — create a named dashboard
 export async function POST(req: NextRequest, { params }: RouteParams) {
-  const auth = await requireProjectAuth(params);
+  const auth = await requireProjectAuth(params, Role.MEMBER);
   if (auth.error) return auth.error;
   const { user } = auth;
   const { projectId } = auth.params;
@@ -70,6 +70,12 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   }
   if (description !== undefined && description !== null && typeof description !== "string") {
     return errorResponse("description must be a string", 400);
+  }
+  if (typeof description === "string" && description.length > DASHBOARD_DESCRIPTION_MAX) {
+    return errorResponse(
+      `description must be at most ${DASHBOARD_DESCRIPTION_MAX} characters`,
+      400,
+    );
   }
 
   const dashboard = await prisma.dashboard.create({
