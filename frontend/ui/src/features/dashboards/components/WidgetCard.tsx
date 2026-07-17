@@ -71,7 +71,6 @@ export function WidgetCard({
   projectId,
   widget,
   range,
-  readOnly = false,
   onEdit,
   onDuplicate,
   onDelete,
@@ -79,8 +78,6 @@ export function WidgetCard({
   projectId: string;
   widget: Widget;
   range: TimeRange;
-  /** Read-only dashboards (the seeded default) hide the drag handle and menu. */
-  readOnly?: boolean;
   onEdit: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
@@ -89,33 +86,27 @@ export function WidgetCard({
     <div className="flex h-full flex-col rounded-md border bg-background p-3">
       {/* Header: drag handle + title + menu */}
       <div className="mb-2 flex items-center gap-1.5">
-        {!readOnly && (
-          <span className="drag-handle cursor-move select-none text-muted-foreground/50">⠿</span>
-        )}
+        <span className="drag-handle cursor-move select-none text-muted-foreground/50">⠿</span>
         <span className="flex-1 truncate text-[12px] font-medium" title={widget.title}>
           {widget.title}
         </span>
-        {!readOnly && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                className="shrink-0 rounded p-0.5 opacity-0 transition-opacity hover:bg-muted focus:opacity-100 group-hover:opacity-100"
-                aria-label="Widget options"
-              >
-                <MoreVertical className="h-3.5 w-3.5 text-muted-foreground" />
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {widget.type === "query" && (
-                <DropdownMenuItem onSelect={onEdit}>Edit</DropdownMenuItem>
-              )}
-              <DropdownMenuItem onSelect={onDuplicate}>Duplicate</DropdownMenuItem>
-              <DropdownMenuItem onSelect={onDelete} className="text-red-600 focus:text-red-600">
-                Delete
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              className="shrink-0 rounded p-0.5 opacity-0 transition-opacity hover:bg-muted focus:opacity-100 group-hover:opacity-100"
+              aria-label="Widget options"
+            >
+              <MoreVertical className="h-3.5 w-3.5 text-muted-foreground" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {widget.type === "query" && <DropdownMenuItem onSelect={onEdit}>Edit</DropdownMenuItem>}
+            <DropdownMenuItem onSelect={onDuplicate}>Duplicate</DropdownMenuItem>
+            <DropdownMenuItem onSelect={onDelete} className="text-red-600 focus:text-red-600">
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {/* Body */}

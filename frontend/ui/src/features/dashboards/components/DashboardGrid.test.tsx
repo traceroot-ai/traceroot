@@ -107,36 +107,6 @@ describe("DashboardGrid", () => {
       expect(latestProps().layout).toEqual([{ i: "w1", x: 0, y: 0, w: 4, h: 4, minW: 2, minH: 2 }]);
     });
 
-    it("marks every item static and never persists layout changes when read-only", () => {
-      vi.useFakeTimers();
-      const onLayoutChange = vi.fn();
-      render(
-        <DashboardGrid
-          projectId="p1"
-          widgets={[widget("w1")]}
-          layout={[{ i: "w1", x: 0, y: 0, w: 4, h: 4 }]}
-          range={RANGE}
-          width={1000}
-          readOnly
-          onLayoutChange={onLayoutChange}
-          onEdit={vi.fn()}
-          onDuplicate={vi.fn()}
-          onDelete={vi.fn()}
-        />,
-      );
-
-      const { layout: fullLayout, onLayoutChange: onChange } = latestProps();
-      expect(fullLayout).toEqual([
-        { i: "w1", x: 0, y: 0, w: 4, h: 4, minW: 2, minH: 2, static: true },
-      ]);
-
-      // Even if the grid fires (e.g. mount-fire compaction), nothing goes upstream.
-      onChange([{ i: "w1", x: 2, y: 0, w: 4, h: 4 }]);
-      vi.advanceTimersByTime(600);
-      expect(onLayoutChange).not.toHaveBeenCalled();
-      vi.useRealTimers();
-    });
-
     it("stamps the minimum size on every item so widgets can't be shrunk into clipping", () => {
       const widgets = [widget("w1"), widget("w2")];
       render(

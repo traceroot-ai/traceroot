@@ -219,10 +219,11 @@ describe("WidgetBuilderPage", () => {
     expect(replace).toHaveBeenCalledWith("/projects/p1/dashboard");
   });
 
-  it("redirects back to the read-only default dashboard instead of opening the builder", () => {
+  it("opens the builder for the default dashboard like any other", () => {
     mockDashboard({ ...DASHBOARD, isDefault: true });
     render(<WidgetBuilderPage projectId="p1" dashboardId="d1" />);
-    expect(replace).toHaveBeenCalledWith("/projects/p1/dashboard/d1");
+    expect(replace).not.toHaveBeenCalled();
+    expect(screen.getByText("New widget")).toBeTruthy();
   });
 
   function openSelect(currentText: string) {
