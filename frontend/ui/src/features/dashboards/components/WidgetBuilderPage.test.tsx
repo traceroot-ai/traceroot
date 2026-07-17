@@ -42,7 +42,7 @@ const SCHEMA = {
       model_name: {
         type: "string",
         label: "Model",
-        filterOps: ["=", "!=", "contains"],
+        filterOps: ["=", "contains"],
         groupable: true,
         aggs: [],
       },

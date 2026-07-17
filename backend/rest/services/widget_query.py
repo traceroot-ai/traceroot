@@ -40,7 +40,6 @@ _NON_ADDITIVE_AGGS = frozenset({"avg", "min", "max", "p50", "p95", "p99"})
 
 _OP_SQL = {
     "=": "{expr} = {{{p}:{t}}}",
-    "!=": "{expr} != {{{p}:{t}}}",
     ">": "{expr} > {{{p}:{t}}}",
     ">=": "{expr} >= {{{p}:{t}}}",
     "<": "{expr} < {{{p}:{t}}}",
