@@ -47,6 +47,8 @@ vi.mock("@/lib/auth-helpers", () => ({
 }));
 
 import { GET, PATCH, DELETE } from "./route";
+import { POST as widgetPOST } from "./widgets/route";
+import { PATCH as widgetPATCH, DELETE as widgetDELETE } from "./widgets/[widgetId]/route";
 
 function makeRequest(body?: unknown) {
   return {
@@ -56,6 +58,10 @@ function makeRequest(body?: unknown) {
 
 function makeParams(projectId = "proj-1", dashboardId = "dash-1") {
   return { params: Promise.resolve({ projectId, dashboardId }) };
+}
+
+function makeWidgetParams(projectId = "proj-1", dashboardId = "dash-1", widgetId = "widget-1") {
+  return { params: Promise.resolve({ projectId, dashboardId, widgetId }) };
 }
 
 const fakeDashboard = {
@@ -273,6 +279,185 @@ describe("DELETE /dashboards/[dashboardId]", () => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /dashboards/[dashboardId]/widgets
+// ---------------------------------------------------------------------------
+describe("POST /dashboards/[dashboardId]/widgets", () => {
+  it("creates a widget and returns 201", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    widgetCreateMock.mockResolvedValue(fakeWidget);
+
+    const res = (await widgetPOST(
+      makeRequest({ title: "My Widget", type: "query", spec: { sql: "SELECT 1" } }),
+      makeParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as { widget: typeof fakeWidget };
+    expect(body.widget).toEqual(fakeWidget);
+    expect(widgetCreateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns 400 for an invalid widget type", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    const res = (await widgetPOST(
+      makeRequest({ title: "My Widget", type: "bad_type", spec: {} }),
+      makeParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(400);
+    expect(widgetCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 404 when dashboard is not in the project", async () => {
+    dashboardFindFirstMock.mockResolvedValue(null);
+    const res = (await widgetPOST(
+      makeRequest({ title: "My Widget", type: "query", spec: {} }),
+      makeParams("proj-1", "dash-999"),
+    )) as MockResponse;
+    expect(res.status).toBe(404);
+    expect(widgetCreateMock).not.toHaveBeenCalled();
+
+    // Assert the dashboard findFirst includes projectId scoping
+    const [call] = dashboardFindFirstMock.mock.calls;
+    const where = (call[0] as { where: Record<string, unknown> }).where;
+    expect(where.id).toBe("dash-999");
+    expect(where.projectId).toBe("proj-1");
+  });
+
+  it("returns 400 for missing title", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    const res = (await widgetPOST(
+      makeRequest({ type: "query", spec: {} }),
+      makeParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(400);
+    expect(widgetCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 for non-object spec", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    const res = (await widgetPOST(
+      makeRequest({ title: "W", type: "query", spec: "bad" }),
+      makeParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(400);
+    expect(widgetCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 for invalid displayConfig (array)", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    const res = (await widgetPOST(
+      makeRequest({ title: "W", type: "query", spec: {}, displayConfig: [1, 2] }),
+      makeParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(400);
+    expect(widgetCreateMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /dashboards/[dashboardId]/widgets/[widgetId]
+// ---------------------------------------------------------------------------
+describe("PATCH /dashboards/[dashboardId]/widgets/[widgetId]", () => {
+  it("returns 404 when widget is not in the dashboard/project scope", async () => {
+    widgetFindFirstMock.mockResolvedValue(null);
+
+    const res = (await widgetPATCH(
+      makeRequest({ title: "New Title" }),
+      makeWidgetParams("proj-1", "dash-1", "widget-999"),
+    )) as MockResponse;
+    expect(res.status).toBe(404);
+    expect(widgetUpdateMock).not.toHaveBeenCalled();
+
+    // Assert the nested projectId scoping in the where clause
+    const [call] = widgetFindFirstMock.mock.calls;
+    const where = (call[0] as { where: Record<string, unknown> }).where;
+    expect(where.id).toBe("widget-999");
+    expect(where.dashboardId).toBe("dash-1");
+    expect((where.dashboard as Record<string, unknown>).projectId).toBe("proj-1");
+  });
+
+  it("updates title and returns 200", async () => {
+    widgetFindFirstMock.mockResolvedValue(fakeWidget);
+    widgetUpdateMock.mockResolvedValue({ ...fakeWidget, title: "Updated" });
+
+    const res = (await widgetPATCH(
+      makeRequest({ title: "Updated" }),
+      makeWidgetParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { widget: Record<string, unknown> };
+    expect(body.widget.title).toBe("Updated");
+  });
+
+  it("returns 400 for empty body (no fields to update)", async () => {
+    widgetFindFirstMock.mockResolvedValue(fakeWidget);
+    const res = (await widgetPATCH(makeRequest({}), makeWidgetParams())) as MockResponse;
+    expect(res.status).toBe(400);
+    expect(widgetUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 for non-object spec", async () => {
+    widgetFindFirstMock.mockResolvedValue(fakeWidget);
+    const res = (await widgetPATCH(
+      makeRequest({ spec: "bad" }),
+      makeWidgetParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(400);
+    expect(widgetUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 for empty title string", async () => {
+    widgetFindFirstMock.mockResolvedValue(fakeWidget);
+    const res = (await widgetPATCH(
+      makeRequest({ title: "  " }),
+      makeWidgetParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(400);
+    expect(widgetUpdateMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /dashboards/[dashboardId]/widgets/[widgetId]
+// ---------------------------------------------------------------------------
+describe("DELETE /dashboards/[dashboardId]/widgets/[widgetId]", () => {
+  it("returns 200 with deleted: true", async () => {
+    widgetFindFirstMock.mockResolvedValue(fakeWidget);
+    widgetDeleteMock.mockResolvedValue({});
+
+    const res = (await widgetDELETE(makeRequest(), makeWidgetParams())) as MockResponse;
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { deleted: boolean };
+    expect(body.deleted).toBe(true);
+
+    // Check scoped findFirst
+    const [call] = widgetFindFirstMock.mock.calls;
+    const where = (call[0] as { where: Record<string, unknown> }).where;
+    expect(where.id).toBe("widget-1");
+    expect(where.dashboardId).toBe("dash-1");
+    expect((where.dashboard as Record<string, unknown>).projectId).toBe("proj-1");
+  });
+
+  it("returns 404 when widget not found in scope", async () => {
+    widgetFindFirstMock.mockResolvedValue(null);
+    const res = (await widgetDELETE(
+      makeRequest(),
+      makeWidgetParams("proj-1", "dash-1", "w-999"),
+    )) as MockResponse;
+    expect(res.status).toBe(404);
+    expect(widgetDeleteMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 401 when unauthenticated", async () => {
+    requireAuthMock.mockResolvedValue({
+      error: { status: 401, json: async () => ({ error: "Unauthorized" }) },
+    });
+    const res = (await widgetDELETE(makeRequest(), makeWidgetParams())) as MockResponse;
+    expect(res.status).toBe(401);
+    expect(widgetFindFirstMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Default dashboard is read-only
 // ---------------------------------------------------------------------------
 describe("default dashboard is read-only", () => {
@@ -291,13 +476,45 @@ describe("default dashboard is read-only", () => {
     expect(res.status).toBe(403);
     expect(dashboardDeleteMock).not.toHaveBeenCalled();
   });
+
+  it("POST .../widgets returns 403", async () => {
+    dashboardFindFirstMock.mockResolvedValue(defaultDashboard);
+    const res = (await widgetPOST(
+      makeRequest({ title: "t", type: "query", spec: {} }),
+      makeParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(403);
+    expect(widgetCreateMock).not.toHaveBeenCalled();
+  });
+
+  it("PATCH .../widgets/[widgetId] returns 403", async () => {
+    widgetFindFirstMock.mockResolvedValue({ ...fakeWidget, dashboard: { isDefault: true } });
+    const res = (await widgetPATCH(
+      makeRequest({ title: "renamed" }),
+      makeWidgetParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(403);
+    expect(widgetUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it("DELETE .../widgets/[widgetId] returns 403", async () => {
+    widgetFindFirstMock.mockResolvedValue({ ...fakeWidget, dashboard: { isDefault: true } });
+    const res = (await widgetDELETE(makeRequest(), makeWidgetParams())) as MockResponse;
+    expect(res.status).toBe(403);
+    expect(widgetDeleteMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("PATCH /dashboards/[dashboardId] — name length cap", () => {
-  it("rejects a rename longer than 100 characters", async () => {
+  it("rejects a rename longer than 50 characters but allows exactly 50", async () => {
     dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
-    const res = (await PATCH(makeRequest({ name: "x".repeat(101) }), makeParams())) as MockResponse;
+    const res = (await PATCH(makeRequest({ name: "x".repeat(51) }), makeParams())) as MockResponse;
     expect(res.status).toBe(400);
     expect(dashboardUpdateMock).not.toHaveBeenCalled();
+
+    dashboardUpdateMock.mockResolvedValue({ ...fakeDashboard, name: "x".repeat(50) });
+    const ok = (await PATCH(makeRequest({ name: "x".repeat(50) }), makeParams())) as MockResponse;
+    expect(ok.status).toBe(200);
+    expect(dashboardUpdateMock).toHaveBeenCalledTimes(1);
   });
 });
