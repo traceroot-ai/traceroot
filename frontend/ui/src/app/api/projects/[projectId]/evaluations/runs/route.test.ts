@@ -1,15 +1,16 @@
 /**
- * Run-list derivation: the list exposes a restrained comparison summary
- * (regressedCaseCount + trustworthy scalar delta + elapsedMs) from the SAME engine as
- * run detail, batched (baseline runs + all results) so a page is a bounded number of
- * queries, never a per-row N+1.
+ * Run-list derivation. Status counts, pass rate, cost and duration come from one
+ * grouped aggregate — no result rows cross the wire for them. The restrained
+ * comparison summary (regressedCaseCount + trustworthy scalar delta) still comes from
+ * the SAME engine as run detail, but only for runs that declare a baseline, batched so
+ * a page is a bounded number of queries and never a per-row N+1.
  */
 import { it, expect, vi, beforeEach } from "vitest";
 
 const prismaMock = vi.hoisted(() => ({
   evaluationRun: { findMany: vi.fn(), count: vi.fn() },
   dataset: { findMany: vi.fn() },
-  evaluationResult: { findMany: vi.fn() },
+  evaluationResult: { findMany: vi.fn(), groupBy: vi.fn() },
   $transaction: vi.fn(async (arr: Promise<unknown>[]) => Promise.all(arr)),
 }));
 const auth = vi.hoisted(() => ({ requireAuth: vi.fn(), requireProjectAccess: vi.fn() }));
@@ -41,12 +42,32 @@ function score(name: string, numericValue: number) {
   };
 }
 
+/**
+ * One row as `groupBy(["runId", "status"])` returns it. Counts, cost and case
+ * duration are aggregated in the database, so the route never sees result rows for
+ * them — only these groups.
+ */
+function group(
+  runId: string,
+  status: string,
+  count: number,
+  sums: { cost?: number; durationMs?: number } = {},
+) {
+  return {
+    runId,
+    status,
+    _count: { _all: count },
+    _sum: { cost: sums.cost ?? null, durationMs: sums.durationMs ?? null },
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   auth.requireAuth.mockResolvedValue({ user: { id: "u1" } });
   auth.requireProjectAccess.mockResolvedValue({ project: { id: "p1" } });
   prismaMock.$transaction.mockImplementation(async (arr: Promise<unknown>[]) => Promise.all(arr));
   prismaMock.dataset.findMany.mockResolvedValue([{ id: "ds1", name: "support" }]);
+  prismaMock.evaluationResult.groupBy.mockResolvedValue([]);
 });
 
 it("derives regressedCaseCount + trustworthy delta + elapsedMs for a listed run", async () => {
@@ -136,9 +157,25 @@ it("derives regressedCaseCount + trustworthy delta + elapsedMs for a listed run"
   expect(row.changeFromBaseline).toBeCloseTo(-0.5);
   expect(row.baselineComparable).toBe(true);
   expect(row.elapsedMs).toBe(5000);
-  // Bounded: one page-runs query + one baselines query + one results query (+ datasets).
+  // Bounded: one page-runs query + one baselines query + one grouped aggregate + one
+  // comparison-results query (+ datasets).
   expect(prismaMock.evaluationRun.findMany).toHaveBeenCalledTimes(2);
+  expect(prismaMock.evaluationResult.groupBy).toHaveBeenCalledTimes(1);
   expect(prismaMock.evaluationResult.findMany).toHaveBeenCalledTimes(1);
+  // The comparison rows are projected, not slurped: the unbounded TEXT columns the
+  // engine never reads (input, expectedOutput, baselineOutput, taskError) stay in the
+  // database. `include: { scores: true }` would have pulled all of them.
+  const resultArgs = prismaMock.evaluationResult.findMany.mock.calls[0][0];
+  expect(resultArgs.include).toBeUndefined();
+  expect(Object.keys(resultArgs.select).sort()).toEqual([
+    "candidateOutput",
+    "durationMs",
+    "mainScore",
+    "runId",
+    "scores",
+    "status",
+    "testCaseId",
+  ]);
 });
 
 it("shows null comparison fields for a run with no baseline", async () => {
@@ -174,9 +211,13 @@ it("shows null comparison fields for a run with no baseline", async () => {
   expect(row.changeFromBaseline).toBeNull();
   expect(row.regressedCaseCount).toBeNull();
   expect(row.baselineComparable).toBe(false);
+  // Mid-flight with no cases yet: nothing to derive a duration from either way.
   expect(row.elapsedMs).toBeNull();
-  // No baseline ids → the baselines findMany is skipped (only the page-runs query ran).
+  // No baseline ids → the baselines findMany is skipped (only the page-runs query ran),
+  // and with no run on the page declaring a baseline the per-case comparison query is
+  // skipped entirely. The status counts still come back — from the grouped aggregate.
   expect(prismaMock.evaluationRun.findMany).toHaveBeenCalledTimes(1);
+  expect(prismaMock.evaluationResult.findMany).not.toHaveBeenCalled();
 });
 
 it("derives per-status counts for a listed run", async () => {
@@ -202,12 +243,11 @@ it("derives per-status counts for a listed run", async () => {
   };
   prismaMock.evaluationRun.findMany.mockResolvedValueOnce([run]);
   prismaMock.evaluationRun.count.mockResolvedValue(1);
-  prismaMock.evaluationResult.findMany.mockResolvedValue([
-    { runId: "run_c", testCaseId: "t0", status: "passed", mainScore: 1, scores: [] },
-    { runId: "run_c", testCaseId: "t1", status: "passed", mainScore: 1, scores: [] },
-    { runId: "run_c", testCaseId: "t2", status: "failed", mainScore: 0, scores: [] },
-    { runId: "run_c", testCaseId: "t3", status: "errored", mainScore: null, scores: [] },
-    { runId: "run_c", testCaseId: "t4", status: "not_scored", mainScore: null, scores: [] },
+  prismaMock.evaluationResult.groupBy.mockResolvedValue([
+    group("run_c", "passed", 2),
+    group("run_c", "failed", 1),
+    group("run_c", "errored", 1),
+    group("run_c", "not_scored", 1),
   ]);
 
   const body = (await (await GET(nextUrl() as never, params)).json()) as {
@@ -217,6 +257,125 @@ it("derives per-status counts for a listed run", async () => {
   expect(body.data[0].failedCount).toBe(1);
   expect(body.data[0].erroredCount).toBe(1);
   expect(body.data[0].notScoredCount).toBe(1);
+});
+
+it("returns the pass rate, derived from the same counts", async () => {
+  prismaMock.evaluationRun.findMany.mockResolvedValueOnce([
+    {
+      id: "run_c",
+      projectId: "p1",
+      evaluationId: "e1",
+      datasetId: "ds1",
+      datasetVersionId: "dv1",
+      runNumber: 2,
+      candidateVersion: "sonnet",
+      status: "completed",
+      baselineRunId: null,
+      mainScore: 0.66,
+      mainScoreName: "acc",
+      taskErrorCount: 0,
+      scorerErrorCount: 0,
+      scorers: [],
+      startedAt: new Date("2026-07-21T00:00:00Z"),
+      completedAt: new Date("2026-07-21T00:00:05Z"),
+      evaluation: { name: "ticket-routing" },
+      datasetVersion: { label: "v1" },
+    },
+  ]);
+  prismaMock.evaluationRun.count.mockResolvedValue(1);
+  prismaMock.evaluationResult.groupBy.mockResolvedValue([
+    group("run_c", "passed", 18),
+    group("run_c", "failed", 4),
+    group("run_c", "errored", 2),
+    group("run_c", "not_scored", 1),
+  ]);
+
+  const body = (await (await GET(nextUrl() as never, params)).json()) as {
+    data: Record<string, unknown>[];
+  };
+  // Exact, not toBeCloseTo: a loose tolerance would also accept a denominator that
+  // wrongly folded in the errored and not-scored cases.
+  expect(body.data[0].passRate).toBe(18 / 22);
+  expect(body.data[0].excludedSummary).toBe("2 errored, 1 not scored");
+});
+
+// The load-bearing rule, on the wire rather than left to each client: a run whose
+// harness broke must render "—", not a catastrophic-looking 0%.
+it("returns a null pass rate for an all-errored run, never 0", async () => {
+  prismaMock.evaluationRun.findMany.mockResolvedValueOnce([
+    {
+      id: "run_c",
+      projectId: "p1",
+      evaluationId: "e1",
+      datasetId: "ds1",
+      datasetVersionId: "dv1",
+      runNumber: 3,
+      candidateVersion: "sonnet",
+      status: "completed_with_errors",
+      baselineRunId: null,
+      mainScore: null,
+      mainScoreName: "acc",
+      taskErrorCount: 3,
+      scorerErrorCount: 0,
+      scorers: [],
+      startedAt: new Date("2026-07-21T00:00:00Z"),
+      completedAt: new Date("2026-07-21T00:00:05Z"),
+      evaluation: { name: "ticket-routing" },
+      datasetVersion: { label: "v1" },
+    },
+  ]);
+  prismaMock.evaluationRun.count.mockResolvedValue(1);
+  prismaMock.evaluationResult.groupBy.mockResolvedValue([group("run_c", "errored", 3)]);
+
+  const body = (await (await GET(nextUrl() as never, params)).json()) as {
+    data: Record<string, unknown>[];
+  };
+  expect(body.data[0].passRate).toBeNull();
+  expect(body.data[0].passRate).not.toBe(0);
+  expect(body.data[0].excludedSummary).toBe("3 errored");
+});
+
+// A non-terminal run still reports a running duration. Returning null
+// would blank the duration column on exactly the row someone is watching.
+it("reports a running duration for a mid-flight run with no completedAt", async () => {
+  prismaMock.evaluationRun.findMany.mockResolvedValueOnce([
+    {
+      id: "run_live",
+      projectId: "p1",
+      evaluationId: "e1",
+      datasetId: "ds1",
+      datasetVersionId: "dv1",
+      runNumber: 4,
+      candidateVersion: "sonnet",
+      status: "running",
+      baselineRunId: null,
+      mainScore: null,
+      mainScoreName: "acc",
+      taskErrorCount: 0,
+      scorerErrorCount: 0,
+      scorers: [],
+      startedAt: new Date("2026-07-21T00:00:00Z"),
+      completedAt: null,
+      evaluation: { name: "ticket-routing" },
+      datasetVersion: { label: "v1" },
+    },
+  ]);
+  prismaMock.evaluationRun.count.mockResolvedValue(1);
+  prismaMock.evaluationResult.groupBy.mockResolvedValue([
+    group("run_live", "passed", 80, { cost: 0.4, durationMs: 72000 }),
+    group("run_live", "failed", 40, { cost: 0.2, durationMs: 36000 }),
+  ]);
+
+  const body = (await (await GET(nextUrl() as never, params)).json()) as {
+    data: Record<string, unknown>[];
+  };
+  const row = body.data[0];
+  expect(row.elapsedMs).toBe(108000);
+  // Partial counts and cost stay coherent beside it.
+  expect(row.passedCount).toBe(80);
+  expect(row.failedCount).toBe(40);
+  expect(row.passRate).toBe(80 / 120);
+  expect(row.cost).toBeCloseTo(0.6);
 });
 
 it("reports zero counts for a run with no results, without extra queries", async () => {
@@ -242,15 +401,15 @@ it("reports zero counts for a run with no results, without extra queries", async
   };
   prismaMock.evaluationRun.findMany.mockResolvedValueOnce([run]);
   prismaMock.evaluationRun.count.mockResolvedValue(1);
-  prismaMock.evaluationResult.findMany.mockResolvedValue([]);
 
   const body = (await (await GET(nextUrl() as never, params)).json()) as {
     data: Record<string, unknown>[];
   };
   expect(body.data[0].passedCount).toBe(0);
   expect(body.data[0].failedCount).toBe(0);
-  // Still exactly one results query — the counts add no round trips.
-  expect(prismaMock.evaluationResult.findMany).toHaveBeenCalledTimes(1);
+  expect(body.data[0].passRate).toBeNull();
+  // Still exactly one grouped query — the counts add no round trips.
+  expect(prismaMock.evaluationResult.groupBy).toHaveBeenCalledTimes(1);
 });
 
 it("prefers the derived counts over a stored scoredCount that disagrees", async () => {
@@ -280,9 +439,9 @@ it("prefers the derived counts over a stored scoredCount that disagrees", async 
   };
   prismaMock.evaluationRun.findMany.mockResolvedValueOnce([run]);
   prismaMock.evaluationRun.count.mockResolvedValue(1);
-  prismaMock.evaluationResult.findMany.mockResolvedValue([
-    { runId: "run_c", testCaseId: "t0", status: "passed", mainScore: 1, scores: [] },
-    { runId: "run_c", testCaseId: "t1", status: "failed", mainScore: 0, scores: [] },
+  prismaMock.evaluationResult.groupBy.mockResolvedValue([
+    group("run_c", "passed", 1),
+    group("run_c", "failed", 1),
   ]);
 
   const body = (await (await GET(nextUrl() as never, params)).json()) as {
@@ -290,6 +449,8 @@ it("prefers the derived counts over a stored scoredCount that disagrees", async 
   };
   expect(body.data[0].passedCount).toBe(1);
   expect(body.data[0].failedCount).toBe(1);
+  // The served rate uses the derived denominator, not scoredCount — 1/2, not 1/9.
+  expect(body.data[0].passRate).toBe(0.5);
   // The stored counter is passed through untouched — it is not reconciled in v1.
   expect(body.data[0].scoredCount).toBe(9);
 });
