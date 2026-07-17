@@ -51,6 +51,11 @@ interface TraceViewerPanelProps {
    * detector tab.
    */
   newTabPath?: string;
+  /**
+   * Scope the trace fetch: "detector" opens a detector self-trace (excluded
+   * from normal reads), "user" excludes self-traces. Omit for no scoping.
+   */
+  source?: "detector" | "user";
 }
 
 /**
@@ -79,6 +84,7 @@ export function TraceViewerPanel({
   autoOpenRca,
   initialFullscreen,
   newTabPath,
+  source,
 }: TraceViewerPanelProps) {
   const [selection, setSelection] = useState<TraceSelection>({ type: "trace" });
   const [viewMode, setViewMode] = useState<"tree" | "timeline" | "detectors">("tree");
@@ -144,8 +150,8 @@ export function TraceViewerPanel({
     isLoading,
     error,
   } = useQuery({
-    queryKey: ["trace", projectId, traceId],
-    queryFn: () => getTrace(projectId, traceId, ""),
+    queryKey: ["trace", projectId, traceId, source ?? null],
+    queryFn: () => getTrace(projectId, traceId, "", undefined, source),
   });
 
   useTraceStream(projectId, traceId, true);

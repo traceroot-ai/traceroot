@@ -205,6 +205,22 @@ class TestGetTrace:
         response = client.get("/api/v1/projects/test-project/traces/nonexistent")
         assert response.status_code == 404
 
+    def test_source_param_reaches_the_service(self, client, mock_trace_reader):
+        mock_trace_reader.get_trace.return_value = TRACE_DETAIL
+        response = client.get("/api/v1/projects/test-project/traces/abc123?source=detector")
+        assert response.status_code == 200
+        assert mock_trace_reader.get_trace.call_args.kwargs["source"] == "detector"
+
+    def test_absent_source_passes_none(self, client, mock_trace_reader):
+        mock_trace_reader.get_trace.return_value = TRACE_DETAIL
+        client.get("/api/v1/projects/test-project/traces/abc123")
+        assert mock_trace_reader.get_trace.call_args.kwargs["source"] is None
+
+    def test_invalid_source_is_rejected(self, client, mock_trace_reader):
+        response = client.get("/api/v1/projects/test-project/traces/abc123?source=banana")
+        assert response.status_code == 422
+        mock_trace_reader.get_trace.assert_not_called()
+
     def test_default_skeleton_io_is_null_and_no_bulk_query(self, client, mock_trace_reader):
         """Default (skeleton) projection: per-span I/O fields are present but null,
         and the bulk span-I/O query is NOT issued.

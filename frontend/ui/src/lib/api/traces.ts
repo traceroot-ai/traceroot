@@ -35,8 +35,10 @@ export async function getTrace(
   traceId: string,
   _apiKey: string,
   user?: TraceApiUser,
+  source?: "detector" | "user",
 ): Promise<TraceDetail> {
-  return fetchTraceApi<TraceDetail>(`/projects/${projectId}/traces/${traceId}`, {}, user);
+  const query = source ? `?source=${source}` : "";
+  return fetchTraceApi<TraceDetail>(`/projects/${projectId}/traces/${traceId}${query}`, {}, user);
 }
 
 /** Registry of filterable fields driving the filter dropdown (Python source of truth). */
