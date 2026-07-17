@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { prisma } from "@traceroot/core";
+import { prisma, Role } from "@traceroot/core";
 import {
   requireAuth,
   requireProjectAccess,
@@ -116,4 +116,23 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     },
     results,
   });
+}
+
+// DELETE — remove a run (cascades its results + scores; other runs that used it as
+// a baseline have their baselineRunId set to null). Editing access required.
+export async function DELETE(_req: NextRequest, { params }: RouteParams) {
+  const authResult = await requireAuth();
+  if (authResult.error) return authResult.error;
+  const { projectId, runId } = await params;
+  const accessResult = await requireProjectAccess(authResult.user.id, projectId, Role.MEMBER);
+  if (accessResult.error) return accessResult.error;
+
+  const existing = await prisma.evaluationRun.findFirst({
+    where: { id: runId, projectId },
+    select: { id: true },
+  });
+  if (!existing) return errorResponse("Evaluation run not found", 404);
+
+  await prisma.evaluationRun.delete({ where: { id: runId } });
+  return successResponse({ deleted: true });
 }
