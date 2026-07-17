@@ -88,6 +88,8 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
             caseChange: cmp.caseChange,
             pairing: cmp.pairing,
             mainScore: cmp.mainScore,
+            baselineDurationMs: cmp.baselineDurationMs,
+            durationDeltaMs: cmp.durationDeltaMs,
             scorerCells: cmp.scorerCells,
             regressedCellCount: cmp.regressedCellCount,
             comparableCellCount: cmp.comparableCellCount,
