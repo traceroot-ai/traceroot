@@ -3,6 +3,7 @@ import { prisma } from "@traceroot/core";
 import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-helpers";
 import { compareRuns } from "@/lib/eval/comparison";
 import { toComparisonRun, toComparisonResults } from "@/lib/eval/comparison-db";
+import { countResultStatuses } from "@/lib/eval/pass-rate";
 
 type RouteParams = { params: Promise<{ projectId: string }> };
 
@@ -105,6 +106,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       baseline: baseline ? toComparisonRun(baseline) : null,
       baselineResults: baseline ? toComparisonResults(resultsByRun.get(baseline.id) ?? []) : [],
     });
+    const statusCounts = countResultStatuses(resultsByRun.get(r.id) ?? []);
     return {
       ...r,
       evaluationName: r.evaluation.name,
@@ -117,6 +119,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       baselineComparable: comparison.trustworthy,
       errorCount: r.taskErrorCount + r.scorerErrorCount,
       elapsedMs: elapsedMs(r.startedAt, r.completedAt),
+      ...statusCounts,
     };
   });
 
