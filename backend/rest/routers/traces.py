@@ -2,6 +2,7 @@
 
 import logging
 from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 
@@ -196,6 +197,9 @@ async def get_trace(
     trace_id: str,
     _access: RateLimitedProjectAccess,  # Validates access + sets rate-limit identity
     fields: str | None = Query(None, description=FIELDS_PARAM_DESC),
+    source: Literal["detector", "user"] | None = Query(
+        None, description="'detector' for self-traces, 'user' to exclude them"
+    ),
 ):
     """Get a single trace for a project.
 
@@ -212,6 +216,9 @@ async def get_trace(
         fields (str | None): Comma-separated projection groups (e.g. ``io``,
             ``metadata``) or an alias (``skeleton``/``full``). ``None`` selects
             the default `skeleton` projection.
+        source (Literal["detector", "user"] | None): "detector" restricts the
+            read to detector self-traces, "user" excludes them, None applies
+            no filter.
 
     Returns:
         TraceDetailResponse: The trace with span skeletons, plus per-span I/O
@@ -226,7 +233,7 @@ async def get_trace(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
     service = get_trace_reader_service()
-    trace = service.get_trace(project_id=project_id, trace_id=trace_id)
+    trace = service.get_trace(project_id=project_id, trace_id=trace_id, source=source)
 
     if not trace:
         raise HTTPException(

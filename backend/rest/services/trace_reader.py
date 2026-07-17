@@ -205,6 +205,9 @@ class TraceReaderService:
 
         # Build WHERE conditions
         conditions = ["t.project_id = {project_id:String}"]
+        # Detector self-traces are internal telemetry; the customer trace list
+        # (data AND count, via the shared where_clause) never shows them.
+        conditions.append("t.source != 'detector'")
         params = {"project_id": project_id, "limit": limit, "offset": offset}
 
         if name:
@@ -356,7 +359,7 @@ class TraceReaderService:
             "meta": {"page": page, "limit": limit, "total": total},
         }
 
-    def get_trace(self, project_id: str, trace_id: str) -> dict | None:
+    def get_trace(self, project_id: str, trace_id: str, source: str | None = None) -> dict | None:
         """Get single trace with span skeletons (no per-span I/O).
 
         Returns trace metadata plus lightweight span skeletons that omit the
@@ -367,16 +370,32 @@ class TraceReaderService:
 
         Trace-level input/output/metadata (on the trace row) are kept: they're
         small and already present.
+
+        Args:
+            project_id (str): Project that owns the trace.
+            trace_id (str): Trace to fetch.
+            source (str | None): "detector" restricts to self-traces, "user"
+                excludes them, None applies no filter.
         """
+        # Fixed internal predicate (never user input), interpolated into both
+        # queries — same whitelist pattern as the IO column projection.
+        if source == "detector":
+            source_predicate = "AND source = 'detector'"
+        elif source == "user":
+            source_predicate = "AND source != 'detector'"
+        else:
+            source_predicate = ""
+
         # Fetch trace
         # Dedup the ReplacingMergeTree row without FINAL: keep the latest version
         # of this trace_id.
-        trace_query = """
+        trace_query = f"""
             SELECT
                 trace_id, project_id, name, trace_start_time,
                 user_id, session_id, git_ref, git_repo, input, output, metadata
             FROM traces
-            WHERE project_id = {project_id:String} AND trace_id = {trace_id:String}
+            WHERE project_id = {{project_id:String}} AND trace_id = {{trace_id:String}}
+            {source_predicate}
             ORDER BY ch_update_time DESC
             LIMIT 1 BY trace_id
         """
@@ -409,6 +428,8 @@ class TraceReaderService:
             "project_id = {project_id:String}",
             "trace_id = {trace_id:String}",
         ]
+        if source_predicate:
+            spans_conditions.append(source_predicate.removeprefix("AND "))
         spans_params = {"project_id": project_id, "trace_id": trace_id}
         if trace["trace_start_time"] is not None:
             # Lower-bound the spans scan by the trace start time so ClickHouse

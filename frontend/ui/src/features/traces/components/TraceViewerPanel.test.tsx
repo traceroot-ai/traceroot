@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   traceError: null as unknown,
   traceLoading: false,
   aiPanelOpen: false,
+  lastQuery: undefined as { queryKey: unknown[]; queryFn: () => unknown } | undefined,
 }));
 
 // Layout context drives the fullscreen width math (sidebar width).
@@ -24,7 +25,10 @@ vi.mock("@/components/layout/app-layout", () => ({
 
 // Trace fetch + stream — irrelevant to layout, stub them out.
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: () => ({ data: mocks.trace, isLoading: mocks.traceLoading, error: mocks.traceError }),
+  useQuery: (opts: { queryKey: unknown[]; queryFn: () => unknown }) => {
+    mocks.lastQuery = opts;
+    return { data: mocks.trace, isLoading: mocks.traceLoading, error: mocks.traceError };
+  },
 }));
 vi.mock("@/lib/api", () => ({ getTrace: vi.fn() }));
 vi.mock("../hooks/use-trace-stream", () => ({ useTraceStream: vi.fn() }));
@@ -53,7 +57,7 @@ vi.mock("@/components/ui/resizable", () => ({
 
 import { TraceViewerPanel } from "./TraceViewerPanel";
 
-function renderPanel(props: { initialFullscreen?: boolean } = {}) {
+function renderPanel(props: { initialFullscreen?: boolean; source?: "detector" | "user" } = {}) {
   const { container } = render(
     <TraceViewerPanel
       projectId="proj-1"
@@ -192,5 +196,26 @@ describe("TraceViewerPanel content states", () => {
     mocks.aiPanelOpen = true;
     renderPanel();
     expect(screen.getByTestId("ai-panel")).toBeTruthy();
+  });
+});
+
+describe("source-scoped fetch", () => {
+  it("threads source into the queryKey and the getTrace call", async () => {
+    renderPanel({ source: "detector" });
+    expect(mocks.lastQuery!.queryKey).toContain("detector");
+    await mocks.lastQuery!.queryFn();
+    const { getTrace } = await import("@/lib/api");
+    expect(vi.mocked(getTrace)).toHaveBeenCalledWith(
+      "proj-1",
+      "trace-1",
+      "",
+      undefined,
+      "detector",
+    );
+  });
+
+  it("keeps detector out of the queryKey when no source is given", () => {
+    renderPanel();
+    expect(mocks.lastQuery!.queryKey).not.toContain("detector");
   });
 });
