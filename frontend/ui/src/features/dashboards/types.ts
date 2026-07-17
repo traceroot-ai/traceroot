@@ -143,20 +143,6 @@ export function isEnumerableFilter(field: WidgetSchemaField | undefined, op: str
   return !!field && field.type === "string" && (op === "=" || op === "!=");
 }
 
-export interface FieldUnit {
-  prefix?: string;
-  suffix?: string;
-}
-
-// Units for fields that carry one — shared by the builder's filter inputs and
-// every widget renderer (stat tile, chart tooltips and axes, table cells).
-// Moving these into the backend registry's schema is a tracked follow-up;
-// until then this map is the frontend's single copy.
-export const FIELD_UNIT: Record<string, FieldUnit> = {
-  cost: { prefix: "$" },
-  duration_ms: { suffix: "ms" },
-};
-
 // Numeric comparison symbols shared with the trace-list filter chips.
 const NUMERIC_OP_SYMBOL: Record<string, string> = { ">=": "≥", "<=": "≤", "!=": "≠" };
 
