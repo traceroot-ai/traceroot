@@ -55,11 +55,10 @@ describe("FilterRow value input", () => {
         filter={{ field: "model_name", op: "=", value: "" }}
       />,
     );
-    // field + op selects; the value control is the trace-list popover dropdown
-    expect(screen.getAllByRole("combobox")).toHaveLength(2);
+    // the value control is the trace-list popover dropdown, not a free input
     expect(screen.queryByRole("textbox")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Value" }));
+    fireEvent.click(screen.getByRole("button", { name: "Enter value" }));
     const option = screen.getByRole("option", { name: /gpt-4o/ });
     // the stored value's occurrence count is shown alongside it
     expect(option.textContent).toContain("3");
@@ -72,7 +71,6 @@ describe("FilterRow value input", () => {
     render(
       <FilterRow {...baseProps} filter={{ field: "model_name", op: "contains", value: "gp" }} />,
     );
-    expect(screen.getAllByRole("combobox")).toHaveLength(2);
     expect(screen.getByRole("textbox")).toBeTruthy();
     // the hook is parked while the op is not enumerable
     expect(vi.mocked(useWidgetFieldValues).mock.lastCall?.[4]).toBe(false);
@@ -81,15 +79,55 @@ describe("FilterRow value input", () => {
   it("falls back to free text when no stored values exist", () => {
     vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
     render(<FilterRow {...baseProps} filter={{ field: "model_name", op: "=", value: "" }} />);
-    expect(screen.getAllByRole("combobox")).toHaveLength(2);
     expect(screen.getByRole("textbox")).toBeTruthy();
   });
 
   it("keeps the number input for numeric fields", () => {
     vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
     render(<FilterRow {...baseProps} filter={{ field: "cost", op: ">", value: 5 }} />);
-    expect(screen.getByRole("spinbutton")).toBeTruthy();
+    const input = screen.getByRole("spinbutton");
+    expect(input).toBeTruthy();
+    // the widget builder hosts the shared controls at its compact 12px size
+    expect(input.className).toContain("text-[12px]");
     expect(vi.mocked(useWidgetFieldValues).mock.lastCall?.[4]).toBe(false);
+  });
+
+  it("rejects negative numeric input like the trace-list builder", () => {
+    vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
+    const onChange = vi.fn();
+    render(
+      <FilterRow
+        {...baseProps}
+        onChange={onChange}
+        filter={{ field: "cost", op: ">", value: "" }}
+      />,
+    );
+    const input = screen.getByRole("spinbutton");
+    // typed negative values are dropped instead of propagating into the spec
+    fireEvent.change(input, { target: { value: "-5" } });
+    expect(onChange).not.toHaveBeenCalled();
+    // a non-negative value still propagates as a number
+    fireEvent.change(input, { target: { value: "5" } });
+    expect(onChange).toHaveBeenCalledWith(0, { value: 5 });
+  });
+
+  it("picking a field auto-selects its first operator, like the trace-list builder", () => {
+    vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
+    const onChange = vi.fn();
+    render(
+      <FilterRow {...baseProps} onChange={onChange} filter={{ field: "", op: "", value: "" }} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Field" }));
+    fireEvent.click(screen.getByRole("option", { name: /Cost/ }));
+    expect(onChange).toHaveBeenCalledWith(0, { field: "cost", op: ">", value: "" });
+  });
+
+  it("disables the op and value controls until a field is picked", () => {
+    vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
+    render(<FilterRow {...baseProps} filter={{ field: "", op: "", value: "" }} />);
+    // op trigger shows the placeholder "is" and is disabled; value is a parked input
+    expect(screen.getByRole("button", { name: "is" })).toHaveProperty("disabled", true);
+    expect(screen.getByPlaceholderText("Enter value")).toHaveProperty("disabled", true);
   });
 
   it("shows trace-list wording for string ops and symbols for numeric ops", () => {
@@ -102,6 +140,23 @@ describe("FilterRow value input", () => {
 
     render(<FilterRow {...baseProps} filter={{ field: "cost", op: ">=", value: 5 }} />);
     expect(screen.getByText("≥")).toBeTruthy();
+  });
+
+  it("lists the field's ops in the operator dropdown with shared labels", () => {
+    vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
+    const onChange = vi.fn();
+    render(
+      <FilterRow
+        {...baseProps}
+        onChange={onChange}
+        filter={{ field: "model_name", op: "=", value: "" }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "is" }));
+    expect(screen.getByRole("option", { name: "is not" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "contains" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("option", { name: "is not" }));
+    expect(onChange).toHaveBeenCalledWith(0, { op: "!=" });
   });
 
   it("adorns cost and duration values with their unit like the trace-list builder", () => {
