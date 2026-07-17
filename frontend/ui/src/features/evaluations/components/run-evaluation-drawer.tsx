@@ -199,12 +199,12 @@ export function RunEvaluationDrawer({
               title="Copy"
             />
           </div>
-          {/* Generous bottom padding on the SCROLLING <pre>: a horizontal scrollbar
-              sits at the pre's bottom edge, so the last line needs enough clearance
-              (pb-6 > scrollbar height) not to be overlapped/cut. */}
+          {/* Self-contained scroll box: the code scrolls WITHIN a bounded height
+              (independent of the drawer body's scroll), and pb-6 keeps the last line
+              clear of the horizontal scrollbar at the pre's bottom edge. */}
           <HighlightedCode
             code={code}
-            className="overflow-x-auto whitespace-pre px-3 pb-6 pt-2.5 font-mono text-[11px] leading-relaxed"
+            className="max-h-[55vh] overflow-auto whitespace-pre px-3 pb-6 pt-2.5 font-mono text-[11px] leading-relaxed"
           />
         </div>
 
