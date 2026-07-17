@@ -8,6 +8,7 @@ the {data, meta} response envelope.
 import gzip
 import inspect
 import logging
+import typing
 from datetime import datetime
 from unittest.mock import MagicMock
 
@@ -790,3 +791,47 @@ class TestInternalTraceIngest:
         import rest.routers.internal as internal_module
 
         assert "enqueue_detector_runs" not in inspect.getsource(internal_module)
+
+
+# =============================================================================
+# /usage/* (billing metering)
+# =============================================================================
+
+
+class TestUsageExcludesDetectorTraffic:
+    PARAMS: typing.ClassVar[dict[str, str]] = {
+        "project_ids": "p1",
+        "start": "2026-07-01T00:00:00Z",
+        "end": "2026-08-01T00:00:00Z",
+    }
+
+    def test_usage_details_excludes_detector_spans_and_traces(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [
+            _make_query_result([(3,)], ["total"]),  # traces
+            _make_query_result([(9,)], ["total"]),  # spans
+            _make_query_result([(2,)], ["total"]),  # detector_runs
+        ]
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params=self.PARAMS,
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        traces_sql = mock_ch.query.call_args_list[0].args[0]
+        spans_sql = mock_ch.query.call_args_list[1].args[0]
+        runs_sql = mock_ch.query.call_args_list[2].args[0]
+        assert "source != 'detector'" in traces_sql
+        assert "source != 'detector'" in spans_sql
+        # The detector_runs meter intentionally still counts every run.
+        assert "source != 'detector'" not in runs_sql
+
+    def test_usage_total_excludes_detector_in_both_subqueries(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [_make_query_result([(12,)], ["total"])]
+        resp = client.get(
+            "/api/v1/internal/usage/total",
+            params=self.PARAMS,
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        combined_sql = mock_ch.query.call_args_list[0].args[0]
+        assert combined_sql.count("source != 'detector'") == 2
