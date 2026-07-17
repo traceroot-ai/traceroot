@@ -17,7 +17,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { DisplayType, FieldUnit, WidgetQueryResult } from "../types";
+import { type DisplayType, type FieldUnit, type WidgetQueryResult, AGGS } from "../types";
 
 // Pastel series palette mirroring the span-kind tints
 // (violet=llm, blue=agent, amber=tool, slate=span), then softened extras.
@@ -46,7 +46,14 @@ const CHART_FOCUS_RESET =
 const coerceNumeric = (v: unknown): unknown =>
   typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v)) ? Number(v) : v;
 
-export function pivotRows(columns: string[], rows: WidgetQueryResult["rows"]) {
+export function pivotRows(
+  columns: string[],
+  rows: WidgetQueryResult["rows"],
+  // What a bucket×series hole means: 0 for additive aggs (a count/sum of
+  // nothing IS zero), null for non-additive ones (an empty bucket has no
+  // average or percentile — charts draw the null as a gap, not a collapse).
+  gapValue: 0 | null = 0,
+) {
   // Shapes: [value] | [bucket, value] | [dim, value] | [bucket, dim, value]
   const valueIdx = columns.length - 1;
   const hasBucket = columns[0] === "bucket";
@@ -84,8 +91,9 @@ export function pivotRows(columns: string[], rows: WidgetQueryResult["rows"]) {
     const rawDim = r[dimIdx];
     // The query's WITH FILL synthesizes rows for empty buckets, carrying the
     // breakdown column's default ('' — or NULL if a Nullable expr ever slips
-    // past the compiler's type pin) and a zero value. They extend the x-axis
-    // domain but are not a series: register the bucket and move on.
+    // past the compiler's type pin) and a zero or NULL value (NULL for the
+    // Nullable non-additive metrics). They extend the x-axis domain but are
+    // not a series: register the bucket and move on.
     if ((rawDim === "" || rawDim == null) && !Number(r[valueIdx])) {
       if (!byBucket.has(bucket)) byBucket.set(bucket, { bucket });
       continue;
@@ -103,13 +111,12 @@ export function pivotRows(columns: string[], rows: WidgetQueryResult["rows"]) {
     byBucket.get(bucket)![dim] = coerceNumeric(r[valueIdx]);
   }
 
-  // Uniform zero-fill: missing series keys per bucket are set to 0 so
-  // line/area charts tell the same story. Honest for count/sum (the dominant
-  // dashboard aggregations), slightly lossy for percentile gaps — accepted tradeoff.
+  // Uniform fill: missing series keys per bucket get the agg-appropriate gap
+  // value so line/area charts tell the same story across series.
   const data = [...byBucket.values()].map((row) => {
     const filled = { ...row };
     for (const k of seriesKeys) {
-      if (!Object.hasOwn(filled, k)) filled[k] = 0;
+      if (!Object.hasOwn(filled, k)) filled[k] = gapValue;
     }
     return filled;
   });
@@ -210,12 +217,18 @@ function TimeSeries({
   result,
   area,
   seriesLabel,
+  additive = true,
 }: {
   result: WidgetQueryResult;
   area: boolean;
   seriesLabel?: string;
+  /** False for avg/percentile series: empty buckets render as gaps, not 0. */
+  additive?: boolean;
 }) {
-  const { seriesKeys, data } = useMemo(() => pivotRows(result.columns, result.rows), [result]);
+  const { seriesKeys, data } = useMemo(
+    () => pivotRows(result.columns, result.rows, additive ? 0 : null),
+    [result, additive],
+  );
   const Chart = area ? AreaChart : LineChart;
   const granularity = result.meta.granularity;
 
@@ -243,8 +256,12 @@ function TimeSeries({
         <CartesianGrid strokeOpacity={0.15} vertical={false} />
         <XAxis dataKey="bucket" tick={{ fontSize: 10 }} tickFormatter={tickFormatter} />
         <YAxis tick={{ fontSize: 10 }} width={42} />
+        {/* filterNull: recharts strips null payload items by default, which
+            would drop a non-additive series' row from the tooltip on its empty
+            (gap) buckets — keep them so ChartTip shows an em-dash instead. */}
         <Tooltip
           isAnimationActive={false}
+          filterNull={false}
           content={
             <ChartTip
               nameFormatter={seriesNameFormatter(seriesLabel)}
@@ -255,16 +272,24 @@ function TimeSeries({
         {/* isAnimationActive={false} on every mark (here and in the other
             charts): the default ~1.4s geometry morph makes charts visibly lag
             behind their tile during grid resizes and data refreshes. */}
+        {/* A non-additive series carries NULL for empty buckets (backend
+            WITH FILL + the pivot's gap fill): connectNulls bridges them so one
+            readable line survives without inventing zeros. Areas additionally
+            drop stacking for non-additive aggs — recharts' stack accessor
+            coerces null to 0 BEFORE connectNulls is consulted, which would
+            redraw the false collapse (and stacking percentiles is
+            meaningless anyway). */}
         {seriesKeys.map((k, i) =>
           area ? (
             <Area
               key={k}
               dataKey={k}
-              stackId="1"
+              stackId={additive ? "1" : undefined}
               stroke={seriesColor(i)}
               fill={seriesColor(i)}
               fillOpacity={0.35}
               isAnimationActive={false}
+              connectNulls={!additive}
             />
           ) : (
             <Line
@@ -274,6 +299,7 @@ function TimeSeries({
               dot={false}
               strokeWidth={1.5}
               isAnimationActive={false}
+              connectNulls={!additive}
             />
           ),
         )}
@@ -421,18 +447,29 @@ function HistogramView({
   );
 }
 
+// Aggs whose empty buckets have no value (no average or percentile of
+// nothing): their series shows a gap instead of a false drop to 0. Mirrors
+// the backend's _NON_ADDITIVE_AGGS — same polarity, so an agg added to one
+// list but not the other degrades to the additive (zero-filled) treatment on
+// both sides rather than diverging. Absent agg = additive (legacy callers).
+const NON_ADDITIVE_AGGS = new Set<string>(["avg", "min", "max", "p50", "p95", "p99"]);
+
 export function QueryWidgetRenderer({
   display,
   result,
   unit,
   seriesLabel,
+  agg,
 }: {
   display: DisplayType;
   result: WidgetQueryResult;
   unit?: FieldUnit;
   /** Measure name from the widget spec, shown as the single-series tooltip row name. */
   seriesLabel?: string;
+  /** Aggregation from the widget spec; decides how empty buckets render. */
+  agg?: (typeof AGGS)[number];
 }) {
+  const additive = agg === undefined || !NON_ADDITIVE_AGGS.has(agg);
   if (result.rows.length === 0) {
     return (
       <div className="flex h-full items-center justify-center text-[12px] text-muted-foreground">
@@ -442,9 +479,11 @@ export function QueryWidgetRenderer({
   }
   switch (display) {
     case "line":
-      return <TimeSeries result={result} area={false} seriesLabel={seriesLabel} />;
+      return (
+        <TimeSeries result={result} area={false} seriesLabel={seriesLabel} additive={additive} />
+      );
     case "area":
-      return <TimeSeries result={result} area seriesLabel={seriesLabel} />;
+      return <TimeSeries result={result} area seriesLabel={seriesLabel} additive={additive} />;
     case "bar":
       return <Bars result={result} seriesLabel={seriesLabel} />;
     case "pie":

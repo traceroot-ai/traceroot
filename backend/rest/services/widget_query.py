@@ -31,6 +31,12 @@ _AGG_SQL = {
     "p99": "quantile(0.99)({expr})",
 }
 
+# Aggregations where an empty time bucket has no meaningful value: count/sum
+# of nothing is honestly 0, but the average or a percentile of nothing is a
+# gap, not a zero. Drives Nullable metrics on time series so WITH FILL rows
+# come back NULL and charts render gaps instead of false drops to zero.
+_NON_ADDITIVE_AGGS = frozenset({"avg", "min", "max", "p50", "p95", "p99"})
+
 _OP_SQL = {
     "=": "{expr} = {{{p}:{t}}}",
     "!=": "{expr} != {{{p}:{t}}}",
@@ -161,6 +167,12 @@ def compile_widget_query(
     order_by = ""
 
     is_timeseries = spec.display.type in ("line", "area")
+    if is_timeseries and spec.metric.agg in _NON_ADDITIVE_AGGS:
+        # For count/sum an empty bucket genuinely is zero, but for averages
+        # and percentiles it has NO value — a filled 0 would render as a false
+        # collapse (a p95 latency line dipping to nothing). Nullable makes the
+        # WITH FILL rows below carry NULL, which the chart draws as a gap.
+        metric_sql = f"toNullable({metric_sql})"
     # Bound unconditionally: both the bucketing branch and the row-cap branch
     # below key off is_timeseries, and an implicit binding would let them drift.
     gran = _pick_granularity(start_time, end_time)
