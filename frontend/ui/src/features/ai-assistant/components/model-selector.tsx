@@ -29,26 +29,29 @@ function modelKey(m: { id?: string; model?: string; source: string; provider: st
 export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorProps) {
   const [open, setOpen] = useState(false);
 
-  const { data } = useQuery({
+  const { data, isPending } = useQuery({
     queryKey: ["llm-models", workspaceId],
     queryFn: () => getAvailableLLMModels(workspaceId!),
     enabled: !!workspaceId,
   });
 
-  // BYOK models first, then system models. No deduplication.
-  const models = flattenAvailableModels(data);
+  // BYOK models first, then system models. No deduplication. Only shows the
+  // compiled-in fallback list while the query is still pending — once settled,
+  // an empty response means the workspace genuinely has no models.
+  const models = flattenAvailableModels(data, isPending);
 
   // Reconcile the incoming selection against the catalog:
   //   1. exact match on (model, provider, source) → check adapter; backfill if empty/wrong
   //   2. model-id-only match (legacy/hydrated state where the parent only has
   //      `model` saved, e.g. `project.rca_model: string`) → backfill the rest
   //   3. no match → preserve the current selection if the user already picked
-  //      one, and only auto-pick a default when the model is still empty.
+  //      one, and only auto-pick a default once the query has settled and the
+  //      model is still empty. Gating on settled state (rather than picking from
+  //      the pending fallback list and clearing it later) avoids ever showing a
+  //      phantom default the user didn't choose.
   // Without case 2 the selector would silently auto-pick a default when a
   // partially-hydrated saved selection arrives, clobbering the user's choice.
   useEffect(() => {
-    if (models.length === 0) return;
-
     const exact = models.find(
       (m) => m.id === value.model && m.provider === value.provider && m.source === value.source,
     );
@@ -57,7 +60,7 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
     const match = exact ?? modelOnly;
 
     if (!match) {
-      if (!value.model) {
+      if (!value.model && !isPending) {
         const pick = pickDefaultModel(models);
         if (pick) {
           onChange({
@@ -87,7 +90,7 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
         adapter: match.adapter,
       });
     }
-  }, [models, value, onChange]);
+  }, [models, value, onChange, isPending]);
 
   const selectedKey = modelKey({ id: value.model, source: value.source, provider: value.provider });
   const selectedModel = models.find((m) => modelKey(m) === selectedKey);
@@ -149,6 +152,17 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
           {models.length === 0 && (
             <div className="px-2.5 py-3 text-center text-[11px] text-muted-foreground">
               No models available
+              {workspaceId && (
+                <>
+                  {" — "}
+                  <a
+                    href={`/workspaces/${workspaceId}/settings/model-providers`}
+                    className="font-medium underline"
+                  >
+                    configure one
+                  </a>
+                </>
+              )}
             </div>
           )}
         </PopoverContent>
