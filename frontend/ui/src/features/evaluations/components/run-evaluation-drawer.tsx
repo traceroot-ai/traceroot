@@ -18,8 +18,8 @@ import { useDatasets } from "../hooks";
 import type { DatasetRow } from "../types";
 
 /**
- * "Run evaluation" — a copyable SDK starter snippet (not a form). Faithful port
- * of the prototype's drawer, wired to real datasets: the snippet references the
+ * "Run evaluation" — a copyable SDK starter snippet (not a form), wired to real
+ * datasets: the snippet references the
  * selected dataset's real id and current version id. Evaluations run in the
  * customer's app/CI and report back; this panel configures nothing.
  */
