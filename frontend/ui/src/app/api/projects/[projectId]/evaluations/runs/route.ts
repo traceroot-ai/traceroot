@@ -107,11 +107,16 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       baselineResults: baseline ? toComparisonResults(resultsByRun.get(baseline.id) ?? []) : [],
     });
     const statusCounts = countResultStatuses(resultsByRun.get(r.id) ?? []);
+    // Total cost across the run's cases (SDK-reported per result). Null when no case
+    // reported a cost — never a misleading 0.
+    const costRows = (resultsByRun.get(r.id) ?? []).filter((x) => x.cost != null);
+    const cost = costRows.length > 0 ? costRows.reduce((sum, x) => sum + (x.cost ?? 0), 0) : null;
     return {
       ...r,
       evaluationName: r.evaluation.name,
       datasetName: datasetName.get(r.datasetId) ?? null,
       datasetVersionLabel: r.datasetVersion.label,
+      cost,
       // Delta + regressed-case count only when trustworthy; otherwise null (UI shows —),
       // never a misleading number beside an incompatible baseline.
       changeFromBaseline: comparison.trustworthy ? comparison.mainScore.delta : null,
