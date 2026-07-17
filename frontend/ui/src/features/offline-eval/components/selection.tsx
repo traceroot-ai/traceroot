@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 /**
- * Row selection, the way the reference tables (and Braintrust) do it: a checkbox
+ * Row selection, the way the reference tables do it: a checkbox
  * column with a select/deselect-all header, and a bar that appears once anything
  * is selected — "N selected", with Delete and any extra actions.
  */
