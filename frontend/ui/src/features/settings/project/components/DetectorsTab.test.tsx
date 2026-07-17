@@ -2,12 +2,28 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
 
+type ProjectMock = {
+  workspace_id: string;
+  alert_emails: string[];
+  alert_window: string;
+  rca_model?: string | null;
+  rca_provider?: string | null;
+  rca_source?: string | null;
+};
+
+type ModelSelectionMock = {
+  model: string;
+  provider: string;
+  source: "system" | "byok";
+  adapter: string;
+};
+
 const mocks = vi.hoisted(() => ({
   project: {
     workspace_id: "w1",
     alert_emails: [] as string[],
     alert_window: "10m",
-  } as any,
+  } as ProjectMock,
   updateProject: vi.fn().mockResolvedValue({}),
   llmModels: {
     byokProviders: [] as Array<{
@@ -24,33 +40,16 @@ const mocks = vi.hoisted(() => ({
     }>,
   },
   modelSelectorReconcile: undefined as
-    | ((value: {
-        model: string;
-        provider: string;
-        source: "system" | "byok";
-        adapter: string;
-      }) => {
-        model: string;
-        provider: string;
-        source: "system" | "byok";
-        adapter: string;
-      })
+    | ((value: ModelSelectionMock) => ModelSelectionMock)
     | undefined,
-  selectModel: undefined as
-    | {
-        model: string;
-        provider: string;
-        source: "system" | "byok";
-        adapter: string;
-      }
-    | undefined,
+  selectModel: undefined as ModelSelectionMock | undefined,
 }));
 
 vi.mock("@/features/projects/hooks", () => ({
   useProject: () => ({ data: mocks.project, isLoading: false }),
 }));
 vi.mock("@/lib/api", () => ({
-  updateProject: (...a: any[]) => mocks.updateProject(...a),
+  updateProject: (...a: unknown[]) => mocks.updateProject(...a),
   getAvailableLLMModels: () => Promise.resolve(mocks.llmModels),
 }));
 vi.mock("@/features/integrations/hooks/useSlackIntegration", () => ({
