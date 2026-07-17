@@ -423,6 +423,9 @@ export function seedFormat(
  * `copyable` adds a copy button, `autoDetectKind` picks JSON vs text from the
  * initial content, and `minRows` sets the resting height.
  */
+/** A long value collapses behind an in-field "…expand" control past this length. */
+const COLLAPSE_AT = 500;
+
 export function EditableValueBlock({
   label,
   text,
@@ -435,6 +438,8 @@ export function EditableValueBlock({
   minRows = 1,
   boxed = false,
   readOnly = false,
+  collapsible = false,
+  collapseResetKey,
 }: {
   label: string;
   text: string;
@@ -454,11 +459,22 @@ export function EditableValueBlock({
   boxed?: boolean;
   /** Display only — same look and format switcher, but the text can't be edited. */
   readOnly?: boolean;
+  /** Cap a long value behind an in-field "…expand (N more)" control that sits below
+   *  the header and clips only the value body (not the whole card). Off by default. */
+  collapsible?: boolean;
+  /** Re-collapse when this changes (e.g. the source span switched). Editing never
+   *  re-collapses — only a new key does. Unneeded when the block is remounted by `key`. */
+  collapseResetKey?: string;
 }) {
   const [kind, setKind] = React.useState<ValueKind>(defaultKind);
   const [menuOpen, setMenuOpen] = React.useState(false);
   // Minimised via the header chevron, like the span detail panel's I/O sections.
   const [open, setOpen] = React.useState(true);
+  // A long value is clipped behind an in-field "…expand" control; reset on key change.
+  const [fieldExpanded, setFieldExpanded] = React.useState(false);
+  React.useEffect(() => {
+    setFieldExpanded(false);
+  }, [collapseResetKey]);
   const userSetKind = React.useRef(false);
   // Read-only fields reformat locally (the parent value never changes), so the
   // format switcher still works without touching the source of truth.
@@ -570,6 +586,40 @@ export function EditableValueBlock({
       />
     );
 
+  // A long value collapses behind an in-field "…expand" control INSIDE the body —
+  // below the header, clipping only the value (not the whole card). Same threshold
+  // and styling as the span-detail I/O renderer. Short values render untouched.
+  const collapseValue = readOnly ? display : text;
+  const body =
+    !collapsible || collapseValue.length <= COLLAPSE_AT ? (
+      field
+    ) : fieldExpanded ? (
+      <div>
+        {field}
+        <button
+          type="button"
+          onClick={() => setFieldExpanded(false)}
+          className="mt-1 text-[11px] text-muted-foreground hover:text-foreground"
+        >
+          collapse
+        </button>
+      </div>
+    ) : (
+      <div>
+        <div className="relative max-h-40 overflow-hidden">
+          {field}
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-background to-transparent" />
+        </div>
+        <button
+          type="button"
+          onClick={() => setFieldExpanded(true)}
+          className="mt-1 text-[11px] text-muted-foreground hover:text-foreground"
+        >
+          …expand ({(collapseValue.length - COLLAPSE_AT).toLocaleString()} more characters)
+        </button>
+      </div>
+    );
+
   // Chevron + label: the whole thing toggles, matching the span detail panel.
   const heading = (size: "sm" | "xs") => (
     <button
@@ -615,7 +665,7 @@ export function EditableValueBlock({
           {heading("sm")}
           {controls}
         </div>
-        {open && <div className="bg-background px-2.5 py-2">{field}</div>}
+        {open && <div className="bg-background px-2.5 py-2">{body}</div>}
       </div>
     );
   }
@@ -626,7 +676,7 @@ export function EditableValueBlock({
         {heading("xs")}
         {controls}
       </div>
-      {open && field}
+      {open && body}
     </div>
   );
 }
