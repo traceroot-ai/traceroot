@@ -127,9 +127,9 @@ class TraceReaderService:
     ) -> list[dict]:
         """Distinct values of a span column within the active window, by frequency.
 
-        Powers the filter dropdown's categorical options (model, environment).
-        Time-bounded and briefly cached so repeatedly opening the same filter does
-        not re-scan spans.
+        Powers the filter dropdown's categorical options (model, environment) and
+        the widget builder's spans-view value dropdowns. Time-bounded and briefly
+        cached so repeatedly opening the same filter does not re-scan spans.
 
         Args:
             project_id (str): Project that scopes the span scan (tenant isolation).
@@ -146,9 +146,82 @@ class TraceReaderService:
             list[dict]: ``[{"value": str, "count": int}]`` ordered by descending
             frequency, capped at ``DISTINCT_VALUES_LIMIT``.
         """
+        return self._distinct_values(
+            table="spans",
+            time_column="span_start_time",
+            dedup_keys="project_id, trace_id, span_id",
+            project_id=project_id,
+            column=column,
+            start_after=start_after,
+            end_before=end_before,
+        )
+
+    def get_distinct_trace_values(
+        self,
+        project_id: str,
+        column: str,
+        start_after: datetime | None = None,
+        end_before: datetime | None = None,
+    ) -> list[dict]:
+        """Distinct values of a traces column within the active window, by frequency.
+
+        The traces-table sibling of ``get_distinct_span_values`` — powers the widget
+        builder's traces-view value dropdowns (trace name, user, session, environment).
+
+        Args:
+            project_id (str): Project that scopes the trace scan (tenant isolation).
+            column (str): A traces column name. MUST be a registry-resolved identifier,
+                never raw user input — it is interpolated into the SQL because column
+                names cannot be bound as query parameters.
+            start_after (datetime | None): Lower bound on ``trace_start_time``; prunes
+                monthly partitions. ``None`` defaults a lookback (never all-time).
+            end_before (datetime | None): Upper bound on ``trace_start_time``
+                (exclusive), symmetric with the widget query window.
+
+        Returns:
+            list[dict]: ``[{"value": str, "count": int}]`` ordered by descending
+            frequency, capped at ``DISTINCT_VALUES_LIMIT``.
+        """
+        return self._distinct_values(
+            table="traces",
+            time_column="trace_start_time",
+            dedup_keys="project_id, trace_id",
+            project_id=project_id,
+            column=column,
+            start_after=start_after,
+            end_before=end_before,
+        )
+
+    def _distinct_values(
+        self,
+        table: str,
+        time_column: str,
+        dedup_keys: str,
+        project_id: str,
+        column: str,
+        start_after: datetime | None,
+        end_before: datetime | None,
+    ) -> list[dict]:
+        """Shared distinct-values scan: dedup, group, count, cache.
+
+        Args:
+            table (str): Source table (``spans`` or ``traces``) — a literal chosen by
+                the public wrappers, never user input.
+            time_column (str): The table's partition/time column the window bounds.
+            dedup_keys (str): ``LIMIT 1 BY`` key list that identifies one logical row
+                in the table's ReplacingMergeTree.
+            project_id (str): Project that scopes the scan (tenant isolation).
+            column (str): Registry-resolved column to enumerate (interpolated; column
+                names cannot be bound as query parameters).
+            start_after (datetime | None): Lower window bound on ``time_column``.
+            end_before (datetime | None): Upper window bound on ``time_column``.
+
+        Returns:
+            list[dict]: ``[{"value": str, "count": int}]`` by descending frequency.
+        """
         normalized_start = to_utc_naive(start_after) if start_after is not None else None
         normalized_end = to_utc_naive(end_before) if end_before is not None else None
-        # Never scan spans unbounded (the OOM class the filtered list guards against): if no
+        # Never scan unbounded (the OOM class the filtered list guards against): if no
         # lower bound was given, default one — symmetric with the filtered trace list. The UI
         # always sends a window; this bounds a direct API caller that omits one.
         if normalized_start is None:
@@ -158,6 +231,7 @@ class TraceReaderService:
         # bypass the cache and force a fresh full-project GROUP BY on every open. The
         # 30s TTL already accepts this much staleness in the returned option list.
         cache_key = (
+            table,
             project_id,
             column,
             _floor_minute(normalized_start),
@@ -174,24 +248,25 @@ class TraceReaderService:
             # Exact bound, no lookback back-off: this is a self-contained window scan with
             # no trace-level semi-join, so the boundary-drift false-negative reasoning that
             # SPAN_TIME_BOUND_LOOKBACK_HOURS guards against in the filtered list doesn't apply.
-            inner_conditions.append("span_start_time >= {start_after:DateTime64(3)}")
+            inner_conditions.append(f"{time_column} >= {{start_after:DateTime64(3)}}")
             params["start_after"] = normalized_start
         if normalized_end is not None:
-            inner_conditions.append("span_start_time < {end_before:DateTime64(3)}")
+            inner_conditions.append(f"{time_column} < {{end_before:DateTime64(3)}}")
             params["end_before"] = normalized_end
         inner_where = " AND ".join(inner_conditions)
 
-        # Dedup ReplacingMergeTree spans to the latest version per span BEFORE counting, so
-        # a since-updated span can't inflate a value's count or surface a stale value. The
-        # column non-empty filter runs on the deduped (latest) value in the outer query.
+        # Dedup ReplacingMergeTree rows to the latest version per logical row BEFORE
+        # counting, so a since-updated row can't inflate a value's count or surface a stale
+        # value. The column non-empty filter runs on the deduped (latest) value in the
+        # outer query.
         query = f"""
             SELECT value, count() AS n
             FROM (
                 SELECT {column} AS value
-                FROM spans
+                FROM {table}
                 WHERE {inner_where}
                 ORDER BY ch_update_time DESC
-                LIMIT 1 BY project_id, trace_id, span_id
+                LIMIT 1 BY {dedup_keys}
             )
             WHERE value IS NOT NULL AND value != ''
             GROUP BY value
