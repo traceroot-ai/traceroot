@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ListChecks, Ruler } from "lucide-react";
+import { ChevronDown, ChevronRight, Layers, ListChecks, Ruler } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -88,7 +88,7 @@ export function EvaluationsView({ projectId }: { projectId: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Runs — the flat execution list.
+// Runs — the flat execution list, with optional grouping by evaluation lineage.
 // ---------------------------------------------------------------------------
 
 const RUNS_COLUMN_COUNT = 8;
@@ -119,25 +119,39 @@ export function formatCost(cost: number | null | undefined): React.ReactNode {
 }
 
 /**
- * One immutable run row. Clicking the evaluation name scopes the list to that
- * lineage (?evaluation=<id>).
+ * One immutable run row. Shared by the flat table and grouped mode (there is no
+ * second run-table implementation). `showEvaluation=false` hides the lineage line
+ * inside an expanded group, where the group header already names it. Clicking the
+ * evaluation name scopes the list to that lineage (?evaluation=<id>).
  */
-function RunTableRow({ run: r, projectId }: { run: RunRow; projectId: string }) {
+function RunTableRow({
+  run: r,
+  projectId,
+  showEvaluation = true,
+  indent = false,
+}: {
+  run: RunRow;
+  projectId: string;
+  showEvaluation?: boolean;
+  indent?: boolean;
+}) {
   const router = useRouter();
   return (
     <TR interactive onClick={() => router.push(`/projects/${projectId}/evaluations/${r.id}`)}>
-      <Td>
-        <button
-          type="button"
-          className="rounded font-medium hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          title="Scope to this evaluation"
-          onClick={(e) => {
-            e.stopPropagation();
-            router.push(`/projects/${projectId}/evaluations?evaluation=${r.evaluationId}`);
-          }}
-        >
-          {r.evaluationName}
-        </button>
+      <Td className={cn(indent && "pl-6")}>
+        {showEvaluation && (
+          <button
+            type="button"
+            className="rounded font-medium hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            title="Scope to this evaluation"
+            onClick={(e) => {
+              e.stopPropagation();
+              router.push(`/projects/${projectId}/evaluations?evaluation=${r.evaluationId}`);
+            }}
+          >
+            {r.evaluationName}
+          </button>
+        )}
         <div className="text-[11px] text-muted-foreground">
           Run #{r.runNumber} · <span className="font-mono">{r.candidateVersion}</span>
         </div>
@@ -166,6 +180,224 @@ function RunTableRow({ run: r, projectId }: { run: RunRow; projectId: string }) 
   );
 }
 
+/** Newest run per evaluation lineage (runs arrive newest-first), keeping the latest
+ *  even when it's running/failed — never silently substituting an older one. */
+function latestPerEvaluation(runs: RunRow[]): RunRow[] {
+  const seen = new Set<string>();
+  const out: RunRow[] = [];
+  for (const r of runs) {
+    if (!seen.has(r.evaluationId)) {
+      seen.add(r.evaluationId);
+      out.push(r);
+    }
+  }
+  return out;
+}
+
+interface RunGroup {
+  evaluationId: string;
+  evaluationName: string;
+  datasetName: string | null;
+  runs: RunRow[]; // newest first
+}
+
+/** Group by the STABLE evaluation id (not display-name text). First seen is the latest. */
+function groupRunsByEvaluation(runs: RunRow[]): RunGroup[] {
+  const map = new Map<string, RunGroup>();
+  for (const r of runs) {
+    const g = map.get(r.evaluationId);
+    if (g) g.runs.push(r);
+    else
+      map.set(r.evaluationId, {
+        evaluationId: r.evaluationId,
+        evaluationName: r.evaluationName,
+        datasetName: r.datasetName,
+        runs: [r],
+      });
+  }
+  return [...map.values()];
+}
+
+/** Per-lineage aggregate across a group's runs — pooled where a total is meaningful
+ *  (passed, cost, duration) and averaged for the score. */
+function aggregateGroup(runs: RunRow[]) {
+  let passedCount = 0,
+    failedCount = 0,
+    erroredCount = 0,
+    notScoredCount = 0,
+    durationMs = 0,
+    hasDuration = false,
+    scoreSum = 0,
+    scoreN = 0,
+    cost = 0,
+    hasCost = false;
+  for (const r of runs) {
+    passedCount += r.passedCount ?? 0;
+    failedCount += r.failedCount ?? 0;
+    erroredCount += r.erroredCount ?? 0;
+    notScoredCount += r.notScoredCount ?? 0;
+    if (r.elapsedMs != null) {
+      durationMs += r.elapsedMs;
+      hasDuration = true;
+    }
+    if (r.mainScore != null) {
+      scoreSum += r.mainScore;
+      scoreN += 1;
+    }
+    if (r.cost != null) {
+      cost += r.cost;
+      hasCost = true;
+    }
+  }
+  return {
+    counts: { passedCount, failedCount, erroredCount, notScoredCount },
+    durationMs: hasDuration ? durationMs : null,
+    avgScore: scoreN > 0 ? scoreSum / scoreN : null,
+    cost: hasCost ? cost : null,
+  };
+}
+
+/** Tiny muted caption under an aggregate value, naming how it was rolled up. */
+function AggCaption({ children }: { children: React.ReactNode }) {
+  return <div className="text-[10px] font-normal text-muted-foreground">{children}</div>;
+}
+
+/** Collapsed group summary: the evaluation name + run count, and per-column aggregate
+ *  totals across the lineage aligned under the same columns as the run rows. Expands to
+ *  the (reused) run rows. */
+function GroupHeaderRow({
+  group,
+  isOpen,
+  onToggle,
+  projectId,
+}: {
+  group: RunGroup;
+  isOpen: boolean;
+  onToggle: () => void;
+  projectId: string;
+}) {
+  const router = useRouter();
+  const latest = group.runs[0];
+  const earlier = group.runs.length - 1;
+  const agg = React.useMemo(() => aggregateGroup(group.runs), [group.runs]);
+  return (
+    <TR className="bg-muted/40 font-medium">
+      <Td>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={onToggle}
+            className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+            aria-label={isOpen ? "Collapse" : "Expand"}
+            aria-expanded={isOpen}
+          >
+            {isOpen ? (
+              <ChevronDown className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5" />
+            )}
+          </button>
+          <button
+            type="button"
+            className="rounded hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            title="Scope to this evaluation"
+            onClick={() =>
+              router.push(`/projects/${projectId}/evaluations?evaluation=${group.evaluationId}`)
+            }
+          >
+            {group.evaluationName}
+          </button>
+        </div>
+        <div className="pl-6 text-[11px] font-normal text-muted-foreground">
+          {group.runs.length} run{group.runs.length === 1 ? "" : "s"}
+          {earlier > 0 && ` · ${earlier} earlier`}
+        </div>
+      </Td>
+      <Td className="text-muted-foreground">{group.datasetName}</Td>
+      <Td className="text-right tabular-nums">
+        <ScoreValue value={agg.avgScore} />
+        {agg.avgScore !== null && <AggCaption>avg</AggCaption>}
+      </Td>
+      <Td className="text-right font-normal tabular-nums">
+        <PassRate counts={agg.counts} />
+      </Td>
+      <Td className="text-right tabular-nums text-muted-foreground">
+        {formatCost(agg.cost)}
+        {agg.cost !== null && <AggCaption>total</AggCaption>}
+      </Td>
+      <Td className="whitespace-nowrap text-right tabular-nums text-muted-foreground">
+        {formatElapsed(agg.durationMs)}
+        {agg.durationMs !== null && <AggCaption>total</AggCaption>}
+      </Td>
+      <Td>
+        <RunStatusBadge status={latest.status} />
+        <AggCaption>latest</AggCaption>
+      </Td>
+      <Td className="whitespace-nowrap text-right font-normal text-muted-foreground">
+        <Timestamp iso={latest.startedAt} />
+        <AggCaption>latest</AggCaption>
+      </Td>
+    </TR>
+  );
+}
+
+/** Compact lineage header shown when the list is scoped to one evaluation. */
+function LineageHeader({
+  run,
+  runCount,
+  projectId,
+}: {
+  run: RunRow;
+  runCount: number;
+  projectId: string;
+}) {
+  const router = useRouter();
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-b border-border bg-muted/20 px-3 py-2 text-[12px]">
+      <ListChecks className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+      <span className="font-medium">{run.evaluationName}</span>
+      <span className="text-muted-foreground">
+        {run.datasetName ?? "—"} · {runCount} run{runCount === 1 ? "" : "s"} · latest
+      </span>
+      <RunStatusBadge status={run.status} />
+      <button
+        type="button"
+        onClick={() => router.push(`/projects/${projectId}/evaluations`)}
+        className="ml-auto rounded px-1.5 py-0.5 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground"
+      >
+        Clear filter
+      </button>
+    </div>
+  );
+}
+
+/** Small pill toggle for the restrained run-table controls. */
+function Toggle({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-[12px] transition-colors",
+        active
+          ? "border-foreground/30 bg-muted text-foreground"
+          : "border-input text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
 function RunsTab({ projectId }: { projectId: string }) {
   const searchParams = useSearchParams();
   // Scoping the list to one evaluation lineage lives in the URL (?evaluation=<id>) so
@@ -180,6 +412,9 @@ function RunsTab({ projectId }: { projectId: string }) {
   );
   const [customStart, setCustomStart] = React.useState<Date | null>(null);
   const [customEnd, setCustomEnd] = React.useState<Date | null>(null);
+  const [latestOnly, setLatestOnly] = React.useState(false);
+  const [groupBy, setGroupBy] = React.useState(false);
+  const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
 
   const { data: datasetsData } = useDatasets(projectId, { limit: 200 });
   const { data, isLoading, error } = useEvaluationRuns(projectId, {
@@ -188,8 +423,26 @@ function RunsTab({ projectId }: { projectId: string }) {
     dataset_id: datasetFilter === ALL ? undefined : datasetFilter,
     status: statusFilter === ALL ? undefined : statusFilter,
   });
-  const runs = React.useMemo(() => data?.data ?? [], [data]);
+  const allRuns = React.useMemo(() => data?.data ?? [], [data]);
   const filtered = !!keyword || datasetFilter !== ALL || statusFilter !== ALL;
+
+  // Latest-only is a client-side convenience over the loaded page (newest-first);
+  // grouping is client-side on the stable evaluation id. When scoped to one lineage,
+  // grouping is meaningless (a single group) so it's suppressed.
+  const runs = React.useMemo(
+    () => (latestOnly ? latestPerEvaluation(allRuns) : allRuns),
+    [allRuns, latestOnly],
+  );
+  const grouped = groupBy && !scopedEvalId;
+  const groups = React.useMemo(() => (grouped ? groupRunsByEvaluation(runs) : []), [grouped, runs]);
+
+  const toggleGroup = (id: string) =>
+    setExpanded((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   return (
     <>
@@ -238,8 +491,22 @@ function RunsTab({ projectId }: { projectId: string }) {
           </SelectContent>
         </Select>
 
+        <Toggle active={latestOnly} onClick={() => setLatestOnly((v) => !v)}>
+          Latest only
+        </Toggle>
+        {!scopedEvalId && (
+          <Toggle active={groupBy} onClick={() => setGroupBy((v) => !v)}>
+            <Layers className="h-3.5 w-3.5" aria-hidden />
+            Group by evaluation
+          </Toggle>
+        )}
+
         <span className="flex-1" aria-hidden />
       </SearchFilterBar>
+
+      {scopedEvalId && allRuns[0] && (
+        <LineageHeader run={allRuns[0]} runCount={allRuns.length} projectId={projectId} />
+      )}
 
       <div className="min-h-0 flex-1 overflow-auto">
         <Table>
@@ -272,6 +539,27 @@ function RunsTab({ projectId }: { projectId: string }) {
                     : "No evaluation runs yet. Report a run from your SDK and it appears here."}
                 </EmptyState>
               </Cell>
+            ) : grouped ? (
+              groups.map((g) => (
+                <React.Fragment key={g.evaluationId}>
+                  <GroupHeaderRow
+                    group={g}
+                    isOpen={expanded.has(g.evaluationId)}
+                    onToggle={() => toggleGroup(g.evaluationId)}
+                    projectId={projectId}
+                  />
+                  {expanded.has(g.evaluationId) &&
+                    g.runs.map((r) => (
+                      <RunTableRow
+                        key={r.id}
+                        run={r}
+                        projectId={projectId}
+                        showEvaluation={false}
+                        indent
+                      />
+                    ))}
+                </React.Fragment>
+              ))
             ) : (
               runs.map((r) => <RunTableRow key={r.id} run={r} projectId={projectId} />)
             )}
