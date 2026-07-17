@@ -6,7 +6,6 @@ const {
   memberFindUnique,
   memberCreate,
   inviteFindUnique,
-  inviteDelete,
   inviteDeleteMany,
   requireWorkspaceMembershipMock,
 } = vi.hoisted(() => ({
@@ -15,7 +14,6 @@ const {
   memberFindUnique: vi.fn(),
   memberCreate: vi.fn(),
   inviteFindUnique: vi.fn(),
-  inviteDelete: vi.fn(),
   inviteDeleteMany: vi.fn(),
   requireWorkspaceMembershipMock: vi.fn(),
 }));
@@ -28,7 +26,7 @@ vi.mock("@traceroot/core", async (orig) => {
       workspace: { findUnique: workspaceFindUnique },
       user: { findUnique: userFindUnique },
       workspaceMember: { findUnique: memberFindUnique, create: memberCreate },
-      invite: { findUnique: inviteFindUnique, delete: inviteDelete, deleteMany: inviteDeleteMany },
+      invite: { findUnique: inviteFindUnique, deleteMany: inviteDeleteMany },
       $transaction: vi.fn((ops: unknown[]) => Promise.all(ops)),
     },
   };
@@ -68,7 +66,6 @@ describe("workspace members POST seat limit", () => {
       .mockReset()
       .mockResolvedValue({ id: "m1", role: "MEMBER", createTime: new Date() });
     inviteFindUnique.mockReset().mockResolvedValue(null);
-    inviteDelete.mockReset().mockResolvedValue({ id: "inv1" });
     inviteDeleteMany.mockReset().mockResolvedValue({ count: 0 });
     workspaceFindUnique.mockReset().mockResolvedValue({
       id: "w1",
@@ -113,7 +110,7 @@ describe("workspace members POST seat limit", () => {
     const res = await post({ userId: "u2", role: "MEMBER" });
     expect(res.status).toBe(201);
     expect(memberCreate).toHaveBeenCalledTimes(1);
-    expect(inviteDelete).toHaveBeenCalledWith({ where: { id: "inv1" } });
+    expect(inviteDeleteMany).toHaveBeenCalledWith({ where: { id: "inv1" } });
   });
 
   it("succeeds under the seat limit", async () => {

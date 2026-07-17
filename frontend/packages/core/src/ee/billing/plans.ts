@@ -323,6 +323,20 @@ export function requireEntitlement(
 // =============================================================================
 // SEAT ENFORCEMENT
 // =============================================================================
+/**
+ * Members plus pending invites — the seat-count math both invite creation
+ * and direct member-add check against the plan limit. Pass
+ * `supersedesInvite: true` when the invite for this exact email is about to
+ * be deleted by the same operation (direct-add deletes and replaces it with
+ * a membership), so that invite isn't double-counted against itself.
+ */
+export function countCurrentSeats(
+  counts: { members: number; invites: number },
+  options?: { supersedesInvite?: boolean },
+): number {
+  return counts.members + counts.invites - (options?.supersedesInvite ? 1 : 0);
+}
+
 export function getSeatLimit(plan: PlanType): number {
   return SEAT_LIMITS[plan];
 }

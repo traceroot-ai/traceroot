@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma, Role, RoleSchema, getSeatLimit, canAddSeat, PlanType } from "@traceroot/core";
+import {
+  prisma,
+  Role,
+  RoleSchema,
+  countCurrentSeats,
+  getSeatLimit,
+  canAddSeat,
+  PlanType,
+} from "@traceroot/core";
 import {
   requireAuth,
   requireWorkspaceMembership,
@@ -143,8 +151,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   });
 
   const plan = (workspace.billingPlan || PlanType.FREE) as PlanType;
-  const currentSeats =
-    workspace._count.members + workspace._count.invites - (pendingInvite ? 1 : 0);
+  const currentSeats = countCurrentSeats(workspace._count, { supersedesInvite: !!pendingInvite });
   const seatLimit = getSeatLimit(plan);
 
   if (!canAddSeat(plan, currentSeats)) {
@@ -166,10 +173,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     },
   });
 
+  // deleteMany (not delete): a concurrent request that already removed this
+  // same invite must not fail the whole transaction and roll back a
+  // legitimate membership create — mirrors the 409 branch's race-safety fix.
   const [membership] = pendingInvite
     ? await prisma.$transaction([
         createMembership,
-        prisma.invite.delete({ where: { id: pendingInvite.id } }),
+        prisma.invite.deleteMany({ where: { id: pendingInvite.id } }),
       ])
     : await prisma.$transaction([createMembership]);
 
