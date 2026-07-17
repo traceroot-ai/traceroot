@@ -213,7 +213,8 @@ class TestGetTrace:
 
     def test_absent_source_passes_none(self, client, mock_trace_reader):
         mock_trace_reader.get_trace.return_value = TRACE_DETAIL
-        client.get("/api/v1/projects/test-project/traces/abc123")
+        response = client.get("/api/v1/projects/test-project/traces/abc123")
+        assert response.status_code == 200
         assert mock_trace_reader.get_trace.call_args.kwargs["source"] is None
 
     def test_invalid_source_is_rejected(self, client, mock_trace_reader):
@@ -331,7 +332,8 @@ class TestGetSpanIO:
 
     def test_passes_through_path_params(self, client, mock_trace_reader):
         mock_trace_reader.get_span_io.return_value = SPAN_IO
-        client.get("/api/v1/projects/test-project/traces/abc123/spans/span-1/io")
+        response = client.get("/api/v1/projects/test-project/traces/abc123/spans/span-1/io")
+        assert response.status_code == 200
         kw = mock_trace_reader.get_span_io.call_args.kwargs
         assert kw["project_id"] == "test-project"
         assert kw["trace_id"] == "abc123"
