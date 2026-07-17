@@ -201,7 +201,9 @@ export function RunEvaluationDrawer({
           </div>
           <HighlightedCode
             code={code}
-            className="overflow-x-auto whitespace-pre px-3 py-2.5 font-mono text-[11px] leading-relaxed"
+            // Extra bottom padding so the last line clears the border — and the
+            // horizontal scrollbar, which otherwise sits right on top of it.
+            className="overflow-x-auto whitespace-pre px-3 pb-5 pt-2.5 font-mono text-[11px] leading-relaxed"
           />
         </div>
 
