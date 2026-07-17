@@ -17,19 +17,17 @@ interface TraceFeedWidgetProps {
   range: TimeRange;
 }
 
-function StatusChip({ errorCount }: { errorCount: number }) {
+// Error count, styled to match the trace-list "Errors" column: a red count
+// badge when a trace recorded errors, a muted zero otherwise.
+function ErrorCount({ errorCount }: { errorCount: number }) {
   if (errorCount > 0) {
     return (
-      <span className="inline-flex rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
-        ERROR
+      <span className="inline-flex min-w-5 justify-center rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
+        {errorCount}
       </span>
     );
   }
-  return (
-    <span className="inline-flex rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
-      OK
-    </span>
-  );
+  return <span className="text-muted-foreground">0</span>;
 }
 
 function fmtTime(iso: string): string {
@@ -91,10 +89,10 @@ export function TraceFeedWidget({ projectId, spec, range }: TraceFeedWidgetProps
     <div className="h-full overflow-auto">
       <table className="w-full text-[11.5px]">
         <thead>
-          <tr className="text-left text-[10px] uppercase tracking-wide text-muted-foreground">
-            <th className="pb-1.5 pr-3 font-medium">Time</th>
+          <tr className="text-left text-[11px] text-muted-foreground">
+            <th className="pb-1.5 pr-3 font-medium">Timestamp</th>
             <th className="pb-1.5 pr-3 font-medium">Name</th>
-            <th className="pb-1.5 pr-3 font-medium">Status</th>
+            <th className="pb-1.5 pr-3 font-medium">Errors</th>
             <th className="pb-1.5 pr-3 font-medium">Cost</th>
             <th className="pb-1.5 font-medium">Latency</th>
           </tr>
@@ -118,7 +116,7 @@ export function TraceFeedWidget({ projectId, spec, range }: TraceFeedWidgetProps
                   {trace.name}
                 </td>
                 <td className="py-1 pr-3">
-                  <StatusChip errorCount={trace.error_count} />
+                  <ErrorCount errorCount={trace.error_count} />
                 </td>
                 <td className="py-1 pr-3 tabular-nums text-muted-foreground">
                   {formatCost(trace.total_cost)}

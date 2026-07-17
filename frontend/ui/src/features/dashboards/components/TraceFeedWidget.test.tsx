@@ -100,7 +100,7 @@ describe("TraceFeedWidget", () => {
     await waitFor(() => expect(screen.getByText("No traces in this time range")).toBeTruthy());
   });
 
-  it("renders a populated list with status chips, cost and time; a row click opens the trace", async () => {
+  it("renders a populated list with error counts, cost and time; a row click opens the trace", async () => {
     vi.mocked(getTraces).mockResolvedValue({
       data: [
         makeTrace({ trace_id: "err-trace", name: "errored-run", error_count: 2, total_cost: 0.5 }),
@@ -118,8 +118,9 @@ describe("TraceFeedWidget", () => {
 
     await waitFor(() => expect(screen.getByText("errored-run")).toBeTruthy());
 
-    expect(screen.getByText("ERROR")).toBeTruthy();
-    expect(screen.getAllByText("OK")).toHaveLength(2);
+    // err-trace has 2 errors → a red count badge; the two clean traces show 0.
+    expect(screen.getByText("2")).toBeTruthy();
+    expect(screen.getAllByText("0")).toHaveLength(2);
 
     // Cost renders through the shared formatCost: magnitude-adaptive
     // precision, "-" for missing/zero — same as every other cost in the app.
