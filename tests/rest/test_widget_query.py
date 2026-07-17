@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 from typing import get_args
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi.encoders import jsonable_encoder
@@ -14,6 +15,7 @@ from rest.schemas.dashboards import (
     WidgetQueryResponse,
     WidgetSpec,
 )
+from rest.services import widget_query as wq
 from rest.services.widget_query import WidgetSpecError, compile_widget_query
 from rest.services.widget_registry import (
     AGGS_NUMBER,
@@ -429,3 +431,24 @@ def test_number_display_rejects_breakdown():
     with pytest.raises(WidgetSpecError) as exc:
         compile_widget_query(spec, "p1", START, END)
     assert exc.value.step == "breakdown"
+
+
+def test_run_widget_query_sets_execution_guards(monkeypatch):
+    """Every widget query runs read-only, time-capped, and with a GROUP BY
+    memory ceiling that spills to disk instead of OOMing the server."""
+    fake_result = MagicMock(column_names=["value"], result_rows=[(1,)])
+    fake_client = MagicMock()
+    fake_client.query.return_value = fake_result
+    monkeypatch.setattr(wq, "get_clickhouse_client", lambda: fake_client)
+
+    wq.run_widget_query(
+        spec=WidgetSpec.model_validate(make_spec()),
+        project_id="p1",
+        start_time=START,
+        end_time=END,
+    )
+
+    settings = fake_client.query.call_args.kwargs["settings"]
+    assert settings["readonly"] == 1
+    assert settings["max_execution_time"] == wq.QUERY_TIMEOUT_S
+    assert settings["max_bytes_before_external_group_by"] == wq.GROUP_BY_SPILL_BYTES

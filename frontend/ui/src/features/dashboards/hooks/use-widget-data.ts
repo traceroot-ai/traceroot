@@ -21,6 +21,22 @@ export function useWidgetSchema(projectId: string) {
   });
 }
 
+const MINUTE = 60_000;
+
+// Relative presets recompute end="now" on every page mount, so raw
+// millisecond bounds would mint a fresh cache key per visit and refire every
+// widget query. Flooring the window to the minute (the same keying the
+// server's distinct-values cache uses) keeps keys stable within a minute, and
+// the matching staleTime serves those remounts from cache with zero requests.
+// Cost: charts lag "now" by up to 60s — the right trade for a dashboard.
+// A sub-minute custom window floors to an empty range; keep it one minute
+// wide rather than compiling an end<=start query the backend rejects.
+export function quantizeRange(range: TimeRange): TimeRange {
+  const start = Math.floor(range.start.getTime() / MINUTE) * MINUTE;
+  const end = Math.floor(range.end.getTime() / MINUTE) * MINUTE;
+  return { start: new Date(start), end: new Date(Math.max(end, start + MINUTE)) };
+}
+
 export function useWidgetData(
   projectId: string,
   widgetId: string,
@@ -29,6 +45,7 @@ export function useWidgetData(
   enabled = true,
 ) {
   const { user, sessionReady } = useTraceApiUser();
+  const floored = quantizeRange(range);
 
   return useQuery({
     queryKey: [
@@ -36,12 +53,13 @@ export function useWidgetData(
       projectId,
       widgetId,
       JSON.stringify(spec),
-      range.start.getTime(),
-      range.end.getTime(),
+      floored.start.getTime(),
+      floored.end.getTime(),
     ],
-    queryFn: () => api.runWidgetQuery(projectId, spec, range, user),
+    queryFn: () => api.runWidgetQuery(projectId, spec, floored, user),
     enabled: enabled && sessionReady && !!projectId && !!widgetId,
     retry: 1,
+    staleTime: MINUTE,
     placeholderData: keepPreviousData,
   });
 }
@@ -59,6 +77,7 @@ export function useWidgetFieldValues(
   enabled: boolean,
 ): { values: WidgetFieldValue[]; isLoading: boolean } {
   const { user, sessionReady } = useTraceApiUser();
+  const floored = quantizeRange(range);
 
   const active = enabled && sessionReady && !!projectId && !!view && !!field;
   const { data, isLoading } = useQuery({
@@ -67,10 +86,10 @@ export function useWidgetFieldValues(
       projectId,
       view ?? null,
       field,
-      range.start.getTime(),
-      range.end.getTime(),
+      floored.start.getTime(),
+      floored.end.getTime(),
     ],
-    queryFn: () => api.fetchWidgetFieldValues(projectId, view!, field, range, user),
+    queryFn: () => api.fetchWidgetFieldValues(projectId, view!, field, floored, user),
     enabled: active,
     staleTime: 30_000,
   });
@@ -91,18 +110,19 @@ export interface WidgetPreviewData {
 
 export function useWidgetPreview(projectId: string, draft: unknown, range: TimeRange) {
   const { user, sessionReady } = useTraceApiUser();
+  const floored = quantizeRange(range);
 
   return useQuery({
     queryKey: [
       "widget-preview",
       projectId,
       JSON.stringify(draft),
-      range.start.getTime(),
-      range.end.getTime(),
+      floored.start.getTime(),
+      floored.end.getTime(),
     ],
     queryFn: async (): Promise<WidgetPreviewData> => {
       const spec = parseSpec(draft)!;
-      return { spec, result: await api.runWidgetQuery(projectId, spec, range, user) };
+      return { spec, result: await api.runWidgetQuery(projectId, spec, floored, user) };
     },
     enabled: sessionReady && !!projectId && isSpecComplete(draft),
     staleTime: 10_000,
