@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DashboardDetail, DashboardSummary, Widget } from "@/features/dashboards/types";
+import { ApiError } from "@/lib/api/client";
 import DashboardDetailPage from "./page";
 
 class ResizeObserverStub {
@@ -52,7 +53,10 @@ const removeWidget: { mutate: ReturnType<typeof vi.fn>; isPending: boolean; erro
     error: null,
   };
 
-vi.mock("@/features/dashboards/hooks/use-dashboards", () => ({
+vi.mock("@/features/dashboards/hooks/use-dashboards", async (importOriginal) => ({
+  // Keep the real isDashboardGone: the redirect-on-gone behavior under test
+  // depends on its ApiError-status logic.
+  ...(await importOriginal<object>()),
   useDashboard: vi.fn(),
   useDashboardMutations: () => ({
     updateLayout,
@@ -222,15 +226,22 @@ describe("DashboardDetailPage", () => {
   });
 
   it("redirects to the dashboard index and invalidates the list cache when the dashboard is gone", () => {
-    mockDetail(undefined, new Error("Dashboard not found"));
+    mockDetail(undefined, new ApiError("Dashboard not found", 404));
     const { invalidateSpy } = renderPage();
 
     expect(replace).toHaveBeenCalledWith("/projects/p1/dashboard");
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["dashboards", "p1"] });
   });
 
+  it("leaves the page when access is revoked instead of retrying a permanent 403", () => {
+    mockDetail(undefined, new ApiError("Not a member of this workspace", 403));
+    renderPage();
+
+    expect(replace).toHaveBeenCalledWith("/projects/p1/dashboard");
+  });
+
   it("stays put and shows a failure notice on a transient load error", () => {
-    mockDetail(undefined, new Error("API error: 503"));
+    mockDetail(undefined, new ApiError("API error: 503", 503));
     const { invalidateSpy } = renderPage();
 
     expect(replace).not.toHaveBeenCalled();
@@ -238,10 +249,18 @@ describe("DashboardDetailPage", () => {
     expect(screen.getByText(/Failed to load the dashboard/)).toBeTruthy();
   });
 
+  it("stays put on an untyped error (network failure never has a status)", () => {
+    mockDetail(undefined, new Error("Failed to fetch"));
+    renderPage();
+
+    expect(replace).not.toHaveBeenCalled();
+    expect(screen.getByText(/Failed to load the dashboard/)).toBeTruthy();
+  });
+
   it("keeps rendering the cached dashboard when a background poll fails", () => {
     mockDetail(
       { ...DASH_A, widgets: [WIDGET], layout: [{ i: "w1", x: 0, y: 0, w: 4, h: 4 }] },
-      new Error("API error: 503"),
+      new ApiError("API error: 503", 503),
     );
     renderPage();
 

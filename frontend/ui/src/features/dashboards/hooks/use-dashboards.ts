@@ -1,7 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ApiError } from "@/lib/api/client";
 import { broadcastQueryInvalidation } from "@/lib/cross-tab-sync";
 import * as api from "../api";
 import type { LayoutItem, Widget } from "../types";
+
+/**
+ * Whether a dashboard fetch failed permanently: the dashboard or its project
+ * was deleted (404), or the viewer's access was revoked (403). Transient
+ * failures (5xx, network) return false so pollers retry in place instead of
+ * bouncing the user.
+ */
+export function isDashboardGone(error: unknown): boolean {
+  return error instanceof ApiError && (error.status === 404 || error.status === 403);
+}
 
 export function useDashboards(projectId: string) {
   return useQuery({

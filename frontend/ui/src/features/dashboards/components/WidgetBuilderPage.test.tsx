@@ -2,6 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DashboardDetail, Widget } from "../types";
+import { ApiError } from "@/lib/api/client";
 import { dateFilterStorageKey, readStoredDateFilter } from "@/lib/date-filter-storage";
 import { WidgetBuilderPage } from "./WidgetBuilderPage";
 
@@ -24,7 +25,10 @@ const createWidget: { mutate: ReturnType<typeof vi.fn>; isPending: boolean; erro
   { mutate: vi.fn(), isPending: false, error: null };
 const updateWidget: { mutate: ReturnType<typeof vi.fn>; isPending: boolean; error: Error | null } =
   { mutate: vi.fn(), isPending: false, error: null };
-vi.mock("../hooks/use-dashboards", () => ({
+vi.mock("../hooks/use-dashboards", async (importOriginal) => ({
+  // Keep the real isDashboardGone: the redirect-on-gone behavior under test
+  // depends on its ApiError-status logic.
+  ...(await importOriginal<object>()),
   useDashboard: vi.fn(),
   useDashboardMutations: () => ({ createWidget, updateWidget }),
 }));
@@ -212,10 +216,16 @@ describe("WidgetBuilderPage", () => {
     expect(replace).toHaveBeenCalledWith("/projects/p1/dashboard/d1");
   });
 
-  it("redirects to the dashboard index when the dashboard failed to load", () => {
-    mockDashboard(undefined, new Error("404"));
+  it("redirects to the dashboard index when the dashboard is permanently gone", () => {
+    mockDashboard(undefined, new ApiError("Dashboard not found", 404));
     render(<WidgetBuilderPage projectId="p1" dashboardId="d1" />);
     expect(replace).toHaveBeenCalledWith("/projects/p1/dashboard");
+  });
+
+  it("stays in the builder on a transient load error — a blip must not dump the draft", () => {
+    mockDashboard(undefined, new ApiError("API error: 503", 503));
+    render(<WidgetBuilderPage projectId="p1" dashboardId="d1" />);
+    expect(replace).not.toHaveBeenCalled();
   });
 
   it("opens the builder for the default dashboard like any other", () => {

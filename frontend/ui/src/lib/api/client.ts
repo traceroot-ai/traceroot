@@ -8,6 +8,21 @@ import { clientEnv } from "@/env.client";
 const TRACE_API_BASE = clientEnv.NEXT_PUBLIC_API_URL;
 
 /**
+ * Error thrown for non-ok Next.js API responses. Carries the HTTP status so
+ * callers can tell permanent failures (403/404) from transient ones without
+ * matching on server error copy.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+/**
  * Fetch from Next.js API routes (no auth headers needed, uses cookies)
  */
 export async function fetchNextApi<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
@@ -21,7 +36,7 @@ export async function fetchNextApi<T>(endpoint: string, options: RequestInit = {
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: "Unknown error" }));
-    throw new Error(error.error || `API error: ${response.status}`);
+    throw new ApiError(error.error || `API error: ${response.status}`, response.status);
   }
 
   if (response.status === 204) {
