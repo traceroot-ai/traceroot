@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ChevronDown } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -134,7 +134,7 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
                 }}
               >
                 <span className="flex items-center gap-1.5">
-                  {isSelected && <span className="text-[11px]">&#10003;</span>}
+                  {isSelected && <Check aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />}
                   {m.label}
                   {m.source === "byok" && !m.supported && (
                     <span className="text-[10px] text-yellow-600">(unsupported)</span>
