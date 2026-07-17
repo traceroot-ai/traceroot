@@ -617,7 +617,9 @@ function DatasetSdkSnippet({
         </div>
         <CopyButton value={code} className="h-6 w-6" iconClassName="h-3.5 w-3.5" title="Copy" />
       </div>
-      <pre className="max-h-48 overflow-auto whitespace-pre px-2.5 py-2 font-mono text-xs leading-relaxed">
+      {/* pb-6 so the horizontal scrollbar at the pre's bottom doesn't overlap the
+          last line (it scrolls in both axes with a small max height). */}
+      <pre className="max-h-48 overflow-auto whitespace-pre px-2.5 pb-6 pt-2 font-mono text-xs leading-relaxed">
         {tokenizeCode(code).map((t, i) => (
           <span key={i} className={t.cls || undefined}>
             {t.text}
