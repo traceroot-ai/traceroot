@@ -1,15 +1,15 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TraceListItem } from "@/types/api";
 import type { TimeRange } from "../types";
 import { TraceFeedWidget } from "./TraceFeedWidget";
 
-vi.mock("next/link", () => ({
-  default: ({ href, children }: { href: string; children: React.ReactNode }) => (
-    <a href={href}>{children}</a>
-  ),
+const push = vi.fn();
+const prefetch = vi.fn();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push, prefetch }),
 }));
 
 // Mutable so individual tests can put the session into its resolving state.
@@ -31,6 +31,7 @@ import { getTraces } from "@/lib/api/traces";
 
 afterEach(() => {
   cleanup();
+  push.mockReset();
   vi.mocked(getTraces).mockReset();
   auth.data = { user: { id: "u1", email: "u@example.com" } };
   auth.isPending = false;
@@ -99,7 +100,7 @@ describe("TraceFeedWidget", () => {
     await waitFor(() => expect(screen.getByText("No traces in this time range")).toBeTruthy());
   });
 
-  it("renders a populated list with status chips, cost, time and links", async () => {
+  it("renders a populated list with status chips, cost and time; a row click opens the trace", async () => {
     vi.mocked(getTraces).mockResolvedValue({
       data: [
         makeTrace({ trace_id: "err-trace", name: "errored-run", error_count: 2, total_cost: 0.5 }),
@@ -125,19 +126,18 @@ describe("TraceFeedWidget", () => {
     expect(screen.getByText("$0.5000")).toBeTruthy();
     expect(screen.getAllByText("-")).toHaveLength(2);
 
-    const nameLink = screen.getByText("errored-run").closest("a");
-    expect(nameLink?.getAttribute("href")).toBe("/projects/p1/traces?traceId=err-trace");
-
     const expectedTime = new Date("2026-06-01T12:00:00Z").toLocaleTimeString(undefined, {
       hour: "2-digit",
       minute: "2-digit",
       second: "2-digit",
     });
-    const timeLinks = screen.getAllByText(expectedTime);
-    expect(timeLinks.length).toBeGreaterThan(0);
-    expect(timeLinks[0].closest("a")?.getAttribute("href")).toBe(
-      "/projects/p1/traces?traceId=err-trace",
-    );
+    expect(screen.getAllByText(expectedTime).length).toBeGreaterThan(0);
+
+    // the WHOLE row navigates — clicking any cell opens the trace detail
+    fireEvent.click(screen.getByText("$0.5000"));
+    expect(push).toHaveBeenCalledWith("/projects/p1/traces?traceId=err-trace");
+    fireEvent.click(screen.getByText("clean-run"));
+    expect(push).toHaveBeenCalledWith("/projects/p1/traces?traceId=ok-trace");
   });
 
   it("passes spec.limit and the range bounds to getTraces", async () => {
