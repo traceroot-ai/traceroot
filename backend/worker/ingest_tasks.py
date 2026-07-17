@@ -117,12 +117,28 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
     The SDK doesn't report per-case cost, so we derive it from the trace's LLM-span cost,
     scoped to the candidate task (the scorer subtree is excluded — see
     ``_task_cost_by_trace`` for why). This lets the runs table read ``result.cost``
-    directly. Idempotent + self-healing: recomputed on every batch, so late-arriving
-    spans update the total; never writes 0 (a cost-less trace leaves ``cost`` NULL).
+    directly. Idempotent + self-healing: recomputed on every batch, so late-arriving spans
+    correct the total in BOTH directions. That two-way property is the point — under
+    ``BatchSpanProcessor`` a parent exports after its children, so a scorer's LLM child
+    routinely lands in an earlier batch than the SCORER span itself. In that window
+    nothing seeds the exclusion set and the total is over-reported; the next batch brings
+    the SCORER and the recomputed total drops. Skipping the write whenever the new total
+    is 0 would freeze that over-report permanently, so the write is unconditional and
+    ``NULLIF`` preserves the "a cost-less trace leaves ``cost`` NULL" intent instead.
 
-    NOTE: once the SDK reports an authoritative per-result cost
-    (offline-eval/sdk-ask/report-task-cost.md), this derivation must DEFER to it rather
-    than overwrite — it exists only because per-result cost is absent today.
+    LIMITATION — this is driven entirely off ingest, so it self-heals only for late
+    SPANS, not for a late RESULT ROW. The two writers are independent: spans arrive
+    SDK -> BatchSpanProcessor -> S3 -> Celery, while the ``evaluation_results`` row is
+    POSTed from a different service. If every span batch for a trace is processed before
+    its result row exists, the lookup below returns empty on each one and nothing ever
+    revisits it — ``cost`` stays NULL despite fully-priced LLM spans sitting in
+    ClickHouse. Closing that needs a trigger from the other side (derive on result-write
+    or run-finalize) or a periodic backfill over ``cost IS NULL AND trace_id IS NOT
+    NULL``; both are out of scope here.
+
+    NOTE: once the SDK reports an authoritative per-result cost, this derivation must
+    DEFER to it rather than overwrite — it exists only because per-result cost is absent
+    today.
     """
     if not trace_ids:
         return
@@ -156,10 +172,11 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
             ).result_rows
 
             for trace_id, cost in _task_cost_by_trace(rows).items():
-                if cost <= 0:
-                    continue
+                # Written unconditionally — see the docstring. NULLIF keeps a genuinely
+                # cost-less trace at NULL rather than a misleading 0.00, while still
+                # letting a previously over-reported cost be corrected back down.
                 cur.execute(
-                    "UPDATE evaluation_results SET cost = %s, update_time = now()"
+                    "UPDATE evaluation_results SET cost = NULLIF(%s, 0), update_time = now()"
                     " WHERE project_id = %s AND trace_id = %s",
                     (cost, project_id, trace_id),
                 )
@@ -247,10 +264,19 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
                 logger.info(f"Inserted {len(spans)} spans into ClickHouse")
 
                 # Denormalize eval-trace cost onto EvaluationResult (runs-table Cost).
-                try:
-                    _update_eval_result_costs(project_id, {s["trace_id"] for s in spans}, ch_client)
-                except Exception as e:
-                    logger.error(f"eval cost derivation errored: {e}", exc_info=True)
+                #
+                # Gated on the batch actually containing evaluation spans. The batch
+                # already knows the answer in memory (otel_transform set is_evaluation
+                # from the span kind), so gating costs nothing — whereas calling
+                # unconditionally puts a Postgres connect + round trip on the main
+                # product's ingest hot path, per S3 object, per worker, only to learn
+                # "no eval results" for the >99% of batches that carry ordinary traces.
+                eval_trace_ids = {s["trace_id"] for s in spans if s.get("is_evaluation")}
+                if eval_trace_ids:
+                    try:
+                        _update_eval_result_costs(project_id, eval_trace_ids, ch_client)
+                    except Exception as e:
+                        logger.error(f"eval cost derivation errored: {e}", exc_info=True)
 
         # Trigger detector runs (fire-and-forget, non-blocking). The batch that
         # carries a trace's root span triggers detection exactly once — a Redis
