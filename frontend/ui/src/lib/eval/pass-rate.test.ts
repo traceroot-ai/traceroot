@@ -35,7 +35,8 @@ describe("countResultStatuses", () => {
 
 describe("passRate", () => {
   it("divides passed by passed + failed", () => {
-    expect(passRate(18, 4)).toBeCloseTo(0.8181, 3);
+    // Exact, not toBeCloseTo: a loose tolerance would also accept a subtly wrong formula.
+    expect(passRate(18, 4)).toBe(18 / 22);
   });
 
   // The load-bearing rule: an all-errored run must not read as a 0% quality collapse.
