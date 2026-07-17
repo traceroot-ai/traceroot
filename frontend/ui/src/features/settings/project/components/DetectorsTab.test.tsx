@@ -43,6 +43,7 @@ const mocks = vi.hoisted(() => ({
     | ((value: ModelSelectionMock) => ModelSelectionMock)
     | undefined,
   selectModel: undefined as ModelSelectionMock | undefined,
+  getAvailableLLMModels: undefined as (() => Promise<unknown>) | undefined,
 }));
 
 vi.mock("@/features/projects/hooks", () => ({
@@ -50,7 +51,8 @@ vi.mock("@/features/projects/hooks", () => ({
 }));
 vi.mock("@/lib/api", () => ({
   updateProject: (...a: unknown[]) => mocks.updateProject(...a),
-  getAvailableLLMModels: () => Promise.resolve(mocks.llmModels),
+  getAvailableLLMModels: () =>
+    mocks.getAvailableLLMModels?.() ?? Promise.resolve(mocks.llmModels),
 }));
 vi.mock("@/features/integrations/hooks/useSlackIntegration", () => ({
   useSlackStatus: () => ({ data: undefined }),
@@ -162,6 +164,7 @@ afterEach(() => {
   mocks.llmModels.systemModels = [];
   mocks.modelSelectorReconcile = undefined;
   mocks.selectModel = undefined;
+  mocks.getAvailableLLMModels = undefined;
 });
 
 describe("DetectorsTab agent model", () => {
@@ -241,6 +244,33 @@ describe("DetectorsTab agent model", () => {
 
     const save = screen.getAllByRole("button", { name: "Save" })[0] as HTMLButtonElement;
     expect(save.disabled).toBe(false);
+  });
+
+  it("keeps Save disabled while the model query is still using the selector fallback catalog", async () => {
+    mocks.project.rca_model = "claude-opus-4-8";
+    mocks.project.rca_provider = null;
+    mocks.project.rca_source = null;
+    mocks.getAvailableLLMModels = () => new Promise(() => {});
+    mocks.modelSelectorReconcile = (value) =>
+      value.model === "claude-opus-4-8"
+        ? {
+            model: "claude-opus-4-8",
+            provider: "Anthropic",
+            source: "system",
+            adapter: "anthropic",
+          }
+        : value;
+
+    renderTab();
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /agent model selector/i }).textContent).toContain(
+        "claude-opus-4-8",
+      ),
+    );
+
+    const save = screen.getAllByRole("button", { name: "Save" })[0] as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
   });
 });
 

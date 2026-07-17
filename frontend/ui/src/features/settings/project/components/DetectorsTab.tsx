@@ -107,7 +107,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
   };
   const savedAgentModelBaseline = reconcileModelSelection(
     savedAgentModelSelection,
-    llmModelData ? flattenAvailableModels(llmModelData) : [],
+    flattenAvailableModels(llmModelData),
   );
   const isModelDirty =
     agentModelSelection.model !== savedAgentModelBaseline.model ||
