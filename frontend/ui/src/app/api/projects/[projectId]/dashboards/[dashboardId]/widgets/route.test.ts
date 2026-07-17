@@ -11,6 +11,7 @@ const dashboardFindFirstMock = vi.fn();
 const widgetCreateMock = vi.fn();
 
 vi.mock("@traceroot/core", () => ({
+  Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
   prisma: {
     dashboard: {
       findFirst: (...args: unknown[]) => dashboardFindFirstMock(...args),
