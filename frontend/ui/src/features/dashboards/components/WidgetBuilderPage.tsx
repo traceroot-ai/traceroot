@@ -23,6 +23,7 @@ import {
 import { useDashboard, useDashboardMutations } from "../hooks/use-dashboards";
 import { useWidgetPreview, useWidgetSchema } from "../hooks/use-widget-data";
 import { DEFAULT_RANGE_ID, RANGE_PRESETS, makeRange } from "../range-presets";
+import { readStoredDateFilter, writeStoredDateFilter } from "@/lib/date-filter-storage";
 import {
   BREAKDOWN_REQUIRED_DISPLAYS,
   DISPLAY_TYPES,
@@ -107,12 +108,21 @@ export function WidgetBuilderPage({
   const [title, setTitle] = useState("");
   const [titleLocked, setTitleLocked] = useState(isEdit);
 
-  // The page doesn't inherit the dashboard's picked range; the preview gets
-  // its own preset dropdown. Presets and default come from the shared
-  // date-filter module (via range-presets.ts) so the preview window always
-  // matches the trace list's and dashboard page's vocabulary and 24h default.
-  // Preview-only, not persisted.
+  // The preview shares the project's persisted date-filter selection: it
+  // adopts the stored preset after mount (post-mount so hydration never
+  // mismatches) and picking a preset here writes it back, carrying to the
+  // dashboard and trace list too. The store may hold "custom", which the
+  // preview's preset-only dropdown can't express — that stays at the shared
+  // 24h default and is left untouched in the store.
   const [rangeId, setRangeId] = useState<string>(DEFAULT_RANGE_ID);
+  useEffect(() => {
+    const stored = readStoredDateFilter(projectId);
+    if (stored && RANGE_PRESETS.some((p) => p.id === stored.id)) setRangeId(stored.id);
+  }, [projectId]);
+  const handleRangePick = (id: string) => {
+    setRangeId(id);
+    writeStoredDateFilter(projectId, { id });
+  };
   const range = useMemo(() => makeRange(rangeId), [rangeId]);
 
   // ── edit mode: hydrate once the widget arrives, guard bad targets ─────────
@@ -544,7 +554,7 @@ export function WidgetBuilderPage({
                   <DropdownMenuItem
                     key={preset.id}
                     className="text-[12px]"
-                    onClick={() => setRangeId(preset.id)}
+                    onClick={() => handleRangePick(preset.id)}
                   >
                     {preset.label}
                   </DropdownMenuItem>
