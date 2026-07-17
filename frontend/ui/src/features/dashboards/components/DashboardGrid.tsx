@@ -22,7 +22,6 @@ export function DashboardGrid({
   width,
   onLayoutChange,
   onEdit,
-  onDuplicate,
   onDelete,
 }: {
   projectId: string;
@@ -32,7 +31,6 @@ export function DashboardGrid({
   width: number;
   onLayoutChange: (layout: LayoutItem[]) => void;
   onEdit: (w: Widget) => void;
-  onDuplicate: (w: Widget) => void;
   onDelete: (w: Widget) => void;
 }) {
   // Widgets missing from layout (e.g. just created) get appended at the bottom.
@@ -121,7 +119,6 @@ export function DashboardGrid({
             widget={w}
             range={range}
             onEdit={() => onEdit(w)}
-            onDuplicate={() => onDuplicate(w)}
             onDelete={() => onDelete(w)}
           />
         </div>

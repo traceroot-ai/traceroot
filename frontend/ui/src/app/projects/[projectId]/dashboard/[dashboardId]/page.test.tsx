@@ -45,12 +45,6 @@ const updateLayout: { mutate: ReturnType<typeof vi.fn>; isPending: boolean; erro
     isPending: false,
     error: null,
   };
-const createWidget: { mutate: ReturnType<typeof vi.fn>; isPending: boolean; error: Error | null } =
-  {
-    mutate: vi.fn(),
-    isPending: false,
-    error: null,
-  };
 const removeWidget: { mutate: ReturnType<typeof vi.fn>; isPending: boolean; error: Error | null } =
   {
     mutate: vi.fn(),
@@ -62,7 +56,6 @@ vi.mock("@/features/dashboards/hooks/use-dashboards", () => ({
   useDashboard: vi.fn(),
   useDashboardMutations: () => ({
     updateLayout,
-    createWidget,
     removeWidget,
   }),
 }));
@@ -73,7 +66,6 @@ let lastGridProps: {
   range: unknown;
   readOnly?: boolean;
   onEdit: (w: Widget) => void;
-  onDuplicate: (w: Widget) => void;
   onDelete: (w: Widget) => void;
 } | null = null;
 
@@ -84,7 +76,6 @@ vi.mock("@/features/dashboards/components/DashboardGrid", () => ({
     range: unknown;
     readOnly?: boolean;
     onEdit: (w: Widget) => void;
-    onDuplicate: (w: Widget) => void;
     onDelete: (w: Widget) => void;
   }) => {
     lastGridProps = props;
@@ -93,7 +84,6 @@ vi.mock("@/features/dashboards/components/DashboardGrid", () => ({
         {props.widgets.map((w) => (
           <div key={w.id}>
             <button onClick={() => props.onEdit(w)}>{`edit-${w.id}`}</button>
-            <button onClick={() => props.onDuplicate(w)}>{`duplicate-${w.id}`}</button>
             <button onClick={() => props.onDelete(w)}>{`delete-${w.id}`}</button>
           </div>
         ))}
@@ -153,7 +143,6 @@ describe("DashboardDetailPage", () => {
     push.mockReset();
     replace.mockReset();
     updateLayout.mutate.mockReset();
-    createWidget.mutate.mockReset();
     removeWidget.mutate.mockReset();
     lastGridProps = null;
     mockDetail({ ...DASH_A, layout: [], widgets: [] });
@@ -269,7 +258,7 @@ describe("DashboardDetailPage", () => {
     expect(screen.queryByRole("button", { name: "＋ Create widget" })).toBeNull();
   });
 
-  it("passes widgets, layout and range to the grid and wires edit/duplicate/delete", () => {
+  it("passes widgets, layout and range to the grid and wires edit/delete", () => {
     mockDetail({
       ...DASH_A,
       layout: [{ i: "w1", x: 0, y: 0, w: 4, h: 4 }],
@@ -282,15 +271,6 @@ describe("DashboardDetailPage", () => {
     expect(lastGridProps?.layout).toEqual([{ i: "w1", x: 0, y: 0, w: 4, h: 4 }]);
     expect(lastGridProps?.range).toHaveProperty("start");
     expect(lastGridProps?.range).toHaveProperty("end");
-
-    fireEvent.click(screen.getByRole("button", { name: "duplicate-w1" }));
-    expect(createWidget.mutate).toHaveBeenCalledWith({
-      title: "Cost (copy)",
-      type: "query",
-      spec: WIDGET.spec,
-      // A duplicate carries the display settings too, not just the query.
-      displayConfig: WIDGET.displayConfig,
-    });
 
     fireEvent.click(screen.getByRole("button", { name: "delete-w1" }));
     expect(removeWidget.mutate).toHaveBeenCalledWith("w1");
