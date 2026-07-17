@@ -14,7 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CopyButton } from "@/components/ui/copy-button";
 import { cn } from "@/lib/utils";
 import { getTrace } from "@/lib/api/traces";
@@ -71,7 +71,7 @@ function boundaryHint(displayKind: string, spanName: string): string {
 }
 
 /**
- * "Save as test case" — a faithful port of the approved mock drawer, wired to the
+ * "Save as test case" — the capture drawer, wired to the
  * server. Opened from the existing trace viewer's span header. Self-contained: it
  * fetches the trace, walks its spans (up/down), lets you pick or create a
  * dataset, and persists via the server (which publishes a new dataset version).
@@ -112,8 +112,10 @@ export function SaveTestCaseDrawer({
   // makes the edit the EXPECTED outcome future runs are graded against, while the
   // untouched recorded output is still stored separately. Left as-is, expected ==
   // recorded — but all three fields (input, expected, recorded_output) are persisted.
+  // Whether it's been edited is DERIVED (see `outputEdited` below), not a flag set by
+  // the field's `onChange` — the field normalises JSON on seed (see EditableValueBlock),
+  // and that normalisation must never itself read as an edit.
   const [output, setOutput] = React.useState("");
-  const [outputEdited, setOutputEdited] = React.useState(false);
   const [duplicate, setDuplicate] = React.useState<{ datasetId: string } | null>(null);
   const [feedback, setFeedback] = React.useState<{
     tone: "error" | "success";
@@ -127,7 +129,6 @@ export function SaveTestCaseDrawer({
       setDatasetId("");
       setNewDatasetName("");
       setAttachSource(true);
-      setOutputEdited(false);
       setDuplicate(null);
       setFeedback(null);
     }
@@ -152,34 +153,84 @@ export function SaveTestCaseDrawer({
   // The trace-detail response OMITS span input/output/metadata — they are fetched
   // per span on demand (getSpanIO), so read them from that hook, not the span.
   const { data: spanIO } = useSpanIO(projectId, traceId ?? "", span?.span_id ?? null);
+  // True only once the fetched I/O actually belongs to the currently-selected span.
+  // Switching spans (nav, or a tree click) changes `span?.span_id`, and `spanIO` goes
+  // undefined until the new span's fetch lands — during that window this component's
+  // own `input`/`output`/`metadata` state must not sit on the PREVIOUS span's values,
+  // or a Save mid-fetch would persist them under the new span's id.
+  const spanIOReady = !!spanIO && !!span && spanIO.span_id === span.span_id;
+
+  // Bumped only in the SAME commit that a genuinely new span's I/O actually lands —
+  // passed as `collapseResetKey` to Input/Output/Metadata below instead of
+  // `span?.span_id`. `span?.span_id` changes as soon as the tree selection does,
+  // one (or more) renders before the corresponding fetch resolves and this state
+  // updates; EditableValueBlock's seed effect keys its "already normalised this
+  // seed" bookkeeping off `collapseResetKey` alone; pairing it with a stale
+  // `span?.span_id` would let a field lock in "seeded" before its real content
+  // (still the previous span's) had actually arrived, silently skipping the
+  // normalisation once it does.
+  const [seedGeneration, setSeedGeneration] = React.useState(0);
 
   // Input / output / metadata follow the fetched span I/O (incl. nav). Output reseeds
-  // from the recorded output on each span (nav resets any in-progress edit).
-  React.useEffect(() => {
-    if (open && spanIO) {
-      setInput(spanIO.input ?? "");
-      setMetadata(prettyJson(spanIO.metadata));
-      setOutput(spanIO.output ?? "");
-      setOutputEdited(false);
-    }
-  }, [open, spanIO]);
-
-  // Reset the duplicate note whenever the selected span changes.
-  React.useEffect(() => {
-    if (open) setDuplicate(null);
-  }, [open, span?.span_id]);
-
-  // Non-modal: Escape closes this panel without touching the trace behind it.
+  // from the recorded output on each span (nav resets any in-progress edit). Cleared
+  // while the current span's I/O hasn't arrived (or belongs to a previous span) rather
+  // than left stale — see `spanIOReady`.
   React.useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onOpenChange(false);
-      }
+    if (spanIOReady && spanIO) {
+      setInput(spanIO.input ?? "");
+      setMetadata(prettyJson(spanIO.metadata));
+      // Normalised here (once) so the Output field never needs to write a
+      // re-serialised value back up just to canonicalise it — see `outputEdited`.
+      setOutput(prettyJson(spanIO.output));
+      setSeedGeneration((g) => g + 1);
+    } else {
+      setInput("");
+      setMetadata("");
+      setOutput("");
+    }
+  }, [open, spanIO, spanIOReady]);
+
+  // Reset the duplicate note whenever the selected span changes, or the target
+  // dataset changes (picking a different dataset after a duplicate note must let
+  // the user save into it, not keep pointing at the dataset that already had it).
+  React.useEffect(() => {
+    if (open) setDuplicate(null);
+  }, [open, span?.span_id, datasetId]);
+
+  const rootRef = React.useRef<HTMLDivElement>(null);
+  const headingRef = React.useRef<HTMLHeadingElement>(null);
+
+  // Focus the panel on open (it gets none by default — the opener stays focused)
+  // and restore focus to whatever had it (the "Save as test case" button) on close.
+  React.useEffect(() => {
+    if (!open) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    headingRef.current?.focus();
+    return () => {
+      previouslyFocused?.focus?.();
     };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
+  }, [open]);
+
+  // Non-modal: Escape closes this panel without touching the trace behind it — but
+  // must not swallow Escape meant for a nested Radix layer (the Dataset select, a
+  // field's format-switcher popover). Listening on the drawer's own root in the
+  // BUBBLE phase (not window/capture) gets this right for free: a layer that
+  // consumes Escape calls preventDefault() from `document`'s CAPTURE-phase listener,
+  // which always runs before any bubble-phase listener; a layer that's portaled
+  // outside this subtree (as Radix content is) never reaches this listener at all.
+  // `stopPropagation` only shields the trace viewer's own Escape-to-close underneath.
+  React.useEffect(() => {
+    if (!open) return;
+    const root = rootRef.current;
+    if (!root) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      e.stopPropagation();
+      onOpenChange(false);
+    };
+    root.addEventListener("keydown", onKey);
+    return () => root.removeEventListener("keydown", onKey);
   }, [open, onOpenChange]);
 
   const createDataset = useCreateDataset(projectId);
@@ -208,7 +259,12 @@ export function SaveTestCaseDrawer({
   const creatingNew = datasetId === NEW_DATASET;
   const dataset = datasets.find((item) => item.id === datasetId);
   const displayKind = isRoot ? "trace" : (span?.span_kind ?? "SPAN");
-  const recordedOutput = spanIO?.output ?? "";
+  // Normalised the same way the Output field's seed is (see the effect above), so
+  // this is byte-for-byte what an untouched Output field holds.
+  const recordedOutput = spanIOReady ? prettyJson(spanIO?.output) : "";
+  // Derived, not a flag `onChange` sets — a same-content reformat (the field's own
+  // JSON pretty-print on seed) must never itself read as an edit.
+  const outputEdited = output !== recordedOutput;
   const currentIndex = span ? spans.findIndex((s) => s.span_id === span.span_id) : -1;
   const canNavigateUp = currentIndex > 0;
   const canNavigateDown = currentIndex >= 0 && currentIndex < spans.length - 1;
@@ -216,8 +272,28 @@ export function SaveTestCaseDrawer({
   const inferredReason: CaptureReason =
     span?.status === "ERROR" ? (displayKind === "TOOL" ? "failed_tool" : "error") : "manual";
 
+  // Metadata must parse to a JSON object (or be empty) to be persisted at all — see
+  // CreateTestCaseRequestSchema.metadata. Validated here (surfaced below) rather than
+  // only at submit time, so an array/scalar/invalid value blocks Save instead of
+  // silently vanishing from a "Saved" response.
+  const metadataError = (() => {
+    const trimmed = metadata.trim();
+    if (trimmed === "") return null;
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return null;
+      return 'Metadata must be a JSON object, e.g. {"key": "value"}.';
+    } catch {
+      return "Metadata isn't valid JSON.";
+    }
+  })();
+
   const canSave =
-    !!span && (creatingNew ? newDatasetName.trim() !== "" : datasetId !== "") && !save.isPending;
+    !!span &&
+    spanIOReady &&
+    !metadataError &&
+    (creatingNew ? newDatasetName.trim() !== "" : datasetId !== "") &&
+    !save.isPending;
 
   const navigate = (dir: "up" | "down") => {
     if (currentIndex < 0) return;
@@ -235,13 +311,11 @@ export function SaveTestCaseDrawer({
         dsId = created.dataset.id;
         setDatasetId(dsId);
       }
-      let metadataObj: Record<string, unknown> | null = null;
-      try {
-        const parsed = metadata.trim() ? JSON.parse(metadata) : null;
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) metadataObj = parsed;
-      } catch {
-        /* non-JSON metadata → not persisted */
-      }
+      // canSave already required metadataError === null, so this is either empty or a
+      // valid JSON object — never silently dropped.
+      const metadataObj: Record<string, unknown> | null = metadata.trim()
+        ? (JSON.parse(metadata) as Record<string, unknown>)
+        : null;
       // The Output field IS the expected outcome (edited or not); the recorded output
       // is always stored separately. Unedited → expected == recorded output.
       const res = await save.mutateAsync({
@@ -271,9 +345,21 @@ export function SaveTestCaseDrawer({
   };
 
   return (
-    <div className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-[560px] max-w-[96vw] flex-col border-l border-border bg-background shadow-xl">
+    <div
+      ref={rootRef}
+      role="dialog"
+      aria-labelledby="save-test-case-title"
+      className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-[560px] max-w-[96vw] flex-col border-l border-border bg-background shadow-xl"
+    >
       <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
-        <h2 className="text-[13px] font-semibold">Save as test case</h2>
+        <h2
+          id="save-test-case-title"
+          ref={headingRef}
+          tabIndex={-1}
+          className="text-[13px] font-semibold focus:outline-none"
+        >
+          Save as test case
+        </h2>
         <button
           type="button"
           onClick={() => onOpenChange(false)}
@@ -286,7 +372,13 @@ export function SaveTestCaseDrawer({
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto px-4 py-3">
         <FormCard label="Dataset">
-          <Select value={datasetId} onValueChange={setDatasetId}>
+          <Select
+            value={datasetId}
+            onValueChange={(value) => {
+              setDatasetId(value);
+              setDuplicate(null);
+            }}
+          >
             <SelectTrigger className="h-7 text-[13px]">
               <SelectValue placeholder="Select dataset" />
             </SelectTrigger>
@@ -372,24 +464,21 @@ export function SaveTestCaseDrawer({
           boxed
           minRows={2}
           collapsible
-          collapseResetKey={span?.span_id}
+          collapseResetKey={String(seedGeneration)}
         />
 
         <div>
           <EditableValueBlock
             label="Output"
             text={output}
-            onChange={(v) => {
-              setOutput(v);
-              setOutputEdited(true);
-            }}
+            onChange={setOutput}
             copyable
             // Read and possibly hand-corrected — expand it like Input.
             seedJson="expanded"
             boxed
             minRows={2}
             collapsible
-            collapseResetKey={span?.span_id}
+            collapseResetKey={String(seedGeneration)}
           />
           <p className="mt-1 flex items-start gap-1.5 text-[11px] text-muted-foreground">
             <Info className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
@@ -409,19 +498,22 @@ export function SaveTestCaseDrawer({
           </p>
         </div>
 
-        <EditableValueBlock
-          label="Metadata"
-          text={metadata}
-          onChange={setMetadata}
-          copyable
-          // Incidental context, usually one or two short keys → keep it inline
-          // (seedFormat expands it anyway once it stops fitting on one line).
-          seedJson="compact"
-          boxed
-          minRows={2}
-          collapsible
-          collapseResetKey={span?.span_id}
-        />
+        <div>
+          <EditableValueBlock
+            label="Metadata"
+            text={metadata}
+            onChange={setMetadata}
+            copyable
+            // Incidental context, usually one or two short keys → keep it inline
+            // (seedFormat expands it anyway once it stops fitting on one line).
+            seedJson="compact"
+            boxed
+            minRows={2}
+            collapsible
+            collapseResetKey={String(seedGeneration)}
+          />
+          {metadataError && <p className="mt-1 text-[11px] text-destructive">{metadataError}</p>}
+        </div>
 
         <div className="border border-border">
           <div className="flex items-center justify-between border-b border-border bg-muted/50 px-3 py-1.5">
@@ -532,14 +624,14 @@ export function TraceEvaluationChip({
 
 type Lang = "python" | "typescript";
 
-/** e.g. "Billing routing" → "billing-routing". Matches the mock's slug. */
+/** e.g. "Billing routing" → "billing-routing". */
 function slugify(name: string): string {
   return name.trim().toLowerCase().replace(/\s+/g, "-");
 }
 
 /**
- * A 4-line initDataset snippet, Braintrust-style, for one language — identical in
- * shape to the mock's DatasetInfoChip. Indents differ on purpose: 4 spaces for
+ * A 4-line initDataset snippet for one language — identical in shape to the
+ * DatasetInfoChip. Indents differ on purpose: 4 spaces for
  * Python (PEP 8), 2 for TypeScript (Prettier).
  */
 function sdkSnippet(lang: Lang, projectName: string, datasetSlug: string, version: string): string {
@@ -618,46 +710,61 @@ export function SpanDatasetChip({
   const matches = (data?.data ?? []).filter((c) => c.sourceSpanId === spanId);
   if (matches.length === 0) return null;
   return (
-    <TooltipProvider delayDuration={150}>
+    <>
       {matches.map((c) => (
-        <Tooltip key={`${c.datasetId}:${c.testCaseId}`}>
-          <TooltipTrigger asChild>
-            <Link
-              href={`/projects/${projectId}/datasets/${c.datasetId}`}
+        // A Popover, not a Tooltip: the card's language toggle and copy button are
+        // interactive, and `role="tooltip"` content is unreachable by keyboard and
+        // (per ARIA) forbidden from holding focusable children. Popover opens on
+        // click/Enter/Space, so it works for keyboard and touch alike; the trigger
+        // itself is a button, and the dataset link lives inside the card instead of
+        // being the trigger, so there's still a keyboard path to both.
+        <Popover key={`${c.datasetId}:${c.testCaseId}`}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
               className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors hover:bg-muted"
               title={`In dataset ${c.datasetName}`}
             >
               <Database className="h-3 w-3 text-muted-foreground" aria-hidden />
               <span className="text-muted-foreground">Dataset:</span>
               <span className="font-medium">{c.datasetName}</span>
-            </Link>
-          </TooltipTrigger>
-          <TooltipContent
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
             align="start"
             className="w-[540px] max-w-[92vw] border bg-popover px-3 pb-2 pt-3 text-xs text-popover-foreground shadow-md"
           >
-            <div className="mb-2">
-              <div className="font-semibold">{c.datasetName}</div>
-              <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-0.5 text-muted-foreground">
-                <span>
-                  Version <span className="font-mono">{c.datasetVersionLabel}</span>
-                </span>
-                <span className="inline-flex items-center gap-1">
-                  Updated <Timestamp iso={c.datasetUpdatedAt} />
-                </span>
-                <span>
-                  {c.caseCount} {c.caseCount === 1 ? "case" : "cases"}
-                </span>
+            <div className="mb-2 flex items-start justify-between gap-2">
+              <div>
+                <div className="font-semibold">{c.datasetName}</div>
+                <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-0.5 text-muted-foreground">
+                  <span>
+                    Version <span className="font-mono">{c.datasetVersionLabel}</span>
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    Updated <Timestamp iso={c.datasetUpdatedAt} />
+                  </span>
+                  <span>
+                    {c.caseCount} {c.caseCount === 1 ? "case" : "cases"}
+                  </span>
+                </div>
               </div>
+              <Link
+                href={`/projects/${projectId}/datasets/${c.datasetId}`}
+                className="inline-flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              >
+                Open
+                <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
+              </Link>
             </div>
             <DatasetSdkSnippet
               projectName={projectName}
               datasetName={c.datasetName}
               version={c.datasetVersionLabel}
             />
-          </TooltipContent>
-        </Tooltip>
+          </PopoverContent>
+        </Popover>
       ))}
-    </TooltipProvider>
+    </>
   );
 }

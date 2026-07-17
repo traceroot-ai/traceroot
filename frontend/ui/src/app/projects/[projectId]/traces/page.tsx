@@ -84,6 +84,14 @@ export default function TracesPage() {
   // Save-as-test-case (offline eval): which span the drawer targets (undefined = root).
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveSpanId, setSaveSpanId] = useState<string | undefined>(undefined);
+  // Close the drawer (and drop its target span) whenever the selected trace changes —
+  // including closing the viewer entirely. Without this, the drawer reopens on the
+  // NEXT trace still targeting a span from the previous one (which won't resolve
+  // there), stuck with no way out but closing and reopening it.
+  useEffect(() => {
+    setSaveOpen(false);
+    setSaveSpanId(undefined);
+  }, [selectedTraceId]);
   // Persisted per-project so a live view survives reloads, navigation, and re-login.
   // Default false: a project the user never toggled behaves exactly as before.
   const [autoRefresh, setAutoRefresh] = useLocalStorage(

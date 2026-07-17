@@ -25,6 +25,9 @@ const KIND_LABEL: Record<ValueKind, string> = {
 
 const KINDS: ValueKind[] = ["yaml", "text", "json", "pretty", "markdown"];
 
+/** Sentinel for "no seed normalised yet" — see `seededKeyRef` in EditableValueBlock. */
+const UNSEEDED = Symbol("unseeded");
+
 /** Minimal YAML for the flat values we hold. Empty → `null`, as requested. */
 function toYaml(value: unknown, indent = 0): string {
   const pad = "  ".repeat(indent);
@@ -535,14 +538,27 @@ export function EditableValueBlock({
     if (readOnly) setDisplay(text);
   }, [readOnly, text]);
 
+  // Marks the seed (identified by `collapseResetKey`) the `seedJson` branch below has
+  // already normalised, so it runs once per seed rather than on every keystroke — see
+  // that effect. Distinct from any real key (including `undefined`, the default when
+  // the caller passes none) so the very first seed is never mistaken for "already done".
+  const seededKeyRef = React.useRef<string | undefined | typeof UNSEEDED>(UNSEEDED);
+
   // Pick the format whenever a new value is seeded (e.g. navigating between cases
   // re-seeds this field), unless the user has pinned one from the switcher.
   // `seedJson` chooses by FIELD ROLE and normalises the text once so the stored
-  // value is canonical; `autoDetectKind` just follows the content. setKind is a
-  // no-op when unchanged, and the text guard stops the normalise from looping.
+  // value is canonical; `autoDetectKind` just follows the content.
   React.useEffect(() => {
     if (userSetKind.current || text.trim() === "") return;
     if (seedJson) {
+      // `text` must stay a dep so this runs once real content arrives, but re-running
+      // it on every keystroke would fight the user's own typing: `seedFormat`
+      // pretty-prints anything that parses as JSON, and the caller's `onChange` below
+      // then rewrites the (controlled) field out from under the cursor. `collapseResetKey`
+      // — set by the caller to the source's identity (e.g. the span id) — marks a
+      // genuinely new seed; skip once we've already normalised for the current one.
+      if (seededKeyRef.current === collapseResetKey) return;
+      seededKeyRef.current = collapseResetKey;
       const seeded = seedFormat(text, seedJson);
       setKind(seeded.kind);
       if (seeded.text !== text) {
@@ -552,7 +568,7 @@ export function EditableValueBlock({
       return;
     }
     if (autoDetectKind) setKind(detectKind(text));
-  }, [autoDetectKind, seedJson, text, readOnly, onChange]);
+  }, [autoDetectKind, seedJson, text, readOnly, onChange, collapseResetKey]);
 
   const changeKind = (next: ValueKind) => {
     userSetKind.current = true;
