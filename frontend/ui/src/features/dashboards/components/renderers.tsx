@@ -244,7 +244,8 @@ const seriesOpacity = (hovered: string | null, key: string, base = 1) =>
  * Additive measures sum across buckets (a true window total); non-additive
  * ones average their non-null buckets — an approximation (bucketed
  * percentiles can't be re-aggregated), so those get no Total row.
- * Single-series charts (no breakdown) return null: nothing to disambiguate.
+ * No-breakdown charts return null: their only series is the synthetic
+ * "value" key, and a legend row would just echo the widget title.
  */
 function legendFor(
   result: WidgetQueryResult,
@@ -253,9 +254,14 @@ function legendFor(
   // Guard the result's shape, not just the display: keepPreviousData serves
   // the previous spec's result for a beat after a display/spec switch, and
   // pivoting a categorical result here would fabricate series entries.
-  if (result.columns[0] !== "bucket") return null;
+  // Require the [bucket, dim, value] breakdown shape — [bucket, value] is the
+  // no-breakdown case.
+  if (result.columns[0] !== "bucket" || result.columns.length !== 3) return null;
   const { seriesKeys, data } = pivotRows(result.columns, result.rows, additive ? 0 : null);
-  if (seriesKeys.length <= 1) return null;
+  // A single genuine series still gets a legend — with one breakdown group the
+  // chart is a bare line, so the legend is the only place its name appears.
+  // Zero series means every row was a WITH FILL gap row (empty window).
+  if (seriesKeys.length === 0) return null;
   const entries = seriesKeys.map((k, i) => {
     const nums = data
       .map((r) => (r as Record<string, unknown>)[k])
@@ -278,7 +284,9 @@ function categoricalLegend(
   // render literal "undefined" labels.
   if (result.columns.length !== 2 || result.columns[0] === "bucket") return null;
   const { data } = pivotRows(result.columns, result.rows);
-  if (data.length <= 1) return null;
+  // A single category still gets a legend — a one-slice pie is otherwise an
+  // unlabeled full circle.
+  if (data.length === 0) return null;
   const entries = data.map((r, i) => {
     const v = r.value;
     return {
@@ -617,8 +625,8 @@ export function QueryWidgetRenderer({
 }) {
   const additive = agg === undefined || !NON_ADDITIVE_AGGS.has(agg);
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
-  // Multi-series charts get a legend under the plot; everything else
-  // (single series, stat tiles, tables, histograms) stays legend-free.
+  // Breakdown charts get a legend under the plot; everything else
+  // (no-breakdown series, stat tiles, tables, histograms) stays legend-free.
   const legend = useMemo(() => {
     if (result.rows.length === 0) return null;
     if (display === "line" || display === "area") return legendFor(result, additive);
