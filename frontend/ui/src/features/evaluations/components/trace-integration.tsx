@@ -19,12 +19,7 @@ import { CopyButton } from "@/components/ui/copy-button";
 import { cn } from "@/lib/utils";
 import { getTrace } from "@/lib/api/traces";
 import { SpanKindIcon, useSpanIO } from "@/features/traces";
-import {
-  FormCard,
-  EditableValueBlock,
-  LineNumberedTextarea,
-  Timestamp,
-} from "@/features/offline-eval/components";
+import { FormCard, EditableValueBlock, Timestamp } from "@/features/offline-eval/components";
 import { tokenizeCode } from "@/features/offline-eval/components/syntax";
 import { useProject } from "@/features/projects/hooks";
 import {
@@ -42,9 +37,6 @@ import {
 
 /** Sentinel dataset-select value for "create a new dataset". */
 const NEW_DATASET = "__new__";
-
-/** How the optional expected outcome is set for a captured case. */
-type ExpectedMode = "none" | "recorded" | "corrected";
 
 /** Root = the span with no parent (the application / evaluation-item root). */
 function rootSpan(spans: Span[]): Span | undefined {
@@ -116,11 +108,12 @@ export function SaveTestCaseDrawer({
   const [input, setInput] = React.useState("");
   const [metadata, setMetadata] = React.useState("");
   const [attachSource, setAttachSource] = React.useState(true);
-  // Default to grading against the recorded output — the common case is capturing
-  // a good production run as the expected outcome. Switch to "Not required" or a
-  // corrected value as needed.
-  const [expectedMode, setExpectedMode] = React.useState<ExpectedMode>("recorded");
-  const [correctedExpected, setCorrectedExpected] = React.useState("");
+  // The single editable Output field. It seeds from the recorded output; editing it
+  // makes the edit the EXPECTED outcome future runs are graded against, while the
+  // untouched recorded output is still stored separately. Left as-is, expected ==
+  // recorded — but all three fields (input, expected, recorded_output) are persisted.
+  const [output, setOutput] = React.useState("");
+  const [outputEdited, setOutputEdited] = React.useState(false);
   const [duplicate, setDuplicate] = React.useState<{ datasetId: string } | null>(null);
   const [feedback, setFeedback] = React.useState<{
     tone: "error" | "success";
@@ -134,8 +127,7 @@ export function SaveTestCaseDrawer({
       setDatasetId("");
       setNewDatasetName("");
       setAttachSource(true);
-      setExpectedMode("recorded");
-      setCorrectedExpected("");
+      setOutputEdited(false);
       setDuplicate(null);
       setFeedback(null);
     }
@@ -161,11 +153,14 @@ export function SaveTestCaseDrawer({
   // per span on demand (getSpanIO), so read them from that hook, not the span.
   const { data: spanIO } = useSpanIO(projectId, traceId ?? "", span?.span_id ?? null);
 
-  // Input / recorded output / metadata follow the fetched span I/O (incl. nav).
+  // Input / output / metadata follow the fetched span I/O (incl. nav). Output reseeds
+  // from the recorded output on each span (nav resets any in-progress edit).
   React.useEffect(() => {
     if (open && spanIO) {
       setInput(spanIO.input ?? "");
       setMetadata(prettyJson(spanIO.metadata));
+      setOutput(spanIO.output ?? "");
+      setOutputEdited(false);
     }
   }, [open, spanIO]);
 
@@ -247,17 +242,13 @@ export function SaveTestCaseDrawer({
       } catch {
         /* non-JSON metadata → not persisted */
       }
-      const expected =
-        expectedMode === "recorded"
-          ? recordedOutput || null
-          : expectedMode === "corrected"
-            ? correctedExpected.trim() || null
-            : null;
+      // The Output field IS the expected outcome (edited or not); the recorded output
+      // is always stored separately. Unedited → expected == recorded output.
       const res = await save.mutateAsync({
         datasetId: dsId,
         body: {
           input,
-          expected,
+          expected: output.trim() || null,
           recorded_output: recordedOutput || null,
           metadata: metadataObj,
           review: "needs_review",
@@ -384,69 +375,35 @@ export function SaveTestCaseDrawer({
 
         <div>
           <EditableValueBlock
-            label="Recorded output"
-            text={recordedOutput}
-            onChange={() => {}}
+            label="Output"
+            text={output}
+            onChange={(v) => {
+              setOutput(v);
+              setOutputEdited(true);
+            }}
             copyable
-            // May become the expected outcome future runs are graded against, so
-            // it has to be readable at a glance → expand it like Input.
+            // Read and possibly hand-corrected — expand it like Input.
             seedJson="expanded"
             boxed
             minRows={2}
-            readOnly
           />
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            What happened in production. Kept separate from the expected outcome.
+          <p className="mt-1 flex items-start gap-1.5 text-[11px] text-muted-foreground">
+            <Info className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
+            {outputEdited ? (
+              <span>
+                Edited — your version becomes the{" "}
+                <span className="font-medium text-foreground">expected outcome</span>; the original
+                recorded output is still stored.
+              </span>
+            ) : (
+              <span>
+                The recorded production output. Leave it to grade against it, or edit to set a
+                corrected <span className="font-medium text-foreground">expected outcome</span> —
+                the recorded output is kept either way.
+              </span>
+            )}
           </p>
         </div>
-
-        <FormCard label="Expected outcome">
-          <div className="flex flex-col gap-1" role="radiogroup" aria-label="Expected outcome">
-            {(
-              [
-                ["none", "Not required"],
-                ["recorded", "Use recorded output"],
-                ["corrected", "Enter a corrected outcome"],
-              ] as Array<[ExpectedMode, string]>
-            ).map(([value, label]) => (
-              <label
-                key={value}
-                className={cn(
-                  "flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-[12px]",
-                  expectedMode === value ? "text-foreground" : "text-muted-foreground",
-                )}
-              >
-                <input
-                  type="radio"
-                  name="expected-outcome"
-                  value={value}
-                  checked={expectedMode === value}
-                  onChange={() => setExpectedMode(value)}
-                  className="h-3.5 w-3.5 accent-foreground"
-                />
-                {label}
-              </label>
-            ))}
-          </div>
-
-          {expectedMode === "recorded" && (
-            <p className="mt-2 flex items-start gap-1.5 rounded border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-700 dark:text-amber-300">
-              <Info className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
-              This will become the outcome future runs are evaluated against.
-            </p>
-          )}
-          {expectedMode === "corrected" && (
-            <div className="mt-2">
-              <LineNumberedTextarea
-                value={correctedExpected}
-                onChange={setCorrectedExpected}
-                minRows={2}
-                placeholder="Corrected expected outcome"
-                aria-label="Corrected expected outcome"
-              />
-            </div>
-          )}
-        </FormCard>
 
         <EditableValueBlock
           label="Metadata"

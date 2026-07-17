@@ -90,10 +90,10 @@ describe("save-as-test-case seed formats", () => {
     expect(valueOf("Metadata")).toBe('{"suite":"smoke"}');
   });
 
-  it("expands Recorded output — it may become the expected outcome", async () => {
+  it("expands Output — the editable field that becomes the expected outcome", async () => {
     mount();
     await screen.findByText("support-ticket-triage");
-    const output = valueOf("Recorded output");
+    const output = valueOf("Output");
     expect(output).toContain("\n");
     expect(output).toContain('  "route": "billing"');
   });
