@@ -266,3 +266,92 @@ class TestGetDistinctSpanValues:
         for i in range(DISTINCT_VALUES_CACHE_MAX + 50):
             svc.get_distinct_span_values(project_id=f"p{i}", column="model_name")
         assert len(svc._distinct_cache) <= DISTINCT_VALUES_CACHE_MAX
+
+
+class TestGetDistinctTraceValues:
+    """The traces-table variant that powers the widget builder's traces-view dropdowns."""
+
+    def _service(self, monkeypatch, mock_client):
+        import rest.services.trace_reader as tr_mod
+
+        monkeypatch.setattr(tr_mod, "get_clickhouse_client", lambda: mock_client)
+        return tr_mod.TraceReaderService()
+
+    def test_builds_grouped_project_scoped_traces_query(self, monkeypatch):
+        mock_client = MagicMock()
+        mock_client.query.return_value.result_rows = [("u-1", 8), ("u-2", 3)]
+        svc = self._service(monkeypatch, mock_client)
+
+        out = svc.get_distinct_trace_values(project_id="p1", column="user_id")
+
+        assert out == [
+            {"value": "u-1", "count": 8},
+            {"value": "u-2", "count": 3},
+        ]
+        sql, kwargs = mock_client.query.call_args
+        query_text = sql[0]
+        assert "FROM traces" in query_text
+        assert "GROUP BY" in query_text
+        assert "user_id AS value" in query_text
+        assert "project_id = {project_id:String}" in query_text
+        # Deduped to the latest ReplacingMergeTree version per trace before counting.
+        assert "LIMIT 1 BY project_id, trace_id" in query_text
+        assert kwargs["parameters"]["project_id"] == "p1"
+
+    def test_no_window_defaults_a_lookback_bound_never_unbounded(self, monkeypatch):
+        """Same never-scan-all-time rule as the span variant, on trace_start_time."""
+        from datetime import UTC, timedelta
+
+        from rest.services.trace_reader import DEFAULT_SPAN_SCAN_LOOKBACK_HOURS
+
+        mock_client = MagicMock()
+        mock_client.query.return_value.result_rows = []
+        svc = self._service(monkeypatch, mock_client)
+
+        before = datetime.now(UTC).replace(tzinfo=None)
+        svc.get_distinct_trace_values(project_id="p1", column="user_id")
+        after = datetime.now(UTC).replace(tzinfo=None)
+
+        sql, kwargs = mock_client.query.call_args
+        assert "trace_start_time >= {start_after:DateTime64(3)}" in sql[0]
+        lo, hi = (
+            before - timedelta(hours=DEFAULT_SPAN_SCAN_LOOKBACK_HOURS),
+            after - timedelta(hours=DEFAULT_SPAN_SCAN_LOOKBACK_HOURS),
+        )
+        assert lo <= kwargs["parameters"]["start_after"] <= hi
+
+    def test_window_bounds_are_applied(self, monkeypatch):
+        mock_client = MagicMock()
+        mock_client.query.return_value.result_rows = []
+        svc = self._service(monkeypatch, mock_client)
+
+        svc.get_distinct_trace_values(
+            project_id="p1",
+            column="environment",
+            start_after=datetime(2026, 6, 1),
+            end_before=datetime(2026, 6, 2),
+        )
+        sql, kwargs = mock_client.query.call_args
+        assert "trace_start_time >= {start_after:DateTime64(3)}" in sql[0]
+        assert "trace_start_time < {end_before:DateTime64(3)}" in sql[0]
+        assert kwargs["parameters"]["end_before"] == datetime(2026, 6, 2)
+
+    def test_span_and_trace_caches_do_not_collide(self, monkeypatch):
+        """Same column name on both tables must be two cache entries, not one."""
+        mock_client = MagicMock()
+        mock_client.query.return_value.result_rows = [("prod", 5)]
+        svc = self._service(monkeypatch, mock_client)
+
+        svc.get_distinct_span_values(project_id="p1", column="environment")
+        svc.get_distinct_trace_values(project_id="p1", column="environment")
+        assert mock_client.query.call_count == 2  # one real query per table
+
+    def test_results_are_cached(self, monkeypatch):
+        mock_client = MagicMock()
+        mock_client.query.return_value.result_rows = [("prod", 5)]
+        svc = self._service(monkeypatch, mock_client)
+
+        first = svc.get_distinct_trace_values(project_id="p1", column="environment")
+        second = svc.get_distinct_trace_values(project_id="p1", column="environment")
+        assert first == second
+        mock_client.query.assert_called_once()
