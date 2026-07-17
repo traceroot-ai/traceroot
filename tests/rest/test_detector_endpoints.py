@@ -835,3 +835,104 @@ class TestUsageExcludesDetectorTraffic:
         assert resp.status_code == 200
         combined_sql = mock_ch.query.call_args_list[0].args[0]
         assert combined_sql.count("source != 'detector'") == 2
+
+
+# =============================================================================
+# self_traced flag on detector runs
+# =============================================================================
+
+
+class TestSelfTracedFlag:
+    def test_write_carries_self_traced(self, client, mock_ch, secret):
+        resp = client.post(
+            "/api/v1/internal/detector-runs",
+            json={
+                "runId": "r-1",
+                "detectorId": "d-1",
+                "projectId": "p-1",
+                "traceId": "t-1",
+                "status": "completed",
+                "selfTraced": True,
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        sql = mock_ch.query.call_args.args[0]
+        params = mock_ch.query.call_args.kwargs["parameters"]
+        assert "self_traced" in sql
+        assert params["self_traced"] is True
+
+    def test_write_defaults_self_traced_false(self, client, mock_ch, secret):
+        resp = client.post(
+            "/api/v1/internal/detector-runs",
+            json={
+                "runId": "r-2",
+                "detectorId": "d-1",
+                "projectId": "p-1",
+                "traceId": "t-2",
+                "status": "completed",
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        params = mock_ch.query.call_args.kwargs["parameters"]
+        assert params["self_traced"] is False
+
+    def test_runs_list_surfaces_self_traced(self, client, mock_ch, secret):
+        ts = datetime(2026, 7, 1, 12, 0, 0)
+        data = _make_query_result(
+            rows=[("r1", "d1", "p1", "t1", None, "completed", ts, "", True)],
+            column_names=[
+                "run_id",
+                "detector_id",
+                "project_id",
+                "trace_id",
+                "finding_id",
+                "status",
+                "timestamp",
+                "summary",
+                "self_traced",
+            ],
+        )
+        count = _make_query_result([(1,)], ["count()"])
+        mock_ch.query.side_effect = [data, count]
+        resp = client.get(
+            "/api/v1/internal/detector-runs",
+            params={"project_id": "p1", "detector_id": "d1"},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["data"][0]["self_traced"] is True
+        data_sql = mock_ch.query.call_args_list[0].args[0]
+        assert "r.self_traced" in data_sql
+
+    def test_runs_list_defaults_self_traced_false_for_old_rows(self, client, mock_ch, secret):
+        """A result set without the column validates with the False default.
+
+        (The SQL itself references r.self_traced unconditionally, so this pins
+        Pydantic's default for absent keys — the deploy still requires the
+        migration before this code serves reads, same as the source column.)
+        """
+        ts = datetime(2026, 7, 1, 12, 0, 0)
+        data = _make_query_result(
+            rows=[("r1", "d1", "p1", "t1", None, "completed", ts, "")],
+            column_names=[
+                "run_id",
+                "detector_id",
+                "project_id",
+                "trace_id",
+                "finding_id",
+                "status",
+                "timestamp",
+                "summary",
+            ],
+        )
+        count = _make_query_result([(1,)], ["count()"])
+        mock_ch.query.side_effect = [data, count]
+        resp = client.get(
+            "/api/v1/internal/detector-runs",
+            params={"project_id": "p1", "detector_id": "d1"},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["data"][0]["self_traced"] is False

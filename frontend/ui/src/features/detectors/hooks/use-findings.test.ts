@@ -113,3 +113,44 @@ describe("useTraceDetectorRuns — per-trace runs fetch", () => {
     expect(result.current.error?.message).toContain("404");
   });
 });
+
+describe("useRuns — self_traced passthrough", () => {
+  it("surfaces self_traced on run rows (and tolerates its absence on old reads)", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: [
+          {
+            run_id: "r1",
+            detector_id: "d1",
+            project_id: "p1",
+            trace_id: "t1",
+            finding_id: null,
+            status: "completed",
+            timestamp: "2026-07-01T12:00:00Z",
+            summary: "",
+            self_traced: true,
+          },
+          {
+            run_id: "r2",
+            detector_id: "d1",
+            project_id: "p1",
+            trace_id: "t2",
+            finding_id: null,
+            status: "completed",
+            timestamp: "2026-07-01T12:01:00Z",
+            summary: "",
+          },
+        ],
+        meta: { page: 0, limit: 50, total: 2 },
+      }),
+    });
+
+    const { result } = renderHook(() => useRuns("proj-1", "det-1"), { wrapper });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const rows = result.current.data!.data;
+    expect(rows[0].self_traced).toBe(true);
+    expect(rows[1].self_traced).toBeUndefined();
+  });
+});
