@@ -33,7 +33,7 @@ function snippet(lang: Lang, dataset: DatasetRow | undefined): string {
 
   if (lang === "python") {
     return `import traceroot
-from traceroot import Dataset, evaluate
+from traceroot import evaluate, pull_dataset
 
 # 1. Your application. Point this at your own entry point.
 from my_app.support import handle_ticket
@@ -41,12 +41,13 @@ from my_app.support import handle_ticket
 # 2. Your scorers. A scorer takes a ScorerContext and returns a Score.
 from evals.scorers import routing_accuracy
 
+# Initialize with your TraceRoot API key so the run is reported and traced.
 traceroot.initialize()
 
-# 3. The dataset this run measures.
+# 3. Pull the dataset this run measures (its current published version).
 #    dataset_id:         ${datasetId}
 #    dataset_version_id: ${versionId}
-dataset = Dataset("${name}")
+dataset = pull_dataset("${datasetId}")
 
 # 4. The task receives EvalCase.input and returns your application's output.
 def run_candidate(ticket):
@@ -57,6 +58,7 @@ result = evaluate(
     data=dataset,
     task=run_candidate,
     scorers=[routing_accuracy],
+    candidate_version="git:REPLACE_ME",  # what changed in this run (e.g. a git sha)
 )
 
 print(result.to_dict())`;
@@ -152,7 +154,7 @@ export function RunEvaluationDrawer({
         </button>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto px-4 py-3 text-[12px]">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto px-4 pb-6 pt-3 text-[12px]">
         <FormCard label="Dataset">
           {datasetId ? (
             <p className="text-[13px] font-medium">{dataset?.name ?? chosen}</p>
