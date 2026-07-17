@@ -1,22 +1,15 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@traceroot/core";
 import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-helpers";
+import { compareRuns } from "@/lib/eval/comparison";
+import { toComparisonRun, toComparisonResults } from "@/lib/eval/comparison-db";
 
 type RouteParams = { params: Promise<{ projectId: string }> };
 
-/** Delta vs baseline only when the two runs measured the identical population. */
-function changeFromBaseline(
-  run: { mainScore: number | null; evaluationId: string; datasetVersionId: string },
-  baseline: { mainScore: number | null; evaluationId: string; datasetVersionId: string } | null,
-): number | null {
-  if (!baseline || run.mainScore === null || baseline.mainScore === null) return null;
-  if (
-    baseline.evaluationId !== run.evaluationId ||
-    baseline.datasetVersionId !== run.datasetVersionId
-  ) {
-    return null; // incompatible snapshot — no delta
-  }
-  return run.mainScore - baseline.mainScore;
+function elapsedMs(startedAt: Date, completedAt: Date | null): number | null {
+  if (!completedAt) return null;
+  const ms = completedAt.getTime() - startedAt.getTime();
+  return ms >= 0 ? ms : null;
 }
 
 // GET — evaluation runs (executions) for the project. Filters: evaluation_id,
@@ -62,9 +55,6 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       include: {
         evaluation: { select: { name: true } },
         datasetVersion: { select: { label: true } },
-        baselineRun: {
-          select: { mainScore: true, evaluationId: true, datasetVersionId: true },
-        },
       },
     }),
     prisma.evaluationRun.count({ where }),
@@ -80,14 +70,55 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       : [];
   const datasetName = new Map(datasets.map((d) => [d.id, d.name]));
 
-  const data = runs.map((r) => ({
-    ...r,
-    evaluationName: r.evaluation.name,
-    datasetName: datasetName.get(r.datasetId) ?? null,
-    datasetVersionLabel: r.datasetVersion.label,
-    changeFromBaseline: changeFromBaseline(r, r.baselineRun),
-    errorCount: r.taskErrorCount + r.scorerErrorCount,
-  }));
+  // Restrained per-run comparison summary from the SAME engine as run detail — batched
+  // so the whole page costs a bounded number of queries (baseline runs + all results),
+  // never a per-row N+1. For very large runs this is the natural summary/cache boundary.
+  const baselineIds = [
+    ...new Set(runs.map((r) => r.baselineRunId).filter((x): x is string => !!x)),
+  ];
+  const baselineRuns =
+    baselineIds.length > 0
+      ? await prisma.evaluationRun.findMany({ where: { id: { in: baselineIds }, projectId } })
+      : [];
+  const baselineById = new Map(baselineRuns.map((b) => [b.id, b]));
+
+  const resultRunIds = [...new Set([...runs.map((r) => r.id), ...baselineIds])];
+  const allResults =
+    resultRunIds.length > 0
+      ? await prisma.evaluationResult.findMany({
+          where: { runId: { in: resultRunIds }, projectId },
+          include: { scores: true },
+        })
+      : [];
+  const resultsByRun = new Map<string, typeof allResults>();
+  for (const r of allResults) {
+    const list = resultsByRun.get(r.runId);
+    if (list) list.push(r);
+    else resultsByRun.set(r.runId, [r]);
+  }
+
+  const data = runs.map((r) => {
+    const baseline = r.baselineRunId ? (baselineById.get(r.baselineRunId) ?? null) : null;
+    const { comparison } = compareRuns({
+      candidate: toComparisonRun(r),
+      candidateResults: toComparisonResults(resultsByRun.get(r.id) ?? []),
+      baseline: baseline ? toComparisonRun(baseline) : null,
+      baselineResults: baseline ? toComparisonResults(resultsByRun.get(baseline.id) ?? []) : [],
+    });
+    return {
+      ...r,
+      evaluationName: r.evaluation.name,
+      datasetName: datasetName.get(r.datasetId) ?? null,
+      datasetVersionLabel: r.datasetVersion.label,
+      // Delta + regressed-case count only when trustworthy; otherwise null (UI shows —),
+      // never a misleading number beside an incompatible baseline.
+      changeFromBaseline: comparison.trustworthy ? comparison.mainScore.delta : null,
+      regressedCaseCount: comparison.trustworthy ? comparison.caseCounts.regressed : null,
+      baselineComparable: comparison.trustworthy,
+      errorCount: r.taskErrorCount + r.scorerErrorCount,
+      elapsedMs: elapsedMs(r.startedAt, r.completedAt),
+    };
+  });
 
   return successResponse({ data, meta: { page, limit, total } });
 }
