@@ -31,6 +31,18 @@ export function useRowSelection<T extends string>(allIds: T[]) {
     });
   }, []);
 
+  /** Add or remove a batch of ids at once (e.g. select every run under a group). */
+  const setMany = React.useCallback((ids: T[], on: boolean) => {
+    setSelected((current) => {
+      const next = new Set(current);
+      for (const id of ids) {
+        if (on) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  }, []);
+
   const clear = React.useCallback(() => setSelected(new Set()), []);
 
   const allSelected = allIds.length > 0 && allIds.every((id) => selected.has(id));
@@ -46,6 +58,7 @@ export function useRowSelection<T extends string>(allIds: T[]) {
     has: (id: T) => selected.has(id),
     toggle,
     toggleAll,
+    setMany,
     clear,
     allSelected,
     someSelected,
