@@ -13,11 +13,16 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
+from starlette.responses import Response
 
+from rest.openapi_public import PUBLIC_PREFIX
 from rest.rate_limit import limiter, rate_limit_exceeded_handler
 from rest.routers.dashboards import router as dashboards_router
 from rest.routers.internal import router as internal_router
@@ -50,6 +55,37 @@ app.add_middleware(GZipMiddleware, minimum_size=1024)
 # is attached to app.state so the 429 handler can read window stats for headers.
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+
+
+def _validation_message(exc: RequestValidationError) -> str:
+    """Collapse a pydantic error list into one human-readable sentence."""
+    errors = exc.errors()
+    if not errors:
+        return "Invalid request"
+    first = errors[0]
+    # loc[0] is the source ("body"/"query"/"path"); the rest is the field path.
+    location = ".".join(str(part) for part in tuple(first.get("loc") or ())[1:])
+    message = str(first.get("msg") or "Invalid request")
+    detail = f"{location}: {message}" if location else message
+    remaining = len(errors) - 1
+    return f"{detail} (and {remaining} more error(s))" if remaining else detail
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> Response:
+    """Give the public API a single error envelope for request-validation failures.
+
+    Every documented `/api/v1/public/*` error body is `{"detail": "<string>"}`, but
+    FastAPI's default 422 puts a *list of error objects* under `detail` — so an SDK
+    that formats `resp.json()["detail"]` as a message renders a repr'd list. Public
+    routes therefore get the same string envelope their upstream/handler errors use.
+    Non-public (dashboard/internal) routes keep FastAPI's default body, which the
+    Next.js app already parses.
+    """
+    if not request.url.path.startswith(PUBLIC_PREFIX):
+        return await request_validation_exception_handler(request, exc)
+    return JSONResponse(status_code=422, content={"detail": _validation_message(exc)})
+
 
 # CORS configuration
 app.add_middleware(
