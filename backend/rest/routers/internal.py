@@ -90,15 +90,20 @@ async def get_usage_total(
 
     # ReplacingMergeTree dedup via uniqExact — same trace/span id can have
     # multiple pre-merge rows in ClickHouse.
+    # Detector self-traces are excluded by default so detector activity is not
+    # billed twice (runs are already metered separately); whether self-traces
+    # ever become billable is a later product decision.
     result = ch.query(
         """
         SELECT (
             (SELECT uniqExact(trace_id) FROM traces
              WHERE project_id IN {project_ids:Array(String)}
+               AND source != 'detector'
                AND ch_create_time >= {start:String}
                AND ch_create_time < {end:String})
           + (SELECT uniqExact(span_id) FROM spans
              WHERE project_id IN {project_ids:Array(String)}
+               AND source != 'detector'
                AND ch_create_time >= {start:String}
                AND ch_create_time < {end:String})
         ) as total
@@ -140,11 +145,13 @@ async def get_usage_details(
     # rows (a single trace can have multiple rows until background merge runs,
     # e.g. on status update). uniqExact is faster than count(DISTINCT trace_id)
     # in ClickHouse and produces identical results.
+    # source filter: see get_usage_total — self-traces are not billed by default.
     traces_result = ch.query(
         """
         SELECT uniqExact(trace_id) as total
         FROM traces
         WHERE project_id IN {project_ids:Array(String)}
+          AND source != 'detector'
           AND ch_create_time >= {start:String}
           AND ch_create_time < {end:String}
         """,
@@ -161,6 +168,7 @@ async def get_usage_details(
         SELECT uniqExact(span_id) as total
         FROM spans
         WHERE project_id IN {project_ids:Array(String)}
+          AND source != 'detector'
           AND ch_create_time >= {start:String}
           AND ch_create_time < {end:String}
         """,
