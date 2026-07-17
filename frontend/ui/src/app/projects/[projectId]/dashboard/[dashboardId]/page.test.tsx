@@ -39,12 +39,6 @@ vi.mock("next/link", () => ({
 }));
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
 
-const createDashboard: {
-  mutate: ReturnType<typeof vi.fn>;
-  reset: ReturnType<typeof vi.fn>;
-  isPending: boolean;
-  error: Error | null;
-} = { mutate: vi.fn(), reset: vi.fn(), isPending: false, error: null };
 const updateLayout: { mutate: ReturnType<typeof vi.fn>; isPending: boolean; error: Error | null } =
   {
     mutate: vi.fn(),
@@ -63,22 +57,13 @@ const removeWidget: { mutate: ReturnType<typeof vi.fn>; isPending: boolean; erro
     isPending: false,
     error: null,
   };
-const removeDashboard: {
-  mutate: ReturnType<typeof vi.fn>;
-  isPending: boolean;
-  isError: boolean;
-  error: Error | null;
-} = { mutate: vi.fn(), isPending: false, isError: false, error: null };
 
 vi.mock("@/features/dashboards/hooks/use-dashboards", () => ({
-  useDashboards: vi.fn(),
   useDashboard: vi.fn(),
   useDashboardMutations: () => ({
-    createDashboard,
     updateLayout,
     createWidget,
     removeWidget,
-    removeDashboard,
   }),
 }));
 
@@ -117,15 +102,16 @@ vi.mock("@/features/dashboards/components/DashboardGrid", () => ({
   },
 }));
 
-import { useDashboard, useDashboards } from "@/features/dashboards/hooks/use-dashboards";
+import { useDashboard } from "@/features/dashboards/hooks/use-dashboards";
 
 // d1 is a user dashboard; d2 is the seeded default (Overview) — both are
-// fully editable, the default is just auto-created and tab-marked.
+// fully editable, the default is just auto-created and home-marked.
 const DASH_A: DashboardSummary = {
   id: "d1",
   name: "Custom",
   description: null,
   isDefault: false,
+  createTime: "",
   updateTime: "",
 };
 const DASH_B: DashboardSummary = {
@@ -133,6 +119,7 @@ const DASH_B: DashboardSummary = {
   name: "Overview",
   description: null,
   isDefault: true,
+  createTime: "",
   updateTime: "",
 };
 
@@ -144,12 +131,6 @@ const WIDGET: Widget = {
   spec: { view: "spans" },
   displayConfig: {},
 };
-
-function mockLists(dashboards: DashboardSummary[] | undefined) {
-  vi.mocked(useDashboards).mockReturnValue({
-    data: dashboards,
-  } as ReturnType<typeof useDashboards>);
-}
 
 function mockDetail(data: DashboardDetail | undefined, error: unknown = null) {
   vi.mocked(useDashboard).mockReturnValue({ data, error } as ReturnType<typeof useDashboard>);
@@ -171,106 +152,30 @@ describe("DashboardDetailPage", () => {
   beforeEach(() => {
     push.mockReset();
     replace.mockReset();
-    createDashboard.mutate.mockReset();
     updateLayout.mutate.mockReset();
     createWidget.mutate.mockReset();
     removeWidget.mutate.mockReset();
-    removeDashboard.mutate.mockReset();
-    removeDashboard.isError = false;
-    removeDashboard.error = null;
     lastGridProps = null;
-    mockLists([DASH_A, DASH_B]);
     mockDetail({ ...DASH_A, layout: [], widgets: [] });
   });
 
-  it("renders dashboard tabs with the default marked and the current one highlighted", () => {
+  it("shows the dashboard's name in the header with a back link to the list", () => {
     renderPage();
 
-    const customTab = screen.getByRole("link", { name: "Custom" });
-    expect(customTab.textContent).not.toContain("⌂");
-    expect(customTab.getAttribute("aria-current")).toBe("page");
-
-    const overviewTab = screen.getByRole("link", { name: /Overview/ });
-    expect(overviewTab.textContent).toContain("⌂");
-    expect(overviewTab.getAttribute("aria-current")).toBeNull();
-
-    expect(screen.getByRole("button", { name: "＋ new" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Custom" })).toBeTruthy();
+    // the breadcrumb reads exactly like the list page's heading (no arrow)
+    const back = screen.getByRole("link", { name: "Dashboards" });
+    expect(back.getAttribute("href")).toBe("/projects/p1/dashboard?list=1");
+    // No tab strip: the other dashboard is not rendered here anymore.
+    expect(screen.queryByText("Overview")).toBeNull();
   });
 
-  it("keeps header controls outside the scrollable tab strip when dashboards pile up", () => {
-    mockLists(
-      Array.from({ length: 30 }, (_, i) => ({ ...DASH_A, id: `d${i + 1}`, name: `Dash ${i + 1}` })),
-    );
-    mockDetail({ ...DASH_A, layout: [], widgets: [WIDGET] });
+  it("shows the default dashboard's plain name in the header, no marker glyph", () => {
+    mockDetail({ ...DASH_B, layout: [], widgets: [] });
     renderPage();
 
-    // All tabs render inside one horizontally scrollable strip…
-    const strip = screen.getByRole("link", { name: "Dash 30" }).parentElement!;
-    expect(strip.className).toContain("overflow-x-auto");
-    expect(strip.querySelectorAll("a")).toHaveLength(30);
-
-    // …while ＋ new, the date filter, and the widget controls live outside it,
-    // so an ever-growing dashboard list can never push them off screen.
-    const newButton = screen.getByRole("button", { name: "＋ new" });
-    expect(strip.contains(newButton)).toBe(false);
-    const dateFilterButton = screen.getByRole("button", { name: "Last 24 hours" });
-    expect(strip.contains(dateFilterButton)).toBe(false);
-    const createWidget = screen.getByRole("button", { name: "＋ Create widget" });
-    expect(strip.contains(createWidget)).toBe(false);
-  });
-
-  it("restores the tab strip scroll position across the remount a tab click causes", () => {
-    mockLists(
-      Array.from({ length: 30 }, (_, i) => ({ ...DASH_A, id: `d${i + 1}`, name: `Dash ${i + 1}` })),
-    );
-    mockDetail({ ...DASH_A, layout: [], widgets: [WIDGET] });
-    const { unmount } = render(
-      <QueryClientProvider client={new QueryClient()}>
-        <DashboardDetailPage />
-      </QueryClientProvider>,
-    );
-
-    // The user scrolls deep into the strip… (the recorded position lives in a
-    // module-scope Map, so it deliberately persists for the rest of this test
-    // file — later mounts restore it, which nothing else asserts on)
-    const strip = screen.getByRole("link", { name: "Dash 30" }).parentElement!;
-    strip.scrollLeft = 480;
-    fireEvent.scroll(strip);
-
-    // …then clicks a tab, which navigates and remounts the whole page.
-    unmount();
-    renderPage();
-
-    const remounted = screen.getByRole("link", { name: "Dash 30" }).parentElement!;
-    expect(remounted.scrollLeft).toBe(480);
-  });
-
-  it("opens the create-dashboard dialog and cancelling it does not create", () => {
-    renderPage();
-
-    expect(screen.queryByText("Create Dashboard")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "＋ new" }));
-    expect(screen.getByText("Create Dashboard")).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(createDashboard.mutate).not.toHaveBeenCalled();
-  });
-
-  it("creates a dashboard from the dialog and navigates to it on success", () => {
-    renderPage();
-
-    fireEvent.click(screen.getByRole("button", { name: "＋ new" }));
-    fireEvent.change(screen.getByPlaceholderText("Dashboard name"), {
-      target: { value: "New dash" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
-
-    expect(createDashboard.mutate).toHaveBeenCalledTimes(1);
-    const [payload, options] = createDashboard.mutate.mock.calls[0];
-    expect(payload).toEqual({ name: "New dash" });
-
-    options.onSuccess({ dashboard: { id: "d9" } });
-    expect(push).toHaveBeenCalledWith("/projects/p1/dashboard/d9");
+    expect(screen.getByRole("heading", { name: "Overview" })).toBeTruthy();
+    expect(screen.queryByText("⌂")).toBeNull();
   });
 
   it("shows the active range preset label", () => {
@@ -307,51 +212,24 @@ describe("DashboardDetailPage", () => {
     expect(lastGridProps?.readOnly).toBeUndefined();
   });
 
-  it("holds the header edit controls until the dashboard detail loads", () => {
+  it("holds the create-widget button until the dashboard detail loads", () => {
     mockDetail(undefined);
     renderPage();
 
     expect(screen.queryByRole("button", { name: "＋ Create widget" })).toBeNull();
+  });
+
+  it("offers no delete affordance — deleting lives in the list page's row actions", () => {
+    renderPage();
     expect(screen.queryByRole("button", { name: "Delete dashboard" })).toBeNull();
+    expect(screen.queryByText("Delete Dashboard")).toBeNull();
   });
 
-  it("deletes the dashboard through the confirm dialog and navigates to the index", () => {
+  it("renders the create-widget button before the time-range control", () => {
     renderPage();
-
-    fireEvent.click(screen.getByRole("button", { name: "Delete dashboard" }));
-    expect(screen.getByText("Delete Dashboard")).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
-    expect(removeDashboard.mutate).toHaveBeenCalledTimes(1);
-    const [id, options] = removeDashboard.mutate.mock.calls[0];
-    expect(id).toBe("d1");
-
-    options.onSuccess();
-    expect(replace).toHaveBeenCalledWith("/projects/p1/dashboard");
-  });
-
-  it("shows the delete error inside the dialog when the mutation fails", () => {
-    removeDashboard.isError = true;
-    removeDashboard.error = new Error("boom");
-    renderPage();
-
-    fireEvent.click(screen.getByRole("button", { name: "Delete dashboard" }));
-    expect(screen.getByText("boom")).toBeTruthy();
-  });
-
-  it("cancelling the delete dialog does not delete", () => {
-    renderPage();
-
-    fireEvent.click(screen.getByRole("button", { name: "Delete dashboard" }));
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-
-    expect(removeDashboard.mutate).not.toHaveBeenCalled();
-  });
-
-  it("shows the delete button on the default dashboard", () => {
-    mockDetail({ ...DASH_B, layout: [], widgets: [] });
-    renderPage();
-    expect(screen.getByRole("button", { name: "Delete dashboard" })).toBeTruthy();
+    const create = screen.getAllByRole("button", { name: "＋ Create widget" })[0];
+    const range = screen.getByRole("button", { name: "Last 24 hours" });
+    expect(create.compareDocumentPosition(range) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("redirects to the dashboard index and invalidates the list cache when the dashboard is gone", () => {
@@ -389,7 +267,6 @@ describe("DashboardDetailPage", () => {
 
     expect(screen.getByText("Loading…")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "＋ Create widget" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Delete dashboard" })).toBeNull();
   });
 
   it("passes widgets, layout and range to the grid and wires edit/duplicate/delete", () => {

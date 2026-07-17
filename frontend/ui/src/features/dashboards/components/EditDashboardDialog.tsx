@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { useDashboardMutations } from "../hooks/use-dashboards";
 import { DASHBOARD_DESCRIPTION_MAX, DASHBOARD_NAME_MAX } from "../types";
 import { Button } from "@/components/ui/button";
@@ -15,65 +14,64 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-export function CreateDashboardDialog({
+/**
+ * Edit a dashboard's name and description from the list page. `target`
+ * doubles as the open state: a row's Edit action sets it, closing clears it.
+ * The drafts seed on mount, so callers must key this component by the
+ * target's id to reset them per row.
+ */
+export function EditDashboardDialog({
   projectId,
-  open,
-  onOpenChange,
+  target,
+  onClose,
 }: {
   projectId: string;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
+  target: { id: string; name: string; description: string | null } | null;
+  onClose: () => void;
 }) {
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const router = useRouter();
-  const { createDashboard } = useDashboardMutations(projectId);
+  const { renameDashboard } = useDashboardMutations(projectId, target?.id);
+  const [name, setName] = useState(target?.name ?? "");
+  const [description, setDescription] = useState(target?.description ?? "");
 
-  // Closing discards the draft: a cancelled name or stale error must not
-  // reappear the next time the dialog opens.
   const handleOpenChange = (next: boolean) => {
-    // Radix close paths (Escape, overlay click, the X) bypass the disabled
-    // Cancel button — ignore them while a create is in flight, so the pending
-    // mutation can't be reset mid-request and resubmitted.
-    if (!next && createDashboard.isPending) return;
+    // Radix close paths (Escape, overlay click) bypass the disabled Cancel
+    // button — ignore them while the save is in flight.
+    if (!next && renameDashboard.isPending) return;
     if (!next) {
-      setName("");
-      setDescription("");
-      createDashboard.reset();
+      renameDashboard.reset();
+      onClose();
     }
-    onOpenChange(next);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
-    createDashboard.mutate(
-      { name: name.trim(), ...(description.trim() ? { description: description.trim() } : {}) },
-      {
-        onSuccess: (res) => {
-          handleOpenChange(false);
-          router.push(`/projects/${projectId}/dashboard/${res.dashboard.id}`);
-        },
-      },
+    renameDashboard.mutate(
+      // An emptied description clears the stored one, not just the draft.
+      { name: name.trim(), description: description.trim() || null },
+      { onSuccess: () => onClose() },
     );
   };
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
+    <Dialog open={target !== null} onOpenChange={handleOpenChange}>
       <DialogContent>
         <form onSubmit={handleSubmit}>
           <DialogHeader>
-            <DialogTitle>Create Dashboard</DialogTitle>
-            <DialogDescription>Create a new dashboard to organize your widgets.</DialogDescription>
+            <DialogTitle>Edit Dashboard</DialogTitle>
+            <DialogDescription>
+              Update the name and description of “{target?.name}”.
+            </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-3 py-4">
             <Input
               autoFocus
+              aria-label="Dashboard name"
               maxLength={DASHBOARD_NAME_MAX}
               placeholder="Dashboard name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              disabled={createDashboard.isPending}
+              disabled={renameDashboard.isPending}
             />
             <textarea
               aria-label="Dashboard description"
@@ -82,11 +80,11 @@ export function CreateDashboardDialog({
               placeholder="Describe the purpose of this dashboard (optional)"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              disabled={createDashboard.isPending}
+              disabled={renameDashboard.isPending}
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
             />
-            {createDashboard.isError && (
-              <p className="text-sm text-destructive">{createDashboard.error.message}</p>
+            {renameDashboard.isError && (
+              <p className="text-sm text-destructive">{renameDashboard.error.message}</p>
             )}
           </div>
           <DialogFooter>
@@ -94,12 +92,12 @@ export function CreateDashboardDialog({
               type="button"
               variant="outline"
               onClick={() => handleOpenChange(false)}
-              disabled={createDashboard.isPending}
+              disabled={renameDashboard.isPending}
             >
               Cancel
             </Button>
-            <Button type="submit" disabled={!name.trim() || createDashboard.isPending}>
-              {createDashboard.isPending ? "Creating..." : "Create"}
+            <Button type="submit" disabled={!name.trim() || renameDashboard.isPending}>
+              {renameDashboard.isPending ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>
         </form>

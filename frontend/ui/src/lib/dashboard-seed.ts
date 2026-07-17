@@ -1,4 +1,4 @@
-// Widget definitions for the lazily-created default "Overview" dashboard.
+// Widget definitions for the lazily-created "Default" dashboard.
 // Created once per project on first dashboards fetch, then fully user-owned —
 // never re-seeded or force-updated.
 
@@ -96,7 +96,14 @@ export function seedWidgets(): SeedWidget[] {
       title: "Recent traces",
       type: "trace_feed",
       spec: { filters: [], limit: 10 },
-      layout: { x: 0, y: 8, w: 12, h: 4 },
+      layout: { x: 0, y: 8, w: 6, h: 4 },
+    },
+    {
+      title: "Recent failures",
+      type: "trace_feed",
+      // Trace-list predicate wire format: only traces that recorded errors.
+      spec: { filters: [{ field: "errors", op: "gt", value: 0 }], limit: 10 },
+      layout: { x: 6, y: 8, w: 6, h: 4 },
     },
   ];
 

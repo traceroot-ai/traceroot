@@ -1,6 +1,7 @@
 import { fetchNextApi, fetchTraceApi, type TraceApiUser } from "@/lib/api/client";
 import type {
   DashboardDetail,
+  DashboardListItem,
   DashboardSummary,
   LayoutItem,
   TimeRange,
@@ -12,7 +13,7 @@ import type {
 } from "./types";
 
 export function listDashboards(projectId: string) {
-  return fetchNextApi<{ data: DashboardSummary[] }>(`/projects/${projectId}/dashboards`);
+  return fetchNextApi<{ data: DashboardListItem[] }>(`/projects/${projectId}/dashboards`);
 }
 
 export function getDashboard(projectId: string, dashboardId: string) {

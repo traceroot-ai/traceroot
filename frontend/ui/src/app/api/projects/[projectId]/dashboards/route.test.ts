@@ -7,12 +7,16 @@ vi.mock("@/env", () => ({ env: { INTERNAL_API_SECRET: "test-secret" } }));
 
 const dashboardFindManyMock = vi.fn();
 const dashboardCreateMock = vi.fn();
+const userFindManyMock = vi.fn();
 vi.mock("@traceroot/core", () => ({
   Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
   prisma: {
     dashboard: {
       findMany: (...args: unknown[]) => dashboardFindManyMock(...args),
       create: (...args: unknown[]) => dashboardCreateMock(...args),
+    },
+    user: {
+      findMany: (...args: unknown[]) => userFindManyMock(...args),
     },
   },
 }));
@@ -51,6 +55,8 @@ function makeParams(projectId = "proj-1") {
 beforeEach(() => {
   dashboardFindManyMock.mockReset();
   dashboardCreateMock.mockReset();
+  userFindManyMock.mockReset();
+  userFindManyMock.mockResolvedValue([]);
   requireAuthMock.mockReset();
   requireProjectAccessMock.mockReset();
   // Default: authenticated with project access.
@@ -66,19 +72,55 @@ describe("GET /dashboards — existing dashboards", () => {
         name: "Overview",
         description: null,
         isDefault: true,
+        createdBy: "user-1",
+        updateTime: new Date(),
+      },
+      {
+        id: "dash-2",
+        name: "Costs",
+        description: null,
+        isDefault: false,
+        createdBy: "user-gone",
         updateTime: new Date(),
       },
     ];
     dashboardFindManyMock.mockResolvedValue(existing);
+    userFindManyMock.mockResolvedValue([{ id: "user-1", name: "Ada", email: "ada@example.com" }]);
 
     const res = await GET(makeGetRequest(), makeParams());
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { data: unknown[] };
-    expect(body.data).toHaveLength(1);
+    const body = (await res.json()) as {
+      data: { creator: string | null; createdBy?: string }[];
+    };
+    expect(body.data).toHaveLength(2);
+    // creator ids resolve to display names in one batch; a deleted account
+    // resolves to null, and the raw id never leaves the API
+    expect(userFindManyMock).toHaveBeenCalledTimes(1);
+    expect(body.data[0].creator).toBe("Ada");
+    expect(body.data[1].creator).toBeNull();
+    expect(body.data[0].createdBy).toBeUndefined();
     // create must never have been called
     expect(dashboardCreateMock).not.toHaveBeenCalled();
     // findMany called exactly once (no re-read needed)
     expect(dashboardFindManyMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to the creator's email when the account has no name", async () => {
+    dashboardFindManyMock.mockResolvedValue([
+      {
+        id: "dash-1",
+        name: "Overview",
+        description: null,
+        isDefault: true,
+        createdBy: "user-1",
+        updateTime: new Date(),
+      },
+    ]);
+    userFindManyMock.mockResolvedValue([{ id: "user-1", name: null, email: "ada@example.com" }]);
+
+    const res = await GET(makeGetRequest(), makeParams());
+    const body = (await res.json()) as { data: { creator: string | null }[] };
+    expect(body.data[0].creator).toBe("ada@example.com");
   });
 
   it("returns 401 when unauthenticated", async () => {
@@ -109,6 +151,7 @@ describe("GET /dashboards — lazy seeding (no existing dashboards)", () => {
         name: "Overview",
         description: null,
         isDefault: true,
+        createdBy: "user-1",
         updateTime: new Date(),
       },
     ]);
@@ -129,7 +172,16 @@ describe("GET /dashboards — lazy seeding (no existing dashboards)", () => {
 
     expect(data.id).toBe("default_proj-1");
     expect(data.isDefault).toBe(true);
+    expect((data as { name?: string }).name).toBe("Default");
+    // The seeded Overview ships with a purpose note like any user dashboard.
+    expect((data as { description?: string }).description).toMatch(/overview/i);
     expect(data.widgets.create.length).toBeGreaterThanOrEqual(7);
+
+    // The failures feed filters on the trace-list errors predicate.
+    const failures = (
+      data.widgets.create as unknown as Array<{ title: string; spec: { filters?: unknown[] } }>
+    ).find((w) => w.title === "Recent failures");
+    expect(failures?.spec.filters).toEqual([{ field: "errors", op: "gt", value: 0 }]);
 
     // Every layout[i].i must equal widgets.create[i].id
     data.layout.forEach((layoutItem, idx) => {
@@ -149,6 +201,7 @@ describe("GET /dashboards — lazy seeding (no existing dashboards)", () => {
         name: "Overview",
         description: null,
         isDefault: true,
+        createdBy: "user-1",
         updateTime: new Date(),
       },
     ]);
