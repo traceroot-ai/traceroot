@@ -31,9 +31,7 @@ type Case = { name: string; payload: unknown };
 describe("eval reporting contract parity (Zod)", () => {
   for (const group of Object.keys(SCHEMAS) as Group[]) {
     const schema = SCHEMAS[group];
-    const bucket = (fixtures as unknown as Record<string, { valid: Case[]; invalid: Case[] }>)[
-      group
-    ];
+    const bucket = (fixtures as Record<string, { valid: Case[]; invalid: Case[] }>)[group];
 
     it(`accepts every representative valid ${group} payload`, () => {
       for (const c of bucket.valid) {
