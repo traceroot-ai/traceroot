@@ -4,7 +4,12 @@
  */
 import type { RunComparison, ResultComparison } from "@/lib/eval/comparison";
 
-export type { RunComparison, ResultComparison, Classification } from "@/lib/eval/comparison";
+export type {
+  RunComparison,
+  ResultComparison,
+  ScorerCellComparison,
+  Classification,
+} from "@/lib/eval/comparison";
 
 /** The per-result comparison block the run-detail route embeds on each result. */
 export type ResultRowComparison = Pick<
@@ -180,6 +185,8 @@ export interface RunRow {
   baselineComparable?: boolean;
   /** Run wall-clock (completedAt − startedAt), null while running. */
   elapsedMs?: number | null;
+  /** Derived (list route): total SDK-reported case cost; null when none reported. */
+  cost?: number | null;
 }
 
 export interface RunDetail extends RunRow {
