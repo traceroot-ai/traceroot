@@ -257,18 +257,3 @@ def test_typed_route_rejects_invalid_body_before_forwarding(client):
     )
     assert resp.status_code == 422
     assert not route.called
-
-
-@respx.mock
-def test_typed_route_rejects_unknown_field_before_forwarding(client):
-    # The Zod contract is .strict(); the Pydantic mirror forbids extras → 422, no forward.
-    route = respx.post(f"{UI}/api/public/evaluation-runs/run1/complete").mock(
-        return_value=Response(200)
-    )
-    resp = client.post(
-        "/api/v1/public/evaluation-runs/run1/complete",
-        headers=AUTH_HEADER,
-        json={"status": "completed", "not_a_field": 1},
-    )
-    assert resp.status_code == 422
-    assert not route.called

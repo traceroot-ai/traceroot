@@ -95,7 +95,7 @@ def test_pydantic_rejects_invalid(label: str, model: type[BaseModel], case: dict
             "rest/schemas/eval.py. The gateway forwards bodies verbatim and FastAPI validates "
             "before the handler runs, so forbidding here would 422 a field the gateway does not "
             "yet model and it would never reach persistence. Asserted instead by "
-            "tests/rest/test_public_eval_gateway.py::test_unmodelled_field_still_reaches_the_handler."
+            "tests/rest/test_public_eval_gateway_security.py::test_unmodelled_field_still_reaches_the_handler."
         )
     with pytest.raises(ValidationError):
         model.model_validate(case["payload"])
