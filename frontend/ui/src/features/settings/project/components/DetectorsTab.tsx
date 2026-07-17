@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { ArrowUpRight, Clock, Mail } from "lucide-react";
 import { FaSlack } from "react-icons/fa";
@@ -14,13 +14,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ALERT_WINDOWS, DEFAULT_ALERT_WINDOW, type AlertWindow } from "@traceroot/core";
-import { updateProject } from "@/lib/api";
+import { getAvailableLLMModels, updateProject } from "@/lib/api";
 import { useProject } from "@/features/projects/hooks";
 import { useSlackStatus } from "@/features/integrations/hooks/useSlackIntegration";
 import {
   ModelSelector,
   type ModelSelection,
 } from "@/features/ai-assistant/components/model-selector";
+import {
+  flattenAvailableModels,
+  reconcileModelSelection,
+} from "@/features/ai-assistant/lib/resolve-model";
 import { AlertChannelsEditor } from "@/features/detectors/components/alert-channels-editor";
 
 interface DetectorsTabProps {
@@ -31,6 +35,11 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
   const queryClient = useQueryClient();
   const { data: project, isLoading } = useProject(projectId);
   const { data: slack } = useSlackStatus(project?.workspace_id);
+  const { data: llmModelData } = useQuery({
+    queryKey: ["llm-models", project?.workspace_id],
+    queryFn: () => getAvailableLLMModels(project!.workspace_id!),
+    enabled: !!project?.workspace_id,
+  });
 
   const [agentModelSelection, setAgentModelSelection] = useState<ModelSelection>({
     model: "",
@@ -90,10 +99,20 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
     },
   });
 
+  const savedAgentModelSelection: ModelSelection = {
+    model: project?.rca_model ?? "",
+    provider: project?.rca_provider ?? "",
+    source: (project?.rca_source as "system" | "byok") ?? "system",
+    adapter: "",
+  };
+  const savedAgentModelBaseline = reconcileModelSelection(
+    savedAgentModelSelection,
+    llmModelData ? flattenAvailableModels(llmModelData) : [],
+  );
   const isModelDirty =
-    agentModelSelection.model !== (project?.rca_model ?? "") ||
-    agentModelSelection.provider !== (project?.rca_provider ?? "") ||
-    agentModelSelection.source !== (project?.rca_source ?? "system");
+    agentModelSelection.model !== savedAgentModelBaseline.model ||
+    agentModelSelection.provider !== savedAgentModelBaseline.provider ||
+    agentModelSelection.source !== savedAgentModelBaseline.source;
   const savedEmails = project?.alert_emails ?? [];
   const isEmailsDirty =
     emailAddresses.length !== savedEmails.length ||

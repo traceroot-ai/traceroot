@@ -97,7 +97,10 @@ export function reconcileModelSelection(
     (m) => m.id === value.model && m.provider === value.provider && m.source === value.source,
   );
   const modelOnly =
-    !exact && value.model && !value.provider ? models.find((m) => m.id === value.model) : null;
+    !exact && value.model && !value.provider
+      ? (models.find((m) => m.id === value.model && m.source === value.source) ??
+        models.find((m) => m.id === value.model))
+      : null;
   const match = exact ?? modelOnly;
 
   if (match) {

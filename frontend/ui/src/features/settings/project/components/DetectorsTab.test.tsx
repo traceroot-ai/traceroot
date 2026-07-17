@@ -9,6 +9,20 @@ const mocks = vi.hoisted(() => ({
     alert_window: "10m",
   } as any,
   updateProject: vi.fn().mockResolvedValue({}),
+  llmModels: {
+    byokProviders: [] as Array<{
+      provider: string;
+      adapter: string;
+      source: "byok";
+      models: Array<{ id: string; label: string; supported?: boolean }>;
+    }>,
+    systemModels: [] as Array<{
+      provider: string;
+      adapter: string;
+      source: "system";
+      models: Array<{ id: string; label: string; supported?: boolean }>;
+    }>,
+  },
   modelSelectorReconcile: undefined as
     | ((value: {
         model: string;
@@ -37,6 +51,7 @@ vi.mock("@/features/projects/hooks", () => ({
 }));
 vi.mock("@/lib/api", () => ({
   updateProject: (...a: any[]) => mocks.updateProject(...a),
+  getAvailableLLMModels: () => Promise.resolve(mocks.llmModels),
 }));
 vi.mock("@/features/integrations/hooks/useSlackIntegration", () => ({
   useSlackStatus: () => ({ data: undefined }),
@@ -144,6 +159,8 @@ afterEach(() => {
     rca_provider: undefined,
     rca_source: undefined,
   });
+  mocks.llmModels.byokProviders = [];
+  mocks.llmModels.systemModels = [];
   mocks.modelSelectorReconcile = undefined;
   mocks.selectModel = undefined;
 });
@@ -153,6 +170,14 @@ describe("DetectorsTab agent model", () => {
     mocks.project.rca_model = "claude-opus-4-8";
     mocks.project.rca_provider = null;
     mocks.project.rca_source = null;
+    mocks.llmModels.byokProviders = [
+      {
+        provider: "anthropic",
+        adapter: "anthropic",
+        source: "byok",
+        models: [{ id: "claude-opus-4-8", label: "claude-opus-4-8", supported: true }],
+      },
+    ];
     mocks.modelSelectorReconcile = (value) =>
       value.model === "claude-opus-4-8"
         ? {
@@ -171,14 +196,24 @@ describe("DetectorsTab agent model", () => {
       ),
     );
 
-    const save = screen.getAllByRole("button", { name: "Save" })[0] as HTMLButtonElement;
-    expect(save.disabled).toBe(true);
+    await waitFor(() => {
+      const save = screen.getAllByRole("button", { name: "Save" })[0] as HTMLButtonElement;
+      expect(save.disabled).toBe(true);
+    });
   });
 
   it("enables Save when the user selects a genuinely different model", async () => {
     mocks.project.rca_model = "claude-opus-4-8";
     mocks.project.rca_provider = null;
     mocks.project.rca_source = null;
+    mocks.llmModels.byokProviders = [
+      {
+        provider: "anthropic",
+        adapter: "anthropic",
+        source: "byok",
+        models: [{ id: "claude-opus-4-8", label: "claude-opus-4-8", supported: true }],
+      },
+    ];
     mocks.modelSelectorReconcile = (value) =>
       value.model === "claude-opus-4-8"
         ? {
