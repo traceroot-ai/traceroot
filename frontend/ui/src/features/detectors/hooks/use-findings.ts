@@ -114,6 +114,12 @@ export interface BackendRun {
    * fired); absent = enrichment unavailable or the run never triggered.
    */
   rca_status?: "pending" | "running" | "done" | "failed" | null;
+  /**
+   * True when the worker emitted a self-trace for this run (trace_id = run_id);
+   * gates the runs-tab link to the run's own trace. Optional for back-compat
+   * with reads from an un-migrated backend, which imply false.
+   */
+  self_traced?: boolean;
 }
 
 export interface RunsQuery {

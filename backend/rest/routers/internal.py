@@ -221,6 +221,9 @@ class DetectorRunPayload(BaseModel):
     trace_id: str = Field(alias="traceId")
     finding_id: str | None = Field(default=None, alias="findingId")
     status: str
+    # True when the worker emitted a self-trace for this run (set optimistically
+    # at emit time); gates the runs-tab link to the run's own trace.
+    self_traced: bool = Field(default=False, alias="selfTraced")
     # Optional worker epoch-ms time for the row; see _maybe_stamp_timestamp.
     timestamp_ms: int | None = Field(default=None, alias="timestampMs")
 
@@ -271,7 +274,15 @@ async def write_detector_run(body: DetectorRunPayload):
     otherwise ClickHouse defaults the column to ``now64(3)`` at INSERT.
     """
     ch = get_clickhouse_client()
-    cols = ["run_id", "detector_id", "project_id", "trace_id", "finding_id", "status"]
+    cols = [
+        "run_id",
+        "detector_id",
+        "project_id",
+        "trace_id",
+        "finding_id",
+        "status",
+        "self_traced",
+    ]
     vals = [
         "{run_id:String}",
         "{detector_id:String}",
@@ -279,6 +290,7 @@ async def write_detector_run(body: DetectorRunPayload):
         "{trace_id:String}",
         "{finding_id:Nullable(String)}",
         "{status:String}",
+        "{self_traced:Bool}",
     ]
     params = {
         "run_id": body.run_id,
@@ -287,6 +299,7 @@ async def write_detector_run(body: DetectorRunPayload):
         "trace_id": body.trace_id,
         "finding_id": body.finding_id,
         "status": body.status,
+        "self_traced": body.self_traced,
     }
     _maybe_stamp_timestamp(cols, vals, params, body.timestamp_ms)
     ch.query(
@@ -431,6 +444,7 @@ async def list_detector_runs(
             r.finding_id  AS finding_id,
             r.status      AS status,
             r.timestamp   AS timestamp,
+            r.self_traced AS self_traced,
             {summary_expr} AS summary
         FROM (SELECT * FROM detector_runs FINAL) AS r
         LEFT JOIN (SELECT * FROM detector_findings FINAL) AS f
@@ -634,6 +648,7 @@ async def list_trace_detector_runs(trace_id: str, project_id: str):
             r.finding_id  AS finding_id,
             r.status      AS status,
             r.timestamp   AS timestamp,
+            r.self_traced AS self_traced,
             {summary_expr} AS summary
         FROM (SELECT * FROM detector_runs FINAL) AS r
         LEFT JOIN (SELECT * FROM detector_findings FINAL) AS f
