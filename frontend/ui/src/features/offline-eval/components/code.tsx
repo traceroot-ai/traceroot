@@ -605,7 +605,12 @@ export function EditableValueBlock({
   // editable Input/Output/Metadata field sits beside them without a style seam.
   if (boxed) {
     return (
-      <div className="overflow-hidden rounded-md border border-border">
+      // `shrink-0` is required, not cosmetic: these fields stack in flex-column
+      // scroll panes (the dataset case panel, the Save-as-test-case drawer), and
+      // the `overflow-hidden` below sets the flex item's automatic min-size to 0 —
+      // so without it the flex column shrinks the field to fit and clips its
+      // content instead of letting the pane scroll.
+      <div className="shrink-0 overflow-hidden rounded-md border border-border">
         <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/50 px-2.5 py-1.5">
           {heading("sm")}
           {controls}
