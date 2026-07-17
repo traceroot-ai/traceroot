@@ -459,50 +459,35 @@ describe("DELETE /dashboards/[dashboardId]/widgets/[widgetId]", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Default dashboard is read-only
+// Default dashboard is editable like any other dashboard
 // ---------------------------------------------------------------------------
-describe("default dashboard is read-only", () => {
+describe("default dashboard is editable", () => {
   const defaultDashboard = { ...fakeDashboard, isDefault: true };
 
-  it("PATCH /dashboards/[dashboardId] returns 403", async () => {
+  it("PATCH /dashboards/[dashboardId] renames it", async () => {
     dashboardFindFirstMock.mockResolvedValue(defaultDashboard);
+    dashboardUpdateMock.mockResolvedValue({ ...defaultDashboard, name: "renamed" });
     const res = (await PATCH(makeRequest({ name: "renamed" }), makeParams())) as MockResponse;
-    expect(res.status).toBe(403);
-    expect(dashboardUpdateMock).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(dashboardUpdateMock).toHaveBeenCalledTimes(1);
   });
 
-  it("DELETE /dashboards/[dashboardId] returns 403", async () => {
+  it("DELETE /dashboards/[dashboardId] deletes it", async () => {
     dashboardFindFirstMock.mockResolvedValue(defaultDashboard);
     const res = (await DELETE(makeRequest(), makeParams())) as MockResponse;
-    expect(res.status).toBe(403);
-    expect(dashboardDeleteMock).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(dashboardDeleteMock).toHaveBeenCalledTimes(1);
   });
 
-  it("POST .../widgets returns 403", async () => {
+  it("POST .../widgets adds a widget", async () => {
     dashboardFindFirstMock.mockResolvedValue(defaultDashboard);
+    widgetCreateMock.mockResolvedValue(fakeWidget);
     const res = (await widgetPOST(
-      makeRequest({ title: "t", type: "query", spec: {} }),
+      makeRequest({ title: "My Widget", type: "query", spec: { sql: "SELECT 1" } }),
       makeParams(),
     )) as MockResponse;
-    expect(res.status).toBe(403);
-    expect(widgetCreateMock).not.toHaveBeenCalled();
-  });
-
-  it("PATCH .../widgets/[widgetId] returns 403", async () => {
-    widgetFindFirstMock.mockResolvedValue({ ...fakeWidget, dashboard: { isDefault: true } });
-    const res = (await widgetPATCH(
-      makeRequest({ title: "renamed" }),
-      makeWidgetParams(),
-    )) as MockResponse;
-    expect(res.status).toBe(403);
-    expect(widgetUpdateMock).not.toHaveBeenCalled();
-  });
-
-  it("DELETE .../widgets/[widgetId] returns 403", async () => {
-    widgetFindFirstMock.mockResolvedValue({ ...fakeWidget, dashboard: { isDefault: true } });
-    const res = (await widgetDELETE(makeRequest(), makeWidgetParams())) as MockResponse;
-    expect(res.status).toBe(403);
-    expect(widgetDeleteMock).not.toHaveBeenCalled();
+    expect(res.status).toBe(201);
+    expect(widgetCreateMock).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -610,7 +595,7 @@ describe("mutation hardening", () => {
     )) as MockResponse;
     expect(post.status).toBe(400);
 
-    widgetFindFirstMock.mockResolvedValue({ ...fakeWidget, dashboard: { isDefault: false } });
+    widgetFindFirstMock.mockResolvedValue(fakeWidget);
     const patch = (await widgetPATCH(
       makeRequest({ title: "x".repeat(101) }),
       makeWidgetParams(),
@@ -635,7 +620,7 @@ describe("mutation hardening", () => {
     const del = (await DELETE(makeRequest(), makeParams())) as MockResponse;
     expect(del.status).toBe(404);
 
-    widgetFindFirstMock.mockResolvedValue({ ...fakeWidget, dashboard: { isDefault: false } });
+    widgetFindFirstMock.mockResolvedValue(fakeWidget);
     widgetUpdateMock.mockRejectedValue(gone);
     const wpatch = (await widgetPATCH(
       makeRequest({ title: "renamed" }),
