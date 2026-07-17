@@ -147,9 +147,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     switch (adapter) {
       case "openai": {
-        const url = baseUrl
-          ? `${baseUrl.replace(/\/$/, "")}/v1/models`
-          : "https://api.openai.com/v1/models";
+        const openaiBase = baseUrl
+          ? `${adapterBaseUrl(adapter, baseUrl)}/v1`
+          : adapterBaseUrl(adapter, baseUrl);
+        const url = `${openaiBase}/models`;
         const check = await checkEndpoint(url, { Authorization: `Bearer ${apiKey}` });
         if (!check.ok)
           return successResponse({ success: false, error: check.error, detail: check.detail });
@@ -202,10 +203,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           });
         }
         const apiVersion = "2024-06-01";
-        const check = await checkEndpoint(
-          `${baseUrl.replace(/\/$/, "")}/models?api-version=${apiVersion}`,
-          { "api-key": apiKey || "" },
-        );
+        const azureBase = adapterBaseUrl(adapter, baseUrl);
+        const check = await checkEndpoint(`${azureBase}/models?api-version=${apiVersion}`, {
+          "api-key": apiKey || "",
+        });
         if (!check.ok)
           return successResponse({ success: false, error: check.error, detail: check.detail });
         break;
@@ -234,8 +235,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
 
       case "deepseek": {
-        const deepseekBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.deepseek;
-        const check = await checkEndpoint(`${deepseekBase.replace(/\/$/, "")}/models`, {
+        const deepseekBase = adapterBaseUrl(adapter, baseUrl);
+        const check = await checkEndpoint(`${deepseekBase}/models`, {
           Authorization: `Bearer ${apiKey}`,
         });
         if (!check.ok)
@@ -254,8 +255,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
 
       case "xai": {
-        const xaiBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.xai;
-        const check = await checkEndpoint(`${xaiBase.replace(/\/$/, "")}/models`, {
+        const xaiBase = adapterBaseUrl(adapter, baseUrl);
+        const check = await checkEndpoint(`${xaiBase}/models`, {
           Authorization: `Bearer ${apiKey}`,
         });
         if (!check.ok)
@@ -264,8 +265,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
 
       case "moonshot": {
-        const moonshotBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.moonshot;
-        const check = await checkEndpoint(`${moonshotBase.replace(/\/$/, "")}/models`, {
+        const moonshotBase = adapterBaseUrl(adapter, baseUrl);
+        const check = await checkEndpoint(`${moonshotBase}/models`, {
           Authorization: `Bearer ${apiKey}`,
         });
         if (!check.ok)
@@ -274,8 +275,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
 
       case "zai": {
-        const zaiBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.zai;
-        const check = await checkEndpoint(`${zaiBase.replace(/\/$/, "")}/models`, {
+        const zaiBase = adapterBaseUrl(adapter, baseUrl);
+        const check = await checkEndpoint(`${zaiBase}/models`, {
           Authorization: `Bearer ${apiKey}`,
         });
         if (!check.ok)
