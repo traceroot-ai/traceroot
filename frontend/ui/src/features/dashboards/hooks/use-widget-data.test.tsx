@@ -142,19 +142,20 @@ describe("useWidgetPreview", () => {
     };
     const queryResult = { columns: ["count"], rows: [[1]], meta: {} };
     vi.mocked(api.runWidgetQuery).mockResolvedValue(queryResult);
+    const parsed = {
+      view: "spans",
+      filters: [],
+      metric: { measure: "count", agg: "count" },
+      breakdown: null,
+      display: { type: "number" },
+    };
     const { result } = renderHook(() => useWidgetPreview("p1", draft, RANGE), { wrapper });
-    await waitFor(() => expect(result.current.data).toEqual(queryResult));
-    expect(api.runWidgetQuery).toHaveBeenCalledWith(
-      "p1",
-      {
-        view: "spans",
-        filters: [],
-        metric: { measure: "count", agg: "count" },
-        breakdown: null,
-        display: { type: "number" },
-      },
-      RANGE,
-      { id: "u1", email: "u@example.com" },
-    );
+    // The result carries the spec that produced it so the preview can render
+    // kept-previous data with matching display/unit/agg semantics.
+    await waitFor(() => expect(result.current.data).toEqual({ spec: parsed, result: queryResult }));
+    expect(api.runWidgetQuery).toHaveBeenCalledWith("p1", parsed, RANGE, {
+      id: "u1",
+      email: "u@example.com",
+    });
   });
 });

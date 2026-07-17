@@ -62,6 +62,7 @@ function QueryWidgetBody({
       result={data}
       unit={FIELD_UNIT[spec.metric.measure]}
       seriesLabel={spec.metric.measure}
+      agg={spec.metric.agg}
     />
   );
 }
