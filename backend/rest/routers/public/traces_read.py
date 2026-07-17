@@ -64,8 +64,8 @@ async def list_traces(
     ),
     include_evaluations: bool = Query(
         False,
-        description="Include offline-evaluation traces (environment=evaluation). "
-        "Excluded by default so evaluation runs do not appear in the production trace list.",
+        description="Include traces produced by offline-evaluation runs. Excluded by "
+        "default so evaluation runs do not appear in the production trace list.",
     ),
 ):
     """List recent traces for the API key's project (newest first).

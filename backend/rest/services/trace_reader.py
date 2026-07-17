@@ -68,6 +68,55 @@ def customer_traffic_only(alias: str = "") -> str:
     return f"{column} = '{USER_SOURCE}'"
 
 
+def _evaluation_exclusion(params: dict) -> str:
+    """SQL condition removing offline-evaluation traces from a ``traces AS t`` scan.
+
+    KEYED ON ``is_evaluation``, deliberately not on ``environment``. ``environment`` is the
+    customer's own deployment tag — free text passed straight through from
+    ``TRACEROOT_ENVIRONMENT``, and the filter dropdown offers back whatever strings they
+    actually sent. Overloading it as the evaluation marker would make a team that names a
+    pre-prod stack "evaluation" lose its entire trace list with no in-product way back.
+    ``is_evaluation`` is set by ingest from the SDK's eval span kinds and a customer cannot
+    collide with it. It is ``UInt8 DEFAULT 0``, never NULL, so there is no NULL branch:
+    "unknown" and "not an evaluation" are the same answer.
+
+    MONOTONIC ACROSS BATCHES — this is the read-side half of the guarantee. Ingest makes
+    the flag monotonic *within* a batch (any eval-kind span sets it for the trace, 0 -> 1
+    only). It cannot make it monotonic *between* batches: a later batch carrying only
+    non-eval-kind spans of an evaluation trace — say just the candidate task's LLM leaves —
+    rewrites the trace row with ``is_evaluation = 0`` and a newer ``ch_update_time``. So a
+    predicate read off the *deduped latest* row (``LIMIT 1 BY`` / ``argMax``) would un-hide
+    the trace the moment such a batch landed last, which is the common case rather than an
+    exotic race. This is a trace_id set-membership instead: any row anywhere flagged 1
+    hides the trace permanently, whatever order the writes arrived in. Because it never
+    reads the deduped row it is also safe in the SHARED where-clause, so the page and count
+    queries agree by construction rather than by both picking the same tie-break.
+
+    Scans ``traces`` (one row per trace per batch), not ``spans``, reading only the two
+    narrow columns in the predicate. Bound to the caller's window when there is one so it
+    prunes the same monthly partitions as the outer query.
+
+    Args:
+        params (dict): Query parameters for this statement. Must already contain
+            ``project_id``; ``start_after`` / ``end_before`` are reused as sub-select
+            bounds when the caller set them.
+
+    Returns:
+        str: A condition for the ``traces AS t`` where-clause.
+    """
+    bounds = [
+        "project_id = {project_id:String}",
+        "is_evaluation = 1",
+    ]
+    # Reuse the outer window. A trace outside it cannot reach the result anyway, and
+    # widening the excluded set here could only ever drop rows the outer query already does.
+    if "start_after" in params:
+        bounds.append("trace_start_time >= {start_after:DateTime64(3)}")
+    if "end_before" in params:
+        bounds.append("trace_start_time <= {end_before:DateTime64(3)}")
+    return "t.trace_id NOT IN (SELECT trace_id FROM traces WHERE " + " AND ".join(bounds) + ")"
+
+
 def _floor_minute(dt: datetime | None) -> datetime | None:
     """Truncate a datetime to the whole minute (for the distinct-values cache key)."""
     return dt.replace(second=0, microsecond=0) if dt is not None else None
@@ -395,10 +444,11 @@ class TraceReaderService:
     ) -> dict:
         """List traces with aggregated metrics from spans.
 
-        Offline-evaluation traces (``environment = 'evaluation'``) are excluded by
-        default so they do not pollute the production/staging Traces list; pass
-        ``include_evaluations=True`` to include them. The predicate is trace-level and
-        shared by the page and count queries (below), so counts and pagination match.
+        Offline-evaluation traces are excluded by default so they do not pollute the
+        production/staging Traces list; pass ``include_evaluations=True`` to include
+        them. The exclusion goes into the SHARED ``conditions`` list, so it reaches the
+        page query and the count query identically and ``meta.total`` always matches the
+        rows the caller can page through. See :func:`_evaluation_exclusion`.
         """
         offset = page * limit
 
@@ -450,21 +500,13 @@ class TraceReaderService:
         # the span sub-queries reuse start_after (above) as a span-scan lower bound.
         conditions.extend(build_conditions(filters or [], params))
 
-        where_clause = " AND ".join(conditions)
-
-        # Exclude offline-evaluation traces by default. This MUST be applied AFTER the
-        # ReplacingMergeTree dedup, never to the raw rows: an eval trace can have a shallow
-        # placeholder row (environment NULL, written when a child span arrives before the
-        # root) alongside the full root row (environment 'evaluation'). Filtering raw rows
-        # would drop the full row but keep the NULL shallow row, defeating the exclusion —
-        # so we filter the deduped latest row (NULL-safe, keeping untagged production
-        # traces). Shared by the page and count queries below.
-        env_clause = ""
+        # Hide offline-evaluation traces unless the caller opted in. Appended to the
+        # SHARED conditions (it is dedup-independent, see _evaluation_exclusion) so the
+        # page and the count exclude exactly the same traces.
         if not include_evaluations:
-            env_clause = "environment IS NULL OR environment != {excluded_env:String}"
-            params["excluded_env"] = "evaluation"
-        page_env_where = f"WHERE ({env_clause})" if env_clause else ""
-        count_env_where = f"WHERE ({env_clause})" if env_clause else ""
+            conditions.append(_evaluation_exclusion(params))
+
+        where_clause = " AND ".join(conditions)
 
         # Page the traces FIRST (cheap: trace metadata only, deduped via LIMIT 1 BY
         # instead of FINAL), then aggregate spans for ONLY that page's trace_ids.
@@ -480,13 +522,12 @@ class TraceReaderService:
                 FROM (
                     SELECT
                         t.trace_id, t.project_id, t.name, t.trace_start_time,
-                        t.user_id, t.session_id, t.input, t.output, t.environment
+                        t.user_id, t.session_id, t.input, t.output
                     FROM traces AS t
                     WHERE {where_clause}
                     ORDER BY t.ch_update_time DESC
                     LIMIT 1 BY t.project_id, t.trace_id
                 )
-                {page_env_where}
                 ORDER BY trace_start_time DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             ),
@@ -537,19 +578,12 @@ class TraceReaderService:
         result = self._client.query(query, parameters=params)
         rows = result.result_rows
 
-        # Total count: dedup per trace_id (argMax by ch_update_time collapses the
-        # ReplacingMergeTree rows to the latest one, like the page's LIMIT 1 BY), THEN
-        # apply the evaluation exclusion to that deduped row — so the count matches the
-        # page and can't be inflated by a shallow NULL-environment placeholder row.
+        # Get total count (count(DISTINCT) dedupes ReplacingMergeTree rows; no FINAL).
+        # The evaluation exclusion rides in {where_clause} — shared with the page above.
         count_query = f"""
-            SELECT count()
-            FROM (
-                SELECT t.trace_id, argMax(t.environment, t.ch_update_time) AS environment
-                FROM traces AS t
-                WHERE {where_clause}
-                GROUP BY t.trace_id
-            )
-            {count_env_where}
+            SELECT count(DISTINCT t.trace_id)
+            FROM traces AS t
+            WHERE {where_clause}
         """
         count_result = self._client.query(count_query, parameters=params)
         total = count_result.result_rows[0][0] if count_result.result_rows else 0
@@ -880,8 +914,17 @@ class TraceReaderService:
         search_query: str | None = None,
         start_after: datetime | None = None,
         end_before: datetime | None = None,
+        include_evaluations: bool = False,
     ) -> dict:
-        """List unique sessions with aggregated trace statistics."""
+        """List unique sessions with aggregated trace statistics.
+
+        Offline-evaluation traces are excluded by default, matching ``list_traces``.
+        Without this a 200-item eval run sharing one ``session_id`` would be invisible in
+        Traces yet still show up here as a 200-trace session whose ``total_cost`` lands in
+        the project's per-session spend — the same trace hidden in one view and charged in
+        another. The exclusion also keeps ``trace_count``, the token totals and the
+        ``argMin``/``argMax`` displayed I/O consistent with what Traces shows.
+        """
         offset = page * limit
 
         # Build WHERE conditions on the traces table
@@ -905,6 +948,15 @@ class TraceReaderService:
         if end_before is not None:
             conditions.append("t.trace_start_time < {end_before:DateTime64(3)}")
             params["end_before"] = to_utc_naive(end_before)
+
+        # Shared by every CTE below (session_page, traces_dedup) AND the count query, so
+        # the paged sessions, their aggregates and meta.total all see the same traces.
+        # Kept in a local because the I/O-backfill query further down builds its own
+        # traces scan and must hide the same traces (an eval trace must not supply a
+        # session's displayed input/output).
+        eval_exclusion = "" if include_evaluations else _evaluation_exclusion(params)
+        if eval_exclusion:
+            conditions.append(eval_exclusion)
 
         where_clause = " AND ".join(conditions)
 
@@ -1030,6 +1082,7 @@ class TraceReaderService:
                     WHERE t.project_id = {{project_id:String}}
                       AND {customer_traffic_only("t")}
                       AND t.session_id IN ({{session_ids:Array(String)}})
+                      {f"AND {eval_exclusion}" if eval_exclusion else ""}
                     ORDER BY t.ch_update_time DESC
                     LIMIT 1 BY t.project_id, t.trace_id
                 ),
@@ -1086,8 +1139,15 @@ class TraceReaderService:
         session_id: str,
         start_after: datetime | None = None,
         end_before: datetime | None = None,
+        include_evaluations: bool = False,
     ) -> dict | None:
-        """Get session detail with all traces for conversation view."""
+        """Get session detail with all traces for conversation view.
+
+        Offline-evaluation traces are excluded by default, matching ``list_sessions`` —
+        the detail view must not list traces the list view already counted out, and its
+        ``trace_count`` / token / cost totals are computed from ``trace_ids`` gathered
+        here, so the exclusion propagates to them.
+        """
         params: dict = {"project_id": project_id, "session_id": session_id}
 
         # Build WHERE conditions
@@ -1106,6 +1166,9 @@ class TraceReaderService:
         if end_before is not None:
             conditions.append("t.trace_start_time < {end_before:DateTime64(3)}")
             params["end_before"] = to_utc_naive(end_before)
+
+        if not include_evaluations:
+            conditions.append(_evaluation_exclusion(params))
 
         where_clause = " AND ".join(conditions)
 
@@ -1268,8 +1331,15 @@ class TraceReaderService:
         search_query: str | None = None,
         start_after: datetime | None = None,
         end_before: datetime | None = None,
+        include_evaluations: bool = False,
     ) -> dict:
-        """List unique users with trace counts."""
+        """List unique users with trace counts.
+
+        Offline-evaluation traces are excluded by default, matching ``list_traces``, so a
+        user's ``trace_count`` and token/cost totals count the same traces the Traces view
+        shows. An eval run that carries a ``user_id`` would otherwise inflate that user's
+        spend — and could conjure a user who has no visible traces at all.
+        """
         offset = page * limit
 
         # Build WHERE conditions
@@ -1295,6 +1365,9 @@ class TraceReaderService:
         if end_before:
             conditions.append("t.trace_start_time <= {end_before:DateTime64(3)}")
             params["end_before"] = to_utc_naive(end_before)
+
+        if not include_evaluations:
+            conditions.append(_evaluation_exclusion(params))
 
         where_clause = " AND ".join(conditions)
 

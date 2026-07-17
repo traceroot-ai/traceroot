@@ -199,7 +199,21 @@ def _passes_trigger(trace_summary: dict, conditions: list[dict]) -> bool:
 def _get_trace_summaries(project_id: str, trace_ids: list[str]) -> dict[str, dict]:
     """
     Query ClickHouse for the fields needed for trigger evaluation.
-    Returns {trace_id: {environment}}
+    Returns {trace_id: {environment, is_evaluation}}
+
+    ``is_evaluation`` is the ingest-set flag, NOT ``environment``. ``environment`` is
+    user-controlled free text (the SDK passes ``traceroot.environment`` straight through,
+    and the filter dropdown offers back whatever strings a customer actually sent), so a
+    team that legitimately names an environment "evaluation" must not have its detectors
+    silently switched off. The flag is derived by us from the SDK's eval span kinds and
+    cannot be collided with by naming a deployment.
+
+    ``max`` over ALL the trace's spans rather than reading the root span. OTel's
+    BatchSpanProcessor exports a span when it ENDS, so the ``EVALUATION`` root is normally
+    the LAST span of the trace to arrive: a root-keyed read answers "not an evaluation"
+    for the whole window before the root lands, and forever if the eval process is killed
+    first. ``max`` also makes the answer monotonic — any span flagged 1 settles it, and no
+    later row can clear it.
     """
     from db.clickhouse.client import get_clickhouse_client
 
@@ -212,7 +226,8 @@ def _get_trace_summaries(project_id: str, trace_ids: list[str]) -> dict[str, dic
         """
         SELECT
             trace_id,
-            anyIf(environment, parent_span_id IS NULL) AS environment
+            anyIf(environment, parent_span_id IS NULL) AS environment,
+            max(is_evaluation) AS is_evaluation
         FROM spans
         WHERE project_id = {project_id:String}
           AND trace_id IN {trace_ids:Array(String)}
@@ -225,6 +240,7 @@ def _get_trace_summaries(project_id: str, trace_ids: list[str]) -> dict[str, dic
     for row in result.result_rows:
         summaries[row[0]] = {
             "environment": row[1],  # Nullable — None if not set
+            "is_evaluation": bool(row[2]),
         }
     return summaries
 
@@ -280,13 +296,16 @@ def _get_active_detectors(project_id: str) -> list[dict]:
 def _detector_runs_on_trace(summary: dict, detector: dict) -> bool:
     """Whether a detector should run on this trace given its classification.
 
-    Offline-evaluation traces (``environment == "evaluation"``) are skipped by
-    default so production detectors do not run on evaluation runs — preventing
-    detector noise and any detector→evaluation→detector recursion. A detector can
-    opt in via ``run_on_evaluation`` (reserved for an explicit future config); until
-    that flag exists on the detector, the default is to skip.
+    Offline-evaluation traces are skipped by default so production detectors do not run
+    on evaluation runs — preventing detector noise and any detector→evaluation→detector
+    recursion. A detector can opt in via ``run_on_evaluation`` (reserved for an explicit
+    future config); until that flag exists on the detector, the default is to skip.
+
+    Keyed on ``is_evaluation`` (the ingest-set flag, see ``_get_trace_summaries``) and never
+    on ``environment``, which is user-controlled free text a customer may legitimately set
+    to "evaluation".
     """
-    if summary.get("environment") == "evaluation":
+    if summary.get("is_evaluation"):
         return bool(detector.get("run_on_evaluation", False))
     return True
 

@@ -80,7 +80,7 @@ async def list_traces(
     ),
     include_evaluations: bool = Query(
         False,
-        description="Include offline-evaluation traces (environment=evaluation), "
+        description="Include traces produced by offline-evaluation runs, "
         "which are excluded by default.",
     ),
 ):
