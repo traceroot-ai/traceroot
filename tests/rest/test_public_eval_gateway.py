@@ -96,7 +96,9 @@ def test_forwards_deep_run_subpath_for_additive_score(client):
 
 
 @respx.mock
-def test_passes_through_upstream_conflict_status(client):
+def test_normalizes_upstream_error_shape_to_detail(client):
+    # The Next.js control plane fails with its `{error}` envelope; the gateway
+    # preserves the status but normalizes the body to the canonical `{detail}`.
     respx.post(f"{UI}/api/public/datasets/ds1/versions").mock(
         return_value=Response(409, json={"error": "conflict", "current_version_id": "dv9"})
     )
@@ -106,7 +108,58 @@ def test_passes_through_upstream_conflict_status(client):
         json={"base_version_id": "dv1", "changes": [{"op": "delete", "test_case_id": "tc1"}]},
     )
     assert resp.status_code == 409
-    assert resp.json()["error"] == "conflict"
+    body = resp.json()
+    assert body == {"detail": "conflict"}
+    # The raw upstream body (extra keys) does not leak through.
+    assert "error" not in body
+    assert "current_version_id" not in body
+
+
+@respx.mock
+def test_preserves_upstream_detail_error(client):
+    # An upstream that already speaks `{detail}` passes its message through unchanged.
+    respx.post(f"{UI}/api/public/evaluation-runs").mock(
+        return_value=Response(404, json={"detail": "Dataset not found"})
+    )
+    resp = client.post(
+        "/api/v1/public/evaluation-runs",
+        headers=AUTH_HEADER,
+        json={"evaluation_name": "x", "dataset_id": "missing", "candidate_version": "v1"},
+    )
+    assert resp.status_code == 404
+    assert resp.json() == {"detail": "Dataset not found"}
+
+
+@respx.mock
+def test_non_json_upstream_error_becomes_generic_detail(client):
+    # A non-JSON upstream failure (e.g. an HTML 502 page) must not leak; the gateway
+    # substitutes a safe generic message while preserving the status.
+    respx.post(f"{UI}/api/public/evaluation-runs").mock(
+        return_value=Response(502, text="<html><body>Bad Gateway</body></html>")
+    )
+    resp = client.post(
+        "/api/v1/public/evaluation-runs",
+        headers=AUTH_HEADER,
+        json={"evaluation_name": "x", "dataset_id": "ds1", "candidate_version": "v1"},
+    )
+    assert resp.status_code == 502
+    body = resp.json()
+    assert body == {"detail": "Evaluation request failed"}
+    assert "<html>" not in json.dumps(body)
+
+
+@respx.mock
+def test_success_response_passes_through_verbatim(client):
+    # A 2xx upstream body is forwarded byte-for-byte (no error normalization).
+    payload = {"evaluation_run_id": "run1", "run_number": 1, "dataset_version_id": "dv1"}
+    respx.post(f"{UI}/api/public/evaluation-runs").mock(return_value=Response(201, json=payload))
+    resp = client.post(
+        "/api/v1/public/evaluation-runs",
+        headers=AUTH_HEADER,
+        json={"evaluation_name": "x", "dataset_id": "ds1", "candidate_version": "v1"},
+    )
+    assert resp.status_code == 201
+    assert resp.json() == payload
 
 
 @respx.mock
