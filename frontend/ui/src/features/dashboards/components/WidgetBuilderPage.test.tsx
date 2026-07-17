@@ -98,13 +98,12 @@ const WIDGET: Widget = {
   displayConfig: {},
 };
 
-// Non-default: the builder is only reachable for editable dashboards — the
-// default one redirects away, which its dedicated test covers.
 const DASHBOARD = {
   id: "d1",
   name: "Custom",
   description: null,
   isDefault: false,
+  createTime: "",
   updateTime: "",
   layout: [],
   widgets: [WIDGET],
