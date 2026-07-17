@@ -447,7 +447,7 @@ describe("chart legend", () => {
   // RTL auto-cleanup needs vitest globals, which this config doesn't enable.
   afterEach(cleanup);
 
-  it("multi-series line: legend lists series sorted with a window Total, single series gets none", () => {
+  it("multi-series line: legend lists series sorted with a window Total, no-breakdown gets none", () => {
     const multi = makeResult(
       ["bucket", "model_name", "value"],
       [
@@ -489,6 +489,29 @@ describe("chart legend", () => {
     expect(legend.textContent).toContain("150");
     expect(legend.textContent).not.toContain("Total");
   });
+  it("labels a single-series breakdown timeseries via the legend", () => {
+    // With one breakdown group the chart is a bare line — the legend is the
+    // only place the group's name (e.g. which model) can appear.
+    const single = makeResult(
+      ["bucket", "model_name", "value"],
+      [
+        ["2026-06-01T00:00:00", "gpt-4o-mini", 1],
+        ["2026-06-02T00:00:00", "gpt-4o-mini", 3],
+      ],
+    );
+    render(<QueryWidgetRenderer display="line" result={single} agg="sum" />);
+    const legend = screen.getByRole("list", { name: "Chart legend" });
+    expect(within(legend).getByText("gpt-4o-mini")).toBeTruthy();
+  });
+
+  it("labels a single-category pie via the legend", () => {
+    // A one-slice pie renders a full unlabeled circle without it.
+    const single = makeResult(["service", "value"], [["api", 10]]);
+    render(<QueryWidgetRenderer display="pie" result={single} agg="count" />);
+    const legend = screen.getByRole("list", { name: "Chart legend" });
+    expect(within(legend).getByText("api")).toBeTruthy();
+  });
+
   it("builds no legend from a stale bucketed result on a categorical display", () => {
     // keepPreviousData hands the pie/bar renderer the previous line query's
     // bucketed rows for a beat after a display switch; those rows have no
