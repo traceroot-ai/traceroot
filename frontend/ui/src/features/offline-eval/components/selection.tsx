@@ -103,7 +103,8 @@ export function BulkActionBar({
   className,
 }: {
   count: number;
-  onDelete: () => void;
+  /** Omit on lists with no delete API (e.g. the derived scorer registry). */
+  onDelete?: () => void;
   onClear: () => void;
   extra?: React.ReactNode;
   className?: string;
@@ -117,16 +118,18 @@ export function BulkActionBar({
       )}
     >
       <span className="text-[12px] font-medium tabular-nums">{count} selected</span>
-      <span className="h-4 w-px bg-border" aria-hidden />
-      <Button
-        variant="ghost"
-        size="sm"
-        className="h-6 gap-1 px-1.5 text-[12px] text-destructive hover:bg-destructive/10 hover:text-destructive"
-        onClick={onDelete}
-      >
-        <Trash2 className="h-3.5 w-3.5" aria-hidden />
-        Delete
-      </Button>
+      {(onDelete || extra) && <span className="h-4 w-px bg-border" aria-hidden />}
+      {onDelete && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 gap-1 px-1.5 text-[12px] text-destructive hover:bg-destructive/10 hover:text-destructive"
+          onClick={onDelete}
+        >
+          <Trash2 className="h-3.5 w-3.5" aria-hidden />
+          Delete
+        </Button>
+      )}
       {extra}
       <Button
         variant="ghost"
