@@ -195,11 +195,11 @@ export function SpanInfoPanel({
                 href={`https://github.com/${trace.git_repo}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors hover:bg-muted"
+                className="inline-flex min-w-0 items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors hover:bg-muted"
               >
-                <GitBranch className="h-3 w-3 text-muted-foreground" />
-                <span className="text-muted-foreground">Repo:</span>
-                <span className="font-mono font-medium">{trace.git_repo}</span>
+                <GitBranch className="h-3 w-3 shrink-0 text-muted-foreground" />
+                <span className="shrink-0 text-muted-foreground">Repo:</span>
+                <span className="min-w-0 break-all font-mono font-medium">{trace.git_repo}</span>
               </a>
             )}
             {trace.git_ref && (
@@ -216,8 +216,8 @@ export function SpanInfoPanel({
                 }`}
                 title={trace.git_ref}
               >
-                <GitCommitHorizontal className="h-3 w-3 text-muted-foreground" />
-                <span className="text-muted-foreground">Ref:</span>
+                <GitCommitHorizontal className="h-3 w-3 shrink-0 text-muted-foreground" />
+                <span className="shrink-0 text-muted-foreground">Ref:</span>
                 <span className="font-mono font-medium">{trace.git_ref.substring(0, 7)}</span>
               </a>
             )}
@@ -282,27 +282,29 @@ export function SpanInfoPanel({
             {!isTrace && (trace.git_repo || trace.git_ref || selection.span.git_source_file) && (
               <div className="mb-2 flex flex-wrap items-center gap-2">
                 {trace.git_repo && (
-                  <div className="inline-flex items-center gap-1.5 rounded bg-red-100 px-2 py-0.5 text-xs dark:bg-red-900/50">
-                    <GitBranch className="h-3 w-3 text-red-600 dark:text-red-400" />
-                    <span className="font-mono text-red-700 dark:text-red-300">
+                  <div className="inline-flex min-w-0 items-center gap-1.5 rounded bg-red-100 px-2 py-0.5 text-xs dark:bg-red-900/50">
+                    <GitBranch className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
+                    <span className="min-w-0 break-all font-mono text-red-700 dark:text-red-300">
                       {trace.git_repo}
                     </span>
                   </div>
                 )}
                 {trace.git_ref && (
                   <div className="inline-flex items-center gap-1.5 rounded bg-red-100 px-2 py-0.5 text-xs dark:bg-red-900/50">
-                    <GitCommitHorizontal className="h-3 w-3 text-red-600 dark:text-red-400" />
+                    <GitCommitHorizontal className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
                     <span className="font-mono text-red-700 dark:text-red-300">
                       {trace.git_ref.substring(0, 7)}
                     </span>
                   </div>
                 )}
                 {selection.span.git_source_file && (
-                  <div className="inline-flex items-center gap-1.5 rounded bg-red-100 px-2 py-0.5 text-xs dark:bg-red-900/50">
-                    <FileCode className="h-3 w-3 text-red-600 dark:text-red-400" />
-                    <span className="font-mono text-red-700 dark:text-red-300">
+                  <div className="inline-flex min-w-0 items-center gap-1.5 rounded bg-red-100 px-2 py-0.5 text-xs dark:bg-red-900/50">
+                    <FileCode className="h-3 w-3 shrink-0 text-red-600 dark:text-red-400" />
+                    <span className="min-w-0 break-all font-mono text-red-700 dark:text-red-300">
                       {selection.span.git_source_file}
-                      {selection.span.git_source_line && `:${selection.span.git_source_line}`}
+                      {selection.span.git_source_line && (
+                        <span className="whitespace-nowrap">:{selection.span.git_source_line}</span>
+                      )}
                     </span>
                   </div>
                 )}
