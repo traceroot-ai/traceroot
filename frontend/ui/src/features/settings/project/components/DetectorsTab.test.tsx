@@ -9,6 +9,27 @@ const mocks = vi.hoisted(() => ({
     alert_window: "10m",
   } as any,
   updateProject: vi.fn().mockResolvedValue({}),
+  modelSelectorReconcile: undefined as
+    | ((value: {
+        model: string;
+        provider: string;
+        source: "system" | "byok";
+        adapter: string;
+      }) => {
+        model: string;
+        provider: string;
+        source: "system" | "byok";
+        adapter: string;
+      })
+    | undefined,
+  selectModel: undefined as
+    | {
+        model: string;
+        provider: string;
+        source: "system" | "byok";
+        adapter: string;
+      }
+    | undefined,
 }));
 
 vi.mock("@/features/projects/hooks", () => ({
@@ -20,8 +41,52 @@ vi.mock("@/lib/api", () => ({
 vi.mock("@/features/integrations/hooks/useSlackIntegration", () => ({
   useSlackStatus: () => ({ data: undefined }),
 }));
-vi.mock("@/features/ai-assistant/components/model-selector", () => ({
-  ModelSelector: () => null,
+vi.mock("@/features/ai-assistant/components/model-selector", async () => {
+  const React = await import("react");
+  return {
+    ModelSelector: ({
+      value,
+      onChange,
+    }: {
+      value: {
+        model: string;
+        provider: string;
+        source: "system" | "byok";
+        adapter: string;
+      };
+      onChange: (value: {
+        model: string;
+        provider: string;
+        source: "system" | "byok";
+        adapter: string;
+      }) => void;
+    }) => {
+      React.useEffect(() => {
+        const next = mocks.modelSelectorReconcile?.(value);
+        if (
+          next &&
+          (next.model !== value.model ||
+            next.provider !== value.provider ||
+            next.source !== value.source ||
+            next.adapter !== value.adapter)
+        ) {
+          onChange(next);
+        }
+      }, [value, onChange]);
+
+      return (
+        <button
+          type="button"
+          aria-label="agent model selector"
+          onClick={() => {
+            if (mocks.selectModel) onChange(mocks.selectModel);
+          }}
+        >
+          {value.model || "Select model"}
+        </button>
+      );
+    },
+  };
 }));
 vi.mock("@/features/detectors/components/alert-channels-editor", () => ({
   AlertChannelsEditor: () => null,
@@ -71,7 +136,78 @@ function renderTab() {
 afterEach(() => {
   cleanup();
   mocks.updateProject.mockReset().mockResolvedValue({});
-  mocks.project.alert_window = "10m";
+  Object.assign(mocks.project, {
+    workspace_id: "w1",
+    alert_emails: [],
+    alert_window: "10m",
+    rca_model: undefined,
+    rca_provider: undefined,
+    rca_source: undefined,
+  });
+  mocks.modelSelectorReconcile = undefined;
+  mocks.selectModel = undefined;
+});
+
+describe("DetectorsTab agent model", () => {
+  it("keeps Save disabled when a legacy id-only saved BYOK model reconciles to the displayed selection", async () => {
+    mocks.project.rca_model = "claude-opus-4-8";
+    mocks.project.rca_provider = null;
+    mocks.project.rca_source = null;
+    mocks.modelSelectorReconcile = (value) =>
+      value.model === "claude-opus-4-8"
+        ? {
+            model: "claude-opus-4-8",
+            provider: "anthropic",
+            source: "byok",
+            adapter: "anthropic",
+          }
+        : value;
+
+    renderTab();
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /agent model selector/i }).textContent).toContain(
+        "claude-opus-4-8",
+      ),
+    );
+
+    const save = screen.getAllByRole("button", { name: "Save" })[0] as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+  });
+
+  it("enables Save when the user selects a genuinely different model", async () => {
+    mocks.project.rca_model = "claude-opus-4-8";
+    mocks.project.rca_provider = null;
+    mocks.project.rca_source = null;
+    mocks.modelSelectorReconcile = (value) =>
+      value.model === "claude-opus-4-8"
+        ? {
+            model: "claude-opus-4-8",
+            provider: "anthropic",
+            source: "byok",
+            adapter: "anthropic",
+          }
+        : value;
+    mocks.selectModel = {
+      model: "gpt-5",
+      provider: "openai",
+      source: "system",
+      adapter: "openai",
+    };
+
+    renderTab();
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /agent model selector/i }).textContent).toContain(
+        "claude-opus-4-8",
+      ),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /agent model selector/i }));
+
+    const save = screen.getAllByRole("button", { name: "Save" })[0] as HTMLButtonElement;
+    expect(save.disabled).toBe(false);
+  });
 });
 
 describe("DetectorsTab alert window", () => {
