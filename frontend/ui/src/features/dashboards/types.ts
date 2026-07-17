@@ -149,8 +149,9 @@ export interface FieldUnit {
 }
 
 // Units for fields that carry one — shared by the builder's filter inputs and
-// the stat renderer. Moving these into the backend registry's schema is a
-// tracked follow-up; until then this map is the frontend's single copy.
+// every widget renderer (stat tile, chart tooltips and axes, table cells).
+// Moving these into the backend registry's schema is a tracked follow-up;
+// until then this map is the frontend's single copy.
 export const FIELD_UNIT: Record<string, FieldUnit> = {
   cost: { prefix: "$" },
   duration_ms: { suffix: "ms" },
