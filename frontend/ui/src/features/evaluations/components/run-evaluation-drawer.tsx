@@ -199,12 +199,15 @@ export function RunEvaluationDrawer({
               title="Copy"
             />
           </div>
-          <HighlightedCode
-            code={code}
-            // Extra bottom padding so the last line clears the border — and the
-            // horizontal scrollbar, which otherwise sits right on top of it.
-            className="overflow-x-auto whitespace-pre px-3 pb-5 pt-2.5 font-mono text-[11px] leading-relaxed"
-          />
+          {/* Padding lives on this NON-scrolling wrapper; only the inner <pre>
+              scrolls. Otherwise the horizontal scrollbar sits inside the pre's
+              own bottom padding and eats it, so the last line looks flush. */}
+          <div className="px-3 pb-5 pt-2.5">
+            <HighlightedCode
+              code={code}
+              className="overflow-x-auto whitespace-pre font-mono text-[11px] leading-relaxed"
+            />
+          </div>
         </div>
 
         <div className="border border-border">
