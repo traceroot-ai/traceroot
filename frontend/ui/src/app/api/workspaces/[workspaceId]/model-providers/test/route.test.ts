@@ -23,6 +23,7 @@ vi.mock("@traceroot/core", () => ({
     ZAI: "zai",
   },
   ADAPTER_DEFAULT_BASE_URL: {
+    openai: "https://api.openai.com/v1",
     anthropic: "https://api.anthropic.com",
     google: "https://generativelanguage.googleapis.com/v1alpha",
     openrouter: "https://openrouter.ai/api/v1",
