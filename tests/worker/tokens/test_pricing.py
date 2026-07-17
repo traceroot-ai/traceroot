@@ -394,6 +394,18 @@ CLAUDE_BEDROCK_VERTEX_CASES = [
     # Vertex AI — 3.x families keep number-first ordering, @date separator
     ("claude-3-5-sonnet@20241022", "claude-3-5-sonnet"),
     ("claude-3-5-haiku@20241022", "claude-3-5-haiku"),
+    # Dot-notation versions — gateways (e.g. OpenRouter) spell the version with a
+    # dot (4.8) where our slugs use a dash (4-8). Previously matched nothing and
+    # recorded $0. Issue #1581.
+    ("anthropic/claude-opus-4.8", "claude-opus-4-8"),
+    ("claude-opus-4.8", "claude-opus-4-8"),
+    ("anthropic/claude-opus-4.7", "claude-opus-4-7"),
+    ("anthropic/claude-opus-4.6", "claude-opus-4-6"),
+    ("anthropic/claude-opus-4.5", "claude-opus-4-5"),
+    ("anthropic/claude-sonnet-4.6", "claude-sonnet-4-6"),
+    ("anthropic/claude-sonnet-4.5", "claude-sonnet-4-5"),
+    ("anthropic/claude-haiku-4.5", "claude-haiku-4-5"),
+    ("anthropic/claude-3.5-sonnet", "claude-3-5-sonnet"),
 ]
 
 
@@ -413,6 +425,64 @@ class TestClaudeBedrockAndVertexIds:
     def test_unrelated_model_still_none(self, real_cache):
         with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
             assert get_model_price("totally-not-a-real-model-2099") is None
+
+
+# (model_id, expected fast modelName) — fast is a separately-priced tier that
+# must resolve to its OWN rate card, never the standard entry. Issue #1581.
+ANTHROPIC_FAST_CASES = [
+    ("anthropic/claude-opus-4.8-fast", "claude-opus-4-8-fast"),
+    ("anthropic/claude-opus-4-8-fast", "claude-opus-4-8-fast"),
+    ("claude-opus-4-8-fast", "claude-opus-4-8-fast"),
+    ("anthropic/claude-opus-4.7-fast", "claude-opus-4-7-fast"),
+    ("anthropic/claude-opus-4-7-fast", "claude-opus-4-7-fast"),
+]
+
+
+def _prices(cache: list[dict], model_name: str) -> dict:
+    return next(e["prices"] for e in cache if e["model_name"] == model_name)
+
+
+class TestAnthropicFastTier:
+    @pytest.mark.parametrize("model_id,expected_name", ANTHROPIC_FAST_CASES)
+    def test_fast_matches_its_own_rate_card(self, real_cache, model_id, expected_name):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price(model_id)
+        assert price is not None, f"{model_id} should match a fast rate card"
+        assert price[MATCHED_MODEL_NAME] == expected_name, (
+            f"{model_id} matched {price[MATCHED_MODEL_NAME]}, expected {expected_name}"
+        )
+
+    def test_standard_traffic_never_hits_a_fast_card(self, real_cache):
+        # The critical guard: if a fast pattern swallowed non-fast traffic, 2x
+        # usage would bill at 1x — a silent undercharge, worse than the $0 the
+        # issue reports (a zero is visible; a half-price invoice is not).
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            for model_id in ("anthropic/claude-opus-4.8", "claude-opus-4-8"):
+                price = get_model_price(model_id)
+                assert price is not None
+                assert price[MATCHED_MODEL_NAME] == "claude-opus-4-8"
+
+    def test_opus_4_8_fast_rates(self, real_cache):
+        # Fast Opus 4.8 = 2x standard, verified against Anthropic's pricing page.
+        std = _prices(real_cache, "claude-opus-4-8")
+        fast = _prices(real_cache, "claude-opus-4-8-fast")
+        assert fast["input"] == 1e-05  # $10 / MTok
+        assert fast["output"] == 5e-05  # $50 / MTok
+        for key in ("input", "output", "cacheRead", "cacheWrite", "cacheWrite1h"):
+            assert fast[key] == pytest.approx(std[key] * 2), key
+
+    def test_opus_4_7_fast_is_6x_not_copied_from_4_8(self, real_cache):
+        # 4.7's premium is 6x; do NOT copy 4.8's 2x (or vice versa).
+        std = _prices(real_cache, "claude-opus-4-7")
+        fast = _prices(real_cache, "claude-opus-4-7-fast")
+        assert fast["input"] == 3e-05  # $30 / MTok
+        assert fast["output"] == 15e-05  # $150 / MTok
+        for key in ("input", "output", "cacheRead", "cacheWrite", "cacheWrite1h"):
+            assert fast[key] == pytest.approx(std[key] * 6), key
+
+    def test_opus_4_6_has_no_fast_card(self, real_cache):
+        # Opus 4.6 is not fast-capable; it must bill standard, not a fast rate.
+        assert all(e["model_name"] != "claude-opus-4-6-fast" for e in real_cache)
 
 
 def test_cost_from_buckets_prices_each_bucket_once():
