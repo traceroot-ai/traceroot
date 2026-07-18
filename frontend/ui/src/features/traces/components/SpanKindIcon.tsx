@@ -1,7 +1,7 @@
 "use client";
 
-import { Workflow, Sparkle, Bot, Wrench, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { TREE_LAYOUT } from "../utils";
 
 /**
@@ -11,16 +11,16 @@ export function getSpanKindIcon(kind: string) {
   const normalizedKind = kind.toLowerCase();
   switch (normalizedKind) {
     case "trace":
-      return Workflow;
+      return DOMAIN_ICONS.trace;
     case "llm":
-      return Sparkle;
+      return DOMAIN_ICONS.llm;
     case "agent":
-      return Bot;
+      return DOMAIN_ICONS.agent;
     case "tool":
-      return Wrench;
+      return DOMAIN_ICONS.tool;
     case "span":
     default:
-      return ArrowRight;
+      return DOMAIN_ICONS.span;
   }
 }
 

@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback, createContext, useContext, ReactNode 
 import { usePathname } from "next/navigation";
 import { Sidebar } from "./sidebar";
 import { Button } from "@/components/ui/button";
-import { PanelLeft, BotMessageSquare } from "lucide-react";
+import { PanelLeft } from "lucide-react";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
 import { AiChatProvider } from "@/features/ai-assistant/components/ai-chat-context";
@@ -155,7 +156,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                       }}
                       title="AI Assistant"
                     >
-                      <BotMessageSquare className="h-4 w-4" />
+                      <DOMAIN_ICONS.assistant className="h-4 w-4" />
                     </Button>
                   </div>
                 )}

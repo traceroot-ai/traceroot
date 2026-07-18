@@ -4,7 +4,7 @@ import { useMemo, useLayoutEffect } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
-import { Workflow, Users, Layers } from "lucide-react";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
@@ -23,9 +23,9 @@ import type { UserListItem } from "@/lib/api/users";
 import type { UserQueryOptions } from "@/lib/api/users";
 
 const tabs = [
-  { id: "traces", label: "Traces", icon: Workflow, href: "traces" },
-  { id: "users", label: "Users", icon: Users, href: "users" },
-  { id: "sessions", label: "Sessions", icon: Layers, href: "sessions" },
+  { id: "traces", label: "Traces", icon: DOMAIN_ICONS.trace, href: "traces" },
+  { id: "users", label: "Users", icon: DOMAIN_ICONS.user, href: "users" },
+  { id: "sessions", label: "Sessions", icon: DOMAIN_ICONS.session, href: "sessions" },
 ];
 
 export default function UsersPage() {
@@ -141,7 +141,7 @@ export default function UsersPage() {
             </div>
           ) : users.length === 0 ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
-              <Users className="h-10 w-10 text-muted-foreground" />
+              <DOMAIN_ICONS.user className="h-10 w-10 text-muted-foreground" />
               <p className="text-[13px] text-muted-foreground">No users found</p>
               <p className="text-[12px] text-muted-foreground">
                 Users will appear here when traces include user_id.

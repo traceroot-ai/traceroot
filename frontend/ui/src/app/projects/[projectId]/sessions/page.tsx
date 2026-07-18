@@ -4,7 +4,7 @@ import { useMemo, useLayoutEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
-import { Workflow, Users, Layers } from "lucide-react";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
@@ -23,9 +23,9 @@ import {
 import type { SessionListItem, SessionQueryOptions } from "@/types/api";
 
 const tabs = [
-  { id: "traces", label: "Traces", icon: Workflow, href: "traces" },
-  { id: "users", label: "Users", icon: Users, href: "users" },
-  { id: "sessions", label: "Sessions", icon: Layers, href: "sessions" },
+  { id: "traces", label: "Traces", icon: DOMAIN_ICONS.trace, href: "traces" },
+  { id: "users", label: "Users", icon: DOMAIN_ICONS.user, href: "users" },
+  { id: "sessions", label: "Sessions", icon: DOMAIN_ICONS.session, href: "sessions" },
 ];
 
 function getTotalCost(session: SessionListItem): number | null {
@@ -140,7 +140,7 @@ export default function SessionsPage() {
             </div>
           ) : sessions.length === 0 ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
-              <Layers className="h-10 w-10 text-muted-foreground" />
+              <DOMAIN_ICONS.session className="h-10 w-10 text-muted-foreground" />
               <p className="text-[13px] text-muted-foreground">No sessions found</p>
               <p className="text-[12px] text-muted-foreground">
                 Sessions will appear here when traces include session_id.

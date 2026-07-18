@@ -5,7 +5,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
-import { Workflow, Users, Layers, X } from "lucide-react";
+import { X } from "lucide-react";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { TraceSearchFilterInput } from "@/features/filters/trace-search-filter-input";
 import { ListPagination } from "@/components/list-pagination";
@@ -29,9 +30,9 @@ import { useSession as useAuthSession } from "@/lib/auth-client";
 
 // Tab definitions
 const tabs = [
-  { id: "traces", label: "Traces", icon: Workflow, href: "traces" },
-  { id: "users", label: "Users", icon: Users, href: "users" },
-  { id: "sessions", label: "Sessions", icon: Layers, href: "sessions" },
+  { id: "traces", label: "Traces", icon: DOMAIN_ICONS.trace, href: "traces" },
+  { id: "users", label: "Users", icon: DOMAIN_ICONS.user, href: "users" },
+  { id: "sessions", label: "Sessions", icon: DOMAIN_ICONS.session, href: "sessions" },
 ];
 
 export default function TracesPage() {
@@ -206,7 +207,7 @@ export default function TracesPage() {
             </button>
             {userId && (
               <div className="flex items-center gap-1.5 rounded-md border border-border bg-muted/50 py-1 pl-2.5 pr-1.5">
-                <Users className="h-3 w-3 text-muted-foreground" />
+                <DOMAIN_ICONS.user className="h-3 w-3 text-muted-foreground" />
                 <span className="text-[12px] text-muted-foreground">User:</span>
                 <span className="text-[12px] font-medium text-foreground">{userId}</span>
                 <button
