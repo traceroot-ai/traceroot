@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 from db.clickhouse import get_clickhouse_client
 from rest.services.filters.translate import Predicate, build_conditions
+from rest.services.token_rollup import authoritative_token_rollup_select
 from rest.sql_utils import escape_ilike, to_utc_naive
 from shared.span_attributes import (
     SPAN_IDS_PATH,
@@ -348,6 +349,7 @@ class TraceReaderService:
         # instead of FINAL), then aggregate spans for ONLY that page's trace_ids.
         # This avoids scanning/joining every span in the project on each list call,
         # and never groups by the large input/output text columns. See #963.
+        token_rollup = authoritative_token_rollup_select()
         query = f"""
             WITH page AS (
                 -- Dedup ReplacingMergeTree by latest ch_update_time FIRST (correctness),
@@ -377,12 +379,10 @@ class TraceReaderService:
                         NULL
                     ) as duration_ms,
                     countIf(status = 'ERROR') as error_count,
-                    sum(input_tokens) as total_input_tokens,
-                    sum(output_tokens) as total_output_tokens,
-                    sum(cost) as total_cost
+                    {token_rollup}
                 FROM (
                     SELECT trace_id, span_id, status, span_start_time, span_end_time,
-                           input_tokens, output_tokens, cost
+                           input_tokens, output_tokens, cost, usage_details
                     FROM spans
                     WHERE project_id = {{project_id:String}}
                       AND trace_id IN (SELECT trace_id FROM page)
@@ -742,6 +742,11 @@ class TraceReaderService:
         # instead of FINAL), then dedupe the traces for that page of sessions and
         # aggregate spans for only those trace_ids. Avoids the full traces x spans
         # FINAL join + group-by-on-text over the whole project on each call. See #963.
+        trace_token_rollup = authoritative_token_rollup_select(
+            input_alias="trace_input_tokens",
+            output_alias="trace_output_tokens",
+            cost_alias="trace_cost",
+        )
         query = f"""
             WITH session_page AS (
                 SELECT t.session_id
@@ -774,12 +779,10 @@ class TraceReaderService:
                         dateDiff('millisecond', min(span_start_time), max(span_end_time)),
                         NULL
                     ) as trace_duration_ms,
-                    sum(input_tokens) as trace_input_tokens,
-                    sum(output_tokens) as trace_output_tokens,
-                    sum(cost) as trace_cost
+                    {trace_token_rollup}
                 FROM (
                     SELECT trace_id, span_id, span_start_time, span_end_time,
-                           input_tokens, output_tokens, cost
+                           input_tokens, output_tokens, cost, usage_details
                     FROM spans
                     WHERE project_id = {{project_id:String}}
                       AND trace_id IN (SELECT trace_id FROM traces_dedup)
@@ -1044,20 +1047,27 @@ class TraceReaderService:
                     if self._is_empty_io(t["output"]) and not self._is_empty_io(span_io[1]):
                         t["output"] = span_io[1]
 
-        # Step 3: Get token totals from spans for all traces in this session
-        # Dedup spans without FINAL (latest per span_id), then sum tokens/cost.
-        tokens_query = """
+        # Step 3: Get token totals from spans for all traces in this session.
+        # Apply the authoritative-count preference per trace, then sum traces.
+        token_rollup = authoritative_token_rollup_select()
+        tokens_query = f"""
             SELECT
-                sum(input_tokens) as total_input_tokens,
-                sum(output_tokens) as total_output_tokens,
-                sum(cost) as total_cost
+                sum(total_input_tokens) as total_input_tokens,
+                sum(total_output_tokens) as total_output_tokens,
+                sum(total_cost) as total_cost
             FROM (
-                SELECT input_tokens, output_tokens, cost
-                FROM spans
-                WHERE project_id = {project_id:String}
-                  AND trace_id IN ({trace_ids:Array(String)})
-                ORDER BY ch_update_time DESC
-                LIMIT 1 BY span_id
+                SELECT
+                    trace_id,
+                    {token_rollup}
+                FROM (
+                    SELECT trace_id, input_tokens, output_tokens, cost, usage_details
+                    FROM spans
+                    WHERE project_id = {{project_id:String}}
+                      AND trace_id IN ({{trace_ids:Array(String)}})
+                    ORDER BY ch_update_time DESC
+                    LIMIT 1 BY project_id, trace_id, span_id
+                )
+                GROUP BY trace_id
             )
         """
         tokens_result = self._client.query(
@@ -1127,6 +1137,7 @@ class TraceReaderService:
         # deduped via LIMIT 1 BY instead of FINAL), then sum span tokens/cost for only
         # that page's users' traces. Avoids the full traces x spans FINAL join over the
         # whole project on each call. See #963.
+        user_trace_token_rollup = authoritative_token_rollup_select()
         query = f"""
             WITH user_page AS (
                 SELECT
@@ -1152,21 +1163,28 @@ class TraceReaderService:
                 ORDER BY t.ch_update_time DESC
                 LIMIT 1 BY t.project_id, t.trace_id
             ),
-            span_totals AS (
+            span_trace_totals AS (
                 SELECT
-                    ut.user_id,
-                    sum(s.input_tokens) as total_input_tokens,
-                    sum(s.output_tokens) as total_output_tokens,
-                    sum(s.cost) as total_cost
-                FROM user_traces AS ut
-                LEFT JOIN (
-                    SELECT trace_id, span_id, input_tokens, output_tokens, cost
+                    trace_id,
+                    {user_trace_token_rollup}
+                FROM (
+                    SELECT trace_id, span_id, input_tokens, output_tokens, cost, usage_details
                     FROM spans
                     WHERE project_id = {{project_id:String}}
                       AND trace_id IN (SELECT trace_id FROM user_traces)
                     ORDER BY ch_update_time DESC
                     LIMIT 1 BY project_id, trace_id, span_id
-                ) AS s ON ut.trace_id = s.trace_id
+                )
+                GROUP BY trace_id
+            ),
+            span_totals AS (
+                SELECT
+                    ut.user_id,
+                    sum(stt.total_input_tokens) as total_input_tokens,
+                    sum(stt.total_output_tokens) as total_output_tokens,
+                    sum(stt.total_cost) as total_cost
+                FROM user_traces AS ut
+                LEFT JOIN span_trace_totals AS stt ON ut.trace_id = stt.trace_id
                 GROUP BY ut.user_id
             )
             SELECT
