@@ -18,8 +18,8 @@ import { useDatasets } from "../hooks";
 import type { DatasetRow } from "../types";
 
 /**
- * "Run evaluation" — a copyable SDK starter snippet (not a form), wired to real
- * datasets: the snippet references the
+ * "Run evaluation" — a copyable SDK starter snippet (not a form). Faithful port
+ * of the prototype's drawer, wired to real datasets: the snippet references the
  * selected dataset's real id and current version id. Evaluations run in the
  * customer's app/CI and report back; this panel configures nothing.
  */
@@ -199,12 +199,9 @@ export function RunEvaluationDrawer({
               title="Copy"
             />
           </div>
-          {/* Self-contained scroll box: the code scrolls WITHIN a bounded height
-              (independent of the drawer body's scroll), and pb-6 keeps the last line
-              clear of the horizontal scrollbar at the pre's bottom edge. */}
           <HighlightedCode
             code={code}
-            className="max-h-[55vh] overflow-auto whitespace-pre px-3 pb-6 pt-2.5 font-mono text-[11px] leading-relaxed"
+            className="overflow-x-auto whitespace-pre px-3 py-2.5 font-mono text-[11px] leading-relaxed"
           />
         </div>
 
