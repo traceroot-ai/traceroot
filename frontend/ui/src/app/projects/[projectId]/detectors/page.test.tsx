@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, cleanup, screen, fireEvent } from "@testing-library/react";
+import { render, cleanup, screen, fireEvent, within } from "@testing-library/react";
 import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 
 const mocks = vi.hoisted(() => ({
@@ -201,5 +201,29 @@ describe("DetectorsPage", () => {
     mocks.deleteError = new Error("Permission denied");
     render(<DetectorsPage />);
     expect(screen.getByText("Permission denied")).toBeDefined();
+  });
+
+  it("shows Edit but hides Delete in the row actions menu for MEMBER role", () => {
+    mocks.workspaceData = { role: "MEMBER" };
+    render(<DetectorsPage />);
+
+    const row = screen.getByText("My Detector").closest("tr");
+    expect(row).not.toBeNull();
+    fireEvent.click(within(row as HTMLElement).getByRole("button"));
+
+    expect(screen.getByText("Edit")).toBeDefined();
+    expect(screen.queryByText("Delete")).toBeNull();
+  });
+
+  it("shows Delete in the row actions menu for ADMIN role", () => {
+    mocks.workspaceData = { role: "ADMIN" };
+    render(<DetectorsPage />);
+
+    const row = screen.getByText("My Detector").closest("tr");
+    expect(row).not.toBeNull();
+    fireEvent.click(within(row as HTMLElement).getByRole("button"));
+
+    expect(screen.getByText("Edit")).toBeDefined();
+    expect(screen.getByText("Delete")).toBeDefined();
   });
 });
