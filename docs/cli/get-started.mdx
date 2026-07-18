@@ -3,7 +3,7 @@ title: Get Started
 description: Bring TraceRoot to your terminal
 ---
 
-The TraceRoot CLI wraps the TraceRoot API so you can work with your project directly from the terminal — list, inspect, and export traces, then pipe the JSON into whatever comes next. It is built for AI coding agents and power users who prefer the command line.
+The TraceRoot CLI wraps the TraceRoot API so you can work with your project directly from the terminal — list, inspect, and export traces, query detectors, and retrieve findings. It is built for AI coding agents and power users who prefer the command line.
 
 Full source and reference live in the [`traceroot-cli`](https://github.com/traceroot-ai/traceroot-cli) repo.
 
@@ -40,12 +40,41 @@ traceroot status
 # List recent traces, newest first
 traceroot traces list --limit 10
 
+# Filter by time range
+traceroot traces list --since 24h
+traceroot traces list --from 2025-01-01T00:00:00Z --to 2025-01-02T00:00:00Z
+
 # Inspect one: span tree, duration, I/O preview, and a link to open it in TraceRoot
 traceroot traces get <trace-id>
 
 # Write a full trace bundle to disk to share or feed into another tool
 traceroot traces export <trace-id> --output ./my-trace
 ```
+
+## Query detectors and findings
+
+[Detectors](/detectors/get-started) run continuously on your traces and emit findings whenever the LLM-as-a-judge flags a problem.
+
+```bash
+# List all detectors in your project
+traceroot detectors list
+
+# List recent findings across all detectors
+traceroot findings list --since 24h
+
+# Filter findings by detector and time window
+traceroot findings list --detector <detector-id> --since 7d
+
+# Retrieve a specific finding
+traceroot findings get <finding-id>
+
+# Retrieve the finding tied to a specific trace
+traceroot findings get --trace <trace-id>
+```
+
+### Time-range syntax
+
+`--since` accepts a plain duration: `30m`, `6h`, `24h`, `7d`, `2w`. `--from` and `--to` accept ISO 8601 timestamps (`2025-01-01T00:00:00Z`). `--since` and `--from`/`--to` are mutually exclusive.
 
 ## Command reference
 
@@ -55,13 +84,19 @@ Add `--json` to any command for machine-readable output, or run `traceroot <comm
 | :-- | :-- |
 | `login` | Validate an API key and save credentials. |
 | `status` | Show the identity your credentials resolve to — workspace, project, host, and key hint. |
-| `traces list` | List traces for your project, newest first. Flag: `--limit <n>`. |
+| `traces list` | List traces for your project, newest first. Flags: `--limit <n>`, `--since <duration>`, `--from <ISO>`, `--to <ISO>`. |
 | `traces get <id>` | Show one trace: header, span tree, duration, and I/O preview. `--json` emits the full trace. |
 | `traces export <id>` | Write `trace.json`, `spans.json`, `git_context.json`, and a `manifest.json` index to a directory. Flags: `--output <dir>`, `--force`. |
+| `detectors list` | List all detectors in your project with their IDs, names, and enabled status. |
+| `findings list` | List recent findings. Flags: `--detector <id>`, `--since <duration>`, `--from <ISO>`, `--to <ISO>`, `--limit <n>`. |
+| `findings get <id>` | Show one finding: detector name, judge summary, RCA, and a link to the trace. `--trace <trace-id>` looks up by trace instead of finding ID. |
 
 ## What's next
 
 <CardGroup cols={2}>
+  <Card title="Detectors" icon="shield-halved" href="/detectors/get-started">
+    Create detectors and understand the findings the CLI surfaces.
+  </Card>
   <Card title="Tracing" icon="route" href="/tracing/get-started">
     Instrument your app so traces show up for the CLI to read.
   </Card>
