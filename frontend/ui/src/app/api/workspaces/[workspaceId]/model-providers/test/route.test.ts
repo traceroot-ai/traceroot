@@ -214,7 +214,7 @@ describe("POST model-providers/test - network providers succeed", () => {
     },
     {
       name: "openai with baseUrl",
-      body: { adapter: "openai", apiKey: "k", baseUrl: "https://proxy.test/" },
+      body: { adapter: "openai", apiKey: "k", baseUrl: "https://proxy.test/v1/" },
       url: "https://proxy.test/v1/models",
     },
     {
