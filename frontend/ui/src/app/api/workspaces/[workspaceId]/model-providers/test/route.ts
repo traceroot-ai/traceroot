@@ -147,9 +147,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     switch (adapter) {
       case "openai": {
-        const openaiBase = baseUrl
-          ? `${adapterBaseUrl(adapter, baseUrl)}/v1`
-          : adapterBaseUrl(adapter, baseUrl);
+        const openaiBase = adapterBaseUrl(adapter, baseUrl);
         const url = `${openaiBase}/models`;
         const check = await checkEndpoint(url, { Authorization: `Bearer ${apiKey}` });
         if (!check.ok)
