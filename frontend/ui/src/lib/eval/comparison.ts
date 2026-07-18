@@ -150,7 +150,12 @@ export interface ResultComparison {
   mainScore: { candidate: number | null; baseline: number | null; delta: number | null };
   caseChange: Classification;
   pairing: "paired" | "candidate_only" | "baseline_only";
+  /** SDK-measured candidate case duration (task + scorers); null → Unknown, never 0. */
   durationMs: number | null;
+  /** The baseline case's duration, from the baseline result; null → Unknown. */
+  baselineDurationMs: number | null;
+  /** candidate − baseline case duration; null unless both are known. */
+  durationDeltaMs: number | null;
   scorerCells: ScorerCellComparison[];
   /** Convenience for the "regressed on N of M scorer cells" secondary label. */
   regressedCellCount: number;
@@ -166,6 +171,17 @@ export interface RunComparison {
   caseCounts: CountBlock;
   scoreCellCounts: CountBlock;
   scorers: ScorerAggregate[];
+  /**
+   * Aggregate CASE-duration statistics over paired cases where both sides reported a
+   * duration. This is a mean of per-case wall-clock (task + scorers), explicitly NOT
+   * the run's wall-clock elapsed time — concurrent cases are not summed here.
+   */
+  duration: {
+    candidateMeanMs: number | null;
+    baselineMeanMs: number | null;
+    deltaMs: number | null;
+    pairedCount: number;
+  };
 }
 
 export interface CompareRunsOutput {
@@ -285,6 +301,9 @@ export function compareRuns(input: CompareRunsInput): CompareRunsOutput {
   }
   const aggByScorer = new Map<string, Agg>();
   let mainScorerComparablePairs = 0;
+  let durCandSum = 0;
+  let durBaseSum = 0;
+  let durPairs = 0;
 
   const scoreByName = (r: ComparisonResult | undefined) => {
     const m = new Map<string, ComparisonScore>();
@@ -408,6 +427,18 @@ export function compareRuns(input: CompareRunsInput): CompareRunsOutput {
     }
     caseCounts[caseChange] += 1;
 
+    // Case-duration comparison (paired, both known) — never sum, never zero-fill.
+    const baselineDurationMs = base?.durationMs ?? null;
+    const durationDeltaMs =
+      cand?.durationMs != null && base?.durationMs != null
+        ? cand.durationMs - base.durationMs
+        : null;
+    if (pairing === "paired" && cand?.durationMs != null && base?.durationMs != null) {
+      durCandSum += cand.durationMs;
+      durBaseSum += base.durationMs;
+      durPairs += 1;
+    }
+
     const regressedCellCount = scorerCells.filter((c) => c.classification === "regressed").length;
     const comparableCellCount = scorerCells.filter(
       (c) =>
@@ -436,6 +467,8 @@ export function compareRuns(input: CompareRunsInput): CompareRunsOutput {
       caseChange,
       pairing,
       durationMs: cand?.durationMs ?? null,
+      baselineDurationMs,
+      durationDeltaMs,
       scorerCells,
       regressedCellCount,
       comparableCellCount,
@@ -533,6 +566,12 @@ export function compareRuns(input: CompareRunsInput): CompareRunsOutput {
     caseCounts,
     scoreCellCounts,
     scorers,
+    duration: {
+      candidateMeanMs: durPairs > 0 ? durCandSum / durPairs : null,
+      baselineMeanMs: durPairs > 0 ? durBaseSum / durPairs : null,
+      deltaMs: durPairs > 0 ? (durCandSum - durBaseSum) / durPairs : null,
+      pairedCount: durPairs,
+    },
   };
 
   // Stable result ordering: candidate order first, then baseline-only cases.

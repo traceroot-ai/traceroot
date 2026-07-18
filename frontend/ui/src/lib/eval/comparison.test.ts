@@ -384,6 +384,39 @@ describe("per-scorer aggregate uses paired, successfully-scored cells only", () 
   });
 });
 
+// ── duration ──────────────────────────────────────────────────────────────
+
+describe("duration comparison", () => {
+  it("returns per-case candidate/baseline duration + delta, and a paired case-duration mean", () => {
+    const out = compareRuns(
+      build({
+        candidateResults: [
+          result("a", { mainScore: 1, durationMs: 1200, scores: [num("acc", 1)] }),
+          result("b", { mainScore: 1, durationMs: 800, scores: [num("acc", 1)] }),
+          result("c", { mainScore: 1, durationMs: null, scores: [num("acc", 1)] }), // unknown
+        ],
+        baselineResults: [
+          result("a", { mainScore: 1, durationMs: 1000, scores: [num("acc", 1)] }),
+          result("b", { mainScore: 1, durationMs: 900, scores: [num("acc", 1)] }),
+          result("c", { mainScore: 1, durationMs: 700, scores: [num("acc", 1)] }),
+        ],
+      }),
+    );
+    const byCase = Object.fromEntries(out.results.map((r) => [r.testCaseId, r]));
+    expect(byCase.a.durationMs).toBe(1200);
+    expect(byCase.a.baselineDurationMs).toBe(1000);
+    expect(byCase.a.durationDeltaMs).toBe(200);
+    // Unknown candidate duration → delta null, never 0.
+    expect(byCase.c.durationMs).toBeNull();
+    expect(byCase.c.durationDeltaMs).toBeNull();
+    // Aggregate case-duration mean over the two paired-with-both-known cases (a, b).
+    expect(out.comparison.duration.pairedCount).toBe(2);
+    expect(out.comparison.duration.candidateMeanMs).toBe((1200 + 800) / 2);
+    expect(out.comparison.duration.baselineMeanMs).toBe((1000 + 900) / 2);
+    expect(out.comparison.duration.deltaMs).toBe((1200 + 800 - 1000 - 900) / 2);
+  });
+});
+
 // ── the seven-case lab ────────────────────────────────────────────────────
 
 describe("seven-case ticket-routing lab", () => {
