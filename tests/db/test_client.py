@@ -50,10 +50,35 @@ class TestInsertTracesBatch:
         assert row[8] == "hello"  # input
         assert row[9] == "world"  # output
         assert row[10] is None  # metadata
+        assert row[11] is None  # environment (not set in this trace)
         # ch_create_time and ch_update_time are auto-set
-        assert isinstance(row[11], datetime)
         assert isinstance(row[12], datetime)
-        assert len(columns) == 13
+        assert isinstance(row[13], datetime)
+        assert len(columns) == 14
+
+    def test_environment_field_in_row(self):
+        """Verify environment value is passed through at the correct column position."""
+        mock_internal = MagicMock()
+        client = ClickHouseClient(mock_internal)
+
+        traces = [
+            {
+                "trace_id": "trace-1",
+                "project_id": "proj-1",
+                "trace_start_time": datetime(2024, 1, 15, 12, 0, 0),
+                "name": "test-trace",
+                "environment": "production",
+            }
+        ]
+        client.insert_traces_batch(traces)
+
+        call_args = mock_internal.insert.call_args
+        rows = call_args[0][1]
+        columns = call_args[1]["column_names"]
+        row = rows[0]
+
+        env_index = columns.index("environment")
+        assert row[env_index] == "production"
 
     def test_empty_batch_no_insert(self):
         """Empty list -> no _client.insert() call."""
@@ -113,8 +138,35 @@ class TestInsertSpansBatch:
         assert row[13] == 50  # output_tokens
         assert row[14] == 150  # total_tokens
         # 3 fixed breakdown columns collapsed into one usage_details map (net -2).
-        assert len(columns) == 24
+        assert len(columns) == 25
         assert "usage_details" in columns
+        assert "environment" in columns
+
+    def test_environment_field_in_row(self):
+        """Verify environment value is passed through at the correct column position."""
+        mock_internal = MagicMock()
+        client = ClickHouseClient(mock_internal)
+
+        spans = [
+            {
+                "span_id": "span-1",
+                "trace_id": "trace-1",
+                "project_id": "proj-1",
+                "span_start_time": datetime(2024, 1, 15, 12, 0, 0),
+                "name": "test-span",
+                "span_kind": "LLM",
+                "environment": "staging",
+            }
+        ]
+        client.insert_spans_batch(spans)
+
+        call_args = mock_internal.insert.call_args
+        rows = call_args[0][1]
+        columns = call_args[1]["column_names"]
+        row = rows[0]
+
+        env_index = columns.index("environment")
+        assert row[env_index] == "staging"
 
     def test_optional_fields_none(self):
         """None values for optional fields (cost, tokens)."""
