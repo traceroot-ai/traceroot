@@ -3,7 +3,6 @@
 import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Drawer,
   DrawerBody,
@@ -17,24 +16,25 @@ import { cn } from "@/lib/utils";
 import { HUMAN_VERDICT_LABEL, type HumanReview, type HumanVerdict } from "../types";
 
 /**
- * The review panel — the one place a person creates something in the UI.
+ * Human review — the essential human-scoring step, and the one thing a person
+ * creates in the UI. The same panel opens from a production span and from an
+ * evaluation result, so reviewing feels like one activity.
  *
- * Everything else in v1 is display; review earns its place here because it
- * needs a human to look at evidence and decide. The same panel is used from a
- * trace, a test case, and an experiment result, so reviewing feels like one
- * activity rather than three different products.
+ * It keeps two decisions apart on purpose: a verdict judges what happened this
+ * once; a corrected expected output changes what future runs are compared
+ * against.
  */
 
 export interface ReviewTarget {
-  /** Where the review was opened from — shown so the reviewer knows what they're judging. */
+  /** Where the review was opened from. */
   contextLabel: string;
   input: string;
   output: string;
-  reference: string | null;
-  /** Automatic scores with their short explanations. */
+  expected: string | null;
+  /** Existing automatic scores, shown alongside the human decision. */
   autoScores: Array<{ name: string; display: string; explanation?: string }>;
   existing?: HumanReview;
-  /** Optional trace/step evidence, rendered by the caller when needed. */
+  /** Optional trace/span evidence rendered by the caller. */
   evidence?: React.ReactNode;
 }
 
@@ -55,40 +55,36 @@ export function ReviewPanel({
   const [quality, setQuality] = React.useState<number | undefined>(undefined);
   const [corrected, setCorrected] = React.useState("");
   const [comment, setComment] = React.useState("");
-  const [markGolden, setMarkGolden] = React.useState(false);
   const [showEvidence, setShowEvidence] = React.useState(false);
 
-  // Re-seed each time the panel opens on a new target.
   React.useEffect(() => {
     if (!open || !target) return;
     const existing = target.existing;
     setVerdict(existing?.verdict ?? "pass");
     setQuality(existing?.quality);
-    setCorrected(existing?.correctedReference ?? "");
+    setCorrected(existing?.correctedExpected ?? "");
     setComment(existing?.comment ?? "");
-    setMarkGolden(existing?.markGolden ?? false);
     setShowEvidence(false);
   }, [open, target]);
 
   if (!target) return null;
 
-  const referenceChanged = corrected.trim() !== "" && corrected.trim() !== (target.reference ?? "");
+  const expectedChanged = corrected.trim() !== "" && corrected.trim() !== (target.expected ?? "");
 
   const handleSave = () => {
     onSave({
       verdict,
       quality,
-      correctedReference: referenceChanged ? corrected.trim() : undefined,
+      correctedExpected: expectedChanged ? corrected.trim() : undefined,
       comment: comment.trim() || undefined,
-      markGolden,
       reviewer: "You",
       at: new Date().toISOString(),
     });
     toast({
       title: "Review saved",
-      description: referenceChanged
-        ? "Your judgment and the corrected reference answer were recorded. Prototype only — nothing was saved."
-        : "Your judgment was recorded. Prototype only — nothing was saved.",
+      description: expectedChanged
+        ? "Your decision and the corrected expected output were recorded. Prototype only."
+        : "Your decision was recorded. Prototype only.",
       tone: "success",
     });
     onOpenChange(false);
@@ -103,21 +99,18 @@ export function ReviewPanel({
         </DrawerHeader>
 
         <DrawerBody className="flex flex-col gap-4 text-[12px]">
-          {/* Evidence, in the order a person reads it */}
           <Block label="What was asked">
             <p className="leading-relaxed">{target.input}</p>
           </Block>
-
-          <Block label="What the app did">
+          <Block label="What the app produced">
             <p className="leading-relaxed">{target.output}</p>
           </Block>
-
-          <Block label="Reference answer">
-            {target.reference ? (
-              <p className="leading-relaxed">{target.reference}</p>
+          <Block label="Expected output">
+            {target.expected ? (
+              <p className="leading-relaxed">{target.expected}</p>
             ) : (
               <p className="text-muted-foreground">
-                Not required — a quality check judges the output directly.
+                Not required — a scorer judges the output directly.
               </p>
             )}
           </Block>
@@ -149,7 +142,7 @@ export function ReviewPanel({
                 onClick={() => setShowEvidence((current) => !current)}
                 aria-expanded={showEvidence}
               >
-                {showEvidence ? "Hide the steps" : "Show the steps"}
+                {showEvidence ? "Hide the trace" : "Show the trace"}
               </Button>
               {showEvidence && <div className="mt-2">{target.evidence}</div>}
             </div>
@@ -157,10 +150,9 @@ export function ReviewPanel({
 
           <div className="h-px bg-border" />
 
-          {/* The judgment */}
           <div>
             <p className="mb-1.5 font-medium">Was this right?</p>
-            <div className="flex gap-1.5" role="radiogroup" aria-label="Verdict">
+            <div className="flex gap-1.5" role="radiogroup" aria-label="Decision">
               {(Object.keys(HUMAN_VERDICT_LABEL) as HumanVerdict[]).map((option) => (
                 <Button
                   key={option}
@@ -177,8 +169,8 @@ export function ReviewPanel({
               ))}
             </div>
             <p className="mt-1.5 text-[11px] text-muted-foreground">
-              This judges what happened this one time. It does not change what future runs are
-              compared against.
+              This judges what happened this time. It does not change what future runs are compared
+              against.
             </p>
           </div>
 
@@ -205,15 +197,15 @@ export function ReviewPanel({
           </div>
 
           <div>
-            <label htmlFor="corrected-reference" className="mb-1.5 block font-medium">
-              Corrected reference answer{" "}
+            <label htmlFor="corrected-expected" className="mb-1.5 block font-medium">
+              Corrected expected output{" "}
               <span className="font-normal text-muted-foreground">optional</span>
             </label>
             <Input
-              id="corrected-reference"
+              id="corrected-expected"
               value={corrected}
               onChange={(event) => setCorrected(event.target.value)}
-              placeholder={target.reference ?? "e.g. billing"}
+              placeholder={target.expected ?? "e.g. billing"}
               className="h-7 text-[12px]"
             />
             <p className="mt-1.5 text-[11px] text-muted-foreground">
@@ -232,24 +224,6 @@ export function ReviewPanel({
               placeholder="Why did you decide this?"
               className="h-7 text-[12px]"
             />
-          </div>
-
-          <div className="rounded border border-border bg-muted/20 px-2.5 py-2">
-            <label className="flex cursor-pointer items-start gap-2">
-              <Checkbox
-                checked={markGolden}
-                onCheckedChange={setMarkGolden}
-                className="mt-0.5"
-                aria-label="Add to golden set"
-              />
-              <span>
-                <span className="font-medium">Add to the golden set</span>
-                <span className="mt-0.5 block text-[11px] leading-relaxed text-muted-foreground">
-                  Golden means the team trusts this case and how it is judged, so it can be used to
-                  check future versions.
-                </span>
-              </span>
-            </label>
           </div>
         </DrawerBody>
 
