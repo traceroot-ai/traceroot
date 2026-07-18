@@ -31,8 +31,42 @@ function sumOrNull(values: Array<number | null>): number | null {
   return present.length > 0 ? present.reduce((a, b) => a + b, 0) : null;
 }
 
+// Whitelist for `sort` — never let a raw query-string value reach `orderBy` or
+// an object-key lookup. Anything outside this set (or absent) falls back to
+// the default, it never errors.
+const SORT_FIELDS = ["startedAt", "mainScore", "cost", "elapsedMs", "status"] as const;
+type SortField = (typeof SORT_FIELDS)[number];
+const DEFAULT_SORT: SortField = "startedAt";
+
+function parseSort(value: string | null): SortField {
+  return (SORT_FIELDS as readonly string[]).includes(value ?? "")
+    ? (value as SortField)
+    : DEFAULT_SORT;
+}
+
+function parseOrder(value: string | null): "asc" | "desc" {
+  return value === "asc" ? "asc" : "desc";
+}
+
+/** A valid `Date`, or null for anything missing/unparseable — a bad bound is
+ * dropped rather than surfaced as an error, matching `limit`/`page` above. */
+function parseDateParam(value: string | null): Date | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+// startedAt/mainScore/status are real columns — sort + paginate in the DB.
+// cost/elapsedMs are derived (a per-run cost aggregate and a completedAt -
+// startedAt difference), so they're computed and sorted over the FULL
+// filtered set here on the server, then sliced to the requested page. That
+// keeps ordering correct across pages — never just a reorder of the page
+// that would already have been fetched.
+const DB_SORTABLE = new Set<SortField>(["startedAt", "mainScore", "status"]);
+
 // GET — evaluation runs (executions) for the project. Filters: evaluation_id,
-// dataset_id, status, search_query.
+// dataset_id, status, search_query, started_after, started_before. Sort:
+// sort/order over startedAt|mainScore|cost|elapsedMs|status.
 export async function GET(req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
@@ -49,6 +83,10 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   const datasetId = searchParams.get("dataset_id")?.trim() || null;
   const status = searchParams.get("status")?.trim() || null;
   const searchQuery = searchParams.get("search_query")?.trim() || null;
+  const sort = parseSort(searchParams.get("sort"));
+  const order = parseOrder(searchParams.get("order"));
+  const startedAfter = parseDateParam(searchParams.get("started_after"));
+  const startedBefore = parseDateParam(searchParams.get("started_before"));
 
   const where = {
     projectId,
@@ -63,21 +101,70 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
           ],
         }
       : {}),
+    ...(startedAfter || startedBefore
+      ? {
+          startedAt: {
+            ...(startedAfter ? { gte: startedAfter } : {}),
+            ...(startedBefore ? { lte: startedBefore } : {}),
+          },
+        }
+      : {}),
   };
 
-  const [runs, total] = await prisma.$transaction([
-    prisma.evaluationRun.findMany({
-      where,
-      orderBy: { startedAt: "desc" },
-      skip: page * limit,
-      take: limit,
-      include: {
-        evaluation: { select: { name: true } },
-        datasetVersion: { select: { label: true } },
-      },
-    }),
-    prisma.evaluationRun.count({ where }),
-  ]);
+  const include = {
+    evaluation: { select: { name: true } },
+    datasetVersion: { select: { label: true } },
+  };
+
+  let runs: Awaited<ReturnType<typeof prisma.evaluationRun.findMany<{ include: typeof include }>>>;
+  let total: number;
+
+  if (DB_SORTABLE.has(sort)) {
+    [runs, total] = await prisma.$transaction([
+      prisma.evaluationRun.findMany({
+        where,
+        orderBy: { [sort]: order },
+        skip: page * limit,
+        take: limit,
+        include,
+      }),
+      prisma.evaluationRun.count({ where }),
+    ]);
+  } else {
+    const all = await prisma.evaluationRun.findMany({ where, include });
+    total = all.length;
+
+    let sortValue: (r: (typeof all)[number]) => number | null;
+    if (sort === "elapsedMs") {
+      sortValue = (r) => elapsedMs(r.startedAt, r.completedAt);
+    } else {
+      const ids = all.map((r) => r.id);
+      const costSums =
+        ids.length > 0
+          ? await prisma.evaluationResult.groupBy({
+              by: ["runId"],
+              where: { runId: { in: ids }, projectId, cost: { not: null } },
+              _sum: { cost: true },
+            })
+          : [];
+      const costByRun = new Map(costSums.map((c) => [c.runId, c._sum.cost]));
+      sortValue = (r) => costByRun.get(r.id) ?? null;
+    }
+
+    const dir = order === "asc" ? 1 : -1;
+    all.sort((a, b) => {
+      const av = sortValue(a);
+      const bv = sortValue(b);
+      // Unknown (still running / no cost reported) always sorts last, in
+      // either direction — never a misleading position for missing data.
+      if (av === null && bv === null) return 0;
+      if (av === null) return 1;
+      if (bv === null) return -1;
+      return (av - bv) * dir;
+    });
+
+    runs = all.slice(page * limit, page * limit + limit);
+  }
 
   const datasetIds = [...new Set(runs.map((r) => r.datasetId))];
   const datasets =

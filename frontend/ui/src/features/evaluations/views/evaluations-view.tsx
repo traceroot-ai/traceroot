@@ -1,11 +1,13 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowDown,
   ArrowUp,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Layers,
   ListChecks,
@@ -25,6 +27,7 @@ import {
 } from "@/components/ui/select";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { DATE_FILTER_OPTIONS, type DateFilterOption } from "@/lib/date-filter";
+import { useKeywordSearch } from "@/lib/hooks/use-keyword-search";
 import { Table, TBody, Td, Th, THead, TR, TRHead } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { CopyButton } from "@/components/ui/copy-button";
@@ -107,6 +110,9 @@ export function EvaluationsView({ projectId }: { projectId: string }) {
 // ---------------------------------------------------------------------------
 
 const RUNS_COLUMN_COUNT = 8;
+// Matches the route's default `limit` (runs/route.ts) so the page-count math
+// here lines up with what the server actually returns per page.
+const RUNS_PAGE_LIMIT = 50;
 
 /** Human elapsed duration; "—" when unknown (never 0). */
 export function formatElapsed(ms: number | null | undefined): string {
@@ -168,7 +174,14 @@ function RunTableRow({
           </button>
         )}
         <div className="text-[11px] text-muted-foreground">
-          Run #{r.runNumber} · <span className="font-mono">{r.candidateVersion}</span>
+          <Link
+            href={`/projects/${projectId}/evaluations/${r.id}`}
+            className="rounded hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            onClick={(e) => e.stopPropagation()}
+          >
+            Run #{r.runNumber}
+          </Link>{" "}
+          · <span className="font-mono">{r.candidateVersion}</span>
         </div>
       </Td>
       <Td className="text-muted-foreground">
@@ -419,7 +432,7 @@ function RunsTab({ projectId }: { projectId: string }) {
   // browser back/forward and sharing work.
   const scopedEvalId = searchParams.get("evaluation");
 
-  const [keyword, setKeyword] = React.useState("");
+  const { keyword, setKeyword, searchQuery } = useKeywordSearch();
   const [datasetFilter, setDatasetFilter] = React.useState(ALL);
   const [statusFilter, setStatusFilter] = React.useState(ALL);
   const [dateFilter, setDateFilter] = React.useState<DateFilterOption>(
@@ -430,15 +443,27 @@ function RunsTab({ projectId }: { projectId: string }) {
   const [latestOnly, setLatestOnly] = React.useState(false);
   const [groupBy, setGroupBy] = React.useState(false);
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
+  const [page, setPage] = React.useState(0);
+  // Any change to scope/filters invalidates the current page — otherwise a
+  // narrower filter can land on a page past the end of its (now shorter) result set.
+  React.useEffect(() => {
+    setPage(0);
+  }, [scopedEvalId, searchQuery, datasetFilter, statusFilter]);
 
   const { data: datasetsData } = useDatasets(projectId, { limit: 200 });
   const { data, isLoading, error } = useEvaluationRuns(projectId, {
     evaluation_id: scopedEvalId ?? undefined,
-    search_query: keyword.trim() || undefined,
+    search_query: searchQuery,
     dataset_id: datasetFilter === ALL ? undefined : datasetFilter,
     status: statusFilter === ALL ? undefined : statusFilter,
+    page,
+    limit: RUNS_PAGE_LIMIT,
   });
   const allRuns = React.useMemo(() => data?.data ?? [], [data]);
+  const total: number = data?.meta?.total ?? 0;
+  // Keys off the immediate `keyword`, not the debounced `searchQuery`, so the
+  // empty-state copy doesn't flicker to "no runs yet" for the 300ms before the
+  // debounced value catches up.
   const filtered = !!keyword || datasetFilter !== ALL || statusFilter !== ALL;
 
   // Latest-only is a client-side convenience over the loaded page (newest-first);
@@ -581,6 +606,35 @@ function RunsTab({ projectId }: { projectId: string }) {
           </TBody>
         </Table>
       </div>
+
+      {!isLoading && !error && total > 0 && (
+        <div className="flex shrink-0 items-center justify-between border-t border-border px-3 py-1.5 text-[11px] text-muted-foreground">
+          <span>
+            Showing {page * RUNS_PAGE_LIMIT + 1}–{Math.min((page + 1) * RUNS_PAGE_LIMIT, total)} of{" "}
+            {total}
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={page === 0}
+              aria-label="Previous page"
+              className="rounded p-1 hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setPage((p) => p + 1)}
+              disabled={(page + 1) * RUNS_PAGE_LIMIT >= total}
+              aria-label="Next page"
+              className="rounded p-1 hover:bg-muted disabled:pointer-events-none disabled:opacity-40"
+            >
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }
