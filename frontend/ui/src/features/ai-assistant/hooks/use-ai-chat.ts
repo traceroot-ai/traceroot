@@ -2,7 +2,8 @@
 
 import { useRef, useState, useCallback, useEffect } from "react";
 import { useAIStream } from "./use-ai-stream";
-import type { AISession, AIMessage, AiTraceContext } from "../types";
+import { mapPersistedMessage } from "./message-history";
+import type { AISession, AiTraceContext } from "../types";
 import type { ModelSelection } from "../components/model-selector";
 
 interface UseAiChatOptions extends AiTraceContext {
@@ -59,14 +60,7 @@ export function useAiChat({
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (ac.signal.aborted || !data) return;
-        const all = (data.messages || []).map(
-          (m: { id: string; role: string; content: string; createTime: string }) => ({
-            id: m.id,
-            role: m.role as "user" | "assistant",
-            content: m.content,
-            timestamp: m.createTime,
-          }),
-        );
+        const all = (data.messages || []).map(mapPersistedMessage);
         setMessages(all);
       })
       .catch((err) => {
@@ -172,12 +166,7 @@ export function useAiChat({
         const res = await fetch(`/api/projects/${projectId}/ai/sessions/${session.id}/messages`);
         if (res.ok) {
           const data = await res.json();
-          const loaded = (data.messages || []).map((m: any) => ({
-            id: m.id,
-            role: m.role as "user" | "assistant",
-            content: m.content,
-            timestamp: m.createTime,
-          }));
+          const loaded = (data.messages || []).map(mapPersistedMessage);
           setMessages(loaded);
         }
       } catch (err) {

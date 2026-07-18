@@ -1,6 +1,6 @@
 import { prisma } from "@traceroot/core";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { UserMessage, Message } from "@earendil-works/pi-ai";
+import type { UserMessage } from "@earendil-works/pi-ai";
 
 // ============================================================
 // SessionManager — follows Mom's SessionManager pattern
@@ -17,6 +17,98 @@ export interface TokenUsageData {
   cost: number;
 }
 
+export interface ToolResultData {
+  toolCallId: string;
+  toolName: string;
+  args: unknown;
+  result: unknown;
+  isError: boolean;
+}
+
+const MAX_TOOL_RESULT_CHARS = 8000;
+const MAX_REPLAY_CHARS = 8000;
+
+function truncateText(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars)}\n\n[truncated ${text.length - maxChars} chars]`;
+}
+
+function safeJson(value: unknown): unknown {
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return String(value);
+  }
+}
+
+function formatJson(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function contentBlockToText(block: unknown): string {
+  if (!isRecord(block)) return formatJson(block);
+  if (block.type === "text" && typeof block.text === "string") {
+    return block.text;
+  }
+  if (block.type === "image") {
+    const mimeType = typeof block.mimeType === "string" ? block.mimeType : "unknown";
+    return `[image: ${mimeType}]`;
+  }
+  return formatJson(block);
+}
+
+function summarizeToolResult(result: unknown): string {
+  if (isRecord(result) && Array.isArray(result.content)) {
+    const text = result.content.map(contentBlockToText).join("\n");
+    return truncateText(text || "(empty tool result)", MAX_TOOL_RESULT_CHARS);
+  }
+  if (typeof result === "string") {
+    return truncateText(result, MAX_TOOL_RESULT_CHARS);
+  }
+  return truncateText(formatJson(result), MAX_TOOL_RESULT_CHARS);
+}
+
+function userMessage(content: string, timestamp: number): UserMessage {
+  return {
+    role: "user",
+    content: [{ type: "text", text: content }],
+    timestamp,
+  };
+}
+
+function formatToolReplay(content: string, metadata: unknown): string {
+  const meta = isRecord(metadata) ? metadata : {};
+  const toolName = typeof meta.toolName === "string" ? meta.toolName : "unknown_tool";
+  const args = "args" in meta ? meta.args : {};
+  const resultSummary =
+    typeof meta.resultSummary === "string" && meta.resultSummary.length > 0
+      ? meta.resultSummary
+      : content;
+  const status = meta.isError === true ? "error" : "success";
+
+  return truncateText(
+    [
+      "[Previous tool result]",
+      `Tool: ${toolName}`,
+      `Status: ${status}`,
+      `Args: ${formatJson(args)}`,
+      "Result:",
+      resultSummary,
+      "",
+      "If referenced /workspace files are missing after resume, rerun this tool with the recorded arguments.",
+    ].join("\n"),
+    MAX_REPLAY_CHARS,
+  );
+}
+
 export class SessionManager {
   constructor(private sessionId: string) {}
 
@@ -25,10 +117,12 @@ export class SessionManager {
    * Like Mom's sessionManager.buildSessionContext() — loads persisted
    * messages from DB and converts them to AgentMessage format.
    *
-   * We only restore user messages from DB. Assistant messages are not
-   * restored because they require full LLM metadata (api, provider, model,
-   * usage, stopReason). The agent will see user messages as context and
-   * generate fresh responses.
+   * We restore user messages and lightweight tool-result markers. Assistant
+   * messages are still not restored natively because they require full LLM
+   * metadata (api, provider, model, usage, stopReason). Tool markers are
+   * replayed as user-visible context so the model can recover durable file
+   * paths and rerun instructions without constructing invalid tool-result
+   * sequences.
    */
   async buildContext(): Promise<AgentMessage[]> {
     const session = await prisma.aISession.findUnique({
@@ -40,16 +134,20 @@ export class SessionManager {
       return [];
     }
 
-    // Only restore user messages — assistant messages lack required LLM metadata
-    return session.messages
-      .filter((m) => m.role === "user")
-      .map(
-        (m): UserMessage => ({
-          role: "user",
-          content: [{ type: "text", text: m.content }],
-          timestamp: m.createTime.getTime(),
-        }),
-      );
+    const context: AgentMessage[] = [];
+    for (const message of session.messages) {
+      if (message.role === "user") {
+        context.push(userMessage(message.content, message.createTime.getTime()));
+      } else if (message.role === "tool") {
+        context.push(
+          userMessage(
+            formatToolReplay(message.content, message.metadata),
+            message.createTime.getTime(),
+          ),
+        );
+      }
+    }
+    return context;
   }
 
   /**
@@ -93,6 +191,25 @@ export class SessionManager {
           cost: tokenUsage.cost,
         }),
       },
+    });
+  }
+
+  async appendToolResult(params: ToolResultData): Promise<void> {
+    const resultSummary = summarizeToolResult(params.result);
+    const args = safeJson(params.args);
+    const content = [
+      `Tool ${params.isError ? "failed" : "succeeded"}: ${params.toolName}`,
+      `Args: ${formatJson(args)}`,
+      "Result:",
+      resultSummary,
+    ].join("\n");
+
+    await this.appendMessage("tool", content, {
+      toolCallId: params.toolCallId,
+      toolName: params.toolName,
+      args,
+      resultSummary,
+      isError: params.isError,
     });
   }
 }
