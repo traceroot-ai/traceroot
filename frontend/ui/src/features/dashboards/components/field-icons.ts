@@ -1,16 +1,6 @@
-import {
-  AlertCircle,
-  Box,
-  CircleCheck,
-  CircleStop,
-  Hash,
-  Layers,
-  Shapes,
-  Users,
-  Workflow,
-  type LucideIcon,
-} from "lucide-react";
+import { type LucideIcon } from "lucide-react";
 import { FIELD_ICONS } from "@/features/filters/filter-controls";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 
 // The trace-list filter icons, extended with the widget registry's field
 // names the trace list spells differently (errors -> error_count), the token
@@ -19,18 +9,19 @@ import { FIELD_ICONS } from "@/features/filters/filter-controls";
 // session symbols the trace-page tabs use. Box stays the generic fallback.
 const WIDGET_FIELD_ICONS: Record<string, LucideIcon> = {
   ...FIELD_ICONS,
-  error_count: AlertCircle,
-  input_tokens: CircleStop,
-  output_tokens: CircleStop,
-  count: Hash,
-  user_id: Users,
-  session_id: Layers,
+  error_count: DOMAIN_ICONS.error,
+  input_tokens: DOMAIN_ICONS.tokens,
+  output_tokens: DOMAIN_ICONS.tokens,
+  count: DOMAIN_ICONS.count,
+  user_id: DOMAIN_ICONS.user,
+  session_id: DOMAIN_ICONS.session,
   // The sidebar's Tracing symbol; `name` is the trace/span name on both views.
-  name: Workflow,
+  name: DOMAIN_ICONS.trace,
   // A category-of-kinds field; the per-kind glyphs (Sparkle/Bot/Wrench) would
   // each wrongly imply one specific kind.
-  span_kind: Shapes,
-  status: CircleCheck,
+  span_kind: DOMAIN_ICONS.kind,
+  status: DOMAIN_ICONS.status,
 };
 
-export const fieldIcon = (field: string): LucideIcon => WIDGET_FIELD_ICONS[field] ?? Box;
+export const fieldIcon = (field: string): LucideIcon =>
+  WIDGET_FIELD_ICONS[field] ?? DOMAIN_ICONS.model;
