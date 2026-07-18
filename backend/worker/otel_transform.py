@@ -438,10 +438,12 @@ def transform_otel_to_clickhouse(
                         json.dumps(span_output) if not isinstance(span_output, str) else span_output
                     )
 
-                # Model & token fields — extract API-provided counts whenever a model
-                # name is present, not just for LLM spans. Auto-instrumentors
-                # (OpenInference, GenAI) set model/token attrs on AGENT and CHAIN spans
-                # too. Text-based ESTIMATION, however, is LLM-spans-only (see below).
+                # Model & token fields — keep model names on every span that
+                # reports them, but adopt token counts only from LLM-kind spans.
+                # Some auto-instrumentors roll child usage up onto AGENT/CHAIN
+                # wrappers; pricing those wrapper totals double-counts the
+                # underlying LLM calls. Text-based ESTIMATION is also
+                # LLM-spans-only (see below).
                 model_name = (
                     span_attrs.get("traceroot.llm.model")
                     or span_attrs.get("gen_ai.request.model")
@@ -452,17 +454,19 @@ def transform_otel_to_clickhouse(
 
                     # Try API-provided token counts first (from instrumentors).
                     # OpenInference: llm.token_count.*  ·  GenAI semconv: gen_ai.usage.*
-                    input_token_keys = [
-                        "llm.token_count.prompt",
-                        "gen_ai.usage.input_tokens",
-                        "gen_ai.usage.prompt_tokens",
-                    ]
-                    output_token_keys = [
-                        "llm.token_count.completion",
-                        "gen_ai.usage.output_tokens",
-                        "gen_ai.usage.completion_tokens",
-                    ]
+                    input_token_keys: list[str] = []
+                    output_token_keys: list[str] = []
                     if span_kind == SpanKind.LLM:
+                        input_token_keys = [
+                            "llm.token_count.prompt",
+                            "gen_ai.usage.input_tokens",
+                            "gen_ai.usage.prompt_tokens",
+                        ]
+                        output_token_keys = [
+                            "llm.token_count.completion",
+                            "gen_ai.usage.output_tokens",
+                            "gen_ai.usage.completion_tokens",
+                        ]
                         # Vercel AI SDK raw GROSS totals are the only token source it
                         # normalizes to neither llm.* nor gen_ai.*, so we read them as
                         # a fallback. But they sit on BOTH the LLM doGenerate span AND
