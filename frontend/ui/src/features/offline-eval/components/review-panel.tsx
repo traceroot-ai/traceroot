@@ -20,9 +20,9 @@ import { HUMAN_VERDICT_LABEL, type HumanReview, type HumanVerdict } from "../typ
  * creates in the UI. The same panel opens from a production span and from an
  * evaluation result, so reviewing feels like one activity.
  *
- * It keeps two decisions apart on purpose: a verdict judges what happened this
- * once; a corrected expected output changes what future runs are compared
- * against.
+ * It scores one observed output and nothing else. Changing what future runs are
+ * compared against is a separate, confirmed action ("Update expected outcome"),
+ * so human-scoring can never silently mutate the source dataset.
  */
 
 export interface ReviewTarget {
@@ -53,7 +53,6 @@ export function ReviewPanel({
 
   const [verdict, setVerdict] = React.useState<HumanVerdict>("pass");
   const [quality, setQuality] = React.useState<number | undefined>(undefined);
-  const [corrected, setCorrected] = React.useState("");
   const [comment, setComment] = React.useState("");
   const [showEvidence, setShowEvidence] = React.useState(false);
 
@@ -62,29 +61,23 @@ export function ReviewPanel({
     const existing = target.existing;
     setVerdict(existing?.verdict ?? "pass");
     setQuality(existing?.quality);
-    setCorrected(existing?.correctedExpected ?? "");
     setComment(existing?.comment ?? "");
     setShowEvidence(false);
   }, [open, target]);
 
   if (!target) return null;
 
-  const expectedChanged = corrected.trim() !== "" && corrected.trim() !== (target.expected ?? "");
-
   const handleSave = () => {
     onSave({
       verdict,
       quality,
-      correctedExpected: expectedChanged ? corrected.trim() : undefined,
       comment: comment.trim() || undefined,
       reviewer: "You",
       at: new Date().toISOString(),
     });
     toast({
       title: "Review saved",
-      description: expectedChanged
-        ? "Your decision and the corrected expected output were recorded. Prototype only."
-        : "Your decision was recorded. Prototype only.",
+      description: "Your score for this output was recorded. Prototype only.",
       tone: "success",
     });
     onOpenChange(false);
@@ -194,23 +187,6 @@ export function ReviewPanel({
                 </Button>
               ))}
             </div>
-          </div>
-
-          <div>
-            <label htmlFor="corrected-expected" className="mb-1.5 block font-medium">
-              Corrected expected output{" "}
-              <span className="font-normal text-muted-foreground">optional</span>
-            </label>
-            <Input
-              id="corrected-expected"
-              value={corrected}
-              onChange={(event) => setCorrected(event.target.value)}
-              placeholder={target.expected ?? "e.g. billing"}
-              className="h-7 text-[12px]"
-            />
-            <p className="mt-1.5 text-[11px] text-muted-foreground">
-              This one does change things: it updates what future runs are compared against.
-            </p>
           </div>
 
           <div>
