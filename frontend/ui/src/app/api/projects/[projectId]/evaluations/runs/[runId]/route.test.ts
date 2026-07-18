@@ -206,3 +206,32 @@ it("404s an unknown run", async () => {
   const res = await GET({} as never, params);
   expect(res.status).toBe(404);
 });
+
+it("derives per-status counts from the run's own results", async () => {
+  // baselineRunId: null keeps this to a single findFirst — no baseline fetch.
+  prismaMock.evaluationRun.findFirst.mockResolvedValueOnce(
+    candidate({
+      baselineRunId: null,
+      results: [
+        { id: "r1", testCaseId: "t0", status: "passed", mainScore: 1, scores: [], humanScores: [] },
+        { id: "r2", testCaseId: "t1", status: "failed", mainScore: 0, scores: [], humanScores: [] },
+        {
+          id: "r3",
+          testCaseId: "t2",
+          status: "errored",
+          mainScore: null,
+          scores: [],
+          humanScores: [],
+        },
+      ],
+    }),
+  );
+
+  const body = (await (await GET({} as never, params)).json()) as {
+    run: Record<string, unknown>;
+  };
+  expect(body.run.passedCount).toBe(1);
+  expect(body.run.failedCount).toBe(1);
+  expect(body.run.erroredCount).toBe(1);
+  expect(body.run.notScoredCount).toBe(0);
+});
