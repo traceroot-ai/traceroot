@@ -15,7 +15,15 @@ export interface ResultStatusCounts {
   notScoredCount: number;
 }
 
-export function countResultStatuses(results: Array<{ status: string }>): ResultStatusCounts {
+/**
+ * Fold result statuses into per-status counts. Rows may be individual results or
+ * pre-aggregated groups: `count` defaults to 1, so the same fold serves both a list
+ * of result rows and a `groupBy(["runId", "status"])` projection, which is how the
+ * runs list gets these counts without materialising the rows.
+ */
+export function countResultStatuses(
+  results: Array<{ status: string; count?: number }>,
+): ResultStatusCounts {
   const counts: ResultStatusCounts = {
     passedCount: 0,
     failedCount: 0,
@@ -23,10 +31,11 @@ export function countResultStatuses(results: Array<{ status: string }>): ResultS
     notScoredCount: 0,
   };
   for (const r of results) {
-    if (r.status === "passed") counts.passedCount += 1;
-    else if (r.status === "failed") counts.failedCount += 1;
-    else if (r.status === "errored") counts.erroredCount += 1;
-    else if (r.status === "not_scored") counts.notScoredCount += 1;
+    const n = r.count ?? 1;
+    if (r.status === "passed") counts.passedCount += n;
+    else if (r.status === "failed") counts.failedCount += n;
+    else if (r.status === "errored") counts.erroredCount += n;
+    else if (r.status === "not_scored") counts.notScoredCount += n;
   }
   return counts;
 }
