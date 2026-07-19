@@ -15,10 +15,12 @@ import {
   Shrink,
   SquareArrowOutUpRight,
 } from "lucide-react";
+import type { ReactNode } from "react";
 import { cn, buildUrlWithFilters } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { getTrace } from "@/lib/api";
+import type { TraceDetail } from "@/types/api";
 import type { TraceSelection } from "../types";
 import { SpanTreeView, type SpanTreeViewHandle } from "./SpanTreeView";
 import { SpanInfoPanel } from "./SpanInfoPanel";
@@ -51,6 +53,19 @@ interface TraceViewerPanelProps {
    * detector tab.
    */
   newTabPath?: string;
+  /**
+   * When provided, this trace is used directly instead of fetching it, and the
+   * live SSE stream + detector-findings lookups are disabled. Lets the
+   * offline-eval prototype render the genuine viewer from hardcoded data.
+   * Unset in production.
+   */
+  traceOverride?: TraceDetail;
+  /**
+   * Optional action bar for the span detail panel, computed per selection —
+   * e.g. offline-eval's "Save as test case" / "Review". Return null to hide it
+   * (e.g. at trace level). Unset in production.
+   */
+  spanActions?: (selection: TraceSelection) => ReactNode;
 }
 
 /**
@@ -79,6 +94,8 @@ export function TraceViewerPanel({
   autoOpenRca,
   initialFullscreen,
   newTabPath,
+  traceOverride,
+  spanActions,
 }: TraceViewerPanelProps) {
   const [selection, setSelection] = useState<TraceSelection>({ type: "trace" });
   const [viewMode, setViewMode] = useState<"tree" | "timeline" | "detectors">("tree");
@@ -123,7 +140,9 @@ export function TraceViewerPanel({
   // analysis, so it only renders when an RCA record exists — a finding from an
   // RCA-disabled detector has no analysis to open (gate on the record, not the
   // sessionId, so the button doesn't flicker while the RCA is still pending).
-  const { data: traceFindingsData } = useTraceFindings(projectId, traceId);
+  // With an override we render hardcoded data and touch no network: disable the
+  // findings lookup (empty id), the trace fetch, and the live SSE stream.
+  const { data: traceFindingsData } = useTraceFindings(projectId, traceOverride ? "" : traceId);
   const traceFinding = traceFindingsData?.findings?.[0];
   const { data: rcaData } = useRca(projectId, traceFinding?.finding_id ?? "");
   const hasRca = !!traceFinding && !!rcaData?.rca;
@@ -140,15 +159,18 @@ export function TraceViewerPanel({
   }, [autoOpenRca, rcaSessionId, traceId, setAiContext, setAiInitialSessionId, setAiPanelOpen]);
 
   const {
-    data: trace,
-    isLoading,
+    data: fetchedTrace,
+    isLoading: isFetching,
     error,
   } = useQuery({
     queryKey: ["trace", projectId, traceId],
     queryFn: () => getTrace(projectId, traceId, ""),
+    enabled: !traceOverride,
   });
+  const trace = traceOverride ?? fetchedTrace;
+  const isLoading = traceOverride ? false : isFetching;
 
-  useTraceStream(projectId, traceId, true);
+  useTraceStream(projectId, traceId, !traceOverride);
 
   // Reset when navigating to a different trace
   useEffect(() => {
@@ -448,6 +470,7 @@ export function TraceViewerPanel({
                       dateFilter={dateFilter}
                       customStartDate={customStartDate}
                       customEndDate={customEndDate}
+                      spanActions={spanActions?.(selection)}
                     />
                   ) : (
                     <SpanTimelineView
