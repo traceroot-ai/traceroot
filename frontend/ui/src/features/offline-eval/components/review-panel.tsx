@@ -52,7 +52,7 @@ export function ReviewPanel({
   onSave: (review: HumanReview) => void;
   /** Toast description shown after saving; omit for none. */
   savedDescription?: string;
-  /** Small note in the footer (e.g. the prototype's "Saved in this page only."). */
+  /** Small note in the footer (e.g. "Saved in this page only."). */
   footerNote?: string;
 }) {
   const { toast } = useToast();
