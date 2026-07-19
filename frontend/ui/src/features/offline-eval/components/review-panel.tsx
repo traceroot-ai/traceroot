@@ -43,11 +43,17 @@ export function ReviewPanel({
   open,
   onOpenChange,
   onSave,
+  savedDescription,
+  footerNote = "Recorded on this run.",
 }: {
   target: ReviewTarget | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (review: HumanReview) => void;
+  /** Toast description shown after saving; omit for none. */
+  savedDescription?: string;
+  /** Small note in the footer (e.g. the prototype's "Saved in this page only."). */
+  footerNote?: string;
 }) {
   const { toast } = useToast();
 
@@ -77,7 +83,7 @@ export function ReviewPanel({
     });
     toast({
       title: "Review saved",
-      description: "Your score for this output was recorded. Prototype only.",
+      ...(savedDescription ? { description: savedDescription } : {}),
       tone: "success",
     });
     onOpenChange(false);
@@ -204,7 +210,7 @@ export function ReviewPanel({
         </DrawerBody>
 
         <DrawerFooter>
-          <span className="text-[11px] text-muted-foreground">Saved in this page only.</span>
+          <span className="text-[11px] text-muted-foreground">{footerNote}</span>
           <span className="flex gap-2">
             <Button
               variant="outline"
