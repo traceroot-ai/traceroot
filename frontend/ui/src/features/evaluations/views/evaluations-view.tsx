@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { ModelSelector } from "@/features/ai-assistant/components/model-selector";
 import {
   Select,
@@ -33,7 +34,16 @@ import { Input } from "@/components/ui/input";
 import { CopyButton } from "@/components/ui/copy-button";
 import { HighlightedCode } from "@/features/offline-eval/components/syntax";
 import { cn } from "@/lib/utils";
-import { EmptyState, Timestamp, LineNumberedTextarea } from "@/features/offline-eval/components";
+import { useToast } from "@/components/ui/toast";
+import {
+  EmptyState,
+  Timestamp,
+  LineNumberedTextarea,
+  useRowSelection,
+  SelectAllHeaderCell,
+  SelectRowCell,
+  BulkActionBar,
+} from "@/features/offline-eval/components";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { PassRate } from "../components/pass-rate";
 import { pctFraction, SENTIMENT_CLASS } from "@/features/offline-eval/utils";
@@ -109,7 +119,8 @@ export function EvaluationsView({ projectId }: { projectId: string }) {
 // Runs — the flat execution list.
 // ---------------------------------------------------------------------------
 
-const RUNS_COLUMN_COUNT = 8;
+// 9 = the 8 data columns plus the row-selection checkbox column.
+const RUNS_COLUMN_COUNT = 9;
 // Matches the route's default `limit` (runs/route.ts) so the page-count math
 // here lines up with what the server actually returns per page.
 const RUNS_PAGE_LIMIT = 50;
@@ -150,15 +161,28 @@ function RunTableRow({
   projectId,
   showEvaluation = true,
   indent = false,
+  selected,
+  onToggleSelect,
 }: {
   run: RunRow;
   projectId: string;
   showEvaluation?: boolean;
   indent?: boolean;
+  selected: boolean;
+  onToggleSelect: () => void;
 }) {
   const router = useRouter();
   return (
-    <TR interactive onClick={() => router.push(`/projects/${projectId}/evaluations/${r.id}`)}>
+    <TR
+      interactive
+      selected={selected}
+      onClick={() => router.push(`/projects/${projectId}/evaluations/${r.id}`)}
+    >
+      <SelectRowCell
+        checked={selected}
+        onToggle={onToggleSelect}
+        label={`Select run #${r.runNumber}`}
+      />
       <Td className={cn(indent && "pl-6")}>
         {showEvaluation && (
           <button
@@ -298,18 +322,40 @@ function GroupHeaderRow({
   isOpen,
   onToggle,
   projectId,
+  truncated,
+  selectedIds,
+  onToggleGroupSelection,
 }: {
   group: RunGroup;
   isOpen: boolean;
   onToggle: () => void;
   projectId: string;
+  /** True when `allRuns` is only a page of the project's runs (see `meta.total`
+   *  below) — the lineage may extend beyond what's loaded, so sums here are
+   *  page-local, not lineage totals. */
+  truncated: boolean;
+  selectedIds: Set<string>;
+  onToggleGroupSelection: (ids: string[], on: boolean) => void;
 }) {
   const router = useRouter();
   const latest = group.runs[0];
   const earlier = group.runs.length - 1;
   const agg = React.useMemo(() => aggregateGroup(group.runs), [group.runs]);
+  const groupIds = React.useMemo(() => group.runs.map((r) => r.id), [group.runs]);
+  const allSelected = groupIds.length > 0 && groupIds.every((id) => selectedIds.has(id));
+  const someSelected = !allSelected && groupIds.some((id) => selectedIds.has(id));
+  // "total"/"avg" over a truncated page are page-local sums, not lineage totals —
+  // label them as partial so they don't read as the whole lineage's figures.
+  const totalLabel = truncated ? "partial" : "total";
+  const avgLabel = truncated ? "partial avg" : "avg";
   return (
     <TR className="bg-muted/40 font-medium">
+      <SelectRowCell
+        checked={allSelected}
+        indeterminate={someSelected}
+        onToggle={() => onToggleGroupSelection(groupIds, !allSelected)}
+        label={`Select all runs in ${group.evaluationName}`}
+      />
       <Td>
         <div className="flex items-center gap-1.5">
           <button
@@ -338,24 +384,25 @@ function GroupHeaderRow({
         </div>
         <div className="pl-6 text-[11px] font-normal text-muted-foreground">
           {group.runs.length} run{group.runs.length === 1 ? "" : "s"}
-          {earlier > 0 && ` · ${earlier} earlier`}
+          {truncated ? " loaded" : ""}
+          {earlier > 0 && ` · ${earlier} earlier${truncated ? " (loaded)" : ""}`}
         </div>
       </Td>
       <Td className="text-muted-foreground">{group.datasetName}</Td>
       <Td className="text-right tabular-nums">
         <ScoreValue value={agg.avgScore} />
-        {agg.avgScore !== null && <AggCaption>avg</AggCaption>}
+        {agg.avgScore !== null && <AggCaption>{avgLabel}</AggCaption>}
       </Td>
       <Td className="text-right font-normal tabular-nums">
         <PassRate counts={agg.counts} />
       </Td>
       <Td className="text-right tabular-nums text-muted-foreground">
         {formatCost(agg.cost)}
-        {agg.cost !== null && <AggCaption>total</AggCaption>}
+        {agg.cost !== null && <AggCaption>{totalLabel}</AggCaption>}
       </Td>
       <Td className="whitespace-nowrap text-right tabular-nums text-muted-foreground">
         {formatElapsed(agg.durationMs)}
-        {agg.durationMs !== null && <AggCaption>total</AggCaption>}
+        {agg.durationMs !== null && <AggCaption>{totalLabel}</AggCaption>}
       </Td>
       <Td>
         <RunStatusBadge status={latest.status} />
@@ -450,8 +497,9 @@ function RunsTab({ projectId }: { projectId: string }) {
     setPage(0);
   }, [scopedEvalId, searchQuery, datasetFilter, statusFilter]);
 
+  const { toast } = useToast();
   const { data: datasetsData } = useDatasets(projectId, { limit: 200 });
-  const { data, isLoading, error } = useEvaluationRuns(projectId, {
+  const { data, isLoading, error, refetch } = useEvaluationRuns(projectId, {
     evaluation_id: scopedEvalId ?? undefined,
     search_query: searchQuery,
     dataset_id: datasetFilter === ALL ? undefined : datasetFilter,
@@ -460,21 +508,32 @@ function RunsTab({ projectId }: { projectId: string }) {
     limit: RUNS_PAGE_LIMIT,
   });
   const allRuns = React.useMemo(() => data?.data ?? [], [data]);
-  const total: number = data?.meta?.total ?? 0;
   // Keys off the immediate `keyword`, not the debounced `searchQuery`, so the
   // empty-state copy doesn't flicker to "no runs yet" for the 300ms before the
   // debounced value catches up.
   const filtered = !!keyword || datasetFilter !== ALL || statusFilter !== ALL;
+  // The route paginates (default 50/page, no pager in this tab) — `meta.total` is
+  // the true count across the project, so we can tell whether `allRuns` is the
+  // full result set or just the newest page of it. When truncated, per-lineage
+  // aggregates below are page-local sums, not lineage totals, and are labeled
+  // accordingly instead of silently reading as "total".
+  const total = data?.meta?.total ?? allRuns.length;
+  const truncated = total > allRuns.length;
 
-  // Latest-only is a client-side convenience over the loaded page (newest-first);
-  // grouping is client-side on the stable evaluation id. When scoped to one lineage,
-  // grouping is meaningless (a single group) so it's suppressed.
+  // Latest-only is a client-side convenience over the loaded page (newest-first)
+  // for the FLAT table. Grouping always reflects the full loaded page — it must
+  // not be built from the latest-only-reduced list, or a group would show a
+  // single run captioned as if it were the lineage's roll-up. When scoped to one
+  // lineage, grouping is meaningless (a single group) so it's suppressed.
   const runs = React.useMemo(
     () => (latestOnly ? latestPerEvaluation(allRuns) : allRuns),
     [allRuns, latestOnly],
   );
   const grouped = groupBy && !scopedEvalId;
-  const groups = React.useMemo(() => (grouped ? groupRunsByEvaluation(runs) : []), [grouped, runs]);
+  const groups = React.useMemo(
+    () => (grouped ? groupRunsByEvaluation(allRuns) : []),
+    [grouped, allRuns],
+  );
 
   const toggleGroup = (id: string) =>
     setExpanded((cur) => {
@@ -483,6 +542,47 @@ function RunsTab({ projectId }: { projectId: string }) {
       else next.add(id);
       return next;
     });
+
+  // Selection operates on run ids regardless of display mode: in the flat table
+  // that's the (possibly latest-only-reduced) `runs`; grouped, it's every run
+  // across every group (including collapsed ones), so checking a group selects
+  // its member runs whether or not they're currently rendered.
+  const selectableIds = React.useMemo(
+    () => (grouped ? allRuns.map((r) => r.id) : runs.map((r) => r.id)),
+    [grouped, allRuns, runs],
+  );
+  const selection = useRowSelection<string>(selectableIds);
+
+  const handleBulkDelete = React.useCallback(async () => {
+    const ids = [...selection.selected];
+    const results = await Promise.allSettled(
+      ids.map(async (id) => {
+        const res = await fetch(`/api/projects/${projectId}/evaluations/runs/${id}`, {
+          method: "DELETE",
+        });
+        if (!res.ok) throw new Error(`Failed to delete run ${id}`);
+        return id;
+      }),
+    );
+    const succeededIds = results
+      .filter((r): r is PromiseFulfilledResult<string> => r.status === "fulfilled")
+      .map((r) => r.value);
+    const failedCount = results.length - succeededIds.length;
+    selection.setMany(succeededIds, false);
+    await refetch();
+    if (failedCount === 0) {
+      toast({
+        title: `${succeededIds.length} run${succeededIds.length === 1 ? "" : "s"} deleted`,
+        tone: "success",
+      });
+    } else {
+      toast({
+        title: `${succeededIds.length} of ${results.length} runs deleted`,
+        description: `${failedCount} failed to delete.`,
+        tone: "warning",
+      });
+    }
+  }, [selection, projectId, refetch, toast]);
 
   return (
     <>
@@ -536,7 +636,7 @@ function RunsTab({ projectId }: { projectId: string }) {
         </Toggle>
         {!scopedEvalId && (
           <Toggle active={groupBy} onClick={() => setGroupBy((v) => !v)}>
-            <Layers className="h-3.5 w-3.5" aria-hidden />
+            <DOMAIN_ICONS.group className="h-3.5 w-3.5" aria-hidden />
             Group by evaluation
           </Toggle>
         )}
@@ -548,10 +648,28 @@ function RunsTab({ projectId }: { projectId: string }) {
         <LineageHeader run={allRuns[0]} runCount={allRuns.length} projectId={projectId} />
       )}
 
+      {truncated && (
+        <div className="border-b border-border bg-muted/20 px-3 py-1.5 text-[11px] text-muted-foreground">
+          Showing the {allRuns.length} most recent of {total} runs. Aggregates below reflect only
+          these loaded runs, not full lineage totals.
+        </div>
+      )}
+
+      <BulkActionBar
+        count={selection.count}
+        onDelete={handleBulkDelete}
+        onClear={selection.clear}
+      />
+
       <div className="min-h-0 flex-1 overflow-auto">
         <Table>
           <THead>
             <TRHead>
+              <SelectAllHeaderCell
+                checked={selection.allSelected}
+                indeterminate={selection.someSelected}
+                onToggle={selection.toggleAll}
+              />
               <Th>Evaluation / Run</Th>
               <Th>Dataset</Th>
               <Th className="w-[110px] text-right">Main score</Th>
@@ -587,6 +705,9 @@ function RunsTab({ projectId }: { projectId: string }) {
                     isOpen={expanded.has(g.evaluationId)}
                     onToggle={() => toggleGroup(g.evaluationId)}
                     projectId={projectId}
+                    truncated={truncated}
+                    selectedIds={selection.selected}
+                    onToggleGroupSelection={selection.setMany}
                   />
                   {expanded.has(g.evaluationId) &&
                     g.runs.map((r) => (
@@ -596,12 +717,22 @@ function RunsTab({ projectId }: { projectId: string }) {
                         projectId={projectId}
                         showEvaluation={false}
                         indent
+                        selected={selection.has(r.id)}
+                        onToggleSelect={() => selection.toggle(r.id)}
                       />
                     ))}
                 </React.Fragment>
               ))
             ) : (
-              runs.map((r) => <RunTableRow key={r.id} run={r} projectId={projectId} />)
+              runs.map((r) => (
+                <RunTableRow
+                  key={r.id}
+                  run={r}
+                  projectId={projectId}
+                  selected={selection.has(r.id)}
+                  onToggleSelect={() => selection.toggle(r.id)}
+                />
+              ))
             )}
           </TBody>
         </Table>
