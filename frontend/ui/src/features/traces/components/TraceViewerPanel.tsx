@@ -66,6 +66,16 @@ interface TraceViewerPanelProps {
    * (e.g. at trace level). Unset in production.
    */
   spanActions?: (selection: TraceSelection) => ReactNode;
+  /**
+   * Optional action for the span panel's header title row, computed per
+   * selection — e.g. offline-eval's "Save as test case". Unset in production.
+   */
+  spanHeaderAction?: (selection: TraceSelection) => ReactNode;
+  /**
+   * Optional extra chips for the span panel's badge row, computed per selection
+   * — e.g. offline-eval's "Dataset:" chip. Unset in production.
+   */
+  spanExtraTags?: (selection: TraceSelection) => ReactNode;
 }
 
 /**
@@ -96,6 +106,8 @@ export function TraceViewerPanel({
   newTabPath,
   traceOverride,
   spanActions,
+  spanHeaderAction,
+  spanExtraTags,
 }: TraceViewerPanelProps) {
   const [selection, setSelection] = useState<TraceSelection>({ type: "trace" });
   const [viewMode, setViewMode] = useState<"tree" | "timeline" | "detectors">("tree");
@@ -471,6 +483,8 @@ export function TraceViewerPanel({
                       customStartDate={customStartDate}
                       customEndDate={customEndDate}
                       spanActions={spanActions?.(selection)}
+                      headerAction={spanHeaderAction?.(selection)}
+                      extraTags={spanExtraTags?.(selection)}
                     />
                   ) : (
                     <SpanTimelineView
