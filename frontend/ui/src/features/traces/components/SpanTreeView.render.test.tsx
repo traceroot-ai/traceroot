@@ -93,6 +93,6 @@ describe("SpanTreeView token/cost badges", () => {
     expect(screen.getByText("llm-call")).toBeTruthy();
     // Cost appears twice: the trace rollup (0.0123) and the span's own (0.0123) —
     // both format to the same 4-decimal string here since there's only one span.
-    expect(screen.getAllByText("0.0123").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("0.0123")).toHaveLength(2);
   });
 });
