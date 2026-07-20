@@ -84,14 +84,17 @@ interface TraceViewerPanelProps {
    */
   onSelectionChange?: (selection: TraceSelection) => void;
   /**
-   * Diff mode (offline-eval only): resolves the baseline run's counterpart of the
-   * current selection (matched structurally, since span ids differ across runs).
-   * When provided, a "Diff" toggle appears in the sub-header; turning it on renders
-   * each span's latency/token/cost tags with ± deltas and Input/Output/Metadata as
-   * git-style line diffs vs the baseline. Return null when there's no counterpart
-   * (or the baseline trace hasn't loaded). Unset in production.
+   * Diff mode (offline-eval only): the baseline run's trace plus a matcher that
+   * resolves the baseline counterpart of a span selection (matched structurally,
+   * since span ids differ across runs). When provided, a "Diff" toggle appears in
+   * the sub-header; turning it on renders latency/token/cost tags with ± deltas and
+   * Input/Output/Metadata as git-style line diffs vs the baseline — for the whole
+   * trace (root row) as well as each span. Unset in production.
    */
-  diffBaseline?: (selection: TraceSelection) => Span | null;
+  diffBaseline?: {
+    trace: TraceDetail;
+    matchSpan: (selection: TraceSelection) => Span | null;
+  };
 }
 
 /**
@@ -532,7 +535,8 @@ export function TraceViewerPanel({
                       headerAction={spanHeaderAction?.(selection)}
                       extraTags={spanExtraTags?.(selection)}
                       diffMode={!!diffBaseline && diffMode}
-                      baselineSpan={diffBaseline?.(selection) ?? null}
+                      baselineSpan={diffBaseline?.matchSpan(selection) ?? null}
+                      baselineTrace={diffBaseline?.trace ?? null}
                     />
                   ) : (
                     <SpanTimelineView
