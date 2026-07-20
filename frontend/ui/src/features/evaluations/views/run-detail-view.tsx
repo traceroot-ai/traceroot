@@ -307,7 +307,9 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
           The evaluation context, scores, and human review are the span-actions panel. */}
       {openResult && run && !tracePending && panelTraceId && (
         <TraceViewerPanel
-          key={panelTraceId}
+          // No key on panelTraceId: navigating results updates the panel in place
+          // (TraceViewerPanel resets its selection on traceId change), matching the
+          // trace-list navigation — a fresh key would replay the slide-in animation.
           projectId={projectId}
           traceId={panelTraceId}
           traceOverride={panelOverride}
