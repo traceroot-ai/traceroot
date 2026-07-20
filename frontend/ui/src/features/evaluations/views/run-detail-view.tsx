@@ -60,8 +60,10 @@ import {
 } from "../hooks";
 import { RunStatusBadge } from "./evaluations-view";
 import { PullCodeDrawer } from "../components/pull-code-drawer";
+import { SaveTestCaseDrawer } from "../components/trace-integration";
 import { reproduceRunCode, reproduceRunCodeTs } from "@/features/offline-eval/utils";
 import { attributeTraceUsage, type TraceUsage, type UsageSpan } from "@/lib/eval/trace-usage";
+import { matchSpans } from "@/lib/eval/span-match";
 import type { ResultRow, RunDetail, ScoreRow, Classification } from "../types";
 
 /** Verdict → badge tone, matching the design system's success/danger/warning. */
@@ -285,6 +287,9 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
   const [openResultId, setOpenResultId] = React.useState<string | null>(null);
   const [resultFilter, setResultFilter] = React.useState<ResultFilterId>("all");
   const [reviewOpen, setReviewOpen] = React.useState(false);
+  // "Save as test case" drawer (only for real ingested traces): which span it targets.
+  const [saveTestCaseOpen, setSaveTestCaseOpen] = React.useState(false);
+  const [saveTestCaseSpanId, setSaveTestCaseSpanId] = React.useState<string | undefined>(undefined);
 
   const { toast } = useToast();
   const results = React.useMemo(() => data?.results ?? [], [data]);
@@ -343,26 +348,19 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
   const panelTraceId = useRealTrace ? realTraceId : fallbackTrace?.trace_id;
   const panelOverride = useRealTrace ? undefined : fallbackTrace;
 
-  // Token/cost derived from the OPEN result's real trace (already fetched — bounded, no
-  // extra query). Pending while the reported trace ingests; the reconstructed fallback
-  // has no LLM leaves so it reports "unknown", never a fabricated 0.
   const openTraceSpans = useRealTrace ? realTrace.data?.spans : panelOverride?.spans;
-  const traceUsage = React.useMemo<TraceUsage>(
-    () =>
-      tracePending
-        ? attributeTraceUsage(null)
-        : attributeTraceUsage(openTraceSpans as UsageSpan[] | undefined),
-    [tracePending, openTraceSpans],
-  );
 
-  // The baseline case's trace, fetched so the result panel can diff tokens/cost
-  // against the candidate (its duration is already derived server-side).
+  // The baseline case's trace, fetched so the trace viewer's Diff toggle can diff each
+  // span (I/O, metadata, latency/token/cost) against its baseline counterpart. Span ids
+  // differ across runs, so we match structurally (kind + name + sibling index) once the
+  // baseline trace is loaded — the matcher resolves a span selection to its baseline span.
   const baselineTraceId = openResult?.comparison?.baselineTraceId ?? null;
   const baselineTrace = useTrace(projectId, baselineTraceId ?? "", !!baselineTraceId);
-  const baselineUsage = React.useMemo<TraceUsage>(
-    () => attributeTraceUsage(baselineTrace.data?.spans as UsageSpan[] | undefined),
-    [baselineTrace.data],
-  );
+  const baselineSpanMatch = React.useMemo(() => {
+    const baseSpans = baselineTrace.data?.spans;
+    if (!openTraceSpans?.length || !baseSpans?.length) return null;
+    return matchSpans(openTraceSpans, baseSpans);
+  }, [openTraceSpans, baselineTrace.data]);
 
   const closeResult = () => setOpenResultId(null);
 
@@ -453,6 +451,34 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
           onNavigate={navigateResult}
           canNavigateUp={openIndex > 0}
           canNavigateDown={openIndex >= 0 && openIndex < visibleResults.length - 1}
+          // Save any span (or the trace root) of a real eval trace as a dataset test
+          // case. Only offered for real ingested traces — a reconstructed fallback has
+          // no telemetry for the drawer to read.
+          spanHeaderAction={
+            useRealTrace
+              ? (selection) => (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 shrink-0 text-[12px]"
+                    onClick={() => {
+                      setSaveTestCaseSpanId(
+                        selection.type === "span" ? selection.span.span_id : undefined,
+                      );
+                      setSaveTestCaseOpen(true);
+                    }}
+                  >
+                    Save as test case
+                  </Button>
+                )
+              : undefined
+          }
+          // While the drawer is open, clicking a different span retargets it.
+          onSelectionChange={(selection) => {
+            if (saveTestCaseOpen) {
+              setSaveTestCaseSpanId(selection.type === "span" ? selection.span.span_id : undefined);
+            }
+          }}
           spanActions={() => (
             <ResultContext
               projectId={projectId}
@@ -500,16 +526,23 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
                 <span className="text-muted-foreground">Test case:</span>
                 <span className="font-mono">{openResult.testCaseId}</span>
               </span>
-              {/* The case's trace metrics as chips — duration, tokens, cost — each with a
-                  ± delta vs the baseline case (lower is better). */}
-              <CaseMetricChips
-                candidate={traceUsage}
-                baseline={baselineUsage}
-                durationMs={openResult.durationMs}
-                baselineDurationMs={openResult.comparison?.baselineDurationMs ?? null}
-              />
             </>
           )}
+          /* Baseline run's trace + a per-span matcher. Powers the viewer's Diff
+             toggle: latency/token/cost deltas + I/O line diffs vs the baseline, at
+             both the trace level and per span. Present (so the toggle appears) only
+             once the baseline trace has loaded. */
+          diffBaseline={
+            baselineTrace.data
+              ? {
+                  trace: baselineTrace.data,
+                  matchSpan: (selection) =>
+                    selection.type === "span"
+                      ? (baselineSpanMatch?.get(selection.span.span_id) ?? null)
+                      : null,
+                }
+              : undefined
+          }
         />
       )}
 
@@ -541,6 +574,15 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
             reviewer: review.reviewer,
           })
         }
+      />
+
+      {/* Save a span (or the trace root) of the open result's real trace as a test case. */}
+      <SaveTestCaseDrawer
+        projectId={projectId}
+        traceId={useRealTrace ? realTraceId : null}
+        spanId={saveTestCaseSpanId}
+        open={saveTestCaseOpen}
+        onOpenChange={setSaveTestCaseOpen}
       />
     </>
   );
@@ -889,9 +931,7 @@ function RunMetricsDiff({
         <thead>
           <tr className="text-[10px] text-muted-foreground">
             <th className="py-1 pl-2.5 text-left font-normal"></th>
-            <th className="py-1 text-right font-normal">Candidate</th>
-            <th className="py-1 text-right font-normal">Baseline</th>
-            <th className="py-1 pr-2.5 text-right font-normal">Δ</th>
+            <th className="py-1 pr-2.5 text-right font-normal">Candidate</th>
           </tr>
         </thead>
         <tbody className="[&_td:first-child]:pl-2.5 [&_td:last-child]:pr-2.5">
@@ -1478,100 +1518,31 @@ function MetricRow({
   return (
     <tr>
       <td className="py-1 pr-2 text-muted-foreground">{label}</td>
+      {/* Candidate value with its ± delta vs baseline beside it (lower is better). */}
       <td className="py-1 text-right tabular-nums">
-        {candidate === null ? "—" : format(candidate)}
-      </td>
-      <td className="py-1 text-right tabular-nums text-muted-foreground">
-        {baseline === null ? "—" : format(baseline)}
-      </td>
-      <td className="py-1 pl-2 text-right tabular-nums">
-        {delta === null || delta === 0 ? (
-          <span className="text-muted-foreground">{delta === 0 ? format(0) : "—"}</span>
+        {candidate === null ? (
+          "—"
         ) : (
-          <span className={SENTIMENT_CLASS[changeSentiment(lowerIsBetter ? -delta : delta)]}>
-            {delta > 0 ? "+" : "−"}
-            {format(Math.abs(delta))}
-          </span>
+          <>
+            {format(candidate)}
+            {delta !== null &&
+              (delta === 0 ? (
+                <span className="ml-1.5 text-muted-foreground">±0</span>
+              ) : (
+                <span
+                  className={cn(
+                    "ml-1.5",
+                    SENTIMENT_CLASS[changeSentiment(lowerIsBetter ? -delta : delta)],
+                  )}
+                >
+                  {delta > 0 ? "+" : "−"}
+                  {format(Math.abs(delta))}
+                </span>
+              ))}
+          </>
         )}
       </td>
     </tr>
-  );
-}
-
-/** One metric as a span-tag-style chip: "Label: value ±delta" (lower is better). */
-function MetricChip({
-  label,
-  candidate,
-  baseline,
-  format,
-}: {
-  label: string;
-  candidate: number | null;
-  baseline: number | null;
-  format: (n: number) => string;
-}) {
-  if (candidate === null) return null;
-  const delta = baseline !== null ? candidate - baseline : null;
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-md border bg-muted/40 px-2.5 py-1 text-xs">
-      <span className="text-muted-foreground">{label}:</span>
-      <span className="font-medium tabular-nums">{format(candidate)}</span>
-      {delta !== null &&
-        (delta === 0 ? (
-          <span className="text-muted-foreground">±0</span>
-        ) : (
-          <span className={SENTIMENT_CLASS[changeSentiment(-delta)]}>
-            {delta > 0 ? "+" : "−"}
-            {format(Math.abs(delta))}
-          </span>
-        ))}
-    </span>
-  );
-}
-
-/**
- * The open case's trace metrics as span-tag chips, shown on the trace panel's tag
- * row beside the eval-context chips — duration, tokens, cost, each with a ± delta
- * vs the baseline case (lower is better → green when smaller). Tokens/cost only
- * appear once the case trace reports provider usage.
- */
-function CaseMetricChips({
-  candidate,
-  baseline,
-  durationMs,
-  baselineDurationMs,
-}: {
-  candidate: TraceUsage;
-  baseline: TraceUsage;
-  durationMs: number | null;
-  baselineDurationMs: number | null;
-}) {
-  const fmtMs = (n: number) => (n < 1000 ? `${Math.round(n)}ms` : `${(n / 1000).toFixed(1)}s`);
-  const fmtTok = (n: number) => `${Math.round(n).toLocaleString()} tok`;
-  const fmtCost = (n: number) => (n > 0 ? `$${n.toFixed(4)}` : "$0");
-  const tok = (u: TraceUsage) => (u.state === "present" ? u.combined.totalTokens : null);
-  const cost = (u: TraceUsage) => (u.state === "present" ? u.combined.cost : null);
-  return (
-    <>
-      <MetricChip
-        label="Duration"
-        candidate={durationMs}
-        baseline={baselineDurationMs}
-        format={fmtMs}
-      />
-      <MetricChip
-        label="Tokens"
-        candidate={tok(candidate)}
-        baseline={tok(baseline)}
-        format={fmtTok}
-      />
-      <MetricChip
-        label="Cost"
-        candidate={cost(candidate)}
-        baseline={cost(baseline)}
-        format={fmtCost}
-      />
-    </>
   );
 }
 
@@ -1922,11 +1893,9 @@ function ResultContext({
         </p>
       </div>
 
-      {result.baselineOutput !== null && (
-        <p className="mt-2 text-[11px] text-muted-foreground">
-          Baseline output: <span className="text-foreground">{result.baselineOutput}</span>
-        </p>
-      )}
+      {/* Per-span candidate-vs-baseline output diffs now live in the trace viewer's
+          Diff toggle (each span's Input/Output/Metadata), so no case-level output
+          diff is rendered here. */}
 
       {/* An application error means no scorer ever ran. */}
       {result.taskError && (
