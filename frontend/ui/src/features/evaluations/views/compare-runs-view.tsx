@@ -53,6 +53,25 @@ const fmtMs = (n: number | null) =>
 const fmtCost = (n: number | null) => (n === null ? "Unknown" : `$${n.toFixed(4)}`);
 const truncate = (s: string, n = 90) => (s.length > n ? `${s.slice(0, n)}…` : s);
 
+/** The signed candidate−baseline delta shown beside a value cell (duration/cost) when
+ *  comparing. Lower is better, so an increase is red and a decrease green. */
+function CellDelta({
+  delta,
+  format,
+}: {
+  delta: number | null;
+  format: (n: number) => string;
+}): React.ReactNode {
+  if (delta === null) return null;
+  if (delta === 0) return <span className="ml-1 text-muted-foreground">±0</span>;
+  return (
+    <span className={`ml-1 ${SENTIMENT_CLASS[changeSentiment(-delta)]}`}>
+      {delta > 0 ? "+" : "−"}
+      {format(Math.abs(delta))}
+    </span>
+  );
+}
+
 const VERDICT_TONE: Record<"good" | "bad" | "warn" | "neutral", string> = {
   good: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
   bad: "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300",
@@ -581,22 +600,29 @@ function CaseRow({ r, onOpen }: { r: CompareResultRow; onOpen: () => void }) {
           </span>
         )}
       </Td>
-      {/* Duration */}
+      {/* Duration — candidate value + Δ vs baseline. */}
       <Td className="whitespace-nowrap text-right text-[11px] tabular-nums">
-        {cmp?.durationDeltaMs != null ? (
-          <span className={SENTIMENT_CLASS[changeSentiment(-cmp.durationDeltaMs)]}>
-            {fmtMs(cmp.durationMs ?? null)}
-          </span>
-        ) : (
-          <span className="text-muted-foreground">{fmtMs(cmp?.durationMs ?? null)}</span>
-        )}
+        <span className={cmp?.durationMs == null ? "text-muted-foreground" : undefined}>
+          {fmtMs(cmp?.durationMs ?? null)}
+        </span>
+        <CellDelta delta={cmp?.durationDeltaMs ?? null} format={(n) => fmtMs(n)} />
       </Td>
-      {/* Cost */}
+      {/* Cost — candidate value + Δ vs baseline. */}
       <Td className="whitespace-nowrap text-right text-[11px] tabular-nums">
         {r.candidateCost === null && r.baselineCost === null ? (
           <span className="text-muted-foreground">Unknown</span>
         ) : (
-          <span>{fmtCost(r.candidateCost)}</span>
+          <>
+            <span>{fmtCost(r.candidateCost)}</span>
+            <CellDelta
+              delta={
+                r.candidateCost !== null && r.baselineCost !== null
+                  ? r.candidateCost - r.baselineCost
+                  : null
+              }
+              format={(n) => fmtCost(n)}
+            />
+          </>
         )}
       </Td>
       {/* Status */}
