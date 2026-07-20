@@ -59,6 +59,8 @@ import {
   useUpdateTestCase,
 } from "../hooks";
 import { RunStatusBadge } from "./evaluations-view";
+import { PullCodeDrawer } from "../components/pull-code-drawer";
+import { reproduceRunCode, reproduceRunCodeTs } from "@/features/offline-eval/utils";
 import { attributeTraceUsage, type TraceUsage, type UsageSpan } from "@/lib/eval/trace-usage";
 import type { ResultRow, RunDetail, ScoreRow, Classification } from "../types";
 
@@ -456,8 +458,6 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
               projectId={projectId}
               run={run}
               result={openResult}
-              traceUsage={traceUsage}
-              baselineUsage={baselineUsage}
               onReview={() => setReviewOpen(true)}
               onSaveExpected={(value) =>
                 updateCase.mutate(
@@ -500,6 +500,14 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
                 <span className="text-muted-foreground">Test case:</span>
                 <span className="font-mono">{openResult.testCaseId}</span>
               </span>
+              {/* The case's trace metrics as chips — duration, tokens, cost — each with a
+                  ± delta vs the baseline case (lower is better). */}
+              <CaseMetricChips
+                candidate={traceUsage}
+                baseline={baselineUsage}
+                durationMs={openResult.durationMs}
+                baselineDurationMs={openResult.comparison?.baselineDurationMs ?? null}
+              />
             </>
           )}
         />
@@ -605,6 +613,7 @@ function RunBody({
 }) {
   const router = useRouter();
   const [detailsOpen, setDetailsOpen] = React.useState(false);
+  const [reproduceOpen, setReproduceOpen] = React.useState(false);
   const hasBaseline = run.baselineRunId !== null;
   const incompatibleBaseline = run.comparison.available && !run.comparison.trustworthy;
   const trustNote = comparisonReasonText(run.comparison.reasons, run.datasetVersionLabel);
@@ -634,15 +643,26 @@ function RunBody({
           </span>
         }
         action={
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 gap-1.5 text-[12px]"
-            onClick={() => setDetailsOpen(true)}
-          >
-            <Info className="h-3.5 w-3.5" aria-hidden />
-            Run details
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1.5 text-[12px]"
+              onClick={() => setReproduceOpen(true)}
+            >
+              <Database className="h-3.5 w-3.5" aria-hidden />
+              Reproduce locally
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1.5 text-[12px]"
+              onClick={() => setDetailsOpen(true)}
+            >
+              <Info className="h-3.5 w-3.5" aria-hidden />
+              Run details
+            </Button>
+          </div>
         }
       />
 
@@ -685,6 +705,39 @@ function RunBody({
         results={results}
         open={detailsOpen}
         onOpenChange={setDetailsOpen}
+      />
+
+      {/* Reproduce this run locally = pull the EXACT dataset version it scored (not
+          the run/evaluation id, which pulls nothing). Shared pull-code drawer. */}
+      <PullCodeDrawer
+        title="Reproduce this run locally"
+        subtitle={
+          <>
+            Pulls the exact cases{" "}
+            <span className="font-medium text-foreground">
+              {run.evaluationName} #{run.runNumber}
+            </span>{" "}
+            scored, so a new candidate is measured on the same data and is comparable to this run.
+          </>
+        }
+        options={[
+          {
+            id: "reproduce",
+            label: "Reproduce this run",
+            note: (
+              <>
+                Pins dataset version <span className="font-mono">{run.datasetVersionId}</span>. The
+                run id (<span className="font-mono">{run.id}</span>) is only used as the{" "}
+                <span className="font-mono">baseline</span> to compare against — it isn&apos;t
+                pullable.
+              </>
+            ),
+            py: reproduceRunCode(run.datasetVersionId, run.evaluationName, run.id),
+            ts: reproduceRunCodeTs(run.datasetVersionId, run.evaluationName, run.id),
+          },
+        ]}
+        open={reproduceOpen}
+        onOpenChange={setReproduceOpen}
       />
     </>
   );
@@ -1445,117 +1498,80 @@ function MetricRow({
   );
 }
 
-/** Signed, coloured delta beside a metric (lower is better → green when negative). */
-function InlineDelta({
+/** One metric as a span-tag-style chip: "Label: value ±delta" (lower is better). */
+function MetricChip({
+  label,
   candidate,
   baseline,
   format,
 }: {
-  candidate: number;
+  label: string;
+  candidate: number | null;
   baseline: number | null;
   format: (n: number) => string;
 }) {
-  if (baseline === null) return null;
-  const delta = candidate - baseline;
-  if (delta === 0) return <span className="text-muted-foreground"> ±0</span>;
+  if (candidate === null) return null;
+  const delta = baseline !== null ? candidate - baseline : null;
   return (
-    <span className={SENTIMENT_CLASS[changeSentiment(-delta)]}>
-      {" "}
-      {delta > 0 ? "+" : "−"}
-      {format(Math.abs(delta))}
+    <span className="inline-flex items-center gap-1.5 rounded-md border bg-muted/40 px-2.5 py-1 text-xs">
+      <span className="text-muted-foreground">{label}:</span>
+      <span className="font-medium tabular-nums">{format(candidate)}</span>
+      {delta !== null &&
+        (delta === 0 ? (
+          <span className="text-muted-foreground">±0</span>
+        ) : (
+          <span className={SENTIMENT_CLASS[changeSentiment(-delta)]}>
+            {delta > 0 ? "+" : "−"}
+            {format(Math.abs(delta))}
+          </span>
+        ))}
     </span>
   );
 }
 
 /**
- * Trace-derived token/cost for the open case, split by application (task) vs
- * evaluation-judge (scorers). `pending` while the trace ingests, `unknown` when the
- * trace carries no provider usage — a real 0 only when the trace proves it. When a
- * baseline usage is supplied, each value carries an inline ± delta against it.
+ * The open case's trace metrics as span-tag chips, shown on the trace panel's tag
+ * row beside the eval-context chips — duration, tokens, cost, each with a ± delta
+ * vs the baseline case (lower is better → green when smaller). Tokens/cost only
+ * appear once the case trace reports provider usage.
  */
-function UsageBreakdown({ usage, baseline }: { usage: TraceUsage; baseline?: TraceUsage }) {
-  if (usage.state === "pending") {
-    return (
-      <p className="mt-2 text-[11px] text-muted-foreground">
-        Tokens &amp; cost: <span className="text-foreground">pending</span> — the case trace is
-        still ingesting.
-      </p>
-    );
-  }
-  if (usage.state === "unknown") {
-    return (
-      <p className="mt-2 text-[11px] text-muted-foreground">
-        Tokens &amp; cost: <span className="text-foreground">unknown</span> — the trace reported no
-        provider usage.
-      </p>
-    );
-  }
-  const fmtCost = (c: number) => (c > 0 ? `$${c.toFixed(4)}` : "$0");
-  const fmtTok = (n: number) => Math.round(n).toLocaleString();
-  // Only diff against a baseline bucket that actually has usage (spanCount > 0), so
-  // we never show a delta "vs 0" for a bucket the baseline case didn't have.
-  const bl = baseline && baseline.state === "present" ? baseline : null;
-  const bt = (b: { spanCount: number; totalTokens: number }) =>
-    bl && b.spanCount > 0 ? b.totalTokens : null;
-  const bc = (b: { spanCount: number; cost: number }) => (bl && b.spanCount > 0 ? b.cost : null);
-  const rows = [
-    { label: "Application (task)", b: usage.task, base: bl?.task },
-    { label: "Evaluation judge (scorers)", b: usage.scorer, base: bl?.scorer },
-    { label: "Other", b: usage.other, base: bl?.other },
-  ].filter((r) => r.b.spanCount > 0);
+function CaseMetricChips({
+  candidate,
+  baseline,
+  durationMs,
+  baselineDurationMs,
+}: {
+  candidate: TraceUsage;
+  baseline: TraceUsage;
+  durationMs: number | null;
+  baselineDurationMs: number | null;
+}) {
+  const fmtMs = (n: number) => (n < 1000 ? `${Math.round(n)}ms` : `${(n / 1000).toFixed(1)}s`);
+  const fmtTok = (n: number) => `${Math.round(n).toLocaleString()} tok`;
+  const fmtCost = (n: number) => (n > 0 ? `$${n.toFixed(4)}` : "$0");
+  const tok = (u: TraceUsage) => (u.state === "present" ? u.combined.totalTokens : null);
+  const cost = (u: TraceUsage) => (u.state === "present" ? u.combined.cost : null);
   return (
-    <div className="mt-2 overflow-hidden rounded border border-border">
-      <div className="border-b border-border bg-muted/40 px-2.5 py-1 text-[11px] text-muted-foreground">
-        Tokens &amp; cost (from the trace){bl ? " · vs baseline" : ""}
-      </div>
-      <ul className="divide-y divide-border">
-        {rows.map((r) => (
-          <li
-            key={r.label}
-            className="flex items-center justify-between gap-2 px-2.5 py-1 text-[11px]"
-          >
-            <span className="text-muted-foreground">{r.label}</span>
-            <span className="tabular-nums">
-              {fmtTok(r.b.totalTokens)} tok
-              {r.base && (
-                <InlineDelta candidate={r.b.totalTokens} baseline={bt(r.base)} format={fmtTok} />
-              )}
-              {" · "}
-              {fmtCost(r.b.cost)}
-              {r.base && (
-                <InlineDelta candidate={r.b.cost} baseline={bc(r.base)} format={fmtCost} />
-              )}
-            </span>
-          </li>
-        ))}
-        {/* Only worth a Combined total when the cost is split across buckets (e.g. an
-            LLM judge). With a single bucket it just repeats the row above. */}
-        {rows.length > 1 && (
-          <li className="flex items-center justify-between gap-2 bg-muted/20 px-2.5 py-1 text-[11px] font-medium">
-            <span>Combined</span>
-            <span className="tabular-nums">
-              {fmtTok(usage.combined.totalTokens)} tok
-              {bl && (
-                <InlineDelta
-                  candidate={usage.combined.totalTokens}
-                  baseline={bt(bl.combined)}
-                  format={fmtTok}
-                />
-              )}
-              {" · "}
-              {fmtCost(usage.combined.cost)}
-              {bl && (
-                <InlineDelta
-                  candidate={usage.combined.cost}
-                  baseline={bc(bl.combined)}
-                  format={fmtCost}
-                />
-              )}
-            </span>
-          </li>
-        )}
-      </ul>
-    </div>
+    <>
+      <MetricChip
+        label="Duration"
+        candidate={durationMs}
+        baseline={baselineDurationMs}
+        format={fmtMs}
+      />
+      <MetricChip
+        label="Tokens"
+        candidate={tok(candidate)}
+        baseline={tok(baseline)}
+        format={fmtTok}
+      />
+      <MetricChip
+        label="Cost"
+        candidate={cost(candidate)}
+        baseline={cost(baseline)}
+        format={fmtCost}
+      />
+    </>
   );
 }
 
@@ -1792,16 +1808,12 @@ function ResultContext({
   projectId,
   run,
   result,
-  traceUsage,
-  baselineUsage,
   onReview,
   onSaveExpected,
 }: {
   projectId: string;
   run: RunDetail;
   result: ResultRow;
-  traceUsage: TraceUsage;
-  baselineUsage: TraceUsage;
   onReview: () => void;
   onSaveExpected: (value: string) => void;
 }) {
@@ -1930,10 +1942,8 @@ function ResultContext({
 
       <ScorerBreakdown result={result} />
 
-      <UsageBreakdown
-        usage={traceUsage}
-        baseline={result.comparison?.baselineTraceId ? baselineUsage : undefined}
-      />
+      {/* Token/cost/duration now live as chips on the trace tag row (spanExtraTags),
+          not a table here. */}
 
       {result.humanScores.length > 0 && (
         <div className="mt-2 overflow-hidden rounded border border-border">
