@@ -739,38 +739,42 @@ function RunBody({
           <div className="flex items-center gap-2">
             {/* Comparison is an inline action: this run is the candidate; pick another
                 run of the same evaluation as the baseline. The diff appears in place. */}
-            <div className="flex items-center gap-1.5">
-              <GitCompare className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
-              <Select
-                value={compareId ?? NO_COMPARE}
-                onValueChange={(v) => onCompareChange(v === NO_COMPARE ? null : v)}
+            <Select
+              value={compareId ?? ""}
+              onValueChange={(v) => onCompareChange(v === NO_COMPARE ? null : v)}
+            >
+              <SelectTrigger
+                className="h-7 w-[200px] gap-1.5 text-[12px]"
+                aria-label="Compare with"
               >
-                <SelectTrigger className="h-7 w-[190px] text-[12px]" aria-label="Compare with">
-                  <SelectValue placeholder="Compare with…" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NO_COMPARE} className="text-[12px]">
-                    Compare with…
+                <GitCompare className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                <SelectValue placeholder="Compare with…" />
+              </SelectTrigger>
+              <SelectContent>
+                {/* Clear option — only meaningful once a run is picked. */}
+                {compareId && (
+                  <SelectItem value={NO_COMPARE} className="text-[12px] text-muted-foreground">
+                    None (stop comparing)
                   </SelectItem>
-                  {compareOptions.length === 0 ? (
-                    <div className="px-2 py-1.5 text-[11px] text-muted-foreground">
-                      No other runs in this evaluation
-                    </div>
-                  ) : (
-                    compareOptions.map((o) => (
-                      <SelectItem key={o.id} value={o.id} className="text-[12px]">
-                        {o.label}
-                        {o.score !== null && (
-                          <span className="ml-1.5 tabular-nums text-muted-foreground">
-                            {pctFraction(o.score)}
-                          </span>
-                        )}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
+                )}
+                {compareOptions.length === 0 ? (
+                  <div className="px-2 py-1.5 text-[11px] text-muted-foreground">
+                    No other runs in this evaluation
+                  </div>
+                ) : (
+                  compareOptions.map((o) => (
+                    <SelectItem key={o.id} value={o.id} className="text-[12px]">
+                      {o.label}
+                      {o.score !== null && (
+                        <span className="ml-1.5 tabular-nums text-muted-foreground">
+                          {pctFraction(o.score)}
+                        </span>
+                      )}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
             <Button
               variant="outline"
               size="sm"
