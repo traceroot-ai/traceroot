@@ -21,13 +21,22 @@ vi.mock("@/lib/auth-helpers", () => ({
   successResponse: (data: unknown, status = 200) => ({ status, json: async () => data }),
 }));
 
-const db = vi.hoisted(() => ({ run: null as unknown, dataset: null as unknown }));
+const db = vi.hoisted(() => ({
+  run: null as unknown,
+  baseline: null as unknown,
+  dataset: null as unknown,
+}));
 vi.mock("@traceroot/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@traceroot/core")>();
   return {
     ...actual,
     prisma: {
-      evaluationRun: { findFirst: vi.fn(async () => db.run) },
+      // The route fetches the candidate (id run1) and then the baseline (id run0).
+      evaluationRun: {
+        findFirst: vi.fn(async (args: { where: { id: string } }) =>
+          args.where.id === "run0" ? db.baseline : args.where.id === "run1" ? db.run : null,
+        ),
+      },
       dataset: { findFirst: vi.fn(async () => db.dataset) },
     },
   };
@@ -54,12 +63,13 @@ beforeEach(() => {
     candidateVersion: "git:4a91c02",
     status: "completed_with_errors",
     mainScore: 0.9,
-    mainScoreName: "Routing accuracy",
+    mainScoreName: "routing-accuracy",
     caseCount: 3,
     scoredCount: 2,
     taskErrorCount: 1,
     scorerErrorCount: 1,
     baselineRunId: "run0",
+    scorers: [{ name: "routing-accuracy", version: "v3" }],
     evaluation: { name: "Billing routing" },
     datasetVersion: { label: "v12" },
     baselineRun: {
@@ -117,6 +127,44 @@ beforeEach(() => {
       },
     ],
   };
+  // The baseline run (fetched separately by the route) with raw results/scores that
+  // pair on the main scorer so the derived comparison is trustworthy.
+  db.baseline = {
+    id: "run0",
+    projectId: PROJECT_ID,
+    evaluationId: "eval1",
+    datasetId: "ds1",
+    datasetVersionId: "dv12",
+    runNumber: 26,
+    candidateVersion: "git:0000000",
+    status: "completed",
+    baselineRunId: null,
+    mainScore: 0.75,
+    mainScoreName: "routing-accuracy",
+    scorers: [{ name: "routing-accuracy", version: "v3" }],
+    results: [
+      {
+        testCaseId: "case-1",
+        status: "passed",
+        mainScore: 0.5,
+        candidateOutput: "billing",
+        durationMs: 700,
+        scores: [
+          { scorerName: "routing-accuracy", scorerVersion: "v3", numericValue: 0.5, error: null },
+        ],
+      },
+      {
+        testCaseId: "case-2",
+        status: "passed",
+        mainScore: 1,
+        candidateOutput: "technical",
+        durationMs: 720,
+        scores: [
+          { scorerName: "routing-accuracy", scorerVersion: "v3", numericValue: 1, error: null },
+        ],
+      },
+    ],
+  };
 });
 
 async function read(runId = "run1") {
@@ -142,7 +190,13 @@ describe("run/result read-back", () => {
     const run = (await read()).body.run as Record<string, unknown>;
     expect(run.baselineRunId).toBe("run0");
     expect(run.baselineComparable).toBe(true);
-    expect(run.changeFromBaseline).toBeCloseTo(0.15); // 0.9 - 0.75
+    // NOT the raw run.mainScore subtraction (0.9 - 0.75 = 0.15): case-2's candidate
+    // task errored (no routing-accuracy score), so it is excluded from the paired
+    // aggregate. The only actually-comparable case is case-1 (candidate 1 vs
+    // baseline 0.5), so the trustworthy headline delta is 0.5 — derived the same way
+    // as every per-scorer aggregate, never a subtraction of the two runs' raw
+    // SDK-reported aggregates, which can silently cover different case sets.
+    expect(run.changeFromBaseline).toBeCloseTo(0.5);
   });
 
   it("exposes result trace id, task error, scores with independent scorer errors, and human scores", async () => {
@@ -165,10 +219,13 @@ describe("run/result read-back", () => {
   });
 
   it("marks an incompatible baseline (different dataset version) as not comparable", async () => {
-    (db.run as { baselineRun: { datasetVersionId: string } }).baselineRun.datasetVersionId = "dv11";
+    (db.baseline as { datasetVersionId: string }).datasetVersionId = "dv11";
     const run = (await read()).body.run as Record<string, unknown>;
     expect(run.baselineComparable).toBe(false);
     expect(run.changeFromBaseline).toBeNull();
+    expect((run.comparison as { reasons: string[] }).reasons).toContain(
+      "different_dataset_version",
+    );
   });
 
   it("404s an unknown run", async () => {

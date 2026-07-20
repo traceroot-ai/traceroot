@@ -17,11 +17,18 @@ function elapsedMs(startedAt: Date, completedAt: Date | null): number | null {
   return ms >= 0 ? ms : null;
 }
 
+// Both runs' result sets are unbounded in principle — a large run can have thousands
+// of cases, each carrying several @db.Text columns plus per-scorer rows. Capping keeps
+// the query size and response payload bounded; `resultsTruncated` in the response tells
+// the caller when they are looking at a partial comparison.
+const MAX_COMPARE_RESULTS = 1000;
+
 const runInclude = {
   evaluation: { select: { name: true } },
   datasetVersion: { select: { label: true } },
   results: {
     orderBy: { createTime: "asc" as const },
+    take: MAX_COMPARE_RESULTS,
     include: { scores: { orderBy: { createTime: "asc" as const } } },
   },
 };
@@ -132,9 +139,18 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
   // Canonical case content from the candidate run's PINNED dataset version (one query,
   // no N+1) — the input/expected the engineer authored, not a per-run copy. If a run
-  // recorded a different input, we prefer the canonical and flag the discrepancy.
+  // recorded a different input, we prefer the canonical and flag the discrepancy. Scoped
+  // to the test cases actually referenced by the (capped) result sets above, rather than
+  // the entire pinned dataset version — a shared dataset can far outgrow one run's cases.
+  const referencedCaseIds = [
+    ...new Set([...candidate.results, ...baseline.results].map((r) => r.testCaseId)),
+  ];
   const canonicalRows = await prisma.testCase.findMany({
-    where: { datasetVersionId: candidate.datasetVersionId, projectId },
+    where: {
+      datasetVersionId: candidate.datasetVersionId,
+      projectId,
+      testCaseId: { in: referencedCaseIds },
+    },
     select: {
       testCaseId: true,
       input: true,
@@ -234,5 +250,10 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     baseline: runSummary(baseline),
     comparison,
     results: [...results, ...baselineOnly],
+    // True when either side has more cases than the cap above — the comparison and
+    // `results` are a partial view.
+    resultsTruncated:
+      candidate.caseCount > candidate.results.length ||
+      baseline.caseCount > baseline.results.length,
   });
 }

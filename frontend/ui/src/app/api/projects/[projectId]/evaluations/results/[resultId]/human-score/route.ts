@@ -40,7 +40,9 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       verdict: parsed.data.verdict,
       quality: parsed.data.quality ?? null,
       comment: parsed.data.comment ?? null,
-      reviewer: parsed.data.reviewer,
+      // The authenticated session identity is authoritative, never the request body —
+      // otherwise any MEMBER could attribute a human score to someone else.
+      reviewer: authResult.user.email ?? authResult.user.id,
     },
   });
   return successResponse({ humanScore }, 201);

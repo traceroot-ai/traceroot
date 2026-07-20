@@ -12,6 +12,14 @@ import { countResultStatuses } from "@/lib/eval/pass-rate";
 
 type RouteParams = { params: Promise<{ projectId: string; runId: string }> };
 
+// A run's (and its baseline's) result set is unbounded in principle — a large run can
+// have thousands of cases, each carrying several @db.Text columns plus per-scorer rows.
+// Capping keeps a single request's query size and response payload bounded; `resultsTruncated`
+// tells the caller when they are looking at a partial view. This is a stopgap, not real
+// pagination — see the finding this addresses for the fuller fix (page `results`, keep the
+// aggregate `comparison` over the full set).
+const MAX_RUN_DETAIL_RESULTS = 1000;
+
 function elapsedMs(startedAt: Date, completedAt: Date | null): number | null {
   if (!completedAt) return null;
   const ms = completedAt.getTime() - startedAt.getTime();
@@ -45,6 +53,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
       },
       results: {
         orderBy: { createTime: "asc" },
+        take: MAX_RUN_DETAIL_RESULTS,
         include: {
           scores: { orderBy: { createTime: "asc" } },
           humanScores: { orderBy: { createTime: "desc" } },
@@ -54,11 +63,11 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
   });
   if (!run) return errorResponse("Evaluation run not found", 404);
 
-  // The baseline's raw results + scores, in one bounded query (no per-row N+1).
+  // The baseline's raw results + scores (no per-row N+1), capped the same way.
   const baselineRun = run.baselineRunId
     ? await prisma.evaluationRun.findFirst({
         where: { id: run.baselineRunId, projectId },
-        include: { results: { include: { scores: true } } },
+        include: { results: { take: MAX_RUN_DETAIL_RESULTS, include: { scores: true } } },
       })
     : null;
 
@@ -88,19 +97,23 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
       // Derived values win over the stored columns.
       change: cmp ? caseChangeToLegacy(cmp.caseChange) : null,
       baselineOutput: cmp ? cmp.baselineOutput : null,
-      comparison: cmp
-        ? {
-            caseChange: cmp.caseChange,
-            pairing: cmp.pairing,
-            mainScore: cmp.mainScore,
-            baselineDurationMs: cmp.baselineDurationMs,
-            durationDeltaMs: cmp.durationDeltaMs,
-            baselineTraceId: baselineTraceByCase.get(r.testCaseId) ?? null,
-            scorerCells: cmp.scorerCells,
-            regressedCellCount: cmp.regressedCellCount,
-            comparableCellCount: cmp.comparableCellCount,
-          }
-        : null,
+      // Without a baseline, every case's comparison would be the same "candidate_only,
+      // all cells unpaired" object — zero information, so omit it rather than inflate
+      // the common (no-baseline) case's payload.
+      comparison:
+        cmp && baselineRun
+          ? {
+              caseChange: cmp.caseChange,
+              pairing: cmp.pairing,
+              mainScore: cmp.mainScore,
+              baselineDurationMs: cmp.baselineDurationMs,
+              durationDeltaMs: cmp.durationDeltaMs,
+              baselineTraceId: baselineTraceByCase.get(r.testCaseId) ?? null,
+              scorerCells: cmp.scorerCells,
+              regressedCellCount: cmp.regressedCellCount,
+              comparableCellCount: cmp.comparableCellCount,
+            }
+          : null,
     };
   });
 
@@ -120,6 +133,9 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
       elapsedMs: elapsedMs(run.startedAt, run.completedAt),
       ...countResultStatuses(run.results),
       comparison,
+      // True when `results` (and the comparison derived from it) is a partial view —
+      // the run has more cases than the cap above.
+      resultsTruncated: run.caseCount > run.results.length,
     },
     results,
   });
