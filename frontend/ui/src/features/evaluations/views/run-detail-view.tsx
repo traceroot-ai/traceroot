@@ -11,8 +11,9 @@ import {
   ChevronRight,
   Database,
   Download,
-  ExternalLink,
+  Loader2,
   Search,
+  X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,7 @@ import {
   type ReviewTarget,
 } from "@/features/offline-eval/components";
 import { TraceViewerPanel } from "@/features/traces/components";
+import { useTrace } from "@/features/traces/hooks";
 import type { Span, TraceDetail } from "@/types/api";
 import type { SpanKind, SpanStatus } from "@traceroot/core";
 import { cn } from "@/lib/utils";
@@ -98,9 +100,9 @@ function evalSpan(
  *     ├─ scorer span    ← siblings of the task, one per scorer that ran
  *     └─ scorer span
  *
- * Built from the actual result + scores only (no fabricated sub-spans). When the
- * result carries a real ingested trace, its full span tree is a click away via
- * "Open full trace"; this synthetic trace is what always renders here.
+ * Built from the actual result + scores only (no fabricated sub-spans). This is a
+ * clearly-LABELED fallback, used only when a result emitted no real trace; a result
+ * with a real ingested trace opens that real trace directly instead.
  */
 function buildEvalTrace(result: ResultRow, run: RunDetail): TraceDetail {
   const id = result.traceId || `eval-${result.id}`;
@@ -209,33 +211,54 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
   const [openResultId, setOpenResultId] = React.useState<string | null>(null);
   const [resultFilter, setResultFilter] = React.useState<ResultFilterId>("all");
   const [reviewOpen, setReviewOpen] = React.useState(false);
-  // The result's REAL ingested trace, opened as a side panel over the eval trace.
-  const [viewRealTraceId, setViewRealTraceId] = React.useState<string | null>(null);
 
   const { toast } = useToast();
   const results = React.useMemo(() => data?.results ?? [], [data]);
   const run = data?.run;
 
-  // One eval-shaped trace per result; seed their span I/O so the detail panel
-  // (which reads span input/output on demand) has it ready.
-  const resultTraces = React.useMemo(
-    () => (run ? results.map((r) => buildEvalTrace(r, run)) : []),
+  const openResult = openResultId ? (results.find((r) => r.id === openResultId) ?? null) : null;
+
+  // Prefer the result's REAL ingested trace. Probe it — this shares TraceViewerPanel's
+  // ["trace", projectId, traceId] cache key, so opening the real panel does not refetch.
+  // A result trace id means telemetry was emitted: show the real trace when it's
+  // available, and a pending state (retry) while it is still ingesting. When no trace
+  // id was emitted (fully-local run), fall back to a clearly-labeled reconstructed trace.
+  const realTraceId = openResult?.traceId ?? null;
+  const realTrace = useTrace(projectId, realTraceId ?? "", !!realTraceId);
+  const hasRealTrace = !!realTraceId && !!realTrace.data;
+  const tracePending = !!realTraceId && !realTrace.data; // loading or still ingesting
+
+  // Reconstructed eval-shaped trace — the labeled fallback, only for results that
+  // emitted no real trace. Seed span I/O just for those so the detail panel has it.
+  const fallbackTrace = React.useMemo(
+    () => (run && openResult && !realTraceId ? buildEvalTrace(openResult, run) : undefined),
+    [run, openResult, realTraceId],
+  );
+  const fallbackTraces = React.useMemo(
+    () => (run ? results.filter((r) => !r.traceId).map((r) => buildEvalTrace(r, run)) : []),
     [results, run],
   );
-  useSeedTraceIO(projectId, resultTraces);
-
-  const openResult = openResultId ? (results.find((r) => r.id === openResultId) ?? null) : null;
-  const openTrace = React.useMemo(
-    () => (run && openResult ? buildEvalTrace(openResult, run) : undefined),
-    [run, openResult],
-  );
+  useSeedTraceIO(projectId, fallbackTraces);
 
   const updateCase = useUpdateTestCase(projectId, run?.datasetId ?? "");
   const humanScore = useCreateHumanScore(projectId, openResult?.id ?? "");
 
-  const closeResult = () => {
-    setOpenResultId(null);
-    setViewRealTraceId(null);
+  const panelTraceId = hasRealTrace ? realTraceId : fallbackTrace?.trace_id;
+  const panelOverride = hasRealTrace ? undefined : fallbackTrace;
+
+  const closeResult = () => setOpenResultId(null);
+
+  // The trace panel's up/down chevrons step between this run's results (in the same
+  // order + filter as the table), so you can walk case-by-case without closing it.
+  const visibleResults = React.useMemo(
+    () => results.filter(RESULT_FILTER_FN[resultFilter]),
+    [results, resultFilter],
+  );
+  const openIndex = openResult ? visibleResults.findIndex((r) => r.id === openResult.id) : -1;
+  const navigateResult = (dir: "up" | "down") => {
+    if (openIndex === -1) return;
+    const next = dir === "up" ? openIndex - 1 : openIndex + 1;
+    if (next >= 0 && next < visibleResults.length) setOpenResultId(visibleResults[next].id);
   };
 
   return (
@@ -269,26 +292,35 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
         )}
       </div>
 
-      {/* The real trace viewer on the eval-shaped trace — not a simplified tree. */}
-      {openResult && openTrace && run && (
+      {/* Telemetry for this result is still ingesting — pending state with retry. */}
+      {openResult && run && tracePending && (
+        <PendingTracePanel
+          traceId={realTraceId as string}
+          isFetching={realTrace.isFetching}
+          onRetry={() => realTrace.refetch()}
+          onClose={closeResult}
+        />
+      )}
+
+      {/* The result opens directly in the REAL trace viewer (span tree + span detail)
+          when its trace is available; otherwise a clearly-labeled reconstructed trace.
+          The evaluation context, scores, and human review are the span-actions panel. */}
+      {openResult && run && !tracePending && panelTraceId && (
         <TraceViewerPanel
-          key={openTrace.trace_id}
+          key={panelTraceId}
           projectId={projectId}
-          traceId={openTrace.trace_id}
-          traceOverride={openTrace}
+          traceId={panelTraceId}
+          traceOverride={panelOverride}
           newTabPath={`/projects/${projectId}/evaluations/${runId}`}
           onClose={closeResult}
-          onNavigate={() => {}}
-          canNavigateUp={false}
-          canNavigateDown={false}
+          onNavigate={navigateResult}
+          canNavigateUp={openIndex > 0}
+          canNavigateDown={openIndex >= 0 && openIndex < visibleResults.length - 1}
           spanActions={() => (
             <ResultContext
               projectId={projectId}
               run={run}
               result={openResult}
-              onOpenFullTrace={
-                openResult.traceId ? () => setViewRealTraceId(openResult.traceId) : undefined
-              }
               onReview={() => setReviewOpen(true)}
               onSaveExpected={(value) =>
                 updateCase.mutate(
@@ -309,6 +341,11 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
           )}
           spanExtraTags={() => (
             <>
+              {!hasRealTrace && (
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-400/60 bg-amber-100/60 px-2.5 py-1 text-xs text-amber-800 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-300">
+                  Reconstructed — no telemetry was emitted for this result
+                </span>
+              )}
               <span className="inline-flex items-center gap-1.5 rounded-md border bg-muted/40 px-2.5 py-1 text-xs">
                 <span className="text-muted-foreground">Evaluation:</span>
                 <span className="font-medium">{run.evaluationName}</span>
@@ -328,21 +365,6 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
               </span>
             </>
           )}
-        />
-      )}
-
-      {/* "Open full trace" opens the result's REAL ingested trace as a side panel
-          over the eval trace; closing it returns to the eval trace panel. */}
-      {viewRealTraceId && (
-        <TraceViewerPanel
-          key={`real:${viewRealTraceId}`}
-          projectId={projectId}
-          traceId={viewRealTraceId}
-          newTabPath={`/projects/${projectId}/evaluations/${runId}`}
-          onClose={() => setViewRealTraceId(null)}
-          onNavigate={() => {}}
-          canNavigateUp={false}
-          canNavigateDown={false}
         />
       )}
 
@@ -376,6 +398,54 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
         }
       />
     </>
+  );
+}
+
+/** Slide-in panel shown while a result's real trace is still ingesting. */
+function PendingTracePanel({
+  traceId,
+  isFetching,
+  onRetry,
+  onClose,
+}: {
+  traceId: string;
+  isFetching: boolean;
+  onRetry: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-[45%] min-w-[520px] max-w-[94vw] flex-col border-l border-border bg-background shadow-xl">
+      <div className="flex shrink-0 items-center justify-between border-b border-border bg-muted/30 px-4 py-3">
+        <span className="text-sm font-medium">Evaluation trace</span>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0"
+          onClick={onClose}
+          aria-label="Close"
+        >
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-[12px]">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden />
+        <p className="text-[13px] font-medium">Trace is still being ingested</p>
+        <p className="max-w-[360px] leading-relaxed text-muted-foreground">
+          This result reported a trace (<span className="font-mono">{traceId.slice(0, 12)}…</span>),
+          but its telemetry hasn&apos;t finished ingesting yet. It will appear here once it lands.
+        </p>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 gap-1.5 text-[12px]"
+          disabled={isFetching}
+          onClick={onRetry}
+        >
+          <Loader2 className={cn("h-3.5 w-3.5", isFetching && "animate-spin")} aria-hidden />
+          Retry
+        </Button>
+      </div>
+    </div>
   );
 }
 
@@ -1026,24 +1096,18 @@ function ResultContext({
   projectId,
   run,
   result,
-  onOpenFullTrace,
   onReview,
   onSaveExpected,
 }: {
   projectId: string;
   run: RunDetail;
   result: ResultRow;
-  onOpenFullTrace?: () => void;
   onReview: () => void;
   onSaveExpected: (value: string) => void;
 }) {
   const expectedValue = result.expectedOutput ?? "";
-  const [editing, setEditing] = React.useState(false);
   const [expected, setExpected] = React.useState(expectedValue);
-  React.useEffect(() => {
-    setExpected(expectedValue);
-    setEditing(false);
-  }, [expectedValue, result.id]);
+  React.useEffect(() => setExpected(expectedValue), [expectedValue, result.id]);
   const expectedDirty = expected.trim() !== expectedValue.trim();
 
   return (
@@ -1053,28 +1117,25 @@ function ResultContext({
         <span className="font-mono text-[11px] text-muted-foreground">{result.testCaseId}</span>
       </div>
 
-      {/* Expected outcome — a two-line editable field revealed by a button; saving
-          publishes a new dataset version (the input/output are in the span detail). */}
-      {editing ? (
-        <div>
-          <EditableValueBlock
-            label="Expected outcome"
-            text={expected}
-            onChange={setExpected}
-            boxed
-            autoDetectKind
-            copyable
-            minRows={2}
-          />
+      {/* Expected outcome — the same editable, format-aware value block used on the
+          dataset case panel; Save (shown when edited) publishes a new dataset version. */}
+      <div>
+        <EditableValueBlock
+          key={result.id}
+          label="Expected outcome"
+          text={expected}
+          onChange={setExpected}
+          boxed
+          autoDetectKind
+          copyable
+          minRows={2}
+        />
+        {expectedDirty && (
           <div className="mt-1.5 flex items-center gap-2">
             <Button
               size="sm"
               className="h-7 text-[12px]"
-              disabled={!expectedDirty}
-              onClick={() => {
-                onSaveExpected(expected.trim());
-                setEditing(false);
-              }}
+              onClick={() => onSaveExpected(expected.trim())}
             >
               Save
             </Button>
@@ -1082,42 +1143,18 @@ function ResultContext({
               variant="ghost"
               size="sm"
               className="h-7 text-[12px]"
-              onClick={() => {
-                setExpected(expectedValue);
-                setEditing(false);
-              }}
+              onClick={() => setExpected(expectedValue)}
             >
               Cancel
             </Button>
           </div>
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            Saving edits test case <span className="font-mono">{result.testCaseId}</span> in{" "}
-            <span className="font-medium">{run.datasetName}</span> — it changes what future runs are
-            compared against.
-          </p>
-        </div>
-      ) : (
-        <div>
-          <div className="mb-1 flex items-center justify-between gap-2">
-            <p className="text-[11px] text-muted-foreground">Expected outcome</p>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-6 px-2 text-[11px]"
-              onClick={() => setEditing(true)}
-            >
-              Edit
-            </Button>
-          </div>
-          <div className="rounded border border-border bg-muted/20 px-2.5 py-2 leading-relaxed">
-            {expectedValue || (
-              <span className="text-muted-foreground">
-                No expected outcome — a scorer judges the output directly.
-              </span>
-            )}
-          </div>
-        </div>
-      )}
+        )}
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          Saving edits test case <span className="font-mono">{result.testCaseId}</span> in{" "}
+          <span className="font-medium">{run.datasetName}</span> — it changes what future runs are
+          compared against.
+        </p>
+      </div>
 
       {result.baselineOutput !== null && (
         <p className="mt-2 text-[11px] text-muted-foreground">
@@ -1186,17 +1223,6 @@ function ResultContext({
         <Button size="sm" className="h-7 text-[12px]" onClick={onReview}>
           Review output
         </Button>
-        {onOpenFullTrace && (
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 gap-1.5 text-[12px]"
-            onClick={onOpenFullTrace}
-          >
-            <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-            Open full trace
-          </Button>
-        )}
         <Link
           href={`/projects/${projectId}/datasets/${run.datasetId}?case=${result.testCaseId}`}
           className="inline-flex h-7 items-center gap-1.5 rounded-md border border-input bg-background px-2.5 text-[12px] font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
