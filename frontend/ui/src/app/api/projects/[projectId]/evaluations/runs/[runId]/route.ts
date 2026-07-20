@@ -8,6 +8,7 @@ import {
 } from "@/lib/auth-helpers";
 import { compareRuns } from "@/lib/eval/comparison";
 import { toComparisonRun, toComparisonResults, caseChangeToLegacy } from "@/lib/eval/comparison-db";
+import { countResultStatuses } from "@/lib/eval/pass-rate";
 
 type RouteParams = { params: Promise<{ projectId: string; runId: string }> };
 
@@ -117,6 +118,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
       baselineComparable: comparison.trustworthy,
       errorCount: run.taskErrorCount + run.scorerErrorCount,
       elapsedMs: elapsedMs(run.startedAt, run.completedAt),
+      ...countResultStatuses(run.results),
       comparison,
     },
     results,
