@@ -8,9 +8,9 @@ import {
   ArrowDown,
   ArrowUp,
   ChevronDown,
-  ChevronRight,
   Database,
   Download,
+  Info,
   Loader2,
   Search,
   X,
@@ -222,7 +222,7 @@ const RESULT_FILTERS: Array<{ id: ResultFilterId; label: string }> = [
   { id: "all", label: "All" },
   { id: "regressions", label: "Regressions" },
   { id: "improvements", label: "Improvements" },
-  { id: "failed", label: "Failed" },
+  { id: "failed", label: "Did not pass" },
   { id: "errors", label: "Errors" },
   { id: "unpaired", label: "Unpaired" },
   { id: "not_scored", label: "Not scored" },
@@ -591,9 +591,8 @@ function RunBody({
   openResultId: string | null;
 }) {
   const router = useRouter();
+  const [detailsOpen, setDetailsOpen] = React.useState(false);
   const hasBaseline = run.baselineRunId !== null;
-  // Derived verdict — never the stored `change` column.
-  const regressed = results.filter((r) => r.comparison?.caseChange === "regressed");
   const incompatibleBaseline = run.comparison.available && !run.comparison.trustworthy;
   const trustNote = comparisonReasonText(run.comparison.reasons, run.datasetVersionLabel);
 
@@ -621,6 +620,17 @@ function RunBody({
             />
           </span>
         }
+        action={
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1.5 text-[12px]"
+            onClick={() => setDetailsOpen(true)}
+          >
+            <Info className="h-3.5 w-3.5" aria-hidden />
+            Run details
+          </Button>
+        }
       />
 
       <div className="min-h-0 flex-1 overflow-auto">
@@ -647,25 +657,74 @@ function RunBody({
             openResultId={openResultId}
           />
 
-          {/* Everything else folds below the results. */}
-          {hasBaseline && regressed.length > 0 && (
-            <ExpandableSection title={`Regressions (${regressed.length})`} defaultOpen={false}>
-              <RegressionsList regressed={regressed} onOpen={onOpenResult} />
-            </ExpandableSection>
-          )}
-
+          {/* Errors fold below the results; run details open in a side panel. */}
           {run.errorCount > 0 && (
             <ExpandableSection title={`Errors (${run.errorCount})`} defaultOpen={false}>
               <ErrorsBody run={run} results={results} onOpen={onOpenResult} />
             </ExpandableSection>
           )}
-
-          <ExpandableSection title="Run details" defaultOpen={false}>
-            <RunDetailsBody run={run} projectId={projectId} />
-          </ExpandableSection>
         </div>
       </div>
+
+      <RunDetailsDrawer
+        run={run}
+        projectId={projectId}
+        open={detailsOpen}
+        onOpenChange={setDetailsOpen}
+      />
     </>
+  );
+}
+
+/** Run details (identity, dataset, scorers, provenance) as a right-side slide-out,
+ *  opened from the header — matching the starter-code / pull-code drawers. */
+function RunDetailsDrawer({
+  run,
+  projectId,
+  open,
+  onOpenChange,
+}: {
+  run: RunDetail;
+  projectId: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  React.useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onOpenChange(false);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [open, onOpenChange]);
+
+  if (!open) return null;
+
+  return (
+    <div className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-[560px] max-w-[96vw] flex-col border-l border-border bg-background shadow-xl">
+      <div className="flex shrink-0 items-start justify-between gap-2 border-b border-border px-4 py-3">
+        <div>
+          <h2 className="text-[13px] font-semibold">Run details</h2>
+          <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+            {run.evaluationName} #{run.runNumber} · {run.candidateVersion}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => onOpenChange(false)}
+          aria-label="Close"
+          className="mt-0.5 rounded-sm text-muted-foreground opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-1 focus:ring-ring"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto p-4 text-[12px]">
+        <RunDetailsBody run={run} projectId={projectId} />
+      </div>
+    </div>
   );
 }
 
@@ -858,9 +917,7 @@ function FilterStat({
       className="rounded text-left transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
       title={`Show ${label.toLowerCase()} in the results below`}
     >
-      <span className="text-[11px] text-muted-foreground underline decoration-dotted underline-offset-2">
-        {label}
-      </span>
+      <span className="text-[11px] text-muted-foreground">{label}</span>
       <span className="block text-[15px] font-medium tabular-nums">{count}</span>
     </button>
   );
@@ -1261,37 +1318,6 @@ function UsageBreakdown({ usage }: { usage: TraceUsage }) {
 }
 
 /** The regressed cases, as a plain list; the caller wraps it in a section. */
-function RegressionsList({
-  regressed,
-  onOpen,
-}: {
-  regressed: ResultRow[];
-  onOpen: (id: string) => void;
-}) {
-  return (
-    <div className="-mx-2.5 -my-2 divide-y divide-border">
-      {regressed.map((r) => (
-        <button
-          key={r.id}
-          type="button"
-          onClick={() => onOpen(r.id)}
-          className="flex w-full items-start gap-3 px-3 py-2 text-left transition-colors hover:bg-muted/40"
-        >
-          <span className="min-w-0 flex-1">
-            <span className="block truncate">{truncate(r.input, 90)}</span>
-            <span className="mt-0.5 block text-[11px] text-muted-foreground">
-              was <span className="text-foreground">{r.baselineOutput ?? "—"}</span> · now{" "}
-              <span className="text-foreground">{r.candidateOutput ?? "—"}</span> · expected{" "}
-              <span className="text-foreground">{r.expectedOutput ?? "—"}</span>
-            </span>
-          </span>
-          <ChevronRight className="mt-1 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
-        </button>
-      ))}
-    </div>
-  );
-}
-
 /** Task errors and scorer errors are different failures and read differently. */
 function ErrorsBody({
   run,
@@ -1556,6 +1582,49 @@ function ResultContext({
         <EvalResultBadge status={result.status} />
         <span className="font-mono text-[11px] text-muted-foreground">{result.testCaseId}</span>
       </div>
+
+      {/* Candidate vs baseline for THIS case, beside the trace — mirrors the run-level
+          "vs baseline" up top. Only when a baseline comparison is available. */}
+      {run.comparison.available && result.comparison && (
+        <div className="mb-3 rounded border border-border bg-muted/20 px-2.5 py-2 text-[11px]">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="font-medium">
+              Candidate vs baseline
+              {run.comparison.baseline && (
+                <span className="ml-1 font-normal text-muted-foreground">
+                  ({run.comparison.baseline.candidateVersion})
+                </span>
+              )}
+            </span>
+            <span
+              className={cn(
+                "font-medium",
+                CELL_CLASS_STYLE[result.comparison.caseChange].className,
+              )}
+            >
+              {CELL_CLASS_STYLE[result.comparison.caseChange].label}
+            </span>
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 tabular-nums text-muted-foreground">
+            <span>
+              {run.mainScoreName ?? "Main score"}:{" "}
+              <span className="text-foreground">
+                {result.comparison.mainScore.candidate === null
+                  ? "—"
+                  : pctFraction(result.comparison.mainScore.candidate)}
+              </span>
+              {result.comparison.mainScore.baseline !== null && (
+                <span> vs {pctFraction(result.comparison.mainScore.baseline)}</span>
+              )}
+            </span>
+            {result.comparison.mainScore.delta !== null && (
+              <span className={SENTIMENT_CLASS[changeSentiment(result.comparison.mainScore.delta)]}>
+                {signedPoints(result.comparison.mainScore.delta)} pp
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Expected outcome — the same editable, format-aware value block used on the
           dataset case panel; Save (shown when edited) publishes a new dataset version. */}
