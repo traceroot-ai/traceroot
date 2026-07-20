@@ -81,6 +81,24 @@ function fmtDurationMs(ms: number | null | undefined): string {
   return `${(ms / 1000).toFixed(1)}s`;
 }
 
+/** Signed candidate−baseline delta beside a duration/cost cell (lower is better:
+ *  an increase is red, a decrease green). Rendered only when comparing. */
+function CellDelta({
+  delta,
+  format,
+}: {
+  delta: number | null;
+  format: (n: number) => string;
+}): React.ReactNode {
+  if (delta === null || delta === 0) return null;
+  return (
+    <span className={`ml-1 ${SENTIMENT_CLASS[changeSentiment(-delta)]}`}>
+      {delta > 0 ? "+" : "−"}
+      {format(Math.abs(delta))}
+    </span>
+  );
+}
+
 /**
  * Whether two authored values are the SAME value. A pure reformat (re-indenting
  * JSON, whether from the seed format or the format switcher) is not an edit —
@@ -149,12 +167,21 @@ function buildEvalTrace(result: ResultRow, run: RunDetail): TraceDetail {
   const failed = Boolean(result.taskError);
   const rootStatus = (failed ? "ERROR" : "OK") as SpanStatus;
 
+  // Ordered fake timestamps so the reconstructed tree is deterministic and reads in
+  // the real order: task first, then scorers (which run after it). Without distinct
+  // starts, the stable sibling sort would tie and fall back to span_id.
+  const base = new Date(result.createTime).getTime();
+  const t0 = Number.isFinite(base) ? base : 0;
+  const iso = (ms: number) => new Date(ms).toISOString();
+
   const spans: Span[] = [
     evalSpan({
       span_id: `${id}-root`,
       trace_id: id,
       name: `${run.evaluationName} · ${result.testCaseId}`,
       span_kind: "AGENT" as SpanKind,
+      span_start_time: iso(t0),
+      span_end_time: iso(t0 + result.scores.length + 2),
       input: result.input,
       output: result.candidateOutput,
       status: rootStatus,
@@ -172,6 +199,8 @@ function buildEvalTrace(result: ResultRow, run: RunDetail): TraceDetail {
       parent_span_id: `${id}-root`,
       name: "task",
       span_kind: "SPAN" as SpanKind,
+      span_start_time: iso(t0),
+      span_end_time: iso(t0 + 1),
       input: result.input,
       output: result.candidateOutput,
       cost: result.cost,
@@ -181,8 +210,8 @@ function buildEvalTrace(result: ResultRow, run: RunDetail): TraceDetail {
     }),
   ];
 
-  // Scorer spans — siblings of the task, one per scorer that ran.
-  for (const s of result.scores) {
+  // Scorer spans — siblings of the task, one per scorer that ran, starting after it.
+  result.scores.forEach((s, i) => {
     spans.push(
       evalSpan({
         span_id: `${id}-scorer-${s.id}`,
@@ -190,6 +219,8 @@ function buildEvalTrace(result: ResultRow, run: RunDetail): TraceDetail {
         parent_span_id: `${id}-root`,
         name: s.scorerName,
         span_kind: "SPAN" as SpanKind,
+        span_start_time: iso(t0 + i + 2),
+        span_end_time: iso(t0 + i + 2),
         input: `output: ${result.candidateOutput ?? "—"}\nexpected: ${result.expectedOutput ?? "—"}`,
         output: s.error ?? scoreValue(s),
         status: (s.error ? "ERROR" : "OK") as SpanStatus,
@@ -197,7 +228,7 @@ function buildEvalTrace(result: ResultRow, run: RunDetail): TraceDetail {
         metadata: JSON.stringify({ scorer: s.scorerName, version: s.scorerVersion }),
       }),
     );
-  }
+  });
 
   return {
     trace_id: id,
@@ -1175,7 +1206,7 @@ function RunSwitcher({
   );
 }
 
-const RESULT_COLUMN_COUNT = 6;
+const RESULT_COLUMN_COUNT = 8;
 
 /** Sentinel for the "Compare with" select's no-selection option (Radix needs a value). */
 const NO_COMPARE = "__none__";
@@ -1294,14 +1325,17 @@ function ResultsSection({
             <Th>Output</Th>
             <Th>Expected</Th>
             <Th className="w-[170px]">Main score</Th>
-            <Th className="w-[110px] text-right">{comparing ? "vs baseline" : "Change"}</Th>
+            {/* Change is only meaningful against a picked run; hidden otherwise. */}
+            {comparing && <Th className="w-[110px] text-right">vs baseline</Th>}
+            <Th className="w-[90px] text-right">Duration</Th>
+            <Th className="w-[90px] text-right">Cost</Th>
             <Th className="w-[110px]">Status</Th>
           </TRHead>
         </THead>
         <TBody>
           {visible.length === 0 ? (
             <tr>
-              <td colSpan={RESULT_COLUMN_COUNT}>
+              <td colSpan={comparing ? RESULT_COLUMN_COUNT : RESULT_COLUMN_COUNT - 1}>
                 <p className="px-4 py-12 text-center text-[12px] text-muted-foreground">
                   {results.length === 0
                     ? "No per-case results reported for this run yet."
@@ -1349,8 +1383,25 @@ function ResultsSection({
                   <Td>
                     <MainScoreCell result={result} comparison={rowCmp} />
                   </Td>
-                  <Td className="text-right">
-                    <ChangeCell change={rowCmp?.caseChange ?? null} />
+                  {comparing && (
+                    <Td className="text-right">
+                      <ChangeCell change={rowCmp?.caseChange ?? null} />
+                    </Td>
+                  )}
+                  <Td className="whitespace-nowrap text-right text-[11px] tabular-nums text-muted-foreground">
+                    {fmtDurationMs(result.durationMs)}
+                    {comparing && (
+                      <CellDelta delta={rowCmp?.durationDeltaMs ?? null} format={fmtDurationMs} />
+                    )}
+                  </Td>
+                  <Td className="whitespace-nowrap text-right text-[11px] tabular-nums text-muted-foreground">
+                    {result.cost === null ? "—" : `$${result.cost.toFixed(4)}`}
+                    {comparing && result.cost !== null && row?.baselineCost != null && (
+                      <CellDelta
+                        delta={result.cost - row.baselineCost}
+                        format={(n) => `$${n.toFixed(4)}`}
+                      />
+                    )}
                   </Td>
                   <Td>
                     <EvalResultBadge status={result.status} />
