@@ -2,8 +2,20 @@
 
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronDown, ChevronRight, Layers, ListChecks, Ruler } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronDown,
+  ChevronRight,
+  Layers,
+  ListChecks,
+  Ruler,
+  Search,
+  X,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { ModelSelector } from "@/features/ai-assistant/components/model-selector";
 import {
   Select,
   SelectContent,
@@ -14,12 +26,15 @@ import {
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { DATE_FILTER_OPTIONS, type DateFilterOption } from "@/lib/date-filter";
 import { Table, TBody, Td, Th, THead, TR, TRHead } from "@/components/ui/table";
+import { Input } from "@/components/ui/input";
+import { CopyButton } from "@/components/ui/copy-button";
+import { HighlightedCode } from "@/features/offline-eval/components/syntax";
 import { cn } from "@/lib/utils";
-import { EmptyState, Timestamp } from "@/features/offline-eval/components";
+import { EmptyState, Timestamp, LineNumberedTextarea } from "@/features/offline-eval/components";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { PassRate } from "../components/pass-rate";
-import { pctFraction } from "@/features/offline-eval/utils";
-import { useDatasets, useEvaluationRuns } from "../hooks";
+import { pctFraction, SENTIMENT_CLASS } from "@/features/offline-eval/utils";
+import { useDatasets, useEvaluationRuns, useScorers, type ScorerRegistryRow } from "../hooks";
 import { EVAL_RUN_STATUS_LABEL, type EvalRunStatus, type RunRow } from "../types";
 
 // Run-centric: the Evaluations page is one table of immutable runs. Scorers is the
@@ -82,13 +97,13 @@ export function EvaluationsView({ projectId }: { projectId: string }) {
       </div>
 
       {tab === "evaluations" && <RunsTab projectId={projectId} />}
-      {tab === "scorers" && <ScorersTab />}
+      {tab === "scorers" && <ScorersTab projectId={projectId} />}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Runs — the flat execution list, with optional grouping by evaluation lineage.
+// Runs — the flat execution list.
 // ---------------------------------------------------------------------------
 
 const RUNS_COLUMN_COUNT = 8;
@@ -571,14 +586,422 @@ function RunsTab({ projectId }: { projectId: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Scorers — the SDK-authored catalog. Filled in a later layer; here it is a
-// placeholder so the tab exists as the feature is built up.
+// Scorers — read-only registry, aggregated from reported runs. Master-detail,
+// a table on the left, a detail aside on the right.
+//
+// A scorer's definition — what it measures, its type, scope, and score format —
+// lives in the customer's SDK code and is never reported to the server, so the
+// server-backed registry carries only the aggregates it can see (name, version,
+// score count, error rate). The detail aside surfaces those and names the SDK as
+// the source of truth for the rest, rather than fabricating descriptive text.
 // ---------------------------------------------------------------------------
 
-function ScorersTab() {
+const SCORERS_COLUMN_COUNT = 8;
+
+const VALUE_TYPE_LABEL: Record<ScorerRegistryRow["valueType"], string> = {
+  numeric: "Numeric",
+  boolean: "Boolean",
+  categorical: "Categorical",
+  mixed: "Mixed",
+  unknown: "Unknown",
+};
+
+function ScorersTab({ projectId }: { projectId: string }) {
+  const { data, isLoading, error } = useScorers(projectId);
+  const allScorers = React.useMemo(() => data?.data ?? [], [data]);
+  const [keyword, setKeyword] = React.useState("");
+  const scorers = React.useMemo(() => {
+    const q = keyword.trim().toLowerCase();
+    if (!q) return allScorers;
+    return allScorers.filter(
+      (s) => s.name.toLowerCase().includes(q) || s.version.toLowerCase().includes(q),
+    );
+  }, [allScorers, keyword]);
+
+  // A clicked scorer opens the detail panel (the right slide-in, no backdrop) rather
+  // than a persistent split-pane.
+  const [openKey, setOpenKey] = React.useState<string | null>(null);
+  const active = allScorers.find((s) => `${s.name}@${s.version}` === openKey) ?? null;
+  const activeIndex = scorers.findIndex((s) => `${s.name}@${s.version}` === openKey);
+  const navigateScorer = (dir: "up" | "down") => {
+    if (activeIndex === -1) return;
+    const next = dir === "up" ? activeIndex - 1 : activeIndex + 1;
+    if (next >= 0 && next < scorers.length) {
+      const s = scorers[next];
+      setOpenKey(`${s.name}@${s.version}`);
+    }
+  };
+
   return (
-    <div className="flex min-h-0 flex-1 items-center justify-center">
-      <EmptyState>Scorers coming soon.</EmptyState>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="border-b border-border bg-background px-3 py-1.5">
+        <div className="relative min-w-[12rem] max-w-md flex-1">
+          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search scorers..."
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            className="h-8 pl-8 text-[12px]"
+          />
+        </div>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto">
+        <Table>
+          <THead>
+            <TRHead>
+              <Th>Scorer</Th>
+              <Th className="w-[110px]">Output</Th>
+              <Th className="w-[100px] text-right">Evaluations</Th>
+              <Th className="w-[80px] text-right">Runs</Th>
+              <Th className="w-[90px] text-right">Scores</Th>
+              <Th className="w-[90px] text-right">Pass rate</Th>
+              <Th className="w-[100px] text-right">Error rate</Th>
+              <Th className="w-[140px] text-right">Last used</Th>
+            </TRHead>
+          </THead>
+          <TBody>
+            {isLoading ? (
+              <Cell colSpan={SCORERS_COLUMN_COUNT}>
+                <EmptyState>Loading scorers...</EmptyState>
+              </Cell>
+            ) : error ? (
+              <Cell colSpan={SCORERS_COLUMN_COUNT}>
+                <EmptyState>Error loading scorers</EmptyState>
+              </Cell>
+            ) : allScorers.length === 0 ? (
+              <Cell colSpan={SCORERS_COLUMN_COUNT}>
+                <EmptyState>
+                  No scorers yet. Scorers are defined in your SDK code and appear here once a run
+                  reports them.
+                </EmptyState>
+              </Cell>
+            ) : scorers.length === 0 ? (
+              <Cell colSpan={SCORERS_COLUMN_COUNT}>
+                <EmptyState>No scorers match “{keyword}”.</EmptyState>
+              </Cell>
+            ) : (
+              scorers.map((s) => {
+                const key = `${s.name}@${s.version}`;
+                return (
+                  <TR
+                    key={key}
+                    interactive
+                    selected={key === openKey}
+                    onClick={() => setOpenKey(key)}
+                  >
+                    <Td>
+                      <span className="flex items-baseline gap-1.5">
+                        <span className="font-medium">{s.name}</span>
+                        <span className="text-[11px] text-muted-foreground">
+                          {fmtScorerVersion(s.version)}
+                        </span>
+                      </span>
+                    </Td>
+                    <Td>
+                      <Badge variant="outline">{VALUE_TYPE_LABEL[s.valueType]}</Badge>
+                    </Td>
+                    <Td className="text-right tabular-nums text-muted-foreground">
+                      {s.evaluationCount}
+                    </Td>
+                    <Td className="text-right tabular-nums text-muted-foreground">{s.runCount}</Td>
+                    <Td className="text-right tabular-nums text-muted-foreground">
+                      {s.scoreCount.toLocaleString("en-US")}
+                    </Td>
+                    <Td className="text-right tabular-nums">
+                      {s.passRate === null ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : (
+                        `${(s.passRate * 100).toFixed(1)}%`
+                      )}
+                    </Td>
+                    <Td className="text-right tabular-nums">
+                      {s.errorRate > 0 ? (
+                        <span className={SENTIMENT_CLASS.bad}>
+                          {(s.errorRate * 100).toFixed(1)}%
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">0%</span>
+                      )}
+                    </Td>
+                    <Td className="whitespace-nowrap text-right text-muted-foreground">
+                      {s.lastUsed ? (
+                        <Timestamp iso={s.lastUsed} />
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </Td>
+                  </TR>
+                );
+              })
+            )}
+          </TBody>
+        </Table>
+      </div>
+
+      {active && (
+        <ScorerDetailPanel
+          key={`${active.name}@${active.version}`}
+          scorer={active}
+          onClose={() => setOpenKey(null)}
+          onNavigate={navigateScorer}
+          canNavigateUp={activeIndex > 0}
+          canNavigateDown={activeIndex !== -1 && activeIndex < scorers.length - 1}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Display a scorer version as "v1" — prefix a bare numeric version with "v"; leave a
+ *  sentinel like "unversioned" or an already-prefixed "v3" untouched. */
+function fmtScorerVersion(v: string): string {
+  return /^\d/.test(v) ? `v${v}` : v;
+}
+
+const LANGUAGE_LABEL: Record<"python" | "typescript", string> = {
+  python: "Python",
+  typescript: "TypeScript",
+};
+
+/** The scorer's type — declared by the SDK, or derived from which definition fields it
+ *  reported (code source ⇒ code; model/messages ⇒ judge). Never guessed from the name. */
+function scorerKind(s: ScorerRegistryRow): "llm_judge" | "code" | null {
+  if (s.scorerType) return s.scorerType;
+  if (s.sourceCode) return "code";
+  if (s.model || s.messages) return "llm_judge";
+  return null;
+}
+
+/** The precise type shown at the top of the definition section and in the header:
+ *  "LLM judge" for a judge, the language ("Python"/"TypeScript") for a code scorer. */
+function definitionTypeLabel(
+  s: ScorerRegistryRow,
+  kind: "llm_judge" | "code" | null,
+): string | null {
+  if (kind === "llm_judge") return "LLM judge";
+  if (kind === "code") return s.language ? LANGUAGE_LABEL[s.language] : "Code";
+  return null;
+}
+
+/** For a field the SDK does not (yet) register — shown as a plain em dash. */
+function NotProvided() {
+  return <span className="text-muted-foreground">—</span>;
+}
+
+/** Bordered card with a muted header strip — mirrors the detector detail panel. */
+function ScorerCard({
+  title,
+  action,
+  children,
+}: {
+  title: string;
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="border border-border">
+      <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/50 px-3 py-1.5">
+        <span className="text-[12px] font-medium text-muted-foreground">{title}</span>
+        {action}
+      </div>
+      <div className="p-3">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * Read-only scorer detail — a bigger, detector-style subpage (mirrors DetectorPanel's
+ * 70%-width right slide-in with bordered cards). It does NOT dim/blur the page behind it
+ * and closes on Escape or ✕. A scorer is defined in the customer's SDK; TraceRoot shows
+ * ONLY what the SDK reported (see offline-eval/sdk-ask/scorer-definition-reporting.md) —
+ * anything unreported reads "Not provided by SDK", never invented from the name.
+ */
+export function ScorerDetailPanel({
+  scorer,
+  onClose,
+  onNavigate,
+  canNavigateUp,
+  canNavigateDown,
+}: {
+  scorer: ScorerRegistryRow;
+  onClose: () => void;
+  onNavigate?: (dir: "up" | "down") => void;
+  canNavigateUp?: boolean;
+  canNavigateDown?: boolean;
+}) {
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onClose]);
+
+  const kind = scorerKind(scorer);
+
+  return (
+    <div
+      role="dialog"
+      aria-label="Scorer detail"
+      className="animate-slide-in-right fixed bottom-0 right-0 top-0 z-50 flex w-[70%] max-w-[980px] flex-col border-l border-border bg-background shadow-xl"
+    >
+      {/* Header — detector-panel style */}
+      <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border bg-muted/30 px-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <Ruler className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="text-[13px] font-medium">Scorer</span>
+          <span className="truncate text-[13px] text-muted-foreground">{scorer.name}</span>
+          <span className="shrink-0 text-[11px] text-muted-foreground">
+            {fmtScorerVersion(scorer.version)}
+          </span>
+          {definitionTypeLabel(scorer, kind) && (
+            <Badge variant="outline">{definitionTypeLabel(scorer, kind)}</Badge>
+          )}
+          <CopyButton
+            value={`${scorer.name}@${scorer.version}`}
+            className="h-5 w-5 text-muted-foreground hover:text-foreground"
+            iconClassName="h-3 w-3"
+            title="Copy scorer id"
+          />
+        </div>
+        <div className="flex items-center gap-1">
+          {onNavigate && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onNavigate("up")}
+                disabled={!canNavigateUp}
+                className="h-7 w-7 p-0"
+                title="Previous scorer"
+              >
+                <ArrowUp className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onNavigate("down")}
+                disabled={!canNavigateDown}
+                className="h-7 w-7 p-0"
+                title="Next scorer"
+              >
+                <ArrowDown className="h-4 w-4" />
+              </Button>
+            </>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onClose}
+            aria-label="Close"
+            className="h-7 w-7 p-0"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-auto text-[12px]">
+        <ScorerDetail scorer={scorer} kind={kind} />
+      </div>
+    </div>
+  );
+}
+
+function ScorerDetail({
+  scorer,
+  kind,
+}: {
+  scorer: ScorerRegistryRow;
+  kind: "llm_judge" | "code" | null;
+}) {
+  const systemPrompt = scorer.messages?.find((m) => m.role === "system")?.content ?? null;
+  return (
+    <div className="flex flex-col gap-3 p-4">
+      {/* Name — read-only, in the detector's editable-field chrome. */}
+      <ScorerCard title="Name">
+        <Input value={scorer.name} readOnly className="h-7 text-[13px]" />
+      </ScorerCard>
+
+      {/* Model — the detector's model dropdown, rendered read-only (the wrapper
+          blocks pointer + focus, so it shows the model but never opens). */}
+      {kind === "llm_judge" && (
+        <ScorerCard title="Model">
+          <div className="pointer-events-none [&_*]:pointer-events-none">
+            <ModelSelector
+              value={{ model: scorer.model ?? "", provider: "", source: "system", adapter: "" }}
+              onChange={() => {}}
+            />
+          </div>
+        </ScorerCard>
+      )}
+
+      {/* Prompt (LLM judge) or code snippet (code scorer). */}
+      {kind === "code" ? (
+        <ScorerCard
+          title="Code"
+          action={
+            scorer.sourceCode ? (
+              <CopyButton
+                value={scorer.sourceCode}
+                className="h-5 w-5 text-muted-foreground hover:text-foreground"
+                iconClassName="h-3 w-3"
+                title="Copy code"
+              />
+            ) : undefined
+          }
+        >
+          {scorer.sourceCode ? (
+            <HighlightedCode
+              code={scorer.sourceCode}
+              className="max-h-[45vh] overflow-auto whitespace-pre font-mono text-[12px] leading-relaxed"
+            />
+          ) : (
+            <NotProvided />
+          )}
+        </ScorerCard>
+      ) : (
+        <ScorerCard title="Prompt">
+          {systemPrompt ? (
+            <LineNumberedTextarea
+              value={systemPrompt}
+              onChange={() => {}}
+              readOnly
+              fontClassName="text-[12px] leading-[20px]"
+              aria-label="System prompt"
+            />
+          ) : (
+            <NotProvided />
+          )}
+        </ScorerCard>
+      )}
+
+      {/* Pass threshold — read-only draggable bar, mirroring the detector's Sampling. */}
+      <ScorerCard title="Pass threshold">
+        {scorer.threshold !== null ? (
+          <div className="flex items-center gap-3">
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={Math.min(1, Math.max(0, scorer.threshold))}
+              readOnly
+              tabIndex={-1}
+              aria-label="Pass threshold"
+              className="pointer-events-none flex-1 accent-foreground"
+            />
+            <span className="w-12 shrink-0 text-right text-[13px] tabular-nums text-muted-foreground">
+              {scorer.threshold}
+            </span>
+          </div>
+        ) : (
+          <NotProvided />
+        )}
+      </ScorerCard>
     </div>
   );
 }
