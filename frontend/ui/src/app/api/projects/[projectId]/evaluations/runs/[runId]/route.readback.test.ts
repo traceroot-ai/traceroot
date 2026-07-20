@@ -191,10 +191,10 @@ describe("run/result read-back", () => {
     expect(run.baselineRunId).toBe("run0");
     expect(run.baselineComparable).toBe(true);
     // NOT the raw run.mainScore subtraction (0.9 - 0.75 = 0.15): case-2's candidate
-    // task errored (no routing-accuracy score), so it is excluded from the paired
+    // task errored (no routing-accuracy score), so it's excluded from the paired
     // aggregate. The only actually-comparable case is case-1 (candidate 1 vs
-    // baseline 0.5), so the trustworthy headline delta is 0.5 — derived the same way
-    // as every per-scorer aggregate, never a subtraction of the two runs' raw
+    // baseline 0.5), so the trustworthy headline delta is 0.5, derived the same way
+    // as every per-scorer aggregate — never a subtraction of the two runs' raw
     // SDK-reported aggregates, which can silently cover different case sets.
     expect(run.changeFromBaseline).toBeCloseTo(0.5);
   });
