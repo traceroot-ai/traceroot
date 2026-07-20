@@ -76,6 +76,12 @@ interface TraceViewerPanelProps {
    * — e.g. offline-eval's "Dataset:" chip. Unset in production.
    */
   spanExtraTags?: (selection: TraceSelection) => ReactNode;
+  /**
+   * Notified whenever the selected span (or the trace root) changes, so an open
+   * side panel can follow the tree — e.g. offline-eval's "Save as test case"
+   * drawer tracking the clicked span. Unset in production.
+   */
+  onSelectionChange?: (selection: TraceSelection) => void;
 }
 
 /**
@@ -108,8 +114,16 @@ export function TraceViewerPanel({
   spanActions,
   spanHeaderAction,
   spanExtraTags,
+  onSelectionChange,
 }: TraceViewerPanelProps) {
   const [selection, setSelection] = useState<TraceSelection>({ type: "trace" });
+  // Emit selection changes to the parent (kept in a ref so an inline callback
+  // doesn't retrigger the effect — it fires only when `selection` actually changes).
+  const onSelectionChangeRef = useRef(onSelectionChange);
+  onSelectionChangeRef.current = onSelectionChange;
+  useEffect(() => {
+    onSelectionChangeRef.current?.(selection);
+  }, [selection]);
   const [viewMode, setViewMode] = useState<"tree" | "timeline" | "detectors">("tree");
   // Fullscreen widens the slide-in overlay from ~70% to the full viewport.
   // Seeded from initialFullscreen so a trace opened in a new tab lands expanded.
