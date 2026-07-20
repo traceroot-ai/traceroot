@@ -365,18 +365,18 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
         trail={
           run
             ? [
-                { label: "Evaluations", href: `/projects/${projectId}/evaluations` },
                 {
-                  // The run segment is a dropdown of this evaluation's runs, like the
-                  // dataset switcher — jump to another run without leaving the page.
+                  // Just the run segment (no separate "Evaluations" crumb) — a dropdown
+                  // of this evaluation's runs. Its menu header still links to the
+                  // Evaluations list, so that page stays one click away.
                   label: `${run.evaluationName} #${run.runNumber}`,
                   menuHeader: { label: "Evaluations", href: `/projects/${projectId}/evaluations` },
                   options: runOptions,
                 },
               ]
-            : [{ label: "Evaluations", href: `/projects/${projectId}/evaluations` }]
+            : undefined
         }
-        current={run ? undefined : "Run"}
+        current={run ? undefined : "Evaluations"}
       />
       <div className="flex flex-1 flex-col overflow-hidden text-[12px]">
         {isLoading ? (
