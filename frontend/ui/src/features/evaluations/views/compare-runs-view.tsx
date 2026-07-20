@@ -370,9 +370,9 @@ export function CompareRunsView({
                     return (
                       <TR
                         key={r.testCaseId}
-                        interactive={!!r.traceId}
+                        interactive={!!r.candidateTraceId}
                         onClick={() =>
-                          r.traceId &&
+                          r.candidateTraceId &&
                           router.push(
                             `/projects/${projectId}/evaluations/${candidateId}?result=${r.testCaseId}`,
                           )
