@@ -31,6 +31,7 @@ import {
   EvalPageHeader,
   EvalResultBadge,
   ReviewPanel,
+  seedFormat,
   Timestamp,
   useSeedTraceIO,
   type ReviewTarget,
@@ -42,9 +43,10 @@ import type { SpanKind, SpanStatus } from "@traceroot/core";
 import { cn } from "@/lib/utils";
 import {
   changeSentiment,
-  pct,
+  pctFraction,
   SENTIMENT_CLASS,
   signed,
+  signedPoints,
   truncate,
 } from "@/features/offline-eval/utils";
 import {
@@ -62,6 +64,21 @@ function fmtDurationMs(ms: number | null | undefined): string {
   if (ms === null || ms === undefined) return "Unknown";
   if (ms < 1000) return `${Math.round(ms)}ms`;
   return `${(ms / 1000).toFixed(1)}s`;
+}
+
+/**
+ * Whether two authored values are the SAME value. A pure reformat (re-indenting
+ * JSON, whether from the seed format or the format switcher) is not an edit —
+ * without this, opening a case would offer to publish a new dataset version that
+ * changes nothing but whitespace.
+ */
+export function sameAuthoredValue(a: string, b: string): boolean {
+  if (a.trim() === b.trim()) return true;
+  try {
+    return JSON.stringify(JSON.parse(a)) === JSON.stringify(JSON.parse(b));
+  } catch {
+    return false; // one side isn't JSON — trust the text comparison above
+  }
 }
 
 function scoreValue(s: ScoreRow): string {
@@ -261,6 +278,25 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
   const results = React.useMemo(() => data?.results ?? [], [data]);
   const run = data?.run;
 
+  // This evaluation's other runs, for the breadcrumb's run switcher. Shares the
+  // RunSwitcher's query key, so it's the same fetch, not a second one.
+  const siblingRuns = useEvaluationRuns(projectId, {
+    evaluation_id: run?.evaluationId,
+    limit: 100,
+  });
+  const runOptions = React.useMemo(
+    () =>
+      run
+        ? (siblingRuns.data?.data ?? []).map((r) => ({
+            id: r.id,
+            label: `#${r.runNumber} · ${r.candidateVersion}`,
+            href: `/projects/${projectId}/evaluations/${r.id}`,
+            isCurrent: r.id === run.id,
+          }))
+        : [],
+    [siblingRuns.data, run, projectId],
+  );
+
   const openResult = openResultId ? (results.find((r) => r.id === openResultId) ?? null) : null;
 
   // Prefer the result's REAL ingested trace. Probe it — this shares TraceViewerPanel's
@@ -324,7 +360,24 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
 
   return (
     <>
-      <ProjectBreadcrumb projectId={projectId} current="Evaluations" />
+      <ProjectBreadcrumb
+        projectId={projectId}
+        trail={
+          run
+            ? [
+                { label: "Evaluations", href: `/projects/${projectId}/evaluations` },
+                {
+                  // The run segment is a dropdown of this evaluation's runs, like the
+                  // dataset switcher — jump to another run without leaving the page.
+                  label: `${run.evaluationName} #${run.runNumber}`,
+                  menuHeader: { label: "Evaluations", href: `/projects/${projectId}/evaluations` },
+                  options: runOptions,
+                },
+              ]
+            : [{ label: "Evaluations", href: `/projects/${projectId}/evaluations` }]
+        }
+        current={run ? undefined : "Run"}
+      />
       <div className="flex flex-1 flex-col overflow-hidden text-[12px]">
         {isLoading ? (
           <div className="flex h-64 items-center justify-center">
@@ -658,7 +711,7 @@ function RunSwitcher({
               </span>
             </span>
             <span className="tabular-nums text-muted-foreground">
-              {sibling.mainScore === null ? "—" : pct(sibling.mainScore)}
+              {sibling.mainScore === null ? "—" : pctFraction(sibling.mainScore)}
             </span>
           </button>
         ))}
@@ -693,7 +746,7 @@ function VerdictStrip({
         <RunStatusBadge status={run.status} />
         <Metric
           label={run.mainScoreName ?? "Main score"}
-          value={run.mainScore === null ? "—" : pct(run.mainScore)}
+          value={run.mainScore === null ? "—" : pctFraction(run.mainScore)}
           hint={cmp.baseline ? `vs ${cmp.baseline.candidateVersion}` : undefined}
           strong
         />
@@ -704,7 +757,7 @@ function VerdictStrip({
               <span className="text-muted-foreground">—</span>
             ) : (
               <span className={SENTIMENT_CLASS[changeSentiment(cmp.mainScore.delta)]}>
-                {signed(cmp.mainScore.delta)} pp
+                {signedPoints(cmp.mainScore.delta)} pp
               </span>
             )
           }
@@ -984,11 +1037,11 @@ function MainScoreCell({ result, hasBaseline }: { result: ResultRow; hasBaseline
   return (
     <div className="flex flex-col gap-0.5 text-[12px] tabular-nums">
       <span>
-        {pct(cand)}
-        {base !== null && <span className="text-muted-foreground"> vs {pct(base)}</span>}
+        {pctFraction(cand)}
+        {base !== null && <span className="text-muted-foreground"> vs {pctFraction(base)}</span>}
       </span>
       {delta !== null && (
-        <span className={SENTIMENT_CLASS[changeSentiment(delta)]}>{signed(delta)} pp</span>
+        <span className={SENTIMENT_CLASS[changeSentiment(delta)]}>{signedPoints(delta)} pp</span>
       )}
     </div>
   );
@@ -1476,10 +1529,19 @@ function ResultContext({
   onReview: () => void;
   onSaveExpected: (value: string) => void;
 }) {
+  // Seed the canonical (expanded) form here rather than letting the field
+  // normalise it: this component re-seeds `expected` from the prop whenever the
+  // open result changes, which would otherwise clobber the field's own fix-up.
   const expectedValue = result.expectedOutput ?? "";
-  const [expected, setExpected] = React.useState(expectedValue);
-  React.useEffect(() => setExpected(expectedValue), [expectedValue, result.id]);
-  const expectedDirty = expected.trim() !== expectedValue.trim();
+  const seededExpected = React.useMemo(
+    () => seedFormat(expectedValue, "expanded").text,
+    [expectedValue],
+  );
+  const [expected, setExpected] = React.useState(seededExpected);
+  React.useEffect(() => setExpected(seededExpected), [seededExpected, result.id]);
+  // Saving publishes a NEW dataset version, so only a real change counts as dirty:
+  // re-indenting a value (by the seed format, or the format switcher) is not an edit.
+  const expectedDirty = !sameAuthoredValue(expected, expectedValue);
 
   return (
     <div className="w-full text-[12px]">
@@ -1497,7 +1559,9 @@ function ResultContext({
           text={expected}
           onChange={setExpected}
           boxed
-          autoDetectKind
+          // The value candidate output is graded against, read closely and edited
+          // here → expand it, like Input/Recorded output in Save as test case.
+          seedJson="expanded"
           copyable
           minRows={2}
         />
