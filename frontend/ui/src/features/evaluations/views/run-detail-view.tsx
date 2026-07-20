@@ -27,11 +27,9 @@ import { Table, TBody, THead, TR, TRHead, Td, Th } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import {
-  EditableValueBlock,
   EvalPageHeader,
   EvalResultBadge,
   ReviewPanel,
-  seedFormat,
   Timestamp,
   useSeedTraceIO,
   type ReviewTarget,
@@ -52,12 +50,7 @@ import {
   signedPoints,
   truncate,
 } from "@/features/offline-eval/utils";
-import {
-  useEvaluationRun,
-  useEvaluationRuns,
-  useCreateHumanScore,
-  useUpdateTestCase,
-} from "../hooks";
+import { useEvaluationRun, useEvaluationRuns, useCreateHumanScore } from "../hooks";
 import { RunStatusBadge } from "./evaluations-view";
 import { PullCodeDrawer } from "../components/pull-code-drawer";
 import { SaveTestCaseDrawer } from "../components/trace-integration";
@@ -65,13 +58,6 @@ import { reproduceRunCode, reproduceRunCodeTs } from "@/features/offline-eval/ut
 import { attributeTraceUsage, type TraceUsage, type UsageSpan } from "@/lib/eval/trace-usage";
 import { matchSpans } from "@/lib/eval/span-match";
 import type { ResultRow, RunDetail, ScoreRow, Classification } from "../types";
-
-/** Verdict → badge tone, matching the design system's success/danger/warning. */
-const HUMAN_VERDICT_VARIANT: Record<string, "success" | "danger" | "warning"> = {
-  pass: "success",
-  fail: "danger",
-  unsure: "warning",
-};
 
 /** Case/run duration; "Unknown" when unmeasured (never 0s). */
 function fmtDurationMs(ms: number | null | undefined): string {
@@ -291,7 +277,6 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
   const [saveTestCaseOpen, setSaveTestCaseOpen] = React.useState(false);
   const [saveTestCaseSpanId, setSaveTestCaseSpanId] = React.useState<string | undefined>(undefined);
 
-  const { toast } = useToast();
   const results = React.useMemo(() => data?.results ?? [], [data]);
   const run = data?.run;
 
@@ -342,7 +327,6 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
   );
   useSeedTraceIO(projectId, fallbackTraces);
 
-  const updateCase = useUpdateTestCase(projectId, run?.datasetId ?? "");
   const humanScore = useCreateHumanScore(projectId, openResult?.id ?? "");
 
   const panelTraceId = useRealTrace ? realTraceId : fallbackTrace?.trace_id;
@@ -451,56 +435,57 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
           onNavigate={navigateResult}
           canNavigateUp={openIndex > 0}
           canNavigateDown={openIndex >= 0 && openIndex < visibleResults.length - 1}
-          // Save any span (or the trace root) of a real eval trace as a dataset test
-          // case. Only offered for real ingested traces — a reconstructed fallback has
-          // no telemetry for the drawer to read.
-          spanHeaderAction={
-            useRealTrace
-              ? (selection) => (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 shrink-0 text-[12px]"
-                    onClick={() => {
-                      setSaveTestCaseSpanId(
-                        selection.type === "span" ? selection.span.span_id : undefined,
-                      );
-                      setSaveTestCaseOpen(true);
-                    }}
-                  >
-                    Save as test case
-                  </Button>
-                )
-              : undefined
-          }
-          // While the drawer is open, clicking a different span retargets it.
+          // The test case is the identity that matters across runs (a trace id is
+          // per-execution, and synthetic when nothing was ingested), so the header
+          // leads with it instead of the trace id.
+          headerIdentity={{ label: "Test case", value: openResult.testCaseId }}
+          // The case's outcome, in the header's findings-alert slot.
+          headerStatus={<EvalResultBadge status={openResult.status} />}
+          // While the "Save as test case" drawer is open, clicking a different span
+          // retargets it to that span.
           onSelectionChange={(selection) => {
             if (saveTestCaseOpen) {
               setSaveTestCaseSpanId(selection.type === "span" ? selection.span.span_id : undefined);
             }
           }}
-          spanActions={() => (
-            <ResultContext
-              projectId={projectId}
-              run={run}
-              result={openResult}
-              onReview={() => setReviewOpen(true)}
-              onSaveExpected={(value) =>
-                updateCase.mutate(
-                  {
-                    testCaseId: openResult.testCaseId,
-                    patch: { expected: value.trim() === "" ? null : value },
-                  },
-                  {
-                    onSuccess: () =>
-                      toast({
-                        title: "Expected outcome saved — new dataset version published",
-                        tone: "success",
-                      }),
-                  },
-                )
-              }
-            />
+          // The case actions live in the span panel's header-section bar, directly
+          // above the I/O — human review, the source test case, and (for a real
+          // ingested trace) saving the selected span as a new test case. Everything
+          // else that used to sit above the I/O has moved to the run detail table
+          // and the trace header.
+          spanActions={(selection) => (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-[12px]"
+                onClick={() => setReviewOpen(true)}
+              >
+                Review output
+              </Button>
+              <Link
+                href={`/projects/${projectId}/datasets/${run.datasetId}?case=${openResult.testCaseId}`}
+                className="inline-flex h-7 items-center gap-1.5 rounded-md border border-input bg-background px-2.5 text-[12px] font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <Database className="h-3.5 w-3.5" aria-hidden />
+                View source test case
+              </Link>
+              {useRealTrace && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-[12px]"
+                  onClick={() => {
+                    setSaveTestCaseSpanId(
+                      selection.type === "span" ? selection.span.span_id : undefined,
+                    );
+                    setSaveTestCaseOpen(true);
+                  }}
+                >
+                  Save as test case
+                </Button>
+              )}
+            </>
           )}
           spanExtraTags={() => (
             <>
@@ -521,10 +506,6 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
                 <span className="font-medium">
                   {run.datasetName} · {run.datasetVersionLabel}
                 </span>
-              </span>
-              <span className="inline-flex items-center gap-1.5 rounded-md border bg-muted/40 px-2.5 py-1 text-xs">
-                <span className="text-muted-foreground">Test case:</span>
-                <span className="font-mono">{openResult.testCaseId}</span>
               </span>
             </>
           )}
@@ -1387,120 +1368,7 @@ function ChangeCell({ change }: { change: Classification | null }) {
   return <span className="text-muted-foreground">—</span>;
 }
 
-function cellValueDisplay(v: number | boolean | string | null): string {
-  if (v === null || v === undefined) return "—";
-  if (typeof v === "boolean") return v ? "true" : "false";
-  if (typeof v === "number") return Number.isInteger(v) ? String(v) : v.toFixed(3);
-  return v;
-}
-
-const CELL_CLASS_STYLE: Record<Classification, { label: string; className: string }> = {
-  improved: { label: "Improved", className: SENTIMENT_CLASS.good },
-  regressed: { label: "Regressed", className: SENTIMENT_CLASS.bad },
-  unchanged: { label: "Unchanged", className: "text-muted-foreground" },
-  changed: { label: "Changed", className: "text-foreground" },
-  unpaired: { label: "Unpaired", className: "text-muted-foreground" },
-  not_comparable: { label: "Not comparable", className: "text-amber-600 dark:text-amber-400" },
-};
-
-/**
- * The candidate-vs-baseline breakdown per scorer cell, shown beside the trace. Uses
- * the derived comparison (candidate value, baseline value, delta or transition, and the
- * cell classification + reason); falls back to candidate-only scores when there is no
- * comparison (no baseline). A failed scorer is an error, never a 0.
- */
-function ScorerBreakdown({ result }: { result: ResultRow }) {
-  const cells = result.comparison?.scorerCells ?? [];
-  const byName = new Map(result.scores.map((s) => [s.scorerName, s]));
-
-  if (cells.length === 0) {
-    if (result.scores.length === 0) return null;
-    return (
-      <ul className="mt-2 divide-y divide-border rounded border border-border">
-        {result.scores.map((s) => (
-          <li key={s.id} className="px-2.5 py-1.5">
-            <div className="flex items-center justify-between gap-2">
-              <span className="font-medium">
-                {s.scorerName}
-                <span className="ml-1.5 font-normal text-muted-foreground">{s.scorerVersion}</span>
-              </span>
-              {s.error ? (
-                <Badge variant="warning">Scorer error</Badge>
-              ) : (
-                <span className="tabular-nums">{scoreValue(s)}</span>
-              )}
-            </div>
-            {s.explanation && (
-              <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-                {s.explanation}
-              </p>
-            )}
-            {s.error && (
-              <p className="mt-0.5 font-mono text-[11px] text-amber-700 dark:text-amber-400">
-                {s.error} — the candidate answered, only the judge failed.
-              </p>
-            )}
-          </li>
-        ))}
-      </ul>
-    );
-  }
-
-  return (
-    <ul className="mt-2 divide-y divide-border rounded border border-border">
-      {cells.map((c) => {
-        const s = byName.get(c.scorerName);
-        const style = CELL_CLASS_STYLE[c.classification];
-        return (
-          <li key={c.scorerName} className="px-2.5 py-1.5">
-            <div className="flex items-center justify-between gap-2">
-              <span className="font-medium">
-                {c.scorerName}
-                <span className="ml-1.5 font-normal text-muted-foreground">{c.scorerVersion}</span>
-              </span>
-              <span className={cn("text-[11px] font-medium", style.className)}>{style.label}</span>
-            </div>
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] tabular-nums text-muted-foreground">
-              <span>
-                candidate{" "}
-                <span className="text-foreground">{cellValueDisplay(c.candidateValue)}</span>
-              </span>
-              <span>
-                baseline{" "}
-                <span className="text-foreground">{cellValueDisplay(c.baselineValue)}</span>
-              </span>
-              {c.delta !== null && (
-                <span className={SENTIMENT_CLASS[changeSentiment(c.delta)]}>{signed(c.delta)}</span>
-              )}
-              {c.transition && (
-                <span className="text-foreground">
-                  {c.transition.from} → {c.transition.to}
-                </span>
-              )}
-              {c.reason && (
-                <span className="text-amber-600 dark:text-amber-400">
-                  {c.reason.replace(/_/g, " ")}
-                </span>
-              )}
-            </div>
-            {s?.explanation && (
-              <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-                {s.explanation}
-              </p>
-            )}
-            {s?.error && (
-              <p className="mt-0.5 font-mono text-[11px] text-amber-700 dark:text-amber-400">
-                {s.error} — the candidate answered, only the judge failed.
-              </p>
-            )}
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
-/** One metric row: candidate vs baseline vs delta. Missing values show "—". */
+/** One metric row: candidate value with its ± delta beside it (lower is better). */
 function MetricRow({
   label,
   candidate,
@@ -1764,209 +1632,6 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
     <div className="flex items-center justify-between gap-3 border-b border-border/50 py-1 last:border-0">
       <dt className="text-[11px] text-muted-foreground">{label}</dt>
       <dd className="text-right text-[12px]">{children}</dd>
-    </div>
-  );
-}
-
-/**
- * The evaluation context for one result, shown as the trace viewer's span-actions
- * panel. The input/candidate output already render in the span detail below, so
- * this adds only the eval-specific bits: the editable expected outcome (behind a
- * button; saving publishes a new dataset version), the scores, what broke, the
- * human review, and the actions.
- */
-function ResultContext({
-  projectId,
-  run,
-  result,
-  onReview,
-  onSaveExpected,
-}: {
-  projectId: string;
-  run: RunDetail;
-  result: ResultRow;
-  onReview: () => void;
-  onSaveExpected: (value: string) => void;
-}) {
-  // Seed the canonical (expanded) form here rather than letting the field
-  // normalise it: this component re-seeds `expected` from the prop whenever the
-  // open result changes, which would otherwise clobber the field's own fix-up.
-  const expectedValue = result.expectedOutput ?? "";
-  const seededExpected = React.useMemo(
-    () => seedFormat(expectedValue, "expanded").text,
-    [expectedValue],
-  );
-  const [expected, setExpected] = React.useState(seededExpected);
-  React.useEffect(() => setExpected(seededExpected), [seededExpected, result.id]);
-  // Saving publishes a NEW dataset version, so only a real change counts as dirty:
-  // re-indenting a value (by the seed format, or the format switcher) is not an edit.
-  const expectedDirty = !sameAuthoredValue(expected, expectedValue);
-
-  return (
-    <div className="w-full text-[12px]">
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <EvalResultBadge status={result.status} />
-        <span className="font-mono text-[11px] text-muted-foreground">{result.testCaseId}</span>
-      </div>
-
-      {/* Candidate vs baseline for THIS case, beside the trace — mirrors the run-level
-          "vs baseline" up top. Only when a baseline comparison is available. */}
-      {run.comparison.available && result.comparison && (
-        <div className="mb-3 rounded border border-border bg-muted/20 px-2.5 py-2 text-[11px]">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="font-medium">
-              Candidate vs baseline
-              {run.comparison.baseline && (
-                <span className="ml-1 font-normal text-muted-foreground">
-                  ({run.comparison.baseline.candidateVersion})
-                </span>
-              )}
-            </span>
-            <span
-              className={cn(
-                "font-medium",
-                CELL_CLASS_STYLE[result.comparison.caseChange].className,
-              )}
-            >
-              {CELL_CLASS_STYLE[result.comparison.caseChange].label}
-            </span>
-          </div>
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 tabular-nums text-muted-foreground">
-            <span>
-              {run.mainScoreName ?? "Main score"}:{" "}
-              <span className="text-foreground">
-                {result.comparison.mainScore.candidate === null
-                  ? "—"
-                  : pctFraction(result.comparison.mainScore.candidate)}
-              </span>
-              {result.comparison.mainScore.baseline !== null && (
-                <span> vs {pctFraction(result.comparison.mainScore.baseline)}</span>
-              )}
-            </span>
-            {result.comparison.mainScore.delta !== null && (
-              <span className={SENTIMENT_CLASS[changeSentiment(result.comparison.mainScore.delta)]}>
-                {signedPoints(result.comparison.mainScore.delta)} pp
-              </span>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Expected outcome — the same editable, format-aware value block used on the
-          dataset case panel; Save (shown when edited) publishes a new dataset version. */}
-      <div>
-        <EditableValueBlock
-          key={result.id}
-          label="Expected outcome"
-          text={expected}
-          onChange={setExpected}
-          boxed
-          // The value candidate output is graded against, read closely and edited
-          // here → expand it, like Input/Recorded output in Save as test case.
-          seedJson="expanded"
-          copyable
-          minRows={2}
-        />
-        {expectedDirty && (
-          <div className="mt-1.5 flex items-center gap-2">
-            <Button
-              size="sm"
-              className="h-7 text-[12px]"
-              onClick={() => onSaveExpected(expected.trim())}
-            >
-              Save
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 text-[12px]"
-              onClick={() => setExpected(expectedValue)}
-            >
-              Cancel
-            </Button>
-          </div>
-        )}
-        <p className="mt-1 text-[11px] text-muted-foreground">
-          Saving edits test case <span className="font-mono">{result.testCaseId}</span> in{" "}
-          <span className="font-medium">{run.datasetName}</span> — it changes what future runs are
-          compared against.
-        </p>
-      </div>
-
-      {/* Per-span candidate-vs-baseline output diffs now live in the trace viewer's
-          Diff toggle (each span's Input/Output/Metadata), so no case-level output
-          diff is rendered here. */}
-
-      {/* An application error means no scorer ever ran. */}
-      {result.taskError && (
-        <div className="mt-2 rounded border border-red-300 bg-red-50 px-2.5 py-1.5 dark:border-red-900 dark:bg-red-950/40">
-          <p className="text-[11px] font-medium text-red-700 dark:text-red-300">
-            Application error — the candidate failed, so no scorer ran
-          </p>
-          <p className="mt-0.5 font-mono text-[11px] text-red-700 dark:text-red-300">
-            {result.taskError}
-          </p>
-        </div>
-      )}
-
-      <ScorerBreakdown result={result} />
-
-      {/* Token/cost/duration now live as chips on the trace tag row (spanExtraTags),
-          not a table here. */}
-
-      {result.humanScores.length > 0 && (
-        <div className="mt-2 overflow-hidden rounded border border-border">
-          <div className="border-b border-border bg-muted/40 px-2.5 py-1 text-[11px] text-muted-foreground">
-            Human review
-          </div>
-          <ul className="divide-y divide-border">
-            {result.humanScores.map((h) => (
-              <li key={h.id} className="flex flex-col gap-1 px-2.5 py-1.5 text-[11px]">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant={HUMAN_VERDICT_VARIANT[h.verdict] ?? "default"}>
-                    <span className="capitalize">{h.verdict}</span>
-                  </Badge>
-                  {h.quality != null && (
-                    <span className="tabular-nums text-muted-foreground">
-                      Quality {h.quality}/5
-                    </span>
-                  )}
-                  {h.reviewer && (
-                    <span className="ml-auto truncate text-muted-foreground">{h.reviewer}</span>
-                  )}
-                </div>
-                {h.comment && <p className="leading-relaxed text-muted-foreground">{h.comment}</p>}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <Button size="sm" className="h-7 text-[12px]" onClick={onReview}>
-          Review output
-        </Button>
-        <Link
-          href={`/projects/${projectId}/datasets/${run.datasetId}?case=${result.testCaseId}`}
-          className="inline-flex h-7 items-center gap-1.5 rounded-md border border-input bg-background px-2.5 text-[12px] font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-        >
-          <Database className="h-3.5 w-3.5" aria-hidden />
-          View source test case
-        </Link>
-        <span className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground">
-          {/* Candidate case duration vs baseline; "Unknown" when unmeasured, never 0. */}
-          <span title="Case duration (task + scorers)">{fmtDurationMs(result.durationMs)}</span>
-          {result.comparison?.baselineDurationMs != null && (
-            <span>vs {fmtDurationMs(result.comparison.baselineDurationMs)}</span>
-          )}
-          {result.comparison?.durationDeltaMs != null && (
-            <span className={SENTIMENT_CLASS[changeSentiment(-result.comparison.durationDeltaMs)]}>
-              ({signed(result.comparison.durationDeltaMs / 1000)}s)
-            </span>
-          )}
-          {result.cost !== null ? <span>· ${result.cost.toFixed(4)}</span> : ""}
-        </span>
-      </div>
     </div>
   );
 }
