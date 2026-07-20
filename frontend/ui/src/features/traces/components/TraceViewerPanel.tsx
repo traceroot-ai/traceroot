@@ -443,7 +443,17 @@ export function TraceViewerPanel({
                     </div>
                   ) : error || !trace ? (
                     <div className="flex h-full items-center justify-center">
-                      <p className="text-sm text-destructive">Error loading trace</p>
+                      {source === "detector" ? (
+                        // self_traced is set optimistically at emit time, but the
+                        // SDK export is batched — the trace may not be ingested
+                        // yet, so a miss here is expected, not an error.
+                        <p className="text-sm text-muted-foreground">
+                          This detector run&rsquo;s trace is still being recorded. Check back in a
+                          moment.
+                        </p>
+                      ) : (
+                        <p className="text-sm text-destructive">Error loading trace</p>
+                      )}
                     </div>
                   ) : viewMode === "tree" ? (
                     <SpanInfoPanel

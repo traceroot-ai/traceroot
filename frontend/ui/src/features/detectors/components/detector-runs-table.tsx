@@ -8,6 +8,8 @@ interface DetectorRunsTableProps {
   rows: BackendRun[];
   /** Fired when a row's trace_id cell is clicked — opens the run's trace. */
   onTraceClick: (run: BackendRun) => void;
+  /** Fired when a self-traced run's run_id cell is clicked — opens its self-trace. */
+  onRunClick: (run: BackendRun) => void;
 }
 
 /**
@@ -17,10 +19,11 @@ interface DetectorRunsTableProps {
  * The Agent-analysis cell keys "N/A" on `finding_id` (not on `rca_status`): a
  * run with no finding has nothing to analyze, while a triggered run shows its
  * stored RCA state via `describeRcaStatus`. The `trace_id` cell — not the whole
- * row — is the click target, so a future `run_id` → self-trace cell can sit
- * beside it without conflict.
+ * row — is the click target; the `run_id` cell links to the run's own
+ * self-trace, but only when `self_traced` is set (historical or failed-emit
+ * runs have no self-trace, so their run_id stays plain text).
  */
-export function DetectorRunsTable({ rows, onTraceClick }: DetectorRunsTableProps) {
+export function DetectorRunsTable({ rows, onTraceClick, onRunClick }: DetectorRunsTableProps) {
   return (
     <table className="w-full">
       <thead className="sticky top-0 bg-background">
@@ -46,8 +49,19 @@ export function DetectorRunsTable({ rows, onTraceClick }: DetectorRunsTableProps
               <td className={cn(DETECTOR_TD, "whitespace-nowrap text-muted-foreground")}>
                 {formatDate(run.timestamp)}
               </td>
-              <td className={cn(DETECTOR_TD, "font-mono text-[11px] text-muted-foreground")}>
-                {run.run_id}
+              <td className={cn(DETECTOR_TD, "font-mono text-[11px]")}>
+                {run.self_traced ? (
+                  <button
+                    type="button"
+                    onClick={() => onRunClick(run)}
+                    title={run.run_id}
+                    className="block max-w-full truncate text-left text-muted-foreground transition-colors hover:text-foreground hover:underline"
+                  >
+                    {run.run_id}
+                  </button>
+                ) : (
+                  <span className="text-muted-foreground">{run.run_id}</span>
+                )}
               </td>
               <td className={cn(DETECTOR_TD, "font-mono text-[11px]")}>
                 <button

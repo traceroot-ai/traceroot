@@ -108,10 +108,25 @@ export default function DetectorDetailPage() {
   const openOriginalTrace = (run: BackendRun) =>
     setSelectedTrace({ traceId: run.trace_id, kind: "original" });
 
-  // Clear the selection if its trace is no longer in the active list (e.g. the
+  // A run's self-trace id is its dashless run_id (trace_id = run_id by
+  // construction on the emit side). One helper so the setter and the matcher
+  // below can never drift.
+  const selfTraceId = (run: BackendRun) => run.run_id.replaceAll("-", "");
+
+  // Clicking a self-traced run's run_id cell opens the run's own trace.
+  const openSelfTrace = (run: BackendRun) =>
+    setSelectedTrace({ traceId: selfTraceId(run), kind: "self" });
+
+  // A self-trace is identified by its run row, not by a trace_id in the list,
+  // so match on the right key per kind.
+  const rowMatchesSelection = (r: BackendRun, sel: SelectedTrace) =>
+    sel != null &&
+    (sel.kind === "self" ? selfTraceId(r) === sel.traceId : r.trace_id === sel.traceId);
+
+  // Clear the selection if its run/trace is no longer in the active list (e.g. the
   // user paginated, refetched, switched tabs, or changed filters).
   useEffect(() => {
-    if (selectedTrace && !activeRows.some((r) => r.trace_id === selectedTrace.traceId)) {
+    if (selectedTrace && !activeRows.some((r) => rowMatchesSelection(r, selectedTrace))) {
       setSelectedTrace(null);
     }
   }, [activeRows, selectedTrace]);
@@ -128,11 +143,15 @@ export default function DetectorDetailPage() {
   }, [didAutoOpen, traceIdFromUrl, activeRows]);
 
   const selectedIndex = selectedTrace
-    ? activeRows.findIndex((r) => r.trace_id === selectedTrace.traceId)
+    ? activeRows.findIndex((r) => rowMatchesSelection(r, selectedTrace))
     : -1;
 
+  // Up/down steps through original traces only; a self-trace is a point-open with
+  // no natural sequence (adjacent rows may not be self-traced).
+  const canNavigate = selectedTrace?.kind === "original";
+
   function handleNavigate(direction: "up" | "down") {
-    if (selectedIndex === -1) return;
+    if (!canNavigate || selectedIndex === -1) return;
     const nextIndex = direction === "up" ? selectedIndex - 1 : selectedIndex + 1;
     if (nextIndex >= 0 && nextIndex < activeRows.length) {
       setSelectedTrace({ traceId: activeRows[nextIndex].trace_id, kind: "original" });
@@ -227,7 +246,13 @@ export default function DetectorDetailPage() {
                 </div>
               );
             }
-            return <DetectorRunsTable rows={activeRows} onTraceClick={openOriginalTrace} />;
+            return (
+              <DetectorRunsTable
+                rows={activeRows}
+                onTraceClick={openOriginalTrace}
+                onRunClick={openSelfTrace}
+              />
+            );
           })()}
         </div>
 
@@ -252,8 +277,10 @@ export default function DetectorDetailPage() {
             setStartFullscreen(false);
           }}
           onNavigate={handleNavigate}
-          canNavigateUp={selectedIndex > 0}
-          canNavigateDown={selectedIndex !== -1 && selectedIndex < activeRows.length - 1}
+          canNavigateUp={canNavigate && selectedIndex > 0}
+          canNavigateDown={
+            canNavigate && selectedIndex !== -1 && selectedIndex < activeRows.length - 1
+          }
           dateFilter={state.dateFilter}
           customStartDate={state.customStartDate}
           customEndDate={state.customEndDate}

@@ -92,6 +92,7 @@ vi.mock("@/features/traces/components/TraceViewerPanel", () => ({
   TraceViewerPanel: ({
     traceId,
     autoOpenRca,
+    source,
     onClose,
     onNavigate,
     canNavigateUp,
@@ -99,12 +100,17 @@ vi.mock("@/features/traces/components/TraceViewerPanel", () => ({
   }: {
     traceId: string;
     autoOpenRca?: boolean;
+    source?: "detector" | "user";
     onClose: () => void;
     onNavigate: (d: "up" | "down") => void;
     canNavigateUp: boolean;
     canNavigateDown: boolean;
   }) => (
-    <div data-testid="trace-panel" data-auto-open-rca={String(autoOpenRca)}>
+    <div
+      data-testid="trace-panel"
+      data-auto-open-rca={String(autoOpenRca)}
+      data-source={String(source)}
+    >
       <span data-testid="panel-trace">{traceId}</span>
       <button type="button" onClick={onClose}>
         panel-close
@@ -273,5 +279,60 @@ describe("DetectorDetailPage", () => {
     render(<DetectorDetailPage />);
 
     expect(screen.getByText("No findings found")).toBeTruthy();
+  });
+});
+
+describe("run_id → self-trace link", () => {
+  const selfRun = {
+    run_id: "aaaa-bbbb",
+    detector_id: "det-1",
+    project_id: "proj-1",
+    trace_id: "trace-self",
+    finding_id: null,
+    status: "completed",
+    timestamp: "2026-05-01T12:10:00Z",
+    summary: "",
+    self_traced: true,
+  };
+  const plainRun = { ...selfRun, run_id: "cccc-dddd", trace_id: "trace-plain", self_traced: false };
+
+  function useRunsWithSelfRows(_p: string, _d: string, query: { identified?: boolean } = {}) {
+    return {
+      data: { data: query.identified ? [] : [selfRun, plainRun], meta: { total: 2 } },
+      isLoading: false,
+      error: null,
+    };
+  }
+
+  it("opens the dashless self-trace with source=detector when self_traced", () => {
+    mocks.useRuns.mockImplementation(useRunsWithSelfRows);
+    render(<DetectorDetailPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Runs" }));
+
+    fireEvent.click(screen.getByRole("button", { name: /aaaa-bbbb/ }));
+
+    const panel = screen.getByTestId("trace-panel");
+    expect(within(panel).getByTestId("panel-trace").textContent).toBe("aaaabbbb");
+    expect(panel.getAttribute("data-source")).toBe("detector");
+    expect(panel.getAttribute("data-auto-open-rca")).toBe("false");
+    // A self-trace is a point-open — it can never step into an original trace.
+    expect(within(panel).getByRole("button", { name: "panel-up" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+    expect(within(panel).getByRole("button", { name: "panel-down" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+  });
+
+  it("renders run_id as plain text (no link) when not self_traced", () => {
+    mocks.useRuns.mockImplementation(useRunsWithSelfRows);
+    render(<DetectorDetailPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Runs" }));
+
+    expect(screen.queryByRole("button", { name: /cccc-dddd/ })).toBeNull();
+    expect(screen.getByText("cccc-dddd")).toBeTruthy();
+    expect(screen.queryByTestId("trace-panel")).toBeNull();
   });
 });

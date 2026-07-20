@@ -219,3 +219,19 @@ describe("source-scoped fetch", () => {
     expect(mocks.lastQuery!.queryKey).not.toContain("detector");
   });
 });
+
+describe("detector self-trace not-yet-ingested state", () => {
+  it("shows a 'still being recorded' hint instead of an error for a missing detector trace", () => {
+    mocks.trace = null;
+    renderPanel({ source: "detector" });
+    expect(screen.getByText(/still being recorded/i)).toBeTruthy();
+    expect(screen.queryByText("Error loading trace")).toBeNull();
+  });
+
+  it("shows the normal error for a missing user trace", () => {
+    mocks.trace = null;
+    renderPanel({ source: "user" });
+    expect(screen.getByText("Error loading trace")).toBeTruthy();
+    expect(screen.queryByText(/still being recorded/i)).toBeNull();
+  });
+});
