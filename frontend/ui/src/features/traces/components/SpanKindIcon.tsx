@@ -1,6 +1,15 @@
 "use client";
 
-import { Workflow, Sparkle, Bot, Wrench, ArrowRight } from "lucide-react";
+import {
+  Workflow,
+  Sparkle,
+  Bot,
+  Wrench,
+  ArrowRight,
+  FlaskConical,
+  Play,
+  Ruler,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TREE_LAYOUT } from "../utils";
 
@@ -18,6 +27,12 @@ export function getSpanKindIcon(kind: string) {
       return Bot;
     case "tool":
       return Wrench;
+    case "evaluation":
+      return FlaskConical;
+    case "task":
+      return Play;
+    case "scorer":
+      return Ruler;
     case "span":
     default:
       return ArrowRight;
@@ -52,6 +67,19 @@ const SPAN_KIND_COLORS: Record<string, SpanKindColor> = {
   span: {
     surface: "bg-slate-100 border-slate-300 dark:bg-slate-800/50 dark:border-slate-700",
     glyph: "text-slate-600 dark:text-slate-400",
+  },
+  // Offline-evaluation kinds — distinct tints so eval traces read at a glance.
+  evaluation: {
+    surface: "bg-emerald-100 border-emerald-300 dark:bg-emerald-950/50 dark:border-emerald-800",
+    glyph: "text-emerald-700 dark:text-emerald-300",
+  },
+  task: {
+    surface: "bg-sky-100 border-sky-300 dark:bg-sky-950/50 dark:border-sky-800",
+    glyph: "text-sky-700 dark:text-sky-300",
+  },
+  scorer: {
+    surface: "bg-fuchsia-100 border-fuchsia-300 dark:bg-fuchsia-950/50 dark:border-fuchsia-800",
+    glyph: "text-fuchsia-700 dark:text-fuchsia-300",
   },
   // The trace root is structural, not a real span_kind — keep it neutral/quiet.
   trace: {
