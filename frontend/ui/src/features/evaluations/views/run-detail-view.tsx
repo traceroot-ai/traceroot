@@ -26,6 +26,7 @@ import { Table, TBody, THead, TR, TRHead, Td, Th } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import {
+  EditableValueBlock,
   EvalPageHeader,
   EvalResultBadge,
   ReviewPanel,
@@ -207,8 +208,9 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
   const { data, isLoading, error } = useEvaluationRun(projectId, runId);
   const [openResultId, setOpenResultId] = React.useState<string | null>(null);
   const [resultFilter, setResultFilter] = React.useState<ResultFilterId>("all");
-  const [traceFullscreen, setTraceFullscreen] = React.useState(false);
   const [reviewOpen, setReviewOpen] = React.useState(false);
+  // The result's REAL ingested trace, opened as a side panel over the eval trace.
+  const [viewRealTraceId, setViewRealTraceId] = React.useState<string | null>(null);
 
   const { toast } = useToast();
   const results = React.useMemo(() => data?.results ?? [], [data]);
@@ -233,7 +235,7 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
 
   const closeResult = () => {
     setOpenResultId(null);
-    setTraceFullscreen(false);
+    setViewRealTraceId(null);
   };
 
   return (
@@ -270,12 +272,10 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
       {/* The real trace viewer on the eval-shaped trace — not a simplified tree. */}
       {openResult && openTrace && run && (
         <TraceViewerPanel
-          // Remount when fullscreen flips: initialFullscreen is read only at mount.
-          key={`${openTrace.trace_id}:${traceFullscreen ? "fs" : "panel"}`}
+          key={openTrace.trace_id}
           projectId={projectId}
           traceId={openTrace.trace_id}
           traceOverride={openTrace}
-          initialFullscreen={traceFullscreen}
           newTabPath={`/projects/${projectId}/evaluations/${runId}`}
           onClose={closeResult}
           onNavigate={() => {}}
@@ -286,8 +286,9 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
               projectId={projectId}
               run={run}
               result={openResult}
-              fullscreen={traceFullscreen}
-              onOpenFullTrace={() => setTraceFullscreen(true)}
+              onOpenFullTrace={
+                openResult.traceId ? () => setViewRealTraceId(openResult.traceId) : undefined
+              }
               onReview={() => setReviewOpen(true)}
               onSaveExpected={(value) =>
                 updateCase.mutate(
@@ -327,6 +328,21 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
               </span>
             </>
           )}
+        />
+      )}
+
+      {/* "Open full trace" opens the result's REAL ingested trace as a side panel
+          over the eval trace; closing it returns to the eval trace panel. */}
+      {viewRealTraceId && (
+        <TraceViewerPanel
+          key={`real:${viewRealTraceId}`}
+          projectId={projectId}
+          traceId={viewRealTraceId}
+          newTabPath={`/projects/${projectId}/evaluations/${runId}`}
+          onClose={() => setViewRealTraceId(null)}
+          onNavigate={() => {}}
+          canNavigateUp={false}
+          canNavigateDown={false}
         />
       )}
 
@@ -1001,14 +1017,15 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 /**
  * The evaluation context for one result, shown as the trace viewer's span-actions
- * panel: input + candidate output, an editable expected outcome (saving publishes a
- * new dataset version), how the scorers judged it, what broke, and the human review.
+ * panel. The input/candidate output already render in the span detail below, so
+ * this adds only the eval-specific bits: the editable expected outcome (behind a
+ * button; saving publishes a new dataset version), the scores, what broke, the
+ * human review, and the actions.
  */
 function ResultContext({
   projectId,
   run,
   result,
-  fullscreen,
   onOpenFullTrace,
   onReview,
   onSaveExpected,
@@ -1016,56 +1033,91 @@ function ResultContext({
   projectId: string;
   run: RunDetail;
   result: ResultRow;
-  fullscreen: boolean;
-  onOpenFullTrace: () => void;
+  onOpenFullTrace?: () => void;
   onReview: () => void;
   onSaveExpected: (value: string) => void;
 }) {
   const expectedValue = result.expectedOutput ?? "";
+  const [editing, setEditing] = React.useState(false);
   const [expected, setExpected] = React.useState(expectedValue);
-  React.useEffect(() => setExpected(expectedValue), [expectedValue, result.id]);
+  React.useEffect(() => {
+    setExpected(expectedValue);
+    setEditing(false);
+  }, [expectedValue, result.id]);
   const expectedDirty = expected.trim() !== expectedValue.trim();
 
   return (
     <div className="w-full text-[12px]">
       <div className="mb-2 flex flex-wrap items-center gap-2">
-        <span className="text-[11px] font-medium text-muted-foreground">Evaluation result</span>
         <EvalResultBadge status={result.status} />
         <span className="font-mono text-[11px] text-muted-foreground">{result.testCaseId}</span>
       </div>
 
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <MiniField label="Input">{result.input}</MiniField>
-        <MiniField label="Candidate output">
-          {result.candidateOutput ?? <span className="text-muted-foreground">No output</span>}
-        </MiniField>
-      </div>
-
-      {/* Expected outcome is edited inline. Saving edits the source test case. */}
-      <div className="mt-2">
-        <p className="mb-1 text-[11px] text-muted-foreground">Expected outcome</p>
-        <div className="flex items-center gap-2">
-          <Input
-            value={expected}
-            onChange={(e) => setExpected(e.target.value)}
-            placeholder="No expected outcome — a scorer judges the output directly."
-            className="h-7 text-[12px]"
+      {/* Expected outcome — a two-line editable field revealed by a button; saving
+          publishes a new dataset version (the input/output are in the span detail). */}
+      {editing ? (
+        <div>
+          <EditableValueBlock
+            label="Expected outcome"
+            text={expected}
+            onChange={setExpected}
+            boxed
+            autoDetectKind
+            copyable
+            minRows={2}
           />
-          <Button
-            size="sm"
-            className="h-7 shrink-0 text-[12px]"
-            disabled={!expectedDirty}
-            onClick={() => onSaveExpected(expected.trim())}
-          >
-            Save
-          </Button>
+          <div className="mt-1.5 flex items-center gap-2">
+            <Button
+              size="sm"
+              className="h-7 text-[12px]"
+              disabled={!expectedDirty}
+              onClick={() => {
+                onSaveExpected(expected.trim());
+                setEditing(false);
+              }}
+            >
+              Save
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 text-[12px]"
+              onClick={() => {
+                setExpected(expectedValue);
+                setEditing(false);
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+          <p className="mt-1 text-[11px] text-muted-foreground">
+            Saving edits test case <span className="font-mono">{result.testCaseId}</span> in{" "}
+            <span className="font-medium">{run.datasetName}</span> — it changes what future runs are
+            compared against.
+          </p>
         </div>
-        <p className="mt-1 text-[11px] text-muted-foreground">
-          Saving edits test case <span className="font-mono">{result.testCaseId}</span> in{" "}
-          <span className="font-medium">{run.datasetName}</span> — it changes what future runs are
-          compared against.
-        </p>
-      </div>
+      ) : (
+        <div>
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <p className="text-[11px] text-muted-foreground">Expected outcome</p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 px-2 text-[11px]"
+              onClick={() => setEditing(true)}
+            >
+              Edit
+            </Button>
+          </div>
+          <div className="rounded border border-border bg-muted/20 px-2.5 py-2 leading-relaxed">
+            {expectedValue || (
+              <span className="text-muted-foreground">
+                No expected outcome — a scorer judges the output directly.
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {result.baselineOutput !== null && (
         <p className="mt-2 text-[11px] text-muted-foreground">
@@ -1134,7 +1186,7 @@ function ResultContext({
         <Button size="sm" className="h-7 text-[12px]" onClick={onReview}>
           Review output
         </Button>
-        {!fullscreen && (
+        {onOpenFullTrace && (
           <Button
             variant="outline"
             size="sm"
@@ -1146,7 +1198,7 @@ function ResultContext({
           </Button>
         )}
         <Link
-          href={`/projects/${projectId}/datasets/${run.datasetId}`}
+          href={`/projects/${projectId}/datasets/${run.datasetId}?case=${result.testCaseId}`}
           className="inline-flex h-7 items-center gap-1.5 rounded-md border border-input bg-background px-2.5 text-[12px] font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           <Database className="h-3.5 w-3.5" aria-hidden />
@@ -1156,17 +1208,6 @@ function ResultContext({
           {result.durationMs !== null ? `${(result.durationMs / 1000).toFixed(1)}s` : "—"}
           {result.cost !== null ? ` · $${result.cost.toFixed(4)}` : ""}
         </span>
-      </div>
-    </div>
-  );
-}
-
-function MiniField({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <p className="mb-1 text-[11px] text-muted-foreground">{label}</p>
-      <div className="rounded border border-border bg-muted/20 px-2.5 py-2 leading-relaxed">
-        {children}
       </div>
     </div>
   );
