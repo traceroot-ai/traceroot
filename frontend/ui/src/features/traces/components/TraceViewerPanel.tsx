@@ -14,13 +14,14 @@ import {
   Expand,
   Shrink,
   SquareArrowOutUpRight,
+  GitCompare,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn, buildUrlWithFilters } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { getTrace } from "@/lib/api";
-import type { TraceDetail } from "@/types/api";
+import type { Span, TraceDetail } from "@/types/api";
 import type { TraceSelection } from "../types";
 import { SpanTreeView, type SpanTreeViewHandle } from "./SpanTreeView";
 import { SpanInfoPanel } from "./SpanInfoPanel";
@@ -82,6 +83,15 @@ interface TraceViewerPanelProps {
    * drawer tracking the clicked span. Unset in production.
    */
   onSelectionChange?: (selection: TraceSelection) => void;
+  /**
+   * Diff mode (offline-eval only): resolves the baseline run's counterpart of the
+   * current selection (matched structurally, since span ids differ across runs).
+   * When provided, a "Diff" toggle appears in the sub-header; turning it on renders
+   * each span's latency/token/cost tags with ± deltas and Input/Output/Metadata as
+   * git-style line diffs vs the baseline. Return null when there's no counterpart
+   * (or the baseline trace hasn't loaded). Unset in production.
+   */
+  diffBaseline?: (selection: TraceSelection) => Span | null;
 }
 
 /**
@@ -115,8 +125,13 @@ export function TraceViewerPanel({
   spanHeaderAction,
   spanExtraTags,
   onSelectionChange,
+  diffBaseline,
 }: TraceViewerPanelProps) {
   const [selection, setSelection] = useState<TraceSelection>({ type: "trace" });
+  // Diff mode is opt-in per panel (offline-eval only); the toggle only appears
+  // when a baseline matcher is supplied. Persists across ↑/↓ navigation like
+  // fullscreen, since the panel instance stays mounted.
+  const [diffMode, setDiffMode] = useState(false);
   // Emit selection changes to the parent (kept in a ref so an inline callback
   // doesn't retrigger the effect — it fires only when `selection` actually changes).
   const onSelectionChangeRef = useRef(onSelectionChange);
@@ -418,6 +433,23 @@ export function TraceViewerPanel({
               <Eye className="h-3.5 w-3.5" /> Detectors
             </button>
           </div>
+          {/* Diff toggle — only when a baseline is available (offline-eval). */}
+          {diffBaseline && viewMode === "tree" && (
+            <div className="ml-auto pr-3">
+              <button
+                onClick={() => setDiffMode((v) => !v)}
+                className={cn(
+                  "flex items-center gap-2 rounded-md px-3 py-1 text-xs font-medium transition-all",
+                  diffMode
+                    ? "bg-muted text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                title="Diff each span's input, output, metadata and metrics against the baseline run"
+              >
+                <GitCompare className="h-3.5 w-3.5" /> Diff
+              </button>
+            </div>
+          )}
         </div>
 
         {/* ── CONTENT AREA ── */}
@@ -499,6 +531,8 @@ export function TraceViewerPanel({
                       spanActions={spanActions?.(selection)}
                       headerAction={spanHeaderAction?.(selection)}
                       extraTags={spanExtraTags?.(selection)}
+                      diffMode={!!diffBaseline && diffMode}
+                      baselineSpan={diffBaseline?.(selection) ?? null}
                     />
                   ) : (
                     <SpanTimelineView
