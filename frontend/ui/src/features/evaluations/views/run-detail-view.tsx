@@ -1306,18 +1306,21 @@ function UsageBreakdown({ usage }: { usage: TraceUsage }) {
             </span>
           </li>
         ))}
-        <li className="flex items-center justify-between bg-muted/20 px-2.5 py-1 text-[11px] font-medium">
-          <span>Combined</span>
-          <span className="tabular-nums">
-            {usage.combined.totalTokens.toLocaleString()} tok · {fmtCost(usage.combined.cost)}
-          </span>
-        </li>
+        {/* Only worth a Combined total when the cost is split across buckets (e.g. an
+            LLM judge). With a single bucket it just repeats the row above. */}
+        {rows.length > 1 && (
+          <li className="flex items-center justify-between bg-muted/20 px-2.5 py-1 text-[11px] font-medium">
+            <span>Combined</span>
+            <span className="tabular-nums">
+              {usage.combined.totalTokens.toLocaleString()} tok · {fmtCost(usage.combined.cost)}
+            </span>
+          </li>
+        )}
       </ul>
     </div>
   );
 }
 
-/** The regressed cases, as a plain list; the caller wraps it in a section. */
 /** Task errors and scorer errors are different failures and read differently. */
 function ErrorsBody({
   run,
