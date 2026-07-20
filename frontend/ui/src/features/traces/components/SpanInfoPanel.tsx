@@ -46,6 +46,17 @@ interface SpanInfoPanelProps {
    * the standard trace viewer is unaffected.
    */
   spanActions?: ReactNode;
+  /**
+   * Optional action rendered on the right of the header's title row, vertically
+   * centred against the name + timestamp block (e.g. offline-eval's "Save as
+   * test case"). Unset in production.
+   */
+  headerAction?: ReactNode;
+  /**
+   * Optional extra chips appended to the span-kind / latency badge row (e.g.
+   * offline-eval's "Dataset:" chip). Unset in production.
+   */
+  extraTags?: ReactNode;
 }
 
 /**
@@ -60,6 +71,8 @@ export function SpanInfoPanel({
   customStartDate,
   customEndDate,
   spanActions,
+  headerAction,
+  extraTags,
 }: SpanInfoPanelProps) {
   const router = useRouter();
 
@@ -129,16 +142,21 @@ export function SpanInfoPanel({
     <div className="h-full overflow-y-auto">
       {/* Header */}
       <div className="sticky top-0 z-10 border-b border-border bg-background px-4 py-3">
-        <div className="mb-1 flex items-center gap-2">
-          <SpanKindIcon kind={kind} size="md" selected />
-          <h3 className="text-sm font-medium">{name}</h3>
-          <CopyButton
-            value={isTrace ? trace.trace_id : selection.span.span_id}
-            className="h-6 w-6 text-muted-foreground hover:text-foreground"
-            title="Copy ID"
-          />
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <div className="mb-1 flex items-center gap-2">
+              <SpanKindIcon kind={kind} size="md" selected />
+              <h3 className="text-sm font-medium">{name}</h3>
+              <CopyButton
+                value={isTrace ? trace.trace_id : selection.span.span_id}
+                className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                title="Copy ID"
+              />
+            </div>
+            <div className="text-xs text-muted-foreground">{formatDate(timestamp)}</div>
+          </div>
+          {headerAction && <div className="shrink-0">{headerAction}</div>}
         </div>
-        <div className="mb-3 text-xs text-muted-foreground">{formatDate(timestamp)}</div>
         {/* Row 1: LLM related badges */}
         <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
@@ -193,6 +211,7 @@ export function SpanInfoPanel({
           {!isTrace && (
             <CostChip cost={selection.span.cost} costDetails={selection.span.cost_details} />
           )}
+          {extraTags}
         </div>
 
         {/* Row 2: Git related badges */}
