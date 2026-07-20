@@ -1445,78 +1445,35 @@ function MetricRow({
   );
 }
 
-/**
- * Candidate-vs-baseline metrics for the open case — duration, tokens, and cost side
- * by side with deltas. Duration is derived server-side; tokens/cost come from each
- * side's trace (pending/unknown when a trace lacks provider usage). Lower is better
- * for all three, so a smaller candidate reads green.
- */
-function MetricsDiff({
+/** Signed, coloured delta beside a metric (lower is better → green when negative). */
+function InlineDelta({
   candidate,
   baseline,
-  candidateDurationMs,
-  baselineDurationMs,
+  format,
 }: {
-  candidate: TraceUsage;
-  baseline: TraceUsage;
-  candidateDurationMs: number | null;
-  baselineDurationMs: number | null;
+  candidate: number;
+  baseline: number | null;
+  format: (n: number) => string;
 }) {
-  const tok = (u: TraceUsage) => (u.state === "present" ? u.combined.totalTokens : null);
-  const cost = (u: TraceUsage) => (u.state === "present" ? u.combined.cost : null);
-  const fmtTok = (n: number) => `${Math.round(n).toLocaleString()}`;
-  const fmtCost = (n: number) => (n > 0 ? `$${n.toFixed(4)}` : "$0");
-  const fmtMs = (n: number) => (n < 1000 ? `${Math.round(n)}ms` : `${(n / 1000).toFixed(1)}s`);
+  if (baseline === null) return null;
+  const delta = candidate - baseline;
+  if (delta === 0) return <span className="text-muted-foreground"> ±0</span>;
   return (
-    <div className="mt-2 overflow-hidden rounded border border-border">
-      <div className="border-b border-border bg-muted/40 px-2.5 py-1 text-[11px] text-muted-foreground">
-        Metrics vs baseline
-      </div>
-      <table className="w-full px-2.5 text-[11px]">
-        <thead>
-          <tr className="text-[10px] text-muted-foreground">
-            <th className="py-1 pl-2.5 text-left font-normal"></th>
-            <th className="py-1 text-right font-normal">Candidate</th>
-            <th className="py-1 text-right font-normal">Baseline</th>
-            <th className="py-1 pr-2.5 text-right font-normal">Δ</th>
-          </tr>
-        </thead>
-        <tbody className="[&_td:first-child]:pl-2.5 [&_td:last-child]:pr-2.5">
-          <MetricRow
-            label="Duration"
-            candidate={candidateDurationMs}
-            baseline={baselineDurationMs}
-            format={fmtMs}
-          />
-          <MetricRow
-            label="Tokens"
-            candidate={tok(candidate)}
-            baseline={tok(baseline)}
-            format={fmtTok}
-          />
-          <MetricRow
-            label="Cost"
-            candidate={cost(candidate)}
-            baseline={cost(baseline)}
-            format={fmtCost}
-          />
-        </tbody>
-      </table>
-      {(candidate.state === "pending" || baseline.state === "pending") && (
-        <p className="border-t border-border px-2.5 py-1 text-[10px] text-muted-foreground">
-          A trace is still ingesting — token/cost values will fill in.
-        </p>
-      )}
-    </div>
+    <span className={SENTIMENT_CLASS[changeSentiment(-delta)]}>
+      {" "}
+      {delta > 0 ? "+" : "−"}
+      {format(Math.abs(delta))}
+    </span>
   );
 }
 
 /**
  * Trace-derived token/cost for the open case, split by application (task) vs
  * evaluation-judge (scorers). `pending` while the trace ingests, `unknown` when the
- * trace carries no provider usage — a real 0 only when the trace proves it.
+ * trace carries no provider usage — a real 0 only when the trace proves it. When a
+ * baseline usage is supplied, each value carries an inline ± delta against it.
  */
-function UsageBreakdown({ usage }: { usage: TraceUsage }) {
+function UsageBreakdown({ usage, baseline }: { usage: TraceUsage; baseline?: TraceUsage }) {
   if (usage.state === "pending") {
     return (
       <p className="mt-2 text-[11px] text-muted-foreground">
@@ -1534,32 +1491,66 @@ function UsageBreakdown({ usage }: { usage: TraceUsage }) {
     );
   }
   const fmtCost = (c: number) => (c > 0 ? `$${c.toFixed(4)}` : "$0");
+  const fmtTok = (n: number) => Math.round(n).toLocaleString();
+  // Only diff against a baseline bucket that actually has usage (spanCount > 0), so
+  // we never show a delta "vs 0" for a bucket the baseline case didn't have.
+  const bl = baseline && baseline.state === "present" ? baseline : null;
+  const bt = (b: { spanCount: number; totalTokens: number }) =>
+    bl && b.spanCount > 0 ? b.totalTokens : null;
+  const bc = (b: { spanCount: number; cost: number }) => (bl && b.spanCount > 0 ? b.cost : null);
   const rows = [
-    { label: "Application (task)", b: usage.task },
-    { label: "Evaluation judge (scorers)", b: usage.scorer },
-    { label: "Other", b: usage.other },
+    { label: "Application (task)", b: usage.task, base: bl?.task },
+    { label: "Evaluation judge (scorers)", b: usage.scorer, base: bl?.scorer },
+    { label: "Other", b: usage.other, base: bl?.other },
   ].filter((r) => r.b.spanCount > 0);
   return (
     <div className="mt-2 overflow-hidden rounded border border-border">
       <div className="border-b border-border bg-muted/40 px-2.5 py-1 text-[11px] text-muted-foreground">
-        Tokens &amp; cost (from the trace)
+        Tokens &amp; cost (from the trace){bl ? " · vs baseline" : ""}
       </div>
       <ul className="divide-y divide-border">
         {rows.map((r) => (
-          <li key={r.label} className="flex items-center justify-between px-2.5 py-1 text-[11px]">
+          <li
+            key={r.label}
+            className="flex items-center justify-between gap-2 px-2.5 py-1 text-[11px]"
+          >
             <span className="text-muted-foreground">{r.label}</span>
             <span className="tabular-nums">
-              {r.b.totalTokens.toLocaleString()} tok · {fmtCost(r.b.cost)}
+              {fmtTok(r.b.totalTokens)} tok
+              {r.base && (
+                <InlineDelta candidate={r.b.totalTokens} baseline={bt(r.base)} format={fmtTok} />
+              )}
+              {" · "}
+              {fmtCost(r.b.cost)}
+              {r.base && (
+                <InlineDelta candidate={r.b.cost} baseline={bc(r.base)} format={fmtCost} />
+              )}
             </span>
           </li>
         ))}
         {/* Only worth a Combined total when the cost is split across buckets (e.g. an
             LLM judge). With a single bucket it just repeats the row above. */}
         {rows.length > 1 && (
-          <li className="flex items-center justify-between bg-muted/20 px-2.5 py-1 text-[11px] font-medium">
+          <li className="flex items-center justify-between gap-2 bg-muted/20 px-2.5 py-1 text-[11px] font-medium">
             <span>Combined</span>
             <span className="tabular-nums">
-              {usage.combined.totalTokens.toLocaleString()} tok · {fmtCost(usage.combined.cost)}
+              {fmtTok(usage.combined.totalTokens)} tok
+              {bl && (
+                <InlineDelta
+                  candidate={usage.combined.totalTokens}
+                  baseline={bt(bl.combined)}
+                  format={fmtTok}
+                />
+              )}
+              {" · "}
+              {fmtCost(usage.combined.cost)}
+              {bl && (
+                <InlineDelta
+                  candidate={usage.combined.cost}
+                  baseline={bc(bl.combined)}
+                  format={fmtCost}
+                />
+              )}
             </span>
           </li>
         )}
@@ -1939,16 +1930,10 @@ function ResultContext({
 
       <ScorerBreakdown result={result} />
 
-      {result.comparison?.baselineTraceId ? (
-        <MetricsDiff
-          candidate={traceUsage}
-          baseline={baselineUsage}
-          candidateDurationMs={result.durationMs}
-          baselineDurationMs={result.comparison.baselineDurationMs}
-        />
-      ) : (
-        <UsageBreakdown usage={traceUsage} />
-      )}
+      <UsageBreakdown
+        usage={traceUsage}
+        baseline={result.comparison?.baselineTraceId ? baselineUsage : undefined}
+      />
 
       {result.humanScores.length > 0 && (
         <div className="mt-2 overflow-hidden rounded border border-border">
