@@ -54,7 +54,15 @@ import {
   useUpdateTestCase,
 } from "../hooks";
 import { RunStatusBadge } from "./evaluations-view";
-import type { ResultRow, RunDetail, ScoreRow } from "../types";
+import { attributeTraceUsage, type TraceUsage, type UsageSpan } from "@/lib/eval/trace-usage";
+import type { ResultRow, RunDetail, ScoreRow, Classification } from "../types";
+
+/** Case/run duration; "Unknown" when unmeasured (never 0s). */
+function fmtDurationMs(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined) return "Unknown";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
 
 function scoreValue(s: ScoreRow): string {
   if (s.error) return "error";
@@ -177,23 +185,60 @@ function buildEvalTrace(result: ResultRow, run: RunDetail): TraceDetail {
   };
 }
 
-type ResultFilterId = "all" | "regressions" | "failed" | "errors" | "not_scored";
+type ResultFilterId =
+  | "all"
+  | "regressions"
+  | "improvements"
+  | "failed"
+  | "errors"
+  | "unpaired"
+  | "not_scored";
 
 const RESULT_FILTERS: Array<{ id: ResultFilterId; label: string }> = [
   { id: "all", label: "All" },
   { id: "regressions", label: "Regressions" },
+  { id: "improvements", label: "Improvements" },
   { id: "failed", label: "Failed" },
   { id: "errors", label: "Errors" },
+  { id: "unpaired", label: "Unpaired" },
   { id: "not_scored", label: "Not scored" },
 ];
 
+// Filters key on the DERIVED case verdict (comparison.caseChange), never the stored
+// change column. "Unpaired" folds in not_comparable (paired but un-trustable) cases.
 const RESULT_FILTER_FN: Record<ResultFilterId, (r: ResultRow) => boolean> = {
   all: () => true,
-  regressions: (r) => r.change === "regressed",
+  regressions: (r) => r.comparison?.caseChange === "regressed",
+  improvements: (r) => r.comparison?.caseChange === "improved",
   failed: (r) => r.status === "failed",
   errors: (r) => r.status === "errored" || r.scores.some((s) => s.error),
+  unpaired: (r) =>
+    r.comparison?.caseChange === "unpaired" || r.comparison?.caseChange === "not_comparable",
   not_scored: (r) => r.status === "not_scored",
 };
+
+/** Human-readable explanation of why a comparison is untrustworthy, from its reasons. */
+function comparisonReasonText(reasons: string[], datasetVersionLabel: string): string {
+  const parts: string[] = [];
+  if (reasons.includes("different_dataset_version")) {
+    parts.push(
+      `the baseline measured a different dataset snapshot than this run (${datasetVersionLabel}), so the two runs covered different test cases`,
+    );
+  }
+  if (reasons.includes("different_evaluation")) {
+    parts.push("the baseline belongs to a different evaluation");
+  }
+  if (reasons.includes("baseline_not_terminal")) {
+    parts.push("the baseline run has not finished, so its scores may still change");
+  }
+  if (reasons.includes("main_scorer_incompatible")) {
+    parts.push(
+      "the main scorer could not be compared on any shared case (missing or version-mismatched)",
+    );
+  }
+  if (parts.length === 0) return "The selected baseline is not directly comparable.";
+  return parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join("; ") + ".";
+}
 
 /**
  * Evaluation run detail — faithful port of the prototype's run detail, wired to
@@ -225,8 +270,12 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
   // id was emitted (fully-local run), fall back to a clearly-labeled reconstructed trace.
   const realTraceId = openResult?.traceId ?? null;
   const realTrace = useTrace(projectId, realTraceId ?? "", !!realTraceId);
-  const hasRealTrace = !!realTraceId && !!realTrace.data;
-  const tracePending = !!realTraceId && !realTrace.data; // loading or still ingesting
+  // Only treat a reported trace as "pending" when its fetch genuinely fails (not yet
+  // ingested → 404). While it's merely loading, keep the trace panel mounted and let it
+  // show its own loading — so navigating between results updates in place instead of
+  // flickering through the pending panel and re-animating the slide-in.
+  const tracePending = !!realTraceId && realTrace.isError;
+  const useRealTrace = !!realTraceId && !realTrace.isError;
 
   // Reconstructed eval-shaped trace — the labeled fallback, only for results that
   // emitted no real trace. Seed span I/O just for those so the detail panel has it.
@@ -243,8 +292,20 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
   const updateCase = useUpdateTestCase(projectId, run?.datasetId ?? "");
   const humanScore = useCreateHumanScore(projectId, openResult?.id ?? "");
 
-  const panelTraceId = hasRealTrace ? realTraceId : fallbackTrace?.trace_id;
-  const panelOverride = hasRealTrace ? undefined : fallbackTrace;
+  const panelTraceId = useRealTrace ? realTraceId : fallbackTrace?.trace_id;
+  const panelOverride = useRealTrace ? undefined : fallbackTrace;
+
+  // Token/cost derived from the OPEN result's real trace (already fetched — bounded, no
+  // extra query). Pending while the reported trace ingests; the reconstructed fallback
+  // has no LLM leaves so it reports "unknown", never a fabricated 0.
+  const openTraceSpans = useRealTrace ? realTrace.data?.spans : panelOverride?.spans;
+  const traceUsage = React.useMemo<TraceUsage>(
+    () =>
+      tracePending
+        ? attributeTraceUsage(null)
+        : attributeTraceUsage(openTraceSpans as UsageSpan[] | undefined),
+    [tracePending, openTraceSpans],
+  );
 
   const closeResult = () => setOpenResultId(null);
 
@@ -323,6 +384,7 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
               projectId={projectId}
               run={run}
               result={openResult}
+              traceUsage={traceUsage}
               onReview={() => setReviewOpen(true)}
               onSaveExpected={(value) =>
                 updateCase.mutate(
@@ -343,7 +405,7 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
           )}
           spanExtraTags={() => (
             <>
-              {!hasRealTrace && (
+              {!useRealTrace && (
                 <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-400/60 bg-amber-100/60 px-2.5 py-1 text-xs text-amber-800 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-300">
                   Reconstructed — no telemetry was emitted for this result
                 </span>
@@ -470,8 +532,10 @@ function RunBody({
 }) {
   const router = useRouter();
   const hasBaseline = run.baselineRunId !== null;
-  const regressed = results.filter((r) => r.change === "regressed");
-  const incompatibleBaseline = run.baselineRunId !== null && !run.baselineComparable;
+  // Derived verdict — never the stored `change` column.
+  const regressed = results.filter((r) => r.comparison?.caseChange === "regressed");
+  const incompatibleBaseline = run.comparison.available && !run.comparison.trustworthy;
+  const trustNote = comparisonReasonText(run.comparison.reasons, run.datasetVersionLabel);
 
   return (
     <>
@@ -505,22 +569,14 @@ function RunBody({
             <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
               <span>
-                <span className="font-medium">Not directly comparable.</span> The selected baseline
-                measured a different dataset snapshot than this run (
-                <span className="font-mono">{run.datasetVersionLabel}</span>). The two runs covered
-                different test cases, so a single delta would be misleading. Pick a baseline on the
-                same snapshot to compare.
+                <span className="font-medium">Comparison not fully trustworthy.</span> {trustNote}{" "}
+                The change is shown for context but should not be read as a clean verdict.
               </span>
             </div>
           )}
 
           {/* Verdict first, as a one-line strip — then results are the hero. */}
-          <VerdictStrip
-            run={run}
-            regressionCount={regressed.length}
-            hasBaseline={hasBaseline}
-            onFilter={onFilterChange}
-          />
+          <VerdictStrip run={run} onFilter={onFilterChange} />
 
           <ResultsSection
             results={results}
@@ -618,16 +674,19 @@ function RunSwitcher({
  */
 function VerdictStrip({
   run,
-  regressionCount,
-  hasBaseline,
   onFilter,
 }: {
   run: RunDetail;
-  regressionCount: number;
-  hasBaseline: boolean;
   onFilter: (filter: ResultFilterId) => void;
 }) {
   const unscored = run.caseCount - run.scoredCount;
+  const cmp = run.comparison;
+  const cases = cmp.caseCounts;
+  const cells = cmp.scoreCellCounts;
+  // "Not cleanly compared" folds unpaired (one side only) + not_comparable (paired but
+  // un-trustable). A delta and regression counts are shown only when a comparison is
+  // available — otherwise "—" (unknown), never a delta beside a bare 0.
+  const unpaired = cases.unpaired + cases.not_comparable;
   return (
     <div className="rounded-md border border-border p-3">
       <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
@@ -635,25 +694,44 @@ function VerdictStrip({
         <Metric
           label={run.mainScoreName ?? "Main score"}
           value={run.mainScore === null ? "—" : pct(run.mainScore)}
+          hint={cmp.baseline ? `vs ${cmp.baseline.candidateVersion}` : undefined}
           strong
         />
         <Metric
           label="Change"
           value={
-            run.changeFromBaseline === null ? (
+            !cmp.available || cmp.mainScore.delta === null ? (
               <span className="text-muted-foreground">—</span>
             ) : (
-              <span className={SENTIMENT_CLASS[changeSentiment(run.changeFromBaseline)]}>
-                {signed(run.changeFromBaseline)} pp
+              <span className={SENTIMENT_CLASS[changeSentiment(cmp.mainScore.delta)]}>
+                {signed(cmp.mainScore.delta)} pp
               </span>
             )
           }
-          hint={hasBaseline ? undefined : "No baseline"}
+          hint={!cmp.available ? "No baseline" : !cmp.trustworthy ? "Not trusted" : undefined}
+        />
+        {/* Case-level (main scorer). Regressions/Improvements filter the table. */}
+        <FilterStat
+          label="Regressed"
+          count={cmp.available ? cases.regressed : null}
+          onClick={() => onFilter("regressions")}
         />
         <FilterStat
-          label="Regressions"
-          count={regressionCount}
-          onClick={() => onFilter("regressions")}
+          label="Improved"
+          count={cmp.available ? cases.improved : null}
+          onClick={() => onFilter("improvements")}
+        />
+        <Metric label="Unchanged" value={cmp.available ? cases.unchanged : "—"} />
+        <FilterStat
+          label="Unpaired"
+          count={cmp.available ? unpaired : null}
+          onClick={() => onFilter("unpaired")}
+        />
+        {/* Secondary, clearly labeled: regressed SCORE CELLS ≠ regressed cases. */}
+        <Metric
+          label="Regressed cells"
+          value={cmp.available ? cells.regressed : "—"}
+          hint="score cells"
         />
         <FilterStat label="Errors" count={run.errorCount} onClick={() => onFilter("errors")} />
         <Metric label="Scored" value={`${run.scoredCount} / ${run.caseCount}`} />
@@ -693,16 +771,23 @@ function Metric({
   );
 }
 
-/** A count that filters the results table when non-zero. */
+/**
+ * A count that filters the results table when non-zero. A null count means the
+ * quantity is UNKNOWN (e.g. no baseline → regressions can't be counted) and renders
+ * as "—", never a bare 0 that would read as "0 regressions" beside a delta.
+ */
 function FilterStat({
   label,
   count,
   onClick,
 }: {
   label: string;
-  count: number;
+  count: number | null;
   onClick: () => void;
 }) {
+  if (count === null) {
+    return <Metric label={label} value={<span className="text-muted-foreground">—</span>} />;
+  }
   if (count === 0) {
     return <Metric label={label} value={<span className="text-muted-foreground">0</span>} />;
   }
@@ -740,6 +825,7 @@ function ResultsSection({
 }) {
   const { toast } = useToast();
   const [keyword, setKeyword] = React.useState("");
+  const [sortWorst, setSortWorst] = React.useState(false);
   const [dateFilter, setDateFilter] = React.useState<DateFilterOption>(
     DATE_FILTER_OPTIONS.find((o) => o.id === "14d") ?? DATE_FILTER_OPTIONS[0],
   );
@@ -748,7 +834,7 @@ function ResultsSection({
 
   const visible = React.useMemo(() => {
     const q = keyword.trim().toLowerCase();
-    return results.filter((r) => {
+    const filtered = results.filter((r) => {
       if (!RESULT_FILTER_FN[filter](r)) return false;
       if (!q) return true;
       return (
@@ -757,7 +843,17 @@ function ResultsSection({
         (r.expectedOutput ?? "").toLowerCase().includes(q)
       );
     });
-  }, [results, keyword, filter]);
+    if (!sortWorst) return filtered;
+    // Worst main-score regression first (most-negative delta); unknown deltas last.
+    return [...filtered].sort((a, b) => {
+      const da = a.comparison?.mainScore.delta;
+      const db = b.comparison?.mainScore.delta;
+      if (da == null && db == null) return 0;
+      if (da == null) return 1;
+      if (db == null) return -1;
+      return da - db;
+    });
+  }, [results, keyword, filter, sortWorst]);
 
   return (
     <div className="rounded-md border border-border">
@@ -797,6 +893,16 @@ function ResultsSection({
         </div>
         <span className="flex-1" aria-hidden />
         <Button
+          variant={sortWorst ? "default" : "outline"}
+          size="sm"
+          className="h-7 gap-1.5 px-2 text-[12px]"
+          onClick={() => setSortWorst((s) => !s)}
+          title="Sort by the worst main-score regression first"
+        >
+          <ArrowDown className="h-3.5 w-3.5" aria-hidden />
+          Worst regression
+        </Button>
+        <Button
           variant="ghost"
           size="sm"
           className="h-7 gap-1.5 px-1.5 text-[12px] text-muted-foreground hover:text-foreground"
@@ -813,8 +919,8 @@ function ResultsSection({
             <Th>Input</Th>
             <Th>Output</Th>
             <Th>Expected</Th>
-            <Th className="w-[150px]">Scores</Th>
-            <Th className="w-[100px] text-right">Change</Th>
+            <Th className="w-[170px]">Main score</Th>
+            <Th className="w-[110px] text-right">Change</Th>
             <Th className="w-[110px]">Status</Th>
           </TRHead>
         </THead>
@@ -845,10 +951,12 @@ function ResultsSection({
                 </Td>
                 <Td className="text-muted-foreground">{result.expectedOutput ?? "—"}</Td>
                 <Td>
-                  <ScoreCell result={result} />
+                  <MainScoreCell result={result} hasBaseline={hasBaseline} />
                 </Td>
                 <Td className="text-right">
-                  <ChangeCell change={hasBaseline ? result.change : null} />
+                  <ChangeCell
+                    change={hasBaseline ? (result.comparison?.caseChange ?? null) : null}
+                  />
                 </Td>
                 <Td>
                   <EvalResultBadge status={result.status} />
@@ -863,12 +971,31 @@ function ResultsSection({
 }
 
 /**
- * Per-result change direction. The prototype showed "+N pp" per case; the server
- * reports only the direction (improved / regressed / unchanged) per result — no
- * per-case baseline score to subtract — so we render the direction faithfully as
- * a coloured arrow rather than a fabricated magnitude.
+ * Per-result candidate main score, its baseline counterpart, and the delta — the
+ * backend now derives the baseline per-case value, so we show a real magnitude, not
+ * just a direction. Missing values render "—", never a fabricated 0.
  */
-function ChangeCell({ change }: { change: ResultRow["change"] }) {
+function MainScoreCell({ result, hasBaseline }: { result: ResultRow; hasBaseline: boolean }) {
+  const cmp = result.comparison;
+  const cand = cmp?.mainScore.candidate ?? result.mainScore;
+  if (cand === null || cand === undefined) return <span className="text-muted-foreground">—</span>;
+  const base = hasBaseline ? (cmp?.mainScore.baseline ?? null) : null;
+  const delta = hasBaseline ? (cmp?.mainScore.delta ?? null) : null;
+  return (
+    <div className="flex flex-col gap-0.5 text-[12px] tabular-nums">
+      <span>
+        {pct(cand)}
+        {base !== null && <span className="text-muted-foreground"> vs {pct(base)}</span>}
+      </span>
+      {delta !== null && (
+        <span className={SENTIMENT_CLASS[changeSentiment(delta)]}>{signed(delta)} pp</span>
+      )}
+    </div>
+  );
+}
+
+/** Per-result case verdict (derived from the main scorer), faithfully rendered. */
+function ChangeCell({ change }: { change: Classification | null }) {
   if (change === "improved") {
     return (
       <span
@@ -891,23 +1018,185 @@ function ChangeCell({ change }: { change: ResultRow["change"] }) {
       </span>
     );
   }
+  if (change === "changed") {
+    return <span title="Changed (categorical)">Changed</span>;
+  }
+  if (change === "unchanged") {
+    return <span className="text-muted-foreground">Unchanged</span>;
+  }
+  if (change === "unpaired" || change === "not_comparable") {
+    return (
+      <span className="text-muted-foreground" title="Not compared against a baseline value">
+        {change === "unpaired" ? "Unpaired" : "Not comparable"}
+      </span>
+    );
+  }
   return <span className="text-muted-foreground">—</span>;
 }
 
-/** Per-scorer values, with a failed scorer shown as an error rather than a 0. */
-function ScoreCell({ result }: { result: ResultRow }) {
-  if (result.scores.length === 0) return <span className="text-muted-foreground">—</span>;
+function cellValueDisplay(v: number | boolean | string | null): string {
+  if (v === null || v === undefined) return "—";
+  if (typeof v === "boolean") return v ? "true" : "false";
+  if (typeof v === "number") return Number.isInteger(v) ? String(v) : v.toFixed(3);
+  return v;
+}
+
+const CELL_CLASS_STYLE: Record<Classification, { label: string; className: string }> = {
+  improved: { label: "Improved", className: SENTIMENT_CLASS.good },
+  regressed: { label: "Regressed", className: SENTIMENT_CLASS.bad },
+  unchanged: { label: "Unchanged", className: "text-muted-foreground" },
+  changed: { label: "Changed", className: "text-foreground" },
+  unpaired: { label: "Unpaired", className: "text-muted-foreground" },
+  not_comparable: { label: "Not comparable", className: "text-amber-600 dark:text-amber-400" },
+};
+
+/**
+ * The candidate-vs-baseline breakdown per scorer cell, shown beside the trace. Uses
+ * the derived comparison (candidate value, baseline value, delta or transition, and the
+ * cell classification + reason); falls back to candidate-only scores when there is no
+ * comparison (no baseline). A failed scorer is an error, never a 0.
+ */
+function ScorerBreakdown({ result }: { result: ResultRow }) {
+  const cells = result.comparison?.scorerCells ?? [];
+  const byName = new Map(result.scores.map((s) => [s.scorerName, s]));
+
+  if (cells.length === 0) {
+    if (result.scores.length === 0) return null;
+    return (
+      <ul className="mt-2 divide-y divide-border rounded border border-border">
+        {result.scores.map((s) => (
+          <li key={s.id} className="px-2.5 py-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-medium">
+                {s.scorerName}
+                <span className="ml-1.5 font-normal text-muted-foreground">{s.scorerVersion}</span>
+              </span>
+              {s.error ? (
+                <Badge variant="warning">Scorer error</Badge>
+              ) : (
+                <span className="tabular-nums">{scoreValue(s)}</span>
+              )}
+            </div>
+            {s.explanation && (
+              <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                {s.explanation}
+              </p>
+            )}
+            {s.error && (
+              <p className="mt-0.5 font-mono text-[11px] text-amber-700 dark:text-amber-400">
+                {s.error} — the candidate answered, only the judge failed.
+              </p>
+            )}
+          </li>
+        ))}
+      </ul>
+    );
+  }
+
   return (
-    <span className="flex flex-col gap-0.5">
-      {result.scores.map((s) => (
-        <span key={s.id} className="flex items-center gap-1.5 text-[11px]">
-          <span className="truncate text-muted-foreground">{s.scorerName}</span>
-          <span className={cn("tabular-nums", s.error && "text-amber-600 dark:text-amber-400")}>
-            {scoreValue(s)}
+    <ul className="mt-2 divide-y divide-border rounded border border-border">
+      {cells.map((c) => {
+        const s = byName.get(c.scorerName);
+        const style = CELL_CLASS_STYLE[c.classification];
+        return (
+          <li key={c.scorerName} className="px-2.5 py-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-medium">
+                {c.scorerName}
+                <span className="ml-1.5 font-normal text-muted-foreground">{c.scorerVersion}</span>
+              </span>
+              <span className={cn("text-[11px] font-medium", style.className)}>{style.label}</span>
+            </div>
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] tabular-nums text-muted-foreground">
+              <span>
+                candidate{" "}
+                <span className="text-foreground">{cellValueDisplay(c.candidateValue)}</span>
+              </span>
+              <span>
+                baseline{" "}
+                <span className="text-foreground">{cellValueDisplay(c.baselineValue)}</span>
+              </span>
+              {c.delta !== null && (
+                <span className={SENTIMENT_CLASS[changeSentiment(c.delta)]}>{signed(c.delta)}</span>
+              )}
+              {c.transition && (
+                <span className="text-foreground">
+                  {c.transition.from} → {c.transition.to}
+                </span>
+              )}
+              {c.reason && (
+                <span className="text-amber-600 dark:text-amber-400">
+                  {c.reason.replace(/_/g, " ")}
+                </span>
+              )}
+            </div>
+            {s?.explanation && (
+              <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                {s.explanation}
+              </p>
+            )}
+            {s?.error && (
+              <p className="mt-0.5 font-mono text-[11px] text-amber-700 dark:text-amber-400">
+                {s.error} — the candidate answered, only the judge failed.
+              </p>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/**
+ * Trace-derived token/cost for the open case, split by application (task) vs
+ * evaluation-judge (scorers). `pending` while the trace ingests, `unknown` when the
+ * trace carries no provider usage — a real 0 only when the trace proves it.
+ */
+function UsageBreakdown({ usage }: { usage: TraceUsage }) {
+  if (usage.state === "pending") {
+    return (
+      <p className="mt-2 text-[11px] text-muted-foreground">
+        Tokens &amp; cost: <span className="text-foreground">pending</span> — the case trace is
+        still ingesting.
+      </p>
+    );
+  }
+  if (usage.state === "unknown") {
+    return (
+      <p className="mt-2 text-[11px] text-muted-foreground">
+        Tokens &amp; cost: <span className="text-foreground">unknown</span> — the trace reported no
+        provider usage.
+      </p>
+    );
+  }
+  const fmtCost = (c: number) => (c > 0 ? `$${c.toFixed(4)}` : "$0");
+  const rows = [
+    { label: "Application (task)", b: usage.task },
+    { label: "Evaluation judge (scorers)", b: usage.scorer },
+    { label: "Other", b: usage.other },
+  ].filter((r) => r.b.spanCount > 0);
+  return (
+    <div className="mt-2 overflow-hidden rounded border border-border">
+      <div className="border-b border-border bg-muted/40 px-2.5 py-1 text-[11px] text-muted-foreground">
+        Tokens &amp; cost (from the trace)
+      </div>
+      <ul className="divide-y divide-border">
+        {rows.map((r) => (
+          <li key={r.label} className="flex items-center justify-between px-2.5 py-1 text-[11px]">
+            <span className="text-muted-foreground">{r.label}</span>
+            <span className="tabular-nums">
+              {r.b.totalTokens.toLocaleString()} tok · {fmtCost(r.b.cost)}
+            </span>
+          </li>
+        ))}
+        <li className="flex items-center justify-between bg-muted/20 px-2.5 py-1 text-[11px] font-medium">
+          <span>Combined</span>
+          <span className="tabular-nums">
+            {usage.combined.totalTokens.toLocaleString()} tok · {fmtCost(usage.combined.cost)}
           </span>
-        </span>
-      ))}
-    </span>
+        </li>
+      </ul>
+    </div>
   );
 }
 
@@ -1047,6 +1336,31 @@ function RunDetailsBody({ run, projectId }: { run: RunDetail; projectId: string 
         <Row label="Started">
           <Timestamp iso={run.startedAt} className="inline" />
         </Row>
+        {/* Run wall-clock (completedAt − startedAt), NOT the sum of case durations. */}
+        <Row label="Run elapsed">{fmtDurationMs(run.elapsedMs)}</Row>
+        {run.comparison.duration.pairedCount > 0 && (
+          <Row label="Avg case duration">
+            <span title="Mean per-case wall-clock (task + scorers), not run elapsed">
+              {fmtDurationMs(run.comparison.duration.candidateMeanMs)}
+              {run.comparison.duration.baselineMeanMs !== null && (
+                <span className="text-muted-foreground">
+                  {" "}
+                  vs {fmtDurationMs(run.comparison.duration.baselineMeanMs)}
+                </span>
+              )}
+              {run.comparison.duration.deltaMs !== null && (
+                <span
+                  className={cn(
+                    "ml-1",
+                    SENTIMENT_CLASS[changeSentiment(-run.comparison.duration.deltaMs)],
+                  )}
+                >
+                  ({signed(run.comparison.duration.deltaMs / 1000)}s)
+                </span>
+              )}
+            </span>
+          </Row>
+        )}
         <Row label="Scorers">
           {run.scorers && run.scorers.length > 0
             ? run.scorers.map((s) => `${s.name} ${s.version}`).join(", ")
@@ -1073,7 +1387,60 @@ function RunDetailsBody({ run, projectId }: { run: RunDetail; projectId: string 
         <Row label="Dataset snapshot ID">
           <span className="font-mono text-[11px]">{run.datasetVersionId}</span>
         </Row>
+        {run.model && (
+          <Row label="Model">
+            <span className="font-mono text-[11px]">{run.model}</span>
+          </Row>
+        )}
       </dl>
+      <ProvenanceBlock metadata={run.metadata} />
+    </div>
+  );
+}
+
+// Keys that may carry secrets/env — never rendered (informational safety, per spec).
+const SECRET_KEY_RE = /secret|token|password|api[_-]?key|credential|\benv\b|authorization/i;
+
+/**
+ * Structured run provenance (model, prompt, config, git) as SECONDARY detail. Free-form
+ * and optional: when absent it's an informational "not recorded" line, never an error.
+ * The candidate label stays the primary identity (shown in the header). Env vars and
+ * secret-looking keys are redacted; git repo/ref/commit are surfaced when present.
+ */
+function ProvenanceBlock({ metadata }: { metadata: Record<string, unknown> | null }) {
+  const entries = metadata ? Object.entries(metadata).filter(([k]) => !SECRET_KEY_RE.test(k)) : [];
+  const git =
+    metadata && typeof metadata.git === "object" && metadata.git !== null
+      ? (metadata.git as Record<string, unknown>)
+      : null;
+
+  return (
+    <div className="mt-3 border-t border-border/50 pt-2">
+      <p className="mb-1 text-[11px] font-medium text-muted-foreground">Provenance</p>
+      {entries.length === 0 && !git ? (
+        <p className="text-[11px] text-muted-foreground">
+          No provenance recorded for this run — informational only, not an error.
+        </p>
+      ) : (
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-1 sm:grid-cols-2">
+          {git && (
+            <Row label="Git">
+              <span className="font-mono text-[11px]">
+                {[git.repo, git.ref ?? git.commit].filter(Boolean).join(" @ ") || "—"}
+              </span>
+            </Row>
+          )}
+          {entries
+            .filter(([k]) => k !== "git")
+            .map(([k, v]) => (
+              <Row key={k} label={k}>
+                <span className="font-mono text-[11px]">
+                  {typeof v === "object" ? JSON.stringify(v) : String(v)}
+                </span>
+              </Row>
+            ))}
+        </dl>
+      )}
     </div>
   );
 }
@@ -1098,12 +1465,14 @@ function ResultContext({
   projectId,
   run,
   result,
+  traceUsage,
   onReview,
   onSaveExpected,
 }: {
   projectId: string;
   run: RunDetail;
   result: ResultRow;
+  traceUsage: TraceUsage;
   onReview: () => void;
   onSaveExpected: (value: string) => void;
 }) {
@@ -1176,37 +1545,9 @@ function ResultContext({
         </div>
       )}
 
-      {result.scores.length > 0 && (
-        <ul className="mt-2 divide-y divide-border rounded border border-border">
-          {result.scores.map((s) => (
-            <li key={s.id} className="px-2.5 py-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <span className="font-medium">
-                  {s.scorerName}
-                  <span className="ml-1.5 font-normal text-muted-foreground">
-                    {s.scorerVersion}
-                  </span>
-                </span>
-                {s.error ? (
-                  <Badge variant="warning">Scorer error</Badge>
-                ) : (
-                  <span className="tabular-nums">{scoreValue(s)}</span>
-                )}
-              </div>
-              {s.explanation && (
-                <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-                  {s.explanation}
-                </p>
-              )}
-              {s.error && (
-                <p className="mt-0.5 font-mono text-[11px] text-amber-700 dark:text-amber-400">
-                  {s.error} — the candidate answered, only the judge failed.
-                </p>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
+      <ScorerBreakdown result={result} />
+
+      <UsageBreakdown usage={traceUsage} />
 
       {result.humanScores.length > 0 && (
         <div className="mt-2 rounded border border-border bg-muted/20 px-2.5 py-1.5 text-[11px]">
@@ -1232,9 +1573,18 @@ function ResultContext({
           <Database className="h-3.5 w-3.5" aria-hidden />
           View source test case
         </Link>
-        <span className="ml-auto text-[11px] text-muted-foreground">
-          {result.durationMs !== null ? `${(result.durationMs / 1000).toFixed(1)}s` : "—"}
-          {result.cost !== null ? ` · $${result.cost.toFixed(4)}` : ""}
+        <span className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground">
+          {/* Candidate case duration vs baseline; "Unknown" when unmeasured, never 0. */}
+          <span title="Case duration (task + scorers)">{fmtDurationMs(result.durationMs)}</span>
+          {result.comparison?.baselineDurationMs != null && (
+            <span>vs {fmtDurationMs(result.comparison.baselineDurationMs)}</span>
+          )}
+          {result.comparison?.durationDeltaMs != null && (
+            <span className={SENTIMENT_CLASS[changeSentiment(-result.comparison.durationDeltaMs)]}>
+              ({signed(result.comparison.durationDeltaMs / 1000)}s)
+            </span>
+          )}
+          {result.cost !== null ? <span>· ${result.cost.toFixed(4)}</span> : ""}
         </span>
       </div>
     </div>
