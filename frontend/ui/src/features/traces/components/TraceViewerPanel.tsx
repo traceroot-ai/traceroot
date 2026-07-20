@@ -108,6 +108,11 @@ interface TraceViewerPanelProps {
    * test case's outcome (Passed / Did not pass / Errored) here. Unset in production.
    */
   headerStatus?: ReactNode;
+  /**
+   * Open the panel with diff mode already on (offline-eval compare-with). Only has an
+   * effect once `diffBaseline` is supplied — the toggle stays user-controllable after.
+   */
+  defaultDiffOn?: boolean;
 }
 
 /**
@@ -144,12 +149,18 @@ export function TraceViewerPanel({
   diffBaseline,
   headerIdentity,
   headerStatus,
+  defaultDiffOn,
 }: TraceViewerPanelProps) {
   const [selection, setSelection] = useState<TraceSelection>({ type: "trace" });
   // Diff mode is opt-in per panel (offline-eval only); the toggle only appears
   // when a baseline matcher is supplied. Persists across ↑/↓ navigation like
   // fullscreen, since the panel instance stays mounted.
-  const [diffMode, setDiffMode] = useState(false);
+  const [diffMode, setDiffMode] = useState(defaultDiffOn ?? false);
+  // When a compare run is picked (offline-eval), auto-open diff mode so opening a case
+  // trace lands in the diff directly. The user can still toggle it off afterward.
+  useEffect(() => {
+    if (defaultDiffOn) setDiffMode(true);
+  }, [defaultDiffOn]);
   // Emit selection changes to the parent (kept in a ref so an inline callback
   // doesn't retrigger the effect — it fires only when `selection` actually changes).
   const onSelectionChangeRef = useRef(onSelectionChange);
