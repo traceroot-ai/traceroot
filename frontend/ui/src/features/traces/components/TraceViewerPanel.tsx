@@ -95,6 +95,13 @@ interface TraceViewerPanelProps {
     trace: TraceDetail;
     matchSpan: (selection: TraceSelection) => Span | null;
   };
+  /**
+   * Replaces the trace-level identity (offline-eval), so an evaluation trace leads
+   * with its test case instead of a raw trace id. Unset in production.
+   */
+  traceIdentity?: { kindLabel: string; title: string; copyValue: string };
+  /** Badge shown where a span's ERROR badge sits, at trace level. Unset in production. */
+  traceStatusBadge?: ReactNode;
 }
 
 /**
@@ -129,6 +136,8 @@ export function TraceViewerPanel({
   spanExtraTags,
   onSelectionChange,
   diffBaseline,
+  traceIdentity,
+  traceStatusBadge,
 }: TraceViewerPanelProps) {
   const [selection, setSelection] = useState<TraceSelection>({ type: "trace" });
   // Diff mode is opt-in per panel (offline-eval only); the toggle only appears
@@ -537,6 +546,8 @@ export function TraceViewerPanel({
                       diffMode={!!diffBaseline && diffMode}
                       baselineSpan={diffBaseline?.matchSpan(selection) ?? null}
                       baselineTrace={diffBaseline?.trace ?? null}
+                      traceIdentity={traceIdentity}
+                      traceStatusBadge={traceStatusBadge}
                     />
                   ) : (
                     <SpanTimelineView
