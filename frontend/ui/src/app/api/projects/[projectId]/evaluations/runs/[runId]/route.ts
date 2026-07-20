@@ -75,6 +75,10 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     baselineResults: baselineRun ? toComparisonResults(baselineRun.results) : [],
   });
   const cmpByCase = new Map(resultComparisons.map((c) => [c.testCaseId, c]));
+  // The baseline case's trace id, so the UI can fetch it to diff tokens/cost/latency.
+  const baselineTraceByCase = new Map(
+    (baselineRun?.results ?? []).map((r) => [r.testCaseId, r.traceId]),
+  );
 
   const results = run.results.map((r) => {
     const cmp = cmpByCase.get(r.testCaseId);
@@ -90,6 +94,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
             mainScore: cmp.mainScore,
             baselineDurationMs: cmp.baselineDurationMs,
             durationDeltaMs: cmp.durationDeltaMs,
+            baselineTraceId: baselineTraceByCase.get(r.testCaseId) ?? null,
             scorerCells: cmp.scorerCells,
             regressedCellCount: cmp.regressedCellCount,
             comparableCellCount: cmp.comparableCellCount,
