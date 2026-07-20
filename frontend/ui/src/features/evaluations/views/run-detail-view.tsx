@@ -1316,21 +1316,32 @@ function ResultsSection({
                   selected={result.id === openResultId}
                   onClick={() => onOpen(result.id)}
                 >
-                  <Td>{truncate(result.input, 60)}</Td>
-                  <Td>
-                    {result.candidateOutput ?? (
-                      <span className="text-muted-foreground">No output</span>
-                    )}
-                    {row?.outputChanged === true && (
-                      <span
-                        className="ml-1.5 rounded bg-muted px-1 text-[10px] text-muted-foreground"
-                        title="Output differs from the baseline run"
-                      >
-                        ≠ baseline
-                      </span>
-                    )}
+                  <Td className="max-w-[260px] truncate" title={result.input}>
+                    {result.input}
                   </Td>
-                  <Td className="text-muted-foreground">{result.expectedOutput ?? "—"}</Td>
+                  <Td className="max-w-[260px]">
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <span className="truncate" title={result.candidateOutput ?? undefined}>
+                        {result.candidateOutput ?? (
+                          <span className="text-muted-foreground">No output</span>
+                        )}
+                      </span>
+                      {row?.outputChanged === true && (
+                        <span
+                          className="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground"
+                          title="Output differs from the baseline run"
+                        >
+                          ≠ baseline
+                        </span>
+                      )}
+                    </div>
+                  </Td>
+                  <Td
+                    className="max-w-[220px] truncate text-muted-foreground"
+                    title={result.expectedOutput ?? undefined}
+                  >
+                    {result.expectedOutput ?? "—"}
+                  </Td>
                   <Td>
                     <MainScoreCell result={result} comparison={rowCmp} />
                   </Td>
