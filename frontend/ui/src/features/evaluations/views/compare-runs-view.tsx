@@ -212,7 +212,7 @@ function MetricCard({
               {candidate === null ? "—" : format(candidate)}
             </span>
           </div>
-          <div className="mt-0.5 text-[11px] tabular-nums">
+          <div className="mt-1.5 text-[11px] tabular-nums">
             {delta === null || delta === 0 ? (
               <span className="text-muted-foreground">{delta === 0 ? "±0" : (sub ?? "—")}</span>
             ) : (
@@ -253,7 +253,7 @@ function CountCard({
           {candidate}
         </span>
       </div>
-      <div className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
+      <div className="mt-1.5 text-[11px] tabular-nums text-muted-foreground">
         {delta === 0 ? "±0" : delta > 0 ? `+${delta}` : `−${Math.abs(delta)}`}
       </div>
     </div>
