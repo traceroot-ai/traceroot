@@ -25,6 +25,13 @@ export type TestCaseSeed = {
   sourceSpanName: string | null;
   sourceSpanKind: string | null;
   addedBy: string | null;
+  /**
+   * When this case was first created. Carried across version copies so an
+   * unchanged case keeps its original "Created" date — publishing a new version
+   * (add/edit) must not restamp every row to now. Omitted on a brand-new case,
+   * which then defaults to now().
+   */
+  createTime?: Date;
 };
 
 function toSeed(c: TestCase): TestCaseSeed {
@@ -41,6 +48,7 @@ function toSeed(c: TestCase): TestCaseSeed {
     sourceSpanName: c.sourceSpanName,
     sourceSpanKind: c.sourceSpanKind,
     addedBy: c.addedBy,
+    createTime: c.createTime,
   };
 }
 
@@ -99,9 +107,12 @@ export async function publishDatasetVersion(opts: {
 
     if (cases.length > 0) {
       await tx.testCase.createMany({
-        data: cases.map((c) => ({
+        data: cases.map(({ createTime, ...c }) => ({
           ...c,
           metadata: (c.metadata ?? undefined) as Prisma.InputJsonValue | undefined,
+          // Preserve an existing case's original created date across the copy; a
+          // brand-new case (no createTime on the seed) omits it and defaults to now.
+          ...(createTime ? { createTime } : {}),
           datasetVersionId: version.id,
           datasetId: opts.datasetId,
           projectId: opts.projectId,
