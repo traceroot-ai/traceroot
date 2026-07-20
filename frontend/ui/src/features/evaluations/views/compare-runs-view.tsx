@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Info } from "lucide-react";
+import { ArrowLeftRight, ArrowRight, Info } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -10,8 +10,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
 import { Table, TBody, THead, TR, TRHead, Td, Th } from "@/components/ui/table";
 import { EmptyState, Timestamp } from "@/features/offline-eval/components";
+import { ProjectBreadcrumb } from "@/features/projects/components";
 import {
   changeSentiment,
   pctFraction,
@@ -22,14 +24,27 @@ import { useCompareRuns, useEvaluationRuns, useEvaluations } from "../hooks";
 import type { CompareRunSummary, RunComparison, Classification } from "../types";
 import { RunStatusBadge } from "./evaluations-view";
 
-const ALL = "";
+/** Reasons that make a comparison's deltas untrustworthy. `different_evaluation` is
+ *  intentionally NOT here — cross-evaluation comparison is allowed and merely labeled;
+ *  what disables trusted deltas is a dataset-version mismatch, a non-terminal baseline,
+ *  a missing baseline, or an incompatible main scorer. */
+const BLOCKING_REASONS = new Set([
+  "different_dataset_version",
+  "baseline_not_terminal",
+  "baseline_missing",
+  "no_baseline",
+  "main_scorer_incompatible",
+]);
 
 const REASON_LABEL: Record<string, string> = {
   no_baseline: "No baseline chosen.",
   baseline_missing: "The baseline run wasn't found.",
   different_evaluation: "These runs are from different evaluations.",
-  different_dataset_version: "The runs used different dataset versions — cases may not line up.",
+  different_dataset_version:
+    "The runs used different immutable dataset versions — their cases don't line up.",
   baseline_not_terminal: "The baseline run hasn't finished.",
+  main_scorer_incompatible:
+    "The main scorer's name/version differs, so no comparable pair exists — trusted deltas are disabled.",
 };
 
 const CHANGE_LABEL: Record<Classification, { label: string; className: string }> = {
@@ -44,46 +59,10 @@ const CHANGE_LABEL: Record<Classification, { label: string; className: string }>
 function fmtScore(v: number | null): string {
   return v === null ? "—" : pctFraction(v);
 }
-
-/** One run's picker (candidate / baseline), listing the evaluation's runs newest-first. */
-function RunPicker({
-  label,
-  runs,
-  value,
-  onChange,
-  disabledId,
-}: {
-  label: string;
-  runs: Array<{ id: string; runNumber: number; candidateVersion: string }>;
-  value: string;
-  onChange: (id: string) => void;
-  disabledId?: string;
-}) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <span className="text-[11px] text-muted-foreground">{label}</span>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="h-7 w-[220px] text-[12px]">
-          <SelectValue placeholder="Select a run" />
-        </SelectTrigger>
-        <SelectContent>
-          {runs.map((r) => (
-            <SelectItem
-              key={r.id}
-              value={r.id}
-              className="text-[12px]"
-              disabled={r.id === disabledId}
-            >
-              Run #{r.runNumber} · {r.candidateVersion}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  );
+function fmtMs(n: number): string {
+  return n < 1000 ? `${Math.round(n)}ms` : `${(n / 1000).toFixed(1)}s`;
 }
 
-/** Candidate | Baseline | Δ summary row (higher-is-better metrics like the main score). */
 function StatRow({
   label,
   candidate,
@@ -122,13 +101,23 @@ function StatRow({
   );
 }
 
-function RunHeaderCard({ run, role }: { run: CompareRunSummary; role: "Candidate" | "Baseline" }) {
+function RunHeaderCard({
+  run,
+  role,
+  crossEval,
+}: {
+  run: CompareRunSummary;
+  role: "Candidate" | "Baseline";
+  crossEval: boolean;
+}) {
   return (
     <div className="min-w-0 flex-1 rounded border border-border bg-muted/20 px-3 py-2">
       <div className="flex items-center justify-between gap-2">
         <span className="text-[11px] uppercase tracking-wide text-muted-foreground">{role}</span>
         <RunStatusBadge status={run.status} />
       </div>
+      {/* In a cross-evaluation comparison both evaluation names are shown prominently. */}
+      {crossEval && <div className="mt-1 text-[12px] font-medium">{run.evaluationName}</div>}
       <div className="mt-1 flex items-baseline gap-1.5">
         <span className="text-[13px] font-semibold">Run #{run.runNumber}</span>
         <span className="truncate font-mono text-[11px] text-muted-foreground">
@@ -140,10 +129,6 @@ function RunHeaderCard({ run, role }: { run: CompareRunSummary; role: "Candidate
       </div>
     </div>
   );
-}
-
-function fmtMs(n: number): string {
-  return n < 1000 ? `${Math.round(n)}ms` : `${(n / 1000).toFixed(1)}s`;
 }
 
 function SummaryTable({ comparison }: { comparison: RunComparison }) {
@@ -170,7 +155,7 @@ function SummaryTable({ comparison }: { comparison: RunComparison }) {
           {c.scorers.map((s) => (
             <StatRow
               key={`${s.name}@${s.version}`}
-              label={`${s.name}`}
+              label={s.name}
               candidate={s.candidateMean}
               baseline={s.baselineMean}
               delta={s.delta}
@@ -204,98 +189,169 @@ function SummaryTable({ comparison }: { comparison: RunComparison }) {
   );
 }
 
-export function CompareTab({ projectId }: { projectId: string }) {
-  const router = useRouter();
+/** An evaluation + run picker for one side (candidate or baseline). Supports picking a
+ *  run from ANY evaluation, so a cross-evaluation pair can be assembled here too. */
+function RunChooser({
+  projectId,
+  label,
+  seedEvaluationId,
+  runId,
+  otherRunId,
+  onPick,
+}: {
+  projectId: string;
+  label: string;
+  seedEvaluationId: string | null;
+  runId: string | null;
+  otherRunId: string | null;
+  onPick: (runId: string) => void;
+}) {
   const { data: evalData } = useEvaluations(projectId);
   const evaluations = React.useMemo(() => evalData?.data ?? [], [evalData]);
-
-  const [evaluationId, setEvaluationId] = React.useState<string>(ALL);
-  const [candidateId, setCandidateId] = React.useState<string>("");
-  const [baselineId, setBaselineId] = React.useState<string>("");
-
+  const [evalId, setEvalId] = React.useState<string>(seedEvaluationId ?? "");
+  React.useEffect(() => {
+    if (seedEvaluationId) setEvalId(seedEvaluationId);
+  }, [seedEvaluationId]);
   const { data: runsData } = useEvaluationRuns(
     projectId,
-    evaluationId ? { evaluation_id: evaluationId } : undefined,
+    evalId ? { evaluation_id: evalId } : undefined,
   );
   const runs = React.useMemo(() => runsData?.data ?? [], [runsData]);
 
-  // Seed the evaluation to the first one, and the pickers to the two newest runs.
-  React.useEffect(() => {
-    if (!evaluationId && evaluations.length > 0) setEvaluationId(evaluations[0].id);
-  }, [evaluations, evaluationId]);
-  React.useEffect(() => {
-    setCandidateId(runs[0]?.id ?? "");
-    setBaselineId(runs[1]?.id ?? "");
-  }, [runs]);
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-[11px] text-muted-foreground">{label}</span>
+      <Select value={evalId} onValueChange={setEvalId}>
+        <SelectTrigger className="h-7 w-[170px] text-[12px]">
+          <SelectValue placeholder="Evaluation" />
+        </SelectTrigger>
+        <SelectContent>
+          {evaluations.map((e) => (
+            <SelectItem key={e.id} value={e.id} className="text-[12px]">
+              {e.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Select value={runId ?? ""} onValueChange={onPick}>
+        <SelectTrigger className="h-7 w-[200px] text-[12px]">
+          <SelectValue placeholder="Run" />
+        </SelectTrigger>
+        <SelectContent>
+          {runs.map((r) => (
+            <SelectItem
+              key={r.id}
+              value={r.id}
+              className="text-[12px]"
+              disabled={r.id === otherRunId}
+            >
+              Run #{r.runNumber} · {r.candidateVersion}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
 
-  const compare = useCompareRuns(projectId, candidateId || null, baselineId || null);
+/**
+ * The shareable comparison view: `?baseline=&candidate=` in the URL. Baseline and
+ * candidate roles are explicit and swappable. Reuses the server-derived comparison
+ * engine (via the compare route) — no comparison logic here. Cross-evaluation pairs
+ * are allowed and clearly labeled; trusted deltas are disabled (with the exact reason)
+ * only for a genuine incompatibility, never merely because the evaluations differ.
+ */
+export function CompareRunsView({
+  projectId,
+  candidateId,
+  baselineId,
+  onChange,
+}: {
+  projectId: string;
+  candidateId: string | null;
+  baselineId: string | null;
+  onChange: (baseline: string | null, candidate: string | null) => void;
+}) {
+  const router = useRouter();
+  const compare = useCompareRuns(projectId, candidateId, baselineId);
+  const data = compare.data;
+
+  const candEval = data?.candidate.evaluationId ?? null;
+  const baseEval = data?.baseline.evaluationId ?? null;
+  const crossEval = !!data && candEval !== baseEval;
+  const blocking = (data?.comparison.reasons ?? []).filter((r) => BLOCKING_REASONS.has(r));
+  const deltasTrusted = !!data?.comparison.available && blocking.length === 0;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex h-full flex-col text-[12px]">
+      <ProjectBreadcrumb projectId={projectId} current="Compare runs" />
+
       <div className="flex flex-wrap items-center gap-3 border-b border-border px-3 py-2">
-        <Select
-          value={evaluationId}
-          onValueChange={(v) => {
-            setEvaluationId(v);
-            setCandidateId("");
-            setBaselineId("");
-          }}
-        >
-          <SelectTrigger className="h-7 w-[200px] text-[12px]">
-            <SelectValue placeholder="Evaluation" />
-          </SelectTrigger>
-          <SelectContent>
-            {evaluations.map((e) => (
-              <SelectItem key={e.id} value={e.id} className="text-[12px]">
-                {e.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <RunPicker
+        <RunChooser
+          projectId={projectId}
           label="Candidate"
-          runs={runs}
-          value={candidateId}
-          onChange={setCandidateId}
-          disabledId={baselineId}
+          seedEvaluationId={candEval}
+          runId={candidateId}
+          otherRunId={baselineId}
+          onPick={(id) => onChange(baselineId, id)}
         />
-        <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
-        <RunPicker
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 gap-1.5 text-[12px]"
+          disabled={!candidateId || !baselineId}
+          onClick={() => onChange(candidateId, baselineId)}
+          title="Swap baseline and candidate"
+        >
+          <ArrowLeftRight className="h-3.5 w-3.5" aria-hidden />
+          Swap
+        </Button>
+        <RunChooser
+          projectId={projectId}
           label="Baseline"
-          runs={runs}
-          value={baselineId}
-          onChange={setBaselineId}
-          disabledId={candidateId}
+          seedEvaluationId={baseEval}
+          runId={baselineId}
+          otherRunId={candidateId}
+          onPick={(id) => onChange(id, candidateId)}
         />
       </div>
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-auto p-3 text-[12px]">
-        {runs.length < 2 ? (
-          <EmptyState>This evaluation needs at least two runs to compare.</EmptyState>
-        ) : !candidateId || !baselineId ? (
-          <EmptyState>Pick a candidate and a baseline run.</EmptyState>
+      <div className="min-h-0 flex-1 space-y-3 overflow-auto p-3">
+        {!candidateId || !baselineId ? (
+          <EmptyState>Pick a candidate and a baseline run to compare.</EmptyState>
+        ) : candidateId === baselineId ? (
+          <EmptyState>Pick two different runs.</EmptyState>
         ) : compare.isLoading ? (
           <EmptyState>Comparing…</EmptyState>
-        ) : compare.error || !compare.data ? (
+        ) : compare.error || !data ? (
           <EmptyState>Couldn’t compare these runs.</EmptyState>
         ) : (
           <>
             <div className="flex items-stretch gap-2">
-              <RunHeaderCard run={compare.data.candidate} role="Candidate" />
-              <RunHeaderCard run={compare.data.baseline} role="Baseline" />
+              <RunHeaderCard run={data.candidate} role="Candidate" crossEval={crossEval} />
+              <ArrowRight className="mt-6 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+              <RunHeaderCard run={data.baseline} role="Baseline" crossEval={crossEval} />
             </div>
 
-            {!compare.data.comparison.trustworthy && (
-              <div className="flex items-start gap-1.5 rounded border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-700 dark:text-amber-300">
-                <Info className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
+            {crossEval && (
+              <div className="flex items-start gap-1.5 rounded border border-border bg-muted/30 px-2.5 py-1.5 text-[11px]">
+                <Info className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
                 <span>
-                  {compare.data.comparison.reasons.map((r) => REASON_LABEL[r] ?? r).join(" ")}{" "}
-                  Deltas are shown but may not be meaningful.
+                  <span className="font-medium">Cross-evaluation comparison</span> —{" "}
+                  {data.candidate.evaluationName} vs {data.baseline.evaluationName}. No baseline
+                  relationship is saved.
                 </span>
               </div>
             )}
 
-            <SummaryTable comparison={compare.data.comparison} />
+            {!deltasTrusted && blocking.length > 0 && (
+              <div className="flex items-start gap-1.5 rounded border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-700 dark:text-amber-300">
+                <Info className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
+                <span>{blocking.map((r) => REASON_LABEL[r] ?? r).join(" ")}</span>
+              </div>
+            )}
+
+            <SummaryTable comparison={data.comparison} />
 
             <div className="overflow-hidden rounded border border-border">
               <Table>
@@ -304,19 +360,19 @@ export function CompareTab({ projectId }: { projectId: string }) {
                     <Th>Test case</Th>
                     <Th className="w-[110px] text-right">Candidate</Th>
                     <Th className="w-[110px] text-right">Baseline</Th>
-                    <Th className="w-[120px]">Change</Th>
+                    <Th className="w-[130px]">Change</Th>
                   </TRHead>
                 </THead>
                 <TBody>
-                  {compare.data.results.map((r) => {
+                  {data.results.map((r) => {
                     const cmp = r.comparison;
                     const change = cmp?.caseChange ?? null;
                     return (
                       <TR
                         key={r.testCaseId}
-                        interactive={!!r.traceId}
+                        interactive={!!r.candidateTraceId}
                         onClick={() =>
-                          r.traceId &&
+                          r.candidateTraceId &&
                           router.push(
                             `/projects/${projectId}/evaluations/${candidateId}?result=${r.testCaseId}`,
                           )
