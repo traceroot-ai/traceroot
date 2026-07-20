@@ -36,8 +36,11 @@ import {
   useSeedTraceIO,
   type ReviewTarget,
 } from "@/features/offline-eval/components";
+import { useQueries } from "@tanstack/react-query";
 import { TraceViewerPanel } from "@/features/traces/components";
 import { useTrace } from "@/features/traces/hooks";
+import { getTrace } from "@/lib/api";
+import { useSession as useAuthSession } from "@/lib/auth-client";
 import type { Span, TraceDetail } from "@/types/api";
 import type { SpanKind, SpanStatus } from "@traceroot/core";
 import { cn } from "@/lib/utils";
@@ -350,6 +353,15 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
     [tracePending, openTraceSpans],
   );
 
+  // The baseline case's trace, fetched so the result panel can diff tokens/cost
+  // against the candidate (its duration is already derived server-side).
+  const baselineTraceId = openResult?.comparison?.baselineTraceId ?? null;
+  const baselineTrace = useTrace(projectId, baselineTraceId ?? "", !!baselineTraceId);
+  const baselineUsage = React.useMemo<TraceUsage>(
+    () => attributeTraceUsage(baselineTrace.data?.spans as UsageSpan[] | undefined),
+    [baselineTrace.data],
+  );
+
   const closeResult = () => setOpenResultId(null);
 
   // The trace panel's up/down chevrons step between this run's results (in the same
@@ -445,6 +457,7 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
               run={run}
               result={openResult}
               traceUsage={traceUsage}
+              baselineUsage={baselineUsage}
               onReview={() => setReviewOpen(true)}
               onSaveExpected={(value) =>
                 updateCase.mutate(
@@ -669,6 +682,7 @@ function RunBody({
       <RunDetailsDrawer
         run={run}
         projectId={projectId}
+        results={results}
         open={detailsOpen}
         onOpenChange={setDetailsOpen}
       />
@@ -681,11 +695,13 @@ function RunBody({
 function RunDetailsDrawer({
   run,
   projectId,
+  results,
   open,
   onOpenChange,
 }: {
   run: RunDetail;
   projectId: string;
+  results: ResultRow[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -722,8 +738,135 @@ function RunDetailsDrawer({
         </button>
       </div>
       <div className="min-h-0 flex-1 overflow-auto p-4 text-[12px]">
+        {/* Mounted only while the drawer is open, so the per-case trace fetches for
+            the token/cost aggregate happen lazily, not on every run-detail load. */}
+        <RunMetricsDiff run={run} projectId={projectId} results={results} />
         <RunDetailsBody run={run} projectId={projectId} />
       </div>
+    </div>
+  );
+}
+
+/**
+ * Run-level candidate-vs-baseline metrics. Duration is derived server-side (paired
+ * case-duration mean). Tokens/cost are aggregated across the run's case traces vs the
+ * baseline's — fetched lazily here (only while the drawer is open) and summed; while
+ * any trace is still loading it shows a "computing" note, and traces without provider
+ * usage simply contribute nothing.
+ */
+function RunMetricsDiff({
+  run,
+  projectId,
+  results,
+}: {
+  run: RunDetail;
+  projectId: string;
+  results: ResultRow[];
+}) {
+  const { data: authSession } = useAuthSession();
+  const user = authSession?.user
+    ? { id: authSession.user.id, email: authSession.user.email }
+    : undefined;
+
+  const candidateIds = React.useMemo(
+    () => [...new Set(results.map((r) => r.traceId).filter((x): x is string => !!x))],
+    [results],
+  );
+  const baselineIds = React.useMemo(
+    () => [
+      ...new Set(results.map((r) => r.comparison?.baselineTraceId).filter((x): x is string => !!x)),
+    ],
+    [results],
+  );
+  const allIds = React.useMemo(
+    () => [...new Set([...candidateIds, ...baselineIds])],
+    [candidateIds, baselineIds],
+  );
+
+  // Share useTrace's cache key so any already-opened trace is reused, not refetched.
+  const queries = useQueries({
+    queries: allIds.map((id) => ({
+      queryKey: ["trace", projectId, id],
+      queryFn: () => getTrace(projectId, id, "", user),
+      enabled: !!user,
+    })),
+  });
+
+  const usageById = new Map<string, TraceUsage>();
+  let loading = false;
+  allIds.forEach((id, i) => {
+    const q = queries[i];
+    if (q.isLoading || q.isFetching) loading = true;
+    usageById.set(id, attributeTraceUsage(q.data?.spans as UsageSpan[] | undefined));
+  });
+
+  const sum = (ids: string[]) => {
+    let tokens = 0;
+    let cost = 0;
+    let any = false;
+    for (const id of ids) {
+      const u = usageById.get(id);
+      if (u && u.state === "present") {
+        tokens += u.combined.totalTokens;
+        cost += u.combined.cost;
+        any = true;
+      }
+    }
+    return any ? { tokens, cost } : null;
+  };
+  const cand = sum(candidateIds);
+  const base = sum(baselineIds);
+  const dur = run.comparison.duration;
+
+  const fmtTok = (n: number) => `${Math.round(n).toLocaleString()}`;
+  const fmtCost = (n: number) => (n > 0 ? `$${n.toFixed(4)}` : "$0");
+  const fmtMs = (n: number) => (n < 1000 ? `${Math.round(n)}ms` : `${(n / 1000).toFixed(1)}s`);
+
+  return (
+    <div className="mb-3 overflow-hidden rounded border border-border">
+      <div className="border-b border-border bg-muted/40 px-2.5 py-1 text-[11px] text-muted-foreground">
+        Metrics vs baseline{" "}
+        {run.comparison.baseline ? (
+          <span className="text-foreground">({run.comparison.baseline.candidateVersion})</span>
+        ) : (
+          <span>— no baseline</span>
+        )}
+      </div>
+      <table className="w-full text-[11px]">
+        <thead>
+          <tr className="text-[10px] text-muted-foreground">
+            <th className="py-1 pl-2.5 text-left font-normal"></th>
+            <th className="py-1 text-right font-normal">Candidate</th>
+            <th className="py-1 text-right font-normal">Baseline</th>
+            <th className="py-1 pr-2.5 text-right font-normal">Δ</th>
+          </tr>
+        </thead>
+        <tbody className="[&_td:first-child]:pl-2.5 [&_td:last-child]:pr-2.5">
+          <MetricRow
+            label="Avg case duration"
+            candidate={dur.candidateMeanMs}
+            baseline={dur.baselineMeanMs}
+            format={fmtMs}
+          />
+          <MetricRow
+            label="Total tokens"
+            candidate={cand ? cand.tokens : null}
+            baseline={base ? base.tokens : null}
+            format={fmtTok}
+          />
+          <MetricRow
+            label="Total cost"
+            candidate={cand ? cand.cost : null}
+            baseline={base ? base.cost : null}
+            format={fmtCost}
+          />
+        </tbody>
+      </table>
+      {loading && (
+        <p className="border-t border-border px-2.5 py-1 text-[10px] text-muted-foreground">
+          Summing token/cost across {allIds.length} case traces…
+        </p>
+      )}
     </div>
   );
 }
@@ -1264,6 +1407,110 @@ function ScorerBreakdown({ result }: { result: ResultRow }) {
   );
 }
 
+/** One metric row: candidate vs baseline vs delta. Missing values show "—". */
+function MetricRow({
+  label,
+  candidate,
+  baseline,
+  format,
+  lowerIsBetter = true,
+}: {
+  label: string;
+  candidate: number | null;
+  baseline: number | null;
+  format: (n: number) => string;
+  lowerIsBetter?: boolean;
+}) {
+  const delta = candidate !== null && baseline !== null ? candidate - baseline : null;
+  return (
+    <tr>
+      <td className="py-1 pr-2 text-muted-foreground">{label}</td>
+      <td className="py-1 text-right tabular-nums">
+        {candidate === null ? "—" : format(candidate)}
+      </td>
+      <td className="py-1 text-right tabular-nums text-muted-foreground">
+        {baseline === null ? "—" : format(baseline)}
+      </td>
+      <td className="py-1 pl-2 text-right tabular-nums">
+        {delta === null || delta === 0 ? (
+          <span className="text-muted-foreground">{delta === 0 ? format(0) : "—"}</span>
+        ) : (
+          <span className={SENTIMENT_CLASS[changeSentiment(lowerIsBetter ? -delta : delta)]}>
+            {delta > 0 ? "+" : "−"}
+            {format(Math.abs(delta))}
+          </span>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+/**
+ * Candidate-vs-baseline metrics for the open case — duration, tokens, and cost side
+ * by side with deltas. Duration is derived server-side; tokens/cost come from each
+ * side's trace (pending/unknown when a trace lacks provider usage). Lower is better
+ * for all three, so a smaller candidate reads green.
+ */
+function MetricsDiff({
+  candidate,
+  baseline,
+  candidateDurationMs,
+  baselineDurationMs,
+}: {
+  candidate: TraceUsage;
+  baseline: TraceUsage;
+  candidateDurationMs: number | null;
+  baselineDurationMs: number | null;
+}) {
+  const tok = (u: TraceUsage) => (u.state === "present" ? u.combined.totalTokens : null);
+  const cost = (u: TraceUsage) => (u.state === "present" ? u.combined.cost : null);
+  const fmtTok = (n: number) => `${Math.round(n).toLocaleString()}`;
+  const fmtCost = (n: number) => (n > 0 ? `$${n.toFixed(4)}` : "$0");
+  const fmtMs = (n: number) => (n < 1000 ? `${Math.round(n)}ms` : `${(n / 1000).toFixed(1)}s`);
+  return (
+    <div className="mt-2 overflow-hidden rounded border border-border">
+      <div className="border-b border-border bg-muted/40 px-2.5 py-1 text-[11px] text-muted-foreground">
+        Metrics vs baseline
+      </div>
+      <table className="w-full px-2.5 text-[11px]">
+        <thead>
+          <tr className="text-[10px] text-muted-foreground">
+            <th className="py-1 pl-2.5 text-left font-normal"></th>
+            <th className="py-1 text-right font-normal">Candidate</th>
+            <th className="py-1 text-right font-normal">Baseline</th>
+            <th className="py-1 pr-2.5 text-right font-normal">Δ</th>
+          </tr>
+        </thead>
+        <tbody className="[&_td:first-child]:pl-2.5 [&_td:last-child]:pr-2.5">
+          <MetricRow
+            label="Duration"
+            candidate={candidateDurationMs}
+            baseline={baselineDurationMs}
+            format={fmtMs}
+          />
+          <MetricRow
+            label="Tokens"
+            candidate={tok(candidate)}
+            baseline={tok(baseline)}
+            format={fmtTok}
+          />
+          <MetricRow
+            label="Cost"
+            candidate={cost(candidate)}
+            baseline={cost(baseline)}
+            format={fmtCost}
+          />
+        </tbody>
+      </table>
+      {(candidate.state === "pending" || baseline.state === "pending") && (
+        <p className="border-t border-border px-2.5 py-1 text-[10px] text-muted-foreground">
+          A trace is still ingesting — token/cost values will fill in.
+        </p>
+      )}
+    </div>
+  );
+}
+
 /**
  * Trace-derived token/cost for the open case, split by application (task) vs
  * evaluation-judge (scorers). `pending` while the trace ingests, `unknown` when the
@@ -1555,6 +1802,7 @@ function ResultContext({
   run,
   result,
   traceUsage,
+  baselineUsage,
   onReview,
   onSaveExpected,
 }: {
@@ -1562,6 +1810,7 @@ function ResultContext({
   run: RunDetail;
   result: ResultRow;
   traceUsage: TraceUsage;
+  baselineUsage: TraceUsage;
   onReview: () => void;
   onSaveExpected: (value: string) => void;
 }) {
@@ -1690,7 +1939,16 @@ function ResultContext({
 
       <ScorerBreakdown result={result} />
 
-      <UsageBreakdown usage={traceUsage} />
+      {result.comparison?.baselineTraceId ? (
+        <MetricsDiff
+          candidate={traceUsage}
+          baseline={baselineUsage}
+          candidateDurationMs={result.durationMs}
+          baselineDurationMs={result.comparison.baselineDurationMs}
+        />
+      ) : (
+        <UsageBreakdown usage={traceUsage} />
+      )}
 
       {result.humanScores.length > 0 && (
         <div className="mt-2 overflow-hidden rounded border border-border">
