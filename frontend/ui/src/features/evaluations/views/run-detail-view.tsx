@@ -973,7 +973,10 @@ function RunSwitcher({
           <ChevronDown className="h-3 w-3" aria-hidden />
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="max-h-[320px] w-64 overflow-y-auto p-1">
+      <PopoverContent align="start" className="max-h-[360px] w-80 overflow-y-auto p-1">
+        <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+          Run history
+        </div>
         {runs.map((sibling) => (
           <button
             key={sibling.id}
@@ -983,19 +986,30 @@ function RunSwitcher({
               setOpen(false);
             }}
             className={cn(
-              "flex w-full items-center justify-between gap-2 rounded px-2 py-1 text-left text-[12px] transition-colors",
+              "flex w-full flex-col gap-1 rounded px-2 py-1.5 text-left text-[12px] transition-colors",
               sibling.id === run.id ? "bg-muted/70" : "hover:bg-muted/50",
             )}
           >
-            <span className="flex items-center gap-1.5">
-              <span>Run #{sibling.runNumber}</span>
-              <span className="font-mono text-[11px] text-muted-foreground">
-                {sibling.candidateVersion}
+            <div className="flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5">
+                <span className="font-medium">Run #{sibling.runNumber}</span>
+                {sibling.id === run.id && (
+                  <span className="rounded bg-foreground/10 px-1 text-[10px] text-muted-foreground">
+                    current
+                  </span>
+                )}
+                <span className="font-mono text-[11px] text-muted-foreground">
+                  {sibling.candidateVersion}
+                </span>
               </span>
-            </span>
-            <span className="tabular-nums text-muted-foreground">
-              {sibling.mainScore === null ? "—" : pctFraction(sibling.mainScore)}
-            </span>
+              <span className="tabular-nums text-muted-foreground">
+                {sibling.mainScore === null ? "—" : pctFraction(sibling.mainScore)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+              <RunStatusBadge status={sibling.status} />
+              <Timestamp iso={sibling.startedAt} />
+            </div>
           </button>
         ))}
       </PopoverContent>
