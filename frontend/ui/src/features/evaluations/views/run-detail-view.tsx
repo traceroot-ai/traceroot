@@ -59,6 +59,13 @@ import { RunStatusBadge } from "./evaluations-view";
 import { attributeTraceUsage, type TraceUsage, type UsageSpan } from "@/lib/eval/trace-usage";
 import type { ResultRow, RunDetail, ScoreRow, Classification } from "../types";
 
+/** Verdict → badge tone, matching the design system's success/danger/warning. */
+const HUMAN_VERDICT_VARIANT: Record<string, "success" | "danger" | "warning"> = {
+  pass: "success",
+  fail: "danger",
+  unsure: "warning",
+};
+
 /** Case/run duration; "Unknown" when unmeasured (never 0s). */
 function fmtDurationMs(ms: number | null | undefined): string {
   if (ms === null || ms === undefined) return "Unknown";
@@ -1614,15 +1621,30 @@ function ResultContext({
       <UsageBreakdown usage={traceUsage} />
 
       {result.humanScores.length > 0 && (
-        <div className="mt-2 rounded border border-border bg-muted/20 px-2.5 py-1.5 text-[11px]">
-          <span className="text-muted-foreground">Human review: </span>
-          {result.humanScores.map((h, i) => (
-            <span key={h.id}>
-              {i > 0 ? "; " : ""}
-              <span className="font-medium capitalize">{h.verdict}</span>
-              {h.comment ? ` — ${h.comment}` : ""}
-            </span>
-          ))}
+        <div className="mt-2 overflow-hidden rounded border border-border">
+          <div className="border-b border-border bg-muted/40 px-2.5 py-1 text-[11px] text-muted-foreground">
+            Human review
+          </div>
+          <ul className="divide-y divide-border">
+            {result.humanScores.map((h) => (
+              <li key={h.id} className="flex flex-col gap-1 px-2.5 py-1.5 text-[11px]">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant={HUMAN_VERDICT_VARIANT[h.verdict] ?? "default"}>
+                    <span className="capitalize">{h.verdict}</span>
+                  </Badge>
+                  {h.quality != null && (
+                    <span className="tabular-nums text-muted-foreground">
+                      Quality {h.quality}/5
+                    </span>
+                  )}
+                  {h.reviewer && (
+                    <span className="ml-auto truncate text-muted-foreground">{h.reviewer}</span>
+                  )}
+                </div>
+                {h.comment && <p className="leading-relaxed text-muted-foreground">{h.comment}</p>}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
