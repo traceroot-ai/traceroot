@@ -69,14 +69,60 @@ export async function publishDatasetVersion(opts: {
   projectId: string;
   note?: string | null;
   createdBy?: string | null;
+  /** Optional custom version label; defaults to `v<number>`. */
+  label?: string;
+  /**
+   * Optimistic concurrency: the version this edit was based on. When provided
+   * (including explicit null for "no version yet"), a mismatch with the dataset's
+   * current version throws VersionConflict. Omit entirely to skip the check
+   * (the session UI routes, which always edit the live current version).
+   */
+  baseVersionId?: string | null;
+  /**
+   * Idempotency: a retried publish with the same key returns the version already
+   * published for it instead of creating a duplicate. Stored on the version.
+   */
+  idempotencyKey?: string | null;
   transform: (current: TestCaseSeed[]) => { cases: TestCaseSeed[]; focusTestCaseId: string };
-}): Promise<{ versionId: string; versionNumber: number; focusTestCaseId: string }> {
+}): Promise<{
+  versionId: string;
+  versionNumber: number;
+  focusTestCaseId: string;
+  caseCount: number;
+  replayed: boolean;
+}> {
   return prisma.$transaction(async (tx) => {
     const dataset = await tx.dataset.findFirst({
       where: { id: opts.datasetId, projectId: opts.projectId },
       select: { id: true, currentVersionId: true },
     });
     if (!dataset) throw new DatasetNotFound();
+
+    // Idempotent replay: a publish already recorded for this key wins over the
+    // conflict check below, so a network retry after success returns that version.
+    if (opts.idempotencyKey) {
+      const prior = await tx.datasetVersion.findFirst({
+        where: { datasetId: opts.datasetId, idempotencyKey: opts.idempotencyKey },
+        select: { id: true, versionNumber: true },
+      });
+      if (prior) {
+        return {
+          versionId: prior.id,
+          versionNumber: prior.versionNumber,
+          focusTestCaseId: "",
+          caseCount: await tx.testCase.count({ where: { datasetVersionId: prior.id } }),
+          replayed: true,
+        };
+      }
+    }
+
+    // Optimistic concurrency: reject when the caller's base is not the live version.
+    if (opts.baseVersionId !== undefined) {
+      const currentId = dataset.currentVersionId ?? null;
+      if (currentId !== (opts.baseVersionId ?? null)) {
+        throw new VersionConflict(currentId);
+      }
+    }
 
     const current = dataset.currentVersionId
       ? await tx.testCase.findMany({
@@ -99,9 +145,10 @@ export async function publishDatasetVersion(opts: {
         datasetId: opts.datasetId,
         projectId: opts.projectId,
         versionNumber,
-        label: `v${versionNumber}`,
+        label: opts.label ?? `v${versionNumber}`,
         note: opts.note ?? null,
         createdBy: opts.createdBy ?? null,
+        idempotencyKey: opts.idempotencyKey ?? null,
       },
     });
 
@@ -125,7 +172,13 @@ export async function publishDatasetVersion(opts: {
       data: { currentVersionId: version.id },
     });
 
-    return { versionId: version.id, versionNumber, focusTestCaseId };
+    return {
+      versionId: version.id,
+      versionNumber,
+      focusTestCaseId,
+      caseCount: cases.length,
+      replayed: false,
+    };
   });
 }
 
@@ -133,5 +186,13 @@ export class DatasetNotFound extends Error {
   constructor() {
     super("Dataset not found");
     this.name = "DatasetNotFound";
+  }
+}
+
+/** Thrown when a publish's base version isn't the dataset's live version (A4 → 409). */
+export class VersionConflict extends Error {
+  constructor(public readonly currentVersionId: string | null) {
+    super("Dataset version conflict");
+    this.name = "VersionConflict";
   }
 }
