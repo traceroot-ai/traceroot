@@ -58,7 +58,7 @@ interface TraceViewerPanelProps {
   /**
    * When provided, this trace is used directly instead of fetching it, and the
    * live SSE stream + detector-findings lookups are disabled. Lets the
-   * offline-eval prototype render the genuine viewer from hardcoded data.
+   * offline-eval surface render the genuine viewer from provided data.
    * Unset in production.
    */
   traceOverride?: TraceDetail;
