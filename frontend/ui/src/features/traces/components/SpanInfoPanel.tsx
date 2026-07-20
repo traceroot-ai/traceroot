@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   Clock,
@@ -39,6 +40,12 @@ interface SpanInfoPanelProps {
   dateFilter?: { id: string; isCustom?: boolean };
   customStartDate?: Date | null;
   customEndDate?: Date | null;
+  /**
+   * Optional action bar rendered between the header and the content, e.g. the
+   * offline-eval "Save as test case" / "Review" buttons. Unset in production, so
+   * the standard trace viewer is unaffected.
+   */
+  spanActions?: ReactNode;
 }
 
 /**
@@ -52,6 +59,7 @@ export function SpanInfoPanel({
   dateFilter,
   customStartDate,
   customEndDate,
+  spanActions,
 }: SpanInfoPanelProps) {
   const router = useRouter();
 
@@ -268,6 +276,13 @@ export function SpanInfoPanel({
           </div>
         )}
       </div>
+
+      {/* Optional injected actions (offline-eval); absent in production. */}
+      {spanActions && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2">
+          {spanActions}
+        </div>
+      )}
 
       {/* Content */}
       <div className="space-y-3 p-4">
