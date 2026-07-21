@@ -95,9 +95,16 @@ export function SpanInfoPanel({
     selectedSpanId,
   );
 
-  const input = isTrace ? trace.input : (spanIO?.input ?? null);
-  const output = isTrace ? trace.output : (spanIO?.output ?? null);
-  const rawMetadata = isTrace ? trace.metadata : (spanIO?.metadata ?? null);
+  // Per-span I/O comes from the lazy fetch, but fall back to whatever the span
+  // object itself carries — a provided trace (e.g. an evaluation's reconstructed
+  // trace) ships I/O on the span, and the `/io` fetch returns nothing for those
+  // synthetic span ids. Production skeleton spans have null here, so normal traces
+  // are unchanged (the fetch stays the source).
+  const input = isTrace ? trace.input : (spanIO?.input ?? selection.span.input ?? null);
+  const output = isTrace ? trace.output : (spanIO?.output ?? selection.span.output ?? null);
+  const rawMetadata = isTrace
+    ? trace.metadata
+    : (spanIO?.metadata ?? selection.span.metadata ?? null);
   const metadata = (() => {
     if (!rawMetadata) return rawMetadata;
     try {
