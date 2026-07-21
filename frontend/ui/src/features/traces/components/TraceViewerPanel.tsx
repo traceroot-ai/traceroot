@@ -100,9 +100,17 @@ interface TraceViewerPanelProps {
     matchSpan: (selection: TraceSelection) => Span | null;
   };
   /**
-   * Replaces the trace-level identity (offline-eval), so an evaluation trace leads
-   * with its test case instead of a raw trace id. Unset in production.
+   * Replaces the main header's "Trace" label + trace id (offline-eval), so an
+   * evaluation trace leads with its test case (e.g. label "Test case", value the
+   * test-case id). Unset in production, where the header shows "Trace" + traceId.
    */
+  headerIdentity?: { label: string; value: string };
+  /**
+   * A badge rendered in the main header, immediately left of the navigation
+   * buttons — the same spot the findings "Alert" tag uses. offline-eval puts the
+   * test case's outcome (Passed / Did not pass / Errored) here. Unset in production.
+   */
+  headerStatus?: ReactNode;
   traceIdentity?: { kindLabel: string; title: string; copyValue: string };
   /** Badge shown where a span's ERROR badge sits, at trace level. Unset in production. */
   traceStatusBadge?: ReactNode;
@@ -174,6 +182,8 @@ export function TraceViewerPanel({
   spanExtraTags,
   onSelectionChange,
   diffBaseline,
+  headerIdentity,
+  headerStatus,
   traceIdentity,
   traceStatusBadge,
   source,
@@ -356,11 +366,17 @@ export function TraceViewerPanel({
         {/* ── MAIN HEADER ── */}
         <div className="flex h-12 items-center justify-between border-b border-border bg-muted/30 px-4">
           <div className="flex min-w-0 items-center gap-2">
+            <Workflow className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium">{headerIdentity?.label ?? "Trace"}</span>
+            <span className="truncate font-mono text-xs text-muted-foreground">
+              {headerIdentity?.value ?? traceId}
+            </span>
             <DOMAIN_ICONS.trace className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm font-medium">Trace</span>
             <span className="truncate font-mono text-xs text-muted-foreground">{traceId}</span>
           </div>
           <div className="flex items-center gap-1">
+            {headerStatus}
             {hasRca && (
               <button
                 type="button"
@@ -620,8 +636,6 @@ export function TraceViewerPanel({
                       diffMode={!!diffBaseline && diffMode}
                       baselineSpan={diffBaseline?.matchSpan(selection) ?? null}
                       baselineTrace={diffBaseline?.trace ?? null}
-                      traceIdentity={traceIdentity}
-                      traceStatusBadge={traceStatusBadge}
                     />
                   ) : (
                     <SpanTimelineView
