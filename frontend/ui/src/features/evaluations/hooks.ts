@@ -10,6 +10,8 @@ import type {
   EvaluationRow,
   RunRow,
   RunDetailResponse,
+  EvalResultStatus,
+  ScoreRow,
 } from "./types";
 
 interface Meta {
@@ -226,5 +228,36 @@ export function useCreateHumanScore(projectId: string, resultId: string) {
         input,
       ),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["evaluations", "run"] }),
+  });
+}
+
+export interface TraceEvaluationResultRow {
+  id: string;
+  runId: string;
+  testCaseId: string;
+  traceId: string | null;
+  status: EvalResultStatus;
+  mainScore: number | null;
+  scores: ScoreRow[];
+  run: {
+    id: string;
+    runNumber: number;
+    candidateVersion: string;
+    datasetId: string;
+    datasetVersionId: string;
+    evaluation: { id: string; name: string };
+    datasetVersion: { label: string };
+  };
+}
+
+/** Evaluation results a trace produced — the trace -> evaluation-run link. */
+export function useTraceEvaluationResults(projectId: string, traceId: string) {
+  return useQuery({
+    queryKey: ["evaluations", "trace-results", projectId, traceId],
+    queryFn: () =>
+      getJson<{ data: TraceEvaluationResultRow[] }>(
+        `/api/projects/${projectId}/traces/${traceId}/evaluation-results`,
+      ),
+    enabled: !!projectId && !!traceId,
   });
 }
