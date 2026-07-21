@@ -158,6 +158,30 @@ export function useUpdateTestCase(projectId: string, datasetId: string) {
   });
 }
 
+export interface TestCaseRunRow {
+  resultId: string;
+  runId: string;
+  runNumber: number;
+  candidateVersion: string;
+  evaluationName: string;
+  ranAt: string;
+  score: number | null;
+  status: string;
+  change: "improved" | "regressed" | "unchanged" | null;
+}
+
+/** Every evaluation run that measured a given test case (newest first). */
+export function useTestCaseRuns(projectId: string, datasetId: string, testCaseId: string | null) {
+  return useQuery({
+    queryKey: ["datasets", projectId, datasetId, "test-case-runs", testCaseId],
+    queryFn: () =>
+      getJson<{ data: TestCaseRunRow[] }>(
+        `/api/projects/${projectId}/datasets/${datasetId}/test-cases/${testCaseId}/runs`,
+      ),
+    enabled: !!projectId && !!datasetId && !!testCaseId,
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Evaluations
 // ---------------------------------------------------------------------------
