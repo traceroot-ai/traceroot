@@ -11,6 +11,7 @@ import {
   Expand,
   Shrink,
   SquareArrowOutUpRight,
+  GitCompare,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn, buildUrlWithFilters, parseAsUTC } from "@/lib/utils";
@@ -19,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/ui/loading-state";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { getTrace } from "@/lib/api";
+import type { Span, TraceDetail } from "@/types/api";
 import { ApiError } from "@/lib/api/errors";
 import type { TraceDetail } from "@/types/api";
 import type { TraceSelection } from "../types";
@@ -79,6 +81,25 @@ interface TraceViewerPanelProps {
    * — e.g. offline-eval's "Dataset:" chip. Unset in production.
    */
   spanExtraTags?: (selection: TraceSelection) => ReactNode;
+  /**
+   * Notified whenever the selected span (or the trace root) changes, so an open
+   * side panel can follow the tree — e.g. offline-eval's "Save as test case"
+   * drawer tracking the clicked span. Unset in production.
+   */
+  onSelectionChange?: (selection: TraceSelection) => void;
+  /**
+   * Diff mode (offline-eval only): the baseline run's trace plus a matcher that
+   * resolves the baseline counterpart of a span selection (matched structurally,
+   * since span ids differ across runs). When provided, a "Diff" toggle appears in
+   * the sub-header; turning it on renders latency/token/cost tags with ± deltas and
+   * Input/Output/Metadata as git-style line diffs vs the baseline — for the whole
+   * trace (root row) as well as each span. Unset in production.
+   */
+  diffBaseline?: {
+    trace: TraceDetail;
+    matchSpan: (selection: TraceSelection) => Span | null;
+  };
+  diffBaseline?: (selection: TraceSelection) => Span | null;
    * Scope the trace fetch: "detector" opens a detector self-trace (excluded
    * from normal reads), "user" excludes self-traces. Omit for no scoping.
    */
@@ -144,10 +165,23 @@ export function TraceViewerPanel({
   spanActions,
   spanHeaderAction,
   spanExtraTags,
+  onSelectionChange,
+  diffBaseline,
   source,
   runTimestamp,
 }: TraceViewerPanelProps) {
   const [selection, setSelection] = useState<TraceSelection>({ type: "trace" });
+  // Diff mode is opt-in per panel (offline-eval only); the toggle only appears
+  // when a baseline matcher is supplied. Persists across ↑/↓ navigation like
+  // fullscreen, since the panel instance stays mounted.
+  const [diffMode, setDiffMode] = useState(false);
+  // Emit selection changes to the parent (kept in a ref so an inline callback
+  // doesn't retrigger the effect — it fires only when `selection` actually changes).
+  const onSelectionChangeRef = useRef(onSelectionChange);
+  onSelectionChangeRef.current = onSelectionChange;
+  useEffect(() => {
+    onSelectionChangeRef.current?.(selection);
+  }, [selection]);
   const [viewMode, setViewMode] = useState<"tree" | "timeline" | "detectors">("tree");
   // Fullscreen widens the slide-in overlay from ~70% to the full viewport.
   // Seeded from initialFullscreen so a trace opened in a new tab lands expanded.
@@ -449,6 +483,23 @@ export function TraceViewerPanel({
               <DOMAIN_ICONS.detector className="h-3.5 w-3.5" /> Detectors
             </button>
           </div>
+          {/* Diff toggle — only when a baseline is available (offline-eval). */}
+          {diffBaseline && viewMode === "tree" && (
+            <div className="ml-auto pr-3">
+              <button
+                onClick={() => setDiffMode((v) => !v)}
+                className={cn(
+                  "flex items-center gap-2 rounded-md px-3 py-1 text-xs font-medium transition-all",
+                  diffMode
+                    ? "bg-muted text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                title="Diff each span's input, output, metadata and metrics against the baseline run"
+              >
+                <GitCompare className="h-3.5 w-3.5" /> Diff
+              </button>
+            </div>
+          )}
         </div>
 
         {/* ── CONTENT AREA ── */}
@@ -557,6 +608,9 @@ export function TraceViewerPanel({
                       spanActions={spanActions?.(selection)}
                       headerAction={spanHeaderAction?.(selection)}
                       extraTags={spanExtraTags?.(selection)}
+                      diffMode={!!diffBaseline && diffMode}
+                      baselineSpan={diffBaseline?.matchSpan(selection) ?? null}
+                      baselineTrace={diffBaseline?.trace ?? null}
                     />
                   ) : (
                     <SpanTimelineView
