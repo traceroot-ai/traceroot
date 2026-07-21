@@ -27,36 +27,7 @@ export interface RawScore {
   evaluationId: string | null;
 }
 
-/** The SDK-reported scorer DEFINITION (see offline-eval/sdk-ask/scorer-definition-reporting.md).
- *  Every field is optional — absent → "Not provided by SDK", never inferred/fabricated. */
-export interface ScorerDefinition {
-  /** Discriminator; drives the detail's top-half. */
-  scorerType: "llm_judge" | "code" | null;
-  outputType: "score" | "classification" | null;
-  description: string | null;
-  metadata: unknown | null;
-  // llm_judge
-  model: string | null;
-  messages: Array<{ role: string; content: string }> | null;
-  // code
-  language: "python" | "typescript" | null;
-  sourceCode: string | null;
-}
-
-function emptyDefinition(): ScorerDefinition {
-  return {
-    scorerType: null,
-    outputType: null,
-    description: null,
-    metadata: null,
-    model: null,
-    messages: null,
-    language: null,
-    sourceCode: null,
-  };
-}
-
-export interface ScorerRow extends ScorerDefinition {
+export interface ScorerRow {
   name: string;
   version: string;
   scoreCount: number;
@@ -129,69 +100,6 @@ function declaredByKey(runManifests: Array<{ scorers: unknown }>) {
   return declared;
 }
 
-/** Latest-reported scorer DEFINITION per (name, version), read from the raw manifest.
- *  A later run that reports any definition field wins (definition is part of identity;
- *  changing it should bump the scorer version). Unknown fields are ignored. */
-function definitionByKey(runManifests: Array<{ scorers: unknown }>) {
-  const map = new Map<string, ScorerDefinition>();
-  for (const run of runManifests) {
-    if (!Array.isArray(run.scorers)) continue;
-    for (const raw of run.scorers) {
-      if (!raw || typeof raw !== "object") continue;
-      const o = raw as Record<string, unknown>;
-      if (typeof o.name !== "string") continue;
-      const version = typeof o.version === "string" ? o.version : "";
-      const def = emptyDefinition();
-      let any = false;
-      if (o.scorer_type === "llm_judge" || o.scorer_type === "code") {
-        def.scorerType = o.scorer_type;
-        any = true;
-      }
-      if (o.output_type === "score" || o.output_type === "classification") {
-        def.outputType = o.output_type;
-        any = true;
-      }
-      if (typeof o.description === "string") {
-        def.description = o.description;
-        any = true;
-      }
-      if (o.metadata !== undefined && o.metadata !== null) {
-        def.metadata = o.metadata;
-        any = true;
-      }
-      if (typeof o.model === "string") {
-        def.model = o.model;
-        any = true;
-      }
-      if (Array.isArray(o.messages)) {
-        const msgs = o.messages
-          .filter(
-            (m): m is { role: string; content: string } =>
-              !!m &&
-              typeof m === "object" &&
-              typeof (m as Record<string, unknown>).role === "string" &&
-              typeof (m as Record<string, unknown>).content === "string",
-          )
-          .map((m) => ({ role: m.role, content: m.content }));
-        if (msgs.length > 0) {
-          def.messages = msgs;
-          any = true;
-        }
-      }
-      if (o.language === "python" || o.language === "typescript") {
-        def.language = o.language;
-        any = true;
-      }
-      if (typeof o.source === "string") {
-        def.sourceCode = o.source;
-        any = true;
-      }
-      if (any) map.set(`${o.name}@${version}`, def);
-    }
-  }
-  return map;
-}
-
 /**
  * Aggregate raw scores + run manifests into per-(name, version) registry rows, sorted
  * by name then version. `runManifests` must be ordered oldest-first so the newest
@@ -202,7 +110,6 @@ export function aggregateScorers(
   runManifests: Array<{ scorers: unknown }>,
 ): ScorerRow[] {
   const declared = declaredByKey(runManifests);
-  const definitions = definitionByKey(runManifests);
   const byKey = new Map<string, Agg>();
 
   for (const s of scores) {
@@ -282,7 +189,6 @@ export function aggregateScorers(
           .slice(0, 8);
       }
       return {
-        ...(definitions.get(`${a.name}@${a.version}`) ?? emptyDefinition()),
         name: a.name,
         version: a.version,
         scoreCount: a.total,
