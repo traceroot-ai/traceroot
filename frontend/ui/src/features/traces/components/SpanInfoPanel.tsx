@@ -2,27 +2,14 @@
 
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import {
-  Clock,
-  Users,
-  Layers,
-  ChevronRight,
-  AlertCircle,
-  GitBranch,
-  GitCommitHorizontal,
-  FileCode,
-} from "lucide-react";
-import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { ChevronRight, GitBranch, GitCommitHorizontal, FileCode, Loader2 } from "lucide-react";
 import { CopyButton } from "@/components/ui/copy-button";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { formatDuration, formatDate, buildUrlWithFilters } from "@/lib/utils";
 import { TokenChip } from "./TokenChip";
 import { CostChip } from "./CostChip";
-import { MetricDelta } from "./MetricDelta";
-import { TraceIODiffSection } from "./TraceIODiff";
 import { SpanStatus } from "@traceroot/core";
-import type { Span, TraceDetail } from "@/types/api";
+import type { TraceDetail } from "@/types/api";
 import type { TraceSelection } from "../types";
 import {
   getSpanDuration,
@@ -32,7 +19,8 @@ import {
   getTraceCostBreakdown,
 } from "../utils";
 import { SpanKindIcon } from "./SpanKindIcon";
-import { TraceIOSection } from "./TraceIOValue";
+import { ContentRenderer } from "./ContentRenderer";
+import { ExpandableSection } from "@/components/ui/expandable-section";
 import { useSpanIO } from "../hooks";
 
 interface SpanInfoPanelProps {
@@ -43,13 +31,6 @@ interface SpanInfoPanelProps {
   dateFilter?: { id: string; isCustom?: boolean };
   customStartDate?: Date | null;
   customEndDate?: Date | null;
-  /**
-   * True for the offline-eval reconstructed trace (built from a result's I/O +
-   * scores, not real telemetry — see `buildEvalTrace`). Its duration/token/cost
-   * fields are fabricated placeholders, not measurements, so those badges are
-   * hidden and the panel shows I/O only. Unset in production.
-   */
-  isEvalShaped?: boolean;
   /**
    * Optional action bar rendered between the header and the content, e.g. the
    * offline-eval "Save as test case" / "Review" buttons. Unset in production, so
@@ -67,30 +48,6 @@ interface SpanInfoPanelProps {
    * offline-eval's "Dataset:" chip). Unset in production.
    */
   extraTags?: ReactNode;
-  /**
-   * Diff mode (offline-eval only): when on, the latency/token/cost tags show ±
-   * deltas and Input/Output/Metadata render as git-style line diffs vs the baseline
-   * run — for the trace-level selection (using `baselineTrace`) as well as a span
-   * selection (using the matched `baselineSpan`). Unset in production, so the
-   * standard viewer is unaffected.
-   */
-  diffMode?: boolean;
-  baselineSpan?: Span | null;
-  baselineTrace?: TraceDetail | null;
-}
-
-/** Drop internal `traceroot.span.*` keys so the Metadata panel shows only user metadata. */
-function stripInternalMetadata(raw: string | null | undefined): string | null {
-  if (!raw) return raw ?? null;
-  try {
-    const parsed = JSON.parse(raw);
-    const filtered = Object.fromEntries(
-      Object.entries(parsed).filter(([k]) => !k.startsWith("traceroot.span.")),
-    );
-    return JSON.stringify(filtered);
-  } catch {
-    return raw;
-  }
 }
 
 /**
@@ -104,13 +61,9 @@ export function SpanInfoPanel({
   dateFilter,
   customStartDate,
   customEndDate,
-  isEvalShaped,
   spanActions,
   headerAction,
   extraTags,
-  diffMode = false,
-  baselineSpan,
-  baselineTrace,
 }: SpanInfoPanelProps) {
   const router = useRouter();
 
@@ -135,109 +88,26 @@ export function SpanInfoPanel({
     selectedSpanId,
   );
 
-  // Per-span I/O comes from the lazy fetch, but fall back to whatever the span
-  // object itself carries — a provided trace (e.g. an evaluation's reconstructed
-  // trace) ships I/O on the span, and the `/io` fetch returns nothing for those
-  // synthetic span ids. Production skeleton spans have null here, so normal traces
-  // are unchanged (the fetch stays the source).
-  const input = isTrace ? trace.input : (spanIO?.input ?? selection.span.input ?? null);
-  const output = isTrace ? trace.output : (spanIO?.output ?? selection.span.output ?? null);
-  const rawMetadata = isTrace
-    ? trace.metadata
-    : (spanIO?.metadata ?? selection.span.metadata ?? null);
-  const metadata = stripInternalMetadata(rawMetadata);
+  const input = isTrace ? trace.input : (spanIO?.input ?? null);
+  const output = isTrace ? trace.output : (spanIO?.output ?? null);
+  const rawMetadata = isTrace ? trace.metadata : (spanIO?.metadata ?? null);
+  const metadata = (() => {
+    if (!rawMetadata) return rawMetadata;
+    try {
+      const parsed = JSON.parse(rawMetadata);
+      const filtered = Object.fromEntries(
+        Object.entries(parsed).filter(([k]) => !k.startsWith("traceroot.span.")),
+      );
+      return JSON.stringify(filtered);
+    } catch {
+      return rawMetadata;
+    }
+  })();
 
-  // Trace-level aggregates (also the diff baseline source for the trace selection).
+  // Trace-level aggregates
   const traceTotalCost = isTrace ? getTraceTotalCost(trace) : null;
   const traceCostDetails = isTrace ? getTraceCostBreakdown(trace) : null;
   const traceTokenUsage = isTrace ? getTraceTokenUsage(trace) : null;
-
-  // Diff mode (offline-eval): compare the current selection against its baseline —
-  // the whole trace vs `baselineTrace`, or a span vs its matched `baselineSpan`.
-  // Gated on the Diff toggle. Baseline span I/O is fetched the same lazy way (the
-  // query stays disabled unless a span-level diff is active); the trace selection
-  // diffs against the already-loaded baseline trace object, no fetch.
-  const diffActive = diffMode && (isTrace ? !!baselineTrace : !!baselineSpan);
-  const { data: baselineIO, isLoading: isLoadingBaselineIO } = useSpanIO(
-    projectId,
-    baselineSpan?.trace_id ?? "",
-    diffActive && !isTrace ? (baselineSpan?.span_id ?? null) : null,
-  );
-  const baselineInput = isTrace
-    ? (baselineTrace?.input ?? null)
-    : baselineSpan
-      ? (baselineIO?.input ?? baselineSpan.input ?? null)
-      : null;
-  const baselineOutput = isTrace
-    ? (baselineTrace?.output ?? null)
-    : baselineSpan
-      ? (baselineIO?.output ?? baselineSpan.output ?? null)
-      : null;
-  const baselineMetadata = isTrace
-    ? stripInternalMetadata(baselineTrace?.metadata ?? null)
-    : baselineSpan
-      ? stripInternalMetadata(baselineIO?.metadata ?? baselineSpan.metadata ?? null)
-      : null;
-
-  // ± deltas for the latency / token / cost tags (lower is better). Candidate and
-  // baseline are the trace aggregates for the trace selection, the span values for a
-  // span selection.
-  const baselineDuration = isTrace
-    ? baselineTrace
-      ? getTraceDuration(baselineTrace)
-      : null
-    : baselineSpan
-      ? getSpanDuration(baselineSpan)
-      : null;
-  const durationDelta =
-    diffActive && duration != null && baselineDuration != null ? duration - baselineDuration : null;
-  const tokenDelta = (() => {
-    if (!diffActive) return null;
-    if (isTrace) {
-      const c = traceTokenUsage?.totalTokens ?? null;
-      const b = baselineTrace ? (getTraceTokenUsage(baselineTrace)?.totalTokens ?? null) : null;
-      return c != null && b != null ? c - b : null;
-    }
-    if (!baselineSpan || selection.span.total_tokens == null) return null;
-    return selection.span.total_tokens - (baselineSpan.total_tokens ?? 0);
-  })();
-  const costDelta = (() => {
-    if (!diffActive) return null;
-    if (isTrace) {
-      const b = baselineTrace ? getTraceTotalCost(baselineTrace) : null;
-      return traceTotalCost != null && b != null ? traceTotalCost - b : null;
-    }
-    if (!baselineSpan || selection.span.cost == null) return null;
-    return selection.span.cost - (baselineSpan.cost ?? 0);
-  })();
-  const fmtTokens = (n: number) => Math.round(n).toLocaleString();
-  const fmtCost = (n: number) => `$${n.toFixed(6)}`;
-
-  // Baseline token/cost detail for the hover breakdowns' per-row ± deltas (diff mode):
-  // the trace aggregates for the trace selection, the matched span's counts otherwise.
-  const baselineTokenCounts = !diffActive
-    ? undefined
-    : isTrace
-      ? baselineTrace
-        ? (getTraceTokenUsage(baselineTrace) ?? undefined)
-        : undefined
-      : baselineSpan
-        ? {
-            inputTokens: baselineSpan.input_tokens,
-            outputTokens: baselineSpan.output_tokens,
-            totalTokens: baselineSpan.total_tokens,
-            cacheReadTokens: baselineSpan.usage_details?.cache_read_tokens,
-            cacheWriteTokens: baselineSpan.usage_details?.cache_write_tokens,
-            reasoningTokens: baselineSpan.usage_details?.reasoning_tokens,
-          }
-        : undefined;
-  const baselineCostDetails = !diffActive
-    ? undefined
-    : isTrace
-      ? baselineTrace
-        ? getTraceCostBreakdown(baselineTrace)
-        : undefined
-      : baselineSpan?.cost_details;
 
   // Error status
   const hasError = isTrace ? false : selection.span.status === SpanStatus.ERROR;
@@ -249,12 +119,15 @@ export function SpanInfoPanel({
 
   // Show a spinner while a selected span's I/O is in flight; trace-level I/O is
   // already loaded so it never spins.
-  // A selected span's I/O is fetched on demand; trace-level I/O is already loaded.
-  const ioLoading = !isTrace && isLoadingIO;
-  // Diff mode also depends on the baseline span's I/O fetch: while it's in flight,
-  // baselineInput/Output/Metadata fall back to `null`, which would render as a
-  // bogus all-added/all-removed diff. Gate the diff sections on both fetches.
-  const diffIoLoading = diffActive && (ioLoading || (!isTrace && isLoadingBaselineIO));
+  const renderIOContent = (content: string | null) =>
+    !isTrace && isLoadingIO ? (
+      <div className="flex items-center gap-2 py-3 text-xs text-muted-foreground">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Loading…
+      </div>
+    ) : (
+      <ContentRenderer key={selectionId} content={content} />
+    );
 
   return (
     <div className="h-full overflow-y-auto">
@@ -282,17 +155,11 @@ export function SpanInfoPanel({
             <span className="font-medium">{kind.toLowerCase()}</span>
           </div>
           {extraTags}
-          {/* Duration is fabricated on the offline-eval reconstructed trace (fixed
-              placeholder offsets, not a measurement), so it's hidden there. The
-              token/cost/git badges below gate on !isEvalShaped for the same reason. */}
-          {!isEvalShaped && (
-            <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-              <DOMAIN_ICONS.latency className="h-3 w-3 text-muted-foreground" />
-              <span className="text-muted-foreground">Latency:</span>
-              <span className="font-medium">{formatDuration(duration)}</span>
-              <MetricDelta delta={durationDelta} format={formatDuration} />
-            </div>
-          )}
+          <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+            <DOMAIN_ICONS.latency className="h-3 w-3 text-muted-foreground" />
+            <span className="text-muted-foreground">Latency:</span>
+            <span className="font-medium">{formatDuration(duration)}</span>
+          </div>
           {hasError && (
             <div className="inline-flex items-center gap-1.5 rounded-md bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
               <DOMAIN_ICONS.error className="h-3 w-3" />
@@ -305,10 +172,7 @@ export function SpanInfoPanel({
               <span className="font-medium">{trace.environment}</span>
             </div>
           )}
-          {/* Token/cost aggregates are meaningless on the offline-eval reconstructed
-              trace (its spans carry no real usage/cost telemetry), so they're hidden
-              there — the trace and span variants below all gate on !isEvalShaped. */}
-          {!isEvalShaped && isTrace && traceTokenUsage && (
+          {isTrace && traceTokenUsage && (
             <TokenChip
               inputTokens={traceTokenUsage.inputTokens}
               outputTokens={traceTokenUsage.outputTokens}
@@ -316,17 +180,10 @@ export function SpanInfoPanel({
               cacheReadTokens={traceTokenUsage.cacheReadTokens}
               cacheWriteTokens={traceTokenUsage.cacheWriteTokens}
               reasoningTokens={traceTokenUsage.reasoningTokens}
-              delta={<MetricDelta delta={tokenDelta} format={fmtTokens} />}
-              baseline={baselineTokenCounts}
             />
           )}
-          {!isEvalShaped && isTrace && traceTotalCost != null && (
-            <CostChip
-              cost={traceTotalCost}
-              costDetails={traceCostDetails}
-              delta={<MetricDelta delta={costDelta} format={fmtCost} />}
-              baselineDetails={baselineCostDetails}
-            />
+          {isTrace && traceTotalCost != null && (
+            <CostChip cost={traceTotalCost} costDetails={traceCostDetails} />
           )}
           {!isTrace && selection.span.model_name && (
             <div className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground">
@@ -334,7 +191,7 @@ export function SpanInfoPanel({
               {selection.span.model_name}
             </div>
           )}
-          {!isEvalShaped && !isTrace && selection.span.total_tokens != null && (
+          {!isTrace && selection.span.total_tokens != null && (
             <TokenChip
               inputTokens={selection.span.input_tokens}
               outputTokens={selection.span.output_tokens}
@@ -342,24 +199,15 @@ export function SpanInfoPanel({
               cacheReadTokens={selection.span.usage_details?.cache_read_tokens}
               cacheWriteTokens={selection.span.usage_details?.cache_write_tokens}
               reasoningTokens={selection.span.usage_details?.reasoning_tokens}
-              delta={<MetricDelta delta={tokenDelta} format={fmtTokens} />}
-              baseline={baselineTokenCounts}
             />
           )}
-          {!isEvalShaped && !isTrace && (
-            <CostChip
-              cost={selection.span.cost}
-              costDetails={selection.span.cost_details}
-              delta={<MetricDelta delta={costDelta} format={fmtCost} />}
-              baselineDetails={baselineCostDetails}
-            />
+          {!isTrace && (
+            <CostChip cost={selection.span.cost} costDetails={selection.span.cost_details} />
           )}
         </div>
 
-        {/* Row 2: Git related badges. Always absent on the offline-eval reconstructed
-            trace (its spans carry no git_ref/git_repo), but gated explicitly rather
-            than relying on that, since "eval-shaped spans show I/O only". */}
-        {!isEvalShaped && isTrace && (trace.git_ref || trace.git_repo) && (
+        {/* Row 2: Git related badges */}
+        {isTrace && (trace.git_ref || trace.git_repo) && (
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {trace.git_repo && (
               <a
@@ -494,59 +342,32 @@ export function SpanInfoPanel({
           </div>
         )}
 
-        {/* Input / Output / Metadata. In diff mode (eval trace with a baseline) each
-            renders as a git-style line diff vs the matched baseline span; otherwise
-            the normal value view with a header format switcher. The key resets
-            per-value state when a different span/trace is selected. */}
-        {diffActive ? (
-          <>
-            <TraceIODiffSection
-              key={`${selectionId}:input`}
-              title="Input"
-              baseline={baselineInput}
-              candidate={input}
-              loading={diffIoLoading}
-            />
-            <TraceIODiffSection
-              key={`${selectionId}:output`}
-              title="Output"
-              baseline={baselineOutput}
-              candidate={output}
-              loading={diffIoLoading}
-            />
-            <TraceIODiffSection
-              key={`${selectionId}:metadata`}
-              title="Metadata"
-              baseline={baselineMetadata}
-              candidate={metadata}
-              loading={diffIoLoading}
-            />
-          </>
-        ) : (
-          <>
-            <TraceIOSection
-              key={`${selectionId}:input`}
-              title="Input"
-              content={input}
-              loading={ioLoading}
-              onCopy={input ? () => copyToClipboard(input) : undefined}
-            />
-            <TraceIOSection
-              key={`${selectionId}:output`}
-              title="Output"
-              content={output}
-              loading={ioLoading}
-              onCopy={output ? () => copyToClipboard(output) : undefined}
-            />
-            <TraceIOSection
-              key={`${selectionId}:metadata`}
-              title="Metadata"
-              content={metadata}
-              loading={ioLoading}
-              onCopy={metadata ? () => copyToClipboard(metadata) : undefined}
-            />
-          </>
-        )}
+        {/* Input */}
+        <ExpandableSection
+          title="Input"
+          defaultOpen={true}
+          onCopy={input ? () => copyToClipboard(input) : undefined}
+        >
+          {renderIOContent(input)}
+        </ExpandableSection>
+
+        {/* Output */}
+        <ExpandableSection
+          title="Output"
+          defaultOpen={true}
+          onCopy={output ? () => copyToClipboard(output) : undefined}
+        >
+          {renderIOContent(output)}
+        </ExpandableSection>
+
+        {/* Metadata */}
+        <ExpandableSection
+          title="Metadata"
+          defaultOpen={true}
+          onCopy={metadata ? () => copyToClipboard(metadata) : undefined}
+        >
+          {renderIOContent(metadata)}
+        </ExpandableSection>
       </div>
     </div>
   );
