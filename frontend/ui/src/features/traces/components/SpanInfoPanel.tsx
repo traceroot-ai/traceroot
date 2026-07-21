@@ -28,7 +28,7 @@ import {
   getTraceCostBreakdown,
 } from "../utils";
 import { SpanKindIcon } from "./SpanKindIcon";
-import { ContentRenderer } from "./ContentRenderer";
+import { TraceIOValue } from "./TraceIOValue";
 import { ExpandableSection } from "@/components/ui/expandable-section";
 import { useSpanIO } from "../hooks";
 
@@ -135,7 +135,7 @@ export function SpanInfoPanel({
         Loading…
       </div>
     ) : (
-      <ContentRenderer key={selectionId} content={content} />
+      <TraceIOValue key={selectionId} content={content} />
     );
 
   return (
