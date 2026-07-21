@@ -17,6 +17,7 @@ import type { ReactNode } from "react";
 import { cn, buildUrlWithFilters, parseAsUTC } from "@/lib/utils";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { Button } from "@/components/ui/button";
+import { CopyButton } from "@/components/ui/copy-button";
 import { LoadingState } from "@/components/ui/loading-state";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { getTrace } from "@/lib/api";
@@ -365,12 +366,22 @@ export function TraceViewerPanel({
       <div className="flex h-full flex-col bg-background">
         {/* ── MAIN HEADER ── */}
         <div className="flex h-12 items-center justify-between border-b border-border bg-muted/30 px-4">
-          <div className="flex min-w-0 items-center gap-2">
-            <Workflow className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium">{headerIdentity?.label ?? "Trace"}</span>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <Workflow className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <span className="shrink-0 text-sm font-medium">{headerIdentity?.label ?? "Trace"}</span>
             <span className="truncate font-mono text-xs text-muted-foreground">
               {headerIdentity?.value ?? traceId}
             </span>
+            {/* Copy affordance for the header id. Only offered when an identity is
+                supplied (offline-eval's test case); the standard trace header is
+                unchanged. */}
+            {headerIdentity && (
+              <CopyButton
+                value={headerIdentity.value}
+                className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
+                title={`Copy ${headerIdentity.label.toLowerCase()} id`}
+              />
+            )}
             <DOMAIN_ICONS.trace className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm font-medium">Trace</span>
             <span className="truncate font-mono text-xs text-muted-foreground">{traceId}</span>
