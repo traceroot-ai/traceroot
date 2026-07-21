@@ -29,10 +29,14 @@ describe("TraceIOSection format switcher (in header)", () => {
     expect(screen.queryByTitle("Change format")).toBeNull();
   });
 
-  it("switches a JSON object to compact JSON", async () => {
+  it("switches a JSON object to syntax-highlighted JSON", async () => {
     render(<TraceIOSection title="Input" content={'{"a":1}'} />);
     await pickFormat("JSON");
-    expect(screen.getByText('{"a":1}')).toBeDefined();
+    // Pretty-printed and colored: the key and value are their own colored spans.
+    const key = screen.getByText('"a"');
+    expect(key.className).toContain("text-sky");
+    const num = screen.getByText("1");
+    expect(num.className).toContain("text-blue");
   });
 
   it("keeps a genuine string as-is in Text mode", async () => {

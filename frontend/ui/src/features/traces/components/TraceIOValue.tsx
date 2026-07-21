@@ -10,8 +10,9 @@ import { ContentRenderer } from "./ContentRenderer";
 /**
  * A collapsible span I/O / metadata section with a format switcher in its header
  * (beside the copy button), matching the editable fields' chrome. Formats: Pretty
- * (the smart JSON tree / media renderer — the default), JSON (compact), Text (raw),
- * and YAML. The value is parsed as JSON when possible; a non-JSON string is shown as-is.
+ * (the smart JSON tree / media renderer — the default), JSON (flat, syntax-highlighted),
+ * Text (raw), and YAML. The value is parsed as JSON when possible; a non-JSON string is
+ * shown as-is.
  */
 type IOFormat = "pretty" | "json" | "text" | "yaml";
 
@@ -71,15 +72,68 @@ function toYaml(value: unknown, indent = 0): string {
     .join("\n");
 }
 
-function formatValue(value: unknown, format: Exclude<IOFormat, "pretty">): string {
-  switch (format) {
-    case "json":
-      return JSON.stringify(value ?? null);
-    case "text":
-      return toText(value);
-    case "yaml":
-      return toYaml(value);
+function formatValue(value: unknown, format: "text" | "yaml"): string {
+  return format === "yaml" ? toYaml(value) : toText(value);
+}
+
+/**
+ * JSON syntax highlighting for the flat "JSON" view, mirroring the palette the
+ * interactive tree (JsonRenderer) uses so switching formats keeps the coloring:
+ * keys sky, strings green, numbers blue, booleans purple, null orange, and the
+ * structural punctuation muted. A single regex tokenizes the serialized JSON; a
+ * quoted token is a key when a colon follows it, otherwise a string value.
+ */
+const JSON_TOKEN = /"(?:\\.|[^"\\])*"|\b(?:true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g;
+const JSON_TOKEN_CLASS: Record<string, string> = {
+  key: "text-sky-600 dark:text-sky-400",
+  string: "text-green-700 dark:text-green-400",
+  number: "text-blue-600 dark:text-blue-400",
+  bool: "text-purple-600 dark:text-purple-400",
+  null: "text-orange-600 dark:text-orange-400",
+};
+
+function tokenizeJson(json: string): Array<{ text: string; kind?: string }> {
+  const out: Array<{ text: string; kind?: string }> = [];
+  let last = 0;
+  let m: RegExpExecArray | null;
+  JSON_TOKEN.lastIndex = 0;
+  while ((m = JSON_TOKEN.exec(json)) !== null) {
+    if (m.index > last) out.push({ text: json.slice(last, m.index) });
+    const raw = m[0];
+    let kind: string;
+    if (raw[0] === '"') {
+      kind = /^\s*:/.test(json.slice(JSON_TOKEN.lastIndex)) ? "key" : "string";
+    } else if (raw === "true" || raw === "false") {
+      kind = "bool";
+    } else if (raw === "null") {
+      kind = "null";
+    } else {
+      kind = "number";
+    }
+    out.push({ text: raw, kind });
+    last = JSON_TOKEN.lastIndex;
   }
+  if (last < json.length) out.push({ text: json.slice(last) });
+  return out;
+}
+
+function HighlightedJson({ value }: { value: unknown }) {
+  const tokens = useMemo(() => tokenizeJson(JSON.stringify(value ?? null, null, 2)), [value]);
+  return (
+    <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed">
+      {tokens.map((t, i) =>
+        t.kind ? (
+          <span key={i} className={JSON_TOKEN_CLASS[t.kind]}>
+            {t.text}
+          </span>
+        ) : (
+          <span key={i} className="text-muted-foreground">
+            {t.text}
+          </span>
+        ),
+      )}
+    </pre>
+  );
 }
 
 /** Header format dropdown. A non-`<button>` trigger, since it lives inside the
@@ -162,6 +216,8 @@ export function TraceIOSection({
         <span className="text-[11px] text-muted-foreground">-</span>
       ) : format === "pretty" ? (
         <ContentRenderer content={content} />
+      ) : format === "json" ? (
+        <HighlightedJson value={parsed} />
       ) : (
         <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed">
           {formatValue(parsed, format)}
