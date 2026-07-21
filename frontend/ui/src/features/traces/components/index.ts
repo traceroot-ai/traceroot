@@ -1,7 +1,7 @@
 /**
  * Trace feature components
  */
-export { SpanKindIcon, getSpanKindIcon } from "./SpanKindIcon";
+export { SpanKindIcon, getSpanKindIcon, getSpanKindColor } from "./SpanKindIcon";
 export { SpanKindBadge } from "./SpanKindBadge";
 export { SpanTreeConnector } from "./SpanTreeConnector";
 export { SpanTreeView } from "./SpanTreeView";
