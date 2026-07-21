@@ -47,11 +47,15 @@ export function TraceIODiffSection({
       {empty ? (
         <span className="text-[11px] text-muted-foreground">No content</span>
       ) : (
-        <pre className="overflow-x-auto whitespace-pre font-mono text-[11px] leading-relaxed">
+        <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed">
           {lines.map((l, i) => (
             <div
               key={i}
               className={cn(
+                // Wrap long lines instead of scrolling sideways (matching the
+                // non-diff I/O sections); the hanging indent keeps wrapped
+                // continuation lines clear of the +/− gutter.
+                "pl-4 -indent-4",
                 l.type === "add" && "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
                 l.type === "remove" && "bg-red-500/10 text-red-700 dark:text-red-400",
                 l.type === "context" && "text-muted-foreground",
