@@ -20,7 +20,6 @@ import { CopyButton } from "@/components/ui/copy-button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SearchFilterBar } from "@/components/search-filter-bar";
-import { DATE_FILTER_OPTIONS, type DateFilterOption } from "@/lib/date-filter";
 import { Table, TBody, THead, TR, TRHead, Td, Th } from "@/components/ui/table";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import {
@@ -556,6 +555,11 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
         target={
           openResult
             ? ({
+                // The result id, not the object literal below (which is rebuilt on
+                // every render) — ReviewPanel keys its form-reset effect on this so
+                // an unrelated re-render (e.g. a background refetch) can't wipe an
+                // in-progress review.
+                targetKey: openResult.id,
                 contextLabel: `${openResult.testCaseId} · ${run?.evaluationName} ${run?.candidateVersion}`,
                 input: openResult.input,
                 output: openResult.candidateOutput ?? "No output — the task errored.",
@@ -572,11 +576,19 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
         open={reviewOpen}
         onOpenChange={setReviewOpen}
         onSave={(review) =>
-          humanScore.mutate({
-            verdict: review.verdict,
-            quality: review.quality ?? null,
-            comment: review.comment ?? null,
-            reviewer: review.reviewer,
+          // A promise ReviewPanel awaits: it only toasts "Review saved" and closes
+          // the drawer once this resolves, and surfaces a failure (rejecting here)
+          // instead of silently discarding the review.
+          new Promise<void>((resolve, reject) => {
+            humanScore.mutate(
+              {
+                verdict: review.verdict,
+                quality: review.quality ?? null,
+                comment: review.comment ?? null,
+                reviewer: review.reviewer,
+              },
+              { onSuccess: () => resolve(), onError: (e) => reject(e) },
+            );
           })
         }
       />
@@ -910,6 +922,49 @@ const RESULT_COLUMN_COUNT = 8;
 /** Sentinel for the "Compare with" select's no-selection option (Radix needs a value). */
 const NO_COMPARE = "__none__";
 
+/**
+ * Run-level headline metrics — main score, pass rate, cost, duration — above the
+ * filter bar. Sourced from `run` (never derived from `results`), so an empty or
+ * fully-failing run still renders these instead of a blank strip. `null`/`undefined`
+ * render "—", never a fabricated 0 — the run may simply not have reported a cost,
+ * or may still be running (no `elapsedMs` yet).
+ */
+function HeadlineMetrics({ run }: { run: RunDetail }) {
+  return (
+    <div className="flex flex-wrap items-center gap-6 border-b border-border px-3 py-2">
+      <HeadlineStat label={run.mainScoreName ?? "Main score"}>
+        {run.mainScore === null ? (
+          <span className="text-muted-foreground">—</span>
+        ) : (
+          pctFraction(run.mainScore)
+        )}
+      </HeadlineStat>
+      <HeadlineStat label="Pass rate">
+        <PassRate counts={run} />
+      </HeadlineStat>
+      <HeadlineStat label="Cost">
+        {run.cost === null || run.cost === undefined ? (
+          <span className="text-muted-foreground">—</span>
+        ) : (
+          `$${run.cost.toFixed(4)}`
+        )}
+      </HeadlineStat>
+      <HeadlineStat label="Duration">{fmtDurationMs(run.elapsedMs)}</HeadlineStat>
+    </div>
+  );
+}
+
+function HeadlineStat({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>
+      <div className="text-[13px] font-medium tabular-nums">{children}</div>
+    </div>
+  );
+}
+
+const RESULT_COLUMN_COUNT = 7;
+
 function ResultsSection({
   run,
   results,
@@ -931,11 +986,6 @@ function ResultsSection({
 }) {
   const [keyword, setKeyword] = React.useState("");
   const [sortWorst, setSortWorst] = React.useState(false);
-  const [dateFilter, setDateFilter] = React.useState<DateFilterOption>(
-    DATE_FILTER_OPTIONS.find((o) => o.id === "14d") ?? DATE_FILTER_OPTIONS[0],
-  );
-  const [customStart, setCustomStart] = React.useState<Date | null>(null);
-  const [customEnd, setCustomEnd] = React.useState<Date | null>(null);
 
   // Per-result comparison vs the picked run (null when not comparing).
   const cmpFor = React.useCallback(
@@ -968,6 +1018,13 @@ function ResultsSection({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {/* Headline metrics for the run — rendered from the run itself, never from
+          `results`, so they still show for an empty or fully-failing run (no
+          per-case rows) rather than leaving this a blank strip above the table. */}
+      <HeadlineMetrics run={run} />
+      {/* No date-range control here: every result in this table belongs to one run,
+          so there is no time range to narrow — a date filter would render but
+          filter nothing. */}
       <SearchFilterBar
         searchInput={
           <div className="relative min-w-[10rem] max-w-md flex-1">
@@ -980,14 +1037,6 @@ function ResultsSection({
             />
           </div>
         }
-        dateFilter={dateFilter}
-        customStartDate={customStart}
-        customEndDate={customEnd}
-        onDateFilterChange={setDateFilter}
-        onCustomRangeChange={(s, e) => {
-          setCustomStart(s);
-          setCustomEnd(e);
-        }}
       >
         <div className="flex items-center gap-1">
           {RESULT_FILTERS.map((option) => (
@@ -1003,6 +1052,9 @@ function ResultsSection({
           ))}
         </div>
         <span className="flex-1" aria-hidden />
+        {/* This is the run's overall pass rate — it does not change with the status
+            filter above, so it reads as the run's rate, not a count of the
+            currently-visible rows. */}
         <PassRate counts={run} withLabel />
         <span className="flex-1" aria-hidden />
         <Button
