@@ -343,4 +343,128 @@ describe("aggregateScorers — value type and shaping edge cases", () => {
     const rows = aggregateScorers(scores, []);
     expect(rows[0].recentErrors.map((e) => e.message)).toEqual(["e4", "e3", "e2"]);
   });
+
+  it("surfaces the SDK-reported definition for a code scorer and an llm_judge scorer", () => {
+    const rows = aggregateScorers(
+      [
+        score({ scorerName: "nc", scorerVersion: "1", numericValue: 1 }),
+        score({ scorerName: "concise", scorerVersion: "1", numericValue: 0.9 }),
+      ],
+      [
+        {
+          scorers: [
+            {
+              name: "nc",
+              version: "1",
+              scorer_type: "code",
+              language: "python",
+              source: "def nc(ctx):\n    return 1.0",
+            },
+            {
+              name: "concise",
+              version: "1",
+              scorer_type: "llm_judge",
+              output_type: "score",
+              model: "claude-sonnet-5",
+              messages: [{ role: "system", content: "Rate the answer 0..1" }],
+            },
+          ],
+        },
+      ],
+    );
+    const code = rows.find((r) => r.name === "nc")!;
+    expect(code.scorerType).toBe("code");
+    expect(code.language).toBe("python");
+    expect(code.sourceCode).toBe("def nc(ctx):\n    return 1.0");
+    expect(code.model).toBeNull();
+    expect(code.messages).toBeNull();
+
+    const judge = rows.find((r) => r.name === "concise")!;
+    expect(judge.scorerType).toBe("llm_judge");
+    expect(judge.outputType).toBe("score");
+    expect(judge.model).toBe("claude-sonnet-5");
+    expect(judge.messages).toEqual([{ role: "system", content: "Rate the answer 0..1" }]);
+    expect(judge.language).toBeNull();
+    expect(judge.sourceCode).toBeNull();
+  });
+
+  it("lets the last manifest in array order win — callers must pass manifests oldest-first", () => {
+    // aggregateScorers has no timestamp to sort by; it trusts the caller's order and
+    // overwrites on each pass. Feeding a newer definition first and an older one last
+    // means the OLDER one wins here, documenting that the "latest wins" guarantee is
+    // entirely the caller's responsibility (see evaluations/scorers/route.ts orderBy).
+    const rows = aggregateScorers(
+      [score({ scorerName: "nc", scorerVersion: "1", numericValue: 1 })],
+      [
+        { scorers: [{ name: "nc", version: "1", scorer_type: "code", language: "python" }] },
+        { scorers: [{ name: "nc", version: "1", scorer_type: "code", language: "typescript" }] },
+      ],
+    );
+    // The second (last-in-array) manifest's declaration wins.
+    expect(rows[0].language).toBe("typescript");
+  });
+
+  it("lets a later partial report wipe an earlier definition's other fields wholesale", () => {
+    // definitionByKey rebuilds an empty definition per manifest entry and replaces the
+    // whole map value whenever any field is present — so a later run reporting only
+    // `description` resets `language`/`sourceCode` to null rather than merging with the
+    // earlier, richer report. This documents that behavior rather than asserting it is
+    // desirable; flag before anything downstream relies on partial reports accumulating.
+    const rows = aggregateScorers(
+      [score({ scorerName: "nc", scorerVersion: "1", numericValue: 1 })],
+      [
+        {
+          scorers: [
+            {
+              name: "nc",
+              version: "1",
+              scorer_type: "code",
+              language: "python",
+              source: "def nc(ctx):\n    return 1.0",
+            },
+          ],
+        },
+        { scorers: [{ name: "nc", version: "1", description: "tweaked" }] },
+      ],
+    );
+    const r = rows[0];
+    expect(r.description).toBe("tweaked");
+    expect(r.language).toBeNull();
+    expect(r.sourceCode).toBeNull();
+  });
+
+  it("filters malformed messages entries and leaves messages null when all are malformed", () => {
+    const rows = aggregateScorers(
+      [score({ scorerName: "concise", scorerVersion: "1", numericValue: 1 })],
+      [
+        {
+          scorers: [
+            {
+              name: "concise",
+              version: "1",
+              messages: [
+                { role: "system", content: "keep me" },
+                { role: "system" }, // missing content — dropped
+                { content: "no role" }, // missing role — dropped
+                "not an object", // dropped
+              ],
+            },
+          ],
+        },
+      ],
+    );
+    expect(rows[0].messages).toEqual([{ role: "system", content: "keep me" }]);
+
+    const allMalformed = aggregateScorers(
+      [score({ scorerName: "concise2", scorerVersion: "1", numericValue: 1 })],
+      [
+        {
+          scorers: [
+            { name: "concise2", version: "1", messages: [{ role: "system" }, { content: "x" }] },
+          ],
+        },
+      ],
+    );
+    expect(allMalformed[0].messages).toBeNull();
+  });
 });
