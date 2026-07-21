@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { cn } from "@/lib/utils";
+import { ExpandableSection } from "@/components/ui/expandable-section";
 import { diffLines } from "@/lib/eval/line-diff";
 
 /**
@@ -10,6 +11,10 @@ import { diffLines } from "@/lib/eval/line-diff";
  * mode (an eval trace with a baseline). Values are pretty-printed before diffing
  * (see `normalizeForDiff`), so a structured payload diffs line-by-line rather than
  * as one long string.
+ *
+ * Wraps ExpandableSection so it gets the same collapse/minimize chevron as the
+ * non-diff I/O sections; the "− baseline / + candidate" (or "unchanged") indicator
+ * sits in the header.
  */
 export function TraceIODiffSection({
   title,
@@ -25,23 +30,24 @@ export function TraceIODiffSection({
   const changed = lines.some((l) => l.type !== "context");
 
   return (
-    <div className="overflow-hidden rounded-md border border-border">
-      <div className="flex items-center justify-between border-b border-border bg-muted/40 px-3 py-1.5">
-        <span className="text-xs font-medium">{title}</span>
-        {!empty &&
-          (changed ? (
-            <span className="text-[10px]">
-              <span className="text-red-600 dark:text-red-400">− baseline</span>{" "}
-              <span className="text-emerald-600 dark:text-emerald-400">+ candidate</span>
-            </span>
-          ) : (
-            <span className="text-[10px] text-muted-foreground">unchanged</span>
-          ))}
-      </div>
+    <ExpandableSection
+      title={title}
+      defaultOpen
+      headerAction={
+        empty ? undefined : changed ? (
+          <span className="text-[10px]">
+            <span className="text-red-600 dark:text-red-400">− baseline</span>{" "}
+            <span className="text-emerald-600 dark:text-emerald-400">+ candidate</span>
+          </span>
+        ) : (
+          <span className="text-[10px] text-muted-foreground">unchanged</span>
+        )
+      }
+    >
       {empty ? (
-        <div className="px-3 py-2 text-xs text-muted-foreground">No content</div>
+        <span className="text-[11px] text-muted-foreground">No content</span>
       ) : (
-        <pre className="overflow-x-auto whitespace-pre px-3 pb-2 pt-1.5 font-mono text-[11px] leading-relaxed">
+        <pre className="overflow-x-auto whitespace-pre font-mono text-[11px] leading-relaxed">
           {lines.map((l, i) => (
             <div
               key={i}
@@ -59,6 +65,6 @@ export function TraceIODiffSection({
           ))}
         </pre>
       )}
-    </div>
+    </ExpandableSection>
   );
 }
