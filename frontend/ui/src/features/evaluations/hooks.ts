@@ -261,3 +261,21 @@ export function useTraceEvaluationResults(projectId: string, traceId: string) {
     enabled: !!projectId && !!traceId,
   });
 }
+
+export interface ScorerRegistryRow {
+  name: string;
+  version: string;
+  scoreCount: number;
+  errorCount: number;
+  errorRate: number;
+}
+
+/** Read-only scorer registry, aggregated from reported runs. */
+export function useScorers(projectId: string) {
+  return useQuery({
+    queryKey: ["evaluations", "scorers", projectId],
+    queryFn: () =>
+      getJson<{ data: ScorerRegistryRow[] }>(`/api/projects/${projectId}/evaluations/scorers`),
+    enabled: !!projectId,
+  });
+}
