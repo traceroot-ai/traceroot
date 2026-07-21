@@ -69,6 +69,19 @@ interface SpanInfoPanelProps {
   diffMode?: boolean;
   baselineSpan?: Span | null;
   baselineTrace?: TraceDetail | null;
+  /**
+   * Replaces the TRACE-level identity (offline-eval): the leading kind chip, the
+   * header title, and what the copy button copies — so an evaluation trace leads
+   * with its test case rather than a raw trace id. Unset in production, where the
+   * trace selection keeps its trace name, trace id and "Span Kind: trace".
+   */
+  traceIdentity?: { kindLabel: string; title: string; copyValue: string };
+  /**
+   * Badge rendered where a span's ERROR badge sits. A trace-level selection has no
+   * status of its own, so this is how an eval case's outcome (Passed / Did not
+   * pass / Errored) surfaces there. Unset in production.
+   */
+  traceStatusBadge?: ReactNode;
 }
 
 /** Drop internal `traceroot.span.*` keys so the Metadata panel shows only user metadata. */
@@ -102,6 +115,8 @@ export function SpanInfoPanel({
   diffMode = false,
   baselineSpan,
   baselineTrace,
+  traceIdentity,
+  traceStatusBadge,
 }: SpanInfoPanelProps) {
   const router = useRouter();
 
@@ -113,7 +128,11 @@ export function SpanInfoPanel({
   // per-value "expand" state resets when you switch spans/traces (and persists
   // within the same selection, e.g. across live updates).
   const selectionId = isTrace ? trace.trace_id : selection.span.span_id;
-  const name = isTrace ? trace.name : selection.span.name;
+  // An eval trace overrides the trace-level identity so it leads with its test
+  // case; every other trace (and every span) keeps the standard identity.
+  const identity = isTrace ? traceIdentity : undefined;
+  const name = identity?.title ?? (isTrace ? trace.name : selection.span.name);
+  const copyId = identity?.copyValue ?? (isTrace ? trace.trace_id : selection.span.span_id);
   const kind = isTrace ? "trace" : selection.span.span_kind;
   const duration = isTrace ? getTraceDuration(trace) : getSpanDuration(selection.span);
   const timestamp = isTrace ? trace.trace_start_time : selection.span.span_start_time;
@@ -227,7 +246,7 @@ export function SpanInfoPanel({
               <SpanKindIcon kind={kind} size="md" selected />
               <h3 className="text-sm font-medium">{name}</h3>
               <CopyButton
-                value={isTrace ? trace.trace_id : selection.span.span_id}
+                value={copyId}
                 className="h-6 w-6 text-muted-foreground hover:text-foreground"
                 title="Copy ID"
               />
@@ -239,8 +258,14 @@ export function SpanInfoPanel({
         {/* Row 1: LLM related badges */}
         <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-            <span className="text-muted-foreground">Span Kind:</span>
-            <span className="font-medium">{kind.toLowerCase()}</span>
+            {identity ? (
+              <span className="font-medium">{identity.kindLabel}</span>
+            ) : (
+              <>
+                <span className="text-muted-foreground">Span Kind:</span>
+                <span className="font-medium">{kind.toLowerCase()}</span>
+              </>
+            )}
           </div>
           {extraTags}
           <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
@@ -255,6 +280,9 @@ export function SpanInfoPanel({
               ERROR
             </div>
           )}
+          {/* A trace-level selection has no status of its own; offline-eval puts the
+              case's outcome here, where a span's ERROR badge would be. */}
+          {isTrace && traceStatusBadge}
           {isTrace && trace.environment && (
             <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
               <span className="text-muted-foreground">Env:</span>
