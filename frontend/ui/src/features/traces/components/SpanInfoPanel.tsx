@@ -12,6 +12,7 @@ import {
   GitCommitHorizontal,
   FileCode,
 } from "lucide-react";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { ChevronRight, GitBranch, GitCommitHorizontal, FileCode, Loader2 } from "lucide-react";
 import { CopyButton } from "@/components/ui/copy-button";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
@@ -157,7 +158,7 @@ export function SpanInfoPanel({
   // query stays disabled unless a span-level diff is active); the trace selection
   // diffs against the already-loaded baseline trace object, no fetch.
   const diffActive = diffMode && (isTrace ? !!baselineTrace : !!baselineSpan);
-  const { data: baselineIO } = useSpanIO(
+  const { data: baselineIO, isLoading: isLoadingBaselineIO } = useSpanIO(
     projectId,
     baselineSpan?.trace_id ?? "",
     diffActive && !isTrace ? (baselineSpan?.span_id ?? null) : null,
@@ -250,6 +251,10 @@ export function SpanInfoPanel({
   // already loaded so it never spins.
   // A selected span's I/O is fetched on demand; trace-level I/O is already loaded.
   const ioLoading = !isTrace && isLoadingIO;
+  // Diff mode also depends on the baseline span's I/O fetch: while it's in flight,
+  // baselineInput/Output/Metadata fall back to `null`, which would render as a
+  // bogus all-added/all-removed diff. Gate the diff sections on both fetches.
+  const diffIoLoading = diffActive && (ioLoading || (!isTrace && isLoadingBaselineIO));
 
   return (
     <div className="h-full overflow-y-auto">
@@ -500,18 +505,21 @@ export function SpanInfoPanel({
               title="Input"
               baseline={baselineInput}
               candidate={input}
+              loading={diffIoLoading}
             />
             <TraceIODiffSection
               key={`${selectionId}:output`}
               title="Output"
               baseline={baselineOutput}
               candidate={output}
+              loading={diffIoLoading}
             />
             <TraceIODiffSection
               key={`${selectionId}:metadata`}
               title="Metadata"
               baseline={baselineMetadata}
               candidate={metadata}
+              loading={diffIoLoading}
             />
           </>
         ) : (
