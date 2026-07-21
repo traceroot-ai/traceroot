@@ -140,8 +140,7 @@ function evalSpan(
 
 /**
  * The eval-shaped trace for one result, so the run detail opens into the real
- * trace viewer (span tree + span detail) exactly like the mock — the shape the
- * SDK reports:
+ * trace viewer (span tree + span detail) — the shape the SDK reports:
  *
  *   evaluation item (root)
  *     ├─ task span      ← the candidate application's run
@@ -271,7 +270,7 @@ const RESULT_FILTER_FN: Record<ResultFilterId, (r: ResultRow) => boolean> = {
 };
 
 /**
- * Evaluation run detail — faithful port of the prototype's run detail, wired to
+ * Evaluation run detail — the run detail surface, wired to
  * the server. Ordered to answer, in sequence: did the candidate improve, what
  * regressed, what broke, and can the aggregate be trusted? Verdict strip first
  * (its Regressions/Errors counts filter the results table in place), then the
@@ -279,7 +278,7 @@ const RESULT_FILTER_FN: Record<ResultFilterId, (r: ResultRow) => boolean> = {
  *
  * Opening a result opens the REAL trace viewer (span tree + span detail) on an
  * eval-shaped trace built from the result, with the evaluation context, scores,
- * and human review as the span-actions panel — exactly like the mock.
+ * and human review as the span-actions panel.
  */
 export function RunDetailView({ projectId, runId }: { projectId: string; runId: string }) {
   const { data, isLoading, error } = useEvaluationRun(projectId, runId);
@@ -297,24 +296,12 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
   const results = React.useMemo(() => data?.results ?? [], [data]);
   const run = data?.run;
 
-  // This evaluation's other runs, for the breadcrumb's run switcher. Shares the
-  // RunSwitcher's query key, so it's the same fetch, not a second one.
+  // This evaluation's other runs — the compare-baseline picker below and the
+  // header RunSwitcher share this query key, so it's one fetch, not two.
   const siblingRuns = useEvaluationRuns(projectId, {
     evaluation_id: run?.evaluationId,
     limit: 100,
   });
-  const runOptions = React.useMemo(
-    () =>
-      run
-        ? (siblingRuns.data?.data ?? []).map((r) => ({
-            id: r.id,
-            label: `#${r.runNumber} · ${r.candidateVersion}`,
-            href: `/projects/${projectId}/evaluations/${r.id}`,
-            isCurrent: r.id === run.id,
-          }))
-        : [],
-    [siblingRuns.data, run, projectId],
-  );
 
   // Other runs of this evaluation, to pick a comparison baseline from (never an
   // arbitrary run from another evaluation). Newest first, current run excluded.
@@ -408,24 +395,7 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
 
   return (
     <>
-      <ProjectBreadcrumb
-        projectId={projectId}
-        trail={
-          run
-            ? [
-                {
-                  // Just the run segment (no separate "Evaluations" crumb) — a dropdown
-                  // of this evaluation's runs. Its menu header still links to the
-                  // Evaluations list, so that page stays one click away.
-                  label: `${run.evaluationName} #${run.runNumber}`,
-                  menuHeader: { label: "Evaluations", href: `/projects/${projectId}/evaluations` },
-                  options: runOptions,
-                },
-              ]
-            : undefined
-        }
-        current={run ? undefined : "Evaluations"}
-      />
+      <ProjectBreadcrumb projectId={projectId} />
       <div className="flex flex-1 flex-col overflow-hidden text-[12px]">
         {isLoading ? (
           <div className="flex h-64 items-center justify-center">
@@ -708,6 +678,7 @@ function RunBody({
   return (
     <>
       <EvalPageHeader
+        parent={{ label: "Evaluations", href: `/projects/${projectId}/evaluations` }}
         title={
           <span className="flex flex-wrap items-center gap-2">
             <span>{run.evaluationName}</span>
@@ -782,16 +753,16 @@ function RunBody({
         }
       />
 
-      <div className="min-h-0 flex-1 overflow-auto">
-        <div className="flex flex-col gap-3 p-4">
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex min-h-0 flex-1 flex-col">
           {compareLoading && (
-            <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
+            <div className="border-b border-border bg-muted/30 px-3 py-1.5 text-[11px] text-muted-foreground">
               Computing comparison…
             </div>
           )}
 
           {comparing && cmp && (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border bg-muted/30 px-3 py-2 text-[11px]">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-muted/30 px-3 py-2 text-[11px]">
               <span className="flex items-center gap-1.5">
                 <GitCompare className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
                 <span className="font-medium">
@@ -996,7 +967,7 @@ function ResultsSection({
   }, [results, keyword, filter, sortWorst, cmpFor]);
 
   return (
-    <div className="rounded-md border border-border">
+    <div className="flex min-h-0 flex-1 flex-col">
       <SearchFilterBar
         searchInput={
           <div className="relative min-w-[10rem] max-w-md flex-1">
@@ -1046,100 +1017,102 @@ function ResultsSection({
         </Button>
       </SearchFilterBar>
 
-      <Table>
-        <THead>
-          <TRHead>
-            <Th>Input</Th>
-            <Th>Output</Th>
-            <Th>Expected</Th>
-            <Th className="w-[170px]">Main score</Th>
-            {/* Change is only meaningful against a picked run; hidden otherwise. */}
-            {comparing && <Th className="w-[110px] text-right">vs baseline</Th>}
-            <Th className="w-[90px] text-right">Duration</Th>
-            <Th className="w-[90px] text-right">Cost</Th>
-            <Th className="w-[110px]">Status</Th>
-          </TRHead>
-        </THead>
-        <TBody>
-          {visible.length === 0 ? (
-            <tr>
-              <td colSpan={comparing ? RESULT_COLUMN_COUNT : RESULT_COLUMN_COUNT - 1}>
-                <p className="px-4 py-12 text-center text-[12px] text-muted-foreground">
-                  {results.length === 0
-                    ? "No per-case results reported for this run yet."
-                    : "No results match this filter."}
-                </p>
-              </td>
-            </tr>
-          ) : (
-            visible.map((result) => {
-              const row = cmpFor(result);
-              const rowCmp = row?.comparison ?? null;
-              return (
-                <TR
-                  key={result.id}
-                  interactive
-                  selected={result.id === openResultId}
-                  onClick={() => onOpen(result.id)}
-                >
-                  <Td className="max-w-[260px] truncate" title={result.input}>
-                    {result.input}
-                  </Td>
-                  <Td className="max-w-[260px]">
-                    <div className="flex min-w-0 items-center gap-1.5">
-                      <span className="truncate" title={result.candidateOutput ?? undefined}>
-                        {result.candidateOutput ?? (
-                          <span className="text-muted-foreground">No output</span>
-                        )}
-                      </span>
-                      {row?.outputChanged === true && (
-                        <span
-                          className="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground"
-                          title="Output differs from the baseline run"
-                        >
-                          ≠ baseline
-                        </span>
-                      )}
-                    </div>
-                  </Td>
-                  <Td
-                    className="max-w-[220px] truncate text-muted-foreground"
-                    title={result.expectedOutput ?? undefined}
+      <div className="min-h-0 flex-1 overflow-auto">
+        <Table>
+          <THead>
+            <TRHead>
+              <Th>Input</Th>
+              <Th>Output</Th>
+              <Th>Expected</Th>
+              <Th className="w-[170px]">Main score</Th>
+              {/* Change is only meaningful against a picked run; hidden otherwise. */}
+              {comparing && <Th className="w-[110px] text-right">vs baseline</Th>}
+              <Th className="w-[90px] text-right">Duration</Th>
+              <Th className="w-[90px] text-right">Cost</Th>
+              <Th className="w-[110px]">Status</Th>
+            </TRHead>
+          </THead>
+          <TBody>
+            {visible.length === 0 ? (
+              <tr>
+                <td colSpan={comparing ? RESULT_COLUMN_COUNT : RESULT_COLUMN_COUNT - 1}>
+                  <p className="px-4 py-12 text-center text-[12px] text-muted-foreground">
+                    {results.length === 0
+                      ? "No per-case results reported for this run yet."
+                      : "No results match this filter."}
+                  </p>
+                </td>
+              </tr>
+            ) : (
+              visible.map((result) => {
+                const row = cmpFor(result);
+                const rowCmp = row?.comparison ?? null;
+                return (
+                  <TR
+                    key={result.id}
+                    interactive
+                    selected={result.id === openResultId}
+                    onClick={() => onOpen(result.id)}
                   >
-                    {result.expectedOutput ?? "—"}
-                  </Td>
-                  <Td>
-                    <MainScoreCell result={result} comparison={rowCmp} />
-                  </Td>
-                  {comparing && (
-                    <Td className="text-right">
-                      <ChangeCell change={rowCmp?.caseChange ?? null} />
+                    <Td className="max-w-[260px] truncate" title={result.input}>
+                      {result.input}
                     </Td>
-                  )}
-                  <Td className="whitespace-nowrap text-right text-[11px] tabular-nums text-muted-foreground">
-                    {fmtDurationMs(result.durationMs)}
+                    <Td className="max-w-[260px]">
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <span className="truncate" title={result.candidateOutput ?? undefined}>
+                          {result.candidateOutput ?? (
+                            <span className="text-muted-foreground">No output</span>
+                          )}
+                        </span>
+                        {row?.outputChanged === true && (
+                          <span
+                            className="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground"
+                            title="Output differs from the baseline run"
+                          >
+                            ≠ baseline
+                          </span>
+                        )}
+                      </div>
+                    </Td>
+                    <Td
+                      className="max-w-[220px] truncate text-muted-foreground"
+                      title={result.expectedOutput ?? undefined}
+                    >
+                      {result.expectedOutput ?? "—"}
+                    </Td>
+                    <Td>
+                      <MainScoreCell result={result} comparison={rowCmp} />
+                    </Td>
                     {comparing && (
-                      <CellDelta delta={rowCmp?.durationDeltaMs ?? null} format={fmtDurationMs} />
+                      <Td className="text-right">
+                        <ChangeCell change={rowCmp?.caseChange ?? null} />
+                      </Td>
                     )}
-                  </Td>
-                  <Td className="whitespace-nowrap text-right text-[11px] tabular-nums text-muted-foreground">
-                    {result.cost === null ? "—" : `$${result.cost.toFixed(4)}`}
-                    {comparing && result.cost !== null && row?.baselineCost != null && (
-                      <CellDelta
-                        delta={result.cost - row.baselineCost}
-                        format={(n) => `$${n.toFixed(4)}`}
-                      />
-                    )}
-                  </Td>
-                  <Td>
-                    <EvalResultBadge status={result.status} />
-                  </Td>
-                </TR>
-              );
-            })
-          )}
-        </TBody>
-      </Table>
+                    <Td className="whitespace-nowrap text-right text-[11px] tabular-nums text-muted-foreground">
+                      {fmtDurationMs(result.durationMs)}
+                      {comparing && (
+                        <CellDelta delta={rowCmp?.durationDeltaMs ?? null} format={fmtDurationMs} />
+                      )}
+                    </Td>
+                    <Td className="whitespace-nowrap text-right text-[11px] tabular-nums text-muted-foreground">
+                      {result.cost === null ? "—" : `$${result.cost.toFixed(4)}`}
+                      {comparing && result.cost !== null && row?.baselineCost != null && (
+                        <CellDelta
+                          delta={result.cost - row.baselineCost}
+                          format={(n) => `$${n.toFixed(4)}`}
+                        />
+                      )}
+                    </Td>
+                    <Td>
+                      <EvalResultBadge status={result.status} />
+                    </Td>
+                  </TR>
+                );
+              })
+            )}
+          </TBody>
+        </Table>
+      </div>
     </div>
   );
 }
@@ -1173,7 +1146,7 @@ function MainScoreCell({
   );
 }
 
-/** Per-result case verdict (derived from the main scorer), faithfully rendered. */
+/** Per-result case verdict (derived from the main scorer). */
 function ChangeCell({ change }: { change: Classification | null }) {
   if (change === "improved") {
     return (
