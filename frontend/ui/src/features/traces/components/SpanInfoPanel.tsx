@@ -202,6 +202,32 @@ export function SpanInfoPanel({
   const fmtTokens = (n: number) => Math.round(n).toLocaleString();
   const fmtCost = (n: number) => `$${n.toFixed(6)}`;
 
+  // Baseline token/cost detail for the hover breakdowns' per-row ± deltas (diff mode):
+  // the trace aggregates for the trace selection, the matched span's counts otherwise.
+  const baselineTokenCounts = !diffActive
+    ? undefined
+    : isTrace
+      ? baselineTrace
+        ? (getTraceTokenUsage(baselineTrace) ?? undefined)
+        : undefined
+      : baselineSpan
+        ? {
+            inputTokens: baselineSpan.input_tokens,
+            outputTokens: baselineSpan.output_tokens,
+            totalTokens: baselineSpan.total_tokens,
+            cacheReadTokens: baselineSpan.usage_details?.cache_read_tokens,
+            cacheWriteTokens: baselineSpan.usage_details?.cache_write_tokens,
+            reasoningTokens: baselineSpan.usage_details?.reasoning_tokens,
+          }
+        : undefined;
+  const baselineCostDetails = !diffActive
+    ? undefined
+    : isTrace
+      ? baselineTrace
+        ? getTraceCostBreakdown(baselineTrace)
+        : undefined
+      : baselineSpan?.cost_details;
+
   // Error status
   const hasError = isTrace ? false : selection.span.status === SpanStatus.ERROR;
   const statusMessage = !isTrace ? selection.span.status_message : null;
@@ -268,6 +294,7 @@ export function SpanInfoPanel({
               cacheWriteTokens={traceTokenUsage.cacheWriteTokens}
               reasoningTokens={traceTokenUsage.reasoningTokens}
               delta={<MetricDelta delta={tokenDelta} format={fmtTokens} />}
+              baseline={baselineTokenCounts}
             />
           )}
           {isTrace && traceTotalCost != null && (
@@ -275,6 +302,7 @@ export function SpanInfoPanel({
               cost={traceTotalCost}
               costDetails={traceCostDetails}
               delta={<MetricDelta delta={costDelta} format={fmtCost} />}
+              baselineDetails={baselineCostDetails}
             />
           )}
           {!isTrace && selection.span.model_name && (
@@ -291,6 +319,7 @@ export function SpanInfoPanel({
               cacheWriteTokens={selection.span.usage_details?.cache_write_tokens}
               reasoningTokens={selection.span.usage_details?.reasoning_tokens}
               delta={<MetricDelta delta={tokenDelta} format={fmtTokens} />}
+              baseline={baselineTokenCounts}
             />
           )}
           {!isTrace && (
@@ -298,6 +327,7 @@ export function SpanInfoPanel({
               cost={selection.span.cost}
               costDetails={selection.span.cost_details}
               delta={<MetricDelta delta={costDelta} format={fmtCost} />}
+              baselineDetails={baselineCostDetails}
             />
           )}
         </div>

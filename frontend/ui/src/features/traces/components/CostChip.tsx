@@ -8,6 +8,8 @@ interface CostChipProps {
   costDetails?: Record<string, number> | null;
   /** Optional ± delta suffix (trace diff mode). Unset in production. */
   delta?: ReactNode;
+  /** Baseline cost details (trace diff mode) — per-row ± deltas in the hover breakdown. */
+  baselineDetails?: Record<string, number> | null;
 }
 
 /**
@@ -15,7 +17,7 @@ interface CostChipProps {
  * Mirrors TokenChip. Renders nothing when cost is absent/non-finite; renders a
  * plain chip (no popup) when no per-category breakdown is available.
  */
-export function CostChip({ cost, costDetails, delta }: CostChipProps) {
+export function CostChip({ cost, costDetails, delta, baselineDetails }: CostChipProps) {
   if (cost == null || !Number.isFinite(cost)) return null;
 
   const chip = (
@@ -26,7 +28,10 @@ export function CostChip({ cost, costDetails, delta }: CostChipProps) {
     </div>
   );
 
-  const hasBreakdown = costDetails && Object.keys(costDetails).length > 0;
+  // Show the popover when this side (or the baseline, in diff mode) has a breakdown.
+  const hasBreakdown =
+    (costDetails && Object.keys(costDetails).length > 0) ||
+    (baselineDetails && Object.keys(baselineDetails).length > 0);
   if (!hasBreakdown) return chip;
 
   return (
@@ -34,7 +39,7 @@ export function CostChip({ cost, costDetails, delta }: CostChipProps) {
       <Tooltip>
         <TooltipTrigger asChild>{chip}</TooltipTrigger>
         <TooltipContent className="border bg-popover p-3 text-popover-foreground shadow-md">
-          <CostBreakdown details={costDetails} />
+          <CostBreakdown details={costDetails} baselineDetails={baselineDetails} />
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
