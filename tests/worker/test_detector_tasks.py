@@ -324,3 +324,53 @@ class TestTopLevelGuard:
     def test_never_raises(self, monkeypatch):
         monkeypatch.setattr(dt, "_get_redis", MagicMock(side_effect=RuntimeError("redis down")))
         dt.enqueue_detector_runs(PROJECT, {TRACE})
+
+
+# ── _eval_condition: environment field semantics ────────────────────────
+
+
+class TestEvalConditionEnvironment:
+    """Pins the missing-field semantics (`actual is None` -> `op == "!="`) and
+    its interaction with a populated `environment` value, so a fix at the
+    insert layer that makes `environment` non-NULL cannot silently change how
+    a genuinely absent value is handled."""
+
+    def test_missing_field_equals_never_matches(self):
+        assert dt._eval_condition({}, {"field": "environment", "op": "=", "value": "prod"}) is (
+            False
+        )
+
+    def test_missing_field_not_equals_always_matches(self):
+        assert (
+            dt._eval_condition({}, {"field": "environment", "op": "!=", "value": "staging"}) is True
+        )
+
+    def test_populated_field_equals_matching_value(self):
+        summary = {"environment": "production"}
+        assert (
+            dt._eval_condition(summary, {"field": "environment", "op": "=", "value": "production"})
+            is True
+        )
+
+    def test_populated_field_equals_non_matching_value(self):
+        summary = {"environment": "production"}
+        assert (
+            dt._eval_condition(summary, {"field": "environment", "op": "=", "value": "staging"})
+            is False
+        )
+
+    def test_populated_field_not_equals_excluded_value(self):
+        """A trace whose environment IS the excluded value must not fire."""
+        summary = {"environment": "staging"}
+        assert (
+            dt._eval_condition(summary, {"field": "environment", "op": "!=", "value": "staging"})
+            is False
+        )
+
+    def test_populated_field_not_equals_other_value(self):
+        """A trace outside the excluded value fires."""
+        summary = {"environment": "production"}
+        assert (
+            dt._eval_condition(summary, {"field": "environment", "op": "!=", "value": "staging"})
+            is True
+        )

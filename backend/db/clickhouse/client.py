@@ -59,6 +59,7 @@ class ClickHouseClient:
                     t.get("metadata"),
                     now,  # ch_create_time
                     now,  # ch_update_time
+                    t.get("environment"),
                 ]
             )
 
@@ -79,6 +80,7 @@ class ClickHouseClient:
                 "metadata",
                 "ch_create_time",
                 "ch_update_time",
+                "environment",
             ],
         )
 
@@ -116,6 +118,7 @@ class ClickHouseClient:
                     s.get("git_source_function"),
                     now,  # ch_create_time
                     now,  # ch_update_time
+                    s.get("environment"),
                 ]
             )
 
@@ -147,6 +150,7 @@ class ClickHouseClient:
                 "git_source_function",
                 "ch_create_time",
                 "ch_update_time",
+                "environment",
             ],
         )
 

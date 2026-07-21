@@ -1491,3 +1491,55 @@ class TestCacheTokenMetadata:
         ud = spans[0]["usage_details"]
         assert "cache_write_1h_tokens" not in ud
         assert set(ud) == {"cache_read_tokens", "cache_write_tokens", "reasoning_tokens"}
+
+
+class TestEnvironmentAttributeTypeGuard:
+    """`traceroot.environment` feeds a Nullable(String) ClickHouse column. A
+    mis-typed SDK attribute (int/list/etc.) must degrade to "not set" rather
+    than reaching the insert layer, where a non-string value would fail
+    serialization and drop the entire batch."""
+
+    def test_string_environment_is_kept_on_span_and_root_trace(self):
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[make_attr("traceroot.environment", "production")],
+                )
+            ]
+        )
+        traces, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert spans[0]["environment"] == "production"
+        assert traces[0]["environment"] == "production"
+
+    def test_int_environment_is_dropped_on_span(self):
+        payload = make_otel_payload(
+            [make_span("aa" * 16, "bb" * 8, attributes=[make_attr("traceroot.environment", 5)])]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert "environment" not in spans[0]
+
+    def test_int_environment_is_dropped_on_root_trace(self):
+        payload = make_otel_payload(
+            [make_span("aa" * 16, "bb" * 8, attributes=[make_attr("traceroot.environment", 5)])]
+        )
+        traces, _ = transform_otel_to_clickhouse(payload, "proj-1")
+        assert "environment" not in traces[0]
+
+    def test_list_environment_is_dropped_on_span_and_root_trace(self):
+        list_attr = {
+            "key": "traceroot.environment",
+            "value": {"arrayValue": {"values": [{"stringValue": "production"}]}},
+        }
+        payload = make_otel_payload([make_span("aa" * 16, "bb" * 8, attributes=[list_attr])])
+        traces, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert "environment" not in spans[0]
+        assert "environment" not in traces[0]
+
+    def test_bool_environment_is_dropped_on_span(self):
+        payload = make_otel_payload(
+            [make_span("aa" * 16, "bb" * 8, attributes=[make_attr("traceroot.environment", True)])]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        assert "environment" not in spans[0]
