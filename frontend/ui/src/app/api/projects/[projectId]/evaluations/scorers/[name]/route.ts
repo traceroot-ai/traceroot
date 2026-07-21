@@ -38,15 +38,14 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
       },
     }),
     // The manifests carry declared config; the whole project's runs are scanned (a
-    // small JSON-only query) so a version declared but not yet scored still resolves.
+    // small JSON-only query) so a version declared but not yet scored still resolves —
+    // aggregateScorers seeds a zero-count row from the manifest for exactly that case.
     prisma.evaluationRun.findMany({
       where: { projectId },
       select: { scorers: true },
       orderBy: { startedAt: "asc" },
     }),
   ]);
-
-  if (scores.length === 0) return errorResponse("Scorer not found", 404);
 
   const raw: RawScore[] = scores.map((s) => ({
     scorerName: s.scorerName,
@@ -61,8 +60,13 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     evaluationId: s.result?.evaluationId ?? null,
   }));
 
-  // Only this family's versions (aggregateScorers may also see the name via manifests).
+  // Only this family's versions — the runs query above is project-wide (unscoped by
+  // name), so aggregateScorers' manifest seeding can produce rows for OTHER scorer
+  // names too; this filter is what scopes back down to just this one.
   const versions: ScorerRow[] = aggregateScorers(raw, runs).filter((r) => r.name === name);
+
+  // No scores AND no manifest declaration for this name: genuinely unknown.
+  if (versions.length === 0) return errorResponse("Scorer not found", 404);
 
   // Family-level union: distinct runs/evaluations, totals, latest use across versions.
   const runIds = new Set<string>();
@@ -75,8 +79,9 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     if (r.evaluationId) evaluationIds.add(r.evaluationId);
     const at = r.createTime.toISOString();
     if (!lastUsed || at > lastUsed) lastUsed = at;
-    scoreCount += 1;
-    if (r.error) errorCount += 1;
+    // Rows that actually produced a value — matches ScorerRow.scoreCount's semantics.
+    if (!r.error) scoreCount += 1;
+    else errorCount += 1;
   }
 
   return successResponse({
