@@ -110,7 +110,7 @@ function OpMetric({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-/** Trace-derived tokens for one side (task + scorer + combined), with pending/unknown. */
+/** Trace-derived tokens for one side (task + scorer, attributed separately), with pending/unknown. */
 function useUsage(projectId: string, traceId: string | null): TraceUsage {
   const q = useTrace(projectId, traceId ?? "", !!traceId);
   return React.useMemo(
@@ -119,10 +119,12 @@ function useUsage(projectId: string, traceId: string | null): TraceUsage {
   );
 }
 
+// Candidate-task tokens only — excludes the scorer (LLM-judge) subtree, matching
+// `row.candidateCost`/`row.baselineCost` above, which the backend derives the same way.
 function tokenText(u: TraceUsage): string {
   if (u.state === "pending") return "Pending";
   if (u.state === "unknown") return "Unknown";
-  return u.combined.totalTokens.toLocaleString("en-US");
+  return u.task.totalTokens.toLocaleString("en-US");
 }
 
 /**

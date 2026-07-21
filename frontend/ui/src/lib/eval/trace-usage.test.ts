@@ -109,14 +109,17 @@ describe("attributeTraceUsage", () => {
     expect(u.combined.totalTokens).toBe(18);
   });
 
-  it("puts LLM usage under neither a task nor a scorer into `other`", () => {
+  it("attributes an LLM span with no TASK wrapper to `task`, matching the backend", () => {
+    // The backend's `_task_cost_by_trace` only excludes SCORER subtrees — everything
+    // else (including a span with no TASK ancestor) counts as task cost. There is no
+    // third "neither" bucket on either side, so this must land in `task` here too.
     const spans = [
       span("root", null, "EVALUATION"),
       span("loose-llm", "root", "LLM", { total_tokens: 30, cost: 0.002 }),
     ];
     const u = attributeTraceUsage(spans);
-    expect(u.other.totalTokens).toBe(30);
-    expect(u.task.spanCount).toBe(0);
+    expect(u.task.totalTokens).toBe(30);
+    expect(u.task.spanCount).toBe(1);
     expect(u.scorer.spanCount).toBe(0);
     expect(u.combined.totalTokens).toBe(30);
   });

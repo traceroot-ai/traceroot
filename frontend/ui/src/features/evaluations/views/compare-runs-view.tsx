@@ -350,9 +350,11 @@ function sumPaired(
 }
 
 /**
- * Sums trace-derived tokens across cases (candidate/baseline) — only over the subset of
+ * Sums trace-derived CANDIDATE-TASK tokens across cases (candidate/baseline) — only over the subset of
  * cases where BOTH sides have usable trace usage, so the two sums cover the same
- * population (see `sumPaired`) — with pending/unknown/idle state.
+ * population (see `sumPaired`) — with pending/unknown/idle state. Excludes the scorer
+ * (LLM-judge) subtree, so swapping judges between runs is not counted as an
+ * application-cost delta.
  *
  * Traces are only fetched once the caller opts in via `enabled`: a single comparison can
  * reference up to two full-trace fetches per case (candidate + baseline), which for a
@@ -399,11 +401,11 @@ function useTokenTotals(projectId: string, rows: CompareResultRow[], enabled: bo
         rows,
         (r) => {
           const u = r.candidateTraceId ? usageById.get(r.candidateTraceId) : undefined;
-          return u?.state === "present" ? u.combined.totalTokens : null;
+          return u?.state === "present" ? u.task.totalTokens : null;
         },
         (r) => {
           const u = r.baselineTraceId ? usageById.get(r.baselineTraceId) : undefined;
-          return u?.state === "present" ? u.combined.totalTokens : null;
+          return u?.state === "present" ? u.task.totalTokens : null;
         },
       ),
     [usageById, rows],
