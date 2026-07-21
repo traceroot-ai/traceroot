@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { CircleDollarSign } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { CostBreakdown } from "./CostBreakdown";
@@ -5,6 +6,8 @@ import { CostBreakdown } from "./CostBreakdown";
 interface CostChipProps {
   cost: number | null | undefined;
   costDetails?: Record<string, number> | null;
+  /** Optional ± delta suffix (trace diff mode). Unset in production. */
+  delta?: ReactNode;
 }
 
 /**
@@ -12,13 +15,14 @@ interface CostChipProps {
  * Mirrors TokenChip. Renders nothing when cost is absent/non-finite; renders a
  * plain chip (no popup) when no per-category breakdown is available.
  */
-export function CostChip({ cost, costDetails }: CostChipProps) {
+export function CostChip({ cost, costDetails, delta }: CostChipProps) {
   if (cost == null || !Number.isFinite(cost)) return null;
 
   const chip = (
     <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
       <CircleDollarSign className="h-3 w-3 text-muted-foreground" />
       <span className="font-medium">{cost.toFixed(6)}</span>
+      {delta}
     </div>
   );
 

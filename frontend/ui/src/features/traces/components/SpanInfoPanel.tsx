@@ -16,8 +16,10 @@ import { CopyButton } from "@/components/ui/copy-button";
 import { formatDuration, formatDate, buildUrlWithFilters } from "@/lib/utils";
 import { TokenChip } from "./TokenChip";
 import { CostChip } from "./CostChip";
+import { MetricDelta } from "./MetricDelta";
+import { TraceIODiffSection } from "./TraceIODiff";
 import { SpanStatus } from "@traceroot/core";
-import type { TraceDetail } from "@/types/api";
+import type { Span, TraceDetail } from "@/types/api";
 import type { TraceSelection } from "../types";
 import {
   getSpanDuration,
@@ -55,6 +57,29 @@ interface SpanInfoPanelProps {
    * offline-eval's "Dataset:" chip). Unset in production.
    */
   extraTags?: ReactNode;
+  /**
+   * Diff mode (offline-eval only): when on and `baselineSpan` is the matched span
+   * from the baseline run's trace, the latency/token/cost tags show ± deltas and
+   * Input/Output/Metadata render as git-style line diffs vs the baseline. Unset in
+   * production, so the standard viewer is unaffected. Only applies to span
+   * selections; the trace-level selection renders normally.
+   */
+  diffMode?: boolean;
+  baselineSpan?: Span | null;
+}
+
+/** Drop internal `traceroot.span.*` keys so the Metadata panel shows only user metadata. */
+function stripInternalMetadata(raw: string | null | undefined): string | null {
+  if (!raw) return raw ?? null;
+  try {
+    const parsed = JSON.parse(raw);
+    const filtered = Object.fromEntries(
+      Object.entries(parsed).filter(([k]) => !k.startsWith("traceroot.span.")),
+    );
+    return JSON.stringify(filtered);
+  } catch {
+    return raw;
+  }
 }
 
 /**
@@ -71,6 +96,8 @@ export function SpanInfoPanel({
   spanActions,
   headerAction,
   extraTags,
+  diffMode = false,
+  baselineSpan,
 }: SpanInfoPanelProps) {
   const router = useRouter();
 
@@ -105,18 +132,37 @@ export function SpanInfoPanel({
   const rawMetadata = isTrace
     ? trace.metadata
     : (spanIO?.metadata ?? selection.span.metadata ?? null);
-  const metadata = (() => {
-    if (!rawMetadata) return rawMetadata;
-    try {
-      const parsed = JSON.parse(rawMetadata);
-      const filtered = Object.fromEntries(
-        Object.entries(parsed).filter(([k]) => !k.startsWith("traceroot.span.")),
-      );
-      return JSON.stringify(filtered);
-    } catch {
-      return rawMetadata;
-    }
-  })();
+  const metadata = stripInternalMetadata(rawMetadata);
+
+  // Diff mode (offline-eval): compare this span against the matched baseline span.
+  // Only meaningful for a span selection with a matched baseline. The baseline
+  // span's I/O is fetched the same lazy way (falling back to inline I/O for
+  // reconstructed traces); the query stays disabled when there's no baseline span.
+  const diffActive = diffMode && !isTrace && !!baselineSpan;
+  const { data: baselineIO } = useSpanIO(
+    projectId,
+    baselineSpan?.trace_id ?? "",
+    diffActive ? (baselineSpan?.span_id ?? null) : null,
+  );
+  const baselineInput = baselineSpan ? (baselineIO?.input ?? baselineSpan.input ?? null) : null;
+  const baselineOutput = baselineSpan ? (baselineIO?.output ?? baselineSpan.output ?? null) : null;
+  const baselineMetadata = baselineSpan
+    ? stripInternalMetadata(baselineIO?.metadata ?? baselineSpan.metadata ?? null)
+    : null;
+  // ± deltas for the latency / token / cost tags (lower is better).
+  const baselineDuration = baselineSpan ? getSpanDuration(baselineSpan) : null;
+  const durationDelta =
+    diffActive && duration != null && baselineDuration != null ? duration - baselineDuration : null;
+  const tokenDelta =
+    diffActive && baselineSpan && !isTrace && selection.span.total_tokens != null
+      ? selection.span.total_tokens - (baselineSpan.total_tokens ?? 0)
+      : null;
+  const costDelta =
+    diffActive && baselineSpan && !isTrace && selection.span.cost != null
+      ? selection.span.cost - (baselineSpan.cost ?? 0)
+      : null;
+  const fmtTokens = (n: number) => Math.round(n).toLocaleString();
+  const fmtCost = (n: number) => `$${n.toFixed(6)}`;
 
   // Trace-level aggregates
   const traceTotalCost = isTrace ? getTraceTotalCost(trace) : null;
@@ -166,6 +212,7 @@ export function SpanInfoPanel({
             <Clock className="h-3 w-3 text-muted-foreground" />
             <span className="text-muted-foreground">Latency:</span>
             <span className="font-medium">{formatDuration(duration)}</span>
+            <MetricDelta delta={durationDelta} format={formatDuration} />
           </div>
           {hasError && (
             <div className="inline-flex items-center gap-1.5 rounded-md bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
@@ -205,10 +252,15 @@ export function SpanInfoPanel({
               cacheReadTokens={selection.span.usage_details?.cache_read_tokens}
               cacheWriteTokens={selection.span.usage_details?.cache_write_tokens}
               reasoningTokens={selection.span.usage_details?.reasoning_tokens}
+              delta={<MetricDelta delta={tokenDelta} format={fmtTokens} />}
             />
           )}
           {!isTrace && (
-            <CostChip cost={selection.span.cost} costDetails={selection.span.cost_details} />
+            <CostChip
+              cost={selection.span.cost}
+              costDetails={selection.span.cost_details}
+              delta={<MetricDelta delta={costDelta} format={fmtCost} />}
+            />
           )}
         </div>
 
@@ -346,29 +398,56 @@ export function SpanInfoPanel({
           </div>
         )}
 
-        {/* Input / Output / Metadata — each with a header format switcher. The key
-            resets the chosen format when a different span/trace is selected. */}
-        <TraceIOSection
-          key={`${selectionId}:input`}
-          title="Input"
-          content={input}
-          loading={ioLoading}
-          onCopy={input ? () => copyToClipboard(input) : undefined}
-        />
-        <TraceIOSection
-          key={`${selectionId}:output`}
-          title="Output"
-          content={output}
-          loading={ioLoading}
-          onCopy={output ? () => copyToClipboard(output) : undefined}
-        />
-        <TraceIOSection
-          key={`${selectionId}:metadata`}
-          title="Metadata"
-          content={metadata}
-          loading={ioLoading}
-          onCopy={metadata ? () => copyToClipboard(metadata) : undefined}
-        />
+        {/* Input / Output / Metadata. In diff mode (eval trace with a baseline) each
+            renders as a git-style line diff vs the matched baseline span; otherwise
+            the normal value view with a header format switcher. The key resets
+            per-value state when a different span/trace is selected. */}
+        {diffActive ? (
+          <>
+            <TraceIODiffSection
+              key={`${selectionId}:input`}
+              title="Input"
+              baseline={baselineInput}
+              candidate={input}
+            />
+            <TraceIODiffSection
+              key={`${selectionId}:output`}
+              title="Output"
+              baseline={baselineOutput}
+              candidate={output}
+            />
+            <TraceIODiffSection
+              key={`${selectionId}:metadata`}
+              title="Metadata"
+              baseline={baselineMetadata}
+              candidate={metadata}
+            />
+          </>
+        ) : (
+          <>
+            <TraceIOSection
+              key={`${selectionId}:input`}
+              title="Input"
+              content={input}
+              loading={ioLoading}
+              onCopy={input ? () => copyToClipboard(input) : undefined}
+            />
+            <TraceIOSection
+              key={`${selectionId}:output`}
+              title="Output"
+              content={output}
+              loading={ioLoading}
+              onCopy={output ? () => copyToClipboard(output) : undefined}
+            />
+            <TraceIOSection
+              key={`${selectionId}:metadata`}
+              title="Metadata"
+              content={metadata}
+              loading={ioLoading}
+              onCopy={metadata ? () => copyToClipboard(metadata) : undefined}
+            />
+          </>
+        )}
       </div>
     </div>
   );
