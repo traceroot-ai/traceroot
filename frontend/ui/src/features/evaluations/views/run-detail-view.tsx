@@ -46,6 +46,7 @@ import { PassRate } from "../components/pass-rate";
 import { SaveTestCaseDrawer } from "../components/trace-integration";
 import { reproduceRunCode, reproduceRunCodeTs } from "@/features/offline-eval/utils";
 import { matchSpans } from "@/lib/eval/span-match";
+import type { RunComparabilityReason } from "@/lib/eval/comparison";
 import {
   Select,
   SelectContent,
@@ -79,10 +80,11 @@ function CellDelta({
   delta: number | null;
   format: (n: number) => string;
 }): React.ReactNode {
-  if (delta === null || delta === 0) return null;
+  if (delta === null) return null;
+  const sign = delta > 0 ? "+" : delta < 0 ? "−" : "";
   return (
     <span className={`ml-1 ${SENTIMENT_CLASS[changeSentiment(-delta)]}`}>
-      {delta > 0 ? "+" : "−"}
+      {sign}
       {format(Math.abs(delta))}
     </span>
   );
@@ -268,6 +270,16 @@ const RESULT_FILTER_FN: Record<ResultFilterId, (r: ResultRow) => boolean> = {
   not_scored: (r) => r.status === "not_scored",
 };
 
+/** Human-readable reason the engine flagged a comparison unavailable/untrustworthy. */
+const COMPARABILITY_REASON_LABEL: Record<RunComparabilityReason, string> = {
+  no_baseline: "no baseline was picked",
+  baseline_missing: "the baseline run could not be found",
+  different_evaluation: "baseline is from a different evaluation",
+  different_dataset_version: "baseline ran on a different dataset snapshot",
+  baseline_not_terminal: "baseline is still running",
+  main_scorer_incompatible: "main scorer isn't comparable between these runs",
+};
+
 /**
  * Evaluation run detail — the run detail surface, wired to
  * the server. Ordered to answer, in sequence: did the candidate improve, what
@@ -294,30 +306,6 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
 
   const results = React.useMemo(() => data?.results ?? [], [data]);
   const run = data?.run;
-
-  // This evaluation's other runs — the compare-baseline picker below and the
-  // header RunSwitcher share this query key, so it's one fetch, not two.
-  const siblingRuns = useEvaluationRuns(projectId, {
-    evaluation_id: run?.evaluationId,
-    limit: 100,
-  });
-
-  // Other runs of this evaluation, to pick a comparison baseline from (never an
-  // arbitrary run from another evaluation). Newest first, current run excluded.
-  const compareOptions = React.useMemo(
-    () =>
-      run
-        ? (siblingRuns.data?.data ?? [])
-            .filter((s) => s.id !== run.id)
-            .sort((a, b) => b.runNumber - a.runNumber)
-            .map((s) => ({
-              id: s.id,
-              label: `#${s.runNumber} · ${s.candidateVersion}`,
-              score: s.mainScore,
-            }))
-        : [],
-    [siblingRuns.data, run],
-  );
 
   // On-demand comparison of this run (candidate) vs the picked run (baseline), from the
   // same backend engine + route the compare page uses — no second implementation.
@@ -368,8 +356,12 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
   // The baseline case's trace (from the picked compare run), fetched so the trace
   // viewer's Diff toggle can diff each span (I/O, metadata, latency/token/cost) against
   // its baseline counterpart. Span ids differ across runs, so we match structurally
-  // (kind + name + sibling index) once the baseline trace is loaded.
-  const baselineTraceId = comparing ? (openCompareRow?.baselineTraceId ?? null) : null;
+  // (kind + name + sibling index) once the baseline trace is loaded. Suppressed when
+  // the candidate side is itself reconstructed (no real telemetry) — its timestamps are
+  // fake placeholders, so diffing it against a real baseline trace would produce
+  // fabricated latency deltas instead of an honest "unknown".
+  const baselineTraceId =
+    comparing && useRealTrace ? (openCompareRow?.baselineTraceId ?? null) : null;
   const baselineTrace = useTrace(projectId, baselineTraceId ?? "", !!baselineTraceId);
   const baselineSpanMatch = React.useMemo(() => {
     const baseSpans = baselineTrace.data?.spans;
@@ -421,7 +413,6 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
             openResultId={openResultId}
             compareId={compareId}
             onCompareChange={setCompareId}
-            compareOptions={compareOptions}
             compareData={compare.data ?? null}
             compareLoading={!!compareId && compare.isLoading}
             compareByCase={comparing ? compareByCase : null}
@@ -663,7 +654,6 @@ function RunBody({
   openResultId,
   compareId,
   onCompareChange,
-  compareOptions,
   compareData,
   compareLoading,
   compareByCase,
@@ -677,7 +667,6 @@ function RunBody({
   openResultId: string | null;
   compareId: string | null;
   onCompareChange: (id: string | null) => void;
-  compareOptions: Array<{ id: string; label: string; score: number | null }>;
   compareData: CompareRunsResponse | null;
   compareLoading: boolean;
   compareByCase: Map<string, CompareResultRow> | null;
@@ -686,6 +675,34 @@ function RunBody({
   const [reproduceOpen, setReproduceOpen] = React.useState(false);
   const comparing = !!compareByCase;
   const cmp = compareData?.comparison ?? null;
+
+  // This evaluation's other runs, to pick a comparison baseline from. `run` is always
+  // loaded here (RunBody only mounts once the run-detail fetch resolves), so this never
+  // fires the unfiltered, whole-project query the header RunSwitcher's own call would —
+  // both share the same evaluation-scoped query key, so it's one fetch, not two.
+  const siblingRuns = useEvaluationRuns(projectId, { evaluation_id: run.evaluationId, limit: 100 });
+
+  // Only runs of the SAME evaluation AND the same dataset snapshot, still running
+  // excluded — anything else is a baseline the engine (comparison.ts) would flag
+  // `different_dataset_version` or `baseline_not_terminal` and mark untrustworthy.
+  // Newest first, current run excluded.
+  const compareOptions = React.useMemo(
+    () =>
+      (siblingRuns.data?.data ?? [])
+        .filter(
+          (s) =>
+            s.id !== run.id &&
+            s.datasetVersionId === run.datasetVersionId &&
+            s.status !== "running",
+        )
+        .sort((a, b) => b.runNumber - a.runNumber)
+        .map((s) => ({
+          id: s.id,
+          label: `#${s.runNumber} · ${s.candidateVersion} · ${s.datasetVersionLabel}`,
+          score: s.mainScore,
+        })),
+    [siblingRuns.data, run],
+  );
 
   return (
     <>
@@ -773,7 +790,24 @@ function RunBody({
             </div>
           )}
 
-          {comparing && cmp && (
+          {comparing && cmp && !cmp.available && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-muted/30 px-3 py-2 text-[11px]">
+              <span className="flex items-center gap-1.5 text-muted-foreground">
+                <GitCompare className="h-3.5 w-3.5" aria-hidden />
+                Not comparable — {cmp.reasons.map((r) => COMPARABILITY_REASON_LABEL[r]).join(", ")}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="ml-auto h-6 px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
+                onClick={() => onCompareChange(null)}
+              >
+                Clear
+              </Button>
+            </div>
+          )}
+
+          {comparing && cmp && cmp.available && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-muted/30 px-3 py-2 text-[11px]">
               <span className="flex items-center gap-1.5">
                 <GitCompare className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
@@ -784,6 +818,18 @@ function RunBody({
               </span>
               <span className="text-muted-foreground">baseline → candidate (this run)</span>
               <span className="h-3 w-px bg-border" aria-hidden />
+              {/* Untrustworthy comparisons (e.g. a different dataset snapshot, or a
+                  main scorer that never produced a comparable pair) still show the
+                  counts, but never bare — the reason rides right beside them. */}
+              {!cmp.trustworthy && (
+                <span
+                  className="rounded border border-amber-400/60 bg-amber-100/60 px-1.5 py-0.5 text-amber-800 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-300"
+                  title="These counts may not be meaningful"
+                >
+                  Not trustworthy:{" "}
+                  {cmp.reasons.map((r) => COMPARABILITY_REASON_LABEL[r]).join(", ")}
+                </span>
+              )}
               <span className={cmp.caseCounts.regressed > 0 ? SENTIMENT_CLASS.bad : ""}>
                 {cmp.caseCounts.regressed} regressed
               </span>
@@ -1116,7 +1162,7 @@ function ResultsSection({
                             <span className="text-muted-foreground">No output</span>
                           )}
                         </span>
-                        {row?.outputChanged === true && (
+                        {row?.outputChanged === true && rowCmp?.pairing === "paired" && (
                           <span
                             className="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground"
                             title="Output differs from the baseline run"
