@@ -16,12 +16,14 @@ export function MetricDelta({
   format: (n: number) => string;
 }): ReactNode {
   if (delta == null || !Number.isFinite(delta)) return null;
-  if (delta === 0) return <span className="text-muted-foreground">±0</span>;
+  if (delta === 0) return <span className="ml-1.5 text-muted-foreground">±0</span>;
   const worse = delta > 0;
   return (
     <span
       className={
-        worse ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"
+        worse
+          ? "ml-1.5 text-red-600 dark:text-red-400"
+          : "ml-1.5 text-emerald-600 dark:text-emerald-400"
       }
     >
       {delta > 0 ? "+" : "−"}
