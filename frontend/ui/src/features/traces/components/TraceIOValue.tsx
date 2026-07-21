@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { ChevronDown, Loader2 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ExpandableSection } from "@/components/ui/expandable-section";
+import { MarkdownView } from "@/components/ui/markdown-view";
 import { cn } from "@/lib/utils";
 import { ContentRenderer } from "./ContentRenderer";
 
@@ -14,15 +15,16 @@ import { ContentRenderer } from "./ContentRenderer";
  * Text (raw), and YAML. The value is parsed as JSON when possible; a non-JSON string is
  * shown as-is.
  */
-type IOFormat = "pretty" | "json" | "text" | "yaml";
+type IOFormat = "pretty" | "json" | "text" | "yaml" | "markdown";
 
 const FORMAT_LABEL: Record<IOFormat, string> = {
   pretty: "Pretty",
   json: "JSON",
   text: "Text",
   yaml: "YAML",
+  markdown: "Markdown",
 };
-const FORMATS: IOFormat[] = ["pretty", "json", "text", "yaml"];
+const FORMATS: IOFormat[] = ["pretty", "json", "text", "yaml", "markdown"];
 
 function parseMaybe(content: string): unknown {
   try {
@@ -216,6 +218,9 @@ export function TraceIOSection({
         <span className="text-[11px] text-muted-foreground">-</span>
       ) : format === "pretty" ? (
         <ContentRenderer content={content} />
+      ) : format === "markdown" ? (
+        // Model output is very often markdown; render it rather than showing the raw source.
+        <MarkdownView content={content} />
       ) : format === "json" ? (
         <HighlightedJson value={parsed} />
       ) : (
