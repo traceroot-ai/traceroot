@@ -4,14 +4,12 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  AlertTriangle,
   ArrowDown,
   ArrowUp,
   Check,
   ChevronDown,
   Database,
   GitCompare,
-  Info,
   Loader2,
   Search,
   X,
@@ -21,7 +19,6 @@ import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { ExpandableSection } from "@/components/ui/expandable-section";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { DATE_FILTER_OPTIONS, type DateFilterOption } from "@/lib/date-filter";
 import { Table, TBody, THead, TR, TRHead, Td, Th } from "@/components/ui/table";
@@ -30,15 +27,11 @@ import {
   EvalPageHeader,
   EvalResultBadge,
   ReviewPanel,
-  Timestamp,
   useSeedTraceIO,
   type ReviewTarget,
 } from "@/features/offline-eval/components";
-import { useQueries } from "@tanstack/react-query";
 import { TraceViewerPanel } from "@/features/traces/components";
 import { useTrace } from "@/features/traces/hooks";
-import { getTrace } from "@/lib/api";
-import { useSession as useAuthSession } from "@/lib/auth-client";
 import type { Span, TraceDetail } from "@/types/api";
 import type { SpanKind, SpanStatus } from "@traceroot/core";
 import { cn } from "@/lib/utils";
@@ -46,16 +39,13 @@ import {
   changeSentiment,
   pctFraction,
   SENTIMENT_CLASS,
-  signed,
   signedPoints,
-  truncate,
 } from "@/features/offline-eval/utils";
 import { useEvaluationRun, useEvaluationRuns, useCreateHumanScore, useCompareRuns } from "../hooks";
 import { PullCodeDrawer } from "../components/pull-code-drawer";
 import { PassRate } from "../components/pass-rate";
 import { SaveTestCaseDrawer } from "../components/trace-integration";
 import { reproduceRunCode, reproduceRunCodeTs } from "@/features/offline-eval/utils";
-import { attributeTraceUsage, type TraceUsage, type UsageSpan } from "@/lib/eval/trace-usage";
 import { matchSpans } from "@/lib/eval/span-match";
 import {
   Select,
@@ -711,7 +701,6 @@ function RunBody({
   compareByCase: Map<string, CompareResultRow> | null;
 }) {
   const router = useRouter();
-  const [detailsOpen, setDetailsOpen] = React.useState(false);
   const [reproduceOpen, setReproduceOpen] = React.useState(false);
   const comparing = !!compareByCase;
   const cmp = compareData?.comparison ?? null;
@@ -789,15 +778,6 @@ function RunBody({
               <Database className="h-3.5 w-3.5" aria-hidden />
               Reproduce locally
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 gap-1.5 text-[12px]"
-              onClick={() => setDetailsOpen(true)}
-            >
-              <Info className="h-3.5 w-3.5" aria-hidden />
-              Run details
-            </Button>
           </div>
         }
       />
@@ -848,24 +828,8 @@ function RunBody({
             onOpen={onOpenResult}
             openResultId={openResultId}
           />
-
-          {/* Errors fold below the results; run details open in a side panel. */}
-          {run.errorCount > 0 && (
-            <ExpandableSection title={`Errors (${run.errorCount})`} defaultOpen={false}>
-              <ErrorsBody run={run} results={results} onOpen={onOpenResult} />
-            </ExpandableSection>
-          )}
         </div>
       </div>
-
-      <RunDetailsDrawer
-        run={run}
-        projectId={projectId}
-        results={results}
-        compareData={compareData}
-        open={detailsOpen}
-        onOpenChange={setDetailsOpen}
-      />
 
       {/* Reproduce this run locally = pull the EXACT dataset version it scored (not
           the run/evaluation id, which pulls nothing). Shared pull-code drawer. */}
@@ -873,11 +837,11 @@ function RunBody({
         title="Reproduce this run locally"
         subtitle={
           <>
-            Pulls the exact cases{" "}
+            Re-run a new candidate against the exact cases{" "}
             <span className="font-medium text-foreground">
               {run.evaluationName} #{run.runNumber}
             </span>{" "}
-            scored, so a new candidate is measured on the same data and is comparable to this run.
+            scored — the same dataset snapshot, so the results line up against this run.
           </>
         }
         options={[
@@ -886,10 +850,14 @@ function RunBody({
             label: "Reproduce this run",
             note: (
               <>
-                Pins dataset version <span className="font-mono">{run.datasetVersionId}</span>. The
-                run id (<span className="font-mono">{run.id}</span>) is only used as the{" "}
-                <span className="font-mono">baseline</span> to compare against — it isn&apos;t
-                pullable.
+                Pins{" "}
+                <span className="font-medium text-foreground">
+                  {run.datasetName ?? "this dataset"}
+                </span>{" "}
+                at version <span className="font-mono">{run.datasetVersionLabel}</span> (snapshot{" "}
+                <span className="font-mono">{run.datasetVersionId}</span>), and passes this run
+                (candidate <span className="font-mono">{run.candidateVersion}</span>) as the
+                baseline to compare the new run against.
               </>
             ),
             py: reproduceRunCode(run.datasetVersionId, run.evaluationName, run.id),
@@ -900,210 +868,6 @@ function RunBody({
         onOpenChange={setReproduceOpen}
       />
     </>
-  );
-}
-
-/** Run details (identity, dataset, scorers, provenance) as a right-side slide-out,
- *  opened from the header — matching the starter-code / pull-code drawers. */
-function RunDetailsDrawer({
-  run,
-  projectId,
-  results,
-  compareData,
-  open,
-  onOpenChange,
-}: {
-  run: RunDetail;
-  projectId: string;
-  results: ResultRow[];
-  compareData: CompareRunsResponse | null;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
-  React.useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onOpenChange(false);
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [open, onOpenChange]);
-
-  if (!open) return null;
-
-  return (
-    <div className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-[560px] max-w-[96vw] flex-col border-l border-border bg-background shadow-xl">
-      <div className="flex shrink-0 items-start justify-between gap-2 border-b border-border px-4 py-3">
-        <div>
-          <h2 className="text-[13px] font-semibold">Run details</h2>
-          <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
-            {run.evaluationName} #{run.runNumber} · {run.candidateVersion}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => onOpenChange(false)}
-          aria-label="Close"
-          className="mt-0.5 rounded-sm text-muted-foreground opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-1 focus:ring-ring"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-      <div className="min-h-0 flex-1 overflow-auto p-4 text-[12px]">
-        {/* Mounted only while the drawer is open, so the per-case trace fetches for
-            the token/cost aggregate happen lazily, not on every run-detail load. */}
-        <RunMetricsDiff
-          run={run}
-          projectId={projectId}
-          results={results}
-          compareData={compareData}
-        />
-        <RunDetailsBody run={run} projectId={projectId} />
-      </div>
-    </div>
-  );
-}
-
-/**
- * Run-level metrics. Duration is derived server-side (paired case-duration mean).
- * Tokens/cost are aggregated across the run's case traces — fetched lazily here (only
- * while the drawer is open) and summed; while any trace is still loading it shows a
- * "computing" note, and traces without provider usage simply contribute nothing.
- *
- * The baseline column is driven by the page's "Compare with" selection (comparison is
- * frontend-owned now that the SDK no longer sends a stored baseline): with a run picked,
- * each metric shows its ± delta vs that run; with none picked, only the candidate value.
- */
-function RunMetricsDiff({
-  run,
-  projectId,
-  results,
-  compareData,
-}: {
-  run: RunDetail;
-  projectId: string;
-  results: ResultRow[];
-  compareData: CompareRunsResponse | null;
-}) {
-  const { data: authSession } = useAuthSession();
-  const user = authSession?.user
-    ? { id: authSession.user.id, email: authSession.user.email }
-    : undefined;
-
-  const candidateIds = React.useMemo(
-    () => [...new Set(results.map((r) => r.traceId).filter((x): x is string => !!x))],
-    [results],
-  );
-  // Baseline traces come from the picked compare run (per-case baselineTraceId), not a
-  // stored per-result baseline (which the SDK is dropping).
-  const baselineIds = React.useMemo(
-    () =>
-      compareData
-        ? [
-            ...new Set(
-              compareData.results.map((r) => r.baselineTraceId).filter((x): x is string => !!x),
-            ),
-          ]
-        : [],
-    [compareData],
-  );
-  const allIds = React.useMemo(
-    () => [...new Set([...candidateIds, ...baselineIds])],
-    [candidateIds, baselineIds],
-  );
-
-  // Share useTrace's cache key so any already-opened trace is reused, not refetched.
-  const queries = useQueries({
-    queries: allIds.map((id) => ({
-      queryKey: ["trace", projectId, id],
-      queryFn: () => getTrace(projectId, id, "", user),
-      enabled: !!user,
-    })),
-  });
-
-  const usageById = new Map<string, TraceUsage>();
-  let loading = false;
-  allIds.forEach((id, i) => {
-    const q = queries[i];
-    if (q.isLoading || q.isFetching) loading = true;
-    usageById.set(id, attributeTraceUsage(q.data?.spans as UsageSpan[] | undefined));
-  });
-
-  const sum = (ids: string[]) => {
-    let tokens = 0;
-    let cost = 0;
-    let any = false;
-    for (const id of ids) {
-      const u = usageById.get(id);
-      if (u && u.state === "present") {
-        tokens += u.combined.totalTokens;
-        cost += u.combined.cost;
-        any = true;
-      }
-    }
-    return any ? { tokens, cost } : null;
-  };
-  const cand = sum(candidateIds);
-  const base = sum(baselineIds);
-  // Duration deltas come from the picked compare run when comparing; otherwise the
-  // candidate's own mean with no baseline.
-  const dur = compareData?.comparison.duration ?? run.comparison.duration;
-
-  const fmtTok = (n: number) => `${Math.round(n).toLocaleString()}`;
-  const fmtCost = (n: number) => (n > 0 ? `$${n.toFixed(4)}` : "$0");
-  const fmtMs = (n: number) => (n < 1000 ? `${Math.round(n)}ms` : `${(n / 1000).toFixed(1)}s`);
-
-  return (
-    <div className="mb-3 overflow-hidden rounded border border-border">
-      <div className="border-b border-border bg-muted/40 px-2.5 py-1 text-[11px] text-muted-foreground">
-        {compareData ? (
-          <>
-            Metrics vs #{compareData.baseline.runNumber}{" "}
-            <span className="text-foreground">({compareData.baseline.candidateVersion})</span>
-          </>
-        ) : (
-          <>
-            Run metrics <span>— pick a run in “Compare with” for deltas</span>
-          </>
-        )}
-      </div>
-      <table className="w-full text-[11px]">
-        <thead>
-          <tr className="text-[10px] text-muted-foreground">
-            <th className="py-1 pl-2.5 text-left font-normal"></th>
-            <th className="py-1 pr-2.5 text-right font-normal">Candidate</th>
-          </tr>
-        </thead>
-        <tbody className="[&_td:first-child]:pl-2.5 [&_td:last-child]:pr-2.5">
-          <MetricRow
-            label="Avg case duration"
-            candidate={dur.candidateMeanMs}
-            baseline={dur.baselineMeanMs}
-            format={fmtMs}
-          />
-          <MetricRow
-            label="Total tokens"
-            candidate={cand ? cand.tokens : null}
-            baseline={base ? base.tokens : null}
-            format={fmtTok}
-          />
-          <MetricRow
-            label="Total cost"
-            candidate={cand ? cand.cost : null}
-            baseline={base ? base.cost : null}
-            format={fmtCost}
-          />
-        </tbody>
-      </table>
-      {loading && (
-        <p className="border-t border-border px-2.5 py-1 text-[10px] text-muted-foreground">
-          Summing token/cost across {allIds.length} case traces…
-        </p>
-      )}
-    </div>
   );
 }
 
@@ -1447,272 +1211,4 @@ function ChangeCell({ change }: { change: Classification | null }) {
     );
   }
   return <span className="text-muted-foreground">—</span>;
-}
-
-/** One metric row: candidate value with its ± delta beside it (lower is better). */
-function MetricRow({
-  label,
-  candidate,
-  baseline,
-  format,
-  lowerIsBetter = true,
-}: {
-  label: string;
-  candidate: number | null;
-  baseline: number | null;
-  format: (n: number) => string;
-  lowerIsBetter?: boolean;
-}) {
-  const delta = candidate !== null && baseline !== null ? candidate - baseline : null;
-  return (
-    <tr>
-      <td className="py-1 pr-2 text-muted-foreground">{label}</td>
-      {/* Candidate value with its ± delta vs baseline beside it (lower is better). */}
-      <td className="py-1 text-right tabular-nums">
-        {candidate === null ? (
-          "—"
-        ) : (
-          <>
-            {format(candidate)}
-            {delta !== null &&
-              (delta === 0 ? (
-                <span className="ml-1.5 text-muted-foreground">±0</span>
-              ) : (
-                <span
-                  className={cn(
-                    "ml-1.5",
-                    SENTIMENT_CLASS[changeSentiment(lowerIsBetter ? -delta : delta)],
-                  )}
-                >
-                  {delta > 0 ? "+" : "−"}
-                  {format(Math.abs(delta))}
-                </span>
-              ))}
-          </>
-        )}
-      </td>
-    </tr>
-  );
-}
-
-/** Task errors and scorer errors are different failures and read differently. */
-function ErrorsBody({
-  run,
-  results,
-  onOpen,
-}: {
-  run: RunDetail;
-  results: ResultRow[];
-  onOpen: (id: string) => void;
-}) {
-  const taskErrors = results.filter((r) => r.taskError);
-  const scorerErrors = results.filter((r) => r.scores.some((s) => s.error));
-  return (
-    <div className="flex flex-col gap-3">
-      <ErrorGroup
-        title={`Application errors (${run.taskErrorCount})`}
-        blurb="The candidate application failed for these test cases, so there is no output to judge."
-        rows={taskErrors.map((r) => ({ id: r.id, input: r.input, detail: r.taskError ?? "" }))}
-        onOpen={onOpen}
-      />
-      <ErrorGroup
-        title={`Scorer errors (${run.scorerErrorCount})`}
-        blurb="The candidate produced an output, but a scorer failed to judge it. These cases are unscored."
-        rows={scorerErrors.map((r) => ({
-          id: r.id,
-          input: r.input,
-          detail: r.scores
-            .filter((s) => s.error)
-            .map((s) => `${s.scorerName}: ${s.error}`)
-            .join(" · "),
-        }))}
-        onOpen={onOpen}
-      />
-    </div>
-  );
-}
-
-function ErrorGroup({
-  title,
-  blurb,
-  rows,
-  onOpen,
-}: {
-  title: string;
-  blurb: string;
-  rows: Array<{ id: string; input: string; detail: string }>;
-  onOpen: (id: string) => void;
-}) {
-  return (
-    <div>
-      <p className="flex items-center gap-1.5 text-[12px] font-medium">
-        <AlertTriangle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" aria-hidden />
-        {title}
-      </p>
-      <p className="mb-1.5 mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{blurb}</p>
-      {rows.length === 0 ? (
-        <p className="text-[11px] text-muted-foreground">None.</p>
-      ) : (
-        <ul className="divide-y divide-border rounded border border-border">
-          {rows.map((row) => (
-            <li key={row.id}>
-              <button
-                type="button"
-                onClick={() => onOpen(row.id)}
-                className="flex w-full flex-col items-start px-2.5 py-1.5 text-left transition-colors hover:bg-muted/40"
-              >
-                <span className="truncate">{truncate(row.input, 80)}</span>
-                <span className="font-mono text-[11px] text-muted-foreground">{row.detail}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-/**
- * Run configuration + immutable identities; caller wraps in a section.
- * The prototype also showed a baseline picker and duration/cost/token totals.
- * The baseline is server-computed against a fixed baselineRunId (no endpoint to
- * repoint it), so it is read-only here; the aggregate metrics are not persisted
- * on a run, so those rows are omitted rather than fabricated.
- */
-function RunDetailsBody({ run, projectId }: { run: RunDetail; projectId: string }) {
-  return (
-    <div>
-      <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 sm:grid-cols-2">
-        <Row label="Candidate version">
-          <span className="font-mono">{run.candidateVersion}</span>
-        </Row>
-        <Row label="Dataset">
-          <Link
-            href={`/projects/${projectId}/datasets/${run.datasetId}`}
-            className="inline-flex items-center gap-1 rounded hover:underline"
-          >
-            {run.datasetName ?? run.datasetId}
-            <span className="text-muted-foreground">· {run.datasetVersionLabel}</span>
-          </Link>
-        </Row>
-        <Row label="Environment">{run.environment}</Row>
-        <Row label="Started">
-          <Timestamp iso={run.startedAt} className="inline" />
-        </Row>
-        {/* Run wall-clock (completedAt − startedAt), NOT the sum of case durations. */}
-        <Row label="Run elapsed">{fmtDurationMs(run.elapsedMs)}</Row>
-        {run.comparison.duration.pairedCount > 0 && (
-          <Row label="Avg case duration">
-            <span title="Mean per-case wall-clock (task + scorers), not run elapsed">
-              {fmtDurationMs(run.comparison.duration.candidateMeanMs)}
-              {run.comparison.duration.baselineMeanMs !== null && (
-                <span className="text-muted-foreground">
-                  {" "}
-                  vs {fmtDurationMs(run.comparison.duration.baselineMeanMs)}
-                </span>
-              )}
-              {run.comparison.duration.deltaMs !== null && (
-                <span
-                  className={cn(
-                    "ml-1",
-                    SENTIMENT_CLASS[changeSentiment(-run.comparison.duration.deltaMs)],
-                  )}
-                >
-                  ({signed(run.comparison.duration.deltaMs / 1000)}s)
-                </span>
-              )}
-            </span>
-          </Row>
-        )}
-        <Row label="Scorers">
-          {run.scorers && run.scorers.length > 0
-            ? run.scorers.map((s) => `${s.name} ${s.version}`).join(", ")
-            : "—"}
-        </Row>
-        <Row label="Baseline">
-          {run.baselineRunId ? (
-            <Link
-              href={`/projects/${projectId}/evaluations/${run.baselineRunId}`}
-              className="font-mono text-[11px] hover:underline"
-            >
-              {run.baselineRunId}
-            </Link>
-          ) : (
-            "No baseline"
-          )}
-        </Row>
-        <Row label="Evaluation ID">
-          <span className="font-mono text-[11px]">{run.evaluationId}</span>
-        </Row>
-        <Row label="Run ID">
-          <span className="font-mono text-[11px]">{run.id}</span>
-        </Row>
-        <Row label="Dataset snapshot ID">
-          <span className="font-mono text-[11px]">{run.datasetVersionId}</span>
-        </Row>
-        {run.model && (
-          <Row label="Model">
-            <span className="font-mono text-[11px]">{run.model}</span>
-          </Row>
-        )}
-      </dl>
-      <ProvenanceBlock metadata={run.metadata} />
-    </div>
-  );
-}
-
-// Keys that may carry secrets/env — never rendered (informational safety, per spec).
-const SECRET_KEY_RE = /secret|token|password|api[_-]?key|credential|\benv\b|authorization/i;
-
-/**
- * Structured run provenance (model, prompt, config, git) as SECONDARY detail. Free-form
- * and optional: when absent it's an informational "not recorded" line, never an error.
- * The candidate label stays the primary identity (shown in the header). Env vars and
- * secret-looking keys are redacted; git repo/ref/commit are surfaced when present.
- */
-function ProvenanceBlock({ metadata }: { metadata: Record<string, unknown> | null }) {
-  const entries = metadata ? Object.entries(metadata).filter(([k]) => !SECRET_KEY_RE.test(k)) : [];
-  const git =
-    metadata && typeof metadata.git === "object" && metadata.git !== null
-      ? (metadata.git as Record<string, unknown>)
-      : null;
-
-  return (
-    <div className="mt-3 border-t border-border/50 pt-2">
-      <p className="mb-1 text-[11px] font-medium text-muted-foreground">Provenance</p>
-      {entries.length === 0 && !git ? (
-        <p className="text-[11px] text-muted-foreground">
-          No provenance recorded for this run — informational only, not an error.
-        </p>
-      ) : (
-        <dl className="grid grid-cols-1 gap-x-6 gap-y-1 sm:grid-cols-2">
-          {git && (
-            <Row label="Git">
-              <span className="font-mono text-[11px]">
-                {[git.repo, git.ref ?? git.commit].filter(Boolean).join(" @ ") || "—"}
-              </span>
-            </Row>
-          )}
-          {entries
-            .filter(([k]) => k !== "git")
-            .map(([k, v]) => (
-              <Row key={k} label={k}>
-                <span className="font-mono text-[11px]">
-                  {typeof v === "object" ? JSON.stringify(v) : String(v)}
-                </span>
-              </Row>
-            ))}
-        </dl>
-      )}
-    </div>
-  );
-}
-
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-3 border-b border-border/50 py-1 last:border-0">
-      <dt className="text-[11px] text-muted-foreground">{label}</dt>
-      <dd className="text-right text-[12px]">{children}</dd>
-    </div>
-  );
 }
