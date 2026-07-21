@@ -93,6 +93,23 @@ export async function runBillingJob(): Promise<void> {
   }
 }
 
+/**
+ * Runs the billing job once, logging and swallowing any error instead of
+ * rethrowing — used for the worker's startup pass so a fresh boot writes
+ * the first usage snapshot within seconds instead of waiting for the next
+ * hourly cron tick. `job` is injectable for tests; defaults to runBillingJob.
+ */
+export async function runStartupBillingPass(
+  job: () => Promise<void> = runBillingJob,
+): Promise<void> {
+  console.log("[Billing] Running startup billing pass...");
+  try {
+    await job();
+  } catch (error) {
+    console.error("[Billing] Startup billing pass failed:", error);
+  }
+}
+
 async function processWorkspace(
   workspace: {
     id: string;
