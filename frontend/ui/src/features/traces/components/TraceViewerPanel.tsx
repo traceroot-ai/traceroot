@@ -11,17 +11,14 @@ import {
   Expand,
   Shrink,
   SquareArrowOutUpRight,
-  GitCompare,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn, buildUrlWithFilters, parseAsUTC } from "@/lib/utils";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { Button } from "@/components/ui/button";
-import { CopyButton } from "@/components/ui/copy-button";
 import { LoadingState } from "@/components/ui/loading-state";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { getTrace } from "@/lib/api";
-import type { Span, TraceDetail } from "@/types/api";
 import { ApiError } from "@/lib/api/errors";
 import type { TraceDetail } from "@/types/api";
 import type { TraceSelection } from "../types";
@@ -62,7 +59,7 @@ interface TraceViewerPanelProps {
   /**
    * When provided, this trace is used directly instead of fetching it, and the
    * live SSE stream + detector-findings lookups are disabled. Lets the
-   * offline-eval surface render the genuine viewer from provided data.
+   * offline-eval prototype render the genuine viewer from hardcoded data.
    * Unset in production.
    */
   traceOverride?: TraceDetail;
@@ -82,45 +79,6 @@ interface TraceViewerPanelProps {
    * — e.g. offline-eval's "Dataset:" chip. Unset in production.
    */
   spanExtraTags?: (selection: TraceSelection) => ReactNode;
-  /**
-   * Notified whenever the selected span (or the trace root) changes, so an open
-   * side panel can follow the tree — e.g. offline-eval's "Save as test case"
-   * drawer tracking the clicked span. Unset in production.
-   */
-  onSelectionChange?: (selection: TraceSelection) => void;
-  /**
-   * Diff mode (offline-eval only): the baseline run's trace plus a matcher that
-   * resolves the baseline counterpart of a span selection (matched structurally,
-   * since span ids differ across runs). When provided, a "Diff" toggle appears in
-   * the sub-header; turning it on renders latency/token/cost tags with ± deltas and
-   * Input/Output/Metadata as git-style line diffs vs the baseline — for the whole
-   * trace (root row) as well as each span. Unset in production.
-   */
-  diffBaseline?: {
-    trace: TraceDetail;
-    matchSpan: (selection: TraceSelection) => Span | null;
-  };
-  /**
-   * Replaces the main header's "Trace" label + trace id (offline-eval), so an
-   * evaluation trace leads with its test case (e.g. label "Test case", value the
-   * test-case id). Unset in production, where the header shows "Trace" + traceId.
-   */
-  headerIdentity?: { label: string; value: string };
-  /**
-   * A badge rendered in the main header, immediately left of the navigation
-   * buttons — the same spot the findings "Alert" tag uses. offline-eval puts the
-   * test case's outcome (Passed / Did not pass / Errored) here. Unset in production.
-   */
-  headerStatus?: ReactNode;
-  /**
-   * Open the panel with diff mode already on (offline-eval compare-with). Only has an
-   * effect once `diffBaseline` is supplied — the toggle stays user-controllable after.
-   */
-  defaultDiffOn?: boolean;
-  traceIdentity?: { kindLabel: string; title: string; copyValue: string };
-  /** Badge shown where a span's ERROR badge sits, at trace level. Unset in production. */
-  traceStatusBadge?: ReactNode;
-  diffBaseline?: (selection: TraceSelection) => Span | null;
    * Scope the trace fetch: "detector" opens a detector self-trace (excluded
    * from normal reads), "user" excludes self-traces. Omit for no scoping.
    */
@@ -186,33 +144,10 @@ export function TraceViewerPanel({
   spanActions,
   spanHeaderAction,
   spanExtraTags,
-  onSelectionChange,
-  diffBaseline,
-  headerIdentity,
-  headerStatus,
-  defaultDiffOn,
-  traceIdentity,
-  traceStatusBadge,
   source,
   runTimestamp,
 }: TraceViewerPanelProps) {
   const [selection, setSelection] = useState<TraceSelection>({ type: "trace" });
-  // Diff mode is opt-in per panel (offline-eval only); the toggle only appears
-  // when a baseline matcher is supplied. Persists across ↑/↓ navigation like
-  // fullscreen, since the panel instance stays mounted.
-  const [diffMode, setDiffMode] = useState(defaultDiffOn ?? false);
-  // When a compare run is picked (offline-eval), auto-open diff mode so opening a case
-  // trace lands in the diff directly. The user can still toggle it off afterward.
-  useEffect(() => {
-    if (defaultDiffOn) setDiffMode(true);
-  }, [defaultDiffOn]);
-  // Emit selection changes to the parent (kept in a ref so an inline callback
-  // doesn't retrigger the effect — it fires only when `selection` actually changes).
-  const onSelectionChangeRef = useRef(onSelectionChange);
-  onSelectionChangeRef.current = onSelectionChange;
-  useEffect(() => {
-    onSelectionChangeRef.current?.(selection);
-  }, [selection]);
   const [viewMode, setViewMode] = useState<"tree" | "timeline" | "detectors">("tree");
   // Fullscreen widens the slide-in overlay from ~70% to the full viewport.
   // Seeded from initialFullscreen so a trace opened in a new tab lands expanded.
@@ -377,28 +312,12 @@ export function TraceViewerPanel({
       <div className="flex h-full flex-col bg-background">
         {/* ── MAIN HEADER ── */}
         <div className="flex h-12 items-center justify-between border-b border-border bg-muted/30 px-4">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <Workflow className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <span className="shrink-0 text-sm font-medium">{headerIdentity?.label ?? "Trace"}</span>
-            <span className="truncate font-mono text-xs text-muted-foreground">
-              {headerIdentity?.value ?? traceId}
-            </span>
-            {/* Copy affordance for the header id. Only offered when an identity is
-                supplied (offline-eval's test case); the standard trace header is
-                unchanged. */}
-            {headerIdentity && (
-              <CopyButton
-                value={headerIdentity.value}
-                className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
-                title={`Copy ${headerIdentity.label.toLowerCase()} id`}
-              />
-            )}
+          <div className="flex min-w-0 items-center gap-2">
             <DOMAIN_ICONS.trace className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm font-medium">Trace</span>
             <span className="truncate font-mono text-xs text-muted-foreground">{traceId}</span>
           </div>
           <div className="flex items-center gap-1">
-            {headerStatus}
             {hasRca && (
               <button
                 type="button"
@@ -530,23 +449,6 @@ export function TraceViewerPanel({
               <DOMAIN_ICONS.detector className="h-3.5 w-3.5" /> Detectors
             </button>
           </div>
-          {/* Diff toggle — only when a baseline is available (offline-eval). */}
-          {diffBaseline && viewMode === "tree" && (
-            <div className="ml-auto pr-3">
-              <button
-                onClick={() => setDiffMode((v) => !v)}
-                className={cn(
-                  "flex items-center gap-2 rounded-md px-3 py-1 text-xs font-medium transition-all",
-                  diffMode
-                    ? "bg-muted text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-                title="Diff each span's input, output, metadata and metrics against the baseline run"
-              >
-                <GitCompare className="h-3.5 w-3.5" /> Diff
-              </button>
-            </div>
-          )}
         </div>
 
         {/* ── CONTENT AREA ── */}
@@ -655,9 +557,6 @@ export function TraceViewerPanel({
                       spanActions={spanActions?.(selection)}
                       headerAction={spanHeaderAction?.(selection)}
                       extraTags={spanExtraTags?.(selection)}
-                      diffMode={!!diffBaseline && diffMode}
-                      baselineSpan={diffBaseline?.matchSpan(selection) ?? null}
-                      baselineTrace={diffBaseline?.trace ?? null}
                     />
                   ) : (
                     <SpanTimelineView

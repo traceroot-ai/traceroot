@@ -2,16 +2,6 @@
 
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import {
-  Clock,
-  Users,
-  Layers,
-  ChevronRight,
-  AlertCircle,
-  GitBranch,
-  GitCommitHorizontal,
-  FileCode,
-} from "lucide-react";
 import { ChevronRight, GitBranch, GitCommitHorizontal, FileCode, Loader2 } from "lucide-react";
 import { CopyButton } from "@/components/ui/copy-button";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
@@ -29,7 +19,8 @@ import {
   getTraceCostBreakdown,
 } from "../utils";
 import { SpanKindIcon } from "./SpanKindIcon";
-import { TraceIOSection } from "./TraceIOValue";
+import { ContentRenderer } from "./ContentRenderer";
+import { ExpandableSection } from "@/components/ui/expandable-section";
 import { useSpanIO } from "../hooks";
 
 interface SpanInfoPanelProps {
@@ -128,8 +119,15 @@ export function SpanInfoPanel({
 
   // Show a spinner while a selected span's I/O is in flight; trace-level I/O is
   // already loaded so it never spins.
-  // A selected span's I/O is fetched on demand; trace-level I/O is already loaded.
-  const ioLoading = !isTrace && isLoadingIO;
+  const renderIOContent = (content: string | null) =>
+    !isTrace && isLoadingIO ? (
+      <div className="flex items-center gap-2 py-3 text-xs text-muted-foreground">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Loading…
+      </div>
+    ) : (
+      <ContentRenderer key={selectionId} content={content} />
+    );
 
   return (
     <div className="h-full overflow-y-auto">
@@ -156,7 +154,6 @@ export function SpanInfoPanel({
             <span className="text-muted-foreground">Span Kind:</span>
             <span className="font-medium">{kind.toLowerCase()}</span>
           </div>
-          {extraTags}
           <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
             <DOMAIN_ICONS.latency className="h-3 w-3 text-muted-foreground" />
             <span className="text-muted-foreground">Latency:</span>
@@ -206,6 +203,7 @@ export function SpanInfoPanel({
           {!isTrace && (
             <CostChip cost={selection.span.cost} costDetails={selection.span.cost_details} />
           )}
+          {extraTags}
         </div>
 
         {/* Row 2: Git related badges */}
@@ -344,29 +342,32 @@ export function SpanInfoPanel({
           </div>
         )}
 
-        {/* Input / Output / Metadata — each with a header format switcher. The key
-            resets the chosen format when a different span/trace is selected. */}
-        <TraceIOSection
-          key={`${selectionId}:input`}
+        {/* Input */}
+        <ExpandableSection
           title="Input"
-          content={input}
-          loading={ioLoading}
+          defaultOpen={true}
           onCopy={input ? () => copyToClipboard(input) : undefined}
-        />
-        <TraceIOSection
-          key={`${selectionId}:output`}
+        >
+          {renderIOContent(input)}
+        </ExpandableSection>
+
+        {/* Output */}
+        <ExpandableSection
           title="Output"
-          content={output}
-          loading={ioLoading}
+          defaultOpen={true}
           onCopy={output ? () => copyToClipboard(output) : undefined}
-        />
-        <TraceIOSection
-          key={`${selectionId}:metadata`}
+        >
+          {renderIOContent(output)}
+        </ExpandableSection>
+
+        {/* Metadata */}
+        <ExpandableSection
           title="Metadata"
-          content={metadata}
-          loading={ioLoading}
+          defaultOpen={true}
           onCopy={metadata ? () => copyToClipboard(metadata) : undefined}
-        />
+        >
+          {renderIOContent(metadata)}
+        </ExpandableSection>
       </div>
     </div>
   );
