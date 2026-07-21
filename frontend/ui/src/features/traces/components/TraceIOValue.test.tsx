@@ -1,43 +1,48 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach } from "vitest";
-import { render, cleanup, screen, fireEvent, within } from "@testing-library/react";
-import { TraceIOValue } from "./TraceIOValue";
+import { render, cleanup, screen, fireEvent } from "@testing-library/react";
+import { TraceIOSection } from "./TraceIOValue";
 
 afterEach(() => cleanup());
 
 async function pickFormat(label: string) {
   fireEvent.click(screen.getByTitle("Change format"));
-  // Options render in a Radix popover; pick by its exact text.
   fireEvent.click(await screen.findByRole("button", { name: label }));
 }
 
-describe("TraceIOValue format switcher", () => {
-  it("renders a dash and no switcher when there is no content", () => {
-    render(<TraceIOValue content={null} />);
+describe("TraceIOSection format switcher (in header)", () => {
+  it("shows a dash and no switcher when there is no content", () => {
+    render(<TraceIOSection title="Input" content={null} />);
     expect(screen.getByText("-")).toBeDefined();
     expect(screen.queryByTitle("Change format")).toBeNull();
   });
 
-  it("defaults to Pretty and offers Text/JSON/YAML", () => {
-    render(<TraceIOValue content={'{"a":1,"b":"x"}'} />);
-    // The trigger shows the current format.
-    expect(within(screen.getByTitle("Change format")).getByText("Pretty")).toBeDefined();
+  it("shows the switcher in the header, defaulting to Pretty", () => {
+    render(<TraceIOSection title="Input" content={'{"a":1}'} />);
+    const trigger = screen.getByTitle("Change format");
+    expect(trigger.textContent).toContain("Pretty");
   });
 
-  it("switches a JSON object to compact JSON and to Text", async () => {
-    render(<TraceIOValue content={'{"a":1}'} />);
+  it("shows a loading state (and no switcher) while I/O is in flight", () => {
+    render(<TraceIOSection title="Output" content={"x"} loading />);
+    expect(screen.getByText("Loading…")).toBeDefined();
+    expect(screen.queryByTitle("Change format")).toBeNull();
+  });
+
+  it("switches a JSON object to compact JSON", async () => {
+    render(<TraceIOSection title="Input" content={'{"a":1}'} />);
     await pickFormat("JSON");
     expect(screen.getByText('{"a":1}')).toBeDefined();
   });
 
   it("keeps a genuine string as-is in Text mode", async () => {
-    render(<TraceIOValue content={"hello world"} />);
+    render(<TraceIOSection title="Output" content={"hello world"} />);
     await pickFormat("Text");
     expect(screen.getByText("hello world")).toBeDefined();
   });
 
   it("renders YAML for an object", async () => {
-    render(<TraceIOValue content={'{"env":"prod","n":2}'} />);
+    render(<TraceIOSection title="Metadata" content={'{"env":"prod","n":2}'} />);
     await pickFormat("YAML");
     expect(screen.getByText(/env: prod/)).toBeDefined();
     expect(screen.getByText(/n: 2/)).toBeDefined();

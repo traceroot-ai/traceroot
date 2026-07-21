@@ -11,7 +11,6 @@ import {
   GitBranch,
   GitCommitHorizontal,
   FileCode,
-  Loader2,
 } from "lucide-react";
 import { CopyButton } from "@/components/ui/copy-button";
 import { formatDuration, formatDate, buildUrlWithFilters } from "@/lib/utils";
@@ -28,8 +27,7 @@ import {
   getTraceCostBreakdown,
 } from "../utils";
 import { SpanKindIcon } from "./SpanKindIcon";
-import { TraceIOValue } from "./TraceIOValue";
-import { ExpandableSection } from "@/components/ui/expandable-section";
+import { TraceIOSection } from "./TraceIOValue";
 import { useSpanIO } from "../hooks";
 
 interface SpanInfoPanelProps {
@@ -128,15 +126,8 @@ export function SpanInfoPanel({
 
   // Show a spinner while a selected span's I/O is in flight; trace-level I/O is
   // already loaded so it never spins.
-  const renderIOContent = (content: string | null) =>
-    !isTrace && isLoadingIO ? (
-      <div className="flex items-center gap-2 py-3 text-xs text-muted-foreground">
-        <Loader2 className="h-3 w-3 animate-spin" />
-        Loading…
-      </div>
-    ) : (
-      <TraceIOValue key={selectionId} content={content} />
-    );
+  // A selected span's I/O is fetched on demand; trace-level I/O is already loaded.
+  const ioLoading = !isTrace && isLoadingIO;
 
   return (
     <div className="h-full overflow-y-auto">
@@ -348,32 +339,29 @@ export function SpanInfoPanel({
           </div>
         )}
 
-        {/* Input */}
-        <ExpandableSection
+        {/* Input / Output / Metadata — each with a header format switcher. The key
+            resets the chosen format when a different span/trace is selected. */}
+        <TraceIOSection
+          key={`${selectionId}:input`}
           title="Input"
-          defaultOpen={true}
+          content={input}
+          loading={ioLoading}
           onCopy={input ? () => copyToClipboard(input) : undefined}
-        >
-          {renderIOContent(input)}
-        </ExpandableSection>
-
-        {/* Output */}
-        <ExpandableSection
+        />
+        <TraceIOSection
+          key={`${selectionId}:output`}
           title="Output"
-          defaultOpen={true}
+          content={output}
+          loading={ioLoading}
           onCopy={output ? () => copyToClipboard(output) : undefined}
-        >
-          {renderIOContent(output)}
-        </ExpandableSection>
-
-        {/* Metadata */}
-        <ExpandableSection
+        />
+        <TraceIOSection
+          key={`${selectionId}:metadata`}
           title="Metadata"
-          defaultOpen={true}
+          content={metadata}
+          loading={ioLoading}
           onCopy={metadata ? () => copyToClipboard(metadata) : undefined}
-        >
-          {renderIOContent(metadata)}
-        </ExpandableSection>
+        />
       </div>
     </div>
   );
