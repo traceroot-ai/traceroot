@@ -62,7 +62,7 @@ interface TraceViewerPanelProps {
   /**
    * When provided, this trace is used directly instead of fetching it, and the
    * live SSE stream + detector-findings lookups are disabled. Lets the
-   * offline-eval prototype render the genuine viewer from hardcoded data.
+   * offline-eval surface render the genuine viewer from provided data.
    * Unset in production.
    */
   traceOverride?: TraceDetail;
@@ -268,10 +268,18 @@ export function TraceViewerPanel({
   // avoiding a fresh-chat flash before the id resolves.
   useEffect(() => {
     if (!autoOpenRca || !rcaSessionId) return;
-    setAiContext({ traceId });
+    setAiContext(traceOverride ? null : { traceId });
     setAiInitialSessionId(rcaSessionId);
     setAiPanelOpen(true);
-  }, [autoOpenRca, rcaSessionId, traceId, setAiContext, setAiInitialSessionId, setAiPanelOpen]);
+  }, [
+    autoOpenRca,
+    rcaSessionId,
+    traceId,
+    traceOverride,
+    setAiContext,
+    setAiInitialSessionId,
+    setAiPanelOpen,
+  ]);
 
   const {
     data: fetchedTrace,
@@ -403,7 +411,7 @@ export function TraceViewerPanel({
               <button
                 type="button"
                 onClick={() => {
-                  setAiContext({ traceId });
+                  setAiContext(traceOverride ? null : { traceId });
                   setAiInitialSessionId(rcaSessionId);
                   setAiPanelOpen(true);
                 }}
@@ -442,31 +450,35 @@ export function TraceViewerPanel({
             >
               {isFullscreen ? <Shrink className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() =>
-                window.open(
-                  buildUrlWithFilters(newTabPath ?? `/projects/${projectId}/traces`, {
-                    dateFilter,
-                    customStartDate,
-                    customEndDate,
-                    // A self-trace's id matches no list row's trace_id, so the
-                    // receiving page needs the source to reopen it as a
-                    // self-trace instead of looking it up as an original.
-                    extraParams:
-                      source === "detector"
-                        ? { traceId, fullscreen: "1", source }
-                        : { traceId, fullscreen: "1" },
-                  }),
-                  "_blank",
-                )
-              }
-              className="h-7 w-7 p-0"
-              title="Open in new tab"
-            >
-              <SquareArrowOutUpRight className="h-4 w-4" />
-            </Button>
+            {/* Hidden under an override: traceId is the synthetic eval-<resultId>,
+                which nothing downstream can resolve from a URL. */}
+            {!traceOverride && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() =>
+                  window.open(
+                    buildUrlWithFilters(newTabPath ?? `/projects/${projectId}/traces`, {
+                      dateFilter,
+                      customStartDate,
+                      customEndDate,
+                      // A self-trace's id matches no list row's trace_id, so the
+                      // receiving page needs the source to reopen it as a
+                      // self-trace instead of looking it up as an original.
+                      extraParams:
+                        source === "detector"
+                          ? { traceId, fullscreen: "1", source }
+                          : { traceId, fullscreen: "1" },
+                    }),
+                    "_blank",
+                  )
+                }
+                className="h-7 w-7 p-0"
+                title="Open in new tab"
+              >
+                <SquareArrowOutUpRight className="h-4 w-4" />
+              </Button>
+            )}
             <div className="w-2" />
             {/* AI Assistant sits immediately left of Close, separated by a gap
                 from the navigation/view controls, so the agent button stays the
@@ -475,7 +487,7 @@ export function TraceViewerPanel({
               variant="outline"
               size="sm"
               onClick={() => {
-                setAiContext({ traceId });
+                setAiContext(traceOverride ? null : { traceId });
                 // Bot button always opens a fresh chat; an active RCA session
                 // would otherwise hijack the next message into the worker's
                 // session instead of starting a new one.
@@ -518,17 +530,22 @@ export function TraceViewerPanel({
             >
               <SquareGanttChart className="h-3.5 w-3.5" /> Timeline
             </button>
-            <button
-              onClick={() => setViewMode("detectors")}
-              className={cn(
-                "flex items-center gap-2 rounded-md px-3 py-1 text-xs font-medium transition-all",
-                viewMode === "detectors"
-                  ? "bg-muted text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <DOMAIN_ICONS.detector className="h-3.5 w-3.5" /> Detectors
-            </button>
+            {/* Detectors fetch by traceId, which under an override is the synthetic
+                eval-<resultId> — no ClickHouse row can ever back it, so the tab is
+                hidden rather than firing a doomed request. */}
+            {!traceOverride && (
+              <button
+                onClick={() => setViewMode("detectors")}
+                className={cn(
+                  "flex items-center gap-2 rounded-md px-3 py-1 text-xs font-medium transition-all",
+                  viewMode === "detectors"
+                    ? "bg-muted text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <DOMAIN_ICONS.detector className="h-3.5 w-3.5" /> Detectors
+              </button>
+            )}
           </div>
           {/* Diff toggle — only when a baseline is available (offline-eval). */}
           {diffBaseline && viewMode === "tree" && (
@@ -590,6 +607,7 @@ export function TraceViewerPanel({
                         compact={viewMode === "timeline"}
                         hoveredSpanId={hoveredSpanId}
                         onHoverChange={setHoveredSpanId}
+                        disableIOPrefetch={!!traceOverride}
                       />
                     )}
                   </div>
@@ -606,7 +624,7 @@ export function TraceViewerPanel({
                   {/* Detectors fetches its own data by traceId, so it renders
                     ahead of the trace-load guards — a slow or failed *trace*
                     fetch must not hide independently-loaded detector data. */}
-                  {viewMode === "detectors" ? (
+                  {viewMode === "detectors" && !traceOverride ? (
                     <TraceDetectorsTab projectId={projectId} traceId={traceId} />
                   ) : isLoading ? (
                     <div className="flex h-full items-center justify-center">
@@ -658,6 +676,7 @@ export function TraceViewerPanel({
                       diffMode={!!diffBaseline && diffMode}
                       baselineSpan={diffBaseline?.matchSpan(selection) ?? null}
                       baselineTrace={diffBaseline?.trace ?? null}
+                      isEvalShaped={!!traceOverride}
                     />
                   ) : (
                     <SpanTimelineView

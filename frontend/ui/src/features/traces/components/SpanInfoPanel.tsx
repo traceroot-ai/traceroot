@@ -43,6 +43,13 @@ interface SpanInfoPanelProps {
   customStartDate?: Date | null;
   customEndDate?: Date | null;
   /**
+   * True for the offline-eval reconstructed trace (built from a result's I/O +
+   * scores, not real telemetry — see `buildEvalTrace`). Its duration/token/cost
+   * fields are fabricated placeholders, not measurements, so those badges are
+   * hidden and the panel shows I/O only. Unset in production.
+   */
+  isEvalShaped?: boolean;
+  /**
    * Optional action bar rendered between the header and the content, e.g. the
    * offline-eval "Save as test case" / "Review" buttons. Unset in production, so
    * the standard trace viewer is unaffected.
@@ -96,6 +103,7 @@ export function SpanInfoPanel({
   dateFilter,
   customStartDate,
   customEndDate,
+  isEvalShaped,
   spanActions,
   headerAction,
   extraTags,
@@ -204,6 +212,32 @@ export function SpanInfoPanel({
   const fmtTokens = (n: number) => Math.round(n).toLocaleString();
   const fmtCost = (n: number) => `$${n.toFixed(6)}`;
 
+  // Baseline token/cost detail for the hover breakdowns' per-row ± deltas (diff mode):
+  // the trace aggregates for the trace selection, the matched span's counts otherwise.
+  const baselineTokenCounts = !diffActive
+    ? undefined
+    : isTrace
+      ? baselineTrace
+        ? (getTraceTokenUsage(baselineTrace) ?? undefined)
+        : undefined
+      : baselineSpan
+        ? {
+            inputTokens: baselineSpan.input_tokens,
+            outputTokens: baselineSpan.output_tokens,
+            totalTokens: baselineSpan.total_tokens,
+            cacheReadTokens: baselineSpan.usage_details?.cache_read_tokens,
+            cacheWriteTokens: baselineSpan.usage_details?.cache_write_tokens,
+            reasoningTokens: baselineSpan.usage_details?.reasoning_tokens,
+          }
+        : undefined;
+  const baselineCostDetails = !diffActive
+    ? undefined
+    : isTrace
+      ? baselineTrace
+        ? getTraceCostBreakdown(baselineTrace)
+        : undefined
+      : baselineSpan?.cost_details;
+
   // Error status
   const hasError = isTrace ? false : selection.span.status === SpanStatus.ERROR;
   const statusMessage = !isTrace ? selection.span.status_message : null;
@@ -243,12 +277,17 @@ export function SpanInfoPanel({
             <span className="font-medium">{kind.toLowerCase()}</span>
           </div>
           {extraTags}
-          <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-            <DOMAIN_ICONS.latency className="h-3 w-3 text-muted-foreground" />
-            <span className="text-muted-foreground">Latency:</span>
-            <span className="font-medium">{formatDuration(duration)}</span>
-            <MetricDelta delta={durationDelta} format={formatDuration} />
-          </div>
+          {/* Duration is fabricated on the offline-eval reconstructed trace (fixed
+              placeholder offsets, not a measurement), so it's hidden there. The
+              token/cost/git badges below gate on !isEvalShaped for the same reason. */}
+          {!isEvalShaped && (
+            <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+              <DOMAIN_ICONS.latency className="h-3 w-3 text-muted-foreground" />
+              <span className="text-muted-foreground">Latency:</span>
+              <span className="font-medium">{formatDuration(duration)}</span>
+              <MetricDelta delta={durationDelta} format={formatDuration} />
+            </div>
+          )}
           {hasError && (
             <div className="inline-flex items-center gap-1.5 rounded-md bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
               <DOMAIN_ICONS.error className="h-3 w-3" />
@@ -261,7 +300,10 @@ export function SpanInfoPanel({
               <span className="font-medium">{trace.environment}</span>
             </div>
           )}
-          {isTrace && traceTokenUsage && (
+          {/* Token/cost aggregates are meaningless on the offline-eval reconstructed
+              trace (its spans carry no real usage/cost telemetry), so they're hidden
+              there — the trace and span variants below all gate on !isEvalShaped. */}
+          {!isEvalShaped && isTrace && traceTokenUsage && (
             <TokenChip
               inputTokens={traceTokenUsage.inputTokens}
               outputTokens={traceTokenUsage.outputTokens}
@@ -270,13 +312,15 @@ export function SpanInfoPanel({
               cacheWriteTokens={traceTokenUsage.cacheWriteTokens}
               reasoningTokens={traceTokenUsage.reasoningTokens}
               delta={<MetricDelta delta={tokenDelta} format={fmtTokens} />}
+              baseline={baselineTokenCounts}
             />
           )}
-          {isTrace && traceTotalCost != null && (
+          {!isEvalShaped && isTrace && traceTotalCost != null && (
             <CostChip
               cost={traceTotalCost}
               costDetails={traceCostDetails}
               delta={<MetricDelta delta={costDelta} format={fmtCost} />}
+              baselineDetails={baselineCostDetails}
             />
           )}
           {!isTrace && selection.span.model_name && (
@@ -285,7 +329,7 @@ export function SpanInfoPanel({
               {selection.span.model_name}
             </div>
           )}
-          {!isTrace && selection.span.total_tokens != null && (
+          {!isEvalShaped && !isTrace && selection.span.total_tokens != null && (
             <TokenChip
               inputTokens={selection.span.input_tokens}
               outputTokens={selection.span.output_tokens}
@@ -294,19 +338,23 @@ export function SpanInfoPanel({
               cacheWriteTokens={selection.span.usage_details?.cache_write_tokens}
               reasoningTokens={selection.span.usage_details?.reasoning_tokens}
               delta={<MetricDelta delta={tokenDelta} format={fmtTokens} />}
+              baseline={baselineTokenCounts}
             />
           )}
-          {!isTrace && (
+          {!isEvalShaped && !isTrace && (
             <CostChip
               cost={selection.span.cost}
               costDetails={selection.span.cost_details}
               delta={<MetricDelta delta={costDelta} format={fmtCost} />}
+              baselineDetails={baselineCostDetails}
             />
           )}
         </div>
 
-        {/* Row 2: Git related badges */}
-        {isTrace && (trace.git_ref || trace.git_repo) && (
+        {/* Row 2: Git related badges. Always absent on the offline-eval reconstructed
+            trace (its spans carry no git_ref/git_repo), but gated explicitly rather
+            than relying on that, since "eval-shaped spans show I/O only". */}
+        {!isEvalShaped && isTrace && (trace.git_ref || trace.git_repo) && (
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {trace.git_repo && (
               <a
