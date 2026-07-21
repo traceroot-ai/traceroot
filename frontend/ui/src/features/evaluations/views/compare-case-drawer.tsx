@@ -138,6 +138,7 @@ export function CompareCaseDrawer({
   baseline,
   onClose,
   traceSlot,
+  enabled = true,
 }: {
   projectId: string;
   row: CompareResultRow;
@@ -146,17 +147,29 @@ export function CompareCaseDrawer({
   onClose: () => void;
   /** Trace-access controls (candidate/baseline), wired by the page. */
   traceSlot?: React.ReactNode;
+  /**
+   * Set to false while a non-nested overlay stacked above the drawer (e.g. the trace
+   * viewer opened via traceSlot) should own Escape instead of the drawer.
+   */
+  enabled?: boolean;
 }) {
+  // Close on Escape. Listen on `document` in the bubble phase — the convention used by
+  // TraceViewerPanel — and bail if the key was already consumed by a nested overlay
+  // (Radix select/popover), signaled via `defaultPrevented`; call preventDefault() here
+  // so any layer further out also knows Escape was handled. `enabled` additionally lets
+  // the page suppress this while a sibling overlay (not a descendant, so it can't rely on
+  // defaultPrevented) is stacked on top and should own Escape instead.
   React.useEffect(() => {
+    if (!enabled) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onClose();
-      }
+      if (e.key !== "Escape") return;
+      if (e.defaultPrevented) return;
+      e.preventDefault();
+      onClose();
     };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [onClose]);
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose, enabled]);
 
   const candUsage = useUsage(projectId, row.candidateTraceId);
   const baseUsage = useUsage(projectId, row.baselineTraceId);
@@ -164,7 +177,10 @@ export function CompareCaseDrawer({
   const outputSame = row.outputChanged === false;
 
   return (
-    <div className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-[620px] max-w-[96vw] flex-col border-l border-border bg-background text-[12px] shadow-xl">
+    <div
+      id="compare-case-drawer"
+      className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-[620px] max-w-[96vw] flex-col border-l border-border bg-background text-[12px] shadow-xl"
+    >
       <div className="flex shrink-0 items-start justify-between gap-2 border-b border-border px-4 py-3">
         <div className="min-w-0">
           <div className="text-[13px] font-medium">Case comparison</div>
