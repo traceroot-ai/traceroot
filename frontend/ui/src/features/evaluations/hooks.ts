@@ -313,6 +313,9 @@ export function useTraceTestCases(projectId: string, traceId: string) {
         `/api/projects/${projectId}/traces/${traceId}/test-cases`,
       ),
     enabled: !!projectId && !!traceId,
+    // Warmed when the trace opens (see the traces page) and reused as spans are
+    // selected, so the "Dataset:" chip appears without a per-span round trip.
+    staleTime: 60_000,
   });
 }
 
