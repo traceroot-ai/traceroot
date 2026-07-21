@@ -163,6 +163,7 @@ export function SpanInfoPanel({
             <span className="text-muted-foreground">Span Kind:</span>
             <span className="font-medium">{kind.toLowerCase()}</span>
           </div>
+          {extraTags}
           <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
             <Clock className="h-3 w-3 text-muted-foreground" />
             <span className="text-muted-foreground">Latency:</span>
@@ -211,7 +212,6 @@ export function SpanInfoPanel({
           {!isTrace && (
             <CostChip cost={selection.span.cost} costDetails={selection.span.cost_details} />
           )}
-          {extraTags}
         </div>
 
         {/* Row 2: Git related badges */}
