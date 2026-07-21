@@ -117,10 +117,7 @@ interface TraceViewerPanelProps {
    * effect once `diffBaseline` is supplied — the toggle stays user-controllable after.
    */
   defaultDiffOn?: boolean;
-  traceIdentity?: { kindLabel: string; title: string; copyValue: string };
-  /** Badge shown where a span's ERROR badge sits, at trace level. Unset in production. */
-  traceStatusBadge?: ReactNode;
-  diffBaseline?: (selection: TraceSelection) => Span | null;
+  /**
    * Scope the trace fetch: "detector" opens a detector self-trace (excluded
    * from normal reads), "user" excludes self-traces. Omit for no scoping.
    */
@@ -191,8 +188,6 @@ export function TraceViewerPanel({
   headerIdentity,
   headerStatus,
   defaultDiffOn,
-  traceIdentity,
-  traceStatusBadge,
   source,
   runTimestamp,
 }: TraceViewerPanelProps) {
@@ -401,9 +396,6 @@ export function TraceViewerPanel({
                 title={`Copy ${headerIdentity.label.toLowerCase()} id`}
               />
             )}
-            <DOMAIN_ICONS.trace className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Trace</span>
-            <span className="truncate font-mono text-xs text-muted-foreground">{traceId}</span>
           </div>
           <div className="flex items-center gap-1">
             {headerStatus}
