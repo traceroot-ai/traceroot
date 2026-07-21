@@ -280,29 +280,6 @@ const RESULT_FILTER_FN: Record<ResultFilterId, (r: ResultRow) => boolean> = {
   not_scored: (r) => r.status === "not_scored",
 };
 
-/** Human-readable explanation of why a comparison is untrustworthy, from its reasons. */
-function comparisonReasonText(reasons: string[], datasetVersionLabel: string): string {
-  const parts: string[] = [];
-  if (reasons.includes("different_dataset_version")) {
-    parts.push(
-      `the baseline measured a different dataset snapshot than this run (${datasetVersionLabel}), so the two runs covered different test cases`,
-    );
-  }
-  if (reasons.includes("different_evaluation")) {
-    parts.push("the baseline belongs to a different evaluation");
-  }
-  if (reasons.includes("baseline_not_terminal")) {
-    parts.push("the baseline run has not finished, so its scores may still change");
-  }
-  if (reasons.includes("main_scorer_incompatible")) {
-    parts.push(
-      "the main scorer could not be compared on any shared case (missing or version-mismatched)",
-    );
-  }
-  if (parts.length === 0) return "The selected baseline is not directly comparable.";
-  return parts.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join("; ") + ".";
-}
-
 /**
  * Evaluation run detail — faithful port of the prototype's run detail, wired to
  * the server. Ordered to answer, in sequence: did the candidate improve, what
@@ -737,10 +714,7 @@ function RunBody({
   const [detailsOpen, setDetailsOpen] = React.useState(false);
   const [reproduceOpen, setReproduceOpen] = React.useState(false);
   const comparing = !!compareByCase;
-  // Trust note reflects the PICKED comparison (not a stored baseline).
   const cmp = compareData?.comparison ?? null;
-  const incompatibleComparison = comparing && !!cmp && cmp.available && !cmp.trustworthy;
-  const trustNote = cmp ? comparisonReasonText(cmp.reasons, run.datasetVersionLabel) : "";
 
   return (
     <>
@@ -775,7 +749,7 @@ function RunBody({
               onValueChange={(v) => onCompareChange(v === NO_COMPARE ? null : v)}
             >
               <SelectTrigger
-                className="h-7 w-[200px] gap-1.5 text-[12px]"
+                className="h-7 w-fit max-w-[240px] gap-1.5 text-[12px]"
                 aria-label="Compare with"
               >
                 <GitCompare className="h-3.5 w-3.5 shrink-0" aria-hidden />
@@ -861,16 +835,6 @@ function RunBody({
               >
                 Clear
               </Button>
-            </div>
-          )}
-
-          {incompatibleComparison && (
-            <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-              <span>
-                <span className="font-medium">Comparison not fully trustworthy.</span> {trustNote}{" "}
-                The change is shown for context but should not be read as a clean verdict.
-              </span>
             </div>
           )}
 
