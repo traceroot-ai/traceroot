@@ -129,7 +129,11 @@ export function useSaveTestCase(projectId: string, datasetId: string) {
         "POST",
         input,
       ),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["datasets"] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["datasets"] });
+      // Refresh the trace's span→dataset chips so a just-saved span is marked.
+      void qc.invalidateQueries({ queryKey: ["evaluations", "trace-test-cases"] });
+    },
   });
 }
 
@@ -257,6 +261,29 @@ export function useTraceEvaluationResults(projectId: string, traceId: string) {
     queryFn: () =>
       getJson<{ data: TraceEvaluationResultRow[] }>(
         `/api/projects/${projectId}/traces/${traceId}/evaluation-results`,
+      ),
+    enabled: !!projectId && !!traceId,
+  });
+}
+
+export interface TraceTestCaseRow {
+  testCaseId: string;
+  datasetId: string;
+  datasetName: string;
+  sourceSpanId: string | null;
+  review: string;
+}
+
+/**
+ * Dataset test cases captured from a given trace, keyed by source span. Powers
+ * the "In <dataset>" chip that marks a span already saved as a test case.
+ */
+export function useTraceTestCases(projectId: string, traceId: string) {
+  return useQuery({
+    queryKey: ["evaluations", "trace-test-cases", projectId, traceId],
+    queryFn: () =>
+      getJson<{ data: TraceTestCaseRow[] }>(
+        `/api/projects/${projectId}/traces/${traceId}/test-cases`,
       ),
     enabled: !!projectId && !!traceId,
   });
