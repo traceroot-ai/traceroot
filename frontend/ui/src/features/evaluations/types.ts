@@ -153,6 +153,16 @@ export interface RunRow {
   scoredCount: number;
   taskErrorCount: number;
   scorerErrorCount: number;
+  /**
+   * Per-status result counts, derived from the stored result rows (not from the
+   * SDK's counters). Pass rate = passedCount / (passedCount + failedCount);
+   * errored + not-scored are excluded from both sides. See
+   * docs/offline-eval-run-pass-rate-design.md.
+   */
+  passedCount: number;
+  failedCount: number;
+  erroredCount: number;
+  notScoredCount: number;
   scorers: Array<{ name: string; version: string }> | null;
   model: string | null;
   /** Structured run provenance (model, prompt, config, git). Free-form; may be null. */
