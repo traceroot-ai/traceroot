@@ -1,11 +1,17 @@
 """Unit tests for OTEL → ClickHouse transformation logic."""
 
 import base64
+import json
 from datetime import datetime
 
 import pytest
 
-from tests.fixtures.otel_payloads import make_attr, make_otel_payload, make_span
+from tests.fixtures.otel_payloads import (
+    eval_root_attributes,
+    make_attr,
+    make_otel_payload,
+    make_span,
+)
 from worker.otel_transform import (
     attributes_to_dict,
     decode_otel_id,
@@ -275,6 +281,67 @@ class TestTransformOtelToClickhouse:
 
         assert traces[0].get("environment") != "evaluation"
         assert spans[0].get("environment") != "evaluation"
+
+    def test_evaluation_identity_attributes_survive_ingestion(self):
+        """The SDK stamps a full versioned identity on the eval-item root span. V1
+        classification needs only ``traceroot.span.type``; the remaining
+        ``traceroot.eval.*`` identity must still survive ingestion so the eval-result
+        read path can surface it. Unknown attributes land in the span metadata JSON."""
+        trace_hex = "aa" * 16
+        span_hex = "bb" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex, span_hex, name="evaluation-item", attributes=eval_root_attributes()
+                )
+            ]
+        )
+        traces, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        # Classification (the V1 contract) is derived from span.type alone.
+        assert spans[0]["span_kind"] == "EVALUATION"
+        assert spans[0]["environment"] == "evaluation"
+        assert traces[0]["environment"] == "evaluation"
+
+        # The full identity survives into the span's metadata blob and is retrievable
+        # by the read path (per-span metadata is fetched on demand).
+        meta = json.loads(spans[0]["metadata"])
+        assert meta["traceroot.eval.contract_version"] == "1"
+        assert meta["traceroot.eval.name"] == "billing-routing"
+        assert meta["traceroot.eval.run_name"] == "billing-routing"
+        assert meta["traceroot.eval.dataset_name"] == "billing-routing"
+        assert meta["traceroot.eval.case_id"] == "tc_1"
+        assert meta["traceroot.eval.has_expected"] is True
+        assert meta["traceroot.eval.dataset_id"] == "ds_1"
+        assert meta["traceroot.eval.dataset_version_id"] == "dsv_1"
+        assert meta["traceroot.eval.candidate_version"] == "cand_42"
+        assert meta["traceroot.eval.run_id"] == "run_platform_1"
+        assert meta["traceroot.eval.local_run_id"] == "run_01JLOCALULID"
+        assert meta["traceroot.eval.source_trace_id"] == "tr_src_1"
+        assert meta["traceroot.eval.source_span_id"] == "sp_src_1"
+        assert meta["traceroot.eval.score_target_span_id"] == "sp_scored_1"
+        # span.type and environment are PROMOTED to first-class fields, not duplicated
+        # into the opaque metadata blob.
+        assert "traceroot.span.type" not in meta
+        assert "traceroot.environment" not in meta
+
+    def test_evaluation_optional_identity_omitted_when_unknown(self):
+        """A local/inline run omits optional identity (no platform run_id, no pinned
+        dataset version); those keys are simply absent, never written empty."""
+        trace_hex = "ab" * 16
+        span_hex = "ba" * 8
+        attrs = eval_root_attributes(run_id=None, dataset_version_id=None, candidate_version=None)
+        payload = make_otel_payload(
+            [make_span(trace_hex, span_hex, name="evaluation-item", attributes=attrs)]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        meta = json.loads(spans[0]["metadata"])
+        assert "traceroot.eval.run_id" not in meta
+        assert "traceroot.eval.dataset_version_id" not in meta
+        assert "traceroot.eval.candidate_version" not in meta
+        # The always-present identity is still there.
+        assert meta["traceroot.eval.case_id"] == "tc_1"
 
     def test_zero_filled_parent_span_id_treated_as_root(self):
         """A zero-byte parentSpanId must normalize to None so the span is a root."""
