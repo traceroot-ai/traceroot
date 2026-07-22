@@ -148,6 +148,8 @@ export interface RunRow {
   scorerErrorCount: number;
   scorers: Array<{ name: string; version: string }> | null;
   model: string | null;
+  /** Structured run provenance (model, prompt, config, git). Free-form; may be null. */
+  metadata: Record<string, unknown> | null;
   startedAt: string;
   completedAt: string | null;
   evaluationName: string;
