@@ -17,7 +17,10 @@ export type ResultRowComparison = Pick<
   | "scorerCells"
   | "regressedCellCount"
   | "comparableCellCount"
->;
+> & {
+  /** The baseline case's trace id (for diffing tokens/cost/latency); null if none. */
+  baselineTraceId: string | null;
+};
 
 export type ReviewStatus = "needs_review" | "ready";
 export type EvalResultStatus = "passed" | "failed" | "errored" | "not_scored";
