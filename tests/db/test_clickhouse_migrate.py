@@ -26,6 +26,46 @@ def test_goose_command_uses_env_overrides():
     assert command[5] == "up"
 
 
+def test_goose_dbstring_percent_encodes_credentials():
+    # A password with URL-reserved characters must not corrupt the DSN query
+    # string: '&' and '=' would otherwise split the password or start a new
+    # parameter, so goose would connect with truncated/wrong credentials.
+    dbstring = migrate.goose_dbstring(
+        env={
+            "CLICKHOUSE_HOST": "clickhouse.internal",
+            "CLICKHOUSE_PORT": "9000",
+            "CLICKHOUSE_USER": "trace user",
+            "CLICKHOUSE_PASSWORD": "p@ss:w/rd&x=1?#+",
+            "CLICKHOUSE_DATABASE": "events/prod",
+        }
+    )
+
+    assert dbstring == (
+        "tcp://clickhouse.internal:9000"
+        "?username=trace%20user"
+        "&password=p%40ss%3Aw%2Frd%26x%3D1%3F%23%2B"
+        "&database=events%2Fprod"
+    )
+
+
+def test_goose_dbstring_leaves_plain_credentials_unchanged():
+    # Values without reserved characters must round-trip verbatim so existing
+    # deployments see an identical DSN.
+    dbstring = migrate.goose_dbstring(
+        env={
+            "CLICKHOUSE_HOST": "localhost",
+            "CLICKHOUSE_PORT": "9000",
+            "CLICKHOUSE_USER": "clickhouse",
+            "CLICKHOUSE_PASSWORD": "clickhouse",
+            "CLICKHOUSE_DATABASE": "default",
+        }
+    )
+
+    assert dbstring == (
+        "tcp://localhost:9000?username=clickhouse&password=clickhouse&database=default"
+    )
+
+
 def test_goose_command_create_requires_name():
     with pytest.raises(ValueError, match="required"):
         migrate.goose_command("create")
