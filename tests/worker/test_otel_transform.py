@@ -343,6 +343,87 @@ class TestTransformOtelToClickhouse:
         # The always-present identity is still there.
         assert meta["traceroot.eval.case_id"] == "tc_1"
 
+    def test_evaluation_trace_llm_leaves_carry_usage_for_attribution(self):
+        """Phase 7 evidence: a real SDK evaluation trace (EVALUATION root → TASK with an
+        LLM leaf; SCORER with a judge LLM leaf) ingests so that (1) the LLM LEAF spans
+        carry token usage, (2) the TASK/SCORER/EVALUATION WRAPPER spans do not (so summing
+        leaves only is correct — no double count), and (3) the parent chain + span kinds
+        are preserved, enabling task-vs-scorer attribution downstream. Ingestion is
+        independent of eval result reporting (no run/result needed), so a trace may arrive
+        after its result."""
+        t = "aa" * 16
+        root, task, task_llm = "b0" * 8, "b1" * 8, "b2" * 8
+        scorer, judge_llm = "b3" * 8, "b4" * 8
+        payload = make_otel_payload(
+            [
+                make_span(t, root, name="evaluation-item", attributes=eval_root_attributes()),
+                make_span(
+                    t,
+                    task,
+                    name="task",
+                    parent_span_id_hex=root,
+                    attributes=[make_attr("traceroot.span.type", "task")],
+                ),
+                make_span(
+                    t,
+                    task_llm,
+                    name="anthropic.messages",
+                    parent_span_id_hex=task,
+                    attributes=[
+                        make_attr("traceroot.span.type", "LLM"),
+                        make_attr("gen_ai.system", "anthropic"),
+                        make_attr("gen_ai.request.model", "claude-opus-4-8"),
+                        make_attr("gen_ai.usage.input_tokens", 100),
+                        make_attr("gen_ai.usage.output_tokens", 20),
+                    ],
+                ),
+                make_span(
+                    t,
+                    scorer,
+                    name="judge",
+                    parent_span_id_hex=root,
+                    attributes=[make_attr("traceroot.span.type", "scorer")],
+                ),
+                make_span(
+                    t,
+                    judge_llm,
+                    name="openai.chat",
+                    parent_span_id_hex=scorer,
+                    attributes=[
+                        make_attr("traceroot.span.type", "LLM"),
+                        make_attr("gen_ai.system", "openai"),
+                        make_attr("gen_ai.request.model", "gpt-4o"),
+                        make_attr("gen_ai.usage.input_tokens", 40),
+                        make_attr("gen_ai.usage.output_tokens", 5),
+                    ],
+                ),
+            ]
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+        by_id = {s["span_id"]: s for s in spans}
+
+        # (1) LLM leaves carry usage.
+        assert by_id[task_llm]["span_kind"] == "LLM"
+        assert by_id[task_llm]["input_tokens"] == 100
+        assert by_id[task_llm]["output_tokens"] == 20
+        assert by_id[task_llm]["total_tokens"] == 120
+        assert by_id[judge_llm]["input_tokens"] == 40
+        assert by_id[judge_llm]["total_tokens"] == 45
+
+        # (2) Wrapper spans carry NO usage (the token keys are absent → summing them
+        # would double-count their children).
+        for wrapper in (root, task, scorer):
+            assert by_id[wrapper].get("input_tokens") is None
+            assert by_id[wrapper].get("output_tokens") is None
+            assert by_id[wrapper].get("total_tokens") is None
+
+        # (3) Parent chain + kinds preserved → attributable to task vs scorer subtree.
+        assert by_id[task_llm]["parent_span_id"] == task
+        assert by_id[task]["parent_span_id"] == root
+        assert by_id[task]["span_kind"] == "TASK"
+        assert by_id[judge_llm]["parent_span_id"] == scorer
+        assert by_id[scorer]["span_kind"] == "SCORER"
+
     def test_zero_filled_parent_span_id_treated_as_root(self):
         """A zero-byte parentSpanId must normalize to None so the span is a root."""
         trace_hex = "aa" * 16
