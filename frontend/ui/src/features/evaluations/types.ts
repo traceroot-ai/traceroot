@@ -185,6 +185,8 @@ export interface RunRow {
   baselineComparable?: boolean;
   /** Run wall-clock (completedAt − startedAt), null while running. */
   elapsedMs?: number | null;
+  /** Derived (list route): total SDK-reported case cost; null when none reported. */
+  cost?: number | null;
 }
 
 export interface RunDetail extends RunRow {
