@@ -382,6 +382,22 @@ export interface ScorerRegistryRow {
   evaluationCount: number;
   lastUsed: string | null;
   recentErrors: Array<{ message: string; at: string }>;
+  /** Always "SDK": the catalog only shows what the SDK reported. */
+  source: "SDK";
+}
+
+/** One scorer family (all versions of a name) + a family-level usage summary. */
+export interface ScorerFamilyResponse {
+  name: string;
+  versions: ScorerRegistryRow[];
+  usage: {
+    runCount: number;
+    evaluationCount: number;
+    scoreCount: number;
+    errorCount: number;
+    lastUsed: string | null;
+  };
+  source: "SDK";
 }
 
 /** Read-only scorer registry, aggregated from reported runs. */
@@ -391,5 +407,17 @@ export function useScorers(projectId: string) {
     queryFn: () =>
       getJson<{ data: ScorerRegistryRow[] }>(`/api/projects/${projectId}/evaluations/scorers`),
     enabled: !!projectId,
+  });
+}
+
+/** One scorer family (its versions + usage), for the scorer detail. */
+export function useScorer(projectId: string, name: string | null) {
+  return useQuery({
+    queryKey: ["evaluations", "scorer", projectId, name],
+    queryFn: () =>
+      getJson<ScorerFamilyResponse>(
+        `/api/projects/${projectId}/evaluations/scorers/${encodeURIComponent(name!)}`,
+      ),
+    enabled: !!projectId && !!name,
   });
 }
