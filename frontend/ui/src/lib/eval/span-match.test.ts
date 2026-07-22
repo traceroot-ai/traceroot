@@ -62,6 +62,28 @@ describe("matchSpans", () => {
     expect(m.has("c_extra")).toBe(false);
   });
 
+  it("matches a root whose parent_span_id is an empty string (ingested traces)", () => {
+    const cand = [s("c_root", "", "agent", "AGENT"), s("c_task", "c_root", "task", "TASK")];
+    const base = [s("b_root", "", "agent", "AGENT"), s("b_task", "b_root", "task", "TASK")];
+    const m = matchSpans(cand, base);
+    expect(m.get("c_root")?.span_id).toBe("b_root");
+    expect(m.get("c_task")?.span_id).toBe("b_task");
+  });
+
+  it("pairs the single root even when its name differs across runs", () => {
+    const cand = [
+      s("c_root", null, "run-candidate-abc", "AGENT"),
+      s("c_task", "c_root", "task", "TASK"),
+    ];
+    const base = [
+      s("b_root", null, "run-baseline-xyz", "AGENT"),
+      s("b_task", "b_root", "task", "TASK"),
+    ];
+    const m = matchSpans(cand, base);
+    expect(m.get("c_root")?.span_id).toBe("b_root"); // paired despite name mismatch
+    expect(m.get("c_task")?.span_id).toBe("b_task"); // subtree still matched by key
+  });
+
   it("returns empty when either side is empty", () => {
     expect(matchSpans([], [s("b", null, "x", "SPAN")]).size).toBe(0);
     expect(matchSpans([s("c", null, "x", "SPAN")], []).size).toBe(0);
