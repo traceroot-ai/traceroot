@@ -32,7 +32,6 @@ export function DetectorRunsTable({ rows, onTraceClick, onRunClick }: DetectorRu
           <th className={cn(DETECTOR_TH, "w-[280px]")}>Run ID</th>
           <th className={DETECTOR_TH}>Trace ID</th>
           <th className={cn(DETECTOR_TH, "w-[80px]")}>Identified</th>
-          <th className={cn(DETECTOR_TH, "w-[280px]")}>Finding ID</th>
           <th className={DETECTOR_TH}>Summary</th>
           <th className={cn(DETECTOR_TH, "w-[90px]")}>Status</th>
           <th className={cn(DETECTOR_TH, "w-[110px] border-r-0")}>Agent analysis</th>
@@ -75,9 +74,6 @@ export function DetectorRunsTable({ rows, onTraceClick, onRunClick }: DetectorRu
               </td>
               <td className={DETECTOR_TD}>
                 <IdentifiedBadge identified={run.finding_id != null} />
-              </td>
-              <td className={cn(DETECTOR_TD, "font-mono text-[11px] text-muted-foreground")}>
-                {run.finding_id ?? "—"}
               </td>
               <td className={cn(DETECTOR_TD, "max-w-[400px] text-foreground")}>
                 <SummaryText summary={run.summary} />

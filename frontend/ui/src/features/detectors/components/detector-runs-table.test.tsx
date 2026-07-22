@@ -37,13 +37,15 @@ describe("DetectorRunsTable", () => {
       "Run ID",
       "Trace ID",
       "Identified",
-      "Finding ID",
       "Summary",
       "Status",
       "Agent analysis",
     ]) {
       expect(screen.getByRole("columnheader", { name: header })).toBeTruthy();
     }
+    // The finding id is an opaque internal correlation id — never displayed
+    // (its hyphenated uuid also line-wrapped and doubled the row height).
+    expect(screen.queryByRole("columnheader", { name: "Finding ID" })).toBeNull();
   });
 
   it("shows N/A in the Agent analysis cell for a findingless run", () => {
@@ -55,9 +57,10 @@ describe("DetectorRunsTable", () => {
 
   it("shows the RCA label in the Agent analysis cell for a triggered run", () => {
     render(<DetectorRunsTable rows={[triggeredRun]} onTraceClick={vi.fn()} onRunClick={vi.fn()} />);
-    // describeRcaStatus("done") -> "Done"; the finding id and Yes also surface.
+    // describeRcaStatus("done") -> "Done"; Yes surfaces, the raw finding id
+    // itself is never rendered (it only keys the Identified/RCA cells).
     expect(screen.getByText("Done")).toBeTruthy();
-    expect(screen.getByText("finding-1")).toBeTruthy();
+    expect(screen.queryByText("finding-1")).toBeNull();
     expect(screen.getByText("Yes")).toBeTruthy();
     expect(screen.queryByText("N/A")).toBeNull();
   });
