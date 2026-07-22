@@ -135,6 +135,42 @@ def _rows(rows):
     return SimpleNamespace(result_rows=rows)
 
 
+class TestListTracesEvaluationExclusion:
+    """Evaluation traces (environment=evaluation) are excluded from the default list,
+    via a shared trace-level predicate on BOTH the page and count queries."""
+
+    def _run(self, **kwargs):
+        queries: list[str] = []
+        params_seen: list[dict] = []
+
+        def side_effect(query, parameters=None):
+            queries.append(query)
+            params_seen.append(parameters or {})
+            # The count query needs a scalar row; everything else can be empty.
+            if "count(DISTINCT t.trace_id)" in query:
+                return _rows([(0,)])
+            return _rows([])
+
+        service, _ = _make_service(side_effect)
+        service.list_traces("proj", **kwargs)
+        return queries, params_seen
+
+    def test_excludes_evaluation_traces_by_default(self):
+        queries, params = self._run()
+        count_q = next(q for q in queries if "count(DISTINCT t.trace_id)" in q)
+        page_q = next(q for q in queries if "count(DISTINCT" not in q and "FROM traces" in q)
+        # Same predicate in both, so counts/pagination match the filtered list.
+        assert "{excluded_env:String}" in count_q
+        assert "{excluded_env:String}" in page_q
+        # NULL-safe so untagged production traces are kept.
+        assert "t.environment IS NULL" in page_q
+        assert any(p.get("excluded_env") == "evaluation" for p in params)
+
+    def test_includes_evaluation_traces_when_requested(self):
+        queries, _ = self._run(include_evaluations=True)
+        assert all("excluded_env" not in q for q in queries)
+
+
 class TestGetTraceSkeleton:
     def test_spans_query_omits_io_columns(self):
         """The spans SELECT must not read input/output/metadata blobs."""
