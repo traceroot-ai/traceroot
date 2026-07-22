@@ -1,10 +1,8 @@
 import type { ReactNode } from "react";
-import { CircleStop } from "lucide-react";
 import { formatTokenFlow } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { TokenUsageBreakdown, type TokenCounts } from "./TokenUsageBreakdown";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
-import { TokenUsageBreakdown } from "./TokenUsageBreakdown";
 
 interface TokenChipProps {
   inputTokens: number | null | undefined;

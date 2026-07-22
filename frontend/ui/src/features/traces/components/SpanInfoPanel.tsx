@@ -2,19 +2,9 @@
 
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import {
-  Clock,
-  Users,
-  Layers,
-  ChevronRight,
-  AlertCircle,
-  GitBranch,
-  GitCommitHorizontal,
-  FileCode,
-} from "lucide-react";
-import { ChevronRight, GitBranch, GitCommitHorizontal, FileCode, Loader2 } from "lucide-react";
-import { CopyButton } from "@/components/ui/copy-button";
+import { ChevronRight, GitBranch, GitCommitHorizontal, FileCode } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
+import { CopyButton } from "@/components/ui/copy-button";
 import { formatDuration, formatDate, buildUrlWithFilters } from "@/lib/utils";
 import { TokenChip } from "./TokenChip";
 import { CostChip } from "./CostChip";
@@ -54,13 +44,6 @@ interface SpanInfoPanelProps {
    * offline-eval "Save as test case" / "Review" buttons. Unset in production, so
    * the standard trace viewer is unaffected.
    */
-  /**
-   * True for the offline-eval reconstructed trace (built from a result's I/O +
-   * scores, not real telemetry — see `buildEvalTrace`). Its duration/token/cost/git
-   * fields are fabricated placeholders, not measurements, so those badges are
-   * hidden and the panel shows I/O only. Unset in production.
-   */
-  isEvalShaped?: boolean;
   spanActions?: ReactNode;
   /**
    * Optional action rendered on the right of the header's title row, vertically
