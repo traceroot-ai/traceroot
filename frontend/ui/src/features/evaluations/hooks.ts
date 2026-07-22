@@ -329,6 +329,22 @@ export interface ScorerRegistryRow {
   scoreCount: number;
   errorCount: number;
   errorRate: number;
+  /** Inferred from which value column the scores populate. */
+  valueType: "numeric" | "boolean" | "categorical" | "mixed" | "unknown";
+  /** Declared metadata from the run's scorers JSON (when the SDK sends it). */
+  declaredValueType: "numeric" | "boolean" | "categorical" | null;
+  direction: "higher_is_better" | "lower_is_better" | "none" | null;
+  threshold: number | null;
+  /** Numeric summary over successfully-scored numeric values (else null). */
+  numeric: { mean: number; min: number; max: number; count: number } | null;
+  /** Fraction of scores marked passed (else null when the scorer sets no `passed`). */
+  passRate: number | null;
+  /** Boolean (true/false) or categorical value counts, most-common first. */
+  distribution: Array<{ label: string; count: number }> | null;
+  runCount: number;
+  evaluationCount: number;
+  lastUsed: string | null;
+  recentErrors: Array<{ message: string; at: string }>;
 }
 
 /** Read-only scorer registry, aggregated from reported runs. */
