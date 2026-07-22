@@ -63,12 +63,14 @@ export function useDatasets(
   });
 }
 
-export function useDataset(projectId: string, datasetId: string) {
+export function useDataset(projectId: string, datasetId: string, versionId?: string | null) {
+  const qs = versionId ? `?version_id=${encodeURIComponent(versionId)}` : "";
   return useQuery({
-    queryKey: ["datasets", "detail", projectId, datasetId],
+    queryKey: ["datasets", "detail", projectId, datasetId, versionId ?? null],
     queryFn: () =>
-      getJson<DatasetDetailResponse>(`/api/projects/${projectId}/datasets/${datasetId}`),
+      getJson<DatasetDetailResponse>(`/api/projects/${projectId}/datasets/${datasetId}${qs}`),
     enabled: !!projectId && !!datasetId,
+    placeholderData: (prev) => prev,
   });
 }
 

@@ -82,6 +82,10 @@ export interface TestCaseRow {
 export interface DatasetDetailResponse {
   dataset: DatasetRow;
   currentVersion: DatasetVersionRow | null;
+  /** The version whose cases are returned (the requested one, or current). */
+  selectedVersion: DatasetVersionRow | null;
+  /** True when `selectedVersion` is the dataset's current version. */
+  isCurrentVersion: boolean;
   testCases: TestCaseRow[];
   versions: DatasetVersionRow[];
 }
