@@ -155,6 +155,10 @@ export interface SpanIO {
   input: string | null;
   output: string | null;
   metadata: string | null;
+  // JSON array of normalized OTEL span events ([{name, timestamp, attributes}]),
+  // most importantly the exception records (exception.type/message/stacktrace).
+  // Null for spans without events and for rows ingested before events capture.
+  events: string | null;
 }
 
 export interface TraceDetail {

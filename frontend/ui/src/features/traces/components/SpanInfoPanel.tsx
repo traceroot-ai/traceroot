@@ -30,6 +30,7 @@ import { SpanKindIcon } from "./SpanKindIcon";
 import { ContentRenderer } from "./ContentRenderer";
 import { ExpandableSection } from "@/components/ui/expandable-section";
 import { useSpanIO } from "../hooks";
+import { exceptionLabel, getExceptionInfos, parseSpanEvents } from "../utils/events";
 
 interface SpanInfoPanelProps {
   projectId: string;
@@ -100,6 +101,14 @@ export function SpanInfoPanel({
   // Error status
   const hasError = isTrace ? false : selection.span.status === SpanStatus.ERROR;
   const statusMessage = !isTrace ? selection.span.status_message : null;
+
+  // OTEL span events ride on the same lazy I/O fetch. Exceptions feed the
+  // error panel; the full list gets its own section below.
+  const spanEvents = !isTrace ? parseSpanEvents(spanIO?.events) : [];
+  // Exceptions on a non-ERROR span are caught-and-handled breadcrumbs — they
+  // stay in the Events section and must not paint an error panel.
+  const exceptions = hasError ? getExceptionInfos(spanEvents) : [];
+  const showErrorPanel = Boolean(statusMessage) || exceptions.length > 0;
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -272,7 +281,7 @@ export function SpanInfoPanel({
       {/* Content */}
       <div className="space-y-3 p-4">
         {/* Error message */}
-        {statusMessage && (
+        {showErrorPanel && (
           <div className="rounded-md border border-red-200 bg-red-50 p-3 dark:border-red-900 dark:bg-red-950/50">
             <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-red-700 dark:text-red-400">
               <AlertCircle className="h-3 w-3" />
@@ -310,9 +319,29 @@ export function SpanInfoPanel({
                 )}
               </div>
             )}
-            <p className="whitespace-pre-wrap break-all font-mono text-xs text-red-600 dark:text-red-400">
-              {statusMessage}
-            </p>
+            {statusMessage && (
+              <p className="whitespace-pre-wrap break-all font-mono text-xs text-red-600 dark:text-red-400">
+                {statusMessage}
+              </p>
+            )}
+            {/* Exception records from OTEL span events: the label is skipped
+                when status_message already says the same thing (the backend
+                derives one from the newest exception), the stacktrace is the
+                part status_message can never carry. */}
+            {exceptions.map((exception, i) => (
+              <div key={i} className={statusMessage || i > 0 ? "mt-2" : undefined}>
+                {exceptionLabel(exception) !== statusMessage && (
+                  <p className="whitespace-pre-wrap break-all font-mono text-xs font-medium text-red-700 dark:text-red-300">
+                    {exceptionLabel(exception)}
+                  </p>
+                )}
+                {exception.stacktrace && (
+                  <pre className="mt-1 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded bg-red-100 p-2 font-mono text-xs text-red-700 dark:bg-red-900/40 dark:text-red-300">
+                    {exception.stacktrace}
+                  </pre>
+                )}
+              </div>
+            ))}
           </div>
         )}
 
@@ -342,6 +371,36 @@ export function SpanInfoPanel({
         >
           {renderIOContent(metadata)}
         </ExpandableSection>
+
+        {/* OTEL span events (exceptions + add_event breadcrumbs). Only rendered
+            when the span has events, so the panel is unchanged for the common
+            event-less span. Collapsed by default — exceptions already surface
+            in the error panel above. */}
+        {spanEvents.length > 0 && (
+          <ExpandableSection
+            title={`Events (${spanEvents.length})`}
+            defaultOpen={false}
+            onCopy={spanIO?.events ? () => copyToClipboard(spanIO.events!) : undefined}
+          >
+            <div className="space-y-2">
+              {spanEvents.map((event, i) => (
+                <div key={i} className="rounded-md border border-border p-2">
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="font-medium">{event.name || "(unnamed)"}</span>
+                    {event.timestamp && (
+                      <span className="text-muted-foreground">{formatDate(event.timestamp)}</span>
+                    )}
+                  </div>
+                  {Object.keys(event.attributes).length > 0 && (
+                    <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-xs text-muted-foreground">
+                      {JSON.stringify(event.attributes, null, 2)}
+                    </pre>
+                  )}
+                </div>
+              ))}
+            </div>
+          </ExpandableSection>
+        )}
       </div>
     </div>
   );
