@@ -2,6 +2,16 @@
 
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import {
+  Clock,
+  Users,
+  Layers,
+  ChevronRight,
+  AlertCircle,
+  GitBranch,
+  GitCommitHorizontal,
+  FileCode,
+} from "lucide-react";
 import { ChevronRight, GitBranch, GitCommitHorizontal, FileCode, Loader2 } from "lucide-react";
 import { CopyButton } from "@/components/ui/copy-button";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
@@ -19,8 +29,7 @@ import {
   getTraceCostBreakdown,
 } from "../utils";
 import { SpanKindIcon } from "./SpanKindIcon";
-import { TraceIOValue } from "./TraceIOValue";
-import { ExpandableSection } from "@/components/ui/expandable-section";
+import { TraceIOSection } from "./TraceIOValue";
 import { useSpanIO } from "../hooks";
 
 interface SpanInfoPanelProps {
@@ -88,9 +97,16 @@ export function SpanInfoPanel({
     selectedSpanId,
   );
 
-  const input = isTrace ? trace.input : (spanIO?.input ?? null);
-  const output = isTrace ? trace.output : (spanIO?.output ?? null);
-  const rawMetadata = isTrace ? trace.metadata : (spanIO?.metadata ?? null);
+  // Per-span I/O comes from the lazy fetch, but fall back to whatever the span
+  // object itself carries — a provided trace (e.g. an evaluation's reconstructed
+  // trace) ships I/O on the span, and the `/io` fetch returns nothing for those
+  // synthetic span ids. Production skeleton spans have null here, so normal traces
+  // are unchanged (the fetch stays the source).
+  const input = isTrace ? trace.input : (spanIO?.input ?? selection.span.input ?? null);
+  const output = isTrace ? trace.output : (spanIO?.output ?? selection.span.output ?? null);
+  const rawMetadata = isTrace
+    ? trace.metadata
+    : (spanIO?.metadata ?? selection.span.metadata ?? null);
   const metadata = (() => {
     if (!rawMetadata) return rawMetadata;
     try {
@@ -119,15 +135,8 @@ export function SpanInfoPanel({
 
   // Show a spinner while a selected span's I/O is in flight; trace-level I/O is
   // already loaded so it never spins.
-  const renderIOContent = (content: string | null) =>
-    !isTrace && isLoadingIO ? (
-      <div className="flex items-center gap-2 py-3 text-xs text-muted-foreground">
-        <Loader2 className="h-3 w-3 animate-spin" />
-        Loading…
-      </div>
-    ) : (
-      <TraceIOValue key={selectionId} content={content} />
-    );
+  // A selected span's I/O is fetched on demand; trace-level I/O is already loaded.
+  const ioLoading = !isTrace && isLoadingIO;
 
   return (
     <div className="h-full overflow-y-auto">
@@ -342,32 +351,29 @@ export function SpanInfoPanel({
           </div>
         )}
 
-        {/* Input */}
-        <ExpandableSection
+        {/* Input / Output / Metadata — each with a header format switcher. The key
+            resets the chosen format when a different span/trace is selected. */}
+        <TraceIOSection
+          key={`${selectionId}:input`}
           title="Input"
-          defaultOpen={true}
+          content={input}
+          loading={ioLoading}
           onCopy={input ? () => copyToClipboard(input) : undefined}
-        >
-          {renderIOContent(input)}
-        </ExpandableSection>
-
-        {/* Output */}
-        <ExpandableSection
+        />
+        <TraceIOSection
+          key={`${selectionId}:output`}
           title="Output"
-          defaultOpen={true}
+          content={output}
+          loading={ioLoading}
           onCopy={output ? () => copyToClipboard(output) : undefined}
-        >
-          {renderIOContent(output)}
-        </ExpandableSection>
-
-        {/* Metadata */}
-        <ExpandableSection
+        />
+        <TraceIOSection
+          key={`${selectionId}:metadata`}
           title="Metadata"
-          defaultOpen={true}
+          content={metadata}
+          loading={ioLoading}
           onCopy={metadata ? () => copyToClipboard(metadata) : undefined}
-        >
-          {renderIOContent(metadata)}
-        </ExpandableSection>
+        />
       </div>
     </div>
   );
