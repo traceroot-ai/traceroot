@@ -11,6 +11,11 @@ export function parseTimestamp(ts: string): number {
 }
 
 /**
+ * Deterministic sibling order. `span_start_time` is only ms-precision, so spans that
+ * start within the same millisecond (common for a task + its scorers in an eval trace,
+ * or any sub-ms-parallel siblings) tie and would otherwise fall back to arrival order
+ * and flip between reloads. Break ties by end time, then span_id, so the order is
+ * stable — matching the server-side export order.
  * Total ordering for sibling spans that is stable across fetches/streams of the
  * same trace. `span_start_time` is stored at millisecond precision (ClickHouse
  * DateTime64(3)), so sub-millisecond-fast parallel siblings (e.g. parallel tool
@@ -29,6 +34,8 @@ export function compareSpansForStableDisplay(a: Span, b: Span): number {
 
   const aEnd = a.span_end_time ? parseTimestamp(a.span_end_time) : Number.POSITIVE_INFINITY;
   const bEnd = b.span_end_time ? parseTimestamp(b.span_end_time) : Number.POSITIVE_INFINITY;
+  const endDelta = aEnd - bEnd;
+  if (endDelta !== 0) return endDelta;
   // Strict inequality (not delta !== 0) so two in-progress spans — both
   // +Infinity, whose subtraction is NaN — fall through to the span_id tie-break.
   if (aEnd !== bEnd) return aEnd - bEnd;
