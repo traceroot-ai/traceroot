@@ -68,6 +68,7 @@ SPAN_IO = {
     "input": '{"prompt": "hello"}',
     "output": '{"completion": "world"}',
     "metadata": '{"traceroot.span.path": ["root"]}',
+    "events": '[{"name": "exception", "timestamp": null, "attributes": {}}]',
 }
 
 
@@ -240,12 +241,12 @@ class TestGetTrace:
         assert span["input"] == "the-in"
         assert span["output"] == "the-out"
         assert span["metadata"] == "the-meta"
-        # One trace-scoped bulk query, all three columns requested.
+        # One trace-scoped bulk query, all blob columns requested.
         mock_trace_reader.get_trace_spans_io.assert_called_once()
         kw = mock_trace_reader.get_trace_spans_io.call_args.kwargs
         assert kw["project_id"] == "test-project"
         assert kw["trace_id"] == "abc123"
-        assert set(kw["columns"]) == {"input", "output", "metadata"}
+        assert set(kw["columns"]) == {"input", "output", "metadata", "events"}
 
     def test_fields_io_requests_input_output_only(self, client, mock_trace_reader):
         """fields=io requests input+output (not metadata); metadata stays null."""
@@ -311,6 +312,7 @@ class TestGetSpanIO:
             "input": '{"prompt": "hello"}',
             "output": '{"completion": "world"}',
             "metadata": '{"traceroot.span.path": ["root"]}',
+            "events": '[{"name": "exception", "timestamp": null, "attributes": {}}]',
         }
 
     def test_passes_through_path_params(self, client, mock_trace_reader):

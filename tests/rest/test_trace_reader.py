@@ -476,16 +476,19 @@ class TestGetSpanIO:
         def side_effect(query, parameters=None):
             assert "ch_update_time DESC" in query
             assert "FROM spans FINAL" not in query
-            # All three blob columns must be in the SELECT.
+            # All four blob columns must be in the SELECT.
             assert "input" in query
             assert "output" in query
             assert "metadata" in query
+            assert "events" in query
             assert parameters == {
                 "project_id": "proj",
                 "trace_id": "abc123",
                 "span_id": "span-1",
             }
-            return _rows([("span-1", "abc123", "the-input", "the-output", "the-meta")])
+            return _rows(
+                [("span-1", "abc123", "the-input", "the-output", "the-meta", "the-events")]
+            )
 
         service, _ = _make_service(side_effect)
         result = service.get_span_io("proj", "abc123", "span-1")
@@ -495,6 +498,7 @@ class TestGetSpanIO:
             "input": "the-input",
             "output": "the-output",
             "metadata": "the-meta",
+            "events": "the-events",
         }
 
     def test_returns_none_for_unknown_span(self):
@@ -506,7 +510,7 @@ class TestGetSpanIO:
 
     def test_null_blobs_pass_through(self):
         def side_effect(query, parameters=None):
-            return _rows([("span-1", "abc123", None, None, None)])
+            return _rows([("span-1", "abc123", None, None, None, None)])
 
         service, _ = _make_service(side_effect)
         result = service.get_span_io("proj", "abc123", "span-1")
@@ -516,6 +520,7 @@ class TestGetSpanIO:
             "input": None,
             "output": None,
             "metadata": None,
+            "events": None,
         }
 
     def test_latest_row_wins_when_span_reingested(self):
@@ -532,7 +537,7 @@ class TestGetSpanIO:
             assert "ORDER BY ch_update_time DESC" in query
             assert "LIMIT 1" in query
             assert "FROM spans FINAL" not in query
-            return _rows([("span-1", "abc123", "new-input", "new-output", "new-meta")])
+            return _rows([("span-1", "abc123", "new-input", "new-output", "new-meta", None)])
 
         service, _ = _make_service(side_effect)
         result = service.get_span_io("proj", "abc123", "span-1")
