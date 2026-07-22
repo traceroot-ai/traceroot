@@ -62,3 +62,44 @@ def make_otel_payload(
             }
         ]
     }
+
+
+def make_event(
+    name: str,
+    time_nanos: int = 1705320000500000000,
+    attributes: list[dict] | None = None,
+) -> dict:
+    """Build an OTEL span event dict (camelCase OTLP wire shape)."""
+    return {
+        "name": name,
+        "timeUnixNano": str(time_nanos),
+        "attributes": attributes or [],
+    }
+
+
+# A realistic traceback like the ones the Python SDK's record_exception() emits.
+PYTHON_STACKTRACE = (
+    "Traceback (most recent call last):\n"
+    '  File "/app/agents/checkout.py", line 42, in run_checkout\n'
+    "    total = subtotal / item_count\n"
+    "ZeroDivisionError: division by zero\n"
+)
+
+
+def make_exception_event(
+    exc_type: str = "ZeroDivisionError",
+    message: str = "division by zero",
+    stacktrace: str = PYTHON_STACKTRACE,
+    time_nanos: int = 1705320000500000000,
+) -> dict:
+    """Build the exception event record_exception() produces."""
+    return make_event(
+        "exception",
+        time_nanos=time_nanos,
+        attributes=[
+            make_attr("exception.type", exc_type),
+            make_attr("exception.message", message),
+            make_attr("exception.stacktrace", stacktrace),
+            make_attr("exception.escaped", "False"),
+        ],
+    )
