@@ -2,6 +2,20 @@
  * Client-side shapes for the server-backed evaluation feature. Timestamps arrive
  * as ISO strings over JSON, so these mirror the Prisma rows with string dates.
  */
+import type { RunComparison, ResultComparison } from "@/lib/eval/comparison";
+
+export type { RunComparison, ResultComparison, Classification } from "@/lib/eval/comparison";
+
+/** The per-result comparison block the run-detail route embeds on each result. */
+export type ResultRowComparison = Pick<
+  ResultComparison,
+  | "caseChange"
+  | "pairing"
+  | "mainScore"
+  | "scorerCells"
+  | "regressedCellCount"
+  | "comparableCellCount"
+>;
 
 export type ReviewStatus = "needs_review" | "ready";
 export type EvalResultStatus = "passed" | "failed" | "errored" | "not_scored";
@@ -110,6 +124,8 @@ export interface ResultRow {
   createTime: string;
   scores: ScoreRow[];
   humanScores: HumanScoreRow[];
+  /** Backend-derived candidate-vs-baseline comparison for this result. */
+  comparison: ResultRowComparison | null;
 }
 
 export interface RunRow {
@@ -137,10 +153,19 @@ export interface RunRow {
   datasetVersionLabel: string;
   changeFromBaseline: number | null;
   errorCount: number;
+  /** Derived (list route): regressed test-case count when trustworthy, else null. */
+  regressedCaseCount?: number | null;
+  /** Derived: whether the candidate-vs-baseline comparison is trustworthy. */
+  baselineComparable?: boolean;
+  /** Run wall-clock (completedAt − startedAt), null while running. */
+  elapsedMs?: number | null;
 }
 
 export interface RunDetail extends RunRow {
   baselineComparable: boolean;
+  elapsedMs: number | null;
+  /** The backend-derived run-level comparison (single source of truth). */
+  comparison: RunComparison;
 }
 
 export interface RunDetailResponse {
