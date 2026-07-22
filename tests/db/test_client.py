@@ -50,10 +50,12 @@ class TestInsertTracesBatch:
         assert row[8] == "hello"  # input
         assert row[9] == "world"  # output
         assert row[10] is None  # metadata
+        assert row[11] is None  # environment (unset here)
         # ch_create_time and ch_update_time are auto-set
-        assert isinstance(row[11], datetime)
         assert isinstance(row[12], datetime)
-        assert len(columns) == 13
+        assert isinstance(row[13], datetime)
+        assert len(columns) == 14
+        assert "environment" in columns
 
     def test_empty_batch_no_insert(self):
         """Empty list -> no _client.insert() call."""
@@ -113,8 +115,9 @@ class TestInsertSpansBatch:
         assert row[13] == 50  # output_tokens
         assert row[14] == 150  # total_tokens
         # 3 fixed breakdown columns collapsed into one usage_details map (net -2).
-        assert len(columns) == 24
+        assert len(columns) == 25
         assert "usage_details" in columns
+        assert "environment" in columns
 
     def test_optional_fields_none(self):
         """None values for optional fields (cost, tokens)."""

@@ -245,6 +245,37 @@ class TestTransformOtelToClickhouse:
         assert spans[0]["span_kind"] == "SPAN"
         assert spans[0]["status"] == "OK"
 
+    def test_evaluation_root_classifies_trace_environment(self):
+        """An EVALUATION root span classifies the trace (and span) as environment=evaluation,
+        even though the SDK does not stamp traceroot.environment."""
+        trace_hex = "aa" * 16
+        span_hex = "bb" * 8
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    span_hex,
+                    name="evaluation-item",
+                    attributes=[make_attr("traceroot.span.type", "evaluation")],
+                )
+            ]
+        )
+        traces, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        assert spans[0]["span_kind"] == "EVALUATION"
+        assert spans[0]["environment"] == "evaluation"
+        assert traces[0]["environment"] == "evaluation"
+
+    def test_normal_root_has_no_evaluation_environment(self):
+        """A normal root span is not classified as evaluation."""
+        trace_hex = "cc" * 16
+        span_hex = "dd" * 8
+        payload = make_otel_payload([make_span(trace_hex, span_hex, name="root")])
+        traces, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        assert traces[0].get("environment") != "evaluation"
+        assert spans[0].get("environment") != "evaluation"
+
     def test_zero_filled_parent_span_id_treated_as_root(self):
         """A zero-byte parentSpanId must normalize to None so the span is a root."""
         trace_hex = "aa" * 16
