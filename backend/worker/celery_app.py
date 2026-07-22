@@ -74,7 +74,7 @@ def on_worker_ready(**kwargs):
             env={
                 **os.environ,
                 "CLICKHOUSE_HOST": ch.host,
-                "CLICKHOUSE_PORT": str(ch.native_port),
+                "CLICKHOUSE_NATIVE_PORT": str(ch.native_port),
                 "CLICKHOUSE_USER": ch.user,
                 "CLICKHOUSE_PASSWORD": ch.password,
                 "CLICKHOUSE_DATABASE": ch.database,
