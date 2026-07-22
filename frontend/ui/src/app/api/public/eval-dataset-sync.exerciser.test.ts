@@ -94,10 +94,20 @@ describe("A2: upsert a dataset by client id", () => {
     expect((await readJson(again)).dataset_id).toBe("ds_01");
   });
 
-  it("hides a dataset id owned by another project (404)", async () => {
-    await upsertDataset(req({ dataset_id: "ds_shared", name: "mine" }));
-    const res = await upsertDataset(req({ dataset_id: "ds_shared", name: "theirs" }, OTHER_KEY));
-    expect(res.status).toBe(404);
+  it("lets another project independently own the same client id (project-scoped, not global)", async () => {
+    // client_dataset_id is unique per PROJECT (uq_dataset_project_client_id), not
+    // globally, so a second project reusing "ds_shared" creates its own row
+    // rather than colliding with — or ever being able to observe — the first
+    // project's. See the docstring on POST /api/public/datasets.
+    const mine = await upsertDataset(req({ dataset_id: "ds_shared", name: "mine" }));
+    expect(mine.status).toBe(201);
+    const theirs = await upsertDataset(req({ dataset_id: "ds_shared", name: "theirs" }, OTHER_KEY));
+    expect(theirs.status).toBe(201);
+    expect((await readJson(theirs)).name).toBe("theirs");
+
+    const rows = fakePrisma.dataset.rows.filter((d) => d.clientDatasetId === "ds_shared");
+    expect(rows).toHaveLength(2);
+    expect(new Set(rows.map((r) => r.projectId))).toEqual(new Set([PROJECT_ID, OTHER_PROJECT]));
   });
 });
 
@@ -123,8 +133,10 @@ describe("A4: publish an immutable version from changes", () => {
     expect(body.version_number).toBe(1);
     const versionId = body.dataset_version_id as string;
 
-    // Dataset now points at the new version.
-    const ds = fakePrisma.dataset.rows.find((d) => d.id === "ds1")!;
+    // Dataset now points at the new version. Looked up by clientDatasetId, not
+    // id: "ds1" is the SDK's client-supplied id, deliberately not the row's own
+    // (auto-generated) primary key — see datasets/route.ts's docstring.
+    const ds = fakePrisma.dataset.rows.find((d) => d.clientDatasetId === "ds1")!;
     expect(ds.currentVersionId).toBe(versionId);
 
     // A second publish based on the new version: edit tc_1, delete tc_2, add tc_3.
@@ -298,16 +310,32 @@ describe("A4→pull: native JSON round-trips through the real WRITE + READ route
 });
 
 describe("A1/A5: listing", () => {
-  it("lists datasets with a next_cursor when there are more than the limit", async () => {
-    fakePrisma.dataset.rows.push(
-      { id: "ds_a", projectId: PROJECT_ID, name: "a", updateTime: new Date("2026-01-01") },
-      { id: "ds_b", projectId: PROJECT_ID, name: "b", updateTime: new Date("2026-01-02") },
-      { id: "ds_c", projectId: PROJECT_ID, name: "c", updateTime: new Date("2026-01-03") },
+  it("actually paginates: a next_cursor page returns the remaining dataset exactly once", async () => {
+    // Built through the real write route (not hand-pushed rows) so `updateTime`
+    // — which the list route reads — is stamped the way `upsertDataset` really
+    // stamps it, not asserted into existence by the fixture.
+    await upsertDataset(req({ dataset_id: "ds_a", name: "a" }));
+    await upsertDataset(req({ dataset_id: "ds_b", name: "b" }));
+    await upsertDataset(req({ dataset_id: "ds_c", name: "c" }));
+
+    const page1 = await readJson(await listDatasets(getReq("?limit=2")));
+    const page1Ids = (page1.datasets as Array<Record<string, unknown>>).map((d) => d.dataset_id);
+    expect(page1Ids).toHaveLength(2);
+    expect(page1.next_cursor).not.toBeNull();
+
+    // Feed the cursor back in: the SDK's actual pagination loop. The third
+    // dataset must come back exactly once, on this page and no other, and this
+    // (last) page's next_cursor must be null.
+    const page2 = await readJson(
+      await listDatasets(getReq(`?limit=2&cursor=${page1.next_cursor}`)),
     );
-    const res = await listDatasets(getReq("?limit=2"));
-    const body = await readJson(res);
-    expect((body.datasets as unknown[]).length).toBe(2);
-    expect(body.next_cursor).not.toBeNull();
+    const page2Ids = (page2.datasets as Array<Record<string, unknown>>).map((d) => d.dataset_id);
+    expect(page2Ids).toHaveLength(1);
+    expect(page2.next_cursor).toBeNull();
+
+    const allIds = [...page1Ids, ...page2Ids];
+    expect(new Set(allIds)).toEqual(new Set(["ds_a", "ds_b", "ds_c"]));
+    expect(allIds).toHaveLength(3); // no repeat, none skipped
 
     const all = await listDatasets(getReq("?limit=50"));
     expect((await readJson(all)).next_cursor).toBeNull();
@@ -367,6 +395,25 @@ describe("B3/B4: additive scores and human scores", () => {
     expect(scores[0].numericValue).toBe(0.95);
   });
 
+  it("keys on scorer_version too — a second version is a distinct row, not a merge", async () => {
+    // Same scorer NAME, two different versions: this must NOT collapse the way
+    // two reports of the same (name, version) do above, or a second scorer
+    // version silently overwrites/drops the first (the bug live at
+    // comparison.ts's `m.set(s.scorerName, s)`, keyed on name alone).
+    await addScore(
+      req({ scorer_name: "helpfulness", scorer_version: "v2", numeric_value: 0.8 }),
+      resultParams("run1", "tc_1"),
+    );
+    await addScore(
+      req({ scorer_name: "helpfulness", scorer_version: "v3", numeric_value: 0.95 }),
+      resultParams("run1", "tc_1"),
+    );
+    const scores = fakePrisma.score.rows.filter((s) => s.resultId === "res1");
+    expect(scores).toHaveLength(2);
+    expect(scores.find((s) => s.scorerVersion === "v2")!.numericValue).toBe(0.8);
+    expect(scores.find((s) => s.scorerVersion === "v3")!.numericValue).toBe(0.95);
+  });
+
   it("records a human score bound to the run + test case", async () => {
     const res = await addHumanScore(
       req({ verdict: "pass", quality: 4, reviewer: "e@x.com" }),
@@ -383,6 +430,39 @@ describe("B3/B4: additive scores and human scores", () => {
       resultParams("run1", "missing"),
     );
     expect(res.status).toBe(404);
+  });
+});
+
+describe("B2: /complete is replay-safe and terminal", () => {
+  it("keeps the first completedAt across a replay, and rejects reopening a finished run", async () => {
+    // Neither this file nor eval-reporting.exerciser.test.ts ever replayed
+    // /complete before — every run in both suites was completed exactly once,
+    // so the terminal guard at complete/route.ts:35-44 was untouched by any test.
+    fakePrisma.evaluationRun.rows.push({ id: "run1", projectId: PROJECT_ID, status: "running" });
+    const complete = (body: unknown) =>
+      completeRun(req(body), { params: Promise.resolve({ runId: "run1" }) });
+
+    const first = await complete({ status: "completed", main_score: 93.8 });
+    expect(first.status).toBe(200);
+    const afterFirst = fakePrisma.evaluationRun.rows.find((r) => r.id === "run1")!;
+    expect(afterFirst.completedAt).toBeInstanceOf(Date);
+    const firstCompletedAt = afterFirst.completedAt as Date;
+
+    // A retried/corrected completion is accepted — the SDK completing with final
+    // counts a second time is the normal retry shape — but must not re-stamp the
+    // finish time.
+    const replay = await complete({ status: "failed", main_score: 0 });
+    expect(replay.status).toBe(200);
+    const afterReplay = fakePrisma.evaluationRun.rows.find((r) => r.id === "run1")!;
+    expect(afterReplay.status).toBe("failed");
+    expect(afterReplay.mainScore).toBe(0);
+    expect(afterReplay.completedAt).toEqual(firstCompletedAt);
+
+    // A finished run can never be walked back to "running".
+    const reopen = await complete({ status: "running" });
+    expect(reopen.status).toBe(409);
+    expect((await readJson(reopen)).error as string).toContain("cannot be reopened");
+    expect(fakePrisma.evaluationRun.rows.find((r) => r.id === "run1")!.status).toBe("failed");
   });
 });
 

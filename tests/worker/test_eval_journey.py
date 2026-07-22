@@ -6,7 +6,7 @@ ONE evaluation trace — built with the same attribute shape the Python SDK emit
 crosses, so the surfaces are proven to agree on the *same* classification value:
 
 1. The SDK reports an evaluation run          → make_eval_trace(...) payload
-2. The backend records it as an eval trace     → transform → environment=evaluation
+2. The backend records it as an eval trace     → transform → is_evaluation=1
 3. It is excluded from normal trace browsing   → list_traces() default predicate
 4. It appears when eval traces are requested   → list_traces(include_evaluations=True)
 5. Detectors skip it by default                → _detector_runs_on_trace(...) is False
@@ -45,7 +45,7 @@ class TestEvaluationJourney:
         SCORER span kinds are all preserved (not coerced to SPAN)."""
         traces, spans = _ingest()
         assert len(traces) == 1
-        assert traces[0]["environment"] == "evaluation"
+        assert traces[0]["is_evaluation"] is True
 
         kinds = {s["name"]: s["span_kind"] for s in spans}
         assert kinds["evaluation-item"] == "EVALUATION"
@@ -53,10 +53,12 @@ class TestEvaluationJourney:
         assert kinds["helpfulness"] == "SCORER"
 
     def test_detector_skips_the_evaluation_trace_by_default(self):
-        """Step 5: the SAME environment the transformer produced is what the detector
-        gate skips — and an explicit opt-in re-enables it."""
+        """Step 5: the SAME flag the transformer set is what the detector gate skips —
+        and an explicit opt-in re-enables it. Keyed on `is_evaluation`, never on
+        `environment`: a customer may legitimately name their environment "evaluation",
+        and that must not silence their production detectors."""
         traces, _ = _ingest()
-        summary = {"environment": traces[0]["environment"]}
+        summary = {"is_evaluation": traces[0]["is_evaluation"]}
 
         assert _detector_runs_on_trace(summary, {"id": "d1"}) is False
         assert _detector_runs_on_trace(summary, {"id": "d1", "run_on_evaluation": True}) is True
@@ -93,14 +95,15 @@ def _make_service(query_side_effect):
 
 
 class TestEvaluationBrowsingSeparation:
-    """Step 3+4: default browsing excludes environment=evaluation; requesting eval
-    traces drops the predicate. Binds the reader's filter to the SAME 'evaluation'
-    value the transformer stamps (asserted in TestEvaluationJourney)."""
+    """Step 3+4: default browsing excludes is_evaluation traces; requesting eval traces
+    drops the predicate. Binds the reader's filter to the SAME flag ingestion sets
+    (asserted in TestEvaluationJourney) — never to `environment`, which is
+    user-controlled free text a customer may legitimately set to "evaluation"."""
 
     def _run(self, **kwargs):
-        # Confirm the value the reader excludes is exactly what ingestion produced.
+        # Confirm the flag the reader excludes on is exactly what ingestion produced.
         traces, _ = _ingest()
-        assert traces[0]["environment"] == "evaluation"
+        assert traces[0]["is_evaluation"] is True
 
         queries: list[str] = []
         params_seen: list[dict] = []
@@ -117,10 +120,12 @@ class TestEvaluationBrowsingSeparation:
         return queries, params_seen
 
     def test_excluded_from_normal_browsing_by_default(self):
-        queries, params = self._run()
-        assert any(p.get("excluded_env") == "evaluation" for p in params)
-        assert all("{excluded_env:String}" in q for q in queries if "environment" in q)
+        queries, _params = self._run()
+        assert any("is_evaluation = 1" in q for q in queries)
+        # Set-membership, not a per-row column read: a later batch that rewrites the
+        # trace row with is_evaluation = 0 must not un-hide the trace.
+        assert all("is_evaluation = 1" in q for q in queries if "NOT IN" in q)
 
     def test_appears_when_evaluation_traces_are_requested(self):
         queries, _ = self._run(include_evaluations=True)
-        assert all("excluded_env" not in q for q in queries)
+        assert all("is_evaluation = 1" not in q for q in queries)
