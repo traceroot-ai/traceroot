@@ -51,4 +51,19 @@ describe("TraceIOSection format switcher (in header)", () => {
     expect(screen.getByText(/env: prod/)).toBeDefined();
     expect(screen.getByText(/n: 2/)).toBeDefined();
   });
+
+  it("opens the format popover on Enter from the keyboard (not mouse-only)", () => {
+    render(<TraceIOSection title="Input" content={'{"a":1}'} />);
+    const trigger = screen.getByTitle("Change format");
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    expect(screen.getByRole("button", { name: "JSON" })).toBeDefined();
+  });
+
+  it("truncates oversized content instead of running it through the real renderer", async () => {
+    const big = JSON.stringify({ s: "x".repeat(300_000) });
+    render(<TraceIOSection title="Output" content={big} />);
+    await pickFormat("JSON");
+    expect(screen.getByText(/Showing first/)).toBeDefined();
+    expect(screen.getByText(/copy to see all/)).toBeDefined();
+  });
 });

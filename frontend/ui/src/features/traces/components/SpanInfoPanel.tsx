@@ -43,10 +43,24 @@ interface SpanInfoPanelProps {
   customStartDate?: Date | null;
   customEndDate?: Date | null;
   /**
+   * True for the offline-eval reconstructed trace (built from a result's I/O +
+   * scores, not real telemetry — see `buildEvalTrace`). Its duration/token/cost
+   * fields are fabricated placeholders, not measurements, so those badges are
+   * hidden and the panel shows I/O only. Unset in production.
+   */
+  isEvalShaped?: boolean;
+  /**
    * Optional action bar rendered between the header and the content, e.g. the
    * offline-eval "Save as test case" / "Review" buttons. Unset in production, so
    * the standard trace viewer is unaffected.
    */
+  /**
+   * True for the offline-eval reconstructed trace (built from a result's I/O +
+   * scores, not real telemetry — see `buildEvalTrace`). Its duration/token/cost/git
+   * fields are fabricated placeholders, not measurements, so those badges are
+   * hidden and the panel shows I/O only. Unset in production.
+   */
+  isEvalShaped?: boolean;
   spanActions?: ReactNode;
   /**
    * Optional action rendered on the right of the header's title row, vertically
@@ -96,6 +110,7 @@ export function SpanInfoPanel({
   dateFilter,
   customStartDate,
   customEndDate,
+  isEvalShaped,
   spanActions,
   headerAction,
   extraTags,
@@ -149,7 +164,7 @@ export function SpanInfoPanel({
   // query stays disabled unless a span-level diff is active); the trace selection
   // diffs against the already-loaded baseline trace object, no fetch.
   const diffActive = diffMode && (isTrace ? !!baselineTrace : !!baselineSpan);
-  const { data: baselineIO } = useSpanIO(
+  const { data: baselineIO, isLoading: isLoadingBaselineIO } = useSpanIO(
     projectId,
     baselineSpan?.trace_id ?? "",
     diffActive && !isTrace ? (baselineSpan?.span_id ?? null) : null,
@@ -242,6 +257,10 @@ export function SpanInfoPanel({
   // already loaded so it never spins.
   // A selected span's I/O is fetched on demand; trace-level I/O is already loaded.
   const ioLoading = !isTrace && isLoadingIO;
+  // Diff mode also depends on the baseline span's I/O fetch: while it's in flight,
+  // baselineInput/Output/Metadata fall back to `null`, which would render as a
+  // bogus all-added/all-removed diff. Gate the diff sections on both fetches.
+  const diffIoLoading = diffActive && (ioLoading || (!isTrace && isLoadingBaselineIO));
 
   return (
     <div className="h-full overflow-y-auto">
@@ -269,12 +288,17 @@ export function SpanInfoPanel({
             <span className="font-medium">{kind.toLowerCase()}</span>
           </div>
           {extraTags}
-          <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-            <DOMAIN_ICONS.latency className="h-3 w-3 text-muted-foreground" />
-            <span className="text-muted-foreground">Latency:</span>
-            <span className="font-medium">{formatDuration(duration)}</span>
-            <MetricDelta delta={durationDelta} format={formatDuration} />
-          </div>
+          {/* Duration is fabricated on the offline-eval reconstructed trace (fixed
+              placeholder offsets, not a measurement), so it's hidden there. The
+              token/cost/git badges below gate on !isEvalShaped for the same reason. */}
+          {!isEvalShaped && (
+            <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
+              <DOMAIN_ICONS.latency className="h-3 w-3 text-muted-foreground" />
+              <span className="text-muted-foreground">Latency:</span>
+              <span className="font-medium">{formatDuration(duration)}</span>
+              <MetricDelta delta={durationDelta} format={formatDuration} />
+            </div>
+          )}
           {hasError && (
             <div className="inline-flex items-center gap-1.5 rounded-md bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
               <DOMAIN_ICONS.error className="h-3 w-3" />
@@ -287,7 +311,10 @@ export function SpanInfoPanel({
               <span className="font-medium">{trace.environment}</span>
             </div>
           )}
-          {isTrace && traceTokenUsage && (
+          {/* Token/cost aggregates are meaningless on the offline-eval reconstructed
+              trace (its spans carry no real usage/cost telemetry), so they're hidden
+              there — the trace and span variants below all gate on !isEvalShaped. */}
+          {!isEvalShaped && isTrace && traceTokenUsage && (
             <TokenChip
               inputTokens={traceTokenUsage.inputTokens}
               outputTokens={traceTokenUsage.outputTokens}
@@ -299,7 +326,7 @@ export function SpanInfoPanel({
               baseline={baselineTokenCounts}
             />
           )}
-          {isTrace && traceTotalCost != null && (
+          {!isEvalShaped && isTrace && traceTotalCost != null && (
             <CostChip
               cost={traceTotalCost}
               costDetails={traceCostDetails}
@@ -313,7 +340,7 @@ export function SpanInfoPanel({
               {selection.span.model_name}
             </div>
           )}
-          {!isTrace && selection.span.total_tokens != null && (
+          {!isEvalShaped && !isTrace && selection.span.total_tokens != null && (
             <TokenChip
               inputTokens={selection.span.input_tokens}
               outputTokens={selection.span.output_tokens}
@@ -325,7 +352,7 @@ export function SpanInfoPanel({
               baseline={baselineTokenCounts}
             />
           )}
-          {!isTrace && (
+          {!isEvalShaped && !isTrace && (
             <CostChip
               cost={selection.span.cost}
               costDetails={selection.span.cost_details}
@@ -335,8 +362,10 @@ export function SpanInfoPanel({
           )}
         </div>
 
-        {/* Row 2: Git related badges */}
-        {isTrace && (trace.git_ref || trace.git_repo) && (
+        {/* Row 2: Git related badges. Always absent on the offline-eval reconstructed
+            trace (its spans carry no git_ref/git_repo), but gated explicitly rather
+            than relying on that, since "eval-shaped spans show I/O only". */}
+        {!isEvalShaped && isTrace && (trace.git_ref || trace.git_repo) && (
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {trace.git_repo && (
               <a
@@ -482,18 +511,21 @@ export function SpanInfoPanel({
               title="Input"
               baseline={baselineInput}
               candidate={input}
+              loading={diffIoLoading}
             />
             <TraceIODiffSection
               key={`${selectionId}:output`}
               title="Output"
               baseline={baselineOutput}
               candidate={output}
+              loading={diffIoLoading}
             />
             <TraceIODiffSection
               key={`${selectionId}:metadata`}
               title="Metadata"
               baseline={baselineMetadata}
               candidate={metadata}
+              loading={diffIoLoading}
             />
           </>
         ) : (

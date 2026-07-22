@@ -51,7 +51,11 @@ function Row({
  */
 export function CostBreakdown({ details, baselineDetails }: CostBreakdownProps) {
   const c = summarizeCostDetails(details);
-  const b = baselineDetails !== undefined ? summarizeCostDetails(baselineDetails) : undefined;
+  // `baselineDetails` is `null` (not just `undefined`) whenever the baseline trace/span
+  // has no cost breakdown (e.g. it predates pricing data) — treat that the same as
+  // "no baseline" rather than a genuine all-zero baseline, or every row reports a
+  // delta equal to the full candidate cost.
+  const b = baselineDetails != null ? summarizeCostDetails(baselineDetails) : undefined;
 
   return (
     <div className="min-w-[220px] text-xs">
