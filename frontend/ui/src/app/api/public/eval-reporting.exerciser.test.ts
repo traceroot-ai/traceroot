@@ -98,6 +98,8 @@ describe("SDK reporting: full run lifecycle", () => {
     const runId = regBody.evaluation_run_id as string;
     expect(regBody.run_number).toBe(1);
     expect(regBody.dataset_version_id).toBe("dv1");
+    // UI-relative run path the SDK joins to host_url for a clickable run link.
+    expect(regBody.run_path).toBe(`/projects/${PROJECT_ID}/evaluations/${runId}`);
     expect(fakePrisma.evaluation.rows).toHaveLength(1);
 
     // Idempotency: same client_run_id returns the same run, no duplicate.
