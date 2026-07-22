@@ -12,6 +12,8 @@ export type ResultRowComparison = Pick<
   | "caseChange"
   | "pairing"
   | "mainScore"
+  | "baselineDurationMs"
+  | "durationDeltaMs"
   | "scorerCells"
   | "regressedCellCount"
   | "comparableCellCount"
