@@ -438,6 +438,12 @@ CLAUDE_FAST_AND_DOT_CASES = [
     ("anthropic/claude-sonnet-4.6", "claude-sonnet-4-6"),
     ("claude-sonnet-4.5", "claude-sonnet-4-5"),
     ("claude-haiku-4.5", "claude-haiku-4-5"),
+    # Fast mode on Opus 4.7 — separately priced at 6x standard (not 4.8's 2x)
+    ("anthropic/claude-opus-4.7-fast", "claude-opus-4-7-fast"),
+    ("claude-opus-4-7-fast", "claude-opus-4-7-fast"),
+    # Dot notation on legacy 3.x first-party ids
+    ("anthropic/claude-3.5-sonnet", "claude-3-5-sonnet"),
+    ("claude-3.5-haiku", "claude-3-5-haiku"),
 ]
 
 
@@ -467,6 +473,18 @@ class TestClaudeFastAndDotNotationIds:
         std = next(e for e in real_cache if e["model_name"] == "claude-opus-4-8")
         for key in ("input", "output", "cacheRead", "cacheWrite", "cacheWrite1h"):
             assert fast["prices"][key] == pytest.approx(std["prices"][key] * 2), key
+
+    def test_opus_4_7_fast_is_6x_not_copied_from_4_8(self, real_cache):
+        fast = next(e for e in real_cache if e["model_name"] == "claude-opus-4-7-fast")
+        std = next(e for e in real_cache if e["model_name"] == "claude-opus-4-7")
+        assert fast["prices"]["input"] == 3e-05  # $30 / MTok
+        assert fast["prices"]["output"] == 15e-05  # $150 / MTok
+        for key in ("input", "output", "cacheRead", "cacheWrite", "cacheWrite1h"):
+            assert fast["prices"][key] == pytest.approx(std["prices"][key] * 6), key
+
+    def test_opus_4_6_has_no_fast_card(self, real_cache):
+        # Opus 4.6 fast bills standard upstream; a 4.6 fast entry would over-charge.
+        assert all(e["model_name"] != "claude-opus-4-6-fast" for e in real_cache)
 
 
 def test_cost_from_buckets_prices_each_bucket_once():
