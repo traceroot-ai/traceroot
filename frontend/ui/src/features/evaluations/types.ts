@@ -4,7 +4,12 @@
  */
 import type { RunComparison, ResultComparison } from "@/lib/eval/comparison";
 
-export type { RunComparison, ResultComparison, Classification } from "@/lib/eval/comparison";
+export type {
+  RunComparison,
+  ResultComparison,
+  ScorerCellComparison,
+  Classification,
+} from "@/lib/eval/comparison";
 
 /** The per-result comparison block the run-detail route embeds on each result. */
 export type ResultRowComparison = Pick<
