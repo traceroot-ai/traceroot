@@ -159,7 +159,8 @@ describe("DetectorDetailPage", () => {
     mocks.useRuns.mockImplementation(defaultUseRuns);
     render(<DetectorDetailPage />);
 
-    expect(screen.getByText("f1")).toBeTruthy();
+    // The finding id is an opaque internal correlation id — never displayed.
+    expect(screen.queryByText("f1")).toBeNull();
     expect(screen.getByText("Something went wrong")).toBeTruthy();
     expect(screen.getAllByText("Done").length).toBeGreaterThan(0);
     expect(screen.getByRole("columnheader", { name: "Agent analysis" })).toBeTruthy();
