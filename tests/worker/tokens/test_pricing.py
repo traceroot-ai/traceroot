@@ -66,7 +66,6 @@ CODEX_MODEL_PRICES = [
     ("gpt-5.1-codex-mini", 0.00000025, 0.000002, 0.000000025),
     ("gpt-5.2-codex", 0.00000175, 0.000014, 0.000000175),
     ("gpt-5.3-codex", 0.00000175, 0.000014, 0.000000175),
-    ("gpt-5.3-codex-spark", 0.00000175, 0.000014, 0.000000175),
 ]
 
 CODEX_MODEL_CASES = [
@@ -236,7 +235,7 @@ class TestOpenAIModelIds:
     @pytest.mark.parametrize(
         "model_id,input_price,output_price,cache_read_price", CODEX_MODEL_PRICES
     )
-    def test_codex_prices_match_pinned_model_catalog(
+    def test_codex_prices_match_openai_api_pricing(
         self, real_cache, model_id, input_price, output_price, cache_read_price
     ):
         with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
@@ -247,6 +246,12 @@ class TestOpenAIModelIds:
         assert price["output"] == output_price
         assert price["cacheRead"] == cache_read_price
         assert price["cacheWrite"] is None
+
+    def test_unpriced_codex_preview_does_not_inherit_another_model_price(self, real_cache):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price("gpt-5.3-codex-spark")
+
+        assert price is None
 
     def test_latest_openai_model_calculates_cost(self, real_cache):
         with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
