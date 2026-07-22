@@ -6,12 +6,16 @@
  *
  * Supports top-level-equality `where`, single-key `orderBy`, `create`,
  * `createMany`, `update`, `deleteMany`, `count`, `findFirst/findUnique/findMany`,
- * and an interactive `$transaction` (same store, no rollback). `select`/`include`
- * are ignored (the row is returned whole) — the reporting routes only read scalar
- * fields off what they create, so that is sufficient.
+ * and an interactive `$transaction` (same store, no rollback). `select` is ignored
+ * (the row is returned whole). `include` resolves declared one-to-many relations
+ * (see `wireRelations`) so the public dataset-version READ route — which reads
+ * `version.testCases` — can be driven end to end; unknown include keys are ignored.
  */
 
 type Row = Record<string, unknown>;
+
+/** A declared one-to-many relation: `model` rows whose `fk` equals this row's `id`. */
+type Relation = { model: Model; fk: string };
 
 function matches(row: Row, where: Row | undefined): boolean {
   if (!where) return true;
@@ -25,6 +29,8 @@ function matches(row: Row, where: Row | undefined): boolean {
 
 class Model {
   rows: Row[] = [];
+  /** Declared relations resolvable via `include`, keyed by the include field name. */
+  relations: Record<string, Relation> = {};
   private seq = 0;
   constructor(private name: string) {}
 
@@ -44,22 +50,44 @@ class Model {
     });
   }
 
-  async findFirst(args: { where?: Row; orderBy?: Row } = {}) {
-    return (
+  /**
+   * Attach each requested `include` relation to a shallow copy of `row` (leaving the
+   * stored row untouched). A relation resolves to the target model's rows whose
+   * foreign key equals this row's id, honoring an optional nested `orderBy`.
+   */
+  private withInclude(row: Row | null, include?: Row): Row | null {
+    if (!row || !include) return row;
+    const out = { ...row };
+    for (const [key, spec] of Object.entries(include)) {
+      if (!spec) continue;
+      const rel = this.relations[key];
+      if (!rel) continue;
+      const nested = typeof spec === "object" ? (spec as { orderBy?: Row }) : {};
+      out[key] = rel.model.order(
+        rel.model.rows.filter((r) => r[rel.fk] === row.id),
+        nested.orderBy,
+      );
+    }
+    return out;
+  }
+
+  async findFirst(args: { where?: Row; orderBy?: Row; include?: Row } = {}) {
+    const row =
       this.order(
         this.rows.filter((r) => matches(r, args.where)),
         args.orderBy,
-      )[0] ?? null
-    );
+      )[0] ?? null;
+    return this.withInclude(row, args.include);
   }
-  async findUnique(args: { where?: Row } = {}) {
-    return this.rows.find((r) => matches(r, args.where)) ?? null;
+  async findUnique(args: { where?: Row; include?: Row } = {}) {
+    const row = this.rows.find((r) => matches(r, args.where)) ?? null;
+    return this.withInclude(row, args.include);
   }
-  async findMany(args: { where?: Row; orderBy?: Row } = {}) {
+  async findMany(args: { where?: Row; orderBy?: Row; include?: Row } = {}) {
     return this.order(
       this.rows.filter((r) => matches(r, args.where)),
       args.orderBy,
-    );
+    ).map((r) => this.withInclude(r, args.include));
   }
   async count(args: { where?: Row } = {}) {
     return this.rows.filter((r) => matches(r, args.where)).length;
@@ -97,9 +125,20 @@ export class FakePrisma {
   score = new Model("score");
   humanScore = new Model("humanScore");
 
+  constructor() {
+    this.wireRelations();
+  }
+
   // Interactive transaction: same store, no isolation/rollback (fine for tests).
   async $transaction<T>(fn: (tx: this) => Promise<T>): Promise<T> {
     return fn(this);
+  }
+
+  /** Declare the relations the routes resolve via `include`. */
+  private wireRelations() {
+    this.datasetVersion.relations = {
+      testCases: { model: this.testCase, fk: "datasetVersionId" },
+    };
   }
 
   reset() {
@@ -112,6 +151,7 @@ export class FakePrisma {
     this.evaluationResult = new Model("evaluationResult");
     this.score = new Model("score");
     this.humanScore = new Model("humanScore");
+    this.wireRelations();
   }
 }
 

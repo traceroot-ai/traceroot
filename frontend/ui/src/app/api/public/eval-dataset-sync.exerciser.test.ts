@@ -30,6 +30,7 @@ import { hashApiKey } from "@/lib/api-keys";
 import { GET as listDatasets, POST as upsertDataset } from "./datasets/route";
 import { PATCH as patchDataset } from "./datasets/[datasetId]/route";
 import { POST as publishVersion, GET as listVersions } from "./datasets/[datasetId]/versions/route";
+import { GET as readVersion } from "./dataset-versions/[versionId]/route";
 import { POST as completeRun } from "./evaluation-runs/[runId]/complete/route";
 import { POST as addScore } from "./evaluation-runs/[runId]/results/[testCaseId]/scores/route";
 import { POST as addHumanScore } from "./evaluation-runs/[runId]/results/[testCaseId]/human-score/route";
@@ -56,6 +57,7 @@ async function readJson(res: { json: () => Promise<unknown> }) {
   return res.json() as Promise<Record<string, unknown>>;
 }
 const dsParams = (datasetId: string) => ({ params: Promise.resolve({ datasetId }) });
+const versionParams = (versionId: string) => ({ params: Promise.resolve({ versionId }) });
 const resultParams = (runId: string, testCaseId: string) => ({
   params: Promise.resolve({ runId, testCaseId }),
 });
@@ -220,6 +222,78 @@ describe("A4: publish an immutable version from changes", () => {
     expect(stored("tc_str")!.input).toBe('"hello"');
     expect(stored("tc_jsonstr")!.input).toBe('"123"');
     expect(stored("tc_jsonstr")!.expected).toBe('"true"');
+  });
+});
+
+describe("A4→pull: native JSON round-trips through the real WRITE + READ routes", () => {
+  beforeEach(async () => {
+    await upsertDataset(req({ dataset_id: "ds1", name: "billing" }));
+  });
+
+  // The SDK pushes native JSON and pulls it back native (push_dataset / pull_dataset
+  // are pass-through; the backend owns the single encode/decode at the storage seam).
+  // This drives BOTH real public routes so the whole boundary — not just the stored
+  // encoding — is proven to preserve every JSON type, incl. JSON-looking strings.
+  it("preserves strings, JSON-looking strings, numbers, booleans, null, lists, objects, and structured expected", async () => {
+    const publish = await publishVersion(
+      req({
+        base_version_id: null,
+        changes: [
+          { op: "upsert", test_case_id: "tc_str", input: "hello world" },
+          // A genuine string that merely looks like JSON must stay a string, not
+          // become the number 123 / the boolean true / an object.
+          { op: "upsert", test_case_id: "tc_jsonstr_num", input: "123" },
+          { op: "upsert", test_case_id: "tc_jsonstr_bool", input: "true" },
+          { op: "upsert", test_case_id: "tc_jsonstr_obj", input: '{"not":"parsed"}' },
+          { op: "upsert", test_case_id: "tc_num", input: 42 },
+          { op: "upsert", test_case_id: "tc_float", input: 3.5 },
+          { op: "upsert", test_case_id: "tc_bool", input: false },
+          { op: "upsert", test_case_id: "tc_null", input: null },
+          { op: "upsert", test_case_id: "tc_list", input: [1, "two", { three: 3 }] },
+          {
+            op: "upsert",
+            test_case_id: "tc_obj",
+            input: { a: 1, nested: { b: [true, null] } },
+            // A structured (object) expected value must round-trip too.
+            expected: { verdict: "pass", score: 0.9 },
+            metadata: { captured_from: "prod" },
+            source_trace_id: "tr_src_1",
+            source_span_id: "sp_src_1",
+          },
+          { op: "upsert", test_case_id: "tc_expect_null", input: "x", expected: null },
+        ],
+      }),
+      dsParams("ds1"),
+    );
+    expect(publish.status).toBe(201);
+    const versionId = (await readJson(publish)).dataset_version_id as string;
+
+    // Pull the immutable snapshot back through the real public READ route.
+    const read = await readVersion(getReq("", API_KEY), versionParams(versionId));
+    expect(read.status).toBe(200);
+    const body = await readJson(read);
+    const items = body.items as Array<Record<string, unknown>>;
+    const item = (id: string) => items.find((i) => i.test_case_id === id)!;
+
+    // Native types survive the write→read round-trip exactly.
+    expect(item("tc_str").input).toBe("hello world");
+    expect(item("tc_jsonstr_num").input).toBe("123"); // string, NOT number 123
+    expect(item("tc_jsonstr_bool").input).toBe("true"); // string, NOT boolean true
+    expect(item("tc_jsonstr_obj").input).toBe('{"not":"parsed"}'); // string, NOT object
+    expect(item("tc_num").input).toBe(42);
+    expect(item("tc_float").input).toBe(3.5);
+    expect(item("tc_bool").input).toBe(false);
+    expect(item("tc_null").input).toBeNull();
+    expect(item("tc_list").input).toEqual([1, "two", { three: 3 }]);
+    expect(item("tc_obj").input).toEqual({ a: 1, nested: { b: [true, null] } });
+
+    // Structured expected + provenance + native metadata are all returned.
+    expect(item("tc_obj").expected).toEqual({ verdict: "pass", score: 0.9 });
+    expect(item("tc_obj").metadata).toEqual({ captured_from: "prod" });
+    expect(item("tc_obj").source_trace_id).toBe("tr_src_1");
+    expect(item("tc_obj").source_span_id).toBe("sp_src_1");
+    // An explicit-null expected reads back as null (not the string "null").
+    expect(item("tc_expect_null").expected).toBeNull();
   });
 });
 
