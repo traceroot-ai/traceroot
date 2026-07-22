@@ -8,6 +8,7 @@ split into two differently-named endpoints. Named groups:
   ``usage``     token counts + cost breakdown — small, included by default.
   ``io``        per-span ``input``/``output`` blobs — heavy, opt-in.
   ``metadata``  per-span ``metadata`` blob — heavy-ish, opt-in.
+  ``events``    per-span OTEL events blob (exception records) — heavy, opt-in.
 
 The two convenience aliases ``skeleton`` (``core,usage``) and ``full``
 (everything) map to the obvious group sets. The dashboard/UI uses the
@@ -27,13 +28,14 @@ CORE = "core"
 USAGE = "usage"
 IO = "io"
 METADATA = "metadata"
+EVENTS = "events"
 
 # The canonical groups a *resolved* projection may contain.
-_CANONICAL = frozenset({CORE, USAGE, IO, METADATA})
+_CANONICAL = frozenset({CORE, USAGE, IO, METADATA, EVENTS})
 
 # Alias tokens a client may type, expanded into canonical group sets.
 SKELETON = frozenset({CORE, USAGE})
-FULL = frozenset({CORE, USAGE, IO, METADATA})
+FULL = frozenset({CORE, USAGE, IO, METADATA, EVENTS})
 _ALIASES = {"skeleton": SKELETON, "full": FULL}
 
 # Every token a `fields` value may legally contain (for the 400 message).
@@ -43,7 +45,8 @@ _VALID_TOKENS = sorted(set(_CANONICAL) | set(_ALIASES))
 FIELDS_PARAM_DESC = (
     "Comma-separated field groups to include: 'core' (tree/timing/status, always "
     "included), 'usage' (tokens/cost), 'io' (per-span input/output), 'metadata' "
-    "(per-span metadata). Aliases: 'skeleton' (core,usage), 'full' (everything). "
+    "(per-span metadata), 'events' (per-span OTEL events incl. exception "
+    "records). Aliases: 'skeleton' (core,usage), 'full' (everything). "
     "Unknown groups return 400."
 )
 
@@ -98,17 +101,21 @@ def resolve_span_fields(fields: str | None, *, default: frozenset[str]) -> froze
 
 
 def io_columns(groups: frozenset[str]) -> frozenset[str]:
-    """The set of blob columns (``input``/``output``/``metadata``) a projection needs.
+    """The set of blob columns (``input``/``output``/``metadata``/``events``) a
+    projection needs.
 
-    ``io`` -> input+output, ``metadata`` -> metadata. Empty when the projection
-    is ``core``/``usage`` only — the signal the routers use to skip the bulk
-    span-I/O query entirely (no dashboard regression).
+    ``io`` -> input+output, ``metadata`` -> metadata, ``events`` -> events.
+    Empty when the projection is ``core``/``usage`` only — the signal the
+    routers use to skip the bulk span-I/O query entirely (no dashboard
+    regression).
     """
     columns: set[str] = set()
     if IO in groups:
         columns |= {"input", "output"}
     if METADATA in groups:
         columns.add("metadata")
+    if EVENTS in groups:
+        columns.add("events")
     return frozenset(columns)
 
 

@@ -9,6 +9,7 @@ import pytest
 
 from rest.projection import (
     CORE,
+    EVENTS,
     FULL,
     IO,
     METADATA,
@@ -54,7 +55,7 @@ class TestResolveSpanFields:
 
     def test_full_alias(self):
         assert resolve_span_fields("full", default=SKELETON) == frozenset(
-            {CORE, USAGE, IO, METADATA}
+            {CORE, USAGE, IO, METADATA, EVENTS}
         )
 
     def test_io_group(self):
@@ -62,7 +63,7 @@ class TestResolveSpanFields:
         assert resolve_span_fields("io", default=SKELETON) == frozenset({CORE, IO})
 
     def test_explicit_group_list_equals_full(self):
-        assert resolve_span_fields("core,usage,io,metadata", default=SKELETON) == FULL
+        assert resolve_span_fields("core,usage,io,metadata,events", default=SKELETON) == FULL
 
     def test_core_always_implied(self):
         # Even asking for only metadata yields core (the span tree is never empty).
@@ -96,8 +97,8 @@ class TestIoColumns:
     def test_skeleton_needs_no_columns(self):
         assert io_columns(SKELETON) == frozenset()
 
-    def test_full_needs_all_three(self):
-        assert io_columns(FULL) == frozenset({"input", "output", "metadata"})
+    def test_full_needs_all_blob_columns(self):
+        assert io_columns(FULL) == frozenset({"input", "output", "metadata", "events"})
 
     def test_io_maps_to_input_and_output(self):
         assert io_columns(frozenset({CORE, IO})) == frozenset({"input", "output"})
@@ -170,7 +171,7 @@ class TestHydrateSpanIo:
         trace = self._trace()
         hydrate_span_io(reader, trace, project_id="p", trace_id="t", groups=FULL)
         assert len(reader.calls) == 1
-        assert reader.calls[0]["columns"] == frozenset({"input", "output", "metadata"})
+        assert reader.calls[0]["columns"] == frozenset({"input", "output", "metadata", "events"})
         assert reader.calls[0]["project_id"] == "p"
         assert reader.calls[0]["trace_id"] == "t"
         assert trace["spans"][0]["input"] == "i"

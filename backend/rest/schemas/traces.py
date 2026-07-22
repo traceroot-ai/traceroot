@@ -62,6 +62,7 @@ class SpanResponse(SpanSkeletonResponse):
     input: str | None = None
     output: str | None = None
     metadata: str | None = None
+    events: str | None = None
 
 
 class SpanIOResponse(BaseModel):
@@ -72,6 +73,7 @@ class SpanIOResponse(BaseModel):
     input: str | None
     output: str | None
     metadata: str | None
+    events: str | None = None
 
 
 class TraceListItem(BaseModel):
