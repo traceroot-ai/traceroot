@@ -202,6 +202,16 @@ class TestGetSpanKind:
     def test_default_is_span(self):
         assert get_span_kind({}, None) == "SPAN"
 
+    # Offline-evaluation kinds must be preserved, not coerced to SPAN.
+    def test_explicit_traceroot_evaluation(self):
+        assert get_span_kind({"traceroot.span.type": "evaluation"}, None) == "EVALUATION"
+
+    def test_explicit_traceroot_task(self):
+        assert get_span_kind({"traceroot.span.type": "TASK"}, None) == "TASK"
+
+    def test_explicit_traceroot_scorer(self):
+        assert get_span_kind({"traceroot.span.type": "scorer"}, None) == "SCORER"
+
 
 # ── transform_otel_to_clickhouse ────────────────────────────────────────
 
