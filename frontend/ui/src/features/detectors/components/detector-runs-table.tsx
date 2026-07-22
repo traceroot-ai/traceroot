@@ -18,10 +18,11 @@ interface DetectorRunsTableProps {
  *
  * The Agent-analysis cell keys "N/A" on `finding_id` (not on `rca_status`): a
  * run with no finding has nothing to analyze, while a triggered run shows its
- * stored RCA state via `describeRcaStatus`. The `trace_id` cell — not the whole
- * row — is the click target; the `run_id` cell links to the run's own
- * self-trace, but only when `self_traced` is set (historical or failed-emit
- * runs have no self-trace, so their run_id stays plain text).
+ * stored RCA state via `describeRcaStatus`. Clicking anywhere on a row opens
+ * the run's own self-trace when one exists (`self_traced`); historical or
+ * failed-emit runs have no self-trace, so their rows are inert and their
+ * run_id stays plain text. The `trace_id` cell is the one cell that routes
+ * elsewhere — the scanned trace — so it stops row-click propagation.
  */
 export function DetectorRunsTable({ rows, onTraceClick, onRunClick }: DetectorRunsTableProps) {
   return (
@@ -43,7 +44,11 @@ export function DetectorRunsTable({ rows, onTraceClick, onRunClick }: DetectorRu
           return (
             <tr
               key={run.run_id}
-              className="border-b border-border/50 transition-colors last:border-0 hover:bg-muted/50"
+              onClick={run.self_traced ? () => onRunClick(run) : undefined}
+              className={cn(
+                "border-b border-border/50 transition-colors last:border-0 hover:bg-muted/50",
+                run.self_traced && "cursor-pointer",
+              )}
             >
               <td className={cn(DETECTOR_TD, "whitespace-nowrap text-muted-foreground")}>
                 {formatDate(run.timestamp)}
@@ -52,7 +57,12 @@ export function DetectorRunsTable({ rows, onTraceClick, onRunClick }: DetectorRu
                 {run.self_traced ? (
                   <button
                     type="button"
-                    onClick={() => onRunClick(run)}
+                    onClick={(e) => {
+                      // Same destination as the row click; stop propagation so
+                      // one click doesn't fire the navigation twice.
+                      e.stopPropagation();
+                      onRunClick(run);
+                    }}
                     title={run.run_id}
                     className="block max-w-full truncate text-left text-muted-foreground transition-colors hover:text-foreground hover:underline"
                   >
@@ -65,7 +75,10 @@ export function DetectorRunsTable({ rows, onTraceClick, onRunClick }: DetectorRu
               <td className={cn(DETECTOR_TD, "font-mono text-[11px]")}>
                 <button
                   type="button"
-                  onClick={() => onTraceClick(run)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onTraceClick(run);
+                  }}
                   title={run.trace_id}
                   className="block max-w-full truncate text-left text-muted-foreground transition-colors hover:text-foreground hover:underline"
                 >
