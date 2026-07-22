@@ -10,6 +10,7 @@ import type {
   EvaluationRow,
   RunRow,
   RunDetailResponse,
+  CompareRunsResponse,
   EvalResultStatus,
   ScoreRow,
 } from "./types";
@@ -242,6 +243,24 @@ export function useEvaluationRun(projectId: string, runId: string) {
     queryFn: () =>
       getJson<RunDetailResponse>(`/api/projects/${projectId}/evaluations/runs/${runId}`),
     enabled: !!projectId && !!runId,
+  });
+}
+
+/** Compare two arbitrary runs (candidate vs baseline) of the same evaluation. */
+export function useCompareRuns(
+  projectId: string,
+  candidateId: string | null,
+  baselineId: string | null,
+) {
+  return useQuery({
+    queryKey: ["evaluations", "compare", projectId, candidateId, baselineId],
+    queryFn: () =>
+      getJson<CompareRunsResponse>(
+        `/api/projects/${projectId}/evaluations/compare?candidate=${encodeURIComponent(
+          candidateId!,
+        )}&baseline=${encodeURIComponent(baselineId!)}`,
+      ),
+    enabled: !!projectId && !!candidateId && !!baselineId && candidateId !== baselineId,
   });
 }
 

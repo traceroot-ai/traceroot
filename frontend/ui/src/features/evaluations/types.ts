@@ -184,6 +184,49 @@ export interface RunDetailResponse {
   results: ResultRow[];
 }
 
+/** One run's summary in the compare view (both sides of the A-vs-B comparison). */
+export interface CompareRunSummary {
+  id: string;
+  runNumber: number;
+  evaluationId: string;
+  evaluationName: string;
+  candidateVersion: string;
+  datasetVersionId: string;
+  datasetVersionLabel: string;
+  status: EvalRunStatus;
+  mainScore: number | null;
+  mainScoreName: string | null;
+  caseCount: number;
+  scoredCount: number;
+  taskErrorCount: number;
+  scorerErrorCount: number;
+  startedAt: string;
+  completedAt: string | null;
+  elapsedMs: number | null;
+}
+
+/** One case row in the compare view. */
+export interface CompareResultRow {
+  testCaseId: string;
+  status: EvalResultStatus;
+  traceId: string | null;
+  candidateOutput: string | null;
+  change: "improved" | "regressed" | "unchanged" | null;
+  comparison:
+    | (ResultRowComparison & {
+        /** Present here (not on the run-detail row): the baseline case's output. */
+        baselineOutput: string | null;
+      })
+    | null;
+}
+
+export interface CompareRunsResponse {
+  candidate: CompareRunSummary;
+  baseline: CompareRunSummary;
+  comparison: RunComparison;
+  results: CompareResultRow[];
+}
+
 export interface EvaluationRow {
   id: string;
   name: string;
