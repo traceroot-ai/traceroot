@@ -4,6 +4,8 @@
 import { authClient } from "@/lib/auth-client";
 import { clientEnv } from "@/env.client";
 
+import { TraceApiError } from "./errors";
+
 // Python backend URL for trace APIs only
 const TRACE_API_BASE = clientEnv.NEXT_PUBLIC_API_URL;
 
@@ -71,7 +73,7 @@ export async function fetchTraceApi<T>(
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: "Unknown error" }));
-    throw new Error(error.detail || `API error: ${response.status}`);
+    throw new TraceApiError(error.detail || `API error: ${response.status}`, response.status);
   }
 
   if (response.status === 204) {

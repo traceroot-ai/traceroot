@@ -8,7 +8,7 @@ import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { cn, buildUrlWithFilters } from "@/lib/utils";
 import { useDetector } from "@/features/detectors/hooks/use-detectors";
-import { useRuns, type BackendRun } from "@/features/detectors/hooks/use-findings";
+import { useRuns, selfTraceId, type BackendRun } from "@/features/detectors/hooks/use-findings";
 import { DetectorRunsTable } from "@/features/detectors/components/detector-runs-table";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
@@ -21,6 +21,13 @@ import { TraceViewerPanel } from "@/features/traces/components/TraceViewerPanel"
  * "original" is produced; the "self" path is wired but unused.
  */
 type SelectedTrace = { traceId: string; kind: "original" | "self" } | null;
+
+// A self-trace is identified by its run row (dashless run_id), not by a
+// trace_id in the list, so match on the right key per kind. Module-scope so
+// effects can use it without a dependency-list entry.
+const rowMatchesSelection = (r: BackendRun, sel: SelectedTrace) =>
+  sel != null &&
+  (sel.kind === "self" ? selfTraceId(r) === sel.traceId : r.trace_id === sel.traceId);
 
 const tabs = [
   { id: "findings", label: "Findings", icon: Flag },
@@ -35,8 +42,11 @@ export default function DetectorDetailPage() {
   const detectorId = params.detectorId as string;
 
   // Deep-link params: set when a trace is popped out into a new tab from the
-  // panel's "open in new tab" button, so it reopens here in the detector tab.
+  // panel's "open in new tab" button (or linked from a trace's Detectors tab),
+  // so it reopens here in the detector tab. source=detector marks the id as a
+  // self-trace (dashless run_id), which matches run rows, not trace ids.
   const traceIdFromUrl = searchParams.get("traceId");
+  const sourceFromUrl = searchParams.get("source");
   const [startFullscreen, setStartFullscreen] = useState(searchParams.get("fullscreen") === "1");
   const [didAutoOpen, setDidAutoOpen] = useState(false);
 
@@ -108,20 +118,9 @@ export default function DetectorDetailPage() {
   const openOriginalTrace = (run: BackendRun) =>
     setSelectedTrace({ traceId: run.trace_id, kind: "original" });
 
-  // A run's self-trace id is its dashless run_id (trace_id = run_id by
-  // construction on the emit side). One helper so the setter and the matcher
-  // below can never drift.
-  const selfTraceId = (run: BackendRun) => run.run_id.replaceAll("-", "");
-
   // Clicking a self-traced run's run_id cell opens the run's own trace.
   const openSelfTrace = (run: BackendRun) =>
     setSelectedTrace({ traceId: selfTraceId(run), kind: "self" });
-
-  // A self-trace is identified by its run row, not by a trace_id in the list,
-  // so match on the right key per kind.
-  const rowMatchesSelection = (r: BackendRun, sel: SelectedTrace) =>
-    sel != null &&
-    (sel.kind === "self" ? selfTraceId(r) === sel.traceId : r.trace_id === sel.traceId);
 
   // Clear the selection if its run/trace is no longer in the active list (e.g. the
   // user paginated, refetched, switched tabs, or changed filters).
@@ -131,16 +130,20 @@ export default function DetectorDetailPage() {
     }
   }, [activeRows, selectedTrace]);
 
-  // Deep-link: when arriving with ?traceId=... (popped out from another tab),
-  // open that trace once the list has loaded. Runs once, so closing the panel
-  // doesn't reopen it.
+  // Deep-link: when arriving with ?traceId=... (popped out from another tab or
+  // linked from a trace's Detectors tab), open that trace once the list has
+  // loaded. Runs once, so closing the panel doesn't reopen it.
   useEffect(() => {
     if (didAutoOpen || !traceIdFromUrl) return;
-    if (activeRows.some((r) => r.trace_id === traceIdFromUrl)) {
-      setSelectedTrace({ traceId: traceIdFromUrl, kind: "original" });
+    const sel: SelectedTrace = {
+      traceId: traceIdFromUrl,
+      kind: sourceFromUrl === "detector" ? "self" : "original",
+    };
+    if (activeRows.some((r) => rowMatchesSelection(r, sel))) {
+      setSelectedTrace(sel);
       setDidAutoOpen(true);
     }
-  }, [didAutoOpen, traceIdFromUrl, activeRows]);
+  }, [didAutoOpen, traceIdFromUrl, sourceFromUrl, activeRows]);
 
   const selectedIndex = selectedTrace
     ? activeRows.findIndex((r) => rowMatchesSelection(r, selectedTrace))

@@ -122,6 +122,15 @@ export interface BackendRun {
   self_traced?: boolean;
 }
 
+/**
+ * A run's self-trace id is its dashless run_id (trace_id = run_id by
+ * construction on the emit side). One shared helper so every self-trace
+ * opener and matcher derives the id the same way.
+ */
+export function selfTraceId(run: Pick<BackendRun, "run_id">): string {
+  return run.run_id.replaceAll("-", "");
+}
+
 export interface RunsQuery {
   page?: number;
   limit?: number;

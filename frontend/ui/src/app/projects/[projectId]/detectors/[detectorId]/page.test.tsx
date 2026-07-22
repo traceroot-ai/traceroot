@@ -81,6 +81,7 @@ vi.mock("@/features/detectors/hooks/use-findings", () => ({
     label: status === "done" ? "Done" : "—",
     className: "",
   }),
+  selfTraceId: (run: { run_id: string }) => run.run_id.replaceAll("-", ""),
 }));
 
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
@@ -325,6 +326,37 @@ describe("run_id → self-trace link", () => {
       "disabled",
       true,
     );
+  });
+
+  it("auto-opens the self-trace for a ?traceId=&source=detector deep link", () => {
+    mocks.useRuns.mockImplementation(useRunsWithSelfRows);
+    // What TraceDetectorsTab links for a self-traced run: the dashless run_id
+    // plus source=detector, landing on the Runs tab.
+    mocks.searchParam.mockImplementation((key: string) => {
+      if (key === "traceId") return "aaaabbbb";
+      if (key === "source") return "detector";
+      if (key === "tab") return "runs";
+      return null;
+    });
+    render(<DetectorDetailPage />);
+
+    const panel = screen.getByTestId("trace-panel");
+    expect(within(panel).getByTestId("panel-trace").textContent).toBe("aaaabbbb");
+    expect(panel.getAttribute("data-source")).toBe("detector");
+    expect(panel.getAttribute("data-auto-open-rca")).toBe("false");
+  });
+
+  it("does not auto-open when the deep-linked self-trace matches no run row", () => {
+    mocks.useRuns.mockImplementation(useRunsWithSelfRows);
+    mocks.searchParam.mockImplementation((key: string) => {
+      if (key === "traceId") return "eeeeffff";
+      if (key === "source") return "detector";
+      if (key === "tab") return "runs";
+      return null;
+    });
+    render(<DetectorDetailPage />);
+
+    expect(screen.queryByTestId("trace-panel")).toBeNull();
   });
 
   it("renders run_id as plain text (no link) when not self_traced", () => {
