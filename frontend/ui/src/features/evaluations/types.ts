@@ -205,17 +205,53 @@ export interface CompareRunSummary {
   elapsedMs: number | null;
 }
 
-/** One case row in the compare view. */
+/** Raw per-scorer value on one side of a compared case (for the drawer's breakdown). */
+export interface CompareRawScore {
+  scorerName: string;
+  scorerVersion: string;
+  numericValue: number | null;
+  boolValue: boolean | null;
+  stringValue: string | null;
+  passed: boolean | null;
+  explanation: string | null;
+  error: string | null;
+}
+
+/** One case row in the compare view — the read contract the redesigned page consumes. */
 export interface CompareResultRow {
   testCaseId: string;
-  status: EvalResultStatus;
-  traceId: string | null;
+  /** Canonical (pinned dataset-version) content — what the engineer authored. */
+  input: string;
+  expectedOutput: string | null;
+  metadata: unknown;
+  provenance: {
+    sourceTraceId: string | null;
+    sourceSpanName: string | null;
+    sourceSpanKind: string | null;
+    captureReason: string;
+  } | null;
+  /** False when a run recorded an input different from the pinned dataset case. */
+  inputMatchesDataset: boolean;
+  candidateStatus: EvalResultStatus | null;
+  baselineStatus: EvalResultStatus | null;
   candidateOutput: string | null;
+  baselineOutput: string | null;
+  candidateTraceId: string | null;
+  baselineTraceId: string | null;
+  candidateCost: number | null;
+  baselineCost: number | null;
+  candidateTaskError: string | null;
+  baselineTaskError: string | null;
+  candidateScores: CompareRawScore[];
+  baselineScores: CompareRawScore[];
+  /** Whether the candidate output differs from the baseline output; null if neither exists. */
+  outputChanged: boolean | null;
   change: "improved" | "regressed" | "unchanged" | null;
   comparison:
     | (ResultRowComparison & {
-        /** Present here (not on the run-detail row): the baseline case's output. */
         baselineOutput: string | null;
+        /** Candidate case duration (task + scorers); null → Unknown, never 0. */
+        durationMs: number | null;
       })
     | null;
 }
