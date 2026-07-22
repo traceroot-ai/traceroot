@@ -17,7 +17,6 @@ import type { ReactNode } from "react";
 import { cn, buildUrlWithFilters, parseAsUTC } from "@/lib/utils";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { Button } from "@/components/ui/button";
-import { CopyButton } from "@/components/ui/copy-button";
 import { LoadingState } from "@/components/ui/loading-state";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { getTrace } from "@/lib/api";
@@ -62,7 +61,7 @@ interface TraceViewerPanelProps {
   /**
    * When provided, this trace is used directly instead of fetching it, and the
    * live SSE stream + detector-findings lookups are disabled. Lets the
-   * offline-eval surface render the genuine viewer from provided data.
+   * offline-eval prototype render the genuine viewer from hardcoded data.
    * Unset in production.
    */
   traceOverride?: TraceDetail;
@@ -89,37 +88,13 @@ interface TraceViewerPanelProps {
    */
   onSelectionChange?: (selection: TraceSelection) => void;
   /**
-   * Diff mode (offline-eval only): the baseline run's trace plus a matcher that
-   * resolves the baseline counterpart of a span selection (matched structurally,
-   * since span ids differ across runs). When provided, a "Diff" toggle appears in
-   * the sub-header; turning it on renders latency/token/cost tags with ± deltas and
-   * Input/Output/Metadata as git-style line diffs vs the baseline — for the whole
-   * trace (root row) as well as each span. Unset in production.
+   * Diff mode (offline-eval only): resolves the baseline run's counterpart of the
+   * current selection (matched structurally, since span ids differ across runs).
+   * When provided, a "Diff" toggle appears in the sub-header; turning it on renders
+   * each span's latency/token/cost tags with ± deltas and Input/Output/Metadata as
+   * git-style line diffs vs the baseline. Return null when there's no counterpart
+   * (or the baseline trace hasn't loaded). Unset in production.
    */
-  diffBaseline?: {
-    trace: TraceDetail;
-    matchSpan: (selection: TraceSelection) => Span | null;
-  };
-  /**
-   * Replaces the main header's "Trace" label + trace id (offline-eval), so an
-   * evaluation trace leads with its test case (e.g. label "Test case", value the
-   * test-case id). Unset in production, where the header shows "Trace" + traceId.
-   */
-  headerIdentity?: { label: string; value: string };
-  /**
-   * A badge rendered in the main header, immediately left of the navigation
-   * buttons — the same spot the findings "Alert" tag uses. offline-eval puts the
-   * test case's outcome (Passed / Did not pass / Errored) here. Unset in production.
-   */
-  headerStatus?: ReactNode;
-  /**
-   * Open the panel with diff mode already on (offline-eval compare-with). Only has an
-   * effect once `diffBaseline` is supplied — the toggle stays user-controllable after.
-   */
-  defaultDiffOn?: boolean;
-  traceIdentity?: { kindLabel: string; title: string; copyValue: string };
-  /** Badge shown where a span's ERROR badge sits, at trace level. Unset in production. */
-  traceStatusBadge?: ReactNode;
   diffBaseline?: (selection: TraceSelection) => Span | null;
    * Scope the trace fetch: "detector" opens a detector self-trace (excluded
    * from normal reads), "user" excludes self-traces. Omit for no scoping.
@@ -188,11 +163,6 @@ export function TraceViewerPanel({
   spanExtraTags,
   onSelectionChange,
   diffBaseline,
-  headerIdentity,
-  headerStatus,
-  defaultDiffOn,
-  traceIdentity,
-  traceStatusBadge,
   source,
   runTimestamp,
 }: TraceViewerPanelProps) {
@@ -200,12 +170,7 @@ export function TraceViewerPanel({
   // Diff mode is opt-in per panel (offline-eval only); the toggle only appears
   // when a baseline matcher is supplied. Persists across ↑/↓ navigation like
   // fullscreen, since the panel instance stays mounted.
-  const [diffMode, setDiffMode] = useState(defaultDiffOn ?? false);
-  // When a compare run is picked (offline-eval), auto-open diff mode so opening a case
-  // trace lands in the diff directly. The user can still toggle it off afterward.
-  useEffect(() => {
-    if (defaultDiffOn) setDiffMode(true);
-  }, [defaultDiffOn]);
+  const [diffMode, setDiffMode] = useState(false);
   // Emit selection changes to the parent (kept in a ref so an inline callback
   // doesn't retrigger the effect — it fires only when `selection` actually changes).
   const onSelectionChangeRef = useRef(onSelectionChange);
@@ -268,18 +233,10 @@ export function TraceViewerPanel({
   // avoiding a fresh-chat flash before the id resolves.
   useEffect(() => {
     if (!autoOpenRca || !rcaSessionId) return;
-    setAiContext(traceOverride ? null : { traceId });
+    setAiContext({ traceId });
     setAiInitialSessionId(rcaSessionId);
     setAiPanelOpen(true);
-  }, [
-    autoOpenRca,
-    rcaSessionId,
-    traceId,
-    traceOverride,
-    setAiContext,
-    setAiInitialSessionId,
-    setAiPanelOpen,
-  ]);
+  }, [autoOpenRca, rcaSessionId, traceId, setAiContext, setAiInitialSessionId, setAiPanelOpen]);
 
   const {
     data: fetchedTrace,
@@ -385,33 +342,17 @@ export function TraceViewerPanel({
       <div className="flex h-full flex-col bg-background">
         {/* ── MAIN HEADER ── */}
         <div className="flex h-12 items-center justify-between border-b border-border bg-muted/30 px-4">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <Workflow className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <span className="shrink-0 text-sm font-medium">{headerIdentity?.label ?? "Trace"}</span>
-            <span className="truncate font-mono text-xs text-muted-foreground">
-              {headerIdentity?.value ?? traceId}
-            </span>
-            {/* Copy affordance for the header id. Only offered when an identity is
-                supplied (offline-eval's test case); the standard trace header is
-                unchanged. */}
-            {headerIdentity && (
-              <CopyButton
-                value={headerIdentity.value}
-                className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
-                title={`Copy ${headerIdentity.label.toLowerCase()} id`}
-              />
-            )}
+          <div className="flex min-w-0 items-center gap-2">
             <DOMAIN_ICONS.trace className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm font-medium">Trace</span>
             <span className="truncate font-mono text-xs text-muted-foreground">{traceId}</span>
           </div>
           <div className="flex items-center gap-1">
-            {headerStatus}
             {hasRca && (
               <button
                 type="button"
                 onClick={() => {
-                  setAiContext(traceOverride ? null : { traceId });
+                  setAiContext({ traceId });
                   setAiInitialSessionId(rcaSessionId);
                   setAiPanelOpen(true);
                 }}
@@ -450,35 +391,31 @@ export function TraceViewerPanel({
             >
               {isFullscreen ? <Shrink className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
             </Button>
-            {/* Hidden under an override: traceId is the synthetic eval-<resultId>,
-                which nothing downstream can resolve from a URL. */}
-            {!traceOverride && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  window.open(
-                    buildUrlWithFilters(newTabPath ?? `/projects/${projectId}/traces`, {
-                      dateFilter,
-                      customStartDate,
-                      customEndDate,
-                      // A self-trace's id matches no list row's trace_id, so the
-                      // receiving page needs the source to reopen it as a
-                      // self-trace instead of looking it up as an original.
-                      extraParams:
-                        source === "detector"
-                          ? { traceId, fullscreen: "1", source }
-                          : { traceId, fullscreen: "1" },
-                    }),
-                    "_blank",
-                  )
-                }
-                className="h-7 w-7 p-0"
-                title="Open in new tab"
-              >
-                <SquareArrowOutUpRight className="h-4 w-4" />
-              </Button>
-            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                window.open(
+                  buildUrlWithFilters(newTabPath ?? `/projects/${projectId}/traces`, {
+                    dateFilter,
+                    customStartDate,
+                    customEndDate,
+                    // A self-trace's id matches no list row's trace_id, so the
+                    // receiving page needs the source to reopen it as a
+                    // self-trace instead of looking it up as an original.
+                    extraParams:
+                      source === "detector"
+                        ? { traceId, fullscreen: "1", source }
+                        : { traceId, fullscreen: "1" },
+                  }),
+                  "_blank",
+                )
+              }
+              className="h-7 w-7 p-0"
+              title="Open in new tab"
+            >
+              <SquareArrowOutUpRight className="h-4 w-4" />
+            </Button>
             <div className="w-2" />
             {/* AI Assistant sits immediately left of Close, separated by a gap
                 from the navigation/view controls, so the agent button stays the
@@ -487,7 +424,7 @@ export function TraceViewerPanel({
               variant="outline"
               size="sm"
               onClick={() => {
-                setAiContext(traceOverride ? null : { traceId });
+                setAiContext({ traceId });
                 // Bot button always opens a fresh chat; an active RCA session
                 // would otherwise hijack the next message into the worker's
                 // session instead of starting a new one.
@@ -530,22 +467,17 @@ export function TraceViewerPanel({
             >
               <SquareGanttChart className="h-3.5 w-3.5" /> Timeline
             </button>
-            {/* Detectors fetch by traceId, which under an override is the synthetic
-                eval-<resultId> — no ClickHouse row can ever back it, so the tab is
-                hidden rather than firing a doomed request. */}
-            {!traceOverride && (
-              <button
-                onClick={() => setViewMode("detectors")}
-                className={cn(
-                  "flex items-center gap-2 rounded-md px-3 py-1 text-xs font-medium transition-all",
-                  viewMode === "detectors"
-                    ? "bg-muted text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <DOMAIN_ICONS.detector className="h-3.5 w-3.5" /> Detectors
-              </button>
-            )}
+            <button
+              onClick={() => setViewMode("detectors")}
+              className={cn(
+                "flex items-center gap-2 rounded-md px-3 py-1 text-xs font-medium transition-all",
+                viewMode === "detectors"
+                  ? "bg-muted text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <DOMAIN_ICONS.detector className="h-3.5 w-3.5" /> Detectors
+            </button>
           </div>
           {/* Diff toggle — only when a baseline is available (offline-eval). */}
           {diffBaseline && viewMode === "tree" && (
@@ -607,7 +539,6 @@ export function TraceViewerPanel({
                         compact={viewMode === "timeline"}
                         hoveredSpanId={hoveredSpanId}
                         onHoverChange={setHoveredSpanId}
-                        disableIOPrefetch={!!traceOverride}
                       />
                     )}
                   </div>
@@ -624,7 +555,7 @@ export function TraceViewerPanel({
                   {/* Detectors fetches its own data by traceId, so it renders
                     ahead of the trace-load guards — a slow or failed *trace*
                     fetch must not hide independently-loaded detector data. */}
-                  {viewMode === "detectors" && !traceOverride ? (
+                  {viewMode === "detectors" ? (
                     <TraceDetectorsTab projectId={projectId} traceId={traceId} />
                   ) : isLoading ? (
                     <div className="flex h-full items-center justify-center">
@@ -674,9 +605,7 @@ export function TraceViewerPanel({
                       headerAction={spanHeaderAction?.(selection)}
                       extraTags={spanExtraTags?.(selection)}
                       diffMode={!!diffBaseline && diffMode}
-                      baselineSpan={diffBaseline?.matchSpan(selection) ?? null}
-                      baselineTrace={diffBaseline?.trace ?? null}
-                      isEvalShaped={!!traceOverride}
+                      baselineSpan={diffBaseline?.(selection) ?? null}
                     />
                   ) : (
                     <SpanTimelineView

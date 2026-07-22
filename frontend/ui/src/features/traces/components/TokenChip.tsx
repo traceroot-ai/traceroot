@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+import { CircleStop } from "lucide-react";
 import { formatTokenFlow } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
@@ -10,6 +12,8 @@ interface TokenChipProps {
   cacheReadTokens?: number | null;
   cacheWriteTokens?: number | null;
   reasoningTokens?: number | null;
+  /** Optional ± delta suffix (trace diff mode). Unset in production. */
+  delta?: ReactNode;
 }
 
 /**
@@ -23,6 +27,7 @@ export function TokenChip({
   cacheReadTokens,
   cacheWriteTokens,
   reasoningTokens,
+  delta,
 }: TokenChipProps) {
   return (
     <TooltipProvider delayDuration={150}>
@@ -33,6 +38,7 @@ export function TokenChip({
             <span className="font-medium">
               {formatTokenFlow(inputTokens, outputTokens, totalTokens)}
             </span>
+            {delta}
           </div>
         </TooltipTrigger>
         <TooltipContent className="border bg-popover p-3 text-popover-foreground shadow-md">
