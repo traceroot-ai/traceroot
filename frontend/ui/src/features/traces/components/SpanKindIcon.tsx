@@ -1,15 +1,5 @@
 "use client";
 
-import {
-  Workflow,
-  Sparkle,
-  Bot,
-  Wrench,
-  ArrowRight,
-  FlaskConical,
-  Play,
-  Ruler,
-} from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { TREE_LAYOUT } from "../utils";
@@ -27,14 +17,13 @@ export function getSpanKindIcon(kind: string) {
     case "agent":
       return DOMAIN_ICONS.agent;
     case "tool":
-      return Wrench;
-    case "evaluation":
-      return FlaskConical;
-    case "task":
-      return Play;
-    case "scorer":
-      return Ruler;
       return DOMAIN_ICONS.tool;
+    case "evaluation":
+      return DOMAIN_ICONS.evaluation;
+    case "task":
+      return DOMAIN_ICONS.task;
+    case "scorer":
+      return DOMAIN_ICONS.scorer;
     case "span":
     default:
       return DOMAIN_ICONS.span;
