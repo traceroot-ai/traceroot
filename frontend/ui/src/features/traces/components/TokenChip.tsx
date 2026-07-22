@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { CircleStop } from "lucide-react";
 import { formatTokenFlow } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { TokenUsageBreakdown, type TokenCounts } from "./TokenUsageBreakdown";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { TokenUsageBreakdown } from "./TokenUsageBreakdown";
 
@@ -14,6 +15,8 @@ interface TokenChipProps {
   reasoningTokens?: number | null;
   /** Optional ± delta suffix (trace diff mode). Unset in production. */
   delta?: ReactNode;
+  /** Baseline counts (trace diff mode) — per-row ± deltas in the hover breakdown. */
+  baseline?: TokenCounts;
 }
 
 /**
@@ -28,6 +31,7 @@ export function TokenChip({
   cacheWriteTokens,
   reasoningTokens,
   delta,
+  baseline,
 }: TokenChipProps) {
   return (
     <TooltipProvider delayDuration={150}>
@@ -49,6 +53,7 @@ export function TokenChip({
             cacheReadTokens={cacheReadTokens}
             cacheWriteTokens={cacheWriteTokens}
             reasoningTokens={reasoningTokens}
+            baseline={baseline}
           />
         </TooltipContent>
       </Tooltip>
