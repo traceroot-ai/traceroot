@@ -56,6 +56,7 @@ vi.mock("@/components/ui/resizable", () => ({
 }));
 
 import { TraceViewerPanel } from "./TraceViewerPanel";
+import { TraceApiError } from "@/lib/api/errors";
 
 function renderPanel(props: { initialFullscreen?: boolean; source?: "detector" | "user" } = {}) {
   const { container } = render(
@@ -228,10 +229,56 @@ describe("detector self-trace not-yet-ingested state", () => {
     expect(screen.queryByText("Error loading trace")).toBeNull();
   });
 
+  it("treats a 404 as not-yet-ingested for a detector trace", () => {
+    mocks.trace = null;
+    mocks.traceError = new TraceApiError("Trace not found", 404);
+    renderPanel({ source: "detector" });
+    expect(screen.getByText(/still being recorded/i)).toBeTruthy();
+    expect(screen.queryByText("Error loading trace")).toBeNull();
+  });
+
+  it("surfaces a non-404 failure as a real error for a detector trace", () => {
+    mocks.trace = null;
+    mocks.traceError = new TraceApiError("backend exploded", 500);
+    renderPanel({ source: "detector" });
+    expect(screen.getByText("Error loading trace")).toBeTruthy();
+    expect(screen.queryByText(/still being recorded/i)).toBeNull();
+  });
+
+  it("surfaces a network-level failure as a real error for a detector trace", () => {
+    mocks.trace = null;
+    mocks.traceError = new Error("fetch failed");
+    renderPanel({ source: "detector" });
+    expect(screen.getByText("Error loading trace")).toBeTruthy();
+    expect(screen.queryByText(/still being recorded/i)).toBeNull();
+  });
+
   it("shows the normal error for a missing user trace", () => {
     mocks.trace = null;
     renderPanel({ source: "user" });
     expect(screen.getByText("Error loading trace")).toBeTruthy();
     expect(screen.queryByText(/still being recorded/i)).toBeNull();
+  });
+});
+
+describe("open in new tab", () => {
+  it("carries source=detector in the popout URL for a self-trace", () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    renderPanel({ source: "detector" });
+    fireEvent.click(screen.getByTitle("Open in new tab"));
+    const url = open.mock.calls[0][0] as string;
+    expect(url).toContain("traceId=trace-1");
+    expect(url).toContain("source=detector");
+    open.mockRestore();
+  });
+
+  it("leaves source out of the popout URL for an original trace", () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    renderPanel({ source: "user" });
+    fireEvent.click(screen.getByTitle("Open in new tab"));
+    const url = open.mock.calls[0][0] as string;
+    expect(url).toContain("traceId=trace-1");
+    expect(url).not.toContain("source=");
+    open.mockRestore();
   });
 });

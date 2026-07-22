@@ -16,6 +16,7 @@ vi.mock("@/features/detectors/hooks/use-findings", () => ({
     isLoading: mocks.isLoading,
     error: mocks.error,
   }),
+  selfTraceId: (run: { run_id: string }) => run.run_id.replaceAll("-", ""),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -26,8 +27,10 @@ vi.mock("@/lib/utils", async () => {
   const actual = await vi.importActual<typeof import("@/lib/utils")>("@/lib/utils");
   return {
     ...actual,
-    buildUrlWithFilters: (path: string, opts?: { extraParams?: Record<string, string> }) =>
-      `URL(${path}${opts?.extraParams?.tab ? `?tab=${opts.extraParams.tab}` : ""})`,
+    buildUrlWithFilters: (path: string, opts?: { extraParams?: Record<string, string> }) => {
+      const qs = new URLSearchParams(opts?.extraParams ?? {}).toString();
+      return `URL(${path}${qs ? `?${qs}` : ""})`;
+    },
   };
 });
 
@@ -98,6 +101,32 @@ describe("TraceDetectorsTab", () => {
 
   it("navigates to the detector's runs tab when a row is clicked", () => {
     mocks.runs = [run({ run_id: "1", detector_id: "det-9", name: "Safety", finding_id: null })];
+    render(<TraceDetectorsTab projectId="proj-1" traceId="trace-1" />);
+
+    fireEvent.click(screen.getByText("Safety"));
+    expect(mocks.push).toHaveBeenCalledWith("URL(/projects/proj-1/detectors/det-9?tab=runs)");
+  });
+
+  it("deep-links a self-traced run straight to its own trace on the detector page", () => {
+    mocks.runs = [
+      run({
+        run_id: "aaaa1111-bbbb-2222-cccc-3333dddd4444",
+        detector_id: "det-9",
+        name: "Safety",
+        finding_id: null,
+        self_traced: true,
+      }),
+    ];
+    render(<TraceDetectorsTab projectId="proj-1" traceId="trace-1" />);
+
+    fireEvent.click(screen.getByText("Safety"));
+    expect(mocks.push).toHaveBeenCalledWith(
+      "URL(/projects/proj-1/detectors/det-9?tab=runs&traceId=aaaa1111bbbb2222cccc3333dddd4444&source=detector)",
+    );
+  });
+
+  it("keeps the plain runs-tab link for a run without a self-trace", () => {
+    mocks.runs = [run({ run_id: "1", detector_id: "det-9", name: "Safety", self_traced: false })];
     render(<TraceDetectorsTab projectId="proj-1" traceId="trace-1" />);
 
     fireEvent.click(screen.getByText("Safety"));
