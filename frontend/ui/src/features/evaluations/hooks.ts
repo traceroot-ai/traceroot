@@ -323,6 +323,24 @@ export function useTraceTestCases(projectId: string, traceId: string) {
   });
 }
 
+/** Delete one or more evaluation runs (cascades their results + scores). */
+export function useDeleteRuns(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (runIds: string[]) =>
+      Promise.all(
+        runIds.map((id) =>
+          sendJson<{ deleted: boolean }>(
+            `/api/projects/${projectId}/evaluations/runs/${id}`,
+            "DELETE",
+            undefined,
+          ),
+        ),
+      ),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["evaluations", "runs"] }),
+  });
+}
+
 export interface ScorerRegistryRow {
   name: string;
   version: string;
