@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { CircleDollarSign } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { CostBreakdown } from "./CostBreakdown";
