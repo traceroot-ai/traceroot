@@ -384,6 +384,16 @@ export interface ScorerRegistryRow {
   recentErrors: Array<{ message: string; at: string }>;
   /** Always "SDK": the catalog only shows what the SDK reported. */
   source: "SDK";
+  // SDK-reported scorer DEFINITION (offline-eval/sdk-ask/scorer-definition-reporting.md).
+  // Every field is optional — absent → "Not provided by SDK", never inferred.
+  scorerType: "llm_judge" | "code" | null;
+  outputType: "score" | "classification" | null;
+  description: string | null;
+  metadata: unknown | null;
+  model: string | null;
+  messages: Array<{ role: string; content: string }> | null;
+  language: "python" | "typescript" | null;
+  sourceCode: string | null;
 }
 
 /** One scorer family (all versions of a name) + a family-level usage summary. */
