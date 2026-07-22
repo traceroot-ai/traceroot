@@ -147,7 +147,7 @@ class TestListTracesEvaluationExclusion:
             queries.append(query)
             params_seen.append(parameters or {})
             # The count query needs a scalar row; everything else can be empty.
-            if "count(DISTINCT t.trace_id)" in query:
+            if "count()" in query:
                 return _rows([(0,)])
             return _rows([])
 
@@ -157,13 +157,15 @@ class TestListTracesEvaluationExclusion:
 
     def test_excludes_evaluation_traces_by_default(self):
         queries, params = self._run()
-        count_q = next(q for q in queries if "count(DISTINCT t.trace_id)" in q)
-        page_q = next(q for q in queries if "count(DISTINCT" not in q and "FROM traces" in q)
+        count_q = next(q for q in queries if "argMax(t.environment" in q)
+        page_q = next(q for q in queries if "LIMIT 1 BY t.project_id, t.trace_id" in q)
         # Same predicate in both, so counts/pagination match the filtered list.
         assert "{excluded_env:String}" in count_q
         assert "{excluded_env:String}" in page_q
         # NULL-safe so untagged production traces are kept.
-        assert "t.environment IS NULL" in page_q
+        assert "environment IS NULL" in page_q
+        # Applied AFTER the per-trace dedup, not to the raw rows (shallow-row guard).
+        assert page_q.index("LIMIT 1 BY") < page_q.index("excluded_env")
         assert any(p.get("excluded_env") == "evaluation" for p in params)
 
     def test_includes_evaluation_traces_when_requested(self):
