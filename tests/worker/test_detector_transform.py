@@ -101,6 +101,26 @@ class TestProjectFanOut:
         with pytest.raises(UnattributableSpanError):
             transform_detector_traces(payload)
 
+    def test_non_string_attribute_value_is_rejected_not_crashed(self):
+        # An array/map/number value must reject the batch like an absent
+        # attribute — never crash grouping (unhashable key) and never fall
+        # through to the fallback project.
+        malformed = {
+            "key": "traceroot.project_id",
+            "value": {"arrayValue": {"values": [{"stringValue": "proj-a"}]}},
+        }
+        payload = _payload([_span(0x01, 0x11, [malformed])])
+
+        with pytest.raises(UnattributableSpanError):
+            transform_detector_traces(payload, fallback_project_id="proj-fallback")
+
+    def test_numeric_attribute_value_is_rejected_even_with_fallback(self):
+        malformed = {"key": "traceroot.project_id", "value": {"intValue": "42"}}
+        payload = _payload([_span(0x01, 0x11, [malformed])])
+
+        with pytest.raises(UnattributableSpanError):
+            transform_detector_traces(payload, fallback_project_id="proj-fallback")
+
     def test_empty_payload_returns_empty_lists(self):
         traces, spans = transform_detector_traces({"resourceSpans": []})
 

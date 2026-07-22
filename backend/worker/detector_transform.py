@@ -19,7 +19,7 @@ _PROJECT_ID_ATTR = "traceroot.project_id"
 
 
 class UnattributableSpanError(ValueError):
-    """A span carries no ``traceroot.project_id`` and no fallback was given."""
+    """A span carries no usable ``traceroot.project_id`` and no fallback was given."""
 
 
 def transform_detector_traces(
@@ -47,7 +47,8 @@ def transform_detector_traces(
 
     Raises:
         UnattributableSpanError: A span has no ``traceroot.project_id``
-            attribute and no fallback project id was provided.
+            attribute and no fallback project id was provided, or the
+            attribute value is not a non-empty string.
     """
     grouped: dict[str, dict] = {}
 
@@ -56,11 +57,16 @@ def transform_detector_traces(
             per_project: dict[str, list[dict]] = {}
             for span in scope_span.get("spans", []):
                 attrs = attributes_to_dict(span.get("attributes", []))
-                project_id = attrs.get(_PROJECT_ID_ATTR) or fallback_project_id
-                if not project_id:
+                project_id = attrs.get(_PROJECT_ID_ATTR)
+                if project_id is None:
+                    project_id = fallback_project_id
+                # A malformed value (array/map/number attr) must reject the
+                # batch like an absent one, not crash grouping or fall through
+                # to the fallback — a project is never guessed.
+                if not isinstance(project_id, str) or not project_id:
                     raise UnattributableSpanError(
-                        "span carries no traceroot.project_id attribute and no "
-                        "fallback project id was provided; refusing to guess"
+                        "span carries no usable traceroot.project_id attribute and "
+                        "no fallback project id was provided; refusing to guess"
                     )
                 # The attribute is routing input consumed here; strip it so it
                 # does not leak into the stored span metadata.
