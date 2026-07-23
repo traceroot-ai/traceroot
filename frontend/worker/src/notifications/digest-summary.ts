@@ -103,19 +103,28 @@ export function buildDigestSummaryTool(): Tool {
   };
 }
 
+/** Fallback per-attempt timeout when DIGEST_SUMMARY_TIMEOUT_MS is unset or invalid. */
+export const DEFAULT_DIGEST_SUMMARY_TIMEOUT_MS = 15_000;
+/**
+ * Ceiling on the configured timeout — every digest flush awaits this timeout
+ * on a provider stall, so a fat-fingered env value must never hold alerts
+ * hostage for minutes (or days).
+ */
+export const MAX_DIGEST_SUMMARY_TIMEOUT_MS = 60_000;
+
 /**
  * Hard cap on the single summary attempt; the digest never waits longer.
- * Validation cloned from the detector-eval timeout parser: finite and > 0,
- * anything else falls back to 15s. Values above 60s clamp to 60s — every
- * digest flush awaits this timeout on a provider stall, so a fat-fingered
- * env value must never hold alerts hostage for minutes (or days).
+ * Validation modeled on the detector-eval timeout parser: finite and > 0,
+ * anything else falls back to the default; values above the max clamp to it
+ * (that parser instead rejects above-max values, whose max is the Node timer
+ * ceiling).
  * Exported for tests; called at call time (not module load) so env changes
  * apply per call.
  */
 export function parseDigestSummaryTimeoutMs(raw: string | undefined): number {
   const n = Number(raw);
-  if (!Number.isFinite(n) || n <= 0) return 15_000;
-  return Math.min(n, 60_000);
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_DIGEST_SUMMARY_TIMEOUT_MS;
+  return Math.min(n, MAX_DIGEST_SUMMARY_TIMEOUT_MS);
 }
 
 export interface DigestSummaryModelConfig {
