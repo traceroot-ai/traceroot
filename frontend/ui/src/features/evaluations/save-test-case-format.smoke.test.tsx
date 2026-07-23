@@ -35,6 +35,10 @@ vi.mock("@/lib/api/traces", () => ({
 // changes, so a fresh literal per render would clobber the normalised value.
 const spanIO = vi.hoisted(() => ({
   data: {
+    // `span_id` must match the selected span: the drawer only seeds from I/O it can
+    // prove belongs to that span, otherwise it clears the fields rather than showing
+    // a previous span's values (see `spanIOReady` in trace-integration.tsx).
+    span_id: "root",
     input: '{"message":"I was charged twice","channel":"email"}',
     output: '{"route":"billing"}',
     metadata: '{\n  "suite": "smoke"\n}',
