@@ -160,12 +160,21 @@ _MANUAL_USAGE_KEYS = (
     "reasoning_tokens",
 )
 
+# Upper sanity bound per manual usage field. The token columns are Int64 and we
+# store SUMS of fields (total_tokens = uncached + cache buckets + output), so the
+# bound must sit far below Int64-max — capping at Int64-max itself would still
+# let two capped fields overflow the stored sum and reject the whole insert
+# batch. 10^15 tokens is orders of magnitude beyond any real span while keeping
+# any sum of the six fields comfortably inside Int64.
+_MANUAL_USAGE_MAX_TOKENS = 10**15
+
 
 def parse_manual_usage(raw: Any) -> dict[str, int]:
     """Parse the manual usage dict reported via the SDKs' update-span API.
 
     The ``traceroot.llm.usage`` attribute is untrusted wire input: a non-JSON
-    string, a non-dict payload, or a non-numeric/negative/non-finite field must
+    string, a non-dict payload, or a non-numeric/negative/non-finite/out-of-range
+    field must
     never crash ingestion (``json.loads`` accepts literal ``Infinity``/``NaN``,
     and ``int(inf)`` raises OverflowError). Unusable fields are dropped and
     counts are clamped non-negative, so a partially-malformed dict degrades to
@@ -183,7 +192,9 @@ def parse_manual_usage(raw: Any) -> dict[str, int]:
     if isinstance(raw, str):
         try:
             raw = json.loads(raw)
-        except (TypeError, ValueError):
+        # RecursionError: json.loads raises it on deeply-nested payloads, which
+        # would otherwise fail the whole ingest task instead of this one attribute.
+        except (TypeError, ValueError, RecursionError):
             return {}
     if not isinstance(raw, dict):
         return {}
@@ -193,9 +204,12 @@ def parse_manual_usage(raw: Any) -> dict[str, int]:
         if value is None or isinstance(value, bool):
             continue
         try:
-            usage[key] = max(int(value), 0)
+            parsed = max(int(value), 0)
         except (TypeError, ValueError, OverflowError):
             continue
+        if parsed > _MANUAL_USAGE_MAX_TOKENS:
+            continue
+        usage[key] = parsed
     return usage
 
 

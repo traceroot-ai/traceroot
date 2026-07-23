@@ -1675,8 +1675,16 @@ class TestManualUsageAttribute:
         assert parse_manual_usage(
             '{"input_tokens": Infinity, "output_tokens": NaN, "cache_read_tokens": 5}'
         ) == {"cache_read_tokens": 5}
+        # The token columns are Int64 and sums of fields are stored, so absurd
+        # magnitudes must drop — an unbounded int would reject the insert batch.
+        assert parse_manual_usage(
+            '{"input_tokens": 99999999999999999999999999, "output_tokens": 7}'
+        ) == {"output_tokens": 7}
         assert parse_manual_usage(None) == {}
         assert parse_manual_usage("[1, 2]") == {}
+        # Deeply-nested JSON raises RecursionError inside json.loads; it must
+        # degrade to "no usage", not crash the ingest task.
+        assert parse_manual_usage("[" * 200_000 + "]" * 200_000) == {}
 
     def test_model_parameters_and_prompt_flow_to_metadata(self):
         import json
