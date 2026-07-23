@@ -295,7 +295,7 @@ describe("real Datasets + Evaluations views render server data", () => {
     expect((await screen.findAllByText("git:4a91c02")).length).toBeGreaterThan(0);
   });
 
-  it("Evaluations shows a detectors-style empty page with a Run evaluation CTA", async () => {
+  it("Evaluations shows an empty state that points at the SDK (no Run evaluation CTA)", async () => {
     global.fetch = vi.fn(async () => ({
       ok: true,
       status: 200,
@@ -303,7 +303,7 @@ describe("real Datasets + Evaluations views render server data", () => {
     })) as unknown as typeof fetch;
     mount(<EvaluationsView projectId="p1" />);
     expect(await screen.findByText(/No evaluation runs yet/)).toBeDefined();
-    expect((await screen.findAllByText("Run evaluation")).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: /Run evaluation/ })).toBeNull();
   });
 
   it("run-centric table shows immutable-run identity (Run # + candidate) for both runs", async () => {
