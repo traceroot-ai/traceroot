@@ -77,17 +77,66 @@ def _load_cache() -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Gateway/router prefix normalisation
+# ---------------------------------------------------------------------------
+
+# Prefixes injected by LiteLLM, OpenRouter, and cloud provider SDKs before
+# the bare model name.  Strip them so `get_model_price` can match models like
+# `vertex_ai/gemini-2.5-pro` or `openrouter/anthropic/claude-opus-4-8` against
+# the same patterns used for plain `gemini-2.5-pro` / `claude-opus-4-8`.
+_GATEWAY_PREFIXES = frozenset(
+    {
+        "openai",
+        "azure",
+        "google",
+        "googleai",
+        "vertex_ai",
+        "anthropic",
+        "bedrock",
+        "openrouter",
+        "litellm",
+        "models",
+        "deepseek",
+        "xai",
+        "moonshot",
+        "zai",
+    }
+)
+
+
+def _strip_gateway_prefix(model: str) -> str:
+    """Strip one or more leading gateway/router prefixes separated by ``/``.
+
+    Iterates so chained prefixes like ``openrouter/anthropic/claude-opus-4-8``
+    or ``litellm/openai/gpt-5`` are fully reduced.  Stops as soon as the first
+    path segment is not a recognised gateway name, leaving Bedrock dot-format
+    (``us.anthropic.claude-...``) and Vertex ``@date`` variants unchanged.
+    """
+    while True:
+        slash = model.find("/")
+        if slash == -1:
+            break
+        prefix = model[:slash].lower()
+        if prefix not in _GATEWAY_PREFIXES:
+            break
+        model = model[slash + 1 :]
+    return model
+
+
+# ---------------------------------------------------------------------------
 # Public API (unchanged signatures)
 # ---------------------------------------------------------------------------
 
 
 def get_model_price(model: str) -> dict[str, float] | None:
-    """Lookup price for model. Tries exact match, then regex fallback.
+    """Lookup price for model. Normalises gateway prefixes, then tries exact
+    match and regex fallback.
 
     Returns dict with keys like ``input``, ``output``, ``cacheRead``, ``cacheWrite``
     (values in USD per token), or None if not found.
     """
     cache = _load_cache()
+    model = _strip_gateway_prefix(model)
 
     # Exact match on model_name
     for entry in cache:
