@@ -62,7 +62,7 @@ const RUN = {
   environment: "evaluation",
   status: "completed",
   baselineRunId: null,
-  mainScore: 0.9,
+  mainScore: 90,
   mainScoreName: "Routing accuracy",
   caseCount: 1,
   scoredCount: 1,
@@ -77,33 +77,7 @@ const RUN = {
   datasetVersionLabel: "v12",
   changeFromBaseline: null,
   errorCount: 0,
-  baselineComparable: false,
-  elapsedMs: 360000,
-  comparison: {
-    available: false,
-    trustworthy: false,
-    reasons: ["no_baseline"],
-    baseline: null,
-    mainScore: { candidate: 0.9, baseline: null, delta: null },
-    caseCounts: {
-      improved: 0,
-      regressed: 0,
-      unchanged: 0,
-      changed: 0,
-      unpaired: 1,
-      not_comparable: 0,
-    },
-    scoreCellCounts: {
-      improved: 0,
-      regressed: 0,
-      unchanged: 0,
-      changed: 0,
-      unpaired: 0,
-      not_comparable: 0,
-    },
-    scorers: [],
-    duration: { candidateMeanMs: null, baselineMeanMs: null, deltaMs: null, pairedCount: 0 },
-  },
+  baselineComparable: true,
 };
 
 function makeResult(traceId: string | null) {
@@ -126,14 +100,6 @@ function makeResult(traceId: string | null) {
     createTime: "2026-07-17T10:24:00Z",
     scores: [],
     humanScores: [],
-    comparison: {
-      caseChange: "unpaired",
-      pairing: "candidate_only",
-      mainScore: { candidate: 1, baseline: null, delta: null },
-      scorerCells: [],
-      regressedCellCount: 0,
-      comparableCellCount: 0,
-    },
   };
 }
 
