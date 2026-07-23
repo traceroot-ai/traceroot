@@ -136,7 +136,11 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
     let sortValue: (r: (typeof all)[number]) => number | null;
     if (sort === "elapsedMs") {
-      sortValue = (r) => elapsedMs(r.startedAt, r.completedAt);
+      // No case-duration fallback here: that sum comes from a per-run aggregate
+      // fetched only for the page being returned, so it is not available while
+      // ordering the full filtered set. A run still in flight therefore sorts as
+      // null (last); a completed one sorts on its real wall-clock span.
+      sortValue = (r) => elapsedMs(r.startedAt, r.completedAt, null);
     } else {
       const ids = all.map((r) => r.id);
       const costSums =
