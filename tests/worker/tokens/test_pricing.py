@@ -1,6 +1,7 @@
 """Unit tests for model pricing and cost calculation."""
 
 import json
+import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -148,6 +149,7 @@ GEMINI_MODEL_CASES = [
     ("gemini-3.1-pro-preview-customtools", "gemini-3.1-pro-preview"),
     ("gemini-3.1-flash-lite", "gemini-3.1-flash-lite"),
     ("gemini-3.1-flash-lite-preview", "gemini-3.1-flash-lite-preview"),
+    ("google/gemini-3-flash", "gemini-3-flash-preview"),
     ("gemini-3-flash-preview", "gemini-3-flash-preview"),
     ("gemini-2.5-pro", "gemini-2.5-pro"),
     ("gemini-2.5-flash", "gemini-2.5-flash"),
@@ -412,6 +414,77 @@ class TestClaudeBedrockAndVertexIds:
     def test_unrelated_model_still_none(self, real_cache):
         with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
             assert get_model_price("totally-not-a-real-model-2099") is None
+
+
+# ---------------------------------------------------------------------------
+# Fast-mode variant + dot-notation model ids.
+# Some gateways spell versions with dots (claude-opus-4.8) and expose fast
+# mode as a distinct -fast slug billed at 2x standard.
+# ---------------------------------------------------------------------------
+
+
+CLAUDE_FAST_AND_DOT_CASES = [
+    # Fast mode — gateway slug, bare dot form, dashed canonical form
+    ("anthropic/claude-opus-4.8-fast", "claude-opus-4-8-fast"),
+    ("claude-opus-4.8-fast", "claude-opus-4-8-fast"),
+    ("claude-opus-4-8-fast", "claude-opus-4-8-fast"),
+    # Dot notation on current-gen first-party ids
+    ("anthropic/claude-opus-4.8", "claude-opus-4-8"),
+    ("claude-opus-4.8", "claude-opus-4-8"),
+    ("claude-opus-4.8[1m]", "claude-opus-4-8"),
+    ("claude-opus-4.7", "claude-opus-4-7"),
+    ("claude-opus-4.6", "claude-opus-4-6"),
+    ("claude-opus-4.5", "claude-opus-4-5"),
+    ("anthropic/claude-sonnet-4.6", "claude-sonnet-4-6"),
+    ("claude-sonnet-4.5", "claude-sonnet-4-5"),
+    ("claude-haiku-4.5", "claude-haiku-4-5"),
+    # Fast mode on Opus 4.7 — separately priced at 6x standard (not 4.8's 2x)
+    ("anthropic/claude-opus-4.7-fast", "claude-opus-4-7-fast"),
+    ("claude-opus-4-7-fast", "claude-opus-4-7-fast"),
+    # Dot notation on legacy 3.x first-party ids
+    ("anthropic/claude-3.5-sonnet", "claude-3-5-sonnet"),
+    ("claude-3.5-haiku", "claude-3-5-haiku"),
+]
+
+
+class TestClaudeFastAndDotNotationIds:
+    @pytest.mark.parametrize("model_id,expected_name", CLAUDE_FAST_AND_DOT_CASES)
+    def test_matches_expected_model(self, real_cache, model_id, expected_name):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price(model_id)
+        assert price is not None, f"{model_id} should match a pricing entry but returned None"
+        assert price[MATCHED_MODEL_NAME] == expected_name, (
+            f"{model_id} matched a different entry than {expected_name}"
+        )
+
+    @pytest.mark.parametrize("model_id,expected_name", CLAUDE_FAST_AND_DOT_CASES)
+    def test_matches_exactly_one_entry(self, real_cache, model_id, expected_name):
+        matching = [
+            e["model_name"]
+            for e in real_cache
+            if re.search(e["match_pattern"], model_id, re.IGNORECASE)
+        ]
+        assert matching == [expected_name], (
+            f"{model_id} must match exactly the {expected_name} pattern, got {matching}"
+        )
+
+    def test_fast_prices_are_double_standard(self, real_cache):
+        fast = next(e for e in real_cache if e["model_name"] == "claude-opus-4-8-fast")
+        std = next(e for e in real_cache if e["model_name"] == "claude-opus-4-8")
+        for key in ("input", "output", "cacheRead", "cacheWrite", "cacheWrite1h"):
+            assert fast["prices"][key] == pytest.approx(std["prices"][key] * 2), key
+
+    def test_opus_4_7_fast_is_6x_not_copied_from_4_8(self, real_cache):
+        fast = next(e for e in real_cache if e["model_name"] == "claude-opus-4-7-fast")
+        std = next(e for e in real_cache if e["model_name"] == "claude-opus-4-7")
+        assert fast["prices"]["input"] == 3e-05  # $30 / MTok
+        assert fast["prices"]["output"] == 15e-05  # $150 / MTok
+        for key in ("input", "output", "cacheRead", "cacheWrite", "cacheWrite1h"):
+            assert fast["prices"][key] == pytest.approx(std["prices"][key] * 6), key
+
+    def test_opus_4_6_has_no_fast_card(self, real_cache):
+        # Opus 4.6 fast bills standard upstream; a 4.6 fast entry would over-charge.
+        assert all(e["model_name"] != "claude-opus-4-6-fast" for e in real_cache)
 
 
 def test_cost_from_buckets_prices_each_bucket_once():
