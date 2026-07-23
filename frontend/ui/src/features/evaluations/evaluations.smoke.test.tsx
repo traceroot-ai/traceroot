@@ -9,6 +9,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, cleanup, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ToastProvider } from "@/components/ui/toast";
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "p1", datasetId: "ds1", runId: "run1" }),
@@ -32,7 +33,7 @@ const RUN = {
   candidateVersion: "git:4a91c02",
   environment: "ci",
   status: "completed_with_errors",
-  baselineRunId: null,
+  baselineRunId: "run0",
   mainScore: 93.8,
   mainScoreName: "Routing accuracy",
   caseCount: 24,
@@ -49,6 +50,42 @@ const RUN = {
   changeFromBaseline: 22.4,
   errorCount: 2,
   baselineComparable: true,
+  elapsedMs: 360000,
+  comparison: {
+    available: true,
+    trustworthy: true,
+    reasons: [],
+    baseline: { runId: "run0", runNumber: 26, candidateVersion: "git:0000000" },
+    mainScore: { candidate: 93.8, baseline: 71.4, delta: 22.4 },
+    caseCounts: {
+      improved: 1,
+      regressed: 0,
+      unchanged: 21,
+      changed: 0,
+      unpaired: 0,
+      not_comparable: 0,
+    },
+    scoreCellCounts: {
+      improved: 1,
+      regressed: 0,
+      unchanged: 21,
+      changed: 0,
+      unpaired: 0,
+      not_comparable: 0,
+    },
+    scorers: [
+      {
+        name: "routing-accuracy",
+        version: "v3",
+        valueType: "numeric",
+        direction: "higher_is_better",
+        candidateMean: 0.938,
+        baselineMean: 0.714,
+        delta: 0.224,
+        pairedCount: 22,
+      },
+    ],
+  },
 };
 
 const RESULT = {
@@ -82,6 +119,25 @@ const RESULT = {
     },
   ],
   humanScores: [],
+  comparison: {
+    caseChange: "improved",
+    pairing: "paired",
+    mainScore: { candidate: 1, baseline: 0, delta: 1 },
+    scorerCells: [
+      {
+        scorerName: "routing-accuracy",
+        scorerVersion: "v3",
+        valueType: "numeric",
+        direction: "higher_is_better",
+        candidateValue: 1,
+        baselineValue: 0,
+        delta: 1,
+        classification: "improved",
+      },
+    ],
+    regressedCellCount: 0,
+    comparableCellCount: 1,
+  },
 };
 
 function payloadFor(url: string): unknown {
@@ -181,7 +237,13 @@ afterEach(() => cleanup());
 
 function mount(node: React.ReactNode) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={qc}>{node}</QueryClientProvider>);
+  // The real /datasets and /evaluations route subtrees mount a ToastProvider;
+  // the faithful views use toasts, so the harness mirrors that wrapping.
+  return render(
+    <QueryClientProvider client={qc}>
+      <ToastProvider>{node}</ToastProvider>
+    </QueryClientProvider>,
+  );
 }
 
 describe("real Datasets + Evaluations views render server data", () => {
@@ -202,7 +264,7 @@ describe("real Datasets + Evaluations views render server data", () => {
       json: async () => ({ data: [], meta: { page: 0, limit: 50, total: 0 } }),
     })) as unknown as typeof fetch;
     mount(<EvaluationsView projectId="p1" />);
-    expect(await screen.findByText("No evaluation runs yet")).toBeDefined();
+    expect(await screen.findByText(/No evaluation runs yet/)).toBeDefined();
     expect((await screen.findAllByText("Run evaluation")).length).toBeGreaterThan(0);
   });
 
