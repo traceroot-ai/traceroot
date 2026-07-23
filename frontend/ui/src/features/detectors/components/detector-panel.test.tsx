@@ -6,6 +6,7 @@ import type { Detector } from "../hooks/use-detectors";
 const mocks = vi.hoisted(() => ({
   detector: undefined as Detector | undefined,
   mutate: vi.fn(),
+  selectorProps: null as Record<string, unknown> | null,
 }));
 
 vi.mock("../hooks/use-detectors", () => ({
@@ -22,7 +23,10 @@ vi.mock("./agent-model-link", () => ({
   AgentModelLink: () => null,
 }));
 vi.mock("@/features/ai-assistant/components/model-selector", () => ({
-  ModelSelector: () => null,
+  ModelSelector: (props: Record<string, unknown>) => {
+    mocks.selectorProps = props;
+    return null;
+  },
 }));
 vi.mock("./rca-toggle", () => ({
   RcaToggle: ({
@@ -81,6 +85,7 @@ afterEach(() => {
   cleanup();
   mocks.detector = undefined;
   mocks.mutate.mockReset();
+  mocks.selectorProps = null;
 });
 
 describe("DetectorPanel", () => {
@@ -124,6 +129,12 @@ describe("DetectorPanel", () => {
     fireEvent.click(saveButton());
     expect(mocks.mutate).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("renders the screening-model picker with a system-default placeholder (no auto-pick)", () => {
+    mocks.detector = { ...baseDetector, detectionModel: null, detectionProvider: null };
+    renderPanel();
+    expect(mocks.selectorProps?.placeholder).toBe("System default (claude-haiku-4-5)");
   });
 
   it("clears the form and disables Save while the loaded detector does not match the id", () => {

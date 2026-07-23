@@ -92,4 +92,60 @@ describe("ModelSelector", () => {
       adapter: "anthropic",
     });
   });
+
+  it("does not auto-pick when a placeholder marks empty as a valid state", () => {
+    mocks.models = {
+      byokProviders: [],
+      systemModels: [
+        {
+          provider: "anthropic",
+          adapter: "anthropic",
+          source: "system",
+          models: [{ id: "claude-4", label: "Claude 4" }],
+        },
+      ],
+    };
+
+    render(
+      <ModelSelector
+        value={{ model: "", provider: "", source: "system", adapter: "" }}
+        onChange={mocks.onChange}
+        workspaceId="workspace-1"
+        placeholder="System default (claude-haiku-4-5)"
+      />,
+    );
+
+    expect(mocks.onChange).not.toHaveBeenCalled();
+    expect(screen.getByRole("button").textContent).toContain("System default (claude-haiku-4-5)");
+  });
+
+  it("still backfills a legacy model-only selection when a placeholder is set", () => {
+    mocks.models = {
+      byokProviders: [],
+      systemModels: [
+        {
+          provider: "anthropic",
+          adapter: "anthropic",
+          source: "system",
+          models: [{ id: "claude-4", label: "Claude 4" }],
+        },
+      ],
+    };
+
+    render(
+      <ModelSelector
+        value={{ model: "claude-4", provider: "", source: "system", adapter: "" }}
+        onChange={mocks.onChange}
+        workspaceId="workspace-1"
+        placeholder="System default (claude-haiku-4-5)"
+      />,
+    );
+
+    expect(mocks.onChange).toHaveBeenCalledWith({
+      model: "claude-4",
+      provider: "anthropic",
+      source: "system",
+      adapter: "anthropic",
+    });
+  });
 });

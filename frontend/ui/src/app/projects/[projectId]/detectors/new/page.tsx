@@ -10,6 +10,7 @@ import {
 } from "@/features/ai-assistant/components/model-selector";
 import {
   DEFAULT_DETECTOR_SAMPLE_RATE,
+  DETECTOR_MODEL_PLACEHOLDER,
   DETECTOR_TEMPLATES,
   buildTemplateDetectorInput,
 } from "@/features/detectors/templates";
@@ -155,6 +156,7 @@ export default function NewDetectorPage() {
                     value={modelSelection}
                     onChange={setModelSelection}
                     workspaceId={project?.workspace_id}
+                    placeholder={DETECTOR_MODEL_PLACEHOLDER}
                   />
                   <p className="mt-1 text-[11px] text-muted-foreground">
                     Used to evaluate each trace for this detector.

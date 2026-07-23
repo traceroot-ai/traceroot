@@ -6,6 +6,7 @@ import { getTemplate } from "@/features/detectors/templates";
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   mutateAsync: vi.fn().mockResolvedValue({ id: "det-1" }),
+  selectorProps: null as Record<string, unknown> | null,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -22,7 +23,10 @@ vi.mock("@/features/projects/components", () => ({
   ProjectBreadcrumb: () => null,
 }));
 vi.mock("@/features/ai-assistant/components/model-selector", () => ({
-  ModelSelector: () => null,
+  ModelSelector: (props: Record<string, unknown>) => {
+    mocks.selectorProps = props;
+    return null;
+  },
 }));
 vi.mock("@/features/detectors/components/trigger-editor", () => ({
   TriggerEditor: () => null,
@@ -40,6 +44,7 @@ afterEach(() => {
   cleanup();
   mocks.mutateAsync.mockClear();
   mocks.push.mockClear();
+  mocks.selectorProps = null;
 });
 
 describe("NewDetectorPage", () => {
@@ -81,5 +86,10 @@ describe("NewDetectorPage", () => {
       prompt: "my prompt",
       template: "failure",
     });
+  });
+
+  it("renders the screening-model picker with a system-default placeholder (no auto-pick)", () => {
+    render(<NewDetectorPage />);
+    expect(mocks.selectorProps?.placeholder).toBe("System default (claude-haiku-4-5)");
   });
 });

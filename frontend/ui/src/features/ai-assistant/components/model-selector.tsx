@@ -20,13 +20,20 @@ interface ModelSelectorProps {
   value: ModelSelection;
   onChange: (selection: ModelSelection) => void;
   workspaceId?: string;
+  /**
+   * When set, an empty selection is a valid persistent state ("use the
+   * system default"): the trigger shows this label and the selector never
+   * writes an auto-picked default into the parent's state. Surfaces that
+   * require a concrete selection leave this unset and get the auto-pick.
+   */
+  placeholder?: string;
 }
 
 function modelKey(m: { id?: string; model?: string; source: string; provider: string }) {
   return `${m.source}:${m.provider}:${m.id ?? m.model}`;
 }
 
-export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorProps) {
+export function ModelSelector({ value, onChange, workspaceId, placeholder }: ModelSelectorProps) {
   const [open, setOpen] = useState(false);
 
   const { data } = useQuery({
@@ -43,7 +50,8 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
   //   2. model-id-only match (legacy/hydrated state where the parent only has
   //      `model` saved, e.g. `project.rca_model: string`) → backfill the rest
   //   3. no match → preserve the current selection if the user already picked
-  //      one, and only auto-pick a default when the model is still empty.
+  //      one, and only auto-pick a default when the model is still empty and
+  //      no placeholder marks "empty" as a valid persistent state.
   // Without case 2 the selector would silently auto-pick a default when a
   // partially-hydrated saved selection arrives, clobbering the user's choice.
   useEffect(() => {
@@ -57,7 +65,7 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
     const match = exact ?? modelOnly;
 
     if (!match) {
-      if (!value.model) {
+      if (!value.model && !placeholder) {
         const pick = pickDefaultModel(models);
         if (pick) {
           onChange({
@@ -87,7 +95,7 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
         adapter: match.adapter,
       });
     }
-  }, [models, value, onChange]);
+  }, [models, value, onChange, placeholder]);
 
   const selectedKey = modelKey({ id: value.model, source: value.source, provider: value.provider });
   const selectedModel = models.find((m) => modelKey(m) === selectedKey);
@@ -101,7 +109,7 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
             size="sm"
             className="h-7 gap-1 rounded-sm px-2 text-[11px] text-muted-foreground hover:text-foreground"
           >
-            {selectedModel?.label || value.model || "Select model"}
+            {selectedModel?.label || value.model || placeholder || "Select model"}
             <ChevronDown className="h-3 w-3" />
           </Button>
         </PopoverTrigger>
