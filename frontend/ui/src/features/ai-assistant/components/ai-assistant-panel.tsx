@@ -72,6 +72,7 @@ export function AiAssistantPanel({ projectId, onClose, compact = false }: AiAssi
   const {
     messages,
     isStreaming,
+    sendError,
     sessions,
     historyOpen,
     currentSessionId,
@@ -185,6 +186,9 @@ export function AiAssistantPanel({ projectId, onClose, compact = false }: AiAssi
       ) : (
         <MessageList messages={messages} sessionStreaming={isStreaming} />
       )}
+
+      {/* Send/session-creation error */}
+      {sendError && <p className="mx-3 mb-1 text-[11px] text-destructive">{sendError}</p>}
 
       {/* Input */}
       <MessageInput

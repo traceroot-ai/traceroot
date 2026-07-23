@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { render, cleanup } from "@testing-library/react";
+import { render, cleanup, screen } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => ({
   projectData: undefined as { workspace_id: string } | undefined,
@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
     | undefined,
   workspaceData: undefined as { role: string } | undefined,
   sessionHistoryCanDelete: undefined as boolean | undefined,
+  sendError: null as string | null,
   onClose: vi.fn(),
 }));
 
@@ -46,6 +47,7 @@ vi.mock("./ai-chat-context", () => ({
   useAiChatContext: () => ({
     messages: [],
     isStreaming: false,
+    sendError: mocks.sendError,
     sessions: [],
     historyOpen: true,
     currentSessionId: null,
@@ -77,6 +79,7 @@ afterEach(() => {
   mocks.llmModels = undefined;
   mocks.workspaceData = undefined;
   mocks.sessionHistoryCanDelete = undefined;
+  mocks.sendError = null;
   mocks.onClose.mockReset();
 });
 
@@ -119,5 +122,38 @@ describe("AiAssistantPanel — canDelete passed to SessionHistory", () => {
     render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
 
     expect(mocks.sessionHistoryCanDelete).toBe(false);
+  });
+});
+
+describe("AiAssistantPanel — send/session-creation error", () => {
+  it("surfaces sendError near the input instead of failing silently", () => {
+    mocks.projectData = { workspace_id: "ws-1" };
+    mocks.llmModels = {
+      systemModels: [
+        {
+          provider: "anthropic",
+          adapter: "anthropic",
+          source: "system",
+          models: [{ id: "claude-4", label: "Claude 4" }],
+        },
+      ],
+      byokProviders: [],
+    };
+    mocks.workspaceData = { role: "MEMBER" };
+    mocks.sendError = "Requires MEMBER role or higher";
+
+    render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
+
+    expect(screen.getByText("Requires MEMBER role or higher")).toBeTruthy();
+  });
+
+  it("renders nothing when there is no sendError", () => {
+    mocks.projectData = { workspace_id: "ws-1" };
+    mocks.workspaceData = { role: "ADMIN" };
+    mocks.sendError = null;
+
+    render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
+
+    expect(screen.queryByText(/requires|failed/i)).toBeNull();
   });
 });
