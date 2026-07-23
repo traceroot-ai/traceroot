@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * View-mount ("e2e") smoke for the real, server-backed Datasets + Evaluations
- * pages (Phase 8). The routes sit behind auth and can't be driven over HTTP
+ * pages. The routes sit behind auth and can't be driven over HTTP
  * without a session, and the repo has no browser driver — so mounting the views
  * against a stubbed fetch (server-shaped payloads) is how the browser path is
  * checked, exactly like offline-eval.smoke.test.tsx.
@@ -276,7 +276,7 @@ afterEach(() => cleanup());
 function mount(node: React.ReactNode) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   // The real /datasets and /evaluations route subtrees mount a ToastProvider;
-  // the faithful views use toasts, so the harness mirrors that wrapping.
+  // the views use toasts, so the harness mirrors that wrapping.
   return render(
     <QueryClientProvider client={qc}>
       <ToastProvider>{node}</ToastProvider>

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * The real Save-as-test-case drawer is a faithful port of the approved mock:
+ * The real Save-as-test-case drawer exposes the full capture flow:
  * dataset picker (with a "New dataset" option), selected span + capture reason,
  * read-only Recorded output, the three-way Expected outcome, Metadata, and the
  * Source toggle. This mounts it against a stubbed trace + datasets and asserts
@@ -47,8 +47,8 @@ function mount(node: React.ReactNode) {
   return render(<QueryClientProvider client={qc}>{node}</QueryClientProvider>);
 }
 
-describe("Save as test case drawer (real, mock-faithful)", () => {
-  it("renders every mock detail", async () => {
+describe("Save as test case drawer", () => {
+  it("renders every drawer detail", async () => {
     mount(<SaveTestCaseDrawer projectId="p1" traceId="t1" open onOpenChange={() => {}} />);
     // Header + the selected span derived from the fetched trace.
     expect(screen.getByText("Save as test case")).toBeDefined();
