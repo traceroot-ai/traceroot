@@ -40,7 +40,6 @@ const withText = (re: RegExp) => (_content: string, el: Element | null) =>
   re.test(el.textContent ?? "") &&
   !Array.from(el.children).some((c) => re.test(c.textContent ?? ""));
 
-
 const RUN = {
   id: "run1",
   evaluationId: "eval1",
@@ -83,6 +82,7 @@ const RUN = {
     reasons: [],
     baseline: { runId: "run0", runNumber: 26, candidateVersion: "git:0000000" },
     mainScore: { candidate: 0.938, baseline: 0.714, delta: 0.224 },
+    reportedMainScore: { candidate: null, baseline: null },
     caseCounts: {
       improved: 1,
       regressed: 0,
@@ -113,6 +113,7 @@ const RUN = {
     ],
     duration: { candidateMeanMs: 1500, baselineMeanMs: 1400, deltaMs: 100, pairedCount: 22 },
   },
+  metadata: null,
 } satisfies RunDetail;
 
 const RESULT = {
@@ -389,7 +390,9 @@ describe("real Datasets + Evaluations views render server data", () => {
       json: async () => ({ data: [RUN_CANCELLED], meta: { page: 0, limit: 50, total: 1 } }),
     })) as unknown as typeof fetch;
     mount(<EvaluationsView projectId="p1" />);
-    const row = (await screen.findByText(withText(/Run #27 ·/))).closest("tr") as HTMLTableRowElement;
+    const row = (await screen.findByText(withText(/Run #27 ·/))).closest(
+      "tr",
+    ) as HTMLTableRowElement;
     const statusCell = within(row).getAllByRole("cell")[6];
     expect(statusCell.textContent?.trim()).not.toBe("");
   });

@@ -27,6 +27,7 @@ function comparison(p: Partial<RunComparison> = {}): RunComparison {
     reasons: [],
     baseline: { runId: "b", runNumber: 1, candidateVersion: "opus" },
     mainScore: { candidate: null, baseline: null, delta: null },
+    reportedMainScore: { candidate: null, baseline: null },
     caseCounts: counts(),
     scoreCellCounts: counts(),
     scorers: [],
