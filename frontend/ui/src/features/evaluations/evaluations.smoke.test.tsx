@@ -9,6 +9,7 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, cleanup, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ToastProvider } from "@/components/ui/toast";
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "p1", datasetId: "ds1", runId: "run1" }),
@@ -181,7 +182,13 @@ afterEach(() => cleanup());
 
 function mount(node: React.ReactNode) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={qc}>{node}</QueryClientProvider>);
+  // The real /datasets and /evaluations route subtrees mount a ToastProvider;
+  // the faithful views use toasts, so the harness mirrors that wrapping.
+  return render(
+    <QueryClientProvider client={qc}>
+      <ToastProvider>{node}</ToastProvider>
+    </QueryClientProvider>,
+  );
 }
 
 describe("real Datasets + Evaluations views render server data", () => {
@@ -202,7 +209,7 @@ describe("real Datasets + Evaluations views render server data", () => {
       json: async () => ({ data: [], meta: { page: 0, limit: 50, total: 0 } }),
     })) as unknown as typeof fetch;
     mount(<EvaluationsView projectId="p1" />);
-    expect(await screen.findByText("No evaluation runs yet")).toBeDefined();
+    expect(await screen.findByText(/No evaluation runs yet/)).toBeDefined();
     expect((await screen.findAllByText("Run evaluation")).length).toBeGreaterThan(0);
   });
 
