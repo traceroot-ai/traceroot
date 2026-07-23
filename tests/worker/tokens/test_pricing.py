@@ -1,6 +1,7 @@
 """Unit tests for model pricing and cost calculation."""
 
 import json
+import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -248,6 +249,27 @@ class TestGatewayPrefixedModelIds:
         assert "input" in price and "output" in price
         assert price[MATCHED_MODEL_NAME] == expected_name, (
             f"{model_id!r} matched {price[MATCHED_MODEL_NAME]!r}, expected {expected_name!r}"
+        )
+
+    @pytest.mark.parametrize("model_id,expected_name", GATEWAY_PREFIX_CASES)
+    def test_stripped_id_matches_exactly_one_entry(self, real_cache, model_id, expected_name):
+        """get_model_price returns the first entry that matches and stops there,
+        so if prefix-stripping ever made a string ambiguous between two catalog
+        entries, a silent collision would hide behind whichever happens to sit
+        first in the cache. Re-run the same exact/regex matching independently
+        here, but count every entry that matches instead of short-circuiting,
+        to lock in that each stripped id is unambiguous.
+        """
+        stripped = _strip_gateway_prefix(model_id)
+        matches = [
+            entry["model_name"]
+            for entry in real_cache
+            if entry["model_name"] == stripped
+            or re.search(entry["match_pattern"], stripped, re.IGNORECASE)
+        ]
+        assert matches == [expected_name], (
+            f"{model_id!r} (stripped to {stripped!r}) matched {matches!r}, "
+            f"expected exactly one match: {expected_name!r}"
         )
 
 
