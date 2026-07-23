@@ -30,6 +30,16 @@ const baseParams = {
   ],
 };
 
+// Byte-for-byte capture of the email produced for baseParams by the shipped
+// code BEFORE the optional summary paragraph existed. formatWindowRange pins
+// its formatting to UTC, so this is stable across machines and timezones.
+// Guards that an absent/blank summary leaves the email exactly as it shipped.
+const PRE_CHANGE_BASELINE_TEXT =
+  "3 findings in project billing.\nJun 24, 14:00–15:00 UTC · 2 detectors\n\n- Hallucination — 2 findings · latest abcdef12\n  https://app.example.com/projects/p1/detectors/d1?date_filter=custom&start=2026-06-24T14%3A00%3A00.000Z&end=2026-06-24T15%3A00%3A00.000Z\n- Latency spike — 1 finding · latest 00112233\n  https://app.example.com/projects/p1/detectors/d2?date_filter=custom&start=2026-06-24T14%3A00%3A00.000Z&end=2026-06-24T15%3A00%3A00.000Z";
+
+const PRE_CHANGE_BASELINE_HTML =
+  '<!DOCTYPE html>\n<html>\n  <head>\n    <meta charset="utf-8">\n    <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  </head>\n  <body style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 20px; background-color: #fafafa;">\n    <table cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width: 480px; margin: 0 auto; background: #fff; border: 1px solid #e5e5e5;">\n      <!-- Logo section -->\n      <tr>\n        <td style="padding: 40px 40px 32px 40px; text-align: center;">\n          <img src="https://raw.githubusercontent.com/traceroot-ai/traceroot/main/frontend/ui/public/images/traceroot_icon.png" alt="TraceRoot" width="72" height="72" style="display: block; margin: 0 auto; border-radius: 14px;" />\n        </td>\n      </tr>\n\n      <!-- Title -->\n      <tr>\n        <td style="padding: 0 40px 24px 40px; text-align: center;">\n          <h1 style="font-size: 24px; font-weight: 600; margin: 0; color: #000; letter-spacing: -0.5px;">\n            New detector findings\n          </h1>\n        </td>\n      </tr>\n\n      <!-- Body -->\n      <tr>\n        <td style="padding: 0 40px 8px 40px; text-align: center;">\n          <p style="margin: 0; color: #333; font-size: 15px; line-height: 1.6;">\n            <strong>3 findings</strong> in project <strong>billing</strong>.\n          </p>\n        </td>\n      </tr>\n\n      <!-- Window subline -->\n      <tr>\n        <td style="padding: 0 40px 24px 40px; text-align: center;">\n          <p style="margin: 0; color: #888; font-size: 12px;">Jun 24, 14:00–15:00 UTC · 2 detectors</p>\n        </td>\n      </tr>\n\n      <!-- Per-detector rows -->\n      <tr>\n        <td style="padding: 0 40px 32px 40px;">\n          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #fafafa; border: 1px solid #e5e5e5;">\n            <tr>\n              <td style="padding: 12px 16px;">\n<p style="margin: 6px 0; color: #333; font-size: 14px; line-height: 1.6;"><a href="https://app.example.com/projects/p1/detectors/d1?date_filter=custom&start=2026-06-24T14%3A00%3A00.000Z&end=2026-06-24T15%3A00%3A00.000Z" style="color: #000; font-weight: 500;">Hallucination</a> <span style="color: #888;">— 2 findings · latest <a href="https://app.example.com/projects/p1/traces?traceId=abcdef1234567890" style="color: #888;">abcdef12</a></span></p>\n<p style="margin: 6px 0; color: #333; font-size: 14px; line-height: 1.6;"><a href="https://app.example.com/projects/p1/detectors/d2?date_filter=custom&start=2026-06-24T14%3A00%3A00.000Z&end=2026-06-24T15%3A00%3A00.000Z" style="color: #000; font-weight: 500;">Latency spike</a> <span style="color: #888;">— 1 finding · latest <a href="https://app.example.com/projects/p1/traces?traceId=0011223344556677" style="color: #888;">00112233</a></span></p>\n              </td>\n            </tr>\n          </table>\n        </td>\n      </tr>\n      <!-- Button -->\n      <tr>\n        <td style="padding: 0 40px 40px 40px; text-align: center;">\n          <table cellpadding="0" cellspacing="0" border="0" style="margin: 0 auto;">\n            <tr>\n              <td style="background-color: #000;">\n                <a href="https://app.example.com/projects/p1/detectors" style="display: inline-block; padding: 10px 20px; color: #ffffff; text-decoration: none; font-weight: 500; font-size: 14px;">\n                  View findings\n                </a>\n              </td>\n            </tr>\n          </table>\n        </td>\n      </tr>\n\n      <!-- Divider -->\n      <tr>\n        <td style="border-top: 1px solid #e5e5e5;"></td>\n      </tr>\n\n      <!-- Footer -->\n      <tr>\n        <td style="padding: 24px 40px; background-color: #fafafa;">\n          <p style="color: #999; font-size: 12px; margin: 0; text-align: center;">\n            You are receiving this because detector email alerts are enabled for the billing project on TraceRoot.\n          </p>\n        </td>\n      </tr>\n    </table>\n  </body>\n</html>';
+
 describe("sendDigestAlertEmail", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -144,5 +154,45 @@ describe("sendDigestAlertEmail", () => {
     expect(mail.html).not.toContain("latest");
     expect(mail.html).not.toContain('href=""');
     expect(mail.text).not.toContain("latest");
+  });
+
+  it("renders the summary paragraph in text and html, escaped and capped", async () => {
+    const { sendDigestAlertEmail } = await import("../email.js");
+    await sendDigestAlertEmail({
+      ...baseParams,
+      summary: 'Payments <b>"charge"</b> failing & retrying.',
+    });
+    const mail = sendMail.mock.calls[0][0];
+    expect(mail.text).toContain('Payments <b>"charge"</b> failing & retrying.'); // text body: verbatim
+    expect(mail.html).toContain("Payments &lt;b&gt;"); // html: escaped
+    expect(mail.html).not.toContain('<b>"charge"</b>');
+  });
+
+  it("caps an over-long summary at the render cap with an ellipsis", async () => {
+    const { sendDigestAlertEmail } = await import("../email.js");
+    const { DIGEST_SUMMARY_RENDER_CAP: CAP } = await import("@traceroot/slack");
+    await sendDigestAlertEmail({ ...baseParams, summary: "a".repeat(CAP + 100) });
+    const mail = sendMail.mock.calls[0][0];
+    // CAP-1 chars + "…" = CAP total
+    expect(mail.text).toContain("a".repeat(CAP - 1) + "…");
+    expect(mail.text).not.toContain("a".repeat(CAP));
+    expect(mail.html).toContain("a".repeat(CAP - 1) + "…");
+    expect(mail.html).not.toContain("a".repeat(CAP));
+  });
+
+  it("is byte-identical to today when summary is absent", async () => {
+    const { sendDigestAlertEmail } = await import("../email.js");
+    await sendDigestAlertEmail({ ...baseParams });
+    const without = sendMail.mock.calls[0][0];
+    sendMail.mockClear();
+    await sendDigestAlertEmail({ ...baseParams, summary: "  " });
+    const blank = sendMail.mock.calls[0][0];
+    expect(blank.html).toBe(without.html);
+    expect(blank.text).toBe(without.text);
+    // New-vs-OLD: also compare against the pre-change capture, so a template
+    // regression can't hide behind a blank-vs-absent equality that would still
+    // hold if both outputs drifted together.
+    expect(without.html).toBe(PRE_CHANGE_BASELINE_HTML);
+    expect(without.text).toBe(PRE_CHANGE_BASELINE_TEXT);
   });
 });

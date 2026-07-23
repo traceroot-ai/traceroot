@@ -134,6 +134,51 @@ describe("buildDigestAlertBlocks", () => {
     expect(JSON.stringify(blocks)).toContain("Detector 45");
   });
 
+  it("renders the summary as the first section under the header, escaped and capped", () => {
+    const withSummary = buildDigestAlertBlocks({
+      ...digestBase,
+      summary: "Payments <charge> is down & retrying.",
+    });
+    const without = buildDigestAlertBlocks(digestBase);
+    expect(withSummary.length).toBe(without.length + 1);
+    const summaryBlock = withSummary[2] as any; // header, divider, summary
+    expect(summaryBlock.type).toBe("section");
+    expect(summaryBlock.text.text).toBe("Payments &lt;charge&gt; is down &amp; retrying.");
+
+    const long = buildDigestAlertBlocks({ ...digestBase, summary: "x".repeat(2000) }) as any[];
+    expect(long[2].text.text.length).toBeLessThanOrEqual(700);
+    expect(long[2].text.text.endsWith("…")).toBe(true);
+  });
+
+  it("emits identical blocks when summary is absent or blank", () => {
+    expect(buildDigestAlertBlocks({ ...digestBase, summary: "   " })).toEqual(
+      buildDigestAlertBlocks(digestBase),
+    );
+  });
+
+  it("stays within 50 blocks when a summary is present at the overflow boundary", () => {
+    const entries = Array.from({ length: 46 }, (_, i) => ({
+      detectorId: `d${i}`,
+      detectorName: `Detector ${i}`,
+      findingCount: 1,
+      latestTraceId: `trace${i}`,
+    }));
+    // 46 entries + summary: the summary eats one line slot -> exactly 50
+    // blocks total, with an overflow note for the two displaced rows.
+    const withSummary = buildDigestAlertBlocks({
+      ...digestBase,
+      total: 46,
+      entries,
+      summary: "S.",
+    }) as any[];
+    expect(withSummary.length).toBe(50);
+    expect(JSON.stringify(withSummary)).toContain("+2 more detectors");
+    // 46 entries without summary: fits exactly, 50 blocks, no overflow note.
+    const without = buildDigestAlertBlocks({ ...digestBase, total: 46, entries }) as any[];
+    expect(without.length).toBe(50);
+    expect(JSON.stringify(without)).not.toContain("more detectors");
+  });
+
   it("omits the latest-trace link when an entry has no latest trace", () => {
     const text = JSON.stringify(
       buildDigestAlertBlocks({
