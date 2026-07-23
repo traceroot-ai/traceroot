@@ -71,10 +71,9 @@ describe("ScorerDetailPanel", () => {
     expect(within(detail).getByText("Model")).toBeDefined();
     expect(within(detail).getByText("Prompt")).toBeDefined();
     expect(within(detail).getByText("Pass threshold")).toBeDefined();
-    // Their values.
+    // Their values — model in the read-only dropdown, only the system prompt shown.
     expect(within(detail).getByText("claude-sonnet-5")).toBeDefined();
-    expect(within(detail).getByText("system")).toBeDefined();
-    expect(within(detail).getByText(/Rate the answer conciseness/)).toBeDefined();
+    expect(detail.textContent).toContain("Rate the answer conciseness");
     expect(detail.textContent).toContain("0.8");
     // Removed sections are gone.
     expect(within(detail).queryByText("Configuration")).toBeNull();
