@@ -128,3 +128,71 @@ class TestProcessS3Traces:
         process_s3_traces(s3_key="test/key.json", project_id="proj-1")
 
         mock_detector_enqueue.assert_not_called()
+
+
+class TestTaskCostByTrace:
+    """`_task_cost_by_trace` scopes derived eval cost to the CANDIDATE TASK, excluding
+    the scorer subtree (an llm_judge or a code scorer that calls an LLM shares the trace).
+    Rows are (trace_id, span_id, parent_span_id, span_kind, cost)."""
+
+    def test_excludes_scorer_llm_cost(self):
+        from worker.ingest_tasks import _task_cost_by_trace
+
+        rows = [
+            ("t1", "root", "", "EVALUATION", None),
+            ("t1", "task", "root", "TASK", None),
+            ("t1", "task_llm", "task", "LLM", 0.010),  # candidate cost
+            ("t1", "scorer", "root", "SCORER", None),
+            ("t1", "judge_llm", "scorer", "LLM", 0.004),  # judge cost — excluded
+        ]
+        assert _task_cost_by_trace(rows) == {"t1": pytest.approx(0.010)}
+
+    def test_excludes_deeply_nested_scorer_descendants(self):
+        from worker.ingest_tasks import _task_cost_by_trace
+
+        # Scorer -> wrapper span -> LLM: the whole subtree is excluded, not just direct children.
+        rows = [
+            ("t1", "task", "root", "TASK", None),
+            ("t1", "task_llm", "task", "LLM", 0.02),
+            ("t1", "scorer", "root", "SCORER", None),
+            ("t1", "wrap", "scorer", "SPAN", None),
+            ("t1", "judge_llm", "wrap", "LLM", 0.05),
+        ]
+        assert _task_cost_by_trace(rows) == {"t1": pytest.approx(0.02)}
+
+    def test_no_scorer_llm_sums_all_task_cost(self):
+        from worker.ingest_tasks import _task_cost_by_trace
+
+        # A trivial code scorer (no LLM) — nothing to exclude; two task LLM calls sum.
+        rows = [
+            ("t1", "task", "root", "TASK", None),
+            ("t1", "llm_a", "task", "LLM", 0.003),
+            ("t1", "llm_b", "task", "LLM", 0.004),
+            ("t1", "scorer", "root", "SCORER", None),
+        ]
+        assert _task_cost_by_trace(rows) == {"t1": pytest.approx(0.007)}
+
+    def test_costless_trace_is_zero(self):
+        from worker.ingest_tasks import _task_cost_by_trace
+
+        rows = [
+            ("t1", "root", "", "EVALUATION", None),
+            ("t1", "task", "root", "TASK", None),
+        ]
+        assert _task_cost_by_trace(rows) == {"t1": 0.0}
+
+    def test_multiple_traces_kept_separate(self):
+        from worker.ingest_tasks import _task_cost_by_trace
+
+        rows = [
+            ("t1", "task1", "root1", "TASK", None),
+            ("t1", "llm1", "task1", "LLM", 0.01),
+            ("t2", "task2", "root2", "TASK", None),
+            ("t2", "llm2", "task2", "LLM", 0.02),
+            ("t2", "scorer2", "root2", "SCORER", None),
+            ("t2", "judge2", "scorer2", "LLM", 0.99),
+        ]
+        assert _task_cost_by_trace(rows) == {
+            "t1": pytest.approx(0.01),
+            "t2": pytest.approx(0.02),
+        }
