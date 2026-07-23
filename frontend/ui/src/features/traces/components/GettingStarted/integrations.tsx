@@ -373,20 +373,6 @@ from traceroot import Integration
 
 traceroot.initialize(integrations=[Integration.GROQ])`,
       },
-      typescript: {
-        installCommand: "npm install @traceroot-ai/traceroot openai",
-        initSnippet: `import OpenAI from "openai";
-import { TraceRoot } from "@traceroot-ai/traceroot";
-
-TraceRoot.initialize({
-  instrumentModules: { openAI: OpenAI },
-});
-
-const openai = new OpenAI({
-  apiKey: process.env.GROQ_API_KEY,
-  baseURL: "https://api.groq.com/openai/v1",
-});`,
-      },
     },
   },
   {

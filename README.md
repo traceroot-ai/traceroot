@@ -120,7 +120,7 @@ The fastest way to get started. Ample storage and LLM tokens for testing, no cre
 | ----------- | -------- | ----------- |
 | [Anthropic](https://traceroot.ai/docs/integrations/anthropic) | Python, JS/TS | Automated instrumentation of the Messages API. |
 | [Google Gemini](https://traceroot.ai/docs/integrations/gemini) | Python | Automated instrumentation via the Google GenAI SDK. |
-| [Groq](https://traceroot.ai/docs/integrations/groq) | Python, JS/TS | Native Groq SDK instrumentation in Python; OpenAI-compatible tracing in JS/TS via the Groq base URL. See the [Python](./examples/python/groq-tool-agent) and [TypeScript](./examples/typescript/groq) examples. |
+| [Groq](https://traceroot.ai/docs/integrations/groq) | Python | Native Groq SDK instrumentation via the `groq` client. See the [Python example](./examples/python/groq-tool-agent). |
 | [Mistral](https://traceroot.ai/docs/integrations/mistral) | Python | Automated instrumentation of Mistral chat completions, tool calls, and streaming responses. |
 | [OpenAI](https://traceroot.ai/docs/integrations/openai) | Python, JS/TS | Automated instrumentation of Chat Completions and Responses API. |
 | [OpenRouter](https://traceroot.ai/docs/integrations/openrouter) | Python, JS/TS | OpenAI-compatible tracing via the OpenAI SDK base URL; see the [Python](./examples/python/openrouter-tool-agent) and [TypeScript](./examples/typescript/openrouter) examples. |
