@@ -213,16 +213,20 @@ describe("generateDigestSummary", () => {
 });
 
 describe("parseDigestSummaryTimeoutMs", () => {
-  it("falls back to 15000 for empty and non-numeric values", async () => {
-    const { parseDigestSummaryTimeoutMs } = await import("../digest-summary.js");
-    expect(parseDigestSummaryTimeoutMs("")).toBe(15_000);
-    expect(parseDigestSummaryTimeoutMs("15s")).toBe(15_000);
+  it("falls back to the default (15s) for empty and non-numeric values", async () => {
+    const { parseDigestSummaryTimeoutMs, DEFAULT_DIGEST_SUMMARY_TIMEOUT_MS } =
+      await import("../digest-summary.js");
+    expect(DEFAULT_DIGEST_SUMMARY_TIMEOUT_MS).toBe(15_000);
+    expect(parseDigestSummaryTimeoutMs("")).toBe(DEFAULT_DIGEST_SUMMARY_TIMEOUT_MS);
+    expect(parseDigestSummaryTimeoutMs("15s")).toBe(DEFAULT_DIGEST_SUMMARY_TIMEOUT_MS);
   });
 
-  it("clamps oversized values to 60s so a bad env var cannot stall digests", async () => {
-    const { parseDigestSummaryTimeoutMs } = await import("../digest-summary.js");
-    expect(parseDigestSummaryTimeoutMs("2147483647")).toBe(60_000);
-    expect(parseDigestSummaryTimeoutMs("1e9")).toBe(60_000);
+  it("clamps oversized values to the max (60s) so a bad env var cannot stall digests", async () => {
+    const { parseDigestSummaryTimeoutMs, MAX_DIGEST_SUMMARY_TIMEOUT_MS } =
+      await import("../digest-summary.js");
+    expect(MAX_DIGEST_SUMMARY_TIMEOUT_MS).toBe(60_000);
+    expect(parseDigestSummaryTimeoutMs("2147483647")).toBe(MAX_DIGEST_SUMMARY_TIMEOUT_MS);
+    expect(parseDigestSummaryTimeoutMs("1e9")).toBe(MAX_DIGEST_SUMMARY_TIMEOUT_MS);
     expect(parseDigestSummaryTimeoutMs("30000")).toBe(30_000);
   });
 });

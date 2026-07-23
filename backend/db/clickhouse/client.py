@@ -5,6 +5,7 @@ from typing import Any
 
 import clickhouse_connect
 from clickhouse_connect.driver.client import Client
+from clickhouse_connect.driver.query import QueryResult
 
 from shared.config import settings
 
@@ -155,7 +156,7 @@ class ClickHouseClient:
         query: str,
         parameters: dict[str, Any] | None = None,
         settings: dict[str, Any] | None = None,
-    ):
+    ) -> QueryResult:
         """Execute a query and return the result.
 
         ``parameters`` and ``settings`` are different channels: parameters
