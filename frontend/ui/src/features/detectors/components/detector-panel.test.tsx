@@ -133,3 +133,20 @@ describe("DetectorPanel", () => {
     expect((saveButton() as HTMLButtonElement).disabled).toBe(true);
   });
 });
+
+describe("DetectorPanel header (shared PanelHeader)", () => {
+  it("renders the detector name, ID, and a copy button in the header", () => {
+    mocks.detector = baseDetector;
+    renderPanel();
+    expect(screen.getByText("Latency spikes")).toBeTruthy();
+    expect(screen.getByText("det-1")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /copy detector id/i })).toBeTruthy();
+  });
+
+  it("calls onClose when the header close button is clicked", () => {
+    mocks.detector = baseDetector;
+    const { onClose } = renderPanel();
+    fireEvent.click(screen.getByRole("button", { name: /^close$/i }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});

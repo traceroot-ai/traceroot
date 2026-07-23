@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { Eye, X, Copy, Check, ArrowUp, ArrowDown } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Eye } from "lucide-react";
 import { useDetector, useUpdateDetector } from "../hooks/use-detectors";
 import { DEFAULT_DETECTOR_SAMPLE_RATE } from "../templates";
 import { useProject } from "@/features/projects/hooks";
@@ -20,6 +20,7 @@ import {
   type ModelSelection,
 } from "@/features/ai-assistant/components/model-selector";
 import { Button } from "@/components/ui/button";
+import { PanelHeader } from "@/components/ui/panel-header";
 import { Input } from "@/components/ui/input";
 
 interface DetectorPanelProps {
@@ -130,13 +131,6 @@ export function DetectorPanel({
     }
   }, [detectorId, detector]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const [copied, setCopied] = useState(false);
-  const copyId = useCallback(() => {
-    void navigator.clipboard.writeText(detectorId);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  }, [detectorId]);
-
   const updateMutation = useUpdateDetector(projectId, detectorId);
 
   const handleSave = () => {
@@ -159,54 +153,26 @@ export function DetectorPanel({
 
   return (
     <div className="animate-slide-in-right fixed bottom-0 right-0 top-0 z-50 flex w-[70%] flex-col border-l border-border bg-background shadow-xl">
-      {/* Header — same style as trace viewer */}
-      <div className="flex h-10 flex-shrink-0 items-center justify-between border-b border-border bg-muted/30 px-4">
-        <div className="flex min-w-0 items-center gap-2">
-          <Eye className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="text-[13px] font-medium">Detector</span>
-          <span className="truncate text-[13px] text-muted-foreground">
-            {detector?.name ?? detectorId}
-          </span>
-          <button
-            type="button"
-            onClick={copyId}
-            className="flex items-center gap-1 rounded px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground/60 transition-colors hover:bg-muted hover:text-muted-foreground"
-            title="Copy detector ID"
-          >
-            {detectorId}
-            {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
-          </button>
-        </div>
-        <div className="flex items-center gap-1">
-          {onNavigate && (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onNavigate("up")}
-                disabled={!canNavigateUp}
-                className="h-7 w-7 p-0"
-                title="Previous detector"
-              >
-                <ArrowUp className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onNavigate("down")}
-                disabled={!canNavigateDown}
-                className="h-7 w-7 p-0"
-                title="Next detector"
-              >
-                <ArrowDown className="h-4 w-4" />
-              </Button>
-            </>
-          )}
-          <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0">
-            <X className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
+      {/* Header — shared with trace viewer via PanelHeader */}
+      <PanelHeader
+        icon={<Eye className="h-4 w-4 shrink-0 text-muted-foreground" />}
+        label="Detector"
+        name={detector?.name}
+        id={detectorId}
+        copyTitle="Copy detector ID"
+        nav={
+          onNavigate
+            ? {
+                onNavigate,
+                canUp: canNavigateUp ?? false,
+                canDown: canNavigateDown ?? false,
+                upTitle: "Previous detector",
+                downTitle: "Next detector",
+              }
+            : undefined
+        }
+        close={{ onClose }}
+      />
 
       {/* Scrollable form body */}
       <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-4">

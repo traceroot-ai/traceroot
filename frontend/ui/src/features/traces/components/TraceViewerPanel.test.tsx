@@ -8,6 +8,31 @@ const mocks = vi.hoisted(() => ({
   traceError: null as unknown,
   traceLoading: false,
   aiPanelOpen: false,
+  findings: undefined as
+    | {
+        findings: Array<{
+          finding_id: string;
+          trace_id: string;
+          project_id: string;
+          timestamp: string;
+          summary: string;
+          payload: string;
+        }>;
+      }
+    | undefined,
+  rca: undefined as
+    | {
+        rca: {
+          id: string;
+          findingId: string;
+          sessionId: string | null;
+          status: string;
+          result: string | null;
+          completedAt: string | null;
+          createTime: string;
+        } | null;
+      }
+    | undefined,
 }));
 
 // Layout context drives the fullscreen width math (sidebar width).
@@ -29,8 +54,8 @@ vi.mock("@tanstack/react-query", () => ({
 vi.mock("@/lib/api", () => ({ getTrace: vi.fn() }));
 vi.mock("../hooks/use-trace-stream", () => ({ useTraceStream: vi.fn() }));
 vi.mock("@/features/detectors/hooks/use-findings", () => ({
-  useTraceFindings: () => ({ data: undefined }),
-  useRca: () => ({ data: undefined }),
+  useTraceFindings: () => ({ data: mocks.findings }),
+  useRca: () => ({ data: mocks.rca }),
   useTraceDetectorRuns: () => ({ data: undefined, isLoading: false, error: null }),
 }));
 
@@ -76,6 +101,8 @@ afterEach(() => {
   mocks.traceError = null;
   mocks.traceLoading = false;
   mocks.aiPanelOpen = false;
+  mocks.findings = undefined;
+  mocks.rca = undefined;
 });
 
 describe("TraceViewerPanel layout", () => {
@@ -192,5 +219,66 @@ describe("TraceViewerPanel content states", () => {
     mocks.aiPanelOpen = true;
     renderPanel();
     expect(screen.getByTestId("ai-panel")).toBeTruthy();
+  });
+});
+
+describe("TraceViewerPanel header (shared PanelHeader)", () => {
+  it("renders the trace ID + a copy button in the header", () => {
+    renderPanel();
+    expect(screen.getByText("trace-1")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /copy trace id/i })).toBeTruthy();
+  });
+
+  it("does not render the Alert button when there is no RCA finding", () => {
+    renderPanel();
+    expect(screen.queryByRole("button", { name: /^alert$/i })).toBeNull();
+  });
+
+  it("renders the Alert button when a finding + RCA record exist (hasRca)", () => {
+    mocks.findings = {
+      findings: [
+        {
+          finding_id: "f-1",
+          trace_id: "trace-1",
+          project_id: "proj-1",
+          timestamp: "2026-07-11T00:00:00Z",
+          summary: "task failed",
+          payload: "[]",
+        },
+      ],
+    };
+    mocks.rca = {
+      rca: {
+        id: "rca-1",
+        findingId: "f-1",
+        sessionId: "sess-1",
+        status: "done",
+        result: "root cause",
+        completedAt: "2026-07-11T00:01:00Z",
+        createTime: "2026-07-11T00:00:05Z",
+      },
+    };
+    renderPanel();
+    expect(screen.getByRole("button", { name: /^alert$/i })).toBeTruthy();
+  });
+
+  it("does not render the Alert button when a finding exists but RCA is absent", () => {
+    // Gate is on the RCA record, not the finding — an RCA-disabled detector
+    // finding has no analysis to open, so the button must stay hidden.
+    mocks.findings = {
+      findings: [
+        {
+          finding_id: "f-1",
+          trace_id: "trace-1",
+          project_id: "proj-1",
+          timestamp: "2026-07-11T00:00:00Z",
+          summary: "task failed",
+          payload: "[]",
+        },
+      ],
+    };
+    mocks.rca = { rca: null };
+    renderPanel();
+    expect(screen.queryByRole("button", { name: /^alert$/i })).toBeNull();
   });
 });
