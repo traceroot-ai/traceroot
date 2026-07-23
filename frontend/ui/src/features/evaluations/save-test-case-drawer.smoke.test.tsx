@@ -53,12 +53,12 @@ describe("Save as test case drawer (real, mock-faithful)", () => {
     // Header + the selected span derived from the fetched trace.
     expect(screen.getByText("Save as test case")).toBeDefined();
     expect(await screen.findByText("support-ticket-triage")).toBeDefined();
-    // The details the earlier stripped version was missing:
-    expect(screen.getByText("Recorded output")).toBeDefined();
-    expect(screen.getByText("Expected outcome")).toBeDefined();
-    expect(screen.getByText("Not required")).toBeDefined();
-    expect(screen.getByText("Use recorded output")).toBeDefined();
-    expect(screen.getByText("Enter a corrected outcome")).toBeDefined();
+    // The details the earlier stripped version was missing. The single editable Output
+    // field replaced the read-only Recorded output + three-way Expected outcome.
+    expect(screen.getByText("Output")).toBeDefined();
+    expect(
+      screen.getByText(/becomes the outcome future runs are evaluated against|expected outcome/i),
+    ).toBeDefined();
     expect(screen.getByText("Source")).toBeDefined();
     expect(screen.getByText(/Capture reason/)).toBeDefined();
     // (The inline "New dataset" option lives inside the closed Select portal,
