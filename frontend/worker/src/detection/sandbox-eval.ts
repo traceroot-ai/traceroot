@@ -1,4 +1,7 @@
-import { complete, getEnvApiKey } from "@earendil-works/pi-ai/compat";
+import { getEnvApiKey } from "@earendil-works/pi-ai/compat";
+// complete() goes through the tracing wrapper: inside a detector self-trace
+// scope the call is recorded as a real LLM span; otherwise pure passthrough.
+import { tracedComplete as complete } from "./traced-complete.js";
 import type { Message, ToolCall, ProviderStreamOptions } from "@earendil-works/pi-ai";
 import {
   findByokKeyForPiProvider,
