@@ -102,6 +102,7 @@ const RUN = {
       not_comparable: 0,
     },
     scorers: [],
+    duration: { candidateMeanMs: null, baselineMeanMs: null, deltaMs: null, pairedCount: 0 },
   },
 };
 

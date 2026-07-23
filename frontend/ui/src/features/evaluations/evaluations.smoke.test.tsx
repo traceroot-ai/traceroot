@@ -85,6 +85,7 @@ const RUN = {
         pairedCount: 22,
       },
     ],
+    duration: { candidateMeanMs: 1500, baselineMeanMs: 1400, deltaMs: 100, pairedCount: 22 },
   },
 };
 
