@@ -8,6 +8,7 @@ import {
   getTraceDuration,
   summarizeCostDetails,
   getTraceCostBreakdown,
+  buildSpanTree,
 } from "./index";
 import { mergeSpans } from "../hooks/use-trace-stream";
 import { flattenTreeWithMetrics } from "./timeline";
@@ -44,11 +45,19 @@ function makeSpan(overrides: Partial<Span> & { span_id: string }): Span {
   };
 }
 
-function metadataWith(idsPath: string[], namePath: string[]): string {
+function metadataWith(idsPath: string[], namePath: string[], startsPath?: string[]): string {
   return JSON.stringify({
     "traceroot.span.ids_path": idsPath,
     "traceroot.span.path": namePath,
+    ...(startsPath ? { "traceroot.span.starts_path": startsPath } : {}),
   });
+}
+
+// Converts an ISO timestamp into the epoch-nanosecond decimal string the SDKs
+// emit for traceroot.span.starts_path. Built via BigInt so the 19-digit
+// nanosecond value round-trips exactly (a plain Number would lose precision).
+function ns(iso: string): string {
+  return (BigInt(Date.parse(iso)) * BigInt(1_000_000)).toString();
 }
 
 describe("enrichSpansWithPending", () => {
@@ -194,6 +203,252 @@ describe("enrichSpansWithPending", () => {
 
     expect(s1s).toHaveLength(1);
     expect(s1s[0].pending).toBeFalsy();
+  });
+});
+
+// starts_path carries the ancestor chain's TRUE start times (index-aligned
+// with ids_path), so placeholders no longer have to estimate from whichever
+// descendant happened to arrive first. See issue #1499.
+describe("enrichSpansWithPending — starts_path (issue #1499)", () => {
+  it("uses true ancestor start from starts_path for new placeholders", () => {
+    const rootId = "root-id";
+    const midId = "mid-id";
+    const child = makeSpan({
+      span_id: "child",
+      parent_span_id: midId,
+      span_start_time: "2026-07-03T10:00:00.788Z",
+      metadata: metadataWith(
+        [rootId, midId],
+        ["root", "mid", "child"],
+        [ns("2026-07-03T10:00:00.700Z"), ns("2026-07-03T10:00:00.784Z")],
+      ),
+    });
+
+    const result = enrichSpansWithPending([child]);
+    const rootPlaceholder = result.find((s) => s.span_id === rootId)!;
+    const midPlaceholder = result.find((s) => s.span_id === midId)!;
+
+    expect(rootPlaceholder.span_start_time).toBe("2026-07-03T10:00:00.700Z");
+    expect(midPlaceholder.span_start_time).toBe("2026-07-03T10:00:00.784Z");
+  });
+
+  it("starts_path wins over a later descendant-derived estimate", () => {
+    const midId = "mid-id";
+
+    // Old-SDK sibling arrives first with no starts_path — placeholder is
+    // estimated from its own start time, exactly like today.
+    const sibling1 = makeSpan({
+      span_id: "sibling1",
+      parent_span_id: midId,
+      span_start_time: "2026-07-03T10:00:00.790Z",
+      metadata: metadataWith([midId], ["mid", "sibling1"]),
+    });
+    const afterFirst = enrichSpansWithPending([sibling1]);
+    expect(afterFirst.find((s) => s.span_id === midId)!.span_start_time).toBe(
+      "2026-07-03T10:00:00.790Z",
+    );
+
+    // A starts_path-bearing descendant arrives next, carrying the true
+    // (earlier) ancestor start — min-refinement adopts it.
+    const sibling2 = makeSpan({
+      span_id: "sibling2",
+      parent_span_id: midId,
+      span_start_time: "2026-07-03T10:00:00.789Z",
+      metadata: metadataWith([midId], ["mid", "sibling2"], [ns("2026-07-03T10:00:00.784Z")]),
+    });
+    const afterSecond = enrichSpansWithPending([...afterFirst, sibling2]);
+    expect(afterSecond.find((s) => s.span_id === midId)!.span_start_time).toBe(
+      "2026-07-03T10:00:00.784Z",
+    );
+  });
+
+  it("misaligned starts_path is ignored (falls back to estimate)", () => {
+    const rootId = "root-id";
+    const midId = "mid-id";
+    const child = makeSpan({
+      span_id: "child",
+      parent_span_id: midId,
+      span_start_time: "2026-07-03T10:00:00.788Z",
+      metadata: metadataWith(
+        [rootId, midId],
+        ["root", "mid", "child"],
+        // Only one entry for two ancestors — length mismatch.
+        [ns("2026-07-03T10:00:00.700Z")],
+      ),
+    });
+
+    const result = enrichSpansWithPending([child]);
+    const rootPlaceholder = result.find((s) => s.span_id === rootId)!;
+    const midPlaceholder = result.find((s) => s.span_id === midId)!;
+
+    expect(rootPlaceholder.span_start_time).toBe("2026-07-03T10:00:00.788Z");
+    expect(midPlaceholder.span_start_time).toBe("2026-07-03T10:00:00.788Z");
+  });
+
+  it("malformed starts_path entries are ignored (per-entry fallback)", () => {
+    const rootId = "root-id";
+    const midId = "mid-id";
+    const child = makeSpan({
+      span_id: "child",
+      parent_span_id: midId,
+      span_start_time: "2026-07-03T10:00:00.788Z",
+      metadata: metadataWith(
+        [rootId, midId],
+        ["root", "mid", "child"],
+        ["not-a-number", ns("2026-07-03T10:00:00.784Z")],
+      ),
+    });
+
+    const result = enrichSpansWithPending([child]);
+    const rootPlaceholder = result.find((s) => s.span_id === rootId)!;
+    const midPlaceholder = result.find((s) => s.span_id === midId)!;
+
+    // Malformed entry at index 0 falls back to the descendant's own start.
+    expect(rootPlaceholder.span_start_time).toBe("2026-07-03T10:00:00.788Z");
+    // Valid entry at index 1 is still used.
+    expect(midPlaceholder.span_start_time).toBe("2026-07-03T10:00:00.784Z");
+  });
+
+  it("ms-aligned starts_path value converts to the exact millisecond (no truncation)", () => {
+    const rootId = "root-id";
+    const child = makeSpan({
+      span_id: "child",
+      parent_span_id: rootId,
+      span_start_time: "2026-07-03T10:00:05.000Z",
+      metadata: metadataWith([rootId], ["root", "child"], ["1782123600002000000"]),
+    });
+
+    const result = enrichSpansWithPending([child]);
+    const rootPlaceholder = result.find((s) => s.span_id === rootId)!;
+
+    expect(Date.parse(rootPlaceholder.span_start_time)).toBe(1782123600002);
+    expect(rootPlaceholder.span_start_time.endsWith(":00.002Z")).toBe(true);
+  });
+
+  it("overlong starts_path digit string is treated as malformed (falls back, does not throw)", () => {
+    const rootId = "root-id";
+    const child = makeSpan({
+      span_id: "child",
+      parent_span_id: rootId,
+      span_start_time: "2026-07-03T10:00:00.788Z",
+      metadata: metadataWith([rootId], ["root", "child"], ["9".repeat(26)]),
+    });
+
+    expect(() => enrichSpansWithPending([child])).not.toThrow();
+    const result = enrichSpansWithPending([child]);
+    const rootPlaceholder = result.find((s) => s.span_id === rootId)!;
+
+    expect(rootPlaceholder.span_start_time).toBe("2026-07-03T10:00:00.788Z");
+  });
+
+  it("starts_path longer than ids_path is ignored (falls back to estimate)", () => {
+    const rootId = "root-id";
+    const child = makeSpan({
+      span_id: "child",
+      parent_span_id: rootId,
+      span_start_time: "2026-07-03T10:00:00.788Z",
+      metadata: metadataWith(
+        [rootId],
+        ["root", "child"],
+        [ns("2026-07-03T10:00:00.700Z"), ns("2026-07-03T10:00:00.750Z")],
+      ),
+    });
+
+    const result = enrichSpansWithPending([child]);
+    const rootPlaceholder = result.find((s) => s.span_id === rootId)!;
+
+    expect(rootPlaceholder.span_start_time).toBe("2026-07-03T10:00:00.788Z");
+  });
+
+  // Replay regression (issue #1499 acceptance criterion): two concurrent
+  // sibling sections under root R — branch A's ancestor a1 truly starts at
+  // .784 but its real span arrives last (slow); branch B's ancestor b1 truly
+  // starts at .785 but its real span arrives early (fast). Without true
+  // ancestor starts, a1's placeholder is estimated from whatever descendant
+  // created it and can sort AFTER b1 even though a1 started first.
+  describe("concurrent sibling sections never flip order during batch-by-batch replay", () => {
+    const rootId = "r";
+    const aId = "a1";
+    const bId = "b1";
+
+    function buildFixtures(includeStartsPath: boolean) {
+      const sp = (path: string[]) => (includeStartsPath ? path : undefined);
+
+      const aTools = makeSpan({
+        span_id: "a-tools",
+        parent_span_id: aId,
+        span_start_time: "2026-07-03T10:00:00.788Z",
+        metadata: metadataWith(
+          [rootId, aId],
+          ["r", "a1", "a-tools"],
+          sp([ns("2026-07-03T10:00:00.700Z"), ns("2026-07-03T10:00:00.784Z")]),
+        ),
+      });
+      const b1 = makeSpan({
+        span_id: bId,
+        parent_span_id: rootId,
+        span_start_time: "2026-07-03T10:00:00.785Z",
+        metadata: metadataWith([rootId], ["r", "b1"], sp([ns("2026-07-03T10:00:00.700Z")])),
+      });
+      const bTools = makeSpan({
+        span_id: "b-tools",
+        parent_span_id: bId,
+        span_start_time: "2026-07-03T10:00:00.790Z",
+        metadata: metadataWith(
+          [rootId, bId],
+          ["r", "b1", "b-tools"],
+          sp([ns("2026-07-03T10:00:00.700Z"), ns("2026-07-03T10:00:00.785Z")]),
+        ),
+      });
+      const a1 = makeSpan({
+        span_id: aId,
+        parent_span_id: rootId,
+        span_start_time: "2026-07-03T10:00:00.784Z",
+        metadata: metadataWith([rootId], ["r", "a1"], sp([ns("2026-07-03T10:00:00.700Z")])),
+      });
+
+      return { aTools, b1, bTools, a1 };
+    }
+
+    function rootChildOrder(spans: Span[]): string[] {
+      return buildSpanTree(spans)
+        .filter((row) => row.span.parent_span_id === rootId)
+        .map((row) => row.span.span_id);
+    }
+
+    it("with starts_path: order stays [a1, b1] at every batch", () => {
+      const { aTools, b1, bTools, a1 } = buildFixtures(true);
+
+      let real: Span[] = [aTools];
+      let enriched = enrichSpansWithPending(real);
+      expect(rootChildOrder(enriched)).toEqual([aId]);
+
+      real = [...real, b1, bTools];
+      enriched = enrichSpansWithPending(real);
+      expect(rootChildOrder(enriched)).toEqual([aId, bId]);
+
+      real = [...real, a1];
+      enriched = enrichSpansWithPending(real);
+      expect(rootChildOrder(enriched)).toEqual([aId, bId]);
+    });
+
+    it("pre-fix failure mode: without starts_path, order flips at batch 2", () => {
+      const { aTools, b1, bTools, a1 } = buildFixtures(false);
+
+      let real: Span[] = [aTools];
+      let enriched = enrichSpansWithPending(real);
+      expect(rootChildOrder(enriched)).toEqual([aId]);
+
+      real = [...real, b1, bTools];
+      enriched = enrichSpansWithPending(real);
+      // a1's placeholder is estimated from a-tools' own start (.788), later
+      // than b1's real start (.785) — sections swap order mid-run.
+      expect(rootChildOrder(enriched)).toEqual([bId, aId]);
+
+      real = [...real, a1];
+      enriched = enrichSpansWithPending(real);
+      expect(rootChildOrder(enriched)).toEqual([aId, bId]);
+    });
   });
 });
 
