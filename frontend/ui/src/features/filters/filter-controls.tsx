@@ -230,7 +230,7 @@ export function FieldDropdown({
   onPick: (key: string) => void;
 }) {
   const selected = valueKey ? (options.find((o) => o.key === valueKey) ?? null) : null;
-  const Icon = selected ? (selected.icon ?? DOMAIN_ICONS.model) : null;
+  const Icon = selected ? (selected.icon ?? DOMAIN_ICONS.fallback) : null;
   return (
     <Dropdown
       trigger={
@@ -244,7 +244,7 @@ export function FieldDropdown({
     >
       {(close) =>
         options.map((o) => {
-          const OIcon = o.icon ?? DOMAIN_ICONS.model;
+          const OIcon = o.icon ?? DOMAIN_ICONS.fallback;
           return (
             <DropdownItem
               key={o.key}

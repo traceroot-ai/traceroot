@@ -6,7 +6,8 @@ import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 // names the trace list spells differently (errors -> error_count), the token
 // variants, a distinct count symbol (the shared map's Box doubles as the
 // model icon, so count falling back to it read as "model"), and the user /
-// session symbols the trace-page tabs use. Box stays the generic fallback.
+// session symbols the trace-page tabs use. DOMAIN_ICONS.fallback (Box) stays
+// the generic fallback for unmapped fields.
 const WIDGET_FIELD_ICONS: Record<string, LucideIcon> = {
   ...FIELD_ICONS,
   error_count: DOMAIN_ICONS.error,
@@ -24,4 +25,4 @@ const WIDGET_FIELD_ICONS: Record<string, LucideIcon> = {
 };
 
 export const fieldIcon = (field: string): LucideIcon =>
-  WIDGET_FIELD_ICONS[field] ?? DOMAIN_ICONS.model;
+  WIDGET_FIELD_ICONS[field] ?? DOMAIN_ICONS.fallback;
