@@ -17,8 +17,7 @@ import { TraceViewerPanel } from "@/features/traces/components/TraceViewerPanel"
 /**
  * Which trace the consolidated panel shows. `kind` selects RCA auto-open:
  * "original" (the run's source trace) opens its RCA when one exists; "self"
- * (the detector's own analysis trace — Section 3) opens quietly. Today only
- * "original" is produced; the "self" path is wired but unused.
+ * (the detector run's own self-trace) opens quietly, with no RCA auto-open.
  */
 type SelectedTrace = { traceId: string; kind: "original" | "self" } | null;
 
