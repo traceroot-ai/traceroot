@@ -200,4 +200,50 @@ describe("tracedComplete inside a self-trace scope", () => {
     const llmSpans = exporter.getFinishedSpans().filter((s) => s.name.startsWith("chat"));
     expect(llmSpans).toHaveLength(2);
   });
+
+  it("records partial usage (only input) without crashing", async () => {
+    mockComplete.mockResolvedValue({ ...RESPONSE, usage: { input: 7 } });
+    await withSelfTrace(META, () => tracedComplete(MODEL as never, CTX as never, {} as never));
+
+    const llm = exporter.getFinishedSpans().find((s) => s.name.startsWith("chat"))!;
+    expect(llm.attributes["gen_ai.usage.input_tokens"]).toBe(7);
+    expect(llm.attributes["gen_ai.usage.output_tokens"]).toBeUndefined();
+    expect(llm.attributes["gen_ai.usage.cache_read.input_tokens"]).toBeUndefined();
+  });
+
+  it("degrades to an untraced call when the transcript cannot be serialized", async () => {
+    // A BigInt in the transcript makes JSON.stringify throw. Span setup is
+    // best-effort, so tracedComplete must still return the response and never
+    // throw into the detector run — no chat span, but the call succeeds.
+    const unserializable = { ...CTX, messages: [{ role: "user", content: 10n }] };
+    let result: unknown;
+    const run = await withSelfTrace(META, async () => {
+      result = await tracedComplete(MODEL as never, unserializable as never, {} as never);
+      return "ok";
+    });
+    expect(run.ok).toBe(true);
+    expect(result).toEqual(RESPONSE);
+    expect(exporter.getFinishedSpans().some((s) => s.name.startsWith("chat"))).toBe(false);
+  });
+});
+
+describe("concurrent self-traces stay isolated", () => {
+  it("attributes each judge span to its own run's project, no cross-bleed", async () => {
+    const metaA = { ...META, runId: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", projectId: "proj-a" };
+    const metaB = { ...META, runId: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", projectId: "proj-b" };
+
+    // Interleave two runs: A yields before its judge call so B runs in between.
+    await Promise.all([
+      withSelfTrace(metaA, async () => {
+        await new Promise((r) => setTimeout(r, 5));
+        return tracedComplete(MODEL as never, CTX as never, {} as never);
+      }),
+      withSelfTrace(metaB, () => tracedComplete(MODEL as never, CTX as never, {} as never)),
+    ]);
+
+    const chats = exporter.getFinishedSpans().filter((s) => s.name.startsWith("chat"));
+    expect(chats).toHaveLength(2);
+    const projects = chats.map((s) => s.attributes["traceroot.project_id"]).sort();
+    expect(projects).toEqual(["proj-a", "proj-b"]);
+  });
 });
