@@ -62,7 +62,7 @@ const RUN = {
   environment: "evaluation",
   status: "completed",
   baselineRunId: null,
-  mainScore: 90,
+  mainScore: 0.9,
   mainScoreName: "Routing accuracy",
   caseCount: 1,
   scoredCount: 1,
@@ -84,7 +84,7 @@ const RUN = {
     trustworthy: false,
     reasons: ["no_baseline"],
     baseline: null,
-    mainScore: { candidate: 90, baseline: null, delta: null },
+    mainScore: { candidate: 0.9, baseline: null, delta: null },
     caseCounts: {
       improved: 0,
       regressed: 0,
