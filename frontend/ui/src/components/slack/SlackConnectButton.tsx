@@ -4,7 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePathname } from "next/navigation";
 import { Check, ChevronDown, ExternalLink, Hash, Lock, Send, Settings, Unlink } from "lucide-react";
-import { FaSlack } from "react-icons/fa";
+import { SlackLogo } from "./SlackLogo";
 import { useWorkspace } from "@/features/workspaces/hooks";
 import {
   useSlackStatus,
@@ -307,7 +307,7 @@ export function SlackConnectButton({ workspaceId }: Props) {
 function Row({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex items-center gap-3">
-      <FaSlack className="h-6 w-6 text-muted-foreground" />
+      <SlackLogo className="h-6 w-6" />
       {children}
     </div>
   );

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ChevronRight, Flag, History } from "lucide-react";
 import { SearchFilterBar } from "@/components/search-filter-bar";
+import { LoadingState } from "@/components/ui/loading-state";
 import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { cn, buildUrlWithFilters } from "@/lib/utils";
@@ -206,7 +207,7 @@ export default function DetectorDetailPage() {
             if (loading) {
               return (
                 <div className="flex h-64 items-center justify-center">
-                  <p className="text-[13px] text-muted-foreground">Loading {noun}...</p>
+                  <LoadingState label={`Loading ${noun}...`} />
                 </div>
               );
             }

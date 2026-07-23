@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { X, ArrowUp, ArrowDown, ExternalLink, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
+import { LoadingState } from "@/components/ui/loading-state";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { ExpandableSection } from "@/components/ui/expandable-section";
 import { useSession } from "@/features/traces/hooks";
@@ -260,7 +261,7 @@ export function SessionDetailPanel({
               <div className="flex-1 overflow-auto p-4">
                 {checking ? (
                   <div className="flex h-64 items-center justify-center">
-                    <p className="text-[13px] text-muted-foreground">Loading session...</p>
+                    <LoadingState label="Loading session..." />
                   </div>
                 ) : error ? (
                   <div className="flex h-64 flex-col items-center justify-center gap-3">

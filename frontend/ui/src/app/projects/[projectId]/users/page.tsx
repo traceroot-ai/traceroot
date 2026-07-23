@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
+import { LoadingState } from "@/components/ui/loading-state";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
@@ -130,7 +131,7 @@ export default function UsersPage() {
         <div className="flex-1 overflow-auto bg-background">
           {checking ? (
             <div className="flex h-64 items-center justify-center">
-              <p className="text-[13px] text-muted-foreground">Loading users...</p>
+              <LoadingState label="Loading users..." />
             </div>
           ) : error && !data ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">

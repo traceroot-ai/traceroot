@@ -68,7 +68,7 @@ export function GeneralTab({ projectId }: GeneralTabProps) {
   };
 
   const handleDelete = () => {
-    if (deleteConfirmText === project?.name) {
+    if (deleteConfirmText === project?.name && !deleteMutation.isPending) {
       deleteMutation.mutate();
     }
   };
@@ -138,6 +138,7 @@ export function GeneralTab({ projectId }: GeneralTabProps) {
             <Input
               value={deleteConfirmText}
               onChange={(e) => setDeleteConfirmText(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && !e.nativeEvent.isComposing && handleDelete()}
               placeholder="Project name"
             />
           </div>
