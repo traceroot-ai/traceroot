@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
-import { Workflow, Users, Layers, X } from "lucide-react";
+import { Workflow, Users, Layers, X, Inbox, AlertTriangle } from "lucide-react";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { TraceSearchFilterInput } from "@/features/filters/trace-search-filter-input";
 import { ListPagination } from "@/components/list-pagination";
@@ -24,6 +24,7 @@ import { useTraces, usePrefetchTraces } from "@/features/traces/hooks";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useLocalStorage } from "@/lib/hooks/use-local-storage";
 import { TraceViewerPanel, GettingStarted } from "@/features/traces/components";
+import { LoadingState } from "@/components/ui/loading-state";
 import { formatContentPreview } from "@/features/traces/utils";
 import { useSession as useAuthSession } from "@/lib/auth-client";
 
@@ -225,10 +226,11 @@ export default function TracesPage() {
         <div className="flex-1 overflow-auto bg-background">
           {isLoading || checking ? (
             <div className="flex h-64 items-center justify-center">
-              <p className="text-[13px] text-muted-foreground">Loading traces...</p>
+              <LoadingState label="Loading traces..." />
             </div>
           ) : error && !data ? (
-            <div className="flex h-64 flex-col items-center justify-center gap-3">
+            <div className="flex h-64 flex-col items-center justify-center gap-3 text-center">
+              <AlertTriangle className="h-8 w-8 text-destructive/50" />
               <p className="text-[13px] text-destructive">Error loading traces</p>
               <p className="text-[12px] text-muted-foreground">
                 Make sure the API server is running and you have API keys configured.
@@ -237,7 +239,8 @@ export default function TracesPage() {
           ) : showGettingStarted ? (
             <GettingStarted projectId={projectId} />
           ) : traces.length === 0 ? (
-            <div className="flex h-64 flex-col items-center justify-center gap-3">
+            <div className="flex h-64 flex-col items-center justify-center gap-3 text-center">
+              <Inbox className="h-8 w-8 text-muted-foreground/40" />
               <p className="text-[13px] text-muted-foreground">No traces found</p>
               <p className="text-[12px] text-muted-foreground">
                 Try adjusting your filters or date range.

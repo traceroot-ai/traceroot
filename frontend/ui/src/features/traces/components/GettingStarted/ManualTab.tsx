@@ -2,17 +2,16 @@
 
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { CopyButton } from "@/components/ui/copy-button";
-import { GitHubConnectButton } from "@/components/github/GitHubConnectButton";
-import { SlackConnectButton } from "@/components/slack/SlackConnectButton";
 import { useProject } from "@/features/projects/hooks";
 import { ApiKeyBlock } from "./ApiKeyBlock";
+import { CodeBlock } from "./CodeBlock";
+import { ExternalIntegrations } from "./ExternalIntegrations";
 import { IntegrationPickerCard } from "./IntegrationPickerCard";
 import { ALL_LANGS, INTEGRATIONS, type IntegrationCategory, type Lang } from "./integrations";
 
 const INTEGRATION_GROUPS: { category: IntegrationCategory; label: string }[] = [
-  { category: "framework", label: "Frameworks" },
   { category: "provider", label: "Model providers" },
+  { category: "framework", label: "Frameworks" },
 ];
 
 function LangTabs({
@@ -87,15 +86,7 @@ export function ManualTab({ projectId }: ManualTabProps) {
       <div className="space-y-2">
         <p className="text-sm font-medium text-foreground">2. Install SDK</p>
         <LangTabs lang={resolvedLang} onChange={setLang} availableLangs={availableLangs} />
-        <div className="border border-border">
-          <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
-            <span className="text-xs text-muted-foreground">bash</span>
-            <CopyButton value={config.installCommand} className="h-6 w-6" />
-          </div>
-          <pre className="overflow-x-auto whitespace-pre-wrap bg-muted px-3 py-2.5 font-mono text-xs text-foreground">
-            {config.installCommand}
-          </pre>
-        </div>
+        <CodeBlock label="bash" value={config.installCommand} />
       </div>
 
       <div className="space-y-3">
@@ -120,11 +111,7 @@ export function ManualTab({ projectId }: ManualTabProps) {
           return (
             <div key={group.category} className="space-y-1.5">
               <p className="text-xs font-medium text-muted-foreground">{group.label}</p>
-              <div
-                role="radiogroup"
-                aria-label={group.label}
-                className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3"
-              >
+              <div role="radiogroup" aria-label={group.label} className="flex flex-wrap gap-2">
                 {items.map((integration) => (
                   <IntegrationPickerCard
                     key={integration.id}
@@ -153,45 +140,12 @@ export function ManualTab({ projectId }: ManualTabProps) {
           4. Initialize TraceRoot for {selectedIntegration.name}
         </p>
         <LangTabs lang={resolvedLang} onChange={setLang} availableLangs={availableLangs} />
-        <div className="border border-border">
-          <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
-            <span className="text-xs text-muted-foreground">{resolvedLang}</span>
-            <CopyButton value={config.initSnippet} className="h-6 w-6" />
-          </div>
-          <pre className="overflow-x-auto whitespace-pre-wrap bg-muted px-3 py-2.5 font-mono text-xs leading-relaxed text-foreground">
-            {config.initSnippet}
-          </pre>
-        </div>
+        <CodeBlock label={resolvedLang} value={config.initSnippet} language={resolvedLang} />
       </div>
 
       <div className="space-y-2">
-        <p className="text-sm font-medium text-foreground">
-          5. Optionally connect your GitHub repositories
-        </p>
-        <div className="rounded-sm border border-border bg-muted/30 px-4 py-3">
-          <p className="text-xs text-muted-foreground">
-            Install the GitHub App for repository linking and code-level tracing during root cause
-            analysis.
-          </p>
-          <div className="mt-3">
-            <GitHubConnectButton workspaceId={workspaceId} />
-          </div>
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <p className="text-sm font-medium text-foreground">
-          6. Optionally connect Slack for alerts
-        </p>
-        <div className="rounded-sm border border-border bg-muted/30 px-4 py-3">
-          <p className="text-xs text-muted-foreground">
-            Connect Slack to get detector alerts posted to a channel so your team is notified about
-            issues.
-          </p>
-          <div className="mt-3">
-            <SlackConnectButton workspaceId={workspaceId} />
-          </div>
-        </div>
+        <p className="text-sm font-medium text-foreground">5. External integrations</p>
+        <ExternalIntegrations workspaceId={workspaceId} />
       </div>
     </div>
   );

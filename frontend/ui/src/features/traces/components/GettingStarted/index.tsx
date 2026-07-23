@@ -25,12 +25,12 @@ export function GettingStarted({ projectId }: GettingStartedProps) {
           You don&apos;t have any traces yet. Choose how you&apos;d like to set up.
         </p>
 
-        <div className="mt-6 inline-flex gap-0.5 rounded-sm border border-border bg-muted p-0.5">
+        <div className="mt-6 inline-flex gap-0.5 rounded-md border border-border bg-muted p-0.5">
           <button
             type="button"
             onClick={() => setTab("ai")}
             className={cn(
-              "flex items-center gap-1.5 rounded-none px-3 py-1.5 text-xs font-medium transition-colors",
+              "flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-xs font-medium transition-colors",
               tab === "ai"
                 ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground",
@@ -43,7 +43,7 @@ export function GettingStarted({ projectId }: GettingStartedProps) {
             type="button"
             onClick={() => setTab("manual")}
             className={cn(
-              "flex items-center gap-1.5 rounded-none px-3 py-1.5 text-xs font-medium transition-colors",
+              "flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-xs font-medium transition-colors",
               tab === "manual"
                 ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground",
