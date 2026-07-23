@@ -19,6 +19,7 @@ import { cn, buildUrlWithFilters } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { getTrace } from "@/lib/api";
+import { TraceApiError } from "@/lib/api/errors";
 import type { TraceSelection } from "../types";
 import { SpanTreeView, type SpanTreeViewHandle } from "./SpanTreeView";
 import { SpanInfoPanel } from "./SpanInfoPanel";
@@ -303,7 +304,13 @@ export function TraceViewerPanel({
                     dateFilter,
                     customStartDate,
                     customEndDate,
-                    extraParams: { traceId, fullscreen: "1" },
+                    // A self-trace's id matches no list row's trace_id, so the
+                    // receiving page needs the source to reopen it as a
+                    // self-trace instead of looking it up as an original.
+                    extraParams:
+                      source === "detector"
+                        ? { traceId, fullscreen: "1", source }
+                        : { traceId, fullscreen: "1" },
                   }),
                   "_blank",
                 )
@@ -443,7 +450,19 @@ export function TraceViewerPanel({
                     </div>
                   ) : error || !trace ? (
                     <div className="flex h-full items-center justify-center">
-                      <p className="text-sm text-destructive">Error loading trace</p>
+                      {source === "detector" &&
+                      (!error || (error instanceof TraceApiError && error.status === 404)) ? (
+                        // self_traced is set optimistically at emit time, but the
+                        // SDK export is batched — the trace may not be ingested
+                        // yet, so a 404 miss here is expected, not an error. A
+                        // non-404 failure still surfaces as a real error below.
+                        <p className="text-sm text-muted-foreground">
+                          This detector run&rsquo;s trace is still being recorded. Check back in a
+                          moment.
+                        </p>
+                      ) : (
+                        <p className="text-sm text-destructive">Error loading trace</p>
+                      )}
                     </div>
                   ) : viewMode === "tree" ? (
                     <SpanInfoPanel

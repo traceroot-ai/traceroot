@@ -4,6 +4,7 @@
 
 // Client utilities
 export { fetchNextApi, fetchTraceApi } from "./client";
+export { TraceApiError } from "./errors";
 
 // Workspace APIs
 export {

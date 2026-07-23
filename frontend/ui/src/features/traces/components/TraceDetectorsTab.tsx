@@ -2,7 +2,11 @@
 
 import { useRouter } from "next/navigation";
 import { cn, formatDate, buildUrlWithFilters } from "@/lib/utils";
-import { useTraceDetectorRuns, type BackendRun } from "@/features/detectors/hooks/use-findings";
+import {
+  useTraceDetectorRuns,
+  selfTraceId,
+  type BackendRun,
+} from "@/features/detectors/hooks/use-findings";
 import {
   DETECTOR_TH,
   DETECTOR_TD,
@@ -42,7 +46,8 @@ interface TraceDetectorsTabProps {
  * Lists every detector that ran on a trace as a table, reusing the detector
  * page's table primitives for a consistent look. The trace-id and run-id
  * columns are dropped here — every row is this same trace, and the run id is
- * noise in this context. Clicking a row opens that detector's Runs tab. Fetches
+ * noise in this context. Clicking a row opens that detector's Runs tab; a
+ * self-traced run deep-links straight to the run's own trace there. Fetches
  * its own data by traceId, independent of the trace fetch in the parent panel.
  */
 export function TraceDetectorsTab({ projectId, traceId }: TraceDetectorsTabProps) {
@@ -89,10 +94,16 @@ export function TraceDetectorsTab({ projectId, traceId }: TraceDetectorsTabProps
         <tbody>
           {runs.map((r) => {
             // Deep-link to the detector's Runs tab; the Findings tab is just that
-            // runs list filtered to identified runs, so Runs is canonical.
+            // runs list filtered to identified runs, so Runs is canonical. A
+            // self-traced run additionally carries its own trace id + source so
+            // the page auto-opens the run's actual trace on arrival.
             const detectorHref = buildUrlWithFilters(
               `/projects/${projectId}/detectors/${r.detector_id}`,
-              { extraParams: { tab: "runs" } },
+              {
+                extraParams: r.self_traced
+                  ? { tab: "runs", traceId: selfTraceId(r), source: "detector" }
+                  : { tab: "runs" },
+              },
             );
             return (
               <tr

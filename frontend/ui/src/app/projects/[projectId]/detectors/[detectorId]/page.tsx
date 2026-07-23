@@ -8,7 +8,7 @@ import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { cn, buildUrlWithFilters } from "@/lib/utils";
 import { useDetector } from "@/features/detectors/hooks/use-detectors";
-import { useRuns, type BackendRun } from "@/features/detectors/hooks/use-findings";
+import { useRuns, selfTraceId, type BackendRun } from "@/features/detectors/hooks/use-findings";
 import { DetectorRunsTable } from "@/features/detectors/components/detector-runs-table";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
@@ -17,10 +17,16 @@ import { TraceViewerPanel } from "@/features/traces/components/TraceViewerPanel"
 /**
  * Which trace the consolidated panel shows. `kind` selects RCA auto-open:
  * "original" (the run's source trace) opens its RCA when one exists; "self"
- * (the detector's own analysis trace — Section 3) opens quietly. Today only
- * "original" is produced; the "self" path is wired but unused.
+ * (the detector run's own self-trace) opens quietly, with no RCA auto-open.
  */
 type SelectedTrace = { traceId: string; kind: "original" | "self" } | null;
+
+// A self-trace is identified by its run row (dashless run_id), not by a
+// trace_id in the list, so match on the right key per kind. Module-scope so
+// effects can use it without a dependency-list entry.
+const rowMatchesSelection = (r: BackendRun, sel: SelectedTrace) =>
+  sel != null &&
+  (sel.kind === "self" ? selfTraceId(r) === sel.traceId : r.trace_id === sel.traceId);
 
 const tabs = [
   { id: "findings", label: "Findings", icon: Flag },
@@ -35,8 +41,11 @@ export default function DetectorDetailPage() {
   const detectorId = params.detectorId as string;
 
   // Deep-link params: set when a trace is popped out into a new tab from the
-  // panel's "open in new tab" button, so it reopens here in the detector tab.
+  // panel's "open in new tab" button (or linked from a trace's Detectors tab),
+  // so it reopens here in the detector tab. source=detector marks the id as a
+  // self-trace (dashless run_id), which matches run rows, not trace ids.
   const traceIdFromUrl = searchParams.get("traceId");
+  const sourceFromUrl = searchParams.get("source");
   const [startFullscreen, setStartFullscreen] = useState(searchParams.get("fullscreen") === "1");
   const [didAutoOpen, setDidAutoOpen] = useState(false);
 
@@ -108,31 +117,43 @@ export default function DetectorDetailPage() {
   const openOriginalTrace = (run: BackendRun) =>
     setSelectedTrace({ traceId: run.trace_id, kind: "original" });
 
-  // Clear the selection if its trace is no longer in the active list (e.g. the
+  // Clicking a self-traced run's run_id cell opens the run's own trace.
+  const openSelfTrace = (run: BackendRun) =>
+    setSelectedTrace({ traceId: selfTraceId(run), kind: "self" });
+
+  // Clear the selection if its run/trace is no longer in the active list (e.g. the
   // user paginated, refetched, switched tabs, or changed filters).
   useEffect(() => {
-    if (selectedTrace && !activeRows.some((r) => r.trace_id === selectedTrace.traceId)) {
+    if (selectedTrace && !activeRows.some((r) => rowMatchesSelection(r, selectedTrace))) {
       setSelectedTrace(null);
     }
   }, [activeRows, selectedTrace]);
 
-  // Deep-link: when arriving with ?traceId=... (popped out from another tab),
-  // open that trace once the list has loaded. Runs once, so closing the panel
-  // doesn't reopen it.
+  // Deep-link: when arriving with ?traceId=... (popped out from another tab or
+  // linked from a trace's Detectors tab), open that trace once the list has
+  // loaded. Runs once, so closing the panel doesn't reopen it.
   useEffect(() => {
     if (didAutoOpen || !traceIdFromUrl) return;
-    if (activeRows.some((r) => r.trace_id === traceIdFromUrl)) {
-      setSelectedTrace({ traceId: traceIdFromUrl, kind: "original" });
+    const sel: SelectedTrace = {
+      traceId: traceIdFromUrl,
+      kind: sourceFromUrl === "detector" ? "self" : "original",
+    };
+    if (activeRows.some((r) => rowMatchesSelection(r, sel))) {
+      setSelectedTrace(sel);
       setDidAutoOpen(true);
     }
-  }, [didAutoOpen, traceIdFromUrl, activeRows]);
+  }, [didAutoOpen, traceIdFromUrl, sourceFromUrl, activeRows]);
 
   const selectedIndex = selectedTrace
-    ? activeRows.findIndex((r) => r.trace_id === selectedTrace.traceId)
+    ? activeRows.findIndex((r) => rowMatchesSelection(r, selectedTrace))
     : -1;
 
+  // Up/down steps through original traces only; a self-trace is a point-open with
+  // no natural sequence (adjacent rows may not be self-traced).
+  const canNavigate = selectedTrace?.kind === "original";
+
   function handleNavigate(direction: "up" | "down") {
-    if (selectedIndex === -1) return;
+    if (!canNavigate || selectedIndex === -1) return;
     const nextIndex = direction === "up" ? selectedIndex - 1 : selectedIndex + 1;
     if (nextIndex >= 0 && nextIndex < activeRows.length) {
       setSelectedTrace({ traceId: activeRows[nextIndex].trace_id, kind: "original" });
@@ -227,7 +248,13 @@ export default function DetectorDetailPage() {
                 </div>
               );
             }
-            return <DetectorRunsTable rows={activeRows} onTraceClick={openOriginalTrace} />;
+            return (
+              <DetectorRunsTable
+                rows={activeRows}
+                onTraceClick={openOriginalTrace}
+                onRunClick={openSelfTrace}
+              />
+            );
           })()}
         </div>
 
@@ -252,8 +279,10 @@ export default function DetectorDetailPage() {
             setStartFullscreen(false);
           }}
           onNavigate={handleNavigate}
-          canNavigateUp={selectedIndex > 0}
-          canNavigateDown={selectedIndex !== -1 && selectedIndex < activeRows.length - 1}
+          canNavigateUp={canNavigate && selectedIndex > 0}
+          canNavigateDown={
+            canNavigate && selectedIndex !== -1 && selectedIndex < activeRows.length - 1
+          }
           dateFilter={state.dateFilter}
           customStartDate={state.customStartDate}
           customEndDate={state.customEndDate}
