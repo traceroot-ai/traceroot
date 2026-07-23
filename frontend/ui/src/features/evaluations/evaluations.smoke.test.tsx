@@ -195,6 +195,17 @@ describe("real Datasets + Evaluations views render server data", () => {
     expect((await screen.findAllByText("git:4a91c02")).length).toBeGreaterThan(0);
   });
 
+  it("Evaluations shows a detectors-style empty page with a Run evaluation CTA", async () => {
+    global.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: [], meta: { page: 0, limit: 50, total: 0 } }),
+    })) as unknown as typeof fetch;
+    mount(<EvaluationsView projectId="p1" />);
+    expect(await screen.findByText("No evaluation runs yet")).toBeDefined();
+    expect((await screen.findAllByText("Run evaluation")).length).toBeGreaterThan(0);
+  });
+
   it("Run detail renders the run header and the result row (results-forward)", async () => {
     mount(<RunDetailView projectId="p1" runId="run1" />);
     // The run's identity (evaluation name + candidate version) in the header.
