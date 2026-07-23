@@ -5,6 +5,7 @@ import { Eye, X, Copy, Check, ArrowUp, ArrowDown } from "lucide-react";
 import { useDetector, useUpdateDetector } from "../hooks/use-detectors";
 import { DEFAULT_DETECTOR_SAMPLE_RATE } from "../templates";
 import { useProject } from "@/features/projects/hooks";
+import { useWorkspace } from "@/features/workspaces/hooks";
 import { TriggerEditor } from "./trigger-editor";
 import type { TriggerCondition } from "./trigger-editor";
 import { AgentModelLink } from "./agent-model-link";
@@ -43,6 +44,8 @@ export function DetectorPanel({
 }: DetectorPanelProps) {
   const { data: detector } = useDetector(projectId, detectorId);
   const { data: project } = useProject(projectId);
+  const { data: workspace } = useWorkspace(workspaceId ?? "");
+  const isMember = workspace?.role === "MEMBER" || workspace?.role === "ADMIN";
 
   const [editName, setEditName] = useState("");
   const [editPrompt, setEditPrompt] = useState("");
@@ -303,6 +306,11 @@ export function DetectorPanel({
         </div>
 
         {/* Save / Cancel */}
+        {updateMutation.isError && (
+          <p className="text-[11px] text-destructive">
+            {(updateMutation.error as Error)?.message ?? "Failed to save"}
+          </p>
+        )}
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="outline" size="sm" onClick={onClose} className="h-7 text-[12px]">
             Cancel
@@ -310,7 +318,9 @@ export function DetectorPanel({
           <Button
             size="sm"
             onClick={handleSave}
-            disabled={updateMutation.isPending || !detector || detector.id !== detectorId}
+            disabled={
+              updateMutation.isPending || !detector || detector.id !== detectorId || !isMember
+            }
             className="h-7 text-[12px]"
           >
             {updateMutation.isPending ? "Saving..." : "Save"}

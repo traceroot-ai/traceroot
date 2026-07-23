@@ -9,6 +9,7 @@ import { MessageInput } from "./message-input";
 import { SessionHistory } from "./session-history";
 import { useAiChatContext } from "./ai-chat-context";
 import { getProject, getAvailableLLMModels } from "@/lib/api";
+import { useWorkspace } from "@/features/workspaces/hooks";
 
 interface AiAssistantPanelProps {
   projectId?: string;
@@ -47,6 +48,10 @@ export function AiAssistantPanel({ projectId, onClose, compact = false }: AiAssi
   // workspaceId from project (only available on project pages)
   const workspaceId = project?.workspace_id;
 
+  const { data: workspace } = useWorkspace(workspaceId ?? "");
+  const isAdmin = workspace?.role === "ADMIN";
+  const isMember = workspace?.role === "MEMBER" || isAdmin;
+
   // Check if any models are available (system or BYOK)
   const { data: llmModels } = useQuery({
     queryKey: ["llm-models", workspaceId],
@@ -67,6 +72,7 @@ export function AiAssistantPanel({ projectId, onClose, compact = false }: AiAssi
   const {
     messages,
     isStreaming,
+    sendError,
     sessions,
     historyOpen,
     currentSessionId,
@@ -127,6 +133,7 @@ export function AiAssistantPanel({ projectId, onClose, compact = false }: AiAssi
               projectId={projectId ?? ""}
               onSelect={handleSelectSession}
               onDelete={handleDeleteSession}
+              canDelete={isAdmin}
             />
           </PopoverContent>
         </Popover>
@@ -180,10 +187,13 @@ export function AiAssistantPanel({ projectId, onClose, compact = false }: AiAssi
         <MessageList messages={messages} sessionStreaming={isStreaming} />
       )}
 
+      {/* Send/session-creation error */}
+      {sendError && <p className="mx-3 mb-1 text-[11px] text-destructive">{sendError}</p>}
+
       {/* Input */}
       <MessageInput
         onSend={handleSend}
-        disabled={!projectId || !hasModels}
+        disabled={!projectId || !hasModels || !isMember}
         workspaceId={workspaceId}
         actions={
           isStreaming && (

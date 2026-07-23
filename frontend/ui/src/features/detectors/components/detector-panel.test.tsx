@@ -6,14 +6,25 @@ import type { Detector } from "../hooks/use-detectors";
 const mocks = vi.hoisted(() => ({
   detector: undefined as Detector | undefined,
   mutate: vi.fn(),
+  workspaceData: undefined as { role: string } | undefined,
+  mutateIsError: false,
+  mutateError: null as Error | null,
 }));
 
 vi.mock("../hooks/use-detectors", () => ({
   useDetector: () => ({ data: mocks.detector }),
-  useUpdateDetector: () => ({ mutate: mocks.mutate, isPending: false }),
+  useUpdateDetector: () => ({
+    mutate: mocks.mutate,
+    isPending: false,
+    isError: mocks.mutateIsError,
+    error: mocks.mutateError,
+  }),
 }));
 vi.mock("@/features/projects/hooks", () => ({
   useProject: () => ({ data: undefined }),
+}));
+vi.mock("@/features/workspaces/hooks", () => ({
+  useWorkspace: () => ({ data: mocks.workspaceData }),
 }));
 vi.mock("./trigger-editor", () => ({
   TriggerEditor: () => null,
@@ -80,6 +91,9 @@ const saveButton = () => screen.getByRole("button", { name: "Save" });
 afterEach(() => {
   cleanup();
   mocks.detector = undefined;
+  mocks.workspaceData = undefined;
+  mocks.mutateIsError = false;
+  mocks.mutateError = null;
   mocks.mutate.mockReset();
 });
 
@@ -106,6 +120,7 @@ describe("DetectorPanel", () => {
 
   it("saves only the fields the user changed", () => {
     mocks.detector = baseDetector;
+    mocks.workspaceData = { role: "MEMBER" };
     const { onClose } = renderPanel();
     fireEvent.change(promptBox(), { target: { value: "new prompt" } });
     fireEvent.click(saveButton());
@@ -120,6 +135,7 @@ describe("DetectorPanel", () => {
 
   it("closes without a network call when nothing changed", () => {
     mocks.detector = baseDetector;
+    mocks.workspaceData = { role: "MEMBER" };
     const { onClose } = renderPanel();
     fireEvent.click(saveButton());
     expect(mocks.mutate).not.toHaveBeenCalled();
@@ -131,5 +147,21 @@ describe("DetectorPanel", () => {
     renderPanel("det-2");
     expect(promptBox().value).toBe("");
     expect((saveButton() as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("disables Save for VIEWER role", () => {
+    mocks.detector = baseDetector;
+    mocks.workspaceData = { role: "VIEWER" };
+    renderPanel();
+    expect((saveButton() as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("shows error message when Save fails", () => {
+    mocks.detector = baseDetector;
+    mocks.workspaceData = { role: "MEMBER" };
+    mocks.mutateIsError = true;
+    mocks.mutateError = new Error("Server error");
+    renderPanel();
+    expect(screen.getByText("Server error")).toBeDefined();
   });
 });

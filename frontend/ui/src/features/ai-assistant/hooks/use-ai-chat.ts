@@ -27,6 +27,10 @@ export function useAiChat({
   // (session creation + first network round-trip). Without this, React 19 can batch
   // setIsStreaming(true) and setIsStreaming(false) into a single frame, hiding the button.
   const [isSending, setIsSending] = useState(false);
+  // Surfaces a failed session creation (e.g. a non-MEMBER's 403) instead of the
+  // previous silent console.error — the send button would otherwise no-op with
+  // no visible feedback. Cleared on the next send attempt or a fresh session.
+  const [sendError, setSendError] = useState<string | null>(null);
 
   // Reset session + messages when the user navigates to a different project so
   // a session ID from project A can never be replayed against project B's chat
@@ -91,11 +95,17 @@ export function useAiChat({
         body: JSON.stringify({ traceId, traceSessionId }),
         signal: ac.signal,
       });
-      if (!res.ok) throw new Error(`Failed to create session: ${res.status}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.error ?? `Failed to create session: ${res.status}`);
+      }
       const data = await res.json();
       return data.id;
     } catch (err) {
-      if ((err as Error).name !== "AbortError") console.error(err);
+      if ((err as Error).name !== "AbortError") {
+        console.error(err);
+        setSendError((err as Error).message);
+      }
       return null;
     } finally {
       ensureSessionAbortersRef.current.delete(ac);
@@ -106,6 +116,7 @@ export function useAiChat({
     async (message: string, modelSelection: ModelSelection) => {
       if (!projectId) return;
       setIsSending(true);
+      setSendError(null);
       try {
         const sessionId = await ensureSession();
         if (!sessionId) return;
@@ -134,6 +145,7 @@ export function useAiChat({
     // follow-up (see the linked discussion / issue on #784).
     sessionIdRef.current = null;
     setMessages([]);
+    setSendError(null);
   }, [setMessages]);
 
   // Closing the panel ends the conversation: any in-flight run is aborted,
@@ -202,6 +214,7 @@ export function useAiChat({
     // State
     messages,
     isStreaming: isSending || isStreaming || messages.some((m) => m.isStreaming),
+    sendError,
     sessions,
     historyOpen,
     currentSessionId: sessionIdRef.current,
