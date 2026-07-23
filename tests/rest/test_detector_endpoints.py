@@ -606,8 +606,13 @@ def _otlp_body(
     extra_trace_ids: tuple[bytes, ...] = (),
     span_id: bytes = b"\x01" * 8,
     parent_span_id: bytes | None = None,
+    span_project_ids: tuple[str | None, ...] = (),
 ) -> bytes:
-    """Serialize an OTLP ExportTraceServiceRequest with one span per trace id."""
+    """Serialize an OTLP ExportTraceServiceRequest with one span per trace id.
+
+    ``span_project_ids`` optionally stamps the Nth span with a per-span
+    ``traceroot.project_id`` attribute (None leaves that span unattributed).
+    """
     request = ExportTraceServiceRequest()
     resource_spans = request.resource_spans.add()
     scope_spans = resource_spans.scope_spans.add()
@@ -618,6 +623,10 @@ def _otlp_body(
         span.span_id = span_id if index == 0 else bytes([index + 1]) * 8
         if index == 0 and parent_span_id is not None:
             span.parent_span_id = parent_span_id
+        if index < len(span_project_ids) and span_project_ids[index]:
+            attr = span.attributes.add()
+            attr.key = "traceroot.project_id"
+            attr.value.string_value = span_project_ids[index]
         span.name = "detector-run"
         span.start_time_unix_nano = 1700000000000000000
         span.end_time_unix_nano = 1700000001000000000
@@ -791,6 +800,108 @@ class TestInternalTraceIngest:
         import rest.routers.internal as internal_module
 
         assert "enqueue_detector_runs" not in inspect.getsource(internal_module)
+
+
+class TestPerSpanProjectAttribution:
+    """Attribute-at-source routing: the worker stamps traceroot.project_id
+    per span; the request-level project id is only a single-project fallback."""
+
+    URL = "/api/v1/internal/traces"
+
+    def test_mixed_project_batch_fans_each_trace_to_its_own_project(self, client, secret, mock_ch):
+        body = _otlp_body(
+            extra_trace_ids=(b"\xcd" * 16,),
+            span_project_ids=("proj-a", "proj-b"),
+        )
+        resp = client.post(self.URL, content=body, headers={"X-Internal-Secret": secret})
+        assert resp.status_code == 200
+        spans = mock_ch.insert_spans_batch.call_args[0][0]
+        traces = mock_ch.insert_traces_batch.call_args[0][0]
+        assert {s["trace_id"]: s["project_id"] for s in spans} == {
+            "ab" * 16: "proj-a",
+            "cd" * 16: "proj-b",
+        }
+        assert {t["trace_id"]: t["project_id"] for t in traces} == {
+            "ab" * 16: "proj-a",
+            "cd" * 16: "proj-b",
+        }
+        # Force-stamping still applies to every routed record.
+        assert all(s["source"] == "detector" for s in spans)
+        assert all(t["source"] == "detector" for t in traces)
+
+    def test_span_attribute_wins_over_request_fallback(self, client, secret, mock_ch):
+        resp = client.post(
+            self.URL,
+            content=_otlp_body(span_project_ids=("proj-span",)),
+            headers={"X-Internal-Secret": secret, "X-Project-Id": "proj-hdr"},
+        )
+        assert resp.status_code == 200
+        spans = mock_ch.insert_spans_batch.call_args[0][0]
+        assert spans and all(s["project_id"] == "proj-span" for s in spans)
+
+    def test_unattributed_span_falls_back_to_request_project(self, client, secret, mock_ch):
+        body = _otlp_body(
+            extra_trace_ids=(b"\xcd" * 16,),
+            span_project_ids=("proj-a", None),
+        )
+        resp = client.post(
+            f"{self.URL}?project_id=proj-fb",
+            content=body,
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        spans = mock_ch.insert_spans_batch.call_args[0][0]
+        assert {s["trace_id"]: s["project_id"] for s in spans} == {
+            "ab" * 16: "proj-a",
+            "cd" * 16: "proj-fb",
+        }
+
+    def test_partially_unattributable_batch_is_rejected_whole(self, client, secret, mock_ch):
+        """One span with no attribute and no fallback rejects the whole batch —
+        a project is never guessed."""
+        body = _otlp_body(
+            extra_trace_ids=(b"\xcd" * 16,),
+            span_project_ids=("proj-a", None),
+        )
+        resp = client.post(self.URL, content=body, headers={"X-Internal-Secret": secret})
+        assert resp.status_code == 400
+        mock_ch.insert_spans_batch.assert_not_called()
+        mock_ch.insert_traces_batch.assert_not_called()
+
+    def test_id_validation_applies_across_all_project_groups(self, client, secret, mock_ch):
+        """A malformed trace id in another project's group still rejects everything."""
+        body = _otlp_body(
+            extra_trace_ids=(b"\xcd" * 8,),  # 8 bytes -> 16 hex chars: invalid
+            span_project_ids=("proj-a", "proj-b"),
+        )
+        resp = client.post(self.URL, content=body, headers={"X-Internal-Secret": secret})
+        assert resp.status_code == 400
+        mock_ch.insert_spans_batch.assert_not_called()
+        mock_ch.insert_traces_batch.assert_not_called()
+
+    def test_non_string_project_attribute_is_a_400_not_a_500(self, client, secret, mock_ch):
+        """A malformed traceroot.project_id value (an OTLP array/int, not a
+        string) must reject the batch cleanly (400), not crash grouping with an
+        unhashable-key TypeError surfacing as a 500."""
+        request = ExportTraceServiceRequest()
+        span = request.resource_spans.add().scope_spans.add().spans.add()
+        span.trace_id = b"\xab" * 16
+        span.span_id = b"\x01" * 8
+        span.name = "detector-run"
+        span.start_time_unix_nano = 1700000000000000000
+        span.end_time_unix_nano = 1700000001000000000
+        attr = span.attributes.add()
+        attr.key = "traceroot.project_id"
+        attr.value.array_value.values.add().string_value = "proj-x"
+
+        resp = client.post(
+            "/api/v1/internal/traces",
+            content=request.SerializeToString(),
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 400
+        mock_ch.insert_spans_batch.assert_not_called()
+        mock_ch.insert_traces_batch.assert_not_called()
 
 
 # =============================================================================

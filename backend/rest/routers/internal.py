@@ -23,7 +23,7 @@ from rest.schemas.detectors import (
 )
 from rest.sql_utils import escape_ilike, to_utc_naive
 from shared.config import settings
-from worker.otel_transform import transform_otel_to_clickhouse
+from worker.detector_transform import UnattributableSpanError, transform_detector_traces
 
 logger = logging.getLogger(__name__)
 
@@ -771,45 +771,47 @@ _SPAN_ID_RE = re.compile(r"^[0-9a-f]{16}$")
 async def ingest_internal_traces(
     request: Request,
     project_id: str | None = Query(
-        default=None, description="Project to attribute the self-trace to"
+        default=None, description="Fallback project for spans without a per-span attribute"
     ),
     x_project_id: Annotated[str | None, Header()] = None,
 ) -> dict:
     """Ingest detector self-traces (OTLP protobuf) directly into ClickHouse.
 
-    Trusted, internal-only counterpart of the public OTLP ingest: the worker's
-    internal-mode SDK tracer posts here with the shared secret, spans run
-    through the same transform as customer traffic (trust_source=True), and
-    the rows are inserted in-process — no S3 hop and no detection enqueue, so
-    a detector can never scan its own emission. Spans are inserted before the
-    trace row so a partial failure cannot leave a trace row that points at
-    missing spans. Every record is force-stamped source='detector' regardless
-    of payload content.
+    Trusted, internal-only counterpart of the public OTLP ingest: the worker
+    posts here with the shared secret, spans run through the detector-only
+    multi-project wrapper (which calls the same transform as customer
+    traffic, trust_source=True, once per project group), and the rows are
+    inserted in-process — no S3 hop and no detection enqueue, so a detector
+    can never scan its own emission. Spans are inserted before the trace row
+    so a partial failure cannot leave a trace row that points at missing
+    spans. Every record is force-stamped source='detector' regardless of
+    payload content.
+
+    Project attribution is per-span and primary: the worker serves every
+    project off one queue, so each span carries its own
+    ``traceroot.project_id`` attribute. The request-level project id (header
+    or query) is only a fallback for spans without the attribute.
 
     Args:
         request (Request): Raw request; body is OTLP protobuf, optionally
             gzip-compressed (Content-Encoding: gzip).
-        project_id (str | None): Project to attribute the self-trace to,
-            as a query parameter; trusted because the route is secret-gated.
+        project_id (str | None): Fallback project for spans without a
+            per-span attribute, as a query parameter; trusted because the
+            route is secret-gated.
         x_project_id (str | None): Same, as the X-Project-Id header. The
-            worker SDK sends the header because the OTLP exporter strips
-            query strings from its endpoint URL; the header wins when both
-            are given, and one of the two is required.
+            header wins when both are given. Optional — a batch whose every
+            span carries the per-span attribute needs neither.
 
     Returns:
         dict: ``{"ok": True}`` on success.
 
     Raises:
-        HTTPException: 400 on a missing project id, an empty body, an
-            undecodable payload, a trace id that is not exactly 32 lowercase
-            hex chars, or a span/parent id that is present but not exactly 16.
+        HTTPException: 400 on an empty body, an undecodable payload, a span
+            with neither a per-span project attribute nor a request-level
+            fallback, a trace id that is not exactly 32 lowercase hex chars,
+            or a span/parent id that is present but not exactly 16.
     """
-    project_id = x_project_id or project_id
-    if not project_id:
-        raise HTTPException(
-            status_code=400,
-            detail="project id required (X-Project-Id header or project_id query param)",
-        )
+    fallback_project_id = x_project_id or project_id
 
     body = await request.body()
     if not body:
@@ -830,7 +832,12 @@ async def ingest_internal_traces(
         logger.warning("Internal trace ingest: invalid OTLP protobuf: %s", e)
         raise HTTPException(status_code=400, detail="Invalid OTLP protobuf") from None
 
-    traces, spans = transform_otel_to_clickhouse(otel_data, project_id, trust_source=True)
+    try:
+        traces, spans = transform_detector_traces(
+            otel_data, fallback_project_id=fallback_project_id
+        )
+    except UnattributableSpanError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
 
     # Defense in depth: client-forced ids are only accepted in internal mode,
     # and even there they must look like real trace ids (dashless run_id).
