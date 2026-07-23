@@ -142,6 +142,18 @@ describe("SpanInfoPanel - Error box source location badges", () => {
     expect(errorMessage.className).toContain("break-all");
   });
 
+  it("renders the model_name pill with its icon", () => {
+    render(<SpanInfoPanel projectId="proj-123" trace={mockTrace} selection={mockSelection} />);
+
+    const modelPill = screen.getByText("gpt-4o");
+    expect(modelPill).toBeTruthy();
+
+    const modelParentDiv = modelPill.parentElement;
+    expect(modelParentDiv).toBeTruthy();
+    const modelIcon = modelParentDiv?.querySelector("svg");
+    expect(modelIcon).toBeTruthy();
+  });
+
   it("renders Trace header with git_repo and git_ref badges with correct wrapping styles", () => {
     const mockTraceSelection: TraceSelection = {
       type: "trace",

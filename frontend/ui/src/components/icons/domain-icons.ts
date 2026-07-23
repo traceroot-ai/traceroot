@@ -62,4 +62,9 @@ export const DOMAIN_ICONS = {
   detector: Eye,
   environment: Globe,
   dashboard: LayoutDashboard,
+  // Neutral "unknown field" fallback for filter/widget dropdowns. Kept
+  // decoupled from `model` even though both currently render as Box — if the
+  // model glyph ever changes, unmapped fields shouldn't silently change with
+  // it (ka1kqi, #1594).
+  fallback: Box,
 } satisfies Record<string, LucideIcon>;

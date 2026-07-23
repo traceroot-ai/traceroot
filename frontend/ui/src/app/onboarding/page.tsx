@@ -12,7 +12,8 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { useLayout } from "@/components/layout/app-layout";
 import { createWorkspace, createProject } from "@/lib/api";
-import { LayoutGrid, Layers, Check } from "lucide-react";
+import { LayoutGrid, Check } from "lucide-react";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { AddDetectorsStep } from "@/features/detectors/components/add-detectors-step";
 
 const onboardingSchema = z.object({
@@ -223,7 +224,7 @@ function OnboardingContent() {
                   <div className="flex items-start gap-3">
                     <div className="flex flex-col items-center">
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-muted">
-                        <Layers className="h-4 w-4 text-muted-foreground" />
+                        <DOMAIN_ICONS.project className="h-4 w-4 text-muted-foreground" />
                       </div>
                     </div>
                     <div className="flex-1 pb-2 pt-0.5">
