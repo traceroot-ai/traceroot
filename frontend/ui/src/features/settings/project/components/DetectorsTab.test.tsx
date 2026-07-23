@@ -2,27 +2,107 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
 
+type ProjectMock = {
+  workspace_id: string;
+  alert_emails: string[];
+  alert_window: string;
+  rca_model?: string | null;
+  rca_provider?: string | null;
+  rca_source?: string | null;
+};
+
+type ModelSelectionMock = {
+  model: string;
+  provider: string;
+  source: "system" | "byok";
+  adapter: string;
+};
+
 const mocks = vi.hoisted(() => ({
   project: {
     workspace_id: "w1",
     alert_emails: [] as string[],
     alert_window: "10m",
-  } as any,
+  } as ProjectMock,
   updateProject: vi.fn().mockResolvedValue({}),
+  llmModels: {
+    byokProviders: [] as Array<{
+      provider: string;
+      adapter: string;
+      source: "byok";
+      models: Array<{ id: string; label: string; supported?: boolean }>;
+    }>,
+    systemModels: [] as Array<{
+      provider: string;
+      adapter: string;
+      source: "system";
+      models: Array<{ id: string; label: string; supported?: boolean }>;
+    }>,
+  },
+  modelSelectorReconcile: undefined as
+    | ((value: ModelSelectionMock) => ModelSelectionMock)
+    | undefined,
+  selectModel: undefined as ModelSelectionMock | undefined,
+  getAvailableLLMModels: undefined as (() => Promise<unknown>) | undefined,
 }));
 
 vi.mock("@/features/projects/hooks", () => ({
   useProject: () => ({ data: mocks.project, isLoading: false }),
 }));
 vi.mock("@/lib/api", () => ({
-  updateProject: (...a: any[]) => mocks.updateProject(...a),
+  updateProject: (...a: unknown[]) => mocks.updateProject(...a),
+  getAvailableLLMModels: () => mocks.getAvailableLLMModels?.() ?? Promise.resolve(mocks.llmModels),
 }));
 vi.mock("@/features/integrations/hooks/useSlackIntegration", () => ({
   useSlackStatus: () => ({ data: undefined }),
 }));
-vi.mock("@/features/ai-assistant/components/model-selector", () => ({
-  ModelSelector: () => null,
-}));
+vi.mock("@/features/ai-assistant/components/model-selector", async () => {
+  const React = await import("react");
+  return {
+    ModelSelector: ({
+      value,
+      onChange,
+    }: {
+      value: {
+        model: string;
+        provider: string;
+        source: "system" | "byok";
+        adapter: string;
+      };
+      onChange: (value: {
+        model: string;
+        provider: string;
+        source: "system" | "byok";
+        adapter: string;
+      }) => void;
+    }) => {
+      React.useEffect(() => {
+        const next = mocks.modelSelectorReconcile?.(value);
+        if (
+          next &&
+          (next.model !== value.model ||
+            next.provider !== value.provider ||
+            next.source !== value.source ||
+            next.adapter !== value.adapter)
+        ) {
+          onChange(next);
+        }
+      }, [value, onChange]);
+
+      return (
+        <button
+          type="button"
+          aria-label="agent model selector"
+          onClick={() => {
+            if (mocks.selectModel) onChange(mocks.selectModel);
+          }}
+        >
+          {value.model || "Select model"}
+        </button>
+      );
+    },
+  };
+});
 vi.mock("@/features/detectors/components/alert-channels-editor", () => ({
   AlertChannelsEditor: () => null,
 }));
@@ -71,7 +151,126 @@ function renderTab() {
 afterEach(() => {
   cleanup();
   mocks.updateProject.mockReset().mockResolvedValue({});
-  mocks.project.alert_window = "10m";
+  Object.assign(mocks.project, {
+    workspace_id: "w1",
+    alert_emails: [],
+    alert_window: "10m",
+    rca_model: undefined,
+    rca_provider: undefined,
+    rca_source: undefined,
+  });
+  mocks.llmModels.byokProviders = [];
+  mocks.llmModels.systemModels = [];
+  mocks.modelSelectorReconcile = undefined;
+  mocks.selectModel = undefined;
+  mocks.getAvailableLLMModels = undefined;
+});
+
+describe("DetectorsTab agent model", () => {
+  it("keeps Save disabled when a legacy id-only saved BYOK model reconciles to the displayed selection", async () => {
+    mocks.project.rca_model = "claude-opus-4-8";
+    mocks.project.rca_provider = null;
+    mocks.project.rca_source = null;
+    mocks.llmModels.byokProviders = [
+      {
+        provider: "anthropic",
+        adapter: "anthropic",
+        source: "byok",
+        models: [{ id: "claude-opus-4-8", label: "claude-opus-4-8", supported: true }],
+      },
+    ];
+    mocks.modelSelectorReconcile = (value) =>
+      value.model === "claude-opus-4-8"
+        ? {
+            model: "claude-opus-4-8",
+            provider: "anthropic",
+            source: "byok",
+            adapter: "anthropic",
+          }
+        : value;
+
+    renderTab();
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /agent model selector/i }).textContent).toContain(
+        "claude-opus-4-8",
+      ),
+    );
+
+    await waitFor(() => {
+      const save = screen.getAllByRole("button", { name: "Save" })[0] as HTMLButtonElement;
+      expect(save.disabled).toBe(true);
+    });
+  });
+
+  it("enables Save when the user selects a genuinely different model", async () => {
+    mocks.project.rca_model = "claude-opus-4-8";
+    mocks.project.rca_provider = null;
+    mocks.project.rca_source = null;
+    mocks.llmModels.byokProviders = [
+      {
+        provider: "anthropic",
+        adapter: "anthropic",
+        source: "byok",
+        models: [{ id: "claude-opus-4-8", label: "claude-opus-4-8", supported: true }],
+      },
+    ];
+    mocks.modelSelectorReconcile = (value) =>
+      value.model === "claude-opus-4-8"
+        ? {
+            model: "claude-opus-4-8",
+            provider: "anthropic",
+            source: "byok",
+            adapter: "anthropic",
+          }
+        : value;
+    mocks.selectModel = {
+      model: "gpt-5",
+      provider: "openai",
+      source: "system",
+      adapter: "openai",
+    };
+
+    renderTab();
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /agent model selector/i }).textContent).toContain(
+        "claude-opus-4-8",
+      ),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /agent model selector/i }));
+
+    const save = screen.getAllByRole("button", { name: "Save" })[0] as HTMLButtonElement;
+    expect(save.disabled).toBe(false);
+  });
+
+  it("keeps Save disabled while the model query is still using the selector fallback catalog", async () => {
+    mocks.project.rca_model = "claude-opus-4-8";
+    mocks.project.rca_provider = null;
+    mocks.project.rca_source = null;
+    mocks.getAvailableLLMModels = () => new Promise(() => {});
+    mocks.modelSelectorReconcile = (value) =>
+      value.model === "claude-opus-4-8"
+        ? {
+            model: "claude-opus-4-8",
+            provider: "Anthropic",
+            source: "system",
+            adapter: "anthropic",
+          }
+        : value;
+
+    renderTab();
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /agent model selector/i }).textContent).toContain(
+        "claude-opus-4-8",
+      ),
+    );
+
+    const save = screen.getAllByRole("button", { name: "Save" })[0] as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+  });
 });
 
 describe("DetectorsTab alert window", () => {

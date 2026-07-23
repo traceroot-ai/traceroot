@@ -22,6 +22,13 @@ export interface ResolvedModel {
   supported?: boolean;
 }
 
+export interface ModelSelectionLike {
+  model: string;
+  provider: string;
+  source: "system" | "byok";
+  adapter: string;
+}
+
 const FALLBACK_MODELS: ResolvedModel[] = SYSTEM_MODELS.flatMap((s) =>
   s.models.map((m) => ({
     id: m.id,
@@ -69,4 +76,42 @@ export function pickDefaultModel(models: ResolvedModel[]): ResolvedModel | undef
     if (match) return match;
   }
   return usable[0];
+}
+
+export function reconcileModelSelection(
+  value: ModelSelectionLike,
+  models: ResolvedModel[],
+  options: { pickDefaultWhenEmpty?: boolean } = {},
+): ModelSelectionLike {
+  if (models.length === 0) return value;
+
+  const exact = models.find(
+    (m) => m.id === value.model && m.provider === value.provider && m.source === value.source,
+  );
+  const modelOnly =
+    !exact && value.model && !value.provider ? models.find((m) => m.id === value.model) : null;
+  const match = exact ?? modelOnly;
+
+  if (match) {
+    return {
+      model: match.id,
+      provider: match.provider,
+      source: match.source,
+      adapter: match.adapter,
+    };
+  }
+
+  if (!value.model && options.pickDefaultWhenEmpty) {
+    const pick = pickDefaultModel(models);
+    if (pick) {
+      return {
+        model: pick.id,
+        provider: pick.provider,
+        source: pick.source,
+        adapter: pick.adapter,
+      };
+    }
+  }
+
+  return value;
 }
