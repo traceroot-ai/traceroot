@@ -237,14 +237,27 @@ describe("flushDigest", () => {
     expect(sendDigestAlertSlack).toHaveBeenCalledTimes(1); // digest still sends
   });
 
-  it('skips summary generation when DIGEST_SUMMARY_ENABLED is exactly "false"', async () => {
-    // vi.stubEnv restores the pre-test value (set or unset) on unstub.
-    vi.stubEnv("DIGEST_SUMMARY_ENABLED", "false");
+  it.each(["false", "FALSE", " false "])(
+    "skips summary generation when DIGEST_SUMMARY_ENABLED is %j",
+    async (value) => {
+      // vi.stubEnv restores the pre-test value (set or unset) on unstub.
+      vi.stubEnv("DIGEST_SUMMARY_ENABLED", value);
+      try {
+        await run();
+        expect(generateDigestSummary).not.toHaveBeenCalled();
+        expect(readDetectorWindowSummary.mock.calls[0][3]).toEqual({ includeSummaries: false });
+        expect(sendDigestAlertSlack).toHaveBeenCalledTimes(1); // digest still sends
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    },
+  );
+
+  it('leaves summaries enabled for values other than "false" (e.g. "0")', async () => {
+    vi.stubEnv("DIGEST_SUMMARY_ENABLED", "0");
     try {
       await run();
-      expect(generateDigestSummary).not.toHaveBeenCalled();
-      expect(readDetectorWindowSummary.mock.calls[0][3]).toEqual({ includeSummaries: false });
-      expect(sendDigestAlertSlack).toHaveBeenCalledTimes(1); // digest still sends
+      expect(readDetectorWindowSummary.mock.calls[0][3]).toEqual({ includeSummaries: true });
     } finally {
       vi.unstubAllEnvs();
     }
