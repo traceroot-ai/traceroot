@@ -653,6 +653,11 @@ class TestListDetectorWindowSummary:
         # Semi-join: the FINAL read must touch only the sampled findings'
         # payloads, never the project's whole finding history.
         assert "finding_id IN (" in sql
+        # NULL-preserving dedup: the probe must wrap finding_id in a tuple —
+        # bare argMax skips NULL rows, so a newer clean re-eval of a run
+        # would never retract its older finding from the sample.
+        assert "tupleElement(argMax(" in sql
+        assert "tuple(finding_id)" in sql
         # Bounded read: a stalled query degrades to counts-only via the except
         # path rather than holding the caller open.
         assert second.kwargs.get("settings") == {"max_execution_time": 10}

@@ -696,14 +696,17 @@ def _fetch_sample_summaries(
                         SELECT
                             detector_id,
                             run_id,
-                            -- Tuple ordering makes the pick deterministic
-                            -- when duplicate rows tie on timestamp: this
-                            -- probe is evaluated twice (FROM + IN) and
-                            -- both must select the same finding id.
-                            argMax(
-                                finding_id,
+                            -- tuple-wrapped arg: bare argMax skips NULL
+                            -- rows, so a newer clean re-eval of a run could
+                            -- never retract its older finding. The ordering
+                            -- tuple keeps the pick deterministic when
+                            -- duplicate rows tie on timestamp: this probe is
+                            -- evaluated twice (FROM + IN) and both must
+                            -- select the same finding id.
+                            tupleElement(argMax(
+                                tuple(finding_id),
                                 (timestamp, coalesce(finding_id, ''))
-                            ) AS latest_finding_id,
+                            ), 1) AS latest_finding_id,
                             max(timestamp)                AS ts
                         FROM detector_runs
                         WHERE project_id = {{project_id:String}}
