@@ -45,10 +45,11 @@ export async function flushDigest(job: DigestFlushJob): Promise<void> {
   }
 
   // Gates resolved before the read so blocked workspaces never pay for the
-  // summaries join. Kill switch: summaries are enabled unless the env var is
-  // exactly "false". Free-plan gate mirrors RCA so blocked workspaces spend
-  // no LLM tokens.
-  const summariesKilled = process.env.DIGEST_SUMMARY_ENABLED === "false";
+  // summaries join. Kill switch: summaries are enabled unless the env var says
+  // "false" (case/whitespace-insensitive, same idiom as ENABLE_BILLING). Free-
+  // plan gate mirrors RCA so blocked workspaces spend no LLM tokens.
+  const summariesKilled =
+    (process.env.DIGEST_SUMMARY_ENABLED ?? "").trim().toLowerCase() === "false";
   const summaryAllowed =
     !summariesKilled && !(recipients.rcaBlocked && recipients.billingPlan === PlanType.FREE);
   const summary = await readDetectorWindowSummary(projectId, start, end, {
