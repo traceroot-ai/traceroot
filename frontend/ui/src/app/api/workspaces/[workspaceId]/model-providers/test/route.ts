@@ -283,7 +283,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         const check = await checkEndpoint(`${groqBase.replace(/\/$/, "")}/models`, {
           Authorization: `Bearer ${apiKey}`,
         });
-        if (!check.ok) return successResponse({ success: false, error: check.error });
+        if (!check.ok)
+          return successResponse({ success: false, error: check.error, detail: check.detail });
         break;
       }
     }
