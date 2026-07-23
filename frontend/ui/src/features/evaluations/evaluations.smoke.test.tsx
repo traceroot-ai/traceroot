@@ -326,9 +326,11 @@ describe("real Datasets + Evaluations views render server data", () => {
     mount(<EvaluationsView projectId="p1" />);
     await screen.findByText(/Run #27 ·/);
     fireEvent.click(screen.getByRole("button", { name: /Group by evaluation/ }));
-    // Group header relocates the unique-evaluations aggregate (run count + latest run).
+    // Group header shows per-column aggregate totals across the lineage (not the latest
+    // run's values): run count, the averaged main score, and total captions.
     expect(await screen.findByText(/2 runs/)).toBeDefined();
-    expect(screen.getByText(/latest Run #27/)).toBeDefined();
+    expect(screen.getByText(/93\.8%/)).toBeDefined(); // avg main score across the lineage
+    expect(screen.getAllByText("total").length).toBeGreaterThan(0);
   });
 
   it("selecting exactly two runs offers a Compare action", async () => {
@@ -347,11 +349,14 @@ describe("real Datasets + Evaluations views render server data", () => {
   it("Scorers tab shows an SDK-defined scorer and its detail is honest about gaps", async () => {
     mount(<EvaluationsView projectId="p1" />);
     fireEvent.click(await screen.findByRole("button", { name: /Scorers/ }));
-    // Wait for the selected scorer's detail to load, then assert on it.
-    expect(await screen.findByText("Defined in SDK")).toBeDefined();
-    const detail = screen.getByLabelText("Scorer detail");
-    expect(within(detail).getAllByText("Not provided by SDK").length).toBeGreaterThan(0);
-    expect(within(detail).getByText(/Source: SDK/)).toBeDefined();
+    // Clicking a scorer row opens the detail panel; then assert on it.
+    fireEvent.click(await screen.findByText("routing-accuracy"));
+    const detail = await screen.findByLabelText("Scorer detail");
+    // This fixture reports no definition (no type/model/source), so the detector-style
+    // detail is honest about the gap but still shows the observed usage + config cards.
+    expect(within(detail).getByText(/hasn't reported this scorer/i)).toBeDefined();
+    expect(within(detail).getByText("Configuration")).toBeDefined();
+    expect(within(detail).getByText("Observed usage")).toBeDefined();
     // Scorers are SDK-authored — no create/edit control.
     expect(screen.queryByRole("button", { name: /Create scorer/ })).toBeNull();
   });
