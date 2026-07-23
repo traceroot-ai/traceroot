@@ -24,6 +24,8 @@
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.80.3",
+    "@opentelemetry/api": "^1.9.1",
+    "@traceroot-ai/traceroot": "^0.2.0",
     "@traceroot/core": "workspace:*",
     "@traceroot/slack": "workspace:*",
     "bullmq": "^5.73.3",
@@ -33,6 +35,7 @@
     "stripe": "14.25.0"
   },
   "devDependencies": {
+    "@opentelemetry/sdk-trace-node": "^2.10.0",
     "@types/node": "^22.0.0",
     "@types/node-cron": "^3.0.0",
     "@types/nodemailer": "^6.4.14",
