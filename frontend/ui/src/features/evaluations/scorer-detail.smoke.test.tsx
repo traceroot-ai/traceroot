@@ -74,9 +74,10 @@ describe("ScorerDetailPanel", () => {
     const detail = screen.getByLabelText("Scorer detail");
     // "LLM judge" appears in the header badge and the Definition section heading.
     expect(within(detail).getAllByText("LLM judge").length).toBeGreaterThan(0);
-    expect(within(detail).getByText("Model")).toBeDefined();
+    // One "Prompt" card with the model in its header (no separate Model card).
+    expect(within(detail).getByText("Prompt")).toBeDefined();
     expect(within(detail).getByText("claude-sonnet-5")).toBeDefined();
-    expect(within(detail).getByText("Messages")).toBeDefined();
+    expect(within(detail).queryByText("Model")).toBeNull();
     expect(within(detail).getByText("system")).toBeDefined();
     expect(within(detail).getByText(/Rate the answer conciseness/)).toBeDefined();
     // Shared config block.
