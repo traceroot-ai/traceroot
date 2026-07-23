@@ -30,6 +30,18 @@ DIGEST_SUMMARY_MAX_TOTAL = 40
 DIGEST_SUMMARY_MAX_CHARS = 300
 
 
+# NULL-preserving latest-finding pick for collapsing duplicate detector_runs
+# rows by run_id. Tuple-wrapped because bare argMax skips NULL rows: a run
+# whose newest row is a clean re-eval (NULL finding_id) must resolve to NULL,
+# retracting its older finding. The ordering tuple breaks timestamp ties
+# deterministically (non-null finding wins). Single source of truth so the
+# counts query and the summaries probe can never disagree on which runs count
+# as identified.
+_LATEST_FINDING_PICK_SQL = (
+    "tupleElement(argMax(tuple(finding_id), (timestamp, coalesce(finding_id, ''))), 1)"
+)
+
+
 def _detector_summary_expr(finding_id_col: str) -> str:
     """Build the SQL expression extracting a detector's summary from a finding.
 
@@ -696,17 +708,11 @@ def _fetch_sample_summaries(
                         SELECT
                             detector_id,
                             run_id,
-                            -- tuple-wrapped arg: bare argMax skips NULL
-                            -- rows, so a newer clean re-eval of a run could
-                            -- never retract its older finding. The ordering
-                            -- tuple keeps the pick deterministic when
-                            -- duplicate rows tie on timestamp: this probe is
-                            -- evaluated twice (FROM + IN) and both must
-                            -- select the same finding id.
-                            tupleElement(argMax(
-                                tuple(finding_id),
-                                (timestamp, coalesce(finding_id, ''))
-                            ), 1) AS latest_finding_id,
+                            -- NULL-preserving shared pick; determinism
+                            -- matters doubly here — this probe is evaluated
+                            -- twice (FROM + IN) and both must select the
+                            -- same finding id on a timestamp tie.
+                            {_LATEST_FINDING_PICK_SQL} AS latest_finding_id,
                             max(timestamp)                AS ts
                         FROM detector_runs
                         WHERE project_id = {{project_id:String}}
@@ -857,9 +863,11 @@ async def list_detector_window_summary(
             SELECT
                 detector_id,
                 run_id,
-                argMax(finding_id, timestamp) AS latest_finding_id,
-                argMax(trace_id,   timestamp) AS latest_trace_id,
-                max(timestamp)                AS ts
+                -- NULL-preserving shared pick: the count must retract a
+                -- clean re-eval'd run exactly when the sample does.
+                {_LATEST_FINDING_PICK_SQL} AS latest_finding_id,
+                argMax(trace_id, timestamp) AS latest_trace_id,
+                max(timestamp)              AS ts
             FROM detector_runs
             WHERE project_id = {{project_id:String}}
             GROUP BY detector_id, run_id

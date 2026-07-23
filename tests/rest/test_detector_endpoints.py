@@ -538,9 +538,16 @@ class TestListDetectorWindowSummary:
         sql = mock_ch.query.call_args.args[0]
         # No FINAL — the OOM-shaped merge-on-read is gone.
         assert "FINAL" not in sql
-        # Dedup is an argMax aggregate per run_id.
+        # Dedup is an argMax aggregate per run_id. The finding pick must be
+        # tuple-wrapped (bare argMax skips NULL rows) so a run whose newest
+        # row is a clean re-eval stops counting as identified — the count
+        # retracts exactly when the digest sample does.
         assert "GROUP BY detector_id, run_id" in sql
-        assert "argMax(finding_id, timestamp)" in sql
+        assert "tupleElement(argMax(" in sql
+        assert "tuple(finding_id)" in sql
+        # Deterministic tie-break: on equal timestamps the non-null finding
+        # must win, and identically so in the summaries probe.
+        assert "(timestamp, coalesce(finding_id, ''))" in sql
         # Finding count straight off the collapsed run; no findings JOIN.
         assert "countIf(latest_finding_id IS NOT NULL)" in sql
         assert "JOIN" not in sql
@@ -658,6 +665,9 @@ class TestListDetectorWindowSummary:
         # would never retract its older finding from the sample.
         assert "tupleElement(argMax(" in sql
         assert "tuple(finding_id)" in sql
+        # Deterministic tie-break: the probe is evaluated twice (FROM + IN),
+        # so equal timestamps must resolve identically in both.
+        assert "(timestamp, coalesce(finding_id, ''))" in sql
         # Bounded read: a stalled query degrades to counts-only via the except
         # path rather than holding the caller open.
         assert second.kwargs.get("settings") == {"max_execution_time": 10}
