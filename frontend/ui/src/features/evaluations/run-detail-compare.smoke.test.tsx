@@ -293,10 +293,11 @@ describe("run detail — compare with", () => {
     expect(lastPanel.hasDiffBaseline).toBe(true);
   });
 
-  it("shows no diff column until a run is picked", async () => {
+  it("shows no diff/change column until a run is picked", async () => {
     mount();
     await screen.findByText(/charged twice/);
+    // The change column is redundant with no baseline — hidden entirely until compared.
     expect(screen.queryByText("vs baseline")).toBeNull();
-    expect(screen.getByText("Change")).toBeDefined();
+    expect(screen.queryByText("Change")).toBeNull();
   });
 });

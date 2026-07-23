@@ -10,7 +10,6 @@ import {
   Check,
   ChevronDown,
   Database,
-  Download,
   GitCompare,
   Info,
   Loader2,
@@ -26,7 +25,6 @@ import { ExpandableSection } from "@/components/ui/expandable-section";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { DATE_FILTER_OPTIONS, type DateFilterOption } from "@/lib/date-filter";
 import { Table, TBody, THead, TR, TRHead, Td, Th } from "@/components/ui/table";
-import { useToast } from "@/components/ui/toast";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import {
   EvalPageHeader,
@@ -52,14 +50,29 @@ import {
   signedPoints,
   truncate,
 } from "@/features/offline-eval/utils";
-import { useEvaluationRun, useEvaluationRuns, useCreateHumanScore } from "../hooks";
+import { useEvaluationRun, useEvaluationRuns, useCreateHumanScore, useCompareRuns } from "../hooks";
 import { PullCodeDrawer } from "../components/pull-code-drawer";
 import { PassRate } from "../components/pass-rate";
 import { SaveTestCaseDrawer } from "../components/trace-integration";
 import { reproduceRunCode, reproduceRunCodeTs } from "@/features/offline-eval/utils";
 import { attributeTraceUsage, type TraceUsage, type UsageSpan } from "@/lib/eval/trace-usage";
 import { matchSpans } from "@/lib/eval/span-match";
-import type { ResultRow, RunDetail, ScoreRow, Classification } from "../types";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import type {
+  ResultRow,
+  RunDetail,
+  ScoreRow,
+  Classification,
+  CompareResultRow,
+  CompareRunsResponse,
+  ResultRowComparison,
+} from "../types";
 
 /** Case/run duration; "Unknown" when unmeasured (never 0s). */
 function fmtDurationMs(ms: number | null | undefined): string {
@@ -136,12 +149,21 @@ function buildEvalTrace(result: ResultRow, run: RunDetail): TraceDetail {
   const failed = Boolean(result.taskError);
   const rootStatus = (failed ? "ERROR" : "OK") as SpanStatus;
 
+  // Ordered fake timestamps so the reconstructed tree is deterministic and reads in
+  // the real order: task first, then scorers (which run after it). Without distinct
+  // starts, the stable sibling sort would tie and fall back to span_id.
+  const base = new Date(result.createTime).getTime();
+  const t0 = Number.isFinite(base) ? base : 0;
+  const iso = (ms: number) => new Date(ms).toISOString();
+
   const spans: Span[] = [
     evalSpan({
       span_id: `${id}-root`,
       trace_id: id,
       name: `${run.evaluationName} · ${result.testCaseId}`,
       span_kind: "AGENT" as SpanKind,
+      span_start_time: iso(t0),
+      span_end_time: iso(t0 + result.scores.length + 2),
       input: result.input,
       output: result.candidateOutput,
       status: rootStatus,
@@ -159,6 +181,8 @@ function buildEvalTrace(result: ResultRow, run: RunDetail): TraceDetail {
       parent_span_id: `${id}-root`,
       name: "task",
       span_kind: "SPAN" as SpanKind,
+      span_start_time: iso(t0),
+      span_end_time: iso(t0 + 1),
       input: result.input,
       output: result.candidateOutput,
       cost: result.cost,
@@ -168,8 +192,8 @@ function buildEvalTrace(result: ResultRow, run: RunDetail): TraceDetail {
     }),
   ];
 
-  // Scorer spans — siblings of the task, one per scorer that ran.
-  for (const s of result.scores) {
+  // Scorer spans — siblings of the task, one per scorer that ran, starting after it.
+  result.scores.forEach((s, i) => {
     spans.push(
       evalSpan({
         span_id: `${id}-scorer-${s.id}`,
@@ -177,6 +201,8 @@ function buildEvalTrace(result: ResultRow, run: RunDetail): TraceDetail {
         parent_span_id: `${id}-root`,
         name: s.scorerName,
         span_kind: "SPAN" as SpanKind,
+        span_start_time: iso(t0 + i + 2),
+        span_end_time: iso(t0 + i + 2),
         input: `output: ${result.candidateOutput ?? "—"}\nexpected: ${result.expectedOutput ?? "—"}`,
         output: s.error ?? scoreValue(s),
         status: (s.error ? "ERROR" : "OK") as SpanStatus,
@@ -184,7 +210,7 @@ function buildEvalTrace(result: ResultRow, run: RunDetail): TraceDetail {
         metadata: JSON.stringify({ scorer: s.scorerName, version: s.scorerVersion }),
       }),
     );
-  }
+  });
 
   return {
     trace_id: id,
@@ -278,6 +304,10 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
   // "Save as test case" drawer (only for real ingested traces): which span it targets.
   const [saveTestCaseOpen, setSaveTestCaseOpen] = React.useState(false);
   const [saveTestCaseSpanId, setSaveTestCaseSpanId] = React.useState<string | undefined>(undefined);
+  // "Compare with" — another run of the SAME evaluation, chosen inline. The current run
+  // is the candidate; the picked run is the baseline. Comparison is computed on demand
+  // by the backend engine (the SDK no longer declares baselines).
+  const [compareId, setCompareId] = React.useState<string | null>(null);
 
   const results = React.useMemo(() => data?.results ?? [], [data]);
   const run = data?.run;
@@ -301,18 +331,35 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
     [siblingRuns.data, run, projectId],
   );
 
-  // Suggested baseline for "Compare with…": the run's persistent baseline if set, else
-  // the previous run of the SAME evaluation — never an arbitrary recent run.
-  const suggestedBaselineId = React.useMemo(() => {
-    if (!run) return null;
-    if (run.baselineRunId) return run.baselineRunId;
-    const earlier = (siblingRuns.data?.data ?? [])
-      .filter((s) => s.runNumber < run.runNumber)
-      .sort((a, b) => b.runNumber - a.runNumber);
-    return earlier[0]?.id ?? null;
-  }, [run, siblingRuns.data]);
+  // Other runs of this evaluation, to pick a comparison baseline from (never an
+  // arbitrary run from another evaluation). Newest first, current run excluded.
+  const compareOptions = React.useMemo(
+    () =>
+      run
+        ? (siblingRuns.data?.data ?? [])
+            .filter((s) => s.id !== run.id)
+            .sort((a, b) => b.runNumber - a.runNumber)
+            .map((s) => ({
+              id: s.id,
+              label: `#${s.runNumber} · ${s.candidateVersion}`,
+              score: s.mainScore,
+            }))
+        : [],
+    [siblingRuns.data, run],
+  );
+
+  // On-demand comparison of this run (candidate) vs the picked run (baseline), from the
+  // same backend engine + route the compare page uses — no second implementation.
+  const compare = useCompareRuns(projectId, runId, compareId);
+  const comparing = !!compareId && !!compare.data;
+  const compareByCase = React.useMemo(() => {
+    const m = new Map<string, CompareResultRow>();
+    for (const c of compare.data?.results ?? []) m.set(c.testCaseId, c);
+    return m;
+  }, [compare.data]);
 
   const openResult = openResultId ? (results.find((r) => r.id === openResultId) ?? null) : null;
+  const openCompareRow = openResult ? (compareByCase.get(openResult.testCaseId) ?? null) : null;
 
   // Prefer the result's REAL ingested trace. Probe it — this shares TraceViewerPanel's
   // ["trace", projectId, traceId] cache key, so opening the real panel does not refetch.
@@ -347,11 +394,11 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
 
   const openTraceSpans = useRealTrace ? realTrace.data?.spans : panelOverride?.spans;
 
-  // The baseline case's trace, fetched so the trace viewer's Diff toggle can diff each
-  // span (I/O, metadata, latency/token/cost) against its baseline counterpart. Span ids
-  // differ across runs, so we match structurally (kind + name + sibling index) once the
-  // baseline trace is loaded — the matcher resolves a span selection to its baseline span.
-  const baselineTraceId = openResult?.comparison?.baselineTraceId ?? null;
+  // The baseline case's trace (from the picked compare run), fetched so the trace
+  // viewer's Diff toggle can diff each span (I/O, metadata, latency/token/cost) against
+  // its baseline counterpart. Span ids differ across runs, so we match structurally
+  // (kind + name + sibling index) once the baseline trace is loaded.
+  const baselineTraceId = comparing ? (openCompareRow?.baselineTraceId ?? null) : null;
   const baselineTrace = useTrace(projectId, baselineTraceId ?? "", !!baselineTraceId);
   const baselineSpanMatch = React.useMemo(() => {
     const baseSpans = baselineTrace.data?.spans;
@@ -418,7 +465,12 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
             onFilterChange={setResultFilter}
             onOpenResult={setOpenResultId}
             openResultId={openResultId}
-            suggestedBaselineId={suggestedBaselineId}
+            compareId={compareId}
+            onCompareChange={setCompareId}
+            compareOptions={compareOptions}
+            compareData={compare.data ?? null}
+            compareLoading={!!compareId && compare.isLoading}
+            compareByCase={comparing ? compareByCase : null}
           />
         )}
       </div>
@@ -455,6 +507,9 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
           headerIdentity={{ label: "Test case", value: openResult.testCaseId }}
           // The case's outcome, in the header's findings-alert slot.
           headerStatus={<EvalResultBadge status={openResult.status} />}
+          // With a compare run picked, open straight into diff mode against its matching
+          // case (the user chose to compare — don't make them toggle it on per trace).
+          defaultDiffOn={comparing}
           // While the "Save as test case" drawer is open, clicking a different span
           // retargets it to that span.
           onSelectionChange={(selection) => {
@@ -639,7 +694,12 @@ function RunBody({
   onFilterChange,
   onOpenResult,
   openResultId,
-  suggestedBaselineId,
+  compareId,
+  onCompareChange,
+  compareOptions,
+  compareData,
+  compareLoading,
+  compareByCase,
 }: {
   projectId: string;
   run: RunDetail;
@@ -648,14 +708,21 @@ function RunBody({
   onFilterChange: (filter: ResultFilterId) => void;
   onOpenResult: (id: string) => void;
   openResultId: string | null;
-  suggestedBaselineId: string | null;
+  compareId: string | null;
+  onCompareChange: (id: string | null) => void;
+  compareOptions: Array<{ id: string; label: string; score: number | null }>;
+  compareData: CompareRunsResponse | null;
+  compareLoading: boolean;
+  compareByCase: Map<string, CompareResultRow> | null;
 }) {
   const router = useRouter();
   const [detailsOpen, setDetailsOpen] = React.useState(false);
   const [reproduceOpen, setReproduceOpen] = React.useState(false);
-  const hasBaseline = run.baselineRunId !== null;
-  const incompatibleBaseline = run.comparison.available && !run.comparison.trustworthy;
-  const trustNote = comparisonReasonText(run.comparison.reasons, run.datasetVersionLabel);
+  const comparing = !!compareByCase;
+  // Trust note reflects the PICKED comparison (not a stored baseline).
+  const cmp = compareData?.comparison ?? null;
+  const incompatibleComparison = comparing && !!cmp && cmp.available && !cmp.trustworthy;
+  const trustNote = cmp ? comparisonReasonText(cmp.reasons, run.datasetVersionLabel) : "";
 
   return (
     <>
@@ -683,22 +750,44 @@ function RunBody({
         }
         action={
           <div className="flex items-center gap-2">
-            {/* Comparison is an action: the current run defaults to candidate; the
-                suggested baseline is a compatible earlier run of the same evaluation. */}
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 gap-1.5 text-[12px]"
-              onClick={() =>
-                router.push(
-                  `/projects/${projectId}/evaluations/compare?candidate=${run.id}` +
-                    (suggestedBaselineId ? `&baseline=${suggestedBaselineId}` : ""),
-                )
-              }
+            {/* Comparison is an inline action: this run is the candidate; pick another
+                run of the same evaluation as the baseline. The diff appears in place. */}
+            <Select
+              value={compareId ?? ""}
+              onValueChange={(v) => onCompareChange(v === NO_COMPARE ? null : v)}
             >
-              <GitCompare className="h-3.5 w-3.5" aria-hidden />
-              Compare with…
-            </Button>
+              <SelectTrigger
+                className="h-7 w-[200px] gap-1.5 text-[12px]"
+                aria-label="Compare with"
+              >
+                <GitCompare className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                <SelectValue placeholder="Compare with…" />
+              </SelectTrigger>
+              <SelectContent>
+                {/* Clear option — only meaningful once a run is picked. */}
+                {compareId && (
+                  <SelectItem value={NO_COMPARE} className="text-[12px] text-muted-foreground">
+                    None (stop comparing)
+                  </SelectItem>
+                )}
+                {compareOptions.length === 0 ? (
+                  <div className="px-2 py-1.5 text-[11px] text-muted-foreground">
+                    No other runs in this evaluation
+                  </div>
+                ) : (
+                  compareOptions.map((o) => (
+                    <SelectItem key={o.id} value={o.id} className="text-[12px]">
+                      {o.label}
+                      {o.score !== null && (
+                        <span className="ml-1.5 tabular-nums text-muted-foreground">
+                          {pctFraction(o.score)}
+                        </span>
+                      )}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
             <Button
               variant="outline"
               size="sm"
@@ -723,7 +812,41 @@ function RunBody({
 
       <div className="min-h-0 flex-1 overflow-auto">
         <div className="flex flex-col gap-3 p-4">
-          {incompatibleBaseline && (
+          {compareLoading && (
+            <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
+              Computing comparison…
+            </div>
+          )}
+
+          {comparing && cmp && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border bg-muted/30 px-3 py-2 text-[11px]">
+              <span className="flex items-center gap-1.5">
+                <GitCompare className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+                <span className="font-medium">
+                  Comparing vs #{compareData?.baseline.runNumber} ·{" "}
+                  <span className="font-mono">{compareData?.baseline.candidateVersion}</span>
+                </span>
+              </span>
+              <span className="text-muted-foreground">baseline → candidate (this run)</span>
+              <span className="h-3 w-px bg-border" aria-hidden />
+              <span className={cmp.caseCounts.regressed > 0 ? SENTIMENT_CLASS.bad : ""}>
+                {cmp.caseCounts.regressed} regressed
+              </span>
+              <span className={cmp.caseCounts.improved > 0 ? SENTIMENT_CLASS.good : ""}>
+                {cmp.caseCounts.improved} improved
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="ml-auto h-6 px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
+                onClick={() => onCompareChange(null)}
+              >
+                Clear
+              </Button>
+            </div>
+          )}
+
+          {incompatibleComparison && (
             <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px] leading-relaxed text-amber-700 dark:text-amber-300">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
               <span>
@@ -736,7 +859,8 @@ function RunBody({
           <ResultsSection
             run={run}
             results={results}
-            hasBaseline={hasBaseline}
+            comparing={comparing}
+            compareByCase={compareByCase}
             filter={filter}
             onFilterChange={onFilterChange}
             onOpen={onOpenResult}
@@ -756,6 +880,7 @@ function RunBody({
         run={run}
         projectId={projectId}
         results={results}
+        compareData={compareData}
         open={detailsOpen}
         onOpenChange={setDetailsOpen}
       />
@@ -802,12 +927,14 @@ function RunDetailsDrawer({
   run,
   projectId,
   results,
+  compareData,
   open,
   onOpenChange,
 }: {
   run: RunDetail;
   projectId: string;
   results: ResultRow[];
+  compareData: CompareRunsResponse | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -846,7 +973,12 @@ function RunDetailsDrawer({
       <div className="min-h-0 flex-1 overflow-auto p-4 text-[12px]">
         {/* Mounted only while the drawer is open, so the per-case trace fetches for
             the token/cost aggregate happen lazily, not on every run-detail load. */}
-        <RunMetricsDiff run={run} projectId={projectId} results={results} />
+        <RunMetricsDiff
+          run={run}
+          projectId={projectId}
+          results={results}
+          compareData={compareData}
+        />
         <RunDetailsBody run={run} projectId={projectId} />
       </div>
     </div>
@@ -854,20 +986,25 @@ function RunDetailsDrawer({
 }
 
 /**
- * Run-level candidate-vs-baseline metrics. Duration is derived server-side (paired
- * case-duration mean). Tokens/cost are aggregated across the run's case traces vs the
- * baseline's — fetched lazily here (only while the drawer is open) and summed; while
- * any trace is still loading it shows a "computing" note, and traces without provider
- * usage simply contribute nothing.
+ * Run-level metrics. Duration is derived server-side (paired case-duration mean).
+ * Tokens/cost are aggregated across the run's case traces — fetched lazily here (only
+ * while the drawer is open) and summed; while any trace is still loading it shows a
+ * "computing" note, and traces without provider usage simply contribute nothing.
+ *
+ * The baseline column is driven by the page's "Compare with" selection (comparison is
+ * frontend-owned now that the SDK no longer sends a stored baseline): with a run picked,
+ * each metric shows its ± delta vs that run; with none picked, only the candidate value.
  */
 function RunMetricsDiff({
   run,
   projectId,
   results,
+  compareData,
 }: {
   run: RunDetail;
   projectId: string;
   results: ResultRow[];
+  compareData: CompareRunsResponse | null;
 }) {
   const { data: authSession } = useAuthSession();
   const user = authSession?.user
@@ -878,11 +1015,18 @@ function RunMetricsDiff({
     () => [...new Set(results.map((r) => r.traceId).filter((x): x is string => !!x))],
     [results],
   );
+  // Baseline traces come from the picked compare run (per-case baselineTraceId), not a
+  // stored per-result baseline (which the SDK is dropping).
   const baselineIds = React.useMemo(
-    () => [
-      ...new Set(results.map((r) => r.comparison?.baselineTraceId).filter((x): x is string => !!x)),
-    ],
-    [results],
+    () =>
+      compareData
+        ? [
+            ...new Set(
+              compareData.results.map((r) => r.baselineTraceId).filter((x): x is string => !!x),
+            ),
+          ]
+        : [],
+    [compareData],
   );
   const allIds = React.useMemo(
     () => [...new Set([...candidateIds, ...baselineIds])],
@@ -922,7 +1066,9 @@ function RunMetricsDiff({
   };
   const cand = sum(candidateIds);
   const base = sum(baselineIds);
-  const dur = run.comparison.duration;
+  // Duration deltas come from the picked compare run when comparing; otherwise the
+  // candidate's own mean with no baseline.
+  const dur = compareData?.comparison.duration ?? run.comparison.duration;
 
   const fmtTok = (n: number) => `${Math.round(n).toLocaleString()}`;
   const fmtCost = (n: number) => (n > 0 ? `$${n.toFixed(4)}` : "$0");
@@ -931,11 +1077,15 @@ function RunMetricsDiff({
   return (
     <div className="mb-3 overflow-hidden rounded border border-border">
       <div className="border-b border-border bg-muted/40 px-2.5 py-1 text-[11px] text-muted-foreground">
-        Metrics vs baseline{" "}
-        {run.comparison.baseline ? (
-          <span className="text-foreground">({run.comparison.baseline.candidateVersion})</span>
+        {compareData ? (
+          <>
+            Metrics vs #{compareData.baseline.runNumber}{" "}
+            <span className="text-foreground">({compareData.baseline.candidateVersion})</span>
+          </>
         ) : (
-          <span>— no baseline</span>
+          <>
+            Run metrics <span>— pick a run in “Compare with” for deltas</span>
+          </>
         )}
       </div>
       <table className="w-full text-[11px]">
@@ -1040,10 +1190,14 @@ function RunSwitcher({
 
 const RESULT_COLUMN_COUNT = 6;
 
+/** Sentinel for the "Compare with" select's no-selection option (Radix needs a value). */
+const NO_COMPARE = "__none__";
+
 function ResultsSection({
   run,
   results,
-  hasBaseline,
+  comparing,
+  compareByCase,
   filter,
   onFilterChange,
   onOpen,
@@ -1051,13 +1205,13 @@ function ResultsSection({
 }: {
   run: RunDetail;
   results: ResultRow[];
-  hasBaseline: boolean;
+  comparing: boolean;
+  compareByCase: Map<string, CompareResultRow> | null;
   filter: ResultFilterId;
   onFilterChange: (filter: ResultFilterId) => void;
   onOpen: (id: string) => void;
   openResultId: string | null;
 }) {
-  const { toast } = useToast();
   const [keyword, setKeyword] = React.useState("");
   const [sortWorst, setSortWorst] = React.useState(false);
   const [dateFilter, setDateFilter] = React.useState<DateFilterOption>(
@@ -1065,6 +1219,12 @@ function ResultsSection({
   );
   const [customStart, setCustomStart] = React.useState<Date | null>(null);
   const [customEnd, setCustomEnd] = React.useState<Date | null>(null);
+
+  // Per-result comparison vs the picked run (null when not comparing).
+  const cmpFor = React.useCallback(
+    (r: ResultRow) => (comparing ? (compareByCase?.get(r.testCaseId) ?? null) : null),
+    [comparing, compareByCase],
+  );
 
   const visible = React.useMemo(() => {
     const q = keyword.trim().toLowerCase();
@@ -1078,16 +1238,16 @@ function ResultsSection({
       );
     });
     if (!sortWorst) return filtered;
-    // Worst main-score regression first (most-negative delta); unknown deltas last.
+    // Worst main-score regression first (most-negative delta vs the picked run); unknown last.
     return [...filtered].sort((a, b) => {
-      const da = a.comparison?.mainScore.delta;
-      const db = b.comparison?.mainScore.delta;
+      const da = cmpFor(a)?.comparison?.mainScore.delta;
+      const db = cmpFor(b)?.comparison?.mainScore.delta;
       if (da == null && db == null) return 0;
       if (da == null) return 1;
       if (db == null) return -1;
       return da - db;
     });
-  }, [results, keyword, filter, sortWorst]);
+  }, [results, keyword, filter, sortWorst, cmpFor]);
 
   return (
     <div className="rounded-md border border-border">
@@ -1138,15 +1298,6 @@ function ResultsSection({
           <ArrowDown className="h-3.5 w-3.5" aria-hidden />
           Worst regression
         </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 gap-1.5 px-1.5 text-[12px] text-muted-foreground hover:text-foreground"
-          onClick={() => toast({ title: "Export coming soon", tone: "success" })}
-        >
-          <Download className="h-3.5 w-3.5" aria-hidden />
-          Download
-        </Button>
       </SearchFilterBar>
 
       <Table>
@@ -1156,14 +1307,15 @@ function ResultsSection({
             <Th>Output</Th>
             <Th>Expected</Th>
             <Th className="w-[170px]">Main score</Th>
-            <Th className="w-[110px] text-right">Change</Th>
+            {/* Change is only meaningful against a picked run; hidden otherwise. */}
+            {comparing && <Th className="w-[110px] text-right">vs baseline</Th>}
             <Th className="w-[110px]">Status</Th>
           </TRHead>
         </THead>
         <TBody>
           {visible.length === 0 ? (
             <tr>
-              <td colSpan={RESULT_COLUMN_COUNT}>
+              <td colSpan={comparing ? RESULT_COLUMN_COUNT : RESULT_COLUMN_COUNT - 1}>
                 <p className="px-4 py-12 text-center text-[12px] text-muted-foreground">
                   {results.length === 0
                     ? "No per-case results reported for this run yet."
@@ -1172,33 +1324,56 @@ function ResultsSection({
               </td>
             </tr>
           ) : (
-            visible.map((result) => (
-              <TR
-                key={result.id}
-                interactive
-                selected={result.id === openResultId}
-                onClick={() => onOpen(result.id)}
-              >
-                <Td>{truncate(result.input, 60)}</Td>
-                <Td>
-                  {result.candidateOutput ?? (
-                    <span className="text-muted-foreground">No output</span>
+            visible.map((result) => {
+              const row = cmpFor(result);
+              const rowCmp = row?.comparison ?? null;
+              return (
+                <TR
+                  key={result.id}
+                  interactive
+                  selected={result.id === openResultId}
+                  onClick={() => onOpen(result.id)}
+                >
+                  <Td className="max-w-[260px] truncate" title={result.input}>
+                    {result.input}
+                  </Td>
+                  <Td className="max-w-[260px]">
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <span className="truncate" title={result.candidateOutput ?? undefined}>
+                        {result.candidateOutput ?? (
+                          <span className="text-muted-foreground">No output</span>
+                        )}
+                      </span>
+                      {row?.outputChanged === true && (
+                        <span
+                          className="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground"
+                          title="Output differs from the baseline run"
+                        >
+                          ≠ baseline
+                        </span>
+                      )}
+                    </div>
+                  </Td>
+                  <Td
+                    className="max-w-[220px] truncate text-muted-foreground"
+                    title={result.expectedOutput ?? undefined}
+                  >
+                    {result.expectedOutput ?? "—"}
+                  </Td>
+                  <Td>
+                    <MainScoreCell result={result} comparison={rowCmp} />
+                  </Td>
+                  {comparing && (
+                    <Td className="text-right">
+                      <ChangeCell change={rowCmp?.caseChange ?? null} />
+                    </Td>
                   )}
-                </Td>
-                <Td className="text-muted-foreground">{result.expectedOutput ?? "—"}</Td>
-                <Td>
-                  <MainScoreCell result={result} hasBaseline={hasBaseline} />
-                </Td>
-                <Td className="text-right">
-                  <ChangeCell
-                    change={hasBaseline ? (result.comparison?.caseChange ?? null) : null}
-                  />
-                </Td>
-                <Td>
-                  <EvalResultBadge status={result.status} />
-                </Td>
-              </TR>
-            ))
+                  <Td>
+                    <EvalResultBadge status={result.status} />
+                  </Td>
+                </TR>
+              );
+            })
           )}
         </TBody>
       </Table>
@@ -1207,16 +1382,21 @@ function ResultsSection({
 }
 
 /**
- * Per-result candidate main score, its baseline counterpart, and the delta — the
- * backend now derives the baseline per-case value, so we show a real magnitude, not
- * just a direction. Missing values render "—", never a fabricated 0.
+ * Per-result candidate main score, and — when comparing against a picked run — its
+ * baseline counterpart + delta (the backend engine derives the per-case baseline value,
+ * so we show a real magnitude). Missing values render "—", never a fabricated 0.
  */
-function MainScoreCell({ result, hasBaseline }: { result: ResultRow; hasBaseline: boolean }) {
-  const cmp = result.comparison;
-  const cand = cmp?.mainScore.candidate ?? result.mainScore;
+function MainScoreCell({
+  result,
+  comparison,
+}: {
+  result: ResultRow;
+  comparison: ResultRowComparison | null;
+}) {
+  const cand = comparison?.mainScore.candidate ?? result.mainScore;
   if (cand === null || cand === undefined) return <span className="text-muted-foreground">—</span>;
-  const base = hasBaseline ? (cmp?.mainScore.baseline ?? null) : null;
-  const delta = hasBaseline ? (cmp?.mainScore.delta ?? null) : null;
+  const base = comparison?.mainScore.baseline ?? null;
+  const delta = comparison?.mainScore.delta ?? null;
   return (
     <div className="flex flex-col gap-0.5 text-[12px] tabular-nums">
       <span>
