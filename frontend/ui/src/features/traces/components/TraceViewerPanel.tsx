@@ -15,6 +15,7 @@ import {
 import { cn, buildUrlWithFilters } from "@/lib/utils";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { Button } from "@/components/ui/button";
+import { LoadingState } from "@/components/ui/loading-state";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { getTrace } from "@/lib/api";
 import type { TraceSelection } from "../types";
@@ -431,7 +432,7 @@ export function TraceViewerPanel({
                     <TraceDetectorsTab projectId={projectId} traceId={traceId} />
                   ) : isLoading ? (
                     <div className="flex h-full items-center justify-center">
-                      <p className="text-sm text-muted-foreground">Loading trace...</p>
+                      <LoadingState label="Loading trace..." />
                     </div>
                   ) : error || !trace ? (
                     <div className="flex h-full items-center justify-center">
