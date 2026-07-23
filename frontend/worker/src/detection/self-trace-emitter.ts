@@ -23,7 +23,7 @@ import { SpanStatusCode, trace } from "@opentelemetry/api";
 import { TraceRoot, observe } from "@traceroot-ai/traceroot";
 
 export interface SelfTraceRunMeta {
-  /** uuid-shaped run id; its dashless form becomes the trace id. */
+  /** Run id; its dashless form is forced as the self-trace's trace id. */
   runId: string;
   projectId: string;
   detectorId: string;
