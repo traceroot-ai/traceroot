@@ -344,7 +344,7 @@ class TestTransformOtelToClickhouse:
         assert meta["traceroot.eval.case_id"] == "tc_1"
 
     def test_evaluation_trace_llm_leaves_carry_usage_for_attribution(self):
-        """Phase 7 evidence: a real SDK evaluation trace (EVALUATION root → TASK with an
+        """A real SDK evaluation trace (EVALUATION root → TASK with an
         LLM leaf; SCORER with a judge LLM leaf) ingests so that (1) the LLM LEAF spans
         carry token usage, (2) the TASK/SCORER/EVALUATION WRAPPER spans do not (so summing
         leaves only is correct — no double count), and (3) the parent chain + span kinds
