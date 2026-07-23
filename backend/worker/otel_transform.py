@@ -60,7 +60,6 @@ _KNOWN_ATTRIBUTE_PREFIXES = {
     "traceroot.span.type",
     "traceroot.span.metadata",
     "traceroot.span.tags",
-    "traceroot.llm.",
     "traceroot.trace.",
     "traceroot.environment",
     "traceroot.git.",
@@ -78,9 +77,25 @@ _KNOWN_ATTRIBUTE_PREFIXES = {
 }
 
 
+# Extracted attributes matched by EXACT name — a prefix entry would also swallow
+# siblings that are NOT extracted (e.g. "traceroot.llm.model" prefix-matches
+# traceroot.llm.model_parameters, which must flow to metadata instead).
+_KNOWN_ATTRIBUTE_EXACT = frozenset(
+    {
+        "traceroot.llm.model",  # -> model_name column + LLM span-kind detection
+        # -> token/cost pipeline (parse_manual_usage). Consumed only when a model
+        # name is present (the token block is model-gated), so usage reported
+        # without traceroot.llm.model is dropped entirely rather than priced.
+        "traceroot.llm.usage",
+    }
+)
+
+
 def _is_known_attribute(key: str) -> bool:
     """Check if an attribute key is already extracted into a dedicated field."""
-    return any(key == prefix or key.startswith(prefix) for prefix in _KNOWN_ATTRIBUTE_PREFIXES)
+    return key in _KNOWN_ATTRIBUTE_EXACT or any(
+        key == prefix or key.startswith(prefix) for prefix in _KNOWN_ATTRIBUTE_PREFIXES
+    )
 
 
 def first_present(attrs: dict[str, Any], keys: list[str]) -> Any:
@@ -131,6 +146,71 @@ def int_or_zero(value: Any) -> int:
     except (TypeError, ValueError):
         logger.warning("Non-numeric OTEL token attribute %r; treating as 0", value)
         return 0
+
+
+# Fields recognized in the SDKs' manual usage dict (Python
+# ``update_current_span(usage=...)`` / TS ``updateCurrentSpan({usage})``), which
+# both serialize as JSON into the ``traceroot.llm.usage`` span attribute.
+_MANUAL_USAGE_KEYS = (
+    "input_tokens",
+    "output_tokens",
+    "cache_read_tokens",
+    "cache_write_tokens",
+    "cache_write_1h_tokens",
+    "reasoning_tokens",
+)
+
+# Upper sanity bound per manual usage field. The token columns are Int64 and we
+# store SUMS of fields (total_tokens = uncached + cache buckets + output), so the
+# bound must sit far below Int64-max — capping at Int64-max itself would still
+# let two capped fields overflow the stored sum and reject the whole insert
+# batch. 10^15 tokens is orders of magnitude beyond any real span while keeping
+# any sum of the six fields comfortably inside Int64.
+_MANUAL_USAGE_MAX_TOKENS = 10**15
+
+
+def parse_manual_usage(raw: Any) -> dict[str, int]:
+    """Parse the manual usage dict reported via the SDKs' update-span API.
+
+    The ``traceroot.llm.usage`` attribute is untrusted wire input: a non-JSON
+    string, a non-dict payload, or a non-numeric/negative/non-finite/out-of-range
+    field must
+    never crash ingestion (``json.loads`` accepts literal ``Infinity``/``NaN``,
+    and ``int(inf)`` raises OverflowError). Unusable fields are dropped and
+    counts are clamped non-negative, so a partially-malformed dict degrades to
+    its valid fields (and an entirely unusable one to the text-estimation
+    fallback), never to an error.
+
+    Args:
+        raw (Any): The raw attribute value (a JSON string from either SDK, or an
+            already-decoded dict).
+
+    Returns:
+        dict[str, int]: The recognized usage fields with non-negative int
+            values; empty when the payload is missing or unusable.
+    """
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        # RecursionError: json.loads raises it on deeply-nested payloads, which
+        # would otherwise fail the whole ingest task instead of this one attribute.
+        except (TypeError, ValueError, RecursionError):
+            return {}
+    if not isinstance(raw, dict):
+        return {}
+    usage: dict[str, int] = {}
+    for key in _MANUAL_USAGE_KEYS:
+        value = raw.get(key)
+        if value is None or isinstance(value, bool):
+            continue
+        try:
+            parsed = max(int(value), 0)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if parsed > _MANUAL_USAGE_MAX_TOKENS:
+            continue
+        usage[key] = parsed
+    return usage
 
 
 def decode_otel_id(b64_value: str | None) -> str | None:
@@ -537,6 +617,25 @@ def transform_otel_to_clickhouse(
                             "ai.usage.reasoningTokens",
                         ],
                     )
+
+                    # Manual usage reported via the SDKs' update-span API
+                    # (traceroot.llm.usage) — the documented token source for
+                    # self-instrumented spans, where no instrumentor maps the
+                    # provider response (custom clients, gateways, proxies).
+                    # Instrumentor attributes win WHOLE-DICT, never per-field:
+                    # merging could pair counts measured under different
+                    # conventions (gross vs net input) and double-price cache.
+                    # When the manual dict is used, it replaces every field, so
+                    # the span is priced under the reporter's one convention.
+                    if api_input_tokens is None and api_output_tokens is None:
+                        manual_usage = parse_manual_usage(span_attrs.get("traceroot.llm.usage"))
+                        if "input_tokens" in manual_usage or "output_tokens" in manual_usage:
+                            api_input_tokens = manual_usage.get("input_tokens")
+                            api_output_tokens = manual_usage.get("output_tokens")
+                            api_cache_read_tokens = manual_usage.get("cache_read_tokens")
+                            api_cache_write_tokens = manual_usage.get("cache_write_tokens")
+                            api_cache_write_1h_tokens = manual_usage.get("cache_write_1h_tokens")
+                            api_reasoning_tokens = manual_usage.get("reasoning_tokens")
 
                     if api_input_tokens is not None or api_output_tokens is not None:
                         # Use API-provided counts (accurate).
