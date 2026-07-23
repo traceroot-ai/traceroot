@@ -72,7 +72,8 @@ describe("ScorerDetailPanel", () => {
       }),
     );
     const detail = screen.getByLabelText("Scorer detail");
-    expect(within(detail).getByText("LLM judge")).toBeDefined(); // header type badge
+    // "LLM judge" appears in the header badge and the Definition section heading.
+    expect(within(detail).getAllByText("LLM judge").length).toBeGreaterThan(0);
     expect(within(detail).getByText("Model")).toBeDefined();
     expect(within(detail).getByText("claude-sonnet-5")).toBeDefined();
     expect(within(detail).getByText("Messages")).toBeDefined();
@@ -100,20 +101,23 @@ describe("ScorerDetailPanel", () => {
       }),
     );
     const detail = screen.getByLabelText("Scorer detail");
-    expect(within(detail).getByText("Code")).toBeDefined(); // header type badge
-    expect(within(detail).getByText("Code · Python")).toBeDefined(); // card title
+    // The exact language leads: "Python" in the header badge + Definition heading.
+    expect(within(detail).getAllByText("Python").length).toBeGreaterThan(0);
+    expect(within(detail).getByText("Source")).toBeDefined(); // source card title
     expect(detail.textContent).toContain("def exact_match"); // source (tokenized)
     expect(within(detail).getByText("Classification")).toBeDefined(); // output type
     expect(within(detail).queryByText("Model")).toBeNull();
   });
 
-  it("No definition reported — honest 'Not provided by SDK' fallbacks", () => {
+  it("No definition reported — honest em-dash fallbacks", () => {
     mount(row({ name: "routing_accuracy", declaredValueType: null, threshold: null }));
     const detail = screen.getByLabelText("Scorer detail");
-    // No type badge for an undeclared scorer.
+    // No type badge/heading for an undeclared scorer.
     expect(within(detail).queryByText("LLM judge")).toBeNull();
-    expect(within(detail).queryByText("Code")).toBeNull();
-    expect(within(detail).getAllByText("Not provided by SDK").length).toBeGreaterThan(0);
+    expect(within(detail).queryByText("Python")).toBeNull();
+    expect(within(detail).queryByText("TypeScript")).toBeNull();
+    // The honest fallback card explaining the SDK reported no definition.
+    expect(within(detail).getByText(/hasn't reported this scorer/i)).toBeDefined();
     // Observed usage is still shown honestly.
     expect(within(detail).getByText("Observed usage")).toBeDefined();
   });

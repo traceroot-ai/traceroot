@@ -351,11 +351,10 @@ describe("real Datasets + Evaluations views render server data", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Scorers/ }));
     // Clicking a scorer row opens the detail panel; then assert on it.
     fireEvent.click(await screen.findByText("routing-accuracy"));
-    expect(await screen.findByText("Defined in SDK")).toBeDefined();
-    const detail = screen.getByLabelText("Scorer detail");
+    const detail = await screen.findByLabelText("Scorer detail");
     // This fixture reports no definition (no type/model/source), so the detector-style
-    // detail is honest about the gaps but still shows the observed usage + config cards.
-    expect(within(detail).getAllByText("Not provided by SDK").length).toBeGreaterThan(0);
+    // detail is honest about the gap but still shows the observed usage + config cards.
+    expect(within(detail).getByText(/hasn't reported this scorer/i)).toBeDefined();
     expect(within(detail).getByText("Configuration")).toBeDefined();
     expect(within(detail).getByText("Observed usage")).toBeDefined();
     // Scorers are SDK-authored — no create/edit control.
