@@ -879,6 +879,30 @@ class TestPerSpanProjectAttribution:
         mock_ch.insert_spans_batch.assert_not_called()
         mock_ch.insert_traces_batch.assert_not_called()
 
+    def test_non_string_project_attribute_is_a_400_not_a_500(self, client, secret, mock_ch):
+        """A malformed traceroot.project_id value (an OTLP array/int, not a
+        string) must reject the batch cleanly (400), not crash grouping with an
+        unhashable-key TypeError surfacing as a 500."""
+        request = ExportTraceServiceRequest()
+        span = request.resource_spans.add().scope_spans.add().spans.add()
+        span.trace_id = b"\xab" * 16
+        span.span_id = b"\x01" * 8
+        span.name = "detector-run"
+        span.start_time_unix_nano = 1700000000000000000
+        span.end_time_unix_nano = 1700000001000000000
+        attr = span.attributes.add()
+        attr.key = "traceroot.project_id"
+        attr.value.array_value.values.add().string_value = "proj-x"
+
+        resp = client.post(
+            "/api/v1/internal/traces",
+            content=request.SerializeToString(),
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 400
+        mock_ch.insert_spans_batch.assert_not_called()
+        mock_ch.insert_traces_batch.assert_not_called()
+
 
 # =============================================================================
 # /usage/* (billing metering)
