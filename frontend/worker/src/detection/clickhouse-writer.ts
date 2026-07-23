@@ -30,6 +30,11 @@ export async function writeDetectorRun(params: {
   traceId: string;
   findingId: string | null;
   status: "completed" | "failed";
+  // True when the worker emitted a self-trace for this run — set
+  // optimistically at emit time, before ingestion is guaranteed; gates the
+  // runs-tab link to the run's own trace. Omitted (false) when no emit
+  // happened, e.g. the spans download failed before any detector ran.
+  selfTraced?: boolean;
   // Worker epoch-ms time to store as the row timestamp. Omit to let ClickHouse
   // default to now64(3). Set for triggered runs so the digest window count
   // shares the clock that keys the flush.
