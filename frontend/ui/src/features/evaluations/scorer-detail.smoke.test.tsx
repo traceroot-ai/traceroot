@@ -6,6 +6,7 @@
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, cleanup, screen, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -47,7 +48,11 @@ function row(p: Partial<ScorerRegistryRow>): ScorerRegistryRow {
 }
 
 const mount = (scorer: ScorerRegistryRow) =>
-  render(<ScorerDetailPanel scorer={scorer} onClose={() => {}} />);
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <ScorerDetailPanel scorer={scorer} onClose={() => {}} />
+    </QueryClientProvider>,
+  );
 
 afterEach(() => cleanup());
 
