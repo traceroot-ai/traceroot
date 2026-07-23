@@ -62,12 +62,16 @@ const RUN = {
   environment: "evaluation",
   status: "completed",
   baselineRunId: null,
-  mainScore: 90,
+  mainScore: 0.9,
   mainScoreName: "Routing accuracy",
   caseCount: 1,
   scoredCount: 1,
   taskErrorCount: 0,
   scorerErrorCount: 0,
+  passedCount: 1,
+  failedCount: 0,
+  erroredCount: 0,
+  notScoredCount: 0,
   scorers: [{ name: "routing-accuracy", version: "v3" }],
   model: null,
   startedAt: "2026-07-17T10:24:00Z",
@@ -84,7 +88,7 @@ const RUN = {
     trustworthy: false,
     reasons: ["no_baseline"],
     baseline: null,
-    mainScore: { candidate: 90, baseline: null, delta: null },
+    mainScore: { candidate: 0.9, baseline: null, delta: null },
     caseCounts: {
       improved: 0,
       regressed: 0,
@@ -102,6 +106,7 @@ const RUN = {
       not_comparable: 0,
     },
     scorers: [],
+    duration: { candidateMeanMs: null, baselineMeanMs: null, deltaMs: null, pairedCount: 0 },
   },
 };
 
@@ -209,5 +214,11 @@ describe("result → real trace", () => {
     expect(await screen.findByTestId("trace-panel")).toBeDefined();
     expect(lastPanel.override).toBe(true); // synthetic override
     expect(screen.getByText(/Reconstructed/)).toBeDefined();
+  });
+
+  it("shows the pass rate in the results filter bar", async () => {
+    stubFetch(makeResult("trace-1"));
+    mount();
+    expect(await screen.findByText(/1\/1 passed/)).toBeDefined();
   });
 });

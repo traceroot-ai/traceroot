@@ -54,6 +54,7 @@ import {
 } from "@/features/offline-eval/utils";
 import { useEvaluationRun, useEvaluationRuns, useCreateHumanScore } from "../hooks";
 import { PullCodeDrawer } from "../components/pull-code-drawer";
+import { PassRate } from "../components/pass-rate";
 import { SaveTestCaseDrawer } from "../components/trace-integration";
 import { reproduceRunCode, reproduceRunCodeTs } from "@/features/offline-eval/utils";
 import { attributeTraceUsage, type TraceUsage, type UsageSpan } from "@/lib/eval/trace-usage";
@@ -733,6 +734,7 @@ function RunBody({
           )}
 
           <ResultsSection
+            run={run}
             results={results}
             hasBaseline={hasBaseline}
             filter={filter}
@@ -1039,6 +1041,7 @@ function RunSwitcher({
 const RESULT_COLUMN_COUNT = 6;
 
 function ResultsSection({
+  run,
   results,
   hasBaseline,
   filter,
@@ -1046,6 +1049,7 @@ function ResultsSection({
   onOpen,
   openResultId,
 }: {
+  run: RunDetail;
   results: ResultRow[];
   hasBaseline: boolean;
   filter: ResultFilterId;
@@ -1121,6 +1125,8 @@ function ResultsSection({
             </Button>
           ))}
         </div>
+        <span className="flex-1" aria-hidden />
+        <PassRate counts={run} withLabel />
         <span className="flex-1" aria-hidden />
         <Button
           variant={sortWorst ? "default" : "outline"}
