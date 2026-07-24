@@ -2,6 +2,7 @@
 
 import base64
 from datetime import datetime
+from typing import ClassVar
 
 import pytest
 
@@ -1094,6 +1095,163 @@ class TestGetSpanKindGenAI:
             )
             == "SPAN"
         )
+
+    def test_gen_ai_operation_name_invoke_agent_is_agent(self):
+        assert get_span_kind({"gen_ai.operation.name": "invoke_agent"}, None) == "AGENT"
+
+    def test_invoke_agent_wins_over_model_presence(self):
+        # Semconv agent-invocation roots carry gen_ai.request.model too; the
+        # operation name must decide the kind before the model fallback flips
+        # the span to LLM (which would let its aggregate usage be priced).
+        assert (
+            get_span_kind(
+                {
+                    "gen_ai.operation.name": "invoke_agent",
+                    "gen_ai.request.model": "claude-haiku-4-5-20251001",
+                },
+                None,
+            )
+            == "AGENT"
+        )
+
+
+# ── Vercel AI SDK semconv emitter (tracer scope "gen_ai") ──────────────
+
+
+def _semconv_agent_trace_spans(*, with_openinference_kinds: bool):
+    """Span shapes taken verbatim from a live ai@7 semconv-telemetry trace.
+
+    The operation root restates its LLM child's usage as an aggregate; the
+    step span carries no usage or model at all.
+
+    Args:
+        with_openinference_kinds (bool): Include openinference.span.kind attrs
+            (present when the openinference-vercel processor ran); omit them to
+            model a raw @ai-sdk/otel export.
+
+    Returns:
+        list: OTLP span dicts for make_otel_payload.
+    """
+    model = "claude-haiku-4-5-20251001"
+
+    def oi(kind):
+        return [make_attr("openinference.span.kind", kind)] if with_openinference_kinds else []
+
+    root = make_span(
+        "aa" * 16,
+        "bb" * 8,
+        name="committee.chair",
+        attributes=oi("AGENT")
+        + [
+            make_attr("gen_ai.operation.name", "invoke_agent"),
+            make_attr("gen_ai.agent.name", "committee.chair"),
+            make_attr("gen_ai.request.model", model),
+            make_attr("gen_ai.usage.input_tokens", 10),
+            make_attr("gen_ai.usage.output_tokens", 16),
+            make_attr("ai.usage.inputTokenDetails.noCacheTokens", 10),
+        ],
+    )
+    step = make_span(
+        "aa" * 16,
+        "cc" * 8,
+        name="step 1",
+        parent_span_id_hex="bb" * 8,
+        attributes=oi("LLM") + [make_attr("gen_ai.operation.name", "agent_step")],
+    )
+    chat = make_span(
+        "aa" * 16,
+        "dd" * 8,
+        name=f"chat {model}",
+        parent_span_id_hex="cc" * 8,
+        attributes=oi("LLM")
+        + [
+            make_attr("gen_ai.operation.name", "chat"),
+            make_attr("gen_ai.request.model", model),
+            make_attr("gen_ai.usage.input_tokens", 10),
+            make_attr("gen_ai.usage.output_tokens", 16),
+            make_attr("ai.usage.inputTokenDetails.noCacheTokens", 10),
+        ],
+    )
+    return [root, step, chat]
+
+
+class TestVercelSemconvScope:
+    """The ai@7 semconv emitter (tracer scope exactly "gen_ai") stamps aggregate
+    gen_ai.usage.* totals on the operation root span, restating the SUM of its
+    LLM children. Usage on that scope is trusted only on LLM spans, or the
+    trace is charged twice."""
+
+    PRICES: ClassVar[dict[str, float]] = {
+        "input": 0.000003,
+        "output": 0.000015,
+        "cacheRead": 0.0,
+        "cacheWrite": 0.0,
+    }
+
+    def _transform(self, spans, scope_name="gen_ai"):
+        from unittest.mock import patch
+
+        payload = make_otel_payload(spans, scope_name=scope_name)
+        with patch("worker.tokens.pricing.get_model_price", return_value=self.PRICES):
+            return transform_otel_to_clickhouse(payload, "proj-1")
+
+    def _assert_only_chat_priced(self, spans):
+        by_name = {s["name"]: s for s in spans}
+        root = by_name["committee.chair"]
+        chat = by_name["chat claude-haiku-4-5-20251001"]
+        step = by_name["step 1"]
+
+        # Root contributes nothing — its aggregate restates the chat span.
+        assert (root.get("input_tokens") or 0) == 0
+        assert (root.get("output_tokens") or 0) == 0
+        assert (root.get("cost") or 0) == 0
+        # The model name itself is still kept for display.
+        assert root["model_name"] == "claude-haiku-4-5-20251001"
+
+        # The chat span is priced from its own counts.
+        assert chat["input_tokens"] == 10
+        assert chat["output_tokens"] == 16
+        assert chat["total_tokens"] == 26
+        assert chat["cost"] == pytest.approx(10 * 0.000003 + 16 * 0.000015)
+
+        # The step span has no model and stores nothing.
+        assert (step.get("input_tokens") or 0) == 0
+
+        # Trace-wide sums equal the single real call, not 2x.
+        assert sum((s.get("input_tokens") or 0) for s in spans) == 10
+        assert sum((s.get("output_tokens") or 0) for s in spans) == 16
+
+    def test_semconv_agent_root_aggregate_not_double_counted(self):
+        _, spans = self._transform(_semconv_agent_trace_spans(with_openinference_kinds=True))
+        self._assert_only_chat_priced(spans)
+
+    def test_semconv_shape_without_openinference_kinds(self):
+        """A raw @ai-sdk/otel export has no openinference.span.kind attrs; the
+        root must classify AGENT via gen_ai.operation.name=invoke_agent so the
+        scope gate still applies."""
+        _, spans = self._transform(_semconv_agent_trace_spans(with_openinference_kinds=False))
+        by_name = {s["name"]: s for s in spans}
+        assert by_name["committee.chair"]["span_kind"] == "AGENT"
+        self._assert_only_chat_priced(spans)
+
+    def test_other_scopes_still_price_agent_spans(self):
+        """The gate is fenced to the "gen_ai" scope: instrumentors that report
+        usage only on AGENT spans must keep being priced from them."""
+        span = make_span(
+            "aa" * 16,
+            "bb" * 8,
+            name="agent run",
+            attributes=[
+                make_attr("openinference.span.kind", "AGENT"),
+                make_attr("gen_ai.request.model", "gpt-4o-mini"),
+                make_attr("gen_ai.usage.input_tokens", 100),
+                make_attr("gen_ai.usage.output_tokens", 50),
+            ],
+        )
+        _, spans = self._transform([span], scope_name="openinference.instrumentation.openai_agents")
+        assert spans[0]["input_tokens"] == 100
+        assert spans[0]["output_tokens"] == 50
+        assert spans[0]["cost"] == pytest.approx(100 * 0.000003 + 50 * 0.000015)
 
 
 # ── GenAI semconv input/output fallback ────────────────────────────────
