@@ -150,9 +150,14 @@ class ClickHouseClient:
             ],
         )
 
-    def query(self, query: str, parameters: dict[str, Any] | None = None):
+    def query(
+        self,
+        query: str,
+        parameters: dict[str, Any] | None = None,
+        settings: dict[str, Any] | None = None,
+    ):
         """Execute a query and return the result."""
-        return self._client.query(query, parameters=parameters)
+        return self._client.query(query, parameters=parameters, settings=settings)
 
     def close(self) -> None:
         """Close the client connection."""
