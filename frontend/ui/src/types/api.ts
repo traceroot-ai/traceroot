@@ -32,6 +32,9 @@ export interface Workspace {
   billingSubscriptionId?: string | null;
   billingStatus?: string | null;
   currentUsage?: UsageStats | null;
+  // False on self-host deployments (ENABLE_BILLING=false) — the plan/upgrade
+  // UI should show an unlimited state instead of the cloud plan surface.
+  billingEnabled?: boolean;
 }
 
 export interface WorkspaceWithProjects extends Workspace {

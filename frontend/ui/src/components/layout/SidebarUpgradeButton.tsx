@@ -27,6 +27,13 @@ export function SidebarUpgradeButton({
   const workspaceId = propWorkspaceId || project?.workspace_id || "";
   const { data: workspace } = useWorkspace(workspaceId);
 
+  // Self-host (ENABLE_BILLING=false) is intentionally unlimited — there's no
+  // higher tier to upgrade to, so don't show a CTA that leads to a dead
+  // checkout flow.
+  if (workspace?.billingEnabled === false) {
+    return null;
+  }
+
   return (
     <>
       <Tooltip>
