@@ -268,6 +268,10 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
         return SpanKind.LLM
     if operation_name == "execute_tool":
         return SpanKind.TOOL
+    # Agent-invocation roots carry gen_ai.request.model too; decide AGENT here
+    # so the model fallback below cannot flip them to LLM.
+    if operation_name == "invoke_agent":
+        return SpanKind.AGENT
 
     # Infer from LLM-related attributes
     if (
@@ -538,7 +542,23 @@ def transform_otel_to_clickhouse(
                         ],
                     )
 
-                    if api_input_tokens is not None or api_output_tokens is not None:
+                    # The Vercel AI SDK's semconv emitter (tracer scope exactly
+                    # "gen_ai") stamps aggregate gen_ai.usage.* totals on the
+                    # operation root span, restating the SUM of its LLM children
+                    # — the same wrapper pattern as the raw ai.usage.* keys
+                    # gated above, moved into the normalized namespace. Trust
+                    # usage on that scope only on the LLM span itself; other
+                    # scopes are untouched (some instrumentors legitimately
+                    # report usage only on AGENT/CHAIN spans).
+                    vercel_semconv_wrapper = (
+                        isinstance(scope_name, str)
+                        and scope_name.lower() == "gen_ai"
+                        and span_kind != SpanKind.LLM
+                    )
+
+                    if not vercel_semconv_wrapper and (
+                        api_input_tokens is not None or api_output_tokens is not None
+                    ):
                         # Use API-provided counts (accurate).
                         input_tokens = int_or_zero(api_input_tokens)
                         output_tokens = int_or_zero(api_output_tokens)

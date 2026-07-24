@@ -164,6 +164,22 @@ def test_vercel_ai_scope_is_known_inclusive_no_warning(caplog):
     assert not any("unknown instrumentation scope" in r.message.lower() for r in caplog.records)
 
 
+def test_vercel_gen_ai_scope_is_known_inclusive_no_warning(caplog):
+    # The Vercel AI SDK's semconv emitter uses tracer scope exactly "gen_ai".
+    # Its gen_ai.usage.input_tokens comes from the same GROSS usage source as
+    # the legacy "ai" scope, so the standard subtraction applies silently.
+    with caplog.at_level(logging.WARNING):
+        b = normalize_token_usage(
+            "gen_ai",
+            input_tokens=28466,
+            output_tokens=120,
+            cache_read_tokens=22041,
+            cache_write_tokens=6422,
+        )
+    assert b == TokenBuckets(input_uncached=3, output=120, cache_read=22041, cache_write=6422)
+    assert not any("unknown instrumentation scope" in r.message.lower() for r in caplog.records)
+
+
 def test_ai_prefixed_scope_still_warns(caplog):
     # "ai" is matched exactly, not as a prefix — an unrelated ai*-named scope
     # must still surface the unknown-emitter warning.
