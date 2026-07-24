@@ -3,7 +3,7 @@ import { WORKSPACE_SETTINGS_TABS, PROJECT_SETTINGS_TABS } from "./settings-layou
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 
 describe("WORKSPACE_SETTINGS_TABS", () => {
-  it("gates Model Providers on the model icon, not Bot (#1517 canonical fix)", () => {
+  it("gates Model Providers on the model icon, not Bot", () => {
     const tab = WORKSPACE_SETTINGS_TABS.find((t) => t.id === "model-providers");
     expect(tab?.icon).toBe(DOMAIN_ICONS.model);
   });

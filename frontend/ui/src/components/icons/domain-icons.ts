@@ -27,7 +27,7 @@ import {
  * Single source of truth for domain-concept icons. Every surface that draws
  * one of these concepts (filter fields, span kinds, nav tabs, chips, …)
  * should import from here instead of picking a lucide icon directly — that's
- * what let "model" drift to four different glyphs across the app (#1517).
+ * what let "model" drift to four different glyphs across the app.
  *
  * `project` and `workspace` are deliberately separate entries: they read as
  * the same concept in the original issue text, but they're distinct concepts
@@ -65,6 +65,6 @@ export const DOMAIN_ICONS = {
   // Neutral "unknown field" fallback for filter/widget dropdowns. Kept
   // decoupled from `model` even though both currently render as Box — if the
   // model glyph ever changes, unmapped fields shouldn't silently change with
-  // it (ka1kqi, #1594).
+  // it.
   fallback: Box,
 } satisfies Record<string, LucideIcon>;
