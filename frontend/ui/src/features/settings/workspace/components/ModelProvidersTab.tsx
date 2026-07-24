@@ -44,6 +44,17 @@ interface ModelProvidersTabProps {
   workspaceId: string;
 }
 
+export function getBaseUrlPayload(
+  baseUrl: string,
+  isEditMode: boolean,
+): { baseUrl?: string | null } {
+  const trimmedBaseUrl = baseUrl.trim();
+
+  if (trimmedBaseUrl) return { baseUrl: trimmedBaseUrl };
+  if (isEditMode) return { baseUrl: null };
+  return {};
+}
+
 export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -179,11 +190,10 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     }
     const config: Record<string, unknown> = {};
     if (Object.keys(filteredProtocols).length > 0) config.modelProtocols = filteredProtocols;
-
     const base: Record<string, unknown> = {
       adapter,
       provider: providerName,
-      baseUrl: baseUrl || undefined,
+      ...getBaseUrlPayload(baseUrl, !!editProvider),
       customModels: trimmedModels,
       withDefaultModels: true,
       ...(Object.keys(config).length > 0 ? { config } : {}),
@@ -227,7 +237,8 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
       // Use stored key from DB
       testData.providerId = editProvider.id;
     }
-    if (baseUrl) testData.baseUrl = baseUrl;
+    const trimmedBaseUrl = baseUrl.trim();
+    if (trimmedBaseUrl) testData.baseUrl = trimmedBaseUrl;
     setTestResult(null);
     testMutation.mutate(testData as any);
   }
@@ -320,7 +331,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
       : editProvider
         ? true // existing key is kept
         : !!apiKey;
-  const hasRequiredBaseUrl = adapterConfig?.requiresBaseUrl ? !!baseUrl : true;
+  const hasRequiredBaseUrl = adapterConfig?.requiresBaseUrl ? !!baseUrl.trim() : true;
   const canSave = adapter && providerName && hasCredentials && hasRequiredBaseUrl;
 
   const curatedModelsForAdapter = adapter ? ADAPTER_MODELS[adapter as LLMAdapter] : null;
