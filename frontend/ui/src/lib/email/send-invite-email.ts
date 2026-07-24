@@ -36,12 +36,13 @@ export async function sendInviteEmail(params: SendInviteEmailParams): Promise<vo
     return;
   }
 
-  // Parse SMTP URL: smtp://user:pass@host:port
   const url = new URL(smtpUrl);
+  const secureScheme = url.protocol === "smtps:";
+  const port = parseInt(url.port) || (secureScheme ? 465 : 587);
   const transporter = nodemailer.createTransport({
     host: url.hostname,
-    port: parseInt(url.port) || 587,
-    secure: url.port === "465", // true for 465, false for other ports (uses STARTTLS)
+    port,
+    secure: secureScheme || port === 465,
     auth: {
       user: decodeURIComponent(url.username),
       pass: decodeURIComponent(url.password),
