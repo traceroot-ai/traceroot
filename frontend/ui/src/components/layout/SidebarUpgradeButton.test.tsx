@@ -136,6 +136,24 @@ describe("SidebarUpgradeButton", () => {
     expect(dialog.getAttribute("data-open")).toBe("true");
   });
 
+  it("should render nothing when billing is disabled (self-host)", () => {
+    mockUseProject.mockReturnValue({ data: undefined });
+    mockUseWorkspace.mockReturnValue({
+      data: {
+        id: "w1",
+        billingPlan: PlanType.FREE,
+        billingEnabled: false,
+      },
+    });
+
+    const { container } = renderWithProvider(
+      <SidebarUpgradeButton workspaceId="w1" collapsed={false} />,
+    );
+
+    expect(container.textContent).toBe("");
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
   it("should handle propWorkspaceId prioritisation over project workspace_id", () => {
     mockUseProject.mockReturnValue({ data: { workspace_id: "w-project" } });
     mockUseWorkspace.mockReturnValue({
