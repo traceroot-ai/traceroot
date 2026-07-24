@@ -296,6 +296,11 @@ export function DatasetDetailView({
               <span className="font-mono text-xs font-normal text-muted-foreground">
                 {dataset.id}
               </span>
+              <CopyButton
+                value={dataset.id}
+                className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                title="Copy dataset ID"
+              />
             </span>
           }
         />
