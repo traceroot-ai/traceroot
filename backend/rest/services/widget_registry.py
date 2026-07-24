@@ -43,11 +43,13 @@ _SPANS_BASE = """
         name, span_kind, status, model_name, environment,
         span_start_time AS event_time,
         dateDiff('millisecond', span_start_time, span_end_time) AS duration_ms,
-        cost, input_tokens, output_tokens, total_tokens
+        cost, input_tokens, output_tokens, total_tokens,
+        if(total_tokens IS NOT NULL, usage_details['cache_read_tokens'], NULL) AS cache_read_tokens,
+        if(total_tokens IS NOT NULL, usage_details['cache_write_tokens'], NULL) AS cache_write_tokens
     FROM (
         SELECT
             span_id, trace_id, name, span_kind, status, model_name, environment,
-            span_start_time, span_end_time, cost, input_tokens, output_tokens, total_tokens
+            span_start_time, span_end_time, cost, input_tokens, output_tokens, total_tokens, usage_details
         FROM spans
         WHERE project_id = {project_id:String}
           AND span_start_time >= {start_time:DateTime64(3)}
@@ -77,7 +79,9 @@ _TRACES_BASE = """
         if(sa.trace_id = '', NULL, sa.total_cost) AS cost,
         if(sa.trace_id = '', NULL, sa.input_tokens) AS input_tokens,
         if(sa.trace_id = '', NULL, sa.output_tokens) AS output_tokens,
-        if(sa.trace_id = '', NULL, sa.total_tokens) AS total_tokens
+        if(sa.trace_id = '', NULL, sa.total_tokens) AS total_tokens,
+        if(sa.trace_id = '', NULL, sa.cache_read_tokens) AS cache_read_tokens,
+        if(sa.trace_id = '', NULL, sa.cache_write_tokens) AS cache_write_tokens
     FROM (
         SELECT
             trace_id, name, user_id, session_id, environment, trace_start_time
@@ -100,11 +104,15 @@ _TRACES_BASE = """
             sum(cost) AS total_cost,
             sum(input_tokens) AS input_tokens,
             sum(output_tokens) AS output_tokens,
-            sum(total_tokens) AS total_tokens
+            sum(total_tokens) AS total_tokens,
+            sum(cache_read_tokens) AS cache_read_tokens,
+            sum(cache_write_tokens) AS cache_write_tokens
         FROM (
             SELECT
                 trace_id, span_id, status, span_start_time, span_end_time, cost,
-                input_tokens, output_tokens, total_tokens
+                input_tokens, output_tokens, total_tokens,
+                if(total_tokens IS NOT NULL, usage_details['cache_read_tokens'], NULL) AS cache_read_tokens,
+                if(total_tokens IS NOT NULL, usage_details['cache_write_tokens'], NULL) AS cache_write_tokens
             FROM spans
             WHERE project_id = {project_id:String}
               AND span_start_time >= {start_time:DateTime64(3)}
@@ -158,6 +166,8 @@ REGISTRY: dict[str, ViewDef] = {
             "input_tokens": _number_measure("input_tokens", "Input tokens"),
             "output_tokens": _number_measure("output_tokens", "Output tokens"),
             "total_tokens": _number_measure("total_tokens", "Total tokens"),
+            "cache_read_tokens": _number_measure("cache_read_tokens", "Cache read tokens"),
+            "cache_write_tokens": _number_measure("cache_write_tokens", "Cache write tokens"),
             # expr="*" is a sentinel: the compiler translates it to count(*).
             "count": FieldDef(expr="*", type="number", label="Count", aggs=("count",)),
         },
@@ -177,6 +187,8 @@ REGISTRY: dict[str, ViewDef] = {
             "input_tokens": _number_measure("input_tokens", "Input tokens"),
             "output_tokens": _number_measure("output_tokens", "Output tokens"),
             "total_tokens": _number_measure("total_tokens", "Tokens"),
+            "cache_read_tokens": _number_measure("cache_read_tokens", "Cache read tokens"),
+            "cache_write_tokens": _number_measure("cache_write_tokens", "Cache write tokens"),
             # expr="*" is a sentinel: the compiler translates it to count(*).
             "count": FieldDef(expr="*", type="number", label="Count", aggs=("count",)),
             # Last, so the list reads as the spans measures plus one trailing
