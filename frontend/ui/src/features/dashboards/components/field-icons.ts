@@ -13,6 +13,8 @@ const WIDGET_FIELD_ICONS: Record<string, LucideIcon> = {
   error_count: DOMAIN_ICONS.error,
   input_tokens: DOMAIN_ICONS.tokens,
   output_tokens: DOMAIN_ICONS.tokens,
+  cache_read_tokens: DOMAIN_ICONS.tokens,
+  cache_write_tokens: DOMAIN_ICONS.tokens,
   count: DOMAIN_ICONS.count,
   user_id: DOMAIN_ICONS.user,
   session_id: DOMAIN_ICONS.session,

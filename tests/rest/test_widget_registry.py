@@ -93,3 +93,12 @@ def test_schema_histogrammable_mirrors_compiler_rule():
     # The concrete case that motivated the flag: count is not histogrammable.
     assert schema["spans"]["fields"]["count"]["histogrammable"] is False
     assert schema["spans"]["fields"]["cost"]["histogrammable"] is True
+
+
+def test_registry_schema_exposes_cache_tokens():
+    """cache_read_tokens and cache_write_tokens must be exposed on both views."""
+    schema = registry_schema()
+    for view in ["spans", "traces"]:
+        fields = schema[view]["fields"]
+        assert "cache_read_tokens" in fields, f"{view}: missing cache_read_tokens"
+        assert "cache_write_tokens" in fields, f"{view}: missing cache_write_tokens"
