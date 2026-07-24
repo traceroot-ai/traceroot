@@ -761,6 +761,66 @@
     }
   },
   {
+    "id": "tr-gpt-5-codex",
+    "modelName": "gpt-5-codex",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-5-codex)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.00000125,
+      "output": 0.00001,
+      "cacheRead": 0.000000125,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gpt-5-1-codex",
+    "modelName": "gpt-5.1-codex",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-5\\.1-codex)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.00000125,
+      "output": 0.00001,
+      "cacheRead": 0.000000125,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gpt-5-1-codex-max",
+    "modelName": "gpt-5.1-codex-max",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-5\\.1-codex-max)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.00000125,
+      "output": 0.00001,
+      "cacheRead": 0.000000125,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gpt-5-1-codex-mini",
+    "modelName": "gpt-5.1-codex-mini",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-5\\.1-codex-mini)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.00000025,
+      "output": 0.000002,
+      "cacheRead": 0.000000025,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-gpt-5-2-codex",
+    "modelName": "gpt-5.2-codex",
+    "matchPattern": "(?i)^(openai\\/)?(gpt-5\\.2-codex)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.00000175,
+      "output": 0.000014,
+      "cacheRead": 0.000000175,
+      "cacheWrite": null
+    }
+  },
+  {
     "id": "tr-gpt-5-3-codex",
     "modelName": "gpt-5.3-codex",
     "matchPattern": "(?i)^(openai\\/)?(gpt-5\\.3-codex)(-[\\d-]+)?$",
