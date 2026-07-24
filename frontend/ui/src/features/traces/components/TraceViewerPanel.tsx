@@ -395,9 +395,6 @@ export function TraceViewerPanel({
                 title={`Copy ${headerIdentity.label.toLowerCase()} id`}
               />
             )}
-            <DOMAIN_ICONS.trace className="h-4 w-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Trace</span>
-            <span className="truncate font-mono text-xs text-muted-foreground">{traceId}</span>
           </div>
           <div className="flex items-center gap-1">
             {headerStatus}
