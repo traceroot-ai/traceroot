@@ -146,7 +146,7 @@ class Settings(BaseSettings):
     """
 
     # PostgreSQL (shared with Prisma — read-only for Python)
-    database_url: str = "postgresql://postgres:postgres@localhost:5432/postgres"
+    database_url: str = "postgresql://postgres:postgres@localhost:5433/postgres"
 
     # CORS
     cors_origins: list[str] = ["http://localhost:3000"]
