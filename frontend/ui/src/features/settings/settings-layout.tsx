@@ -26,7 +26,7 @@ export const WORKSPACE_SETTINGS_TABS: SettingsTab[] = [
   {
     id: "model-providers",
     label: "Model Providers",
-    // Canonical fix (#1517): was Bot, which also means the agent span kind.
+    // Canonical fix: was Bot, which also means the agent span kind.
     // Bot now exclusively means "agent"; Box means "model".
     icon: DOMAIN_ICONS.model,
     href: "model-providers",

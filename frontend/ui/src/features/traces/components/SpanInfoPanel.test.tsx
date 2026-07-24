@@ -148,9 +148,7 @@ describe("SpanInfoPanel - Error box source location badges", () => {
     const modelPill = screen.getByText("gpt-4o");
     expect(modelPill).toBeTruthy();
 
-    const modelParentDiv = modelPill.parentElement;
-    expect(modelParentDiv).toBeTruthy();
-    const modelIcon = modelParentDiv?.querySelector("svg");
+    const modelIcon = modelPill.querySelector("svg");
     expect(modelIcon).toBeTruthy();
   });
 

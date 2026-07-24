@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { useLayout } from "@/components/layout/app-layout";
 import { createWorkspace, createProject } from "@/lib/api";
-import { LayoutGrid, Check } from "lucide-react";
+import { Check } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { AddDetectorsStep } from "@/features/detectors/components/add-detectors-step";
 
@@ -189,7 +189,7 @@ function OnboardingContent() {
                         {isProjectOnlyMode ? (
                           <Check className="h-4 w-4 text-primary" />
                         ) : (
-                          <LayoutGrid className="h-4 w-4 text-primary" />
+                          <DOMAIN_ICONS.workspace className="h-4 w-4 text-primary" />
                         )}
                       </div>
                       {/* Vertical connector line */}
