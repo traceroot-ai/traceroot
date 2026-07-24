@@ -740,7 +740,10 @@ function RunBody({
               onValueChange={(v) => onCompareChange(v === NO_COMPARE ? null : v)}
             >
               <SelectTrigger
-                className="h-7 w-fit max-w-[240px] gap-1.5 text-[12px]"
+                // The trigger is justify-between by default, which pushes the value
+                // away from the icon whenever the box is wider than its text. Keep the
+                // pair together on the left and let the chevron take the slack.
+                className="h-7 w-fit max-w-[240px] justify-start gap-1.5 text-[12px] [&>span]:mr-auto"
                 aria-label="Compare with"
               >
                 <GitCompare className="h-3.5 w-3.5 shrink-0" aria-hidden />
