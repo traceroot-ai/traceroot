@@ -278,12 +278,13 @@ describe("Dataset detail — versions", () => {
     await screen.findByText(/charged twice/);
     // The current version is preselected and its immutable id is shown.
     expect(screen.getAllByText("dv2").length).toBeGreaterThan(0);
-    expect(screen.queryByText(/Viewing an older version/)).toBeNull();
+    expect(screen.queryByText(/— read only/)).toBeNull();
 
     fireEvent.click(screen.getByRole("combobox"));
     fireEvent.click(await screen.findByRole("option", { name: /v1/ }));
 
-    expect(await screen.findByText(/Viewing an older version — read only/)).toBeDefined();
+    // The banner names the version being viewed, not just "an older version".
+    expect(await screen.findByText(/Viewing v1.*— read only/)).toBeDefined();
     expect(await screen.findByText("seeded ticket")).toBeDefined();
     // Editing branches from the current version, so adding a row is disabled here.
     expect(screen.getByRole("button", { name: /Row/ }).hasAttribute("disabled")).toBe(true);
@@ -487,10 +488,8 @@ describe("Dataset detail — review drawer", () => {
     // The drawer names the case it is reviewing.
     expect(screen.getByText(`${caseDisplayId("tc_1")} · Billing routing`)).toBeDefined();
 
-    // Tick a couple of the verification checks.
-    const boxes = screen.getAllByRole("checkbox");
-    fireEvent.click(boxes[0]);
-    fireEvent.click(boxes[1]);
+    // "Mark ready" is gated on every verification check.
+    screen.getAllByRole("checkbox").forEach((b) => fireEvent.click(b));
 
     fireEvent.click(screen.getByRole("button", { name: "Mark ready" }));
     await waitFor(() => expect(requests.some((r) => r.method === "PATCH")).toBe(true));
