@@ -99,6 +99,10 @@ async function checkEndpoint(
   });
 }
 
+function adapterBaseUrl(adapter: string, baseUrl?: string): string {
+  return (baseUrl || ADAPTER_DEFAULT_BASE_URL[adapter]).replace(/\/$/, "");
+}
+
 // POST /api/workspaces/[workspaceId]/model-providers/test
 export async function POST(request: NextRequest, { params }: RouteParams) {
   const { workspaceId } = await params;
@@ -143,9 +147,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     switch (adapter) {
       case "openai": {
-        const url = baseUrl
-          ? `${baseUrl.replace(/\/$/, "")}/v1/models`
-          : "https://api.openai.com/v1/models";
+        const openaiBase = adapterBaseUrl(adapter, baseUrl);
+        const url = `${openaiBase}/models`;
         const check = await checkEndpoint(url, { Authorization: `Bearer ${apiKey}` });
         if (!check.ok)
           return successResponse({ success: false, error: check.error, detail: check.detail });
@@ -155,8 +158,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       case "anthropic": {
         // Anthropic has no list-models endpoint; a minimal message call only
         // distinguishes an invalid key (401) from a reachable provider.
+        const anthropicBase = adapterBaseUrl(adapter, baseUrl);
         const check = await withTimeout(async (signal) => {
-          const res = await fetch("https://api.anthropic.com/v1/messages", {
+          const res = await fetch(`${anthropicBase}/v1/messages`, {
             method: "POST",
             headers: {
               "x-api-key": apiKey || "",
@@ -180,10 +184,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
 
       case "google": {
-        const check = await checkEndpoint(
-          "https://generativelanguage.googleapis.com/v1beta/models",
-          { "x-goog-api-key": apiKey || "" },
-        );
+        const googleBase = adapterBaseUrl(adapter, baseUrl);
+        const check = await checkEndpoint(`${googleBase}/models`, {
+          "x-goog-api-key": apiKey || "",
+        });
         if (!check.ok)
           return successResponse({ success: false, error: check.error, detail: check.detail });
         break;
@@ -197,10 +201,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           });
         }
         const apiVersion = "2024-06-01";
-        const check = await checkEndpoint(
-          `${baseUrl.replace(/\/$/, "")}/models?api-version=${apiVersion}`,
-          { "api-key": apiKey || "" },
-        );
+        const azureBase = adapterBaseUrl(adapter, baseUrl);
+        const check = await checkEndpoint(`${azureBase}/models?api-version=${apiVersion}`, {
+          "api-key": apiKey || "",
+        });
         if (!check.ok)
           return successResponse({ success: false, error: check.error, detail: check.detail });
         break;
@@ -229,8 +233,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
 
       case "deepseek": {
-        const deepseekBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.deepseek;
-        const check = await checkEndpoint(`${deepseekBase.replace(/\/$/, "")}/models`, {
+        const deepseekBase = adapterBaseUrl(adapter, baseUrl);
+        const check = await checkEndpoint(`${deepseekBase}/models`, {
           Authorization: `Bearer ${apiKey}`,
         });
         if (!check.ok)
@@ -239,7 +243,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
 
       case "openrouter": {
-        const check = await checkEndpoint("https://openrouter.ai/api/v1/models", {
+        const openrouterBase = adapterBaseUrl(adapter, baseUrl);
+        const check = await checkEndpoint(`${openrouterBase}/models`, {
           Authorization: `Bearer ${apiKey}`,
         });
         if (!check.ok)
@@ -248,8 +253,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
 
       case "xai": {
-        const xaiBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.xai;
-        const check = await checkEndpoint(`${xaiBase.replace(/\/$/, "")}/models`, {
+        const xaiBase = adapterBaseUrl(adapter, baseUrl);
+        const check = await checkEndpoint(`${xaiBase}/models`, {
           Authorization: `Bearer ${apiKey}`,
         });
         if (!check.ok)
@@ -258,8 +263,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
 
       case "moonshot": {
-        const moonshotBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.moonshot;
-        const check = await checkEndpoint(`${moonshotBase.replace(/\/$/, "")}/models`, {
+        const moonshotBase = adapterBaseUrl(adapter, baseUrl);
+        const check = await checkEndpoint(`${moonshotBase}/models`, {
           Authorization: `Bearer ${apiKey}`,
         });
         if (!check.ok)
@@ -268,8 +273,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
 
       case "zai": {
-        const zaiBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.zai;
-        const check = await checkEndpoint(`${zaiBase.replace(/\/$/, "")}/models`, {
+        const zaiBase = adapterBaseUrl(adapter, baseUrl);
+        const check = await checkEndpoint(`${zaiBase}/models`, {
           Authorization: `Bearer ${apiKey}`,
         });
         if (!check.ok)
