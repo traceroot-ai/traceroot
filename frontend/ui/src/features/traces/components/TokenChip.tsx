@@ -1,6 +1,6 @@
-import { CircleStop } from "lucide-react";
 import { formatTokenFlow } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { TokenUsageBreakdown } from "./TokenUsageBreakdown";
 
 interface TokenChipProps {
@@ -29,7 +29,7 @@ export function TokenChip({
       <Tooltip>
         <TooltipTrigger asChild>
           <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-            <CircleStop className="h-3 w-3 text-muted-foreground" />
+            <DOMAIN_ICONS.tokens className="h-3 w-3 text-muted-foreground" />
             <span className="font-medium">
               {formatTokenFlow(inputTokens, outputTokens, totalTokens)}
             </span>

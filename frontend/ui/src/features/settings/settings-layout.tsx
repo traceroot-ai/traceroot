@@ -5,15 +5,13 @@ import Link from "next/link";
 import {
   type LucideIcon,
   SlidersHorizontal,
-  Users,
   Puzzle,
   CreditCard,
-  Bot,
   Key,
-  Eye,
   ArrowLeftRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 
 interface SettingsTab {
   id: string;
@@ -24,8 +22,15 @@ interface SettingsTab {
 
 export const WORKSPACE_SETTINGS_TABS: SettingsTab[] = [
   { id: "general", label: "General", icon: SlidersHorizontal, href: "general" },
-  { id: "members", label: "Members", icon: Users, href: "members" },
-  { id: "model-providers", label: "Model Providers", icon: Bot, href: "model-providers" },
+  { id: "members", label: "Members", icon: DOMAIN_ICONS.user, href: "members" },
+  {
+    id: "model-providers",
+    label: "Model Providers",
+    // Canonical fix: was Bot, which also means the agent span kind.
+    // Bot now exclusively means "agent"; Box means "model".
+    icon: DOMAIN_ICONS.model,
+    href: "model-providers",
+  },
   { id: "integrations", label: "Integrations", icon: Puzzle, href: "integrations" },
   { id: "billing", label: "Billing", icon: CreditCard, href: "billing" },
 ];
@@ -33,7 +38,7 @@ export const WORKSPACE_SETTINGS_TABS: SettingsTab[] = [
 export const PROJECT_SETTINGS_TABS: SettingsTab[] = [
   { id: "general", label: "General", icon: SlidersHorizontal, href: "general" },
   { id: "accessKeys", label: "API Keys", icon: Key, href: "accessKeys" },
-  { id: "detectors", label: "Detectors", icon: Eye, href: "detectors" },
+  { id: "detectors", label: "Detectors", icon: DOMAIN_ICONS.detector, href: "detectors" },
 ];
 
 interface CrossLink {

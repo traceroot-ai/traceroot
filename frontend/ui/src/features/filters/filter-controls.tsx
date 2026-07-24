@@ -7,32 +7,23 @@
  * two filter UIs stay identical.
  */
 import { createContext, useContext, useState } from "react";
-import {
-  AlertCircle,
-  Box,
-  ChevronDown,
-  CircleDollarSign,
-  CircleStop,
-  Clock,
-  Globe,
-  Hash,
-  type LucideIcon,
-} from "lucide-react";
+import { ChevronDown, type LucideIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 
 // Icons mirror the trace detail / list UI for consistency; the model and environment
 // fields, which have no trace-detail icon, use a generic one. The dashboard widget
 // builder extends this map with its registry's extra field names.
 export const FIELD_ICONS: Record<string, LucideIcon> = {
-  trace_id: Hash,
-  cost: CircleDollarSign,
-  total_tokens: CircleStop,
-  duration_ms: Clock,
-  errors: AlertCircle,
-  model_name: Box,
-  environment: Globe,
+  trace_id: DOMAIN_ICONS.id,
+  cost: DOMAIN_ICONS.cost,
+  total_tokens: DOMAIN_ICONS.tokens,
+  duration_ms: DOMAIN_ICONS.latency,
+  errors: DOMAIN_ICONS.error,
+  model_name: DOMAIN_ICONS.model,
+  environment: DOMAIN_ICONS.environment,
 };
 
 // Text sizing depends on where the filter lives: the trace-list search bar uses
@@ -239,7 +230,7 @@ export function FieldDropdown({
   onPick: (key: string) => void;
 }) {
   const selected = valueKey ? (options.find((o) => o.key === valueKey) ?? null) : null;
-  const Icon = selected ? (selected.icon ?? Box) : null;
+  const Icon = selected ? (selected.icon ?? DOMAIN_ICONS.fallback) : null;
   return (
     <Dropdown
       trigger={
@@ -253,7 +244,7 @@ export function FieldDropdown({
     >
       {(close) =>
         options.map((o) => {
-          const OIcon = o.icon ?? Box;
+          const OIcon = o.icon ?? DOMAIN_ICONS.fallback;
           return (
             <DropdownItem
               key={o.key}

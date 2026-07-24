@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useRef, useEffect, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { CircleStop, CircleDollarSign } from "lucide-react";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { cn, formatDuration, formatTokenFlow } from "@/lib/utils";
 import { SpanStatus, SpanKind } from "@traceroot/core";
 import { flattenTreeWithMetrics } from "../utils/timeline";
@@ -238,7 +238,7 @@ export function SpanTimelineView({
                     <span className="absolute right-2 z-20 inline-flex items-center gap-2 whitespace-nowrap text-[10px] font-medium text-muted-foreground">
                       {traceAggregates.totalTokens > 0 && (
                         <span className="inline-flex items-center gap-0.5 font-sans font-medium">
-                          <CircleStop className="h-2.5 w-2.5" />
+                          <DOMAIN_ICONS.tokens className="h-2.5 w-2.5" />
                           {formatTokenFlow(
                             traceAggregates.inputTokens,
                             traceAggregates.outputTokens,
@@ -248,7 +248,7 @@ export function SpanTimelineView({
                       )}
                       {traceAggregates.totalCost > 0 && (
                         <span className="inline-flex items-center gap-0.5">
-                          <CircleDollarSign className="h-2.5 w-2.5" />
+                          <DOMAIN_ICONS.cost className="h-2.5 w-2.5" />
                           {traceAggregates.totalCost.toFixed(4)}
                         </span>
                       )}
@@ -310,13 +310,13 @@ export function SpanTimelineView({
                   <span className="absolute right-2 z-20 inline-flex items-center gap-2 whitespace-nowrap text-[10px] text-muted-foreground">
                     {showTokens && (
                       <span className="inline-flex items-center gap-0.5 font-sans font-medium">
-                        <CircleStop className="h-2.5 w-2.5" />
+                        <DOMAIN_ICONS.tokens className="h-2.5 w-2.5" />
                         {formatTokenFlow(span.input_tokens, span.output_tokens, span.total_tokens)}
                       </span>
                     )}
                     {showCost && (
                       <span className="inline-flex items-center gap-0.5">
-                        <CircleDollarSign className="h-2.5 w-2.5" />
+                        <DOMAIN_ICONS.cost className="h-2.5 w-2.5" />
                         {span.cost!.toFixed(4)}
                       </span>
                     )}

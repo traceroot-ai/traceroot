@@ -3,19 +3,17 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Workflow,
   X,
   ArrowUp,
   ArrowDown,
-  BotMessageSquare,
   ListTree,
   SquareGanttChart,
-  Eye,
   Expand,
   Shrink,
   SquareArrowOutUpRight,
 } from "lucide-react";
 import { cn, buildUrlWithFilters } from "@/lib/utils";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/ui/loading-state";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
@@ -241,7 +239,7 @@ export function TraceViewerPanel({
         {/* ── MAIN HEADER ── */}
         <div className="flex h-12 items-center justify-between border-b border-border bg-muted/30 px-4">
           <div className="flex min-w-0 items-center gap-2">
-            <Workflow className="h-4 w-4 text-muted-foreground" />
+            <DOMAIN_ICONS.trace className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm font-medium">Trace</span>
             <span className="truncate font-mono text-xs text-muted-foreground">{traceId}</span>
           </div>
@@ -326,7 +324,7 @@ export function TraceViewerPanel({
               className="h-7 w-7 p-0"
               title="AI Assistant"
             >
-              <BotMessageSquare className="h-4 w-4" />
+              <DOMAIN_ICONS.assistant className="h-4 w-4" />
             </Button>
             <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0">
               <X className="h-4 w-4" />
@@ -368,7 +366,7 @@ export function TraceViewerPanel({
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
-              <Eye className="h-3.5 w-3.5" /> Detectors
+              <DOMAIN_ICONS.detector className="h-3.5 w-3.5" /> Detectors
             </button>
           </div>
         </div>
