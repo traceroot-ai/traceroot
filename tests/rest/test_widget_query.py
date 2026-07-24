@@ -433,6 +433,36 @@ def test_number_display_rejects_breakdown():
     assert exc.value.step == "breakdown"
 
 
+def test_compile_cache_tokens_spans():
+    """cache_read_tokens and cache_write_tokens compile correctly for spans."""
+    spec = make_spec(view="spans", display={"type": "number"}, breakdown=None)
+
+    spec["metric"] = {"measure": "cache_read_tokens", "agg": "sum"}
+    sql, _ = compile_(spec)
+    assert "sum(cache_read_tokens)" in sql
+    assert "usage_details['cache_read_tokens']" in sql
+
+    spec["metric"] = {"measure": "cache_write_tokens", "agg": "sum"}
+    sql, _ = compile_(spec)
+    assert "sum(cache_write_tokens)" in sql
+    assert "usage_details['cache_write_tokens']" in sql
+
+
+def test_compile_cache_tokens_traces():
+    """cache_read_tokens and cache_write_tokens compile correctly for traces."""
+    spec = make_spec(view="traces", display={"type": "number"}, breakdown=None, filters=[])
+
+    spec["metric"] = {"measure": "cache_read_tokens", "agg": "sum"}
+    sql, _ = compile_(spec)
+    assert "sum(cache_read_tokens)" in sql
+    assert "usage_details['cache_read_tokens']" in sql
+
+    spec["metric"] = {"measure": "cache_write_tokens", "agg": "sum"}
+    sql, _ = compile_(spec)
+    assert "sum(cache_write_tokens)" in sql
+    assert "usage_details['cache_write_tokens']" in sql
+
+
 def test_run_widget_query_sets_execution_guards(monkeypatch):
     """Every widget query runs read-only, time-capped, and with a GROUP BY
     memory ceiling that spills to disk instead of OOMing the server."""
