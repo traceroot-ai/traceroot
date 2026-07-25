@@ -537,7 +537,8 @@ def transform_otel_to_clickhouse(
                             "ai.usage.reasoningTokens",
                         ],
                     )
-
+                    if scope_name == "gen_ai" and span_kind != SpanKind.LLM:
+                        api_input_tokens = api_output_tokens = None
                     if api_input_tokens is not None or api_output_tokens is not None:
                         # Use API-provided counts (accurate).
                         input_tokens = int_or_zero(api_input_tokens)

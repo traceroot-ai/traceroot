@@ -73,7 +73,8 @@ _KNOWN_SCOPE_PREFIXES: tuple[str, ...] = (
 # "ai" prefix would also swallow unrelated ai*-named scopes).
 _KNOWN_SCOPE_EXACT: frozenset[str] = frozenset(
     {
-        "ai",  # Vercel AI SDK tracer; GROSS input with cache detail under ai.usage.*
+        "ai", # Vercel AI SDK tracer; GROSS input with cache detail under ai.usage.*
+        "gen_ai",  
     }
 )
 
