@@ -24,6 +24,9 @@ import type { UserListItem } from "@/lib/api/users";
 import type { UserQueryOptions } from "@/lib/api/users";
 import { isRetentionError, getRetentionDetail } from "@/lib/api/retention";
 import { RetentionGateBanner } from "@/components/RetentionGateBanner";
+import { useRetention } from "@/lib/hooks/use-retention";
+import { PricingDialog } from "@/ee/features/billing/PricingDialog";
+import { PlanType } from "@traceroot/core";
 
 const tabs = [
   { id: "traces", label: "Traces", icon: Workflow, href: "traces" },
@@ -64,6 +67,8 @@ export default function UsersPage() {
     }),
     [queryOptions],
   );
+
+  const retention = useRetention(projectId);
 
   const { data, isPending: dataPending, error } = useUsers(projectId, userQueryOptions);
   // Auth-gated React Query reports isLoading: false while disabled (TanStack v5).
@@ -127,6 +132,8 @@ export default function UsersPage() {
           customEndDate={state.customEndDate}
           onDateFilterChange={updateDateFilter}
           onCustomRangeChange={updateCustomRange}
+          retentionDays={retention.retentionDays}
+          onUpgradeClick={retention.onUpgradeClick}
         />
 
         {/* Content */}
@@ -223,6 +230,13 @@ export default function UsersPage() {
           )}
         </div>
       </div>
+
+      <PricingDialog
+        open={retention.showPricing}
+        onOpenChange={retention.closePricing}
+        workspaceId={retention.workspaceId}
+        currentPlan={(retention.billingPlan as PlanType) || PlanType.FREE}
+      />
     </div>
   );
 }

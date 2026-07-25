@@ -1,12 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { Calendar, ChevronDown } from "lucide-react";
+import { Calendar, ChevronDown, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { DateRangePicker } from "@/components/ui/date-time-picker";
 import { cn } from "@/lib/utils";
-import { DATE_FILTER_OPTIONS, formatDateRange, type DateFilterOption } from "@/lib/date-filter";
+import {
+  DATE_FILTER_OPTIONS,
+  formatDateRange,
+  isOptionLocked,
+  type DateFilterOption,
+} from "@/lib/date-filter";
 
 // The one date-filter control: preset list + custom range picker in a popover.
 // Extracted from SearchFilterBar so every windowed surface (trace list,
@@ -17,6 +22,8 @@ export function DateFilterSelect({
   customEndDate,
   onDateFilterChange,
   onCustomRangeChange,
+  retentionDays,
+  onUpgradeClick,
   className,
 }: {
   dateFilter: DateFilterOption;
@@ -24,6 +31,8 @@ export function DateFilterSelect({
   customEndDate: Date | null;
   onDateFilterChange: (option: DateFilterOption) => void;
   onCustomRangeChange: (startDate: Date, endDate: Date) => void;
+  retentionDays?: number | null;
+  onUpgradeClick?: () => void;
   className?: string;
 }) {
   const [dateFilterOpen, setDateFilterOpen] = useState(false);
@@ -73,28 +82,56 @@ export function DateFilterSelect({
       >
         {!showCustomPicker ? (
           <div className="py-1">
-            {DATE_FILTER_OPTIONS.map((option) => (
-              <button
-                key={option.id}
-                className={cn(
-                  "flex w-full items-center gap-1.5 px-2.5 py-1 text-left text-[13px] transition-colors",
-                  dateFilter.id === option.id && !option.isCustom
-                    ? "bg-muted/70"
-                    : "hover:bg-muted/50",
+            {DATE_FILTER_OPTIONS.map((option) => {
+              const locked = isOptionLocked(option, retentionDays);
+              return (
+                <button
+                  key={option.id}
+                  disabled={locked}
+                  className={cn(
+                    "flex w-full items-center gap-1.5 px-2.5 py-1 text-left text-[13px] transition-colors",
+                    locked
+                      ? "cursor-default text-muted-foreground"
+                      : dateFilter.id === option.id && !option.isCustom
+                        ? "bg-muted/70"
+                        : "hover:bg-muted/50",
+                  )}
+                  onClick={() => {
+                    if (locked) return;
+                    if (option.isCustom) {
+                      setShowCustomPicker(true);
+                    } else {
+                      onDateFilterChange(option);
+                      setDateFilterOpen(false);
+                    }
+                  }}
+                >
+                  {option.isCustom && !locked && (
+                    <Calendar className="h-3 w-3 text-muted-foreground" />
+                  )}
+                  <span className="flex-1">{option.label}</span>
+                  {locked && <Lock className="h-3 w-3 text-muted-foreground" />}
+                </button>
+              );
+            })}
+            {retentionDays != null && (
+              <div className="border-t border-border px-2.5 py-2 text-[11px] text-muted-foreground">
+                <span>
+                  Data retention is limited to {retentionDays} days on your current plan.{" "}
+                </span>
+                {onUpgradeClick && (
+                  <button
+                    className="font-medium text-primary hover:underline"
+                    onClick={() => {
+                      setDateFilterOpen(false);
+                      onUpgradeClick();
+                    }}
+                  >
+                    Upgrade your plan
+                  </button>
                 )}
-                onClick={() => {
-                  if (option.isCustom) {
-                    setShowCustomPicker(true);
-                  } else {
-                    onDateFilterChange(option);
-                    setDateFilterOpen(false);
-                  }
-                }}
-              >
-                {option.isCustom && <Calendar className="h-3 w-3 text-muted-foreground" />}
-                <span>{option.label}</span>
-              </button>
-            ))}
+              </div>
+            )}
           </div>
         ) : (
           <DateRangePicker

@@ -13,6 +13,9 @@ import { SessionDetailPanel } from "@/features/traces/components/SessionDetailPa
 import { useSessions } from "@/features/traces/hooks";
 import { isRetentionError, getRetentionDetail } from "@/lib/api/retention";
 import { RetentionGateBanner } from "@/components/RetentionGateBanner";
+import { useRetention } from "@/lib/hooks/use-retention";
+import { PricingDialog } from "@/ee/features/billing/PricingDialog";
+import { PlanType } from "@traceroot/core";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useSession as useAuthSession } from "@/lib/auth-client";
 import {
@@ -68,6 +71,8 @@ export default function SessionsPage() {
   useLayoutEffect(() => {
     setHideAiButton(false);
   }, [setHideAiButton]);
+
+  const retention = useRetention(projectId);
 
   const { data, isPending: dataPending, error } = useSessions(projectId, sessionQueryOptions);
   // Auth-gated React Query reports isLoading: false while disabled (TanStack v5).
@@ -126,6 +131,8 @@ export default function SessionsPage() {
           customEndDate={state.customEndDate}
           onDateFilterChange={updateDateFilter}
           onCustomRangeChange={updateCustomRange}
+          retentionDays={retention.retentionDays}
+          onUpgradeClick={retention.onUpgradeClick}
         />
 
         {/* Content */}
@@ -267,6 +274,13 @@ export default function SessionsPage() {
           />
         </div>
       )}
+
+      <PricingDialog
+        open={retention.showPricing}
+        onOpenChange={retention.closePricing}
+        workspaceId={retention.workspaceId}
+        currentPlan={(retention.billingPlan as PlanType) || PlanType.FREE}
+      />
     </div>
   );
 }
