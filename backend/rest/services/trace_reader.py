@@ -624,7 +624,7 @@ class TraceReaderService:
 
     # Blob columns the bulk I/O reader may project, in a fixed order so the
     # generated SELECT is deterministic. Whitelist guards the f-string below.
-    _IO_COLUMNS = ("input", "output", "metadata")
+    _IO_COLUMNS = ("input", "output", "metadata", "events")
 
     def get_trace_spans_io(
         self, project_id: str, trace_id: str, columns: frozenset[str]
@@ -634,9 +634,9 @@ class TraceReaderService:
         The trace-wide complement to ``get_span_io``: export and agent reads need
         full per-span I/O without an N+1 fan-out of single-span calls. ``columns``
         is the projection's blob columns (from ``rest.projection.io_columns`` —
-        any of ``input``/``output``/``metadata``); only those are SELECTed, so a
-        narrow projection (e.g. ``metadata`` alone) never reads the other heavy
-        blobs. Returns a ``{span_id: {column: value}}`` map. Callers merge it onto
+        any of ``input``/``output``/``metadata``/``events``); only those are
+        SELECTed, so a narrow projection (e.g. ``metadata`` alone) never reads
+        the other heavy blobs. Returns a ``{span_id: {column: value}}`` map. Callers merge it onto
         the skeleton spans from ``get_trace``; spans absent from the map keep
         whatever the skeleton carried, so a partial result never breaks
         serialization.
@@ -671,13 +671,13 @@ class TraceReaderService:
         }
 
     def get_span_io(self, project_id: str, trace_id: str, span_id: str) -> dict | None:
-        """Fetch full input/output/metadata for a single span on demand.
+        """Fetch full input/output/metadata/events for a single span on demand.
 
         Called when the user selects a span in the UI. Returns None when the
         span does not exist (router translates that to a 404).
         """
         query = """
-            SELECT span_id, trace_id, input, output, metadata
+            SELECT span_id, trace_id, input, output, metadata, events
             FROM spans
             WHERE project_id = {project_id:String}
               AND trace_id = {trace_id:String}
@@ -702,6 +702,7 @@ class TraceReaderService:
             "input": row[2],
             "output": row[3],
             "metadata": row[4],
+            "events": row[5],
         }
 
     def list_sessions(

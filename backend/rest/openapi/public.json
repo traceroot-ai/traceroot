@@ -779,6 +779,17 @@
             "title": "Cost Details",
             "type": "object"
           },
+          "events": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Events"
+          },
           "git_source_file": {
             "anyOf": [
               {
@@ -1918,7 +1929,7 @@
             }
           },
           {
-            "description": "Comma-separated field groups to include: 'core' (tree/timing/status, always included), 'usage' (tokens/cost), 'io' (per-span input/output), 'metadata' (per-span metadata). Aliases: 'skeleton' (core,usage), 'full' (everything). Unknown groups return 400.",
+            "description": "Comma-separated field groups to include: 'core' (tree/timing/status, always included), 'usage' (tokens/cost), 'io' (per-span input/output), 'metadata' (per-span metadata), 'events' (per-span OTEL events incl. exception records). Aliases: 'skeleton' (core,usage), 'full' (everything). Unknown groups return 400.",
             "in": "query",
             "name": "fields",
             "required": false,
@@ -1931,7 +1942,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Comma-separated field groups to include: 'core' (tree/timing/status, always included), 'usage' (tokens/cost), 'io' (per-span input/output), 'metadata' (per-span metadata). Aliases: 'skeleton' (core,usage), 'full' (everything). Unknown groups return 400.",
+              "description": "Comma-separated field groups to include: 'core' (tree/timing/status, always included), 'usage' (tokens/cost), 'io' (per-span input/output), 'metadata' (per-span metadata), 'events' (per-span OTEL events incl. exception records). Aliases: 'skeleton' (core,usage), 'full' (everything). Unknown groups return 400.",
               "title": "Fields"
             }
           }
@@ -2059,7 +2070,7 @@
             }
           },
           {
-            "description": "Comma-separated field groups to include: 'core' (tree/timing/status, always included), 'usage' (tokens/cost), 'io' (per-span input/output), 'metadata' (per-span metadata). Aliases: 'skeleton' (core,usage), 'full' (everything). Unknown groups return 400.",
+            "description": "Comma-separated field groups to include: 'core' (tree/timing/status, always included), 'usage' (tokens/cost), 'io' (per-span input/output), 'metadata' (per-span metadata), 'events' (per-span OTEL events incl. exception records). Aliases: 'skeleton' (core,usage), 'full' (everything). Unknown groups return 400.",
             "in": "query",
             "name": "fields",
             "required": false,
@@ -2072,7 +2083,7 @@
                   "type": "null"
                 }
               ],
-              "description": "Comma-separated field groups to include: 'core' (tree/timing/status, always included), 'usage' (tokens/cost), 'io' (per-span input/output), 'metadata' (per-span metadata). Aliases: 'skeleton' (core,usage), 'full' (everything). Unknown groups return 400.",
+              "description": "Comma-separated field groups to include: 'core' (tree/timing/status, always included), 'usage' (tokens/cost), 'io' (per-span input/output), 'metadata' (per-span metadata), 'events' (per-span OTEL events incl. exception records). Aliases: 'skeleton' (core,usage), 'full' (everything). Unknown groups return 400.",
               "title": "Fields"
             }
           }

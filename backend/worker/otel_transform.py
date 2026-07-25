@@ -53,6 +53,11 @@ def _scope_skips_text_token_estimation(scope_name: str | None) -> bool:
     return scope_name in _SKIP_TEXT_TOKEN_ESTIMATION_SCOPES
 
 
+# Per-span cap on persisted events, mirroring the OTel SDK default event-count
+# limit. Events past the cap are dropped (SDKs enforce the same bound before
+# export, so this only bites hand-built payloads).
+_MAX_SPAN_EVENTS = 128
+
 # Attributes that are already extracted into dedicated fields
 _KNOWN_ATTRIBUTE_PREFIXES = {
     "traceroot.span.input",
@@ -286,6 +291,76 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
         return SpanKind.TOOL
 
     return SpanKind.SPAN
+
+
+def extract_span_events(otel_span: dict) -> list[dict[str, Any]]:
+    """Normalize OTLP span events into [{name, timestamp, attributes}] dicts.
+
+    Events carry the exception record (`record_exception()` in both official
+    SDKs attaches exception.type/message/stacktrace as an event named
+    "exception") plus any user `add_event()` breadcrumbs. `timeUnixNano` is
+    decoded to an ISO-8601 string so consumers (UI, detector judge, RCA agent)
+    never re-implement nano handling; the attribute list is flattened like span
+    attributes. A malformed event is skipped rather than failing the span —
+    one bad event must not cost the whole batch its ingestion.
+
+    Args:
+        otel_span: One OTLP span dict (camelCase, from MessageToDict).
+
+    Returns:
+        Normalized events in payload order, capped at ``_MAX_SPAN_EVENTS``.
+        Empty list when the span has no usable events.
+    """
+    raw_events = otel_span.get("events")
+    if not isinstance(raw_events, list):
+        return []
+
+    events: list[dict[str, Any]] = []
+    for raw in raw_events[:_MAX_SPAN_EVENTS]:
+        if not isinstance(raw, dict):
+            continue
+        try:
+            timestamp = nanos_to_datetime(raw.get("timeUnixNano"))
+            events.append(
+                {
+                    "name": raw.get("name") or "",
+                    "timestamp": timestamp.isoformat() if timestamp else None,
+                    "attributes": attributes_to_dict(raw.get("attributes") or []),
+                }
+            )
+        except (TypeError, ValueError, AttributeError) as e:
+            logger.warning(f"Skipping malformed span event: {e}")
+            continue
+    return events
+
+
+def _derive_error_message(events: list[dict[str, Any]]) -> str | None:
+    """Build a status message from the newest exception event, if any.
+
+    Most instrumentation calls ``setStatus(ERROR)`` without a message (the
+    TypeScript SDK always does), leaving status_message NULL while the real
+    reason sits in the exception event. The newest exception wins — with
+    retries it is the one that made the span fail.
+
+    Args:
+        events: Normalized events from :func:`extract_span_events`.
+
+    Returns:
+        ``"{exception.type}: {exception.message}"`` (or whichever half is
+        present) from the last exception event, or None if no exception event
+        carries either field.
+    """
+    for event in reversed(events):
+        if event.get("name") != "exception":
+            continue
+        attrs = event.get("attributes") or {}
+        exc_type = attrs.get("exception.type")
+        exc_message = attrs.get("exception.message")
+        if exc_type and exc_message:
+            return f"{exc_type}: {exc_message}"
+        if exc_type or exc_message:
+            return exc_type or exc_message
+    return None
 
 
 def _extract_user_id(attrs: dict[str, Any]) -> str | None:
@@ -667,13 +742,25 @@ def transform_otel_to_clickhouse(
                     if extra_attrs:
                         span_record["metadata"] = json.dumps(extra_attrs)
 
+                # Persist span events (exception records + add_event breadcrumbs)
+                span_events = extract_span_events(otel_span)
+                if span_events:
+                    span_record["events"] = json.dumps(span_events)
+
                 # Check span status for errors
                 status = otel_span.get("status", {})
                 status_code = status.get("code", 0)
                 # Handle both int (0, 1, 2) and string ("STATUS_CODE_ERROR") formats
                 if status_code == 2 or status_code == "STATUS_CODE_ERROR":
                     span_record["status"] = SpanStatus.ERROR
-                    span_record["status_message"] = status.get("message")
+                    # Most emitters set ERROR without a message (the TS SDK
+                    # always does); fall back to the exception event so the
+                    # error is never message-less when a recorded exception
+                    # explains it. Never applied to non-ERROR spans — a caught
+                    # and handled exception is not a span failure.
+                    span_record["status_message"] = status.get("message") or _derive_error_message(
+                        span_events
+                    )
 
                 spans.append(span_record)
 

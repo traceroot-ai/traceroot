@@ -222,6 +222,21 @@ class TestExportBundle:
         # spans.json still mirrors trace.spans at the same (full) projection.
         assert body["spans"] == body["trace"]["spans"]
         mock_reader.get_trace_spans_io.assert_called_once()
+        # Full fidelity includes the events blob column (exception records).
+        columns = mock_reader.get_trace_spans_io.call_args.kwargs["columns"]
+        assert "events" in columns
+
+    def test_export_includes_span_events_by_default(self, client, mock_reader):
+        """Exception records ride the default (full) export so downstream tooling
+        and the RCA agent see the stack trace of a failed span."""
+        mock_reader.get_trace.return_value = copy.deepcopy(TRACE_DETAIL)
+        events_blob = (
+            '[{"name": "exception", "timestamp": "2026-07-12T12:00:00.500000",'
+            ' "attributes": {"exception.type": "ZeroDivisionError"}}]'
+        )
+        mock_reader.get_trace_spans_io.return_value = {"span-1": {"events": events_blob}}
+        body = client.get("/api/v1/public/traces/abc123/export", headers=AUTH).json()
+        assert body["spans"][0]["events"] == events_blob
 
     def test_export_fields_skeleton_omits_io_and_skips_bulk(self, client, mock_reader):
         """Narrowing export to skeleton avoids the bulk I/O query and returns null I/O."""
