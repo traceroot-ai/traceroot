@@ -755,6 +755,103 @@ class TestTransformOtelToClickhouse:
         assert sum((s.get("output_tokens") or 0) for s in spans) == 178
         assert by_id  # spans were keyed by id without collision
 
+    @pytest.mark.parametrize("openinference_kind", [None, "AGENT"])
+    def test_vercel_gen_ai_operation_root_usage_not_double_counted(self, openinference_kind):
+        """The v7 gen_ai operation root restates the usage of its chat child.
+
+        TraceRoot's OpenInference processor marks the root as AGENT, but raw
+        @ai-sdk/otel exports are currently inferred as LLM from their model attr.
+        The emitter operation must identify the aggregate wrapper in both paths.
+        """
+        from unittest.mock import patch
+
+        prices = {
+            "input": 0.000003,
+            "output": 0.000015,
+            "cacheRead": 0.0,
+            "cacheWrite": 0.0,
+        }
+        root_attrs = [
+            make_attr("gen_ai.operation.name", "invoke_agent"),
+            make_attr("gen_ai.request.model", "claude-haiku-4-5"),
+            make_attr("gen_ai.usage.input_tokens", 10),
+            make_attr("gen_ai.usage.output_tokens", 16),
+            make_attr("gen_ai.input.messages", '[{"role":"user","content":"hello"}]'),
+            make_attr("gen_ai.output.messages", '[{"role":"assistant","content":"hi"}]'),
+        ]
+        if openinference_kind is not None:
+            root_attrs.append(make_attr("openinference.span.kind", openinference_kind))
+
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    name="committee.chair",
+                    attributes=root_attrs,
+                ),
+                make_span(
+                    "aa" * 16,
+                    "cc" * 8,
+                    name="chat claude-haiku-4-5",
+                    parent_span_id_hex="bb" * 8,
+                    attributes=[
+                        make_attr("gen_ai.operation.name", "chat"),
+                        make_attr("gen_ai.request.model", "claude-haiku-4-5"),
+                        make_attr("gen_ai.usage.input_tokens", 10),
+                        make_attr("gen_ai.usage.output_tokens", 16),
+                    ],
+                ),
+            ],
+            scope_name="gen_ai",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        root = next(span for span in spans if span["name"] == "committee.chair")
+        child = next(span for span in spans if span["name"].startswith("chat "))
+
+        assert root["model_name"] == "claude-haiku-4-5"
+        assert root["input"] == '[{"role":"user","content":"hello"}]'
+        assert root["output"] == '[{"role":"assistant","content":"hi"}]'
+        assert "usage_details" not in root
+        assert "total_tokens" not in root
+        assert (root.get("input_tokens") or 0) == 0
+        assert (root.get("output_tokens") or 0) == 0
+        assert (root.get("cost") or 0) == 0
+        assert child["input_tokens"] == 10
+        assert child["output_tokens"] == 16
+        assert sum((span.get("input_tokens") or 0) for span in spans) == 10
+        assert sum((span.get("output_tokens") or 0) for span in spans) == 16
+
+    def test_other_scope_non_llm_usage_remains_authoritative(self):
+        """Other emitters may report their only authoritative usage on AGENT spans."""
+        from unittest.mock import patch
+
+        prices = {"input": 0.000003, "output": 0.000015}
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[
+                        make_attr("openinference.span.kind", "AGENT"),
+                        make_attr("gen_ai.operation.name", "invoke_agent"),
+                        make_attr("gen_ai.request.model", "gpt-4o-mini"),
+                        make_attr("gen_ai.usage.input_tokens", 11),
+                        make_attr("gen_ai.usage.output_tokens", 7),
+                    ],
+                )
+            ],
+            scope_name="custom-agent-instrumentor",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        assert spans[0]["input_tokens"] == 11
+        assert spans[0]["output_tokens"] == 7
+        assert spans[0]["cost"] == pytest.approx(11 * prices["input"] + 7 * prices["output"])
+
     def test_vercel_do_generate_raw_totals_used_when_normalized_absent(self):
         """On an LLM doGenerate span that exposes ONLY the raw ai.usage.* totals
         (no normalized llm.*/gen_ai.* keys), those totals are still adopted —

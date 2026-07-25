@@ -53,6 +53,14 @@ def _scope_skips_text_token_estimation(scope_name: str | None) -> bool:
     return scope_name in _SKIP_TEXT_TOKEN_ESTIMATION_SCOPES
 
 
+def _scope_skips_token_usage(scope_name: str | None, span_kind: str, attrs: dict[str, Any]) -> bool:
+    """Reject aggregate usage copied onto Vercel v7 operation wrappers."""
+    if scope_name != "gen_ai":
+        return False
+    operation_name = attrs.get("gen_ai.operation.name")
+    return operation_name == "invoke_agent" or span_kind != SpanKind.LLM
+
+
 # Attributes that are already extracted into dedicated fields
 _KNOWN_ATTRIBUTE_PREFIXES = {
     "traceroot.span.input",
@@ -474,8 +482,19 @@ def transform_otel_to_clickhouse(
                         # real usage still lands on an LLM .doGenerate child.
                         input_token_keys += ["ai.usage.inputTokens", "ai.usage.promptTokens"]
                         output_token_keys += ["ai.usage.outputTokens", "ai.usage.completionTokens"]
-                    api_input_tokens = first_present_number(span_attrs, input_token_keys)
-                    api_output_tokens = first_present_number(span_attrs, output_token_keys)
+                    accept_token_usage = not _scope_skips_token_usage(
+                        scope_name, span_kind, span_attrs
+                    )
+                    api_input_tokens = (
+                        first_present_number(span_attrs, input_token_keys)
+                        if accept_token_usage
+                        else None
+                    )
+                    api_output_tokens = (
+                        first_present_number(span_attrs, output_token_keys)
+                        if accept_token_usage
+                        else None
+                    )
                     # Cache buckets. The OpenInference keys (prompt_details.*) are the
                     # verified path for Anthropic/OpenAI and MUST be listed first —
                     # they are the same family as llm.token_count.prompt (read above).
@@ -598,8 +617,10 @@ def transform_otel_to_clickhouse(
                         cost = cost_from_buckets(get_model_price(model_name), buckets)
                         if cost is not None:
                             span_record["cost"] = cost
-                    elif span_kind == SpanKind.LLM and not _scope_skips_text_token_estimation(
-                        scope_name
+                    elif (
+                        accept_token_usage
+                        and span_kind == SpanKind.LLM
+                        and not _scope_skips_text_token_estimation(scope_name)
                     ):
                         # Fall back to text-based estimation — only for LLM (completion)
                         # spans. Wrapper AGENT/CHAIN spans restate text their LLM children

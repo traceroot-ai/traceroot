@@ -164,6 +164,19 @@ def test_vercel_ai_scope_is_known_inclusive_no_warning(caplog):
     assert not any("unknown instrumentation scope" in r.message.lower() for r in caplog.records)
 
 
+def test_vercel_gen_ai_scope_is_known_inclusive_no_warning(caplog):
+    with caplog.at_level(logging.WARNING):
+        b = normalize_token_usage(
+            "gen_ai",
+            input_tokens=26,
+            output_tokens=16,
+            cache_read_tokens=0,
+            cache_write_tokens=0,
+        )
+    assert b == TokenBuckets(input_uncached=26, output=16, cache_read=0, cache_write=0)
+    assert not any("unknown instrumentation scope" in r.message.lower() for r in caplog.records)
+
+
 def test_ai_prefixed_scope_still_warns(caplog):
     # "ai" is matched exactly, not as a prefix — an unrelated ai*-named scope
     # must still surface the unknown-emitter warning.

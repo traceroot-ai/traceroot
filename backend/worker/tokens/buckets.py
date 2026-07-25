@@ -74,6 +74,7 @@ _KNOWN_SCOPE_PREFIXES: tuple[str, ...] = (
 _KNOWN_SCOPE_EXACT: frozenset[str] = frozenset(
     {
         "ai",  # Vercel AI SDK tracer; GROSS input with cache detail under ai.usage.*
+        "gen_ai",  # Vercel AI SDK v7 semconv tracer; GROSS gen_ai.usage.* totals
     }
 )
 
