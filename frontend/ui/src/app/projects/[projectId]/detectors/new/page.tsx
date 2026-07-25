@@ -13,7 +13,11 @@ import {
   DETECTOR_TEMPLATES,
   buildTemplateDetectorInput,
 } from "@/features/detectors/templates";
-import { useCreateDetector } from "@/features/detectors/hooks/use-detectors";
+import {
+  detectorMutationErrorMessage,
+  isTriggerConditionMutationError,
+  useCreateDetector,
+} from "@/features/detectors/hooks/use-detectors";
 import type { CreateDetectorInput } from "@/features/detectors/hooks/use-detectors";
 import { TriggerEditor } from "@/features/detectors/components/trigger-editor";
 import type { TriggerCondition } from "@/features/detectors/components/trigger-editor";
@@ -50,6 +54,7 @@ export default function NewDetectorPage() {
     adapter: "",
   });
   const [enableRca, setEnableRca] = useState(true);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const handleTemplateChange = (templateId: string) => {
     const template = DETECTOR_TEMPLATES.find((t) => t.id === templateId);
@@ -63,6 +68,7 @@ export default function NewDetectorPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitError(null);
     const template = DETECTOR_TEMPLATES.find((t) => t.id === selectedTemplate)!;
     const input: CreateDetectorInput = {
       ...buildTemplateDetectorInput(template),
@@ -76,11 +82,18 @@ export default function NewDetectorPage() {
       detectionProvider: modelSelection.provider || undefined,
       detectionSource: modelSelection.source === "byok" ? "byok" : "system",
     };
-    await createMutation.mutateAsync(input);
-    router.push(`/projects/${projectId}/detectors`);
+    try {
+      await createMutation.mutateAsync(input);
+      router.push(`/projects/${projectId}/detectors`);
+    } catch (error) {
+      setSubmitError(detectorMutationErrorMessage(error, "Failed to create detector"));
+    }
   };
 
   const selectedTemplateDef = DETECTOR_TEMPLATES.find((t) => t.id === selectedTemplate);
+  const filterError =
+    submitError && isTriggerConditionMutationError(submitError) ? submitError : null;
+  const generalSubmitError = submitError && !filterError ? submitError : null;
 
   return (
     <div className="relative flex h-full text-[13px]">
@@ -202,6 +215,14 @@ export default function NewDetectorPage() {
                 onChange={setTriggerConditions}
                 asCard
               />
+              {filterError && (
+                <p
+                  role="alert"
+                  className="border-t border-border px-3 py-2 text-[12px] text-destructive"
+                >
+                  {filterError}
+                </p>
+              )}
             </div>
 
             {/* Sampling */}
@@ -225,6 +246,11 @@ export default function NewDetectorPage() {
             </div>
 
             {/* Footer */}
+            {generalSubmitError && (
+              <p role="alert" className="text-[12px] text-destructive">
+                {generalSubmitError}
+              </p>
+            )}
             <div className="flex justify-end gap-2 pt-1">
               <Button
                 type="button"

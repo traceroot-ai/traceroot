@@ -6,6 +6,7 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { hasOwn, normalizeTriggerConditions } from "../trigger-validation";
 
 type RouteParams = { params: Promise<{ projectId: string; detectorId: string }> };
 
@@ -56,19 +57,25 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     return errorResponse("Invalid JSON", 400);
   }
 
-  const {
-    name,
-    template: _template,
-    prompt,
-    outputSchema,
-    sampleRate,
-    enabled,
-    enableRca,
-    triggerConditions,
-    detectionModel,
-    detectionProvider,
-    detectionSource,
-  } = body as Record<string, unknown>;
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return errorResponse("Body must be a JSON object", 400);
+  }
+
+  const record = body as Record<string, unknown>;
+  const name = hasOwn(record, "name") ? record.name : undefined;
+  const prompt = hasOwn(record, "prompt") ? record.prompt : undefined;
+  const outputSchema = hasOwn(record, "outputSchema") ? record.outputSchema : undefined;
+  const sampleRate = hasOwn(record, "sampleRate") ? record.sampleRate : undefined;
+  const enabled = hasOwn(record, "enabled") ? record.enabled : undefined;
+  const enableRca = hasOwn(record, "enableRca") ? record.enableRca : undefined;
+  const triggerConditions = hasOwn(record, "triggerConditions")
+    ? record.triggerConditions
+    : undefined;
+  const detectionModel = hasOwn(record, "detectionModel") ? record.detectionModel : undefined;
+  const detectionProvider = hasOwn(record, "detectionProvider")
+    ? record.detectionProvider
+    : undefined;
+  const detectionSource = hasOwn(record, "detectionSource") ? record.detectionSource : undefined;
 
   // Validate types up-front so invalid payloads return 400 instead of crashing
   // Prisma later. `Boolean(enabled)` would coerce strings like "false" to true;
@@ -89,8 +96,11 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       return errorResponse("sampleRate must be an integer between 0 and 100", 400);
     }
   }
-  if (triggerConditions !== undefined && !Array.isArray(triggerConditions)) {
-    return errorResponse("triggerConditions must be an array", 400);
+  let resolvedTriggerConditions: object[] | undefined;
+  if (triggerConditions !== undefined) {
+    const triggerValidation = normalizeTriggerConditions(triggerConditions);
+    if (triggerValidation.error !== null) return errorResponse(triggerValidation.error, 400);
+    resolvedTriggerConditions = triggerValidation.conditions;
   }
   if (outputSchema !== undefined && !Array.isArray(outputSchema)) {
     return errorResponse("outputSchema must be an array", 400);
@@ -143,12 +153,12 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     where: { id: detectorId },
     data: {
       ...detectorData,
-      ...(triggerConditions !== undefined
+      ...(resolvedTriggerConditions !== undefined
         ? {
             trigger: {
               upsert: {
-                create: { conditions: triggerConditions as object },
-                update: { conditions: triggerConditions as object },
+                create: { conditions: resolvedTriggerConditions },
+                update: { conditions: resolvedTriggerConditions },
               },
             },
           }

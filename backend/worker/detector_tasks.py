@@ -15,9 +15,26 @@ import asyncio
 import hashlib
 import json
 import logging
+import time
 import uuid
+from collections import OrderedDict
+from collections.abc import Mapping
 
 logger = logging.getLogger(__name__)
+_MISSING = object()
+_LEGACY_TRIGGER_OPERATORS = {
+    "eq": "=",
+    "ne": "!=",
+    "neq": "!=",
+    "gt": ">",
+    "gte": ">=",
+    "lt": "<",
+    "lte": "<=",
+}
+_UNSUPPORTED_TRIGGER_WARNING_LIMIT = 1024
+_UNSUPPORTED_TRIGGER_WARNING_TTL_SECONDS = 3600
+_UNSUPPORTED_TRIGGER_WARNING_IDS: OrderedDict[tuple[str, str], tuple[str, float]] = OrderedDict()
+_UNSUPPORTED_TRIGGER_WARNING_SUPPRESSED_PROJECTS: OrderedDict[str, float] = OrderedDict()
 
 # BullMQ queue name — must match TypeScript DETECTOR_RUN_QUEUE constant
 DETECTOR_RUN_QUEUE = "detector-run"
@@ -165,35 +182,157 @@ def _add_bullmq_job(job_id: str, data: dict) -> None:
     asyncio.run(_add())
 
 
-def _eval_condition(trace_summary: dict, condition: dict) -> bool:
-    """Evaluate a single trigger condition against a trace summary dict."""
+def _is_environment_value(value: object) -> bool:
+    return value is None or isinstance(value, str)
+
+
+def _is_evaluable_trigger_condition(condition: object) -> bool:
+    if not isinstance(condition, Mapping):
+        return False
+
     field = condition.get("field")
-    op = condition.get("op")
+    raw_op = condition.get("op")
     value = condition.get("value")
+    if not isinstance(field, str) or not isinstance(raw_op, str) or "value" not in condition:
+        return False
 
-    actual = trace_summary.get(field)
-    # For != conditions, a missing/null field counts as "not equal"
-    if actual is None:
-        return op == "!="
+    op = _LEGACY_TRIGGER_OPERATORS.get(raw_op, raw_op)
+    return field == "environment" and op in {"=", "!="} and _is_environment_value(value)
 
+
+def _has_unsupported_trigger_conditions(conditions: list[object]) -> bool:
+    return any(not _is_evaluable_trigger_condition(condition) for condition in conditions)
+
+
+def _unsupported_trigger_warning_fingerprint(trigger_conditions: list[object]) -> str:
+    encoded = json.dumps(trigger_conditions, sort_keys=True, separators=(",", ":"), default=repr)
+    return hashlib.sha256(encoded.encode()).hexdigest()
+
+
+def _clear_unsupported_trigger_warning_seen(project_id: str, detector_id: str) -> None:
+    _UNSUPPORTED_TRIGGER_WARNING_IDS.pop((project_id, detector_id), None)
+
+
+def _clear_inactive_unsupported_trigger_warnings(
+    project_id: str, active_detector_ids: set[str]
+) -> None:
+    for key in list(_UNSUPPORTED_TRIGGER_WARNING_IDS):
+        if key[0] == project_id and key[1] not in active_detector_ids:
+            del _UNSUPPORTED_TRIGGER_WARNING_IDS[key]
+
+
+def _drop_expired_unsupported_trigger_warnings(now: float) -> None:
+    for key, (_fingerprint, seen_at) in list(_UNSUPPORTED_TRIGGER_WARNING_IDS.items()):
+        if now - seen_at >= _UNSUPPORTED_TRIGGER_WARNING_TTL_SECONDS:
+            del _UNSUPPORTED_TRIGGER_WARNING_IDS[key]
+
+
+def _drop_expired_unsupported_trigger_warning_suppressions(now: float) -> None:
+    for project_id, seen_at in list(_UNSUPPORTED_TRIGGER_WARNING_SUPPRESSED_PROJECTS.items()):
+        if now - seen_at >= _UNSUPPORTED_TRIGGER_WARNING_TTL_SECONDS:
+            del _UNSUPPORTED_TRIGGER_WARNING_SUPPRESSED_PROJECTS[project_id]
+
+
+def _mark_unsupported_trigger_warning_seen(
+    project_id: str, detector_id: str, trigger_conditions: list[object]
+) -> bool:
+    now = time.monotonic()
+    key = (project_id, detector_id)
+    existing = _UNSUPPORTED_TRIGGER_WARNING_IDS.get(key)
+
+    if existing is None:
+        _drop_expired_unsupported_trigger_warnings(now)
+        if len(_UNSUPPORTED_TRIGGER_WARNING_IDS) >= _UNSUPPORTED_TRIGGER_WARNING_LIMIT:
+            return False
+
+    fingerprint = _unsupported_trigger_warning_fingerprint(trigger_conditions)
+    if existing is not None:
+        previous_fingerprint, seen_at = existing
+        if (
+            previous_fingerprint != fingerprint
+            or now - seen_at >= _UNSUPPORTED_TRIGGER_WARNING_TTL_SECONDS
+        ):
+            _UNSUPPORTED_TRIGGER_WARNING_IDS[key] = (fingerprint, now)
+            _UNSUPPORTED_TRIGGER_WARNING_IDS.move_to_end(key)
+            return True
+        _UNSUPPORTED_TRIGGER_WARNING_IDS.move_to_end(key)
+        return False
+
+    _UNSUPPORTED_TRIGGER_WARNING_IDS[key] = (fingerprint, now)
+    return True
+
+
+def _mark_unsupported_trigger_warning_suppression_seen(project_id: str) -> bool:
+    now = time.monotonic()
+    _drop_expired_unsupported_trigger_warning_suppressions(now)
+
+    existing = _UNSUPPORTED_TRIGGER_WARNING_SUPPRESSED_PROJECTS.get(project_id)
+    if existing is not None and now - existing < _UNSUPPORTED_TRIGGER_WARNING_TTL_SECONDS:
+        _UNSUPPORTED_TRIGGER_WARNING_SUPPRESSED_PROJECTS.move_to_end(project_id)
+        return False
+
+    _UNSUPPORTED_TRIGGER_WARNING_SUPPRESSED_PROJECTS[project_id] = now
+    if len(_UNSUPPORTED_TRIGGER_WARNING_SUPPRESSED_PROJECTS) > _UNSUPPORTED_TRIGGER_WARNING_LIMIT:
+        _UNSUPPORTED_TRIGGER_WARNING_SUPPRESSED_PROJECTS.popitem(last=False)
+    return True
+
+
+def _is_unsupported_trigger_warning_suppressed(project_id: str, detector_id: str) -> bool:
+    return (project_id, detector_id) not in _UNSUPPORTED_TRIGGER_WARNING_IDS and len(
+        _UNSUPPORTED_TRIGGER_WARNING_IDS
+    ) >= _UNSUPPORTED_TRIGGER_WARNING_LIMIT
+
+
+def _eval_condition(trace_summary: Mapping[str, object], condition: object) -> bool:
+    """Evaluate a single trigger condition against a trace summary dict."""
+    if not isinstance(condition, Mapping):
+        return False
+
+    field = condition.get("field")
+    raw_op = condition.get("op")
+    value = condition.get("value")
+    if not isinstance(field, str) or not isinstance(raw_op, str):
+        return False
+    if "value" not in condition:
+        return False
+    op = _LEGACY_TRIGGER_OPERATORS.get(raw_op, raw_op)
+
+    actual = trace_summary.get(field, _MISSING)
+    if actual is _MISSING:
+        return False
+
+    if (
+        field != "environment"
+        or not _is_environment_value(actual)
+        or not _is_environment_value(value)
+    ):
+        return False
+    if op not in {"=", "!="}:
+        return False
     if op == "=":
         return actual == value
-    elif op == "!=":
-        return actual != value
-    elif op == ">":
-        return float(actual) > float(value)
-    elif op == ">=":
-        return float(actual) >= float(value)
-    elif op == "<":
-        return float(actual) < float(value)
-    elif op == "<=":
-        return float(actual) <= float(value)
-    return False
+    return actual != value
 
 
-def _passes_trigger(trace_summary: dict, conditions: list[dict]) -> bool:
+def _passes_trigger(trace_summary: Mapping[str, object], conditions: list[object]) -> bool:
     """All conditions must pass (AND logic). Empty conditions list = always passes."""
     return all(_eval_condition(trace_summary, c) for c in conditions)
+
+
+def _coerce_trigger_conditions(conditions: object, *, has_trigger: bool = False) -> list[object]:
+    if conditions is None:
+        return [None] if has_trigger else []
+    if isinstance(conditions, list):
+        return conditions
+    if isinstance(conditions, str):
+        try:
+            parsed = json.loads(conditions)
+        except json.JSONDecodeError:
+            return [None]
+        if parsed is None:
+            return [None]
+        return parsed if isinstance(parsed, list) else [None]
+    return [None]
 
 
 def _get_trace_summaries(project_id: str, trace_ids: list[str]) -> dict[str, dict]:
@@ -243,7 +382,7 @@ def _get_active_detectors(project_id: str) -> list[dict]:
         with conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT d.id, d.sample_rate, dt.conditions
+                SELECT d.id, d.sample_rate, dt.id IS NOT NULL AS has_trigger, dt.conditions
                 FROM detectors d
                 LEFT JOIN detector_triggers dt ON dt.detector_id = d.id
                 WHERE d.project_id = %s AND d.enabled = TRUE
@@ -254,24 +393,40 @@ def _get_active_detectors(project_id: str) -> list[dict]:
     finally:
         conn.close()
 
-    detectors = []
-    for detector_id, sample_rate, conditions in rows:
-        # conditions is a JSON field; psycopg2 may return dict or None
-        if conditions is None:
-            cond_list = []
-        elif isinstance(conditions, list):
-            cond_list = conditions
-        elif isinstance(conditions, str):
-            cond_list = json.loads(conditions)
-        else:
-            # Already parsed by psycopg2 (dict/list from JSONB)
-            cond_list = conditions if isinstance(conditions, list) else []
+    active_detector_ids = {row[0] for row in rows}
+    _clear_inactive_unsupported_trigger_warnings(project_id, active_detector_ids)
 
+    detectors = []
+    for detector_id, sample_rate, has_trigger, conditions in rows:
+        trigger_conditions = _coerce_trigger_conditions(conditions, has_trigger=has_trigger)
+        if has_trigger:
+            if _has_unsupported_trigger_conditions(trigger_conditions):
+                if _mark_unsupported_trigger_warning_seen(
+                    project_id, detector_id, trigger_conditions
+                ):
+                    logger.warning(
+                        "Detector %s in project %s has unsupported or malformed trigger conditions; "
+                        "unsupported conditions will not match",
+                        detector_id,
+                        project_id,
+                    )
+                elif _is_unsupported_trigger_warning_suppressed(
+                    project_id, detector_id
+                ) and _mark_unsupported_trigger_warning_suppression_seen(project_id):
+                    logger.warning(
+                        "Detector trigger warning cache for project %s reached capacity; "
+                        "additional trigger-condition warnings are suppressed",
+                        project_id,
+                    )
+            else:
+                _clear_unsupported_trigger_warning_seen(project_id, detector_id)
+        else:
+            _clear_unsupported_trigger_warning_seen(project_id, detector_id)
         detectors.append(
             {
                 "id": detector_id,
                 "sample_rate": sample_rate,
-                "conditions": cond_list,
+                "conditions": trigger_conditions,
             }
         )
     return detectors
@@ -383,10 +538,9 @@ def enqueue_detector_runs(project_id: str, traces_with_root: set[str]) -> None:
         detectors = _get_active_detectors(project_id)
         summaries = _get_trace_summaries(project_id, root_traces) if detectors else {}
         for trace_id in root_traces:
-            # Per-trace try/except so a malformed condition (e.g. non-numeric
-            # `value` for a `>` op causing float() to ValueError, or a None
-            # sample_rate) only drops the offending trace — remaining traces
-            # in the batch still get enqueued.
+            # Per-trace try/except so unexpected detector data or enqueue failures
+            # only drop the offending trace — remaining traces in the batch still
+            # get enqueued.
             try:
                 _claim_and_enqueue(
                     redis_client,

@@ -8,6 +8,13 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../hooks/use-detectors", () => ({
+  detectorMutationErrorMessage: (error: unknown, fallback: string) =>
+    error instanceof Error &&
+    error.message === "triggerConditions[0].op must be one of =, != for environment"
+      ? "Environment filters only support = or !=."
+      : error instanceof Error
+        ? error.message
+        : fallback,
   useCreateDetector: () => ({ mutateAsync: mocks.mutateAsync }),
 }));
 
@@ -108,7 +115,11 @@ describe("AddDetectorsStep", () => {
     fireEvent.click(pill("Safety"));
     fireEvent.click(continueButton());
 
-    await waitFor(() => expect(screen.getByText(/Couldn't create: Safety/)).toBeDefined());
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain(
+        "Safety: Failed to create detector: 500",
+      ),
+    );
     expect(onDone).not.toHaveBeenCalled();
 
     // Retry: only the failed template is re-posted
@@ -119,5 +130,20 @@ describe("AddDetectorsStep", () => {
     await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
     expect(mocks.mutateAsync).toHaveBeenCalledTimes(1);
     expect(mocks.mutateAsync.mock.calls[0][0]).toMatchObject({ template: "safety" });
+  });
+
+  it("shows formatted trigger validation errors for failed templates", async () => {
+    mocks.mutateAsync.mockRejectedValue(
+      new Error("triggerConditions[0].op must be one of =, != for environment"),
+    );
+    renderStep();
+    fireEvent.click(pill("Failure"));
+    fireEvent.click(continueButton());
+
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain(
+        "Failure: Environment filters only support = or !=.",
+      ),
+    );
   });
 });

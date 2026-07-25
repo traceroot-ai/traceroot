@@ -7,7 +7,10 @@ import {
   buildTemplateDetectorInput,
   getTemplate,
 } from "@/features/detectors/templates";
-import { useCreateDetector } from "@/features/detectors/hooks/use-detectors";
+import {
+  detectorMutationErrorMessage,
+  useCreateDetector,
+} from "@/features/detectors/hooks/use-detectors";
 
 interface AddDetectorsStepProps {
   projectId: string;
@@ -24,7 +27,7 @@ interface AddDetectorsStepProps {
 export function AddDetectorsStep({ projectId, projectName, onDone }: AddDetectorsStepProps) {
   const [selected, setSelected] = useState<string[]>([]);
   const [previewedId, setPreviewedId] = useState(DETECTOR_QUICK_ADD_TEMPLATES[0].id);
-  const [failedLabels, setFailedLabels] = useState<string[]>([]);
+  const [failedMessages, setFailedMessages] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const createMutation = useCreateDetector(projectId);
 
@@ -40,7 +43,7 @@ export function AddDetectorsStep({ projectId, projectName, onDone }: AddDetector
       return;
     }
     setSubmitting(true);
-    setFailedLabels([]);
+    setFailedMessages([]);
     const results = await Promise.allSettled(
       selected.map((id) =>
         createMutation.mutateAsync(buildTemplateDetectorInput(getTemplate(id)!)),
@@ -52,7 +55,17 @@ export function AddDetectorsStep({ projectId, projectName, onDone }: AddDetector
       return;
     }
     setSelected(failed);
-    setFailedLabels(failed.map((id) => getTemplate(id)?.label ?? id));
+    setFailedMessages(
+      failed.map((id) => {
+        const result = results[selected.indexOf(id)];
+        const label = getTemplate(id)?.label ?? id;
+        const message =
+          result.status === "rejected"
+            ? detectorMutationErrorMessage(result.reason, "Failed to create detector")
+            : "Failed to create detector";
+        return `${label}: ${message}`;
+      }),
+    );
     setSubmitting(false);
   };
 
@@ -90,9 +103,9 @@ export function AddDetectorsStep({ projectId, projectName, onDone }: AddDetector
           </p>
         </div>
       </div>
-      {failedLabels.length > 0 && (
-        <p className="text-[12px] text-destructive">
-          Couldn&apos;t create: {failedLabels.join(", ")}. Try again or skip.
+      {failedMessages.length > 0 && (
+        <p role="alert" className="text-[12px] text-destructive">
+          Couldn&apos;t create {failedMessages.join("; ")}. Try again or skip.
         </p>
       )}
       <div className="flex items-center justify-between pt-1">
