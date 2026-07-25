@@ -11,6 +11,7 @@ import {
   calculateCost,
   calculateCostFromPricing,
   getModelPricing,
+  normalizeModelId,
   type ModelPricing,
 } from "../model-pricing/index.ts";
 import { prisma } from "../lib/prisma.ts";
@@ -110,5 +111,98 @@ describe("getModelPricing + calculateCost (prisma-backed)", () => {
   it("returns 0 when the model is not in the pricing table", async () => {
     const cost = await calculateCost("totally-unknown-model-2099", 100, 50);
     expect(cost).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Resolution contract (issue #1597)
+//
+// The suite above covers the cost MATH but never resolution, which is how the
+// $0-cost class kept shipping. These cover the resolver itself: gateway-prefix
+// normalisation, most-specific-wins, and a malformed pattern being skipped.
+//
+// getModelPricing memoises the catalog at module scope and there is no public
+// cache-clear, so each fixture needs a fresh module graph.
+// ---------------------------------------------------------------------------
+
+interface PriceRow {
+  usageType: string;
+  price: number;
+}
+interface CatalogRow {
+  modelName: string;
+  matchPattern: string;
+  prices: PriceRow[];
+}
+
+const rows = (modelName: string, matchPattern: string, input: number): CatalogRow => ({
+  modelName,
+  matchPattern,
+  prices: [
+    { usageType: "input", price: input },
+    { usageType: "output", price: input * 5 },
+  ],
+});
+
+async function freshGetModelPricing(catalog: CatalogRow[]) {
+  vi.resetModules();
+  vi.doMock("../lib/prisma", () => ({
+    prisma: { standardModel: { findMany: vi.fn().mockResolvedValue(catalog) } },
+  }));
+  const mod = await import("../model-pricing/lookup.ts");
+  return mod.getModelPricing;
+}
+
+describe("normalizeModelId", () => {
+  it.each([
+    ["vertex_ai/gemini-2.5-pro", "gemini-2.5-pro"],
+    ["openrouter/claude-sonnet-4-5", "claude-sonnet-4-5"],
+    ["litellm/gpt-5.1", "gpt-5.1"],
+    ["azure/gpt-5.1", "gpt-5.1"],
+    ["openrouter/vertex_ai/gemini-2.5-pro", "gemini-2.5-pro"], // nested
+    ["gpt-5.1", "gpt-5.1"], // untouched
+    ["anthropic/claude-sonnet-4-5", "anthropic/claude-sonnet-4-5"], // real pattern form
+    ["", ""],
+  ])("normalises %s -> %s", (raw, expected) => {
+    expect(normalizeModelId(raw)).toBe(expected);
+  });
+});
+
+describe("getModelPricing — resolution contract", () => {
+  it("resolves gateway-prefixed ids to the bare model's prices", async () => {
+    const get = await freshGetModelPricing([rows("gemini-2.5-pro", "^gemini-2\.5-pro$", 0.000001)]);
+    for (const prefix of ["vertex_ai/", "openrouter/", "litellm/", "azure/"]) {
+      const pricing = await get(`${prefix}gemini-2.5-pro`);
+      expect(pricing, `${prefix} should resolve`).not.toBeNull();
+      expect(pricing!.input).toBe(0.000001);
+    }
+  });
+
+  it("picks the most specific match, not the first, regardless of row order", async () => {
+    // Both patterns carry an optional version tail, so a DATED id matches both and there
+    // is no exact modelName hit — the ranked fallback is what decides. (Querying the bare
+    // `claude-sonnet-4-5` would exact-match and never reach the fallback at all.)
+    // First-match-wins would price the successor at the predecessor's rates, per row order.
+    const predecessor = rows("claude-sonnet-4", "^claude-sonnet-4(-[\\d-]+)?$", 0.000003);
+    const successor = rows("claude-sonnet-4-5", "^claude-sonnet-4-5(-[\\d-]+)?$", 0.000009);
+    const dated = "claude-sonnet-4-5-20250929";
+
+    const predecessorFirst = await freshGetModelPricing([predecessor, successor]);
+    expect((await predecessorFirst(dated))!.input).toBe(0.000009);
+
+    const successorFirst = await freshGetModelPricing([successor, predecessor]);
+    expect((await successorFirst(dated))!.input).toBe(0.000009);
+  });
+
+  it("skips a malformed pattern instead of throwing", async () => {
+    // The queried id must NOT exact-match a modelName, or resolution returns before the
+    // regex loop and the malformed entry is never evaluated.
+    const get = await freshGetModelPricing([
+      rows("broken-entry", "^(unclosed", 0.001), // invalid regex
+      rows("gpt-5.1", "^gpt-5\\.1(-\\w+)?$", 0.000002),
+    ]);
+    const pricing = await get("gpt-5.1-mini");
+    expect(pricing).not.toBeNull();
+    expect(pricing!.input).toBe(0.000002);
   });
 });
