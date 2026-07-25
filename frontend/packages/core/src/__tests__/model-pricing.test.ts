@@ -170,7 +170,9 @@ describe("normalizeModelId", () => {
 
 describe("getModelPricing — resolution contract", () => {
   it("resolves gateway-prefixed ids to the bare model's prices", async () => {
-    const get = await freshGetModelPricing([rows("gemini-2.5-pro", "^gemini-2\.5-pro$", 0.000001)]);
+    const get = await freshGetModelPricing([
+      rows("gemini-2.5-pro", "^gemini-2\\.5-pro$", 0.000001),
+    ]);
     for (const prefix of ["vertex_ai/", "openrouter/", "litellm/", "azure/"]) {
       const pricing = await get(`${prefix}gemini-2.5-pro`);
       expect(pricing, `${prefix} should resolve`).not.toBeNull();
