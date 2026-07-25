@@ -112,7 +112,7 @@ def normalize_model_id(model: str) -> str:
         low = out.lower()
         for prefix in _GATEWAY_PREFIXES:
             if low.startswith(prefix):
-                out = out[len(prefix):]
+                out = out[len(prefix) :]
                 changed = True
                 break
     return out

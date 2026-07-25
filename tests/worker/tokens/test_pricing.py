@@ -808,7 +808,9 @@ class TestCatalogInvariants:
         for seed in (1, 2, 3):
             shuffled = list(real_cache)
             random.Random(seed).shuffle(shuffled)
-            with patch("worker.tokens.pricing._load_cache", lambda: shuffled):
+            # Bind `shuffled` as a default arg: a bare `lambda: shuffled` would close over
+            # the loop variable and read the LAST shuffle on every iteration (ruff B023).
+            with patch("worker.tokens.pricing._load_cache", lambda rows=shuffled: rows):
                 for model_name, expected in baseline.items():
                     got = get_model_price(model_name)[MATCHED_MODEL_NAME]
                     assert got == expected, (
