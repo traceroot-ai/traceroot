@@ -73,6 +73,15 @@ vi.mock("@/features/traces/components", () => ({
 vi.mock("@/components/RetentionGateBanner", () => ({
   RetentionGateBanner: () => <div data-testid="retention-banner" />,
 }));
+vi.mock("@/features/projects/hooks", () => ({
+  useProject: () => ({ data: { workspace_id: "ws-1" } }),
+}));
+vi.mock("@/features/workspaces/hooks", () => ({
+  useWorkspace: () => ({ data: { billingPlan: "free" } }),
+}));
+vi.mock("@/ee/features/billing/PricingDialog", () => ({
+  PricingDialog: () => null,
+}));
 
 import TracesPage from "./page";
 

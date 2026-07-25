@@ -26,6 +26,19 @@ export const DATE_FILTER_OPTIONS: DateFilterOption[] = [
   { id: "custom", label: "Custom", durationMinutes: null, isCustom: true },
 ];
 
+/**
+ * Check whether a date filter option exceeds the retention window.
+ * Returns true if the option's duration (in days) is beyond the allowed limit.
+ */
+export function isOptionLocked(
+  option: DateFilterOption,
+  retentionDays: number | null | undefined,
+): boolean {
+  if (retentionDays == null) return false;
+  if (option.durationMinutes == null) return true;
+  return option.durationMinutes / (60 * 24) > retentionDays;
+}
+
 export const DEFAULT_DATE_FILTER = DATE_FILTER_OPTIONS.find((o) => o.id === "1d")!;
 
 /**

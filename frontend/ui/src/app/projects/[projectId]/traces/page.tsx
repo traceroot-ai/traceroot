@@ -23,6 +23,9 @@ import type { TraceListItem } from "@/types/api";
 import { useTraces, usePrefetchTraces, useTracesExist } from "@/features/traces/hooks";
 import { isRetentionError, getRetentionDetail } from "@/lib/api/retention";
 import { RetentionGateBanner } from "@/components/RetentionGateBanner";
+import { useRetention } from "@/lib/hooks/use-retention";
+import { PricingDialog } from "@/ee/features/billing/PricingDialog";
+import { PlanType } from "@traceroot/core";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useLocalStorage } from "@/lib/hooks/use-local-storage";
 import { TraceViewerPanel, GettingStarted } from "@/features/traces/components";
@@ -111,6 +114,8 @@ export default function TracesPage() {
     if (hasEverTraced) queryClient.invalidateQueries({ queryKey: ["traces", projectId] });
   }, [hasEverTraced, projectId, queryClient]);
 
+  const retention = useRetention(projectId);
+
   const traces = data?.data || [];
   const total = data?.meta?.total ?? 0;
   const showGettingStarted = !checking && !hasEverTraced && !existsError;
@@ -180,6 +185,8 @@ export default function TracesPage() {
             customEndDate={state.customEndDate}
             onDateFilterChange={updateDateFilter}
             onCustomRangeChange={updateCustomRange}
+            retentionDays={retention.retentionDays}
+            onUpgradeClick={retention.onUpgradeClick}
           >
             <button
               type="button"
@@ -408,6 +415,13 @@ export default function TracesPage() {
           initialFullscreen={startFullscreen}
         />
       )}
+
+      <PricingDialog
+        open={retention.showPricing}
+        onOpenChange={retention.closePricing}
+        workspaceId={retention.workspaceId}
+        currentPlan={(retention.billingPlan as PlanType) || PlanType.FREE}
+      />
     </div>
   );
 }
