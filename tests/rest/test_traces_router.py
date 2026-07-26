@@ -483,20 +483,30 @@ class TestRetentionGate:
         kw = mock_trace_reader.list_traces.call_args.kwargs
         assert kw["start_after"] is not None
 
-    def test_list_traces_403_when_start_after_outside_window(self, free_plan_client):
+    def test_list_traces_clamps_when_start_after_outside_window(
+        self, free_plan_client, mock_trace_reader
+    ):
+        """Old start_after is silently clamped to the retention cutoff."""
+        mock_trace_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
         old = (_now_naive() - timedelta(days=30)).isoformat()
         response = free_plan_client.get(f"/api/v1/projects/test-project/traces?start_after={old}")
-        assert response.status_code == 403
-        detail = response.json()["detail"]
-        assert detail["message"] == "Data outside retention window"
-        assert detail["retention_days"] == 15
+        assert response.status_code == 200
+        kw = mock_trace_reader.list_traces.call_args.kwargs
+        expected = _now_naive() - timedelta(days=15, hours=1)
+        assert abs((kw["start_after"] - expected).total_seconds()) < 2
 
-    def test_get_filter_values_403_when_outside_window(self, free_plan_client):
+    def test_get_filter_values_clamps_when_outside_window(
+        self, free_plan_client, mock_trace_reader
+    ):
+        mock_trace_reader.get_distinct_span_values.return_value = []
         old = (_now_naive() - timedelta(days=30)).isoformat()
         response = free_plan_client.get(
             f"/api/v1/projects/test-project/traces/filter-values/model_name?start_after={old}"
         )
-        assert response.status_code == 403
+        assert response.status_code == 200
 
     def test_get_trace_403_when_trace_outside_window(self, free_plan_client, mock_trace_reader):
         old_trace = {**TRACE_DETAIL, "trace_start_time": datetime(2020, 1, 1)}
@@ -514,9 +524,7 @@ class TestRetentionGate:
         assert response.status_code == 200
 
     def test_get_span_io_403_when_trace_outside_window(self, free_plan_client, mock_trace_reader):
-        mock_trace_reader.get_trace.return_value = {
-            "trace_start_time": datetime(2020, 1, 1),
-        }
+        mock_trace_reader.get_trace_start_time.return_value = datetime(2020, 1, 1)
         mock_trace_reader.get_span_io.return_value = SPAN_IO
         response = free_plan_client.get(
             "/api/v1/projects/test-project/traces/old-trace/spans/span-1/io"
@@ -524,9 +532,7 @@ class TestRetentionGate:
         assert response.status_code == 403
 
     def test_get_span_io_200_when_trace_in_window(self, free_plan_client, mock_trace_reader):
-        mock_trace_reader.get_trace.return_value = {
-            "trace_start_time": _now_naive() - timedelta(days=1),
-        }
+        mock_trace_reader.get_trace_start_time.return_value = _now_naive() - timedelta(days=1)
         mock_trace_reader.get_span_io.return_value = SPAN_IO
         response = free_plan_client.get(
             "/api/v1/projects/test-project/traces/abc123/spans/span-1/io"

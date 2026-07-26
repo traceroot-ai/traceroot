@@ -136,15 +136,17 @@ describe("GET .../detectors/[detectorId]/runs — auth & proxy", () => {
   });
 });
 
-describe("GET .../runs — retention gate", () => {
-  it("returns 403 when start_after is outside the free plan retention window", async () => {
+describe("GET .../runs — retention clamp", () => {
+  it("clamps start_after to retention cutoff when outside the free plan window", async () => {
     const old = new Date(Date.now() - 30 * 86_400_000).toISOString();
+    backendFetchMock.mockResolvedValue(backendResponse({ data: [], meta: {} }));
     const res = await GET(makeRequest({ start_after: old }), makeParams());
-    expect(res.status).toBe(403);
-    const body = (await res.json()) as { detail: { retention_days: number; plan: string } };
-    expect(body.detail.retention_days).toBe(15);
-    expect(body.detail.plan).toBe("free");
-    expect(backendFetchMock).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(backendFetchMock).toHaveBeenCalled();
+    const url = new URL(backendFetchMock.mock.calls[0][0] as string);
+    const proxiedStart = url.searchParams.get("start_after")!;
+    const cutoffMs = Date.now() - 15 * 86_400_000 - 3_600_000;
+    expect(Math.abs(new Date(proxiedStart).getTime() - cutoffMs)).toBeLessThan(5000);
   });
 
   it("passes through when start_after is within the retention window", async () => {
@@ -153,6 +155,8 @@ describe("GET .../runs — retention gate", () => {
     const res = await GET(makeRequest({ start_after: recent }), makeParams());
     expect(res.status).toBe(200);
     expect(backendFetchMock).toHaveBeenCalled();
+    const url = new URL(backendFetchMock.mock.calls[0][0] as string);
+    expect(url.searchParams.get("start_after")).toBe(recent);
   });
 
   it("clamps to retention cutoff when no start_after is provided", async () => {
@@ -164,10 +168,15 @@ describe("GET .../runs — retention gate", () => {
     expect(url.searchParams.has("start_after")).toBe(true);
   });
 
-  it("returns 403 for malformed start_after values", async () => {
+  it("clamps malformed start_after to retention cutoff", async () => {
+    backendFetchMock.mockResolvedValue(backendResponse({ data: [], meta: {} }));
     const res = await GET(makeRequest({ start_after: "not-a-date" }), makeParams());
-    expect(res.status).toBe(403);
-    expect(backendFetchMock).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(backendFetchMock).toHaveBeenCalled();
+    const url = new URL(backendFetchMock.mock.calls[0][0] as string);
+    const proxiedStart = url.searchParams.get("start_after")!;
+    const cutoffMs = Date.now() - 15 * 86_400_000 - 3_600_000;
+    expect(Math.abs(new Date(proxiedStart).getTime() - cutoffMs)).toBeLessThan(5000);
   });
 
   it("allows wider window for enterprise plans", async () => {
@@ -177,6 +186,8 @@ describe("GET .../runs — retention gate", () => {
     const res = await GET(makeRequest({ start_after: old }), makeParams());
     expect(res.status).toBe(200);
     expect(backendFetchMock).toHaveBeenCalled();
+    const url = new URL(backendFetchMock.mock.calls[0][0] as string);
+    expect(url.searchParams.get("start_after")).toBe(old);
   });
 });
 

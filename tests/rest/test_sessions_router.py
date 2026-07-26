@@ -296,7 +296,7 @@ class TestGetSession:
 
 
 class TestRetentionGate:
-    """Sessions enforce retention — 403 on explicit out-of-window, clamp when unset."""
+    """Sessions clamp out-of-window start_after to the retention cutoff."""
 
     def test_list_sessions_clamps_default_query(self, free_plan_client, mock_trace_reader):
         mock_trace_reader.list_sessions.return_value = {
@@ -308,24 +308,37 @@ class TestRetentionGate:
         kw = mock_trace_reader.list_sessions.call_args.kwargs
         assert kw["start_after"] is not None
 
-    def test_list_sessions_rejects_old_start_after_with_403(
-        self, free_plan_client, mock_trace_reader
-    ):
-        """Sessions enforce retention — 403 on explicit out-of-window requests."""
+    def test_list_sessions_clamps_old_start_after(self, free_plan_client, mock_trace_reader):
+        """Old start_after is silently clamped to the retention cutoff."""
+        mock_trace_reader.list_sessions.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
         old = _now_naive() - timedelta(days=30)
         response = free_plan_client.get(
             f"/api/v1/projects/test-project/sessions?start_after={old.isoformat()}"
         )
-        assert response.status_code == 403
-        detail = response.json()["detail"]
-        assert detail["retention_days"] == 15
-        assert detail["plan"] == "free"
+        assert response.status_code == 200
+        kw = mock_trace_reader.list_sessions.call_args.kwargs
+        expected = _now_naive() - timedelta(days=15, hours=1)
+        assert abs((kw["start_after"] - expected).total_seconds()) < 2
 
-    def test_get_session_rejects_old_start_after_with_403(
-        self, free_plan_client, mock_trace_reader
-    ):
+    def test_get_session_clamps_old_start_after(self, free_plan_client, mock_trace_reader):
+        now = _now_naive()
+        mock_trace_reader.get_session.return_value = {
+            "session_id": "sess-1",
+            "first_trace_time": (now - timedelta(days=1)).isoformat(),
+            "last_trace_time": now.isoformat(),
+            "user_ids": [],
+            "trace_count": 1,
+            "total_input_tokens": 0,
+            "total_output_tokens": 0,
+            "total_cost": 0,
+            "duration_ms": 1000,
+            "traces": [],
+        }
         old = _now_naive() - timedelta(days=30)
         response = free_plan_client.get(
             f"/api/v1/projects/test-project/sessions/sess-1?start_after={old.isoformat()}"
         )
-        assert response.status_code == 403
+        assert response.status_code == 200

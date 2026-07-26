@@ -64,9 +64,11 @@ def _mock_retention_lookup():
     """All tests mock the lightweight retention timestamp query so it never
     hits real ClickHouse.  Enterprise tests bypass retention regardless of the
     value; retention-specific tests override this with their own patch."""
+    mock_service = MagicMock()
+    mock_service.get_trace_start_time.return_value = _utcnow_naive()
     with patch(
-        "rest.routers.live._trace_start_time_in_clickhouse",
-        return_value=_utcnow_naive(),
+        "rest.routers.live.get_trace_reader_service",
+        return_value=mock_service,
     ):
         yield
 
@@ -504,11 +506,13 @@ class TestRetentionGate:
         mock_redis.pubsub.return_value = pubsub
 
         try:
+            mock_service = MagicMock()
+            mock_service.get_trace_start_time.return_value = old_start
             test_client = TestClient(app, raise_server_exceptions=False)
             with (
                 patch(
-                    "rest.routers.live._trace_start_time_in_clickhouse",
-                    return_value=old_start,
+                    "rest.routers.live.get_trace_reader_service",
+                    return_value=mock_service,
                 ),
                 patch("shared.redis.get_async_redis_client", return_value=mock_redis),
             ):
@@ -542,12 +546,14 @@ class TestRetentionGate:
         mock_redis.pubsub.return_value = pubsub
 
         try:
+            mock_service = MagicMock()
+            mock_service.get_trace_start_time.return_value = recent_start
             test_client = TestClient(app)
             with (
                 patch("rest.routers.live.TRACE_COMPLETE_QUIET_SECONDS", 0.1),
                 patch(
-                    "rest.routers.live._trace_start_time_in_clickhouse",
-                    return_value=recent_start,
+                    "rest.routers.live.get_trace_reader_service",
+                    return_value=mock_service,
                 ),
                 patch(
                     "rest.routers.live._completion_state_in_clickhouse",

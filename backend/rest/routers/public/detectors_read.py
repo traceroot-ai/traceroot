@@ -18,7 +18,7 @@ from rest.rate_limit import (
     limiter,
     resolve_limit,
 )
-from rest.retention import enforce_retention_by_time, enforce_retention_window
+from rest.retention import clamp_retention_window, enforce_retention_by_time
 from rest.routers.public.deps import StampedAuth
 from rest.schemas.common import PaginationMeta
 from rest.schemas.public import (
@@ -51,7 +51,6 @@ async def list_detectors(
     ),
 ):
     """List the detectors in the API key's project (newest first)."""
-    start_after, end_before = enforce_retention_window(auth.billing_plan, start_after, end_before)
     try:
         items, total = service.list_detectors(
             project_id=auth.project_id,
@@ -91,7 +90,7 @@ async def list_findings(
     trace_id: str | None = Query(None, description="Filter to a single trace"),
 ):
     """List recent detector findings for the API key's project (newest first)."""
-    start_after, end_before = enforce_retention_window(auth.billing_plan, start_after, end_before)
+    start_after, end_before = clamp_retention_window(auth.billing_plan, start_after, end_before)
     try:
         items, total = service.list_findings(
             project_id=auth.project_id,

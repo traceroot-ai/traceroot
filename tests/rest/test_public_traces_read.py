@@ -429,13 +429,20 @@ class TestPublicTracesRetentionGate:
         kw = mock_reader.list_traces.call_args.kwargs
         assert kw["start_after"] is not None
 
-    def test_list_403_when_start_after_outside_window(self, free_client):
+    def test_list_clamps_when_start_after_outside_window(self, free_client, mock_reader):
+        mock_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
         old = _now_naive() - timedelta(days=30)
         resp = free_client.get(
             f"/api/v1/public/traces?start_after={old.isoformat()}",
             headers=AUTH_HEADER,
         )
-        assert resp.status_code == 403
+        assert resp.status_code == 200
+        kw = mock_reader.list_traces.call_args.kwargs
+        expected = _now_naive() - timedelta(days=15, hours=1)
+        assert abs((kw["start_after"] - expected).total_seconds()) < 2
 
     def test_get_trace_403_when_outside_window(self, free_client, mock_reader):
         old_trace = dict(TRACE_DETAIL, trace_start_time=datetime(2020, 1, 1))

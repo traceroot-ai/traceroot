@@ -21,8 +21,6 @@ import {
 } from "@/lib/utils";
 import type { TraceListItem } from "@/types/api";
 import { useTraces, usePrefetchTraces, useTracesExist } from "@/features/traces/hooks";
-import { isRetentionError, getRetentionDetail } from "@/lib/api/retention";
-import { RetentionGateBanner } from "@/components/RetentionGateBanner";
 import { useRetention } from "@/lib/hooks/use-retention";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
 import { PlanType } from "@traceroot/core";
@@ -238,8 +236,6 @@ export default function TracesPage() {
             <div className="flex h-64 items-center justify-center">
               <LoadingState label="Loading traces..." />
             </div>
-          ) : error && isRetentionError(error) ? (
-            <RetentionGateBanner projectId={projectId} detail={getRetentionDetail(error)!} />
           ) : error && !data ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3 text-center">
               <AlertTriangle className="h-8 w-8 text-destructive/50" />

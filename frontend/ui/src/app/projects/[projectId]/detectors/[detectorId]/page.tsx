@@ -14,8 +14,6 @@ import { DetectorRunsTable } from "@/features/detectors/components/detector-runs
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
 import { TraceViewerPanel } from "@/features/traces/components/TraceViewerPanel";
-import { isRetentionError, getRetentionDetail } from "@/lib/api/retention";
-import { RetentionGateBanner } from "@/components/RetentionGateBanner";
 import { useRetention } from "@/lib/hooks/use-retention";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
 import { PlanType } from "@traceroot/core";
@@ -218,11 +216,6 @@ export default function DetectorDetailPage() {
                 <div className="flex h-64 items-center justify-center">
                   <LoadingState label={`Loading ${noun}...`} />
                 </div>
-              );
-            }
-            if (err && isRetentionError(err)) {
-              return (
-                <RetentionGateBanner projectId={projectId} detail={getRetentionDetail(err)!} />
               );
             }
             if (err) {

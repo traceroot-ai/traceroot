@@ -273,16 +273,17 @@ class TestDetectorsRetentionGate:
         app.dependency_overrides[get_detector_reader_service] = lambda: reader
         return TestClient(app)
 
-    def test_list_detectors_clamps_default_query(self, free_client, reader):
+    def test_list_detectors_bypasses_retention(self, free_client, reader):
+        """list_detectors has no retention gate (B7 fix — old configs must remain visible)."""
         reader.detectors_return = ([], 0)
         resp = free_client.get("/api/v1/public/detectors")
         assert resp.status_code == 200
-        assert reader.detectors_args["start_after"] is not None
 
-    def test_list_findings_403_when_outside_window(self, free_client):
+    def test_list_findings_clamps_when_outside_window(self, free_client, reader):
+        reader.list_return = ([], 0)
         old = _now_naive() - timedelta(days=30)
         resp = free_client.get(f"/api/v1/public/detectors/findings?start_after={old.isoformat()}")
-        assert resp.status_code == 403
+        assert resp.status_code == 200
 
     def test_get_finding_403_when_outside_window(self, free_client, reader):
         reader.finding = _detail(timestamp=datetime(2020, 1, 1))
