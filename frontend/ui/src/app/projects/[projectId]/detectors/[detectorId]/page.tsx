@@ -58,6 +58,8 @@ export default function DetectorDetailPage() {
 
   // Single shared state across both tabs — same pattern as traces/sessions/users.
   // Pagination, search, and date filter live in the URL so a tab switch keeps them.
+  const retention = useRetention(projectId);
+
   const {
     state,
     queryOptions,
@@ -66,9 +68,10 @@ export default function DetectorDetailPage() {
     updateKeyword,
     updateLimit,
     goToPage,
-  } = useListPageState({ defaultDateFilterId: DETECTORS_DEFAULT_DATE_FILTER_ID });
-
-  const retention = useRetention(projectId);
+  } = useListPageState({
+    defaultDateFilterId: DETECTORS_DEFAULT_DATE_FILTER_ID,
+    retentionDays: retention.retentionDays,
+  });
 
   // Carry the selected range back to the list (and into the breadcrumb) so the
   // detectors section keeps one consistent time range across navigation, the

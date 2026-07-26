@@ -41,6 +41,15 @@ export function isOptionLocked(
 
 export const DEFAULT_DATE_FILTER = DATE_FILTER_OPTIONS.find((o) => o.id === "1d")!;
 
+export function clampDateFilter(
+  option: DateFilterOption,
+  retentionDays: number | null | undefined,
+): DateFilterOption {
+  if (!isOptionLocked(option, retentionDays)) return option;
+  const unlocked = DATE_FILTER_OPTIONS.filter((o) => !isOptionLocked(o, retentionDays));
+  return unlocked.length > 0 ? unlocked[unlocked.length - 1] : DEFAULT_DATE_FILTER;
+}
+
 /**
  * Default date filter for the detectors section (findings/runs lists). Detectors
  * default to a wider window than the other list pages, so the id is centralized

@@ -55,6 +55,9 @@ export default function DetectorsPage() {
   const [actionsOpen, setActionsOpen] = useState<string | null>(null);
   const [selectedDetectorId, setSelectedDetectorId] = useState<string | null>(null);
 
+  const { data: project } = useProject(projectId);
+  const retention = useRetention(projectId);
+
   const {
     state,
     queryOptions,
@@ -63,7 +66,10 @@ export default function DetectorsPage() {
     updateKeyword,
     updateLimit,
     goToPage,
-  } = useListPageState({ defaultDateFilterId: DETECTORS_DEFAULT_DATE_FILTER_ID });
+  } = useListPageState({
+    defaultDateFilterId: DETECTORS_DEFAULT_DATE_FILTER_ID,
+    retentionDays: retention.retentionDays,
+  });
 
   // Carry the selected time range into the detail page so it stays consistent
   // across the list <-> detail navigation, mirroring how the Traces tabs
@@ -75,9 +81,6 @@ export default function DetectorsPage() {
       customStartDate: state.customStartDate,
       customEndDate: state.customEndDate,
     });
-
-  const { data: project } = useProject(projectId);
-  const retention = useRetention(projectId);
 
   const { data, isLoading, error } = useDetectorList(projectId, {
     page: queryOptions.page,

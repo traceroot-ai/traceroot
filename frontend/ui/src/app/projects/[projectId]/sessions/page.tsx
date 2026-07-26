@@ -45,6 +45,8 @@ export default function SessionsPage() {
   const sessionIdFromUrl = searchParams.get("sessionId");
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(sessionIdFromUrl);
 
+  const retention = useRetention(projectId);
+
   const {
     state,
     updateDateFilter,
@@ -53,7 +55,7 @@ export default function SessionsPage() {
     updateLimit,
     goToPage,
     queryOptions,
-  } = useListPageState();
+  } = useListPageState({ retentionDays: retention.retentionDays });
 
   const sessionQueryOptions = useMemo<SessionQueryOptions>(
     () => ({
@@ -69,8 +71,6 @@ export default function SessionsPage() {
   useLayoutEffect(() => {
     setHideAiButton(false);
   }, [setHideAiButton]);
-
-  const retention = useRetention(projectId);
 
   const { data, isPending: dataPending, error } = useSessions(projectId, sessionQueryOptions);
   // Auth-gated React Query reports isLoading: false while disabled (TanStack v5).

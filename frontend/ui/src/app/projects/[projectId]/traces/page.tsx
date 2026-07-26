@@ -55,6 +55,8 @@ export default function TracesPage() {
   // unexpanded width rather than re-expanding from the lingering URL param.
   const [startFullscreen, setStartFullscreen] = useState(searchParams.get("fullscreen") === "1");
 
+  const retention = useRetention(projectId);
+
   // Use URL-synced state management hook (shares date filter with other pages)
   const {
     state,
@@ -64,7 +66,7 @@ export default function TracesPage() {
     updateLimit,
     goToPage,
     queryOptions,
-  } = useListPageState();
+  } = useListPageState({ retentionDays: retention.retentionDays });
 
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(traceIdFromUrl);
   // Persisted per-project so a live view survives reloads, navigation, and re-login.
@@ -111,8 +113,6 @@ export default function TracesPage() {
   useEffect(() => {
     if (hasEverTraced) queryClient.invalidateQueries({ queryKey: ["traces", projectId] });
   }, [hasEverTraced, projectId, queryClient]);
-
-  const retention = useRetention(projectId);
 
   const traces = data?.data || [];
   const total = data?.meta?.total ?? 0;

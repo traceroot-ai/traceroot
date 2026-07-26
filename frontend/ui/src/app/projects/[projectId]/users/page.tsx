@@ -43,6 +43,8 @@ export default function UsersPage() {
     setHideAiButton(false);
   }, [setHideAiButton]);
 
+  const retention = useRetention(projectId);
+
   // Use URL-synced state management (shares date filter with other pages)
   const {
     state,
@@ -52,7 +54,7 @@ export default function UsersPage() {
     updateLimit,
     goToPage,
     queryOptions,
-  } = useListPageState();
+  } = useListPageState({ retentionDays: retention.retentionDays });
 
   // Build user query options from shared state
   const userQueryOptions = useMemo<UserQueryOptions>(
@@ -65,8 +67,6 @@ export default function UsersPage() {
     }),
     [queryOptions],
   );
-
-  const retention = useRetention(projectId);
 
   const { data, isPending: dataPending, error } = useUsers(projectId, userQueryOptions);
   // Auth-gated React Query reports isLoading: false while disabled (TanStack v5).
