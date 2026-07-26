@@ -217,13 +217,13 @@ describe("WidgetBuilderPage", () => {
   });
 
   it("redirects to the dashboard index when the dashboard is permanently gone", () => {
-    mockDashboard(undefined, new ApiError("Dashboard not found", 404));
+    mockDashboard(undefined, new ApiError(404, "Dashboard not found"));
     render(<WidgetBuilderPage projectId="p1" dashboardId="d1" />);
     expect(replace).toHaveBeenCalledWith("/projects/p1/dashboard");
   });
 
   it("stays in the builder on a transient load error — a blip must not dump the draft", () => {
-    mockDashboard(undefined, new ApiError("API error: 503", 503));
+    mockDashboard(undefined, new ApiError(503, "API error: 503"));
     render(<WidgetBuilderPage projectId="p1" dashboardId="d1" />);
     expect(replace).not.toHaveBeenCalled();
   });
