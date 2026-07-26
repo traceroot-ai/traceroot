@@ -13,6 +13,23 @@ from worker.celery_app import app
 logger = logging.getLogger(__name__)
 
 
+@app.task(
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=600,
+    max_retries=5,
+)
+def dispatch_detector_runs(self, project_id: str, trace_ids: list[str]) -> dict:
+    """Dispatch detector jobs after ingest, retrying transient dependency failures."""
+    from worker.detector_tasks import enqueue_detector_runs
+
+    unique_trace_ids = set(trace_ids)
+    dispatch_id = self.request.id or f"direct:{project_id}:{','.join(sorted(unique_trace_ids))}"
+    enqueue_detector_runs(project_id, unique_trace_ids, dispatch_id=dispatch_id)
+    return {"project_id": project_id, "traces": len(unique_trace_ids)}
+
+
 def _json_serializer(obj: object) -> str:
     """JSON serializer for datetime objects in span dicts."""
     if isinstance(obj, datetime):
@@ -142,19 +159,18 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
                 ch_client.insert_spans_batch(spans)
                 logger.info(f"Inserted {len(spans)} spans into ClickHouse")
 
-        # Trigger detector runs (fire-and-forget, non-blocking). The batch that
-        # carries a trace's root span triggers detection exactly once — a Redis
-        # lock keyed on (project, trace) dedups against ingest-task retries and
-        # duplicate root delivery. Batches without the root span are ignored
-        # here; the worker waits out the quiescence window before evaluating,
-        # so late spans need no enqueue.
+        # Hand detector work to its own retryable task. A Redis claim keyed on
+        # (project, trace) suppresses retries and duplicate root delivery while
+        # BullMQ's deterministic job id deduplicates repeated queue publication.
+        # Batches without the root span are ignored here; the detector worker
+        # waits out the quiescence window before evaluating, so late spans need
+        # no enqueue. A broker publication failure raises and retries this ingest
+        # task; failures after publication retry only the detector dispatch.
         if root_bearing_trace_ids:
-            try:
-                from worker.detector_tasks import enqueue_detector_runs
-
-                enqueue_detector_runs(project_id, root_bearing_trace_ids)
-            except Exception as e:
-                logger.error(f"Failed to call detector tasks: {e}", exc_info=True)
+            dispatch_detector_runs.delay(
+                project_id=project_id,
+                trace_ids=sorted(root_bearing_trace_ids),
+            )
 
         # 4. Publish to Redis for live trace streaming
         if spans:

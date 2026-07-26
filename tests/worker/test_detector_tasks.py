@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import worker.detector_tasks as dt
+from worker.ingest_tasks import dispatch_detector_runs
 
 PROJECT = "proj-1"
 TRACE = "aa" * 16
@@ -204,7 +205,8 @@ class TestFailureRelease:
         _patch_summaries(monkeypatch, {})
 
         mock_add_job.side_effect = RuntimeError("redis down")
-        dt.enqueue_detector_runs(PROJECT, {TRACE})
+        with pytest.raises(dt.DetectorDispatchError, match="redis down"):
+            dt.enqueue_detector_runs(PROJECT, {TRACE})
         assert dt._lock_key(PROJECT, TRACE) not in fake_redis.store
 
         mock_add_job.side_effect = None
@@ -225,7 +227,8 @@ class TestFailureRelease:
             raise RuntimeError("boom")
 
         monkeypatch.setattr(dt, "_add_bullmq_job", hijack_then_fail)
-        dt.enqueue_detector_runs(PROJECT, {TRACE})
+        with pytest.raises(dt.DetectorDispatchError, match="boom"):
+            dt.enqueue_detector_runs(PROJECT, {TRACE})
 
         assert fake_redis.store[key] == foreign.encode()
 
@@ -321,6 +324,117 @@ class TestTopLevelGuard:
         )
         dt.enqueue_detector_runs(PROJECT, set())
 
-    def test_never_raises(self, monkeypatch):
+    def test_dependency_failure_raises_for_task_retry(self, monkeypatch):
         monkeypatch.setattr(dt, "_get_redis", MagicMock(side_effect=RuntimeError("redis down")))
-        dt.enqueue_detector_runs(PROJECT, {TRACE})
+        with pytest.raises(RuntimeError, match="redis down"):
+            dt.enqueue_detector_runs(PROJECT, {TRACE})
+
+
+class TestRetryableDispatchTask:
+    def test_redis_failure_surfaces_to_celery(self, monkeypatch):
+        """The dedicated dispatch task must fail so Celery can retry it."""
+        monkeypatch.setattr(dt, "_get_redis", MagicMock(side_effect=RuntimeError("redis down")))
+
+        with pytest.raises(RuntimeError, match="redis down"):
+            dispatch_detector_runs(project_id=PROJECT, trace_ids=[TRACE])
+
+    def test_postgres_failure_surfaces_to_celery(self, fake_redis, monkeypatch):
+        monkeypatch.setattr(
+            dt,
+            "_get_active_detectors",
+            MagicMock(side_effect=RuntimeError("postgres down")),
+        )
+
+        with pytest.raises(RuntimeError, match="postgres down"):
+            dispatch_detector_runs(project_id=PROJECT, trace_ids=[TRACE])
+
+    def test_bullmq_failure_surfaces_to_celery_and_releases_claim(self, monkeypatch):
+        """A failed Queue.add leaves the trace retryable and fails the dispatch task."""
+        redis = FakeRedis()
+        monkeypatch.setattr(dt, "_get_redis", lambda: redis)
+        _patch_detectors(monkeypatch, [_detector("d1")])
+        _patch_summaries(monkeypatch, {TRACE: {}})
+        monkeypatch.setattr(
+            dt,
+            "_add_bullmq_job",
+            MagicMock(side_effect=RuntimeError("bullmq down")),
+        )
+
+        with pytest.raises(RuntimeError, match="bullmq down"):
+            dispatch_detector_runs(project_id=PROJECT, trace_ids=[TRACE])
+
+        assert dt._lock_key(PROJECT, TRACE) not in redis.store
+
+    def test_retry_after_bullmq_recovery_enqueues_once(self, monkeypatch):
+        redis = FakeRedis()
+        add_job = MagicMock(side_effect=[RuntimeError("bullmq down"), None])
+        monkeypatch.setattr(dt, "_get_redis", lambda: redis)
+        _patch_detectors(monkeypatch, [_detector("d1")])
+        _patch_summaries(monkeypatch, {TRACE: {}})
+        monkeypatch.setattr(dt, "_add_bullmq_job", add_job)
+
+        result = dispatch_detector_runs.apply(
+            kwargs={"project_id": PROJECT, "trace_ids": [TRACE]},
+            throw=False,
+        )
+
+        assert result.successful()
+        assert result.result == {"project_id": PROJECT, "traces": 1}
+        assert add_job.call_count == 2
+        assert _lock_state(redis)["state"] == "pending"
+        assert dispatch_detector_runs.max_retries == 5
+
+    def test_retry_resumes_its_own_deciding_claim_after_release_failure(self, monkeypatch):
+        class ReleaseFailRedis(FakeRedis):
+            release_attempts = 0
+
+            def eval(self, script, numkeys, key, arg):
+                self.release_attempts += 1
+                raise RuntimeError("redis still down")
+
+        redis = ReleaseFailRedis()
+        add_job = MagicMock(side_effect=[RuntimeError("bullmq down"), None])
+        monkeypatch.setattr(dt, "_get_redis", lambda: redis)
+        _patch_detectors(monkeypatch, [_detector("d1")])
+        _patch_summaries(monkeypatch, {TRACE: {}})
+        monkeypatch.setattr(dt, "_add_bullmq_job", add_job)
+
+        result = dispatch_detector_runs.apply(
+            kwargs={"project_id": PROJECT, "trace_ids": [TRACE]},
+            throw=False,
+        )
+
+        assert result.successful()
+        assert result.result == {"project_id": PROJECT, "traces": 1}
+        assert add_job.call_count == 2
+        assert redis.release_attempts == 1
+        assert _lock_state(redis)["state"] == "pending"
+
+    def test_partial_batch_retry_skips_successes_and_recovers_failed_trace(self, monkeypatch):
+        other = "bb" * 16
+        redis = FakeRedis()
+        failed_once = False
+        added: list[str] = []
+
+        def add_with_one_transient_failure(job_id, data):
+            nonlocal failed_once
+            added.append(job_id)
+            if job_id == f"{PROJECT}--{TRACE}" and not failed_once:
+                failed_once = True
+                raise RuntimeError("bullmq down")
+
+        monkeypatch.setattr(dt, "_get_redis", lambda: redis)
+        _patch_detectors(monkeypatch, [_detector("d1")])
+        _patch_summaries(monkeypatch, {TRACE: {}, other: {}})
+        monkeypatch.setattr(dt, "_add_bullmq_job", add_with_one_transient_failure)
+
+        with pytest.raises(dt.DetectorDispatchError, match="bullmq down"):
+            dispatch_detector_runs(project_id=PROJECT, trace_ids=[TRACE, other])
+
+        result = dispatch_detector_runs(project_id=PROJECT, trace_ids=[TRACE, other])
+
+        assert result == {"project_id": PROJECT, "traces": 2}
+        assert added.count(f"{PROJECT}--{TRACE}") == 2
+        assert added.count(f"{PROJECT}--{other}") == 1
+        assert _lock_state(redis, trace_id=TRACE)["state"] == "pending"
+        assert _lock_state(redis, trace_id=other)["state"] == "pending"

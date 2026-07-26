@@ -1,8 +1,9 @@
 """
 Detector trigger evaluation and BullMQ enqueue.
 
-Called from process_s3_traces after ClickHouse insert.
-Non-blocking: exceptions are caught and logged, never re-raised.
+Scheduled by process_s3_traces after ClickHouse insert.
+Runs in its own retryable Celery task so dependency failures do not mark trace
+ingestion as failed and do not silently drop detector work.
 
 Exactly-once triggering: the ingest batch carrying a trace's root span claims
 the trace via a Redis lock, evaluates trigger conditions plus deterministic
@@ -22,14 +23,22 @@ logger = logging.getLogger(__name__)
 # BullMQ queue name — must match TypeScript DETECTOR_RUN_QUEUE constant
 DETECTOR_RUN_QUEUE = "detector-run"
 
-# Lock TTL for the per-trace enqueue claim. Detection only ever fires from the
-# root-bearing batch; the NX lock makes that enqueue exactly-once.
+# TTL for completed enqueue decisions. Detection only ever fires from the
+# root-bearing batch; the key makes that decision sticky across duplicate delivery.
 _LOCK_TTL_SECONDS = 3600
+# A dispatch task retry keeps the same owner id and may reclaim after a failed
+# attempt leaves its transient "deciding" claim behind.
+_DECIDING_TTL_SECONDS = 60
 
 # Initial delay on the enqueued job; the worker then waits until the trace has
 # been quiet this long (no new span) before evaluating. Must match the
 # TypeScript EVALUATOR_DELAY constant.
 EVALUATOR_DELAY = 60_000  # ms
+
+
+class DetectorDispatchError(RuntimeError):
+    """Transient dependency failure that should retry the detector dispatch task."""
+
 
 # Token-checked release: delete the lock only when it still holds the exact
 # value this attempt wrote, so a failing attempt can never delete state
@@ -283,6 +292,7 @@ def _claim_and_enqueue(
     trace_id: str,
     detectors: list[dict],
     summary: dict,
+    dispatch_id: str | None,
 ) -> None:
     """Root-bearing batch: claim the trace and enqueue at most one detection job.
 
@@ -301,24 +311,51 @@ def _claim_and_enqueue(
             ``sample_rate`` and ``conditions``.
         summary (dict): Trace summary fields used for trigger evaluation (e.g.
             ``environment``).
+        dispatch_id (str | None): Stable owner id retained across Celery retries.
 
     Returns:
         None: On an enqueue failure the lock value this attempt wrote is
             released (so a later batch can re-claim) and the error is re-raised
-            to the caller, which logs it per-trace without breaking ingestion.
+            to the dispatch task so Celery retries it.
     """
     # The lock's JSON payload (state/token/detector_ids) is diagnostic only —
     # nothing reads it back now that re-eval is gone; the key is purely an NX
     # dedup marker preventing a second enqueue for the same trace.
     key = _lock_key(project_id, trace_id)
     token = uuid.uuid4().hex
-    last_written = json.dumps({"state": "deciding", "token": token})
+    last_written = json.dumps({"state": "deciding", "token": token, "owner": dispatch_id})
 
     # NX claim: loses against ingest-task retry replay, duplicate root
     # delivery, or a concurrent batch — exactly-once holds either way.
-    if not redis_client.set(key, last_written, nx=True, ex=_LOCK_TTL_SECONDS):
-        logger.debug(f"Detector enqueue already claimed for trace {trace_id}; skipping")
-        return
+    try:
+        claimed = redis_client.set(key, last_written, nx=True, ex=_DECIDING_TTL_SECONDS)
+    except Exception as exc:
+        raise DetectorDispatchError(
+            f"Failed to claim detector enqueue for trace {trace_id}: {exc}"
+        ) from exc
+    if not claimed:
+        try:
+            existing_raw = redis_client.get(key)
+            existing_text = (
+                existing_raw.decode() if isinstance(existing_raw, bytes) else existing_raw
+            )
+            existing = json.loads(existing_text) if existing_text is not None else {}
+        except Exception as exc:
+            raise DetectorDispatchError(
+                f"Failed to inspect detector enqueue claim for trace {trace_id}: {exc}"
+            ) from exc
+        if (
+            dispatch_id is not None
+            and existing.get("state") == "deciding"
+            and existing.get("owner") == dispatch_id
+        ):
+            # The prior attempt failed before it could release its claim. Celery
+            # retries use the same task id, so resume that claim instead of
+            # reporting false success or waiting out its TTL.
+            last_written = existing_text
+        else:
+            logger.debug(f"Detector enqueue already claimed for trace {trace_id}; skipping")
+            return
 
     try:
         triggered_ids = [
@@ -330,35 +367,60 @@ def _claim_and_enqueue(
 
         if not triggered_ids:
             # Sticky no: a replay must not re-roll conditions or sampling.
-            redis_client.set(
-                key,
-                json.dumps({"state": "sampled_out", "token": token}),
-                ex=_LOCK_TTL_SECONDS,
-            )
+            try:
+                redis_client.set(
+                    key,
+                    json.dumps({"state": "sampled_out", "token": token}),
+                    ex=_LOCK_TTL_SECONDS,
+                )
+            except Exception as exc:
+                raise DetectorDispatchError(
+                    f"Failed to record detector decision for trace {trace_id}: {exc}"
+                ) from exc
             return
 
-        _add_bullmq_job(
-            f"{project_id}--{trace_id}",
-            {
-                "traceId": trace_id,
-                "detectorIds": triggered_ids,
-                "projectId": project_id,
-            },
-        )
-        redis_client.set(
-            key,
-            json.dumps({"state": "pending", "detector_ids": triggered_ids, "token": token}),
-            ex=_LOCK_TTL_SECONDS,
-        )
+        try:
+            _add_bullmq_job(
+                f"{project_id}--{trace_id}",
+                {
+                    "traceId": trace_id,
+                    "detectorIds": triggered_ids,
+                    "projectId": project_id,
+                },
+            )
+        except Exception as exc:
+            raise DetectorDispatchError(
+                f"Failed to enqueue detector job for trace {trace_id}: {exc}"
+            ) from exc
+        try:
+            redis_client.set(
+                key,
+                json.dumps({"state": "pending", "detector_ids": triggered_ids, "token": token}),
+                ex=_LOCK_TTL_SECONDS,
+            )
+        except Exception as exc:
+            raise DetectorDispatchError(
+                f"Failed to record pending detector job for trace {trace_id}: {exc}"
+            ) from exc
         logger.debug(f"Enqueued detector run: trace={trace_id} detectors={triggered_ids}")
     except Exception:
         # Release only the value this attempt wrote so a later batch or retry
         # can re-claim; a BullMQ job that was already added dedups by jobId.
-        _release_lock_if_value(redis_client, key, last_written)
+        try:
+            _release_lock_if_value(redis_client, key, last_written)
+        except Exception as release_exc:
+            raise DetectorDispatchError(
+                f"Failed to release detector enqueue claim for trace {trace_id}: {release_exc}"
+            ) from release_exc
         raise
 
 
-def enqueue_detector_runs(project_id: str, traces_with_root: set[str]) -> None:
+def enqueue_detector_runs(
+    project_id: str,
+    traces_with_root: set[str],
+    *,
+    dispatch_id: str | None = None,
+) -> None:
     """Claim and (conditions + sampling permitting) enqueue detection for traces
     whose root span arrived in this ingest batch.
 
@@ -366,44 +428,49 @@ def enqueue_detector_runs(project_id: str, traces_with_root: set[str]) -> None:
     batches without a trace's root span enqueue nothing for it (the worker waits
     out the quiescence window before evaluating, so late spans need no enqueue).
 
-    This function is intentionally non-raising — detector failures must not
-    break trace ingestion.
+    Dependency failures are raised after all traces in this dispatch have been
+    attempted. The dedicated Celery task retries them without re-running trace
+    ingestion. Invalid per-trace detector conditions are logged and skipped.
 
     Args:
         project_id (str): Project that owns the traces.
         traces_with_root (set[str]): Trace IDs whose root span arrived in this
             batch; each is claimed once and enqueued if it triggers.
+        dispatch_id (str | None): Stable owner id retained across retries.
     """
     if not traces_with_root:
         return
 
-    try:
-        root_traces = list(traces_with_root)
-        redis_client = _get_redis()
-        detectors = _get_active_detectors(project_id)
-        summaries = _get_trace_summaries(project_id, root_traces) if detectors else {}
-        for trace_id in root_traces:
-            # Per-trace try/except so a malformed condition (e.g. non-numeric
-            # `value` for a `>` op causing float() to ValueError, or a None
-            # sample_rate) only drops the offending trace — remaining traces
-            # in the batch still get enqueued.
-            try:
-                _claim_and_enqueue(
-                    redis_client,
-                    project_id,
-                    trace_id,
-                    detectors,
-                    summaries.get(trace_id, {}),
-                )
-            except Exception as trace_err:
-                logger.error(
-                    f"Failed to enqueue detector run for trace {trace_id}: {trace_err}",
-                    exc_info=True,
-                )
+    root_traces = sorted(traces_with_root)
+    redis_client = _get_redis()
+    detectors = _get_active_detectors(project_id)
+    summaries = _get_trace_summaries(project_id, root_traces) if detectors else {}
+    failures: list[Exception] = []
+    for trace_id in root_traces:
+        # Per-trace try/except so a malformed condition (e.g. non-numeric
+        # `value` for a `>` op causing float() to ValueError, or a None
+        # sample_rate) only drops the offending trace — remaining traces
+        # in the batch still get enqueued.
+        try:
+            _claim_and_enqueue(
+                redis_client,
+                project_id,
+                trace_id,
+                detectors,
+                summaries.get(trace_id, {}),
+                dispatch_id,
+            )
+        except DetectorDispatchError as trace_err:
+            logger.error(
+                f"Failed to enqueue detector run for trace {trace_id}: {trace_err}",
+                exc_info=True,
+            )
+            failures.append(trace_err)
+        except Exception as trace_err:
+            logger.error(
+                f"Invalid detector decision for trace {trace_id}: {trace_err}",
+                exc_info=True,
+            )
 
-    except Exception as e:
-        # Non-blocking: log and return, never raise
-        logger.error(
-            f"Failed to enqueue detector runs for project {project_id}: {e}",
-            exc_info=True,
-        )
+    if failures:
+        raise failures[0]
