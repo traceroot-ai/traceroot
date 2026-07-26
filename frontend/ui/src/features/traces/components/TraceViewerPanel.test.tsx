@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   traceError: null as unknown,
   traceLoading: false,
   aiPanelOpen: false,
+  getCurrentSessionId: (): string | null => null,
 }));
 
 // Layout context drives the fullscreen width math (sidebar width).
@@ -20,6 +21,10 @@ vi.mock("@/components/layout/app-layout", () => ({
     registerAiHost: () => () => {},
     sidebarCollapsed: mocks.sidebarCollapsed,
   }),
+}));
+
+vi.mock("@/features/ai-assistant/components/ai-chat-context", () => ({
+  useAiChatContext: () => ({ getCurrentSessionId: mocks.getCurrentSessionId }),
 }));
 
 // Trace fetch + stream — irrelevant to layout, stub them out.
@@ -76,6 +81,53 @@ afterEach(() => {
   mocks.traceError = null;
   mocks.traceLoading = false;
   mocks.aiPanelOpen = false;
+  mocks.getCurrentSessionId = () => null;
+});
+
+describe("TraceViewerPanel open in new tab", () => {
+  it("opens URL without AI params when panel is closed", () => {
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
+    mocks.aiPanelOpen = false;
+    renderPanel();
+    fireEvent.click(screen.getByTitle("Open in new tab"));
+    const url = openSpy.mock.calls[0][0] as string;
+    expect(url).not.toContain("ai=1");
+    expect(url).not.toContain("sessionId");
+    openSpy.mockRestore();
+  });
+
+  it("includes ai=1 in URL when panel is open", () => {
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
+    mocks.aiPanelOpen = true;
+    renderPanel();
+    fireEvent.click(screen.getByTitle("Open in new tab"));
+    const url = openSpy.mock.calls[0][0] as string;
+    expect(url).toContain("ai=1");
+    openSpy.mockRestore();
+  });
+
+  it("includes sessionId in URL when panel is open with an active session", () => {
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
+    mocks.aiPanelOpen = true;
+    mocks.getCurrentSessionId = () => "sess-abc";
+    renderPanel();
+    fireEvent.click(screen.getByTitle("Open in new tab"));
+    const url = openSpy.mock.calls[0][0] as string;
+    expect(url).toContain("sessionId=sess-abc");
+    openSpy.mockRestore();
+  });
+
+  it("omits sessionId when panel is open but no session exists yet", () => {
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
+    mocks.aiPanelOpen = true;
+    mocks.getCurrentSessionId = () => null;
+    renderPanel();
+    fireEvent.click(screen.getByTitle("Open in new tab"));
+    const url = openSpy.mock.calls[0][0] as string;
+    expect(url).toContain("ai=1");
+    expect(url).not.toContain("sessionId");
+    openSpy.mockRestore();
+  });
 });
 
 describe("TraceViewerPanel layout", () => {

@@ -1,6 +1,14 @@
 "use client";
 
-import { useState, useEffect, useCallback, createContext, useContext, ReactNode } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  createContext,
+  useContext,
+  ReactNode,
+} from "react";
 import { usePathname } from "next/navigation";
 import { Sidebar } from "./sidebar";
 import { Button } from "@/components/ui/button";
@@ -64,10 +72,17 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [hideAiButton, setHideAiButton] = useState(true);
   const [aiHostRefCount, setAiHostRefCount] = useState(0);
   const pathname = usePathname();
+  const isMountedRef = useRef(false);
 
   // Close the global AI panel whenever the user navigates.
+  // Skip the first render so page-level AI restoration (e.g. open-in-new-tab)
+  // is not overwritten before the child page's useEffect has a chance to run.
   // NOTE: do NOT reset hideAiButton here. Observability pages own that flag.
   useEffect(() => {
+    if (!isMountedRef.current) {
+      isMountedRef.current = true;
+      return;
+    }
     setAiPanelOpen(false);
     setAiContext(null);
     setAiInitialSessionId(undefined);

@@ -205,6 +205,10 @@ export function useAiChat({
     sessions,
     historyOpen,
     currentSessionId: sessionIdRef.current,
+    // Reads the live ref value at call time — use this in event handlers where
+    // the rendered snapshot of currentSessionId would be stale (refs don't
+    // trigger re-renders when mutated).
+    getCurrentSessionId: () => sessionIdRef.current,
 
     // Setters
     setHistoryOpen,
