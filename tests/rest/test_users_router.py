@@ -219,12 +219,16 @@ class TestRetentionGate:
         kw = mock_trace_reader.list_users.call_args.kwargs
         assert kw["start_after"] is not None
 
-    def test_list_users_403_when_start_after_outside_window(self, free_plan_client):
+    def test_list_users_clamps_old_start_after(self, free_plan_client, mock_trace_reader):
+        mock_trace_reader.list_users.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
         old = _now_naive() - timedelta(days=30)
         response = free_plan_client.get(
             f"/api/v1/projects/test-project/users?start_after={old.isoformat()}"
         )
-        assert response.status_code == 403
-        detail = response.json()["detail"]
-        assert detail["message"] == "Data outside retention window"
-        assert detail["retention_days"] == 15
+        assert response.status_code == 200
+        kw = mock_trace_reader.list_users.call_args.kwargs
+        expected = _now_naive() - timedelta(days=15, hours=1)
+        assert abs((kw["start_after"] - expected).total_seconds()) < 2

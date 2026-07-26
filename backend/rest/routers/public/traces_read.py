@@ -28,7 +28,7 @@ from rest.rate_limit import (
     limiter,
     resolve_limit,
 )
-from rest.retention import enforce_retention_by_time, enforce_retention_window
+from rest.retention import clamp_retention_window, enforce_retention_by_time
 from rest.routers.public.deps import StampedAuth
 from rest.routers.public.serialize import export_bundle, public_trace_detail
 from rest.schemas.public import (
@@ -64,7 +64,7 @@ async def list_traces(
     ),
 ):
     """List recent traces for the API key's project (newest first)."""
-    start_after, end_before = enforce_retention_window(auth.billing_plan, start_after, end_before)
+    start_after, end_before = clamp_retention_window(auth.billing_plan, start_after, end_before)
     try:
         service = get_trace_reader_service()
         result = service.list_traces(

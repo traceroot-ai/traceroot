@@ -19,8 +19,6 @@ import {
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
 import { useProject } from "@/features/projects/hooks";
-import { isRetentionError, getRetentionDetail } from "@/lib/api/retention";
-import { RetentionGateBanner } from "@/components/RetentionGateBanner";
 import { useRetention } from "@/lib/hooks/use-retention";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
 import { PlanType } from "@traceroot/core";
@@ -96,12 +94,6 @@ export default function DetectorsPage() {
     end_before: queryOptions.end_before,
   });
 
-  const retentionError = isRetentionError(error)
-    ? error
-    : isRetentionError(countsError)
-      ? countsError
-      : null;
-
   const deleteMutation = useDeleteDetector(projectId);
   const detectors = data?.data ?? [];
   const meta = data?.meta;
@@ -167,11 +159,6 @@ export default function DetectorsPage() {
             <div className="flex h-64 items-center justify-center">
               <LoadingState label="Loading detectors..." />
             </div>
-          ) : retentionError ? (
-            <RetentionGateBanner
-              projectId={projectId}
-              detail={getRetentionDetail(retentionError)!}
-            />
           ) : error ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
               <p className="text-[13px] text-destructive">Error loading detectors</p>

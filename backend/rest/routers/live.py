@@ -15,6 +15,7 @@ from starlette.responses import StreamingResponse
 
 from rest.retention import enforce_retention_by_time
 from rest.routers.deps import ProjectAccess
+from rest.services.trace_reader import get_trace_reader_service
 from shared.config import settings
 
 logger = logging.getLogger(__name__)
@@ -27,31 +28,6 @@ MAX_STREAM_SECONDS = 600  # 10 minutes — hard ceiling for idle connections
 # above the SDK's 5s default flush interval so a quiet window can't expire
 # between two batches of the same live trace.
 TRACE_COMPLETE_QUIET_SECONDS = settings.trace_complete_quiet_seconds
-
-
-def _trace_start_time_in_clickhouse(project_id: str, trace_id: str) -> datetime | None:
-    """Lightweight query: just the trace's start time for retention gating."""
-    from db.clickhouse.client import get_clickhouse_client
-
-    ch_client = get_clickhouse_client()
-    result = ch_client.query(
-        """
-        SELECT minOrNull(span_start_time)
-        FROM (
-            SELECT parent_span_id, span_start_time FROM spans
-            WHERE project_id = {project_id:String}
-              AND trace_id   = {trace_id:String}
-            ORDER BY ch_update_time DESC
-            LIMIT 1 BY span_id
-        )
-        WHERE isNull(parent_span_id)
-        """,
-        parameters={"project_id": project_id, "trace_id": trace_id},
-    )
-    rows = result.result_rows
-    if not rows:
-        return None
-    return rows[0][0]
 
 
 def _completion_state_in_clickhouse(
@@ -123,8 +99,9 @@ async def live_trace_stream(
     # Retention check after subscribe but before StreamingResponse — a 403
     # here is still a proper HTTP error (response headers not yet sent).
     try:
+        service = get_trace_reader_service()
         trace_start_time = await asyncio.to_thread(
-            _trace_start_time_in_clickhouse, project_id, trace_id
+            service.get_trace_start_time, project_id, trace_id
         )
         enforce_retention_by_time(_access.billing_plan, trace_start_time)
     except BaseException:

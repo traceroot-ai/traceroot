@@ -95,9 +95,17 @@ vi.mock("@/features/detectors/hooks/use-detectors", () => ({
 }));
 
 vi.mock("@/features/projects/hooks", () => ({ useProject: () => ({ data: undefined }) }));
-vi.mock("@/components/RetentionGateBanner", () => ({
-  RetentionGateBanner: () => <div data-testid="retention-banner" />,
+vi.mock("@/lib/hooks/use-retention", () => ({
+  useRetention: () => ({
+    retentionDays: 15,
+    showPricing: false,
+    onUpgradeClick: vi.fn(),
+    closePricing: vi.fn(),
+    workspaceId: "ws-1",
+    billingPlan: "free",
+  }),
 }));
+vi.mock("@/ee/features/billing/PricingDialog", () => ({ PricingDialog: () => null }));
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
 vi.mock("@/components/search-filter-bar", () => ({ SearchFilterBar: () => null }));
 vi.mock("@/components/list-pagination", () => ({ ListPagination: () => null }));
@@ -107,8 +115,6 @@ vi.mock("@/features/detectors/components/delete-detector-dialog", () => ({
 vi.mock("@/features/detectors/components/detector-panel", () => ({ DetectorPanel: () => null }));
 
 import DetectorsPage from "./page";
-
-import { ApiError } from "@/lib/api/client";
 
 mocks.useDetectorList.mockReturnValue(defaultDetectorList);
 
@@ -179,21 +185,5 @@ describe("DetectorsPage", () => {
     fireEvent.click(screen.getByText("My Detector"));
 
     expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/detectors/det-1?date_filter=7d");
-  });
-
-  it("renders the retention banner when the detector list returns a 403 retention error", () => {
-    mocks.useDetectorList.mockReturnValue({
-      data: undefined,
-      isLoading: false,
-      error: new ApiError(403, {
-        message: "Data outside retention window",
-        retention_days: 15,
-        cutoff: "2026-06-29T00:00:00",
-        plan: "free",
-      }),
-    });
-    render(<DetectorsPage />);
-
-    expect(screen.getByTestId("retention-banner")).toBeTruthy();
   });
 });

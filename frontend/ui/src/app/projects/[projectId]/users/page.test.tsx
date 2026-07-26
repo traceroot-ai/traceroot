@@ -1,8 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen } from "@testing-library/react";
-import { ApiError } from "@/lib/api/client";
-
 const mocks = vi.hoisted(() => ({
   usersError: null as unknown,
   usersData: undefined as unknown,
@@ -43,12 +41,19 @@ vi.mock("@/lib/hooks/use-list-page-state", () => ({
 }));
 
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
+vi.mock("@/lib/hooks/use-retention", () => ({
+  useRetention: () => ({
+    retentionDays: 15,
+    showPricing: false,
+    onUpgradeClick: vi.fn(),
+    closePricing: vi.fn(),
+    workspaceId: "ws-1",
+    billingPlan: "free",
+  }),
+}));
+vi.mock("@/ee/features/billing/PricingDialog", () => ({ PricingDialog: () => null }));
 vi.mock("@/components/search-filter-bar", () => ({ SearchFilterBar: () => null }));
 vi.mock("@/components/list-pagination", () => ({ ListPagination: () => null }));
-vi.mock("@/components/RetentionGateBanner", () => ({
-  RetentionGateBanner: () => <div data-testid="retention-banner" />,
-}));
-
 import UsersPage from "./page";
 
 afterEach(() => {
@@ -59,17 +64,6 @@ afterEach(() => {
 });
 
 describe("UsersPage", () => {
-  it("renders the retention banner when useUsers returns a 403 retention error", () => {
-    mocks.usersError = new ApiError(403, {
-      message: "Data outside retention window",
-      retention_days: 15,
-      cutoff: "2026-06-29T00:00:00",
-      plan: "free",
-    });
-    render(<UsersPage />);
-    expect(screen.getByTestId("retention-banner")).toBeTruthy();
-  });
-
   it("renders loading state", () => {
     mocks.usersPending = true;
     render(<UsersPage />);
