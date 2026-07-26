@@ -35,7 +35,7 @@ export function isOptionLocked(
   retentionDays: number | null | undefined,
 ): boolean {
   if (retentionDays == null) return false;
-  if (option.durationMinutes == null) return true;
+  if (option.durationMinutes == null) return false;
   return option.durationMinutes / (60 * 24) > retentionDays;
 }
 
