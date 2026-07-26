@@ -28,10 +28,10 @@ def mock_ch(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def mock_detector_enqueue(monkeypatch):
-    """Mock the detector enqueue so tests never touch Postgres/Redis/BullMQ."""
+def mock_detector_dispatch(monkeypatch):
+    """Mock detector task publication so tests never touch the Celery broker."""
     mock = MagicMock()
-    monkeypatch.setattr("worker.detector_tasks.enqueue_detector_runs", mock)
+    monkeypatch.setattr("worker.ingest_tasks.dispatch_detector_runs.delay", mock)
     return mock
 
 
@@ -97,9 +97,9 @@ class TestProcessS3Traces:
         assert result["spans"] == 3
 
     def test_detector_enqueue_gets_only_root_bearing_traces(
-        self, mock_s3, mock_ch, mock_detector_enqueue
+        self, mock_s3, mock_ch, mock_detector_dispatch
     ):
-        """Enqueue receives only the traces whose root span arrived in this batch."""
+        """The retryable dispatch receives only traces whose root arrived in this batch."""
         root_trace = "aa" * 16
         late_trace = "bb" * 16
         payload = make_otel_payload(
@@ -114,17 +114,31 @@ class TestProcessS3Traces:
 
         process_s3_traces(s3_key="test/key.json", project_id="proj-1")
 
-        mock_detector_enqueue.assert_called_once()
-        project_id, traces_with_root = mock_detector_enqueue.call_args[0]
-        assert project_id == "proj-1"
-        # Only the root-bearing trace is passed; the child-only late_trace is not.
-        assert traces_with_root == {root_trace}
+        mock_detector_dispatch.assert_called_once_with(
+            project_id="proj-1",
+            trace_ids=[root_trace],
+        )
 
     def test_detector_enqueue_not_called_for_empty_batch(
-        self, mock_s3, mock_ch, mock_detector_enqueue
+        self, mock_s3, mock_ch, mock_detector_dispatch
     ):
         mock_s3.download_json.return_value = {"resourceSpans": []}
 
         process_s3_traces(s3_key="test/key.json", project_id="proj-1")
 
-        mock_detector_enqueue.assert_not_called()
+        mock_detector_dispatch.assert_not_called()
+
+    def test_detector_task_publish_failure_retries_ingest(
+        self, mock_s3, mock_ch, mock_detector_dispatch
+    ):
+        """If the broker cannot accept the follow-up task, ingest must not report success."""
+        mock_s3.download_json.return_value = make_otel_payload(
+            [make_span(TRACE_HEX, SPAN_HEX, name="root")]
+        )
+        mock_detector_dispatch.side_effect = RuntimeError("broker down")
+
+        with pytest.raises(RuntimeError, match="broker down"):
+            process_s3_traces(s3_key="test/key.json", project_id="proj-1")
+
+        mock_ch.insert_traces_batch.assert_called_once()
+        mock_ch.insert_spans_batch.assert_called_once()
