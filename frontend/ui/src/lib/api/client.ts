@@ -20,7 +20,6 @@ export class ApiError extends Error {
   }
 }
 
-
 /**
  * Fetch from Next.js API routes (no auth headers needed, uses cookies)
  */
