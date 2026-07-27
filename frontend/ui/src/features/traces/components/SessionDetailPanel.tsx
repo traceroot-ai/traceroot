@@ -3,18 +3,9 @@
 import { useMemo, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  Layers,
-  X,
-  ArrowUp,
-  ArrowDown,
-  ExternalLink,
-  Users,
-  Clock,
-  ChevronRight,
-  BotMessageSquare,
-} from "lucide-react";
+import { X, ArrowUp, ArrowDown, ExternalLink, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { LoadingState } from "@/components/ui/loading-state";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { ExpandableSection } from "@/components/ui/expandable-section";
@@ -157,7 +148,7 @@ export function SessionDetailPanel({
       {/* Header bar */}
       <div className="flex h-10 items-center justify-between border-b border-border bg-muted/30 px-4">
         <div className="flex min-w-0 items-center gap-2">
-          <Layers className="h-4 w-4 text-muted-foreground" />
+          <DOMAIN_ICONS.session className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm font-medium">Session</span>
           <span className="truncate font-mono text-xs text-muted-foreground">{sessionId}</span>
         </div>
@@ -195,7 +186,7 @@ export function SessionDetailPanel({
             className="ml-2 h-7 w-7 p-0"
             title="AI Assistant"
           >
-            <BotMessageSquare className="h-4 w-4" />
+            <DOMAIN_ICONS.assistant className="h-4 w-4" />
           </Button>
           <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0">
             <X className="h-4 w-4" />
@@ -217,13 +208,13 @@ export function SessionDetailPanel({
                 <div className="border-b border-border bg-background px-4 py-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-                      <Layers className="h-3 w-3 text-muted-foreground" />
+                      <DOMAIN_ICONS.session className="h-3 w-3 text-muted-foreground" />
                       <span className="text-muted-foreground">Traces:</span>
                       <span className="font-medium">{data.trace_count}</span>
                     </div>
                     {data.duration_ms !== null && data.duration_ms > 0 && (
                       <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-                        <Clock className="h-3 w-3 text-muted-foreground" />
+                        <DOMAIN_ICONS.latency className="h-3 w-3 text-muted-foreground" />
                         <span className="text-muted-foreground">Total Latency:</span>
                         <span className="font-medium">{formatDuration(data.duration_ms)}</span>
                       </div>
@@ -255,7 +246,7 @@ export function SessionDetailPanel({
                           }}
                           className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border bg-muted/40 py-1 pl-2.5 pr-1.5 text-xs transition-colors hover:bg-muted"
                         >
-                          <Users className="h-3 w-3 text-muted-foreground" />
+                          <DOMAIN_ICONS.user className="h-3 w-3 text-muted-foreground" />
                           <span className="text-muted-foreground">User:</span>
                           <span className="font-medium">{userId}</span>
                           <ChevronRight className="h-3 w-3 text-muted-foreground" />
@@ -278,12 +269,12 @@ export function SessionDetailPanel({
                   </div>
                 ) : !data ? (
                   <div className="flex h-64 flex-col items-center justify-center gap-3">
-                    <Layers className="h-8 w-8 text-muted-foreground" />
+                    <DOMAIN_ICONS.session className="h-8 w-8 text-muted-foreground" />
                     <p className="text-[13px] text-muted-foreground">Session not found</p>
                   </div>
                 ) : data.traces.length === 0 ? (
                   <div className="flex h-64 flex-col items-center justify-center gap-3">
-                    <Layers className="h-8 w-8 text-muted-foreground" />
+                    <DOMAIN_ICONS.session className="h-8 w-8 text-muted-foreground" />
                     <p className="text-[13px] text-muted-foreground">No traces in this session</p>
                   </div>
                 ) : (
