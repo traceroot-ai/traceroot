@@ -27,12 +27,12 @@ import {
  * Single source of truth for domain-concept icons. Every surface that draws
  * one of these concepts (filter fields, span kinds, nav tabs, chips, …)
  * should import from here instead of picking a lucide icon directly — that's
- * what let "model" drift to four different glyphs across the app.
+ * what left "model" as Box in the filters and Bot in settings, with no glyph at
+ * all on the span detail pill.
  *
  * `project` and `workspace` are deliberately separate entries: they read as
- * the same concept in the original issue text, but they're distinct concepts
- * in this app (a workspace contains projects), each already icon-consistent
- * on its own.
+ * the same concept at first glance, but they're distinct concepts in this app
+ * (a workspace contains projects), each already icon-consistent on its own.
  */
 export const DOMAIN_ICONS = {
   tokens: CircleStop,
@@ -67,4 +67,4 @@ export const DOMAIN_ICONS = {
   // model glyph ever changes, unmapped fields shouldn't silently change with
   // it.
   fallback: Box,
-} satisfies Record<string, LucideIcon>;
+} as const satisfies Record<string, LucideIcon>;

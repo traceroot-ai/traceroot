@@ -20,8 +20,9 @@ const relativeImportPatterns = [
 
 // Glyphs owned by the domain-icon registry. Picking these directly per file is
 // what let one concept drift to several glyphs across the app. Matched by
-// pattern so lucide's `*Icon` suffix form and its deprecated aliases (which are
-// the same component under an older spelling) can't sneak past the ban.
+// pattern so lucide's `*Icon` suffix and `Lucide*` prefix forms, plus its
+// deprecated aliases (all of which resolve to the same component), can't sneak
+// past the ban.
 //
 // Only glyphs with a single meaning in this app are listed. Eye (password
 // visibility), Hash (Slack channel), Clock (durations), ArrowRight (CTA),
@@ -31,7 +32,7 @@ const relativeImportPatterns = [
 // the registry has no entry for yet, and banning it would force a migration
 // that belongs in its own change.
 const registryGlyphPattern =
-  "^(Bot|BotMessageSquare|Box|CircleCheck|CircleDollarSign|CircleStop|StopCircle|" +
+  "^(Lucide)?(Bot|BotMessageSquare|Box|CircleCheck|CircleDollarSign|CircleStop|StopCircle|" +
   "FolderKanban|Globe|Layers|Layers3|LayoutDashboard|LayoutGrid|Shapes|Users|" +
   "Workflow|Wrench)(Icon)?$";
 
