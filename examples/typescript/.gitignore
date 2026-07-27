@@ -1,1 +1,2 @@
-examples/typescript/*/pnpm-lock.yaml
+*/pnpm-lock.yaml
+pi-agent-sdk/workspace/
