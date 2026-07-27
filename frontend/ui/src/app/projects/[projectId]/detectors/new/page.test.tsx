@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
+import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 import { getTemplate } from "@/features/detectors/templates";
 
 const mocks = vi.hoisted(() => ({
@@ -90,6 +91,6 @@ describe("NewDetectorPage", () => {
 
   it("renders the screening-model picker with a system-default placeholder (no auto-pick)", () => {
     render(<NewDetectorPage />);
-    expect(mocks.selectorProps?.placeholder).toBe("System default (claude-haiku-4-5)");
+    expect(mocks.selectorProps?.placeholder).toBe(DETECTOR_SYSTEM_DEFAULT_MODEL_ID);
   });
 });

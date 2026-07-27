@@ -8,9 +8,9 @@ import {
   ModelSelector,
   type ModelSelection,
 } from "@/features/ai-assistant/components/model-selector";
+import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 import {
   DEFAULT_DETECTOR_SAMPLE_RATE,
-  DETECTOR_MODEL_PLACEHOLDER,
   DETECTOR_TEMPLATES,
   buildTemplateDetectorInput,
 } from "@/features/detectors/templates";
@@ -156,7 +156,7 @@ export default function NewDetectorPage() {
                     value={modelSelection}
                     onChange={setModelSelection}
                     workspaceId={project?.workspace_id}
-                    placeholder={DETECTOR_MODEL_PLACEHOLDER}
+                    placeholder={DETECTOR_SYSTEM_DEFAULT_MODEL_ID}
                   />
                   <p className="mt-1 text-[11px] text-muted-foreground">
                     Used to evaluate each trace for this detector.
