@@ -1777,6 +1777,43 @@ class TestManualUsageAttribute:
             ],
         )
 
+    def test_manual_1h_cache_write_portion_is_priced_at_its_own_rate(self):
+        """The 1-hour portion is a sub-partition of the cache-write total, priced at
+        its own higher rate. Nothing else in this class reports it, so without this
+        the key could be dropped from the recognized set and only the cost would
+        move — silently, and in the direction that undercharges."""
+        from unittest.mock import patch
+
+        prices = {**MANUAL_USAGE_PRICES, "cacheWrite1h": 0.000006}
+        payload = make_otel_payload(
+            [
+                self._manual_span(
+                    {
+                        "input_tokens": 1000,
+                        "output_tokens": 10,
+                        "cache_write_tokens": 800,
+                        "cache_write_1h_tokens": 300,
+                    }
+                )
+            ],
+            scope_name="traceroot",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        span = spans[0]
+        assert span["usage_details"]["cache_write_1h_tokens"] == 300
+        assert span["usage_details"]["cache_write_tokens"] == 800
+        # 200 uncached (1000 gross - 800 written) + the write total split into its
+        # 1-hour portion and the remainder, each at its own rate.
+        expected = (
+            200 * prices["input"]
+            + 300 * prices["cacheWrite1h"]
+            + 500 * prices["cacheWrite"]
+            + 10 * prices["output"]
+        )
+        assert span["cost"] == pytest.approx(expected)
+
     def test_manual_usage_feeds_tokens_cache_and_cost(self):
         from unittest.mock import patch
 

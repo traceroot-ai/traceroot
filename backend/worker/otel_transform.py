@@ -691,6 +691,12 @@ def transform_otel_to_clickhouse(
                     # conventions (gross vs net input) and double-price cache.
                     # When the manual dict is used, it replaces every field, so
                     # the span is priced under the reporter's one convention.
+                    # The aggregate check here is belt-and-braces, not load-bearing:
+                    # the adoption branch below is gated on it too, so a wrapper's
+                    # manual dict would be parsed and then discarded anyway. Keeping
+                    # it states the invariant where the dict is read — manual usage
+                    # must never resurrect counts on a span we suppressed — and skips
+                    # a needless parse.
                     if (
                         not aggregate_wrapper
                         and api_input_tokens is None
