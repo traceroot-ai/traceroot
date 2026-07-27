@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Eye, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/ui/loading-state";
@@ -168,7 +169,7 @@ export default function DetectorsPage() {
             </div>
           ) : isEmptyProject ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
-              <Eye className="h-8 w-8 text-muted-foreground/40" />
+              <DOMAIN_ICONS.detector className="h-8 w-8 text-muted-foreground/40" />
               <p className="text-[13px] text-muted-foreground">No detectors yet</p>
               <p className="text-[12px] text-muted-foreground">
                 Create a detector to automatically analyze your traces.

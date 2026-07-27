@@ -1,10 +1,10 @@
 import type { LucideIcon } from "lucide-react";
 import {
-  AlertCircle,
   ArrowRight,
   Bot,
   BotMessageSquare,
   Box,
+  CircleAlert,
   CircleCheck,
   CircleDollarSign,
   CircleStop,
@@ -56,7 +56,7 @@ export const DOMAIN_ICONS = {
   kind: Shapes,
   status: CircleCheck,
   latency: Clock,
-  error: AlertCircle,
+  error: CircleAlert,
   project: FolderKanban,
   workspace: LayoutGrid,
   detector: Eye,
