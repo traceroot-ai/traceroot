@@ -47,6 +47,11 @@ logger = logging.getLogger(__name__)
 # deliberately-empty spans get fabricated counts. Python only — the TypeScript scope
 # ("@traceroot-ai/claude-agent-sdk") reports real per-turn usage and is excluded.
 _SKIP_TEXT_TOKEN_ESTIMATION_SCOPES = frozenset({"traceroot.claude-agent-sdk"})
+_MODEL_NAME_ATTRIBUTE_KEYS = (
+    "traceroot.llm.model",
+    "gen_ai.request.model",
+    "llm.model_name",
+)
 
 
 def _scope_skips_text_token_estimation(scope_name: str | None) -> bool:
@@ -234,6 +239,15 @@ def attributes_to_dict(attributes: list[dict]) -> dict[str, Any]:
     return result
 
 
+def _extract_model_name(attrs: dict[str, Any]) -> str | None:
+    """Return the first non-empty string model attribute, ignoring malformed values."""
+    for key in _MODEL_NAME_ATTRIBUTE_KEYS:
+        value = attrs.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
 def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
     """Determine the span kind from span attributes.
 
@@ -270,12 +284,7 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
         return SpanKind.TOOL
 
     # Infer from LLM-related attributes
-    if (
-        attrs.get("gen_ai.system")
-        or attrs.get("gen_ai.request.model")
-        or attrs.get("llm.model_name")
-        or attrs.get("traceroot.llm.model")
-    ):
+    if attrs.get("gen_ai.system") or _extract_model_name(attrs):
         return SpanKind.LLM
 
     # Use `is not None` (not truthiness) so an empty-string value still classifies as TOOL
@@ -442,11 +451,7 @@ def transform_otel_to_clickhouse(
                 # name is present, not just for LLM spans. Auto-instrumentors
                 # (OpenInference, GenAI) set model/token attrs on AGENT and CHAIN spans
                 # too. Text-based ESTIMATION, however, is LLM-spans-only (see below).
-                model_name = (
-                    span_attrs.get("traceroot.llm.model")
-                    or span_attrs.get("gen_ai.request.model")
-                    or span_attrs.get("llm.model_name")
-                )
+                model_name = _extract_model_name(span_attrs)
                 if model_name:
                     span_record["model_name"] = model_name
 

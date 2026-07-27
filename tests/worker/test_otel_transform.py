@@ -1491,3 +1491,88 @@ class TestCacheTokenMetadata:
         ud = spans[0]["usage_details"]
         assert "cache_write_1h_tokens" not in ud
         assert set(ud) == {"cache_read_tokens", "cache_write_tokens", "reasoning_tokens"}
+
+
+class TestModelNameAttributeTypeGuard:
+    def test_non_string_model_does_not_drop_valid_spans_from_same_batch(self):
+        """A mis-typed model attribute degrades to unset instead of poisoning the batch."""
+        from unittest.mock import patch
+
+        trace_hex = "aa" * 16
+        payload = make_otel_payload(
+            [
+                make_span(
+                    trace_hex,
+                    "11" * 8,
+                    name="valid-root",
+                    attributes=[
+                        make_attr("gen_ai.request.model", "gpt-4o"),
+                        make_attr("gen_ai.usage.input_tokens", 10),
+                        make_attr("gen_ai.usage.output_tokens", 5),
+                    ],
+                ),
+                make_span(
+                    trace_hex,
+                    "22" * 8,
+                    name="bad-model-child",
+                    parent_span_id_hex="11" * 8,
+                    attributes=[
+                        make_attr("gen_ai.request.model", 12345),
+                        make_attr("gen_ai.usage.input_tokens", 7),
+                        make_attr("gen_ai.usage.output_tokens", 3),
+                    ],
+                ),
+            ]
+        )
+        cache = [
+            {
+                "model_name": "gpt-4o",
+                "match_pattern": r"^gpt-4o(?:-|$)",
+                "prices": {"input": 0.0000025, "output": 0.00001},
+            }
+        ]
+
+        with patch("worker.tokens.pricing._load_cache", return_value=cache):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        assert [span["name"] for span in spans] == ["valid-root", "bad-model-child"]
+        assert spans[0]["model_name"] == "gpt-4o"
+        assert "model_name" not in spans[1]
+
+    @pytest.mark.parametrize(
+        "model_key",
+        ["traceroot.llm.model", "gen_ai.request.model", "llm.model_name"],
+    )
+    def test_each_non_string_model_alias_degrades_to_unset(self, model_key):
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[make_attr(model_key, 12345)],
+                )
+            ]
+        )
+
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        assert "model_name" not in spans[0]
+
+    def test_invalid_high_priority_model_falls_through_to_valid_alias(self):
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    attributes=[
+                        make_attr("traceroot.llm.model", 12345),
+                        make_attr("gen_ai.request.model", "gpt-4o"),
+                    ],
+                )
+            ],
+            scope_name="traceroot.claude-agent-sdk",
+        )
+
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        assert spans[0]["model_name"] == "gpt-4o"
