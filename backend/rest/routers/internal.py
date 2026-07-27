@@ -856,6 +856,11 @@ async def ingest_internal_traces(
                 status_code=400, detail="parent_span_id must be 16 hex chars when present"
             )
 
+    # This route only ever carries detector self-traces, so the marker is a property
+    # of the route, not of the payload: stamp it rather than trusting what was sent.
+    # This is the source of truth for `source` here — it deliberately overrides the
+    # transform's trust_source honor-path, so a payload that omits or misstates the
+    # attribute still lands classified correctly.
     for record in (*traces, *spans):
         record["source"] = "detector"
 
