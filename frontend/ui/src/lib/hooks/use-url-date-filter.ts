@@ -11,6 +11,7 @@ import {
   DATE_FILTER_OPTIONS,
   toTimestampBounds,
   findDateFilterOption,
+  clampDateFilter,
   type DateFilterOption,
 } from "@/lib/date-filter";
 import { readStoredDateFilter, writeStoredDateFilter } from "@/lib/date-filter-storage";
@@ -34,6 +35,7 @@ interface UseUrlDateFilterReturn {
 export function useUrlDateFilter(
   onFilterChange?: () => void,
   defaultId?: string,
+  retentionDays?: number | null,
 ): UseUrlDateFilterReturn {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -47,11 +49,14 @@ export function useUrlDateFilter(
   const urlEndDate = searchParams.get("end");
 
   // Parse URL values into state
-  const initialDateFilter = urlDateFilterId
-    ? findDateFilterOption(urlDateFilterId)
-    : defaultId
-      ? findDateFilterOption(defaultId)
-      : DEFAULT_DATE_FILTER;
+  const initialDateFilter = clampDateFilter(
+    urlDateFilterId
+      ? findDateFilterOption(urlDateFilterId)
+      : defaultId
+        ? findDateFilterOption(defaultId)
+        : DEFAULT_DATE_FILTER,
+    retentionDays,
+  );
   const initialCustomStart = urlStartDate ? new Date(urlStartDate) : null;
   const initialCustomEnd = urlEndDate ? new Date(urlEndDate) : null;
 
@@ -80,7 +85,7 @@ export function useUrlDateFilter(
     if (!projectId || searchParams.get("date_filter")) return;
     const stored = readStoredDateFilter(projectId);
     if (!stored) return;
-    const option = findDateFilterOption(stored.id);
+    const option = clampDateFilter(findDateFilterOption(stored.id), retentionDays);
     if (option.isCustom) {
       const start = stored.start ? new Date(stored.start) : null;
       const end = stored.end ? new Date(stored.end) : null;
@@ -125,7 +130,7 @@ export function useUrlDateFilter(
     const newEndDate = searchParams.get("end");
 
     if (newDateFilterId) {
-      const newFilter = findDateFilterOption(newDateFilterId);
+      const newFilter = clampDateFilter(findDateFilterOption(newDateFilterId), retentionDays);
       if (newFilter.id !== dateFilter.id) {
         setDateFilterState(newFilter);
         setFilterVersion((v) => v + 1);
@@ -145,7 +150,7 @@ export function useUrlDateFilter(
         setCustomEndDateState(parsed);
       }
     }
-  }, [searchParams, dateFilter, customStartDate, customEndDate]);
+  }, [searchParams, dateFilter, customStartDate, customEndDate, retentionDays]);
 
   // Update URL when state changes
   const updateUrl = useCallback(

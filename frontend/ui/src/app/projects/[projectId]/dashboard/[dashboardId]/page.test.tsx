@@ -226,7 +226,7 @@ describe("DashboardDetailPage", () => {
   });
 
   it("redirects to the dashboard index and invalidates the list cache when the dashboard is gone", () => {
-    mockDetail(undefined, new ApiError("Dashboard not found", 404));
+    mockDetail(undefined, new ApiError(404, "Dashboard not found"));
     const { invalidateSpy } = renderPage();
 
     expect(replace).toHaveBeenCalledWith("/projects/p1/dashboard");
@@ -234,14 +234,14 @@ describe("DashboardDetailPage", () => {
   });
 
   it("leaves the page when access is revoked instead of retrying a permanent 403", () => {
-    mockDetail(undefined, new ApiError("Not a member of this workspace", 403));
+    mockDetail(undefined, new ApiError(403, "Not a member of this workspace"));
     renderPage();
 
     expect(replace).toHaveBeenCalledWith("/projects/p1/dashboard");
   });
 
   it("stays put and shows a failure notice on a transient load error", () => {
-    mockDetail(undefined, new ApiError("API error: 503", 503));
+    mockDetail(undefined, new ApiError(503, "API error: 503"));
     const { invalidateSpy } = renderPage();
 
     expect(replace).not.toHaveBeenCalled();
@@ -260,7 +260,7 @@ describe("DashboardDetailPage", () => {
   it("keeps rendering the cached dashboard when a background poll fails", () => {
     mockDetail(
       { ...DASH_A, widgets: [WIDGET], layout: [{ i: "w1", x: 0, y: 0, w: 4, h: 4 }] },
-      new ApiError("API error: 503", 503),
+      new ApiError(503, "API error: 503"),
     );
     renderPage();
 
