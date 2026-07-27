@@ -33,17 +33,11 @@ const detail = {
 afterEach(cleanup);
 
 describe("RetentionGateBanner", () => {
-  it("renders the list variant with plan and retention days", () => {
+  it("renders trace-specific messaging with plan and retention days", () => {
     render(<RetentionGateBanner projectId="proj-1" detail={detail} />);
-    expect(screen.getByText(/Free plan includes 15 days/)).toBeTruthy();
-    expect(screen.getByText(/Upgrade your plan/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Upgrade Plan" })).toBeTruthy();
-  });
-
-  it("renders the detail variant with trace-specific messaging", () => {
-    render(<RetentionGateBanner projectId="proj-1" detail={detail} variant="detail" />);
     expect(screen.getByText("This trace is outside your retention window")).toBeTruthy();
     expect(screen.getByText(/Free plan retains the last 15 days/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Upgrade Plan" })).toBeTruthy();
   });
 
   it("opens the pricing dialog on button click", () => {
@@ -56,6 +50,6 @@ describe("RetentionGateBanner", () => {
 
   it("renders unknown plan names as-is", () => {
     render(<RetentionGateBanner projectId="proj-1" detail={{ ...detail, plan: "custom_plan" }} />);
-    expect(screen.getByText(/custom_plan plan includes/)).toBeTruthy();
+    expect(screen.getByText(/custom_plan plan retains the last/)).toBeTruthy();
   });
 });

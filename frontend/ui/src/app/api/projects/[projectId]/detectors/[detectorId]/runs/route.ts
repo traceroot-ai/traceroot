@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma, PlanType } from "@traceroot/core";
 import { requireAuth, requireProjectAccess, errorResponse } from "@/lib/auth-helpers";
-import { getRetentionCutoff } from "@/lib/server/retention";
+import { clampStartAfter } from "@/lib/server/retention";
 import { env } from "@/env";
 
 const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
@@ -35,14 +35,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     select: { billingPlan: true },
   });
   const billingPlan = workspace?.billingPlan || PlanType.FREE;
-
-  const cutoff = getRetentionCutoff(billingPlan);
-  if (cutoff) {
-    const parsed = startAfter ? new Date(startAfter).getTime() : NaN;
-    if (!startAfter || isNaN(parsed) || parsed < new Date(cutoff).getTime()) {
-      startAfter = cutoff;
-    }
-  }
+  startAfter = clampStartAfter(billingPlan, startAfter);
 
   const backendParams = new URLSearchParams({
     project_id: projectId,

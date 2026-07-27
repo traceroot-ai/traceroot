@@ -15,6 +15,15 @@ vi.mock("@traceroot/core", () => ({
     },
   },
   PlanType: { FREE: "free", STARTER: "starter", PRO: "pro", ENTERPRISE: "enterprise" },
+  getRetentionDays: (plan: string) => {
+    const days: Record<string, number | null> = {
+      free: 15,
+      starter: 30,
+      pro: 90,
+      enterprise: null,
+    };
+    return Object.prototype.hasOwnProperty.call(days, plan) ? days[plan] : 15;
+  },
 }));
 
 const requireAuthMock = vi.fn();

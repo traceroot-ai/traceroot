@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Calendar, ChevronDown, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { DateRangePicker } from "@/components/ui/date-time-picker";
 import { cn } from "@/lib/utils";
 import {
@@ -81,63 +82,69 @@ export function DateFilterSelect({
         className={cn("p-0", showCustomPicker ? "w-auto" : "w-auto min-w-[130px]")}
       >
         {!showCustomPicker ? (
-          <div className="py-1">
-            {DATE_FILTER_OPTIONS.map((option) => {
-              const locked = isOptionLocked(option, retentionDays);
-              return (
-                <button
-                  key={option.id}
-                  disabled={locked}
-                  className={cn(
-                    "flex w-full items-center gap-1.5 px-2.5 py-1 text-left text-[13px] transition-colors",
-                    locked
-                      ? "cursor-default text-muted-foreground"
-                      : dateFilter.id === option.id && !option.isCustom
-                        ? "bg-muted/70"
-                        : "hover:bg-muted/50",
-                  )}
-                  onClick={() => {
-                    if (locked) return;
-                    if (option.isCustom) {
-                      setShowCustomPicker(true);
-                    } else {
-                      onDateFilterChange(option);
-                      setDateFilterOpen(false);
-                    }
-                  }}
-                >
-                  {option.isCustom && !locked && (
-                    <Calendar className="h-3 w-3 text-muted-foreground" />
-                  )}
-                  <span className="flex-1">{option.label}</span>
-                  {locked && <Lock className="h-3 w-3 text-muted-foreground" />}
-                </button>
-              );
-            })}
-            {retentionDays != null && (
-              <div className="border-t border-border px-2.5 py-2 text-[11px] text-muted-foreground">
-                <span>
-                  Data retention is limited to {retentionDays} days on your current plan.{" "}
-                </span>
-                {onUpgradeClick && (
+          <TooltipProvider delayDuration={150}>
+            <div className="py-1">
+              {DATE_FILTER_OPTIONS.map((option) => {
+                const locked = isOptionLocked(option, retentionDays);
+                const row = (
                   <button
-                    className="font-medium text-primary hover:underline"
+                    key={option.id}
+                    className={cn(
+                      "flex w-full items-center gap-1.5 px-2.5 py-1 text-left text-[13px] transition-colors",
+                      locked
+                        ? "text-muted-foreground hover:bg-muted/50"
+                        : dateFilter.id === option.id && !option.isCustom
+                          ? "bg-muted/70"
+                          : "hover:bg-muted/50",
+                    )}
                     onClick={() => {
-                      setDateFilterOpen(false);
-                      onUpgradeClick();
+                      if (locked) {
+                        // A locked preset is beyond the plan's retention window.
+                        // Rather than a lengthy inline notice, clicking routes
+                        // straight to the upgrade flow.
+                        setDateFilterOpen(false);
+                        onUpgradeClick?.();
+                        return;
+                      }
+                      if (option.isCustom) {
+                        setShowCustomPicker(true);
+                      } else {
+                        onDateFilterChange(option);
+                        setDateFilterOpen(false);
+                      }
                     }}
                   >
-                    Upgrade your plan
+                    {option.isCustom && !locked && (
+                      <Calendar className="h-3 w-3 text-muted-foreground" />
+                    )}
+                    <span className="flex-1">{option.label}</span>
+                    {locked && <Lock className="h-3 w-3 text-muted-foreground" />}
                   </button>
-                )}
-              </div>
-            )}
-          </div>
+                );
+
+                if (!locked) return row;
+
+                // Explain the lock on hover (short) and let the click upgrade —
+                // keeps the list thin instead of a footer paragraph.
+                return (
+                  <Tooltip key={option.id}>
+                    <TooltipTrigger asChild>{row}</TooltipTrigger>
+                    <TooltipContent side="left" sideOffset={8}>
+                      {retentionDays}-day retention limit · click to upgrade
+                    </TooltipContent>
+                  </Tooltip>
+                );
+              })}
+            </div>
+          </TooltipProvider>
         ) : (
           <DateRangePicker
             startDate={customStartDate}
             endDate={customEndDate}
             onApply={handleCustomDateApply}
+            minDate={
+              retentionDays != null ? new Date(Date.now() - retentionDays * 86_400_000) : undefined
+            }
           />
         )}
       </PopoverContent>
