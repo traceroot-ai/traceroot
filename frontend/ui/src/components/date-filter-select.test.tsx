@@ -74,6 +74,44 @@ describe("DateFilterSelect", () => {
     ).toBeTruthy();
   });
 
+  it("routes a locked preset to the upgrade flow instead of selecting it", () => {
+    const onUpgradeClick = vi.fn();
+    render(
+      <DateFilterSelect
+        dateFilter={PRESET_7D}
+        customStartDate={null}
+        customEndDate={null}
+        onDateFilterChange={onDateFilterChange}
+        onCustomRangeChange={onCustomRangeChange}
+        retentionDays={15}
+        onUpgradeClick={onUpgradeClick}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Last 7 days/ }));
+    // "Last 30 days" (30d) exceeds a 15-day retention window → locked.
+    fireEvent.click(screen.getByRole("button", { name: /Last 30 days/ }));
+    expect(onUpgradeClick).toHaveBeenCalledTimes(1);
+    expect(onDateFilterChange).not.toHaveBeenCalled();
+    // popover closed on the way to the upgrade flow
+    expect(screen.queryByRole("button", { name: "Last 30 minutes" })).toBeNull();
+  });
+
+  it("no longer renders the inline retention footer paragraph", () => {
+    render(
+      <DateFilterSelect
+        dateFilter={PRESET_7D}
+        customStartDate={null}
+        customEndDate={null}
+        onDateFilterChange={onDateFilterChange}
+        onCustomRangeChange={onCustomRangeChange}
+        retentionDays={15}
+        onUpgradeClick={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Last 7 days/ }));
+    expect(screen.queryByText(/Data retention is limited/)).toBeNull();
+  });
+
   it("resets to the preset list when the popover reopens after visiting the custom picker", () => {
     renderSelect();
     const trigger = screen.getByRole("button", { name: /Last 7 days/ });

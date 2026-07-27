@@ -442,7 +442,6 @@ export function TraceViewerPanel({
                     <RetentionGateBanner
                       projectId={projectId}
                       detail={getRetentionDetail(error)!}
-                      variant="detail"
                     />
                   ) : error || !trace ? (
                     <div className="flex h-full items-center justify-center">

@@ -23,6 +23,11 @@ export const DATE_FILTER_OPTIONS: DateFilterOption[] = [
   { id: "7d", label: "Last 7 days", durationMinutes: 10080 },
   { id: "14d", label: "Last 14 days", durationMinutes: 20160 },
   { id: "30d", label: "Last 30 days", durationMinutes: 43200 },
+  // 60d/90d reach the Pro plan's 90-day retention ceiling. On lower tiers they
+  // render locked (isOptionLocked) and route to the upgrade flow; only the
+  // presets within a plan's window are selectable.
+  { id: "60d", label: "Last 60 days", durationMinutes: 86400 },
+  { id: "90d", label: "Last 90 days", durationMinutes: 129600 },
   { id: "custom", label: "Custom", durationMinutes: null, isCustom: true },
 ];
 
@@ -46,7 +51,13 @@ export function clampDateFilter(
   retentionDays: number | null | undefined,
 ): DateFilterOption {
   if (!isOptionLocked(option, retentionDays)) return option;
-  const unlocked = DATE_FILTER_OPTIONS.filter((o) => !isOptionLocked(o, retentionDays));
+  // Collapse to the widest allowed *preset*. Custom is excluded: it has a null
+  // duration (so isOptionLocked never flags it) and would otherwise always be
+  // the last "unlocked" entry, clamping a locked preset to a dateless custom
+  // range instead of the intended in-window preset.
+  const unlocked = DATE_FILTER_OPTIONS.filter(
+    (o) => o.durationMinutes !== null && !isOptionLocked(o, retentionDays),
+  );
   return unlocked.length > 0 ? unlocked[unlocked.length - 1] : DEFAULT_DATE_FILTER;
 }
 
