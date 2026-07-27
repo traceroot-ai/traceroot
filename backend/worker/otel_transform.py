@@ -231,19 +231,34 @@ def parse_manual_usage(raw: Any) -> dict[str, int]:
         # RecursionError: json.loads raises it on deeply-nested payloads, which
         # would otherwise fail the whole ingest task instead of this one attribute.
         except (TypeError, ValueError, RecursionError):
+            logger.warning("Manual usage attribute is not valid JSON; ignoring it")
             return {}
     if not isinstance(raw, dict):
+        if raw is not None:
+            logger.warning("Manual usage attribute is not an object; ignoring it")
         return {}
     usage: dict[str, int] = {}
     for key in _MANUAL_USAGE_KEYS:
         value = raw.get(key)
-        if value is None or isinstance(value, bool):
+        if value is None:
+            continue
+        # A dropped field is silent data loss from the user's point of view: they
+        # reported a count and it is priced as if absent. Warn as int_or_zero does
+        # for the same input class, so the discard is diagnosable from the logs.
+        if isinstance(value, bool):
+            logger.warning("Manual usage field %s is a bool (%r); ignoring it", key, value)
             continue
         try:
             parsed = max(int(value), 0)
         except (TypeError, ValueError, OverflowError):
+            logger.warning(
+                "Manual usage field %s is not a usable number (%r); ignoring it", key, value
+            )
             continue
         if parsed > _MANUAL_USAGE_MAX_TOKENS:
+            logger.warning(
+                "Manual usage field %s exceeds the sanity bound (%r); ignoring it", key, value
+            )
             continue
         usage[key] = parsed
     return usage
