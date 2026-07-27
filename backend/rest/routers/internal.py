@@ -4,13 +4,14 @@ These endpoints are protected by X-Internal-Secret header and not exposed public
 """
 
 import hmac
+import logging
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from db.clickhouse.client import get_clickhouse_client
+from db.clickhouse.client import ClickHouseClient, get_clickhouse_client
 from rest.schemas.detectors import (
     DetectorWindowSummaryResponse,
     RunListResponse,
@@ -18,7 +19,61 @@ from rest.schemas.detectors import (
 from rest.sql_utils import escape_ilike, to_utc_naive
 from shared.config import settings
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/internal", tags=["internal"])
+
+# Caps for the digest LLM-summary sample (see the window-summary endpoint).
+# Enforced in ClickHouse so a finding storm never materializes unbounded rows.
+DIGEST_SUMMARY_MAX_PER_DETECTOR = 10
+DIGEST_SUMMARY_MAX_TOTAL = 40
+DIGEST_SUMMARY_MAX_CHARS = 300
+
+
+# NULL-preserving latest-finding pick for collapsing duplicate detector_runs
+# rows by run_id. Tuple-wrapped because bare argMax skips NULL rows: a run
+# whose newest row is a clean re-eval (NULL finding_id) must resolve to NULL,
+# retracting its older finding. The ordering tuple breaks timestamp ties
+# deterministically (non-null finding wins). Single source of truth so the
+# counts query and the summaries probe can never disagree on which runs count
+# as identified.
+_LATEST_FINDING_PICK_SQL = (
+    "tupleElement(argMax(tuple(finding_id), (timestamp, coalesce(finding_id, ''))), 1)"
+)
+
+
+def _detector_summary_expr(finding_id_col: str) -> str:
+    """Build the SQL expression extracting a detector's summary from a finding.
+
+    Single source of truth for what "the summary for this detector" means: a
+    finding's ``payload`` is a JSON array of per-detector entries, and the
+    summary is the ``summary`` field of the entry whose ``detectorId`` matches
+    the run's ``r.detector_id`` ('' when the run has no finding). Every query
+    that reads summaries must use this expression so the meaning cannot drift
+    between endpoints.
+
+    Args:
+        finding_id_col (str): Qualified column holding the run's finding id
+            (e.g. ``r.finding_id``, or ``r.latest_finding_id`` after a
+            collapse); NULL means the run fired no finding.
+
+    Returns:
+        str: A ClickHouse expression over aliases ``r`` (runs side) and ``f``
+            (findings side, providing ``f.payload``).
+    """
+    return (
+        "if("
+        f"  {finding_id_col} IS NOT NULL,"
+        "  JSONExtractString("
+        "    arrayFirst("
+        "      x -> JSONExtractString(x, 'detectorId') = r.detector_id,"
+        "      JSONExtractArrayRaw(f.payload)"
+        "    ),"
+        "    'summary'"
+        "  ),"
+        "  ''"
+        ")"
+    )
 
 
 def verify_internal_secret(
@@ -375,21 +430,8 @@ async def list_detector_runs(
     if identified:
         conditions.append("r.finding_id IS NOT NULL")
 
-    # Per-detector summary expression; reused in WHERE search and SELECT to keep
-    # one source of truth for what "the summary for this detector" means.
-    summary_expr = (
-        "if("
-        "  r.finding_id IS NOT NULL,"
-        "  JSONExtractString("
-        "    arrayFirst("
-        "      x -> JSONExtractString(x, 'detectorId') = r.detector_id,"
-        "      JSONExtractArrayRaw(f.payload)"
-        "    ),"
-        "    'summary'"
-        "  ),"
-        "  ''"
-        ")"
-    )
+    # Reused in WHERE search and SELECT below.
+    summary_expr = _detector_summary_expr("r.finding_id")
 
     if search_query:
         # ClickHouse ILIKE uses backslash as the default escape character; no
@@ -592,21 +634,7 @@ async def list_trace_detector_runs(trace_id: str, project_id: str):
     """
     ch = get_clickhouse_client()
 
-    # Per-detector summary expression; identical to list_detector_runs so the
-    # meaning of "the summary for this detector" stays in one place.
-    summary_expr = (
-        "if("
-        "  r.finding_id IS NOT NULL,"
-        "  JSONExtractString("
-        "    arrayFirst("
-        "      x -> JSONExtractString(x, 'detectorId') = r.detector_id,"
-        "      JSONExtractArrayRaw(f.payload)"
-        "    ),"
-        "    'summary'"
-        "  ),"
-        "  ''"
-        ")"
-    )
+    summary_expr = _detector_summary_expr("r.finding_id")
 
     query = f"""
         SELECT
@@ -636,6 +664,123 @@ async def list_trace_detector_runs(trace_id: str, project_id: str):
     return {"runs": runs}
 
 
+def _fetch_sample_summaries(
+    ch: ClickHouseClient, window_clause: str, params: dict[str, Any]
+) -> dict[str, list[str]]:
+    """Fetch recent per-detector finding summaries for a digest window.
+
+    Best-effort by contract: digest jobs have no BullMQ retries, so a thrown
+    flush loses the alert permanently — on any error (including exceeding the
+    per-query execution cap) this logs and returns ``{}`` instead of raising,
+    degrading the digest to counts-only.
+
+    Sampling: newest-first within the window, at most
+    ``DIGEST_SUMMARY_MAX_PER_DETECTOR`` per detector and
+    ``DIGEST_SUMMARY_MAX_TOTAL`` overall (rank-major, so one chatty detector
+    cannot starve the others), each truncated to ``DIGEST_SUMMARY_MAX_CHARS``
+    chars in SQL.
+
+    Args:
+        ch (ClickHouseClient): ClickHouse client to query with.
+        window_clause (str): SQL predicate over the collapsed ``ts`` bounding
+            the digest window (parameter placeholders, not inlined values).
+        params (dict[str, Any]): Bound query parameters; must include
+            ``project_id`` and every placeholder referenced by
+            ``window_clause``.
+
+    Returns:
+        dict[str, list[str]]: detector_id -> its sampled summaries, newest
+            first. Empty on failure or when nothing matched.
+    """
+    try:
+        summary_expr = _detector_summary_expr("r.latest_finding_id")
+        # Probe side bounded BEFORE the join (window bound, non-null
+        # finding, per-detector cap), so the join probes at most
+        # DIGEST_SUMMARY_MAX_PER_DETECTOR x n_detectors rows. RCA-disabled
+        # detectors still consume budget here (the digest drops them
+        # later); accepted for v1. Written once and reused in the join's
+        # semi-filter below, at the cost of ClickHouse evaluating it twice
+        # (the runs collapse is far cheaper than a whole-history payload
+        # read).
+        sampled_probe = f"""
+                    SELECT detector_id, latest_finding_id, ts
+                    FROM (
+                        SELECT
+                            detector_id,
+                            run_id,
+                            -- NULL-preserving shared pick; determinism
+                            -- matters doubly here — this probe is evaluated
+                            -- twice (FROM + IN) and both must select the
+                            -- same finding id on a timestamp tie.
+                            {_LATEST_FINDING_PICK_SQL} AS latest_finding_id,
+                            max(timestamp)                AS ts
+                        FROM detector_runs
+                        WHERE project_id = {{project_id:String}}
+                        GROUP BY detector_id, run_id
+                    )
+                    WHERE {window_clause} AND latest_finding_id IS NOT NULL
+                    -- latest_finding_id tiebreaker: the probe is evaluated
+                    -- twice (FROM + IN); ties on ts must pick identical rows.
+                    ORDER BY detector_id, ts DESC, latest_finding_id
+                    LIMIT {DIGEST_SUMMARY_MAX_PER_DETECTOR} BY detector_id
+        """
+        summaries_query = f"""
+            SELECT detector_id, summary
+            FROM (
+                SELECT
+                    r.detector_id AS detector_id,
+                    -- substringUTF8, not substring: a byte-offset cut can
+                    -- split a multibyte char, and clickhouse-connect
+                    -- replaces an undecodable string with its hex dump.
+                    substringUTF8({summary_expr}, 1, {DIGEST_SUMMARY_MAX_CHARS}) AS summary,
+                    r.ts AS ts,
+                    -- Rank-major allocation: every detector keeps its
+                    -- newest sentence before any detector gets its
+                    -- 2nd..10th, so one chatty detector cannot starve the
+                    -- others out of the overall budget.
+                    row_number() OVER (
+                        PARTITION BY r.detector_id ORDER BY r.ts DESC
+                    ) AS rank
+                FROM (
+                    {sampled_probe}
+                ) AS r
+                INNER JOIN (
+                    -- Semi-join to the sampled finding ids so the FINAL
+                    -- read touches only those findings' payloads, not the
+                    -- project's whole finding history.
+                    SELECT finding_id, payload FROM detector_findings FINAL
+                    WHERE project_id = {{project_id:String}}
+                      AND finding_id IN (
+                        SELECT latest_finding_id FROM ({sampled_probe})
+                      )
+                ) AS f ON r.latest_finding_id = f.finding_id
+                -- Empty summaries (payload without a matching entry) are
+                -- filtered before ranking so they never eat sample slots.
+                WHERE summary != ''
+            )
+            ORDER BY rank ASC, ts DESC
+            LIMIT {DIGEST_SUMMARY_MAX_TOTAL}
+        """
+        # Bound the digest read: on a huge project a stalled summaries
+        # query must degrade to counts-only (via the except path, per the
+        # best-effort contract) instead of holding the worker's HTTP call.
+        result = ch.query(
+            summaries_query,
+            parameters=params,
+            settings={"max_execution_time": 10},
+        )
+        summaries: dict[str, list[str]] = {}
+        for detector_id, summary in result.result_rows:
+            summaries.setdefault(detector_id, []).append(summary)
+        return summaries
+    except Exception:
+        logger.exception(
+            "detector-window-summary: summaries read failed; "
+            "returning counts without sample_summaries"
+        )
+        return {}
+
+
 @router.get(
     "/detector-window-summary",
     response_model=DetectorWindowSummaryResponse,
@@ -648,6 +793,13 @@ async def list_detector_window_summary(
     ),
     end_before: datetime | None = Query(
         None, description="Upper bound on detector_runs.timestamp (exclusive)"
+    ),
+    include_summaries: bool = Query(
+        False,
+        description=(
+            "When true, also return recent per-detector finding summaries "
+            "(capped in SQL) for the digest LLM summary"
+        ),
     ),
 ):
     """Aggregate run/finding counts and the latest triggered trace per detector.
@@ -673,6 +825,18 @@ async def list_detector_window_summary(
 
     Detectors with no runs in the window are omitted; the frontend defaults
     absent entries to {findingCount: 0, runCount: 0}.
+
+    When ``include_summaries`` is set, a second bounded query returns each
+    detector's most recent per-detector judge summaries within the window:
+    newest-first, at most ``DIGEST_SUMMARY_MAX_PER_DETECTOR`` per detector and
+    ``DIGEST_SUMMARY_MAX_TOTAL`` overall, each truncated to
+    ``DIGEST_SUMMARY_MAX_CHARS`` chars in SQL. The per-detector sentence is
+    JSON-extracted from the finding payload with the same expression as the
+    runs endpoints (one source of truth). UI consumers never set the flag, so
+    their read cost is unchanged. The summaries read is best-effort: on any
+    error, including exceeding its per-query execution cap, it is logged and
+    the response is returned without ``sample_summaries`` (counts intact) — it
+    can never fail the endpoint.
     """
     ch = get_clickhouse_client()
 
@@ -699,9 +863,11 @@ async def list_detector_window_summary(
             SELECT
                 detector_id,
                 run_id,
-                argMax(finding_id, timestamp) AS latest_finding_id,
-                argMax(trace_id,   timestamp) AS latest_trace_id,
-                max(timestamp)                AS ts
+                -- NULL-preserving shared pick: the count must retract a
+                -- clean re-eval'd run exactly when the sample does.
+                {_LATEST_FINDING_PICK_SQL} AS latest_finding_id,
+                argMax(trace_id, timestamp) AS latest_trace_id,
+                max(timestamp)              AS ts
             FROM detector_runs
             WHERE project_id = {{project_id:String}}
             GROUP BY detector_id, run_id
@@ -723,5 +889,10 @@ async def list_detector_window_summary(
             "run_count": int(row_dict["run_count"]),
             "sample_trace_ids": [latest_trace_id] if latest_trace_id else [],
         }
+
+    if include_summaries and any(v["finding_count"] > 0 for v in data.values()):
+        for detector_id, summaries in _fetch_sample_summaries(ch, window_clause, params).items():
+            if detector_id in data:
+                data[detector_id]["sample_summaries"] = summaries
 
     return {"data": data}
