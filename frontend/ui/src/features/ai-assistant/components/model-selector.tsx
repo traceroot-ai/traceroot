@@ -20,13 +20,29 @@ interface ModelSelectorProps {
   value: ModelSelection;
   onChange: (selection: ModelSelection) => void;
   workspaceId?: string;
+  /**
+   * When false, skip auto-picking a default model into form state when
+   * `value.model` is empty — the caller wants an explicit user choice
+   * before anything is written (e.g. a persisted setting where "unset"
+   * has real meaning, like a detector's screening model). Defaults to
+   * true to preserve the existing chat/RCA auto-pick behavior.
+   */
+  autoSelectDefault?: boolean;
+  /** Placeholder shown on the button when nothing is selected and autoSelectDefault is false. */
+  defaultLabel?: string;
 }
 
 function modelKey(m: { id?: string; model?: string; source: string; provider: string }) {
   return `${m.source}:${m.provider}:${m.id ?? m.model}`;
 }
 
-export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorProps) {
+export function ModelSelector({
+  value,
+  onChange,
+  workspaceId,
+  autoSelectDefault = true,
+  defaultLabel,
+}: ModelSelectorProps) {
   const [open, setOpen] = useState(false);
 
   const { data } = useQuery({
@@ -57,7 +73,7 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
     const match = exact ?? modelOnly;
 
     if (!match) {
-      if (!value.model) {
+      if (!value.model && autoSelectDefault) {
         const pick = pickDefaultModel(models);
         if (pick) {
           onChange({
@@ -87,7 +103,7 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
         adapter: match.adapter,
       });
     }
-  }, [models, value, onChange]);
+  }, [models, value, onChange, autoSelectDefault]);
 
   const selectedKey = modelKey({ id: value.model, source: value.source, provider: value.provider });
   const selectedModel = models.find((m) => modelKey(m) === selectedKey);
@@ -101,7 +117,7 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
             size="sm"
             className="h-7 gap-1 rounded-sm px-2 text-[11px] text-muted-foreground hover:text-foreground"
           >
-            {selectedModel?.label || value.model || "Select model"}
+            {selectedModel?.label || value.model || defaultLabel || "Select model"}
             <ChevronDown className="h-3 w-3" />
           </Button>
         </PopoverTrigger>

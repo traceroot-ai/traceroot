@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -155,6 +156,8 @@ export default function NewDetectorPage() {
                     value={modelSelection}
                     onChange={setModelSelection}
                     workspaceId={project?.workspace_id}
+                    autoSelectDefault={false}
+                    defaultLabel={`${DETECTOR_SYSTEM_DEFAULT_MODEL_ID} (default)`}
                   />
                   <p className="mt-1 text-[11px] text-muted-foreground">
                     Used to evaluate each trace for this detector.

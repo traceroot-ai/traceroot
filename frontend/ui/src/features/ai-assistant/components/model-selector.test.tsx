@@ -92,4 +92,55 @@ describe("ModelSelector", () => {
       adapter: "anthropic",
     });
   });
+
+  it("does not auto-pick a default when autoSelectDefault is false", () => {
+    mocks.models = {
+      byokProviders: [],
+      systemModels: [
+        {
+          provider: "anthropic",
+          adapter: "anthropic",
+          source: "system",
+          models: [{ id: "claude-4", label: "Claude 4" }],
+        },
+      ],
+    };
+
+    render(
+      <ModelSelector
+        value={{ model: "", provider: "", source: "system", adapter: "" }}
+        onChange={mocks.onChange}
+        workspaceId="workspace-1"
+        autoSelectDefault={false}
+      />,
+    );
+
+    expect(mocks.onChange).not.toHaveBeenCalled();
+  });
+
+  it("shows defaultLabel as a placeholder when nothing is selected and autoSelectDefault is false", () => {
+    mocks.models = {
+      byokProviders: [],
+      systemModels: [
+        {
+          provider: "anthropic",
+          adapter: "anthropic",
+          source: "system",
+          models: [{ id: "claude-4", label: "Claude 4" }],
+        },
+      ],
+    };
+
+    render(
+      <ModelSelector
+        value={{ model: "", provider: "", source: "system", adapter: "" }}
+        onChange={mocks.onChange}
+        workspaceId="workspace-1"
+        autoSelectDefault={false}
+        defaultLabel="claude-haiku-4-5 (default)"
+      />,
+    );
+
+    expect(screen.getByRole("button").textContent).toContain("claude-haiku-4-5 (default)");
+  });
 });

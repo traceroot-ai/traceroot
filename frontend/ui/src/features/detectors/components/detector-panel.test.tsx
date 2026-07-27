@@ -132,4 +132,44 @@ describe("DetectorPanel", () => {
     expect(promptBox().value).toBe("");
     expect((saveButton() as HTMLButtonElement).disabled).toBe(true);
   });
+
+  it("does not pin detectionModel in the patch when the detector has no model selected", () => {
+    const detectorWithoutModel: Detector = {
+      ...baseDetector,
+      detectionModel: null,
+      detectionProvider: null,
+      detectionSource: null,
+    };
+    mocks.detector = detectorWithoutModel;
+    const { onClose } = renderPanel();
+    fireEvent.click(saveButton());
+
+    // When nothing changed and model is unset, the patch should not
+    // include detectionModel (it stays absent, allowing system default)
+    expect(mocks.mutate).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("does not include detectionModel in patch when model is empty even after editing other fields", () => {
+    const detectorWithoutModel: Detector = {
+      ...baseDetector,
+      detectionModel: null,
+      detectionProvider: null,
+      detectionSource: null,
+    };
+    mocks.detector = detectorWithoutModel;
+    const { onClose } = renderPanel();
+    fireEvent.change(promptBox(), { target: { value: "updated prompt" } });
+    fireEvent.click(saveButton());
+
+    expect(mocks.mutate).toHaveBeenCalledTimes(1);
+    // The patch should contain the prompt change but NOT detectionModel
+    const patch = mocks.mutate.mock.calls[0][0];
+    expect(patch).toEqual({ prompt: "updated prompt" });
+    expect(patch.detectionModel).toBeUndefined();
+
+    const options = mocks.mutate.mock.calls[0][1] as { onSuccess: () => void };
+    options.onSuccess();
+    expect(onClose).toHaveBeenCalled();
+  });
 });
