@@ -7,18 +7,16 @@ import { clientEnv } from "@/env.client";
 // Python backend URL for trace APIs only
 const TRACE_API_BASE = clientEnv.NEXT_PUBLIC_API_URL;
 
-/**
- * Error thrown for non-ok Next.js API responses. Carries the HTTP status so
- * callers can tell permanent failures (403/404) from transient ones without
- * matching on server error copy.
- */
 export class ApiError extends Error {
-  readonly status: number;
+  status: number;
+  detail: unknown;
 
-  constructor(message: string, status: number) {
+  constructor(status: number, detail: unknown) {
+    const message = typeof detail === "string" ? detail : `API error: ${status}`;
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.detail = detail;
   }
 }
 
@@ -36,7 +34,7 @@ export async function fetchNextApi<T>(endpoint: string, options: RequestInit = {
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: "Unknown error" }));
-    throw new ApiError(error.error || `API error: ${response.status}`, response.status);
+    throw new ApiError(response.status, error.error || `API error: ${response.status}`);
   }
 
   if (response.status === 204) {
@@ -86,12 +84,7 @@ export async function fetchTraceApi<T>(
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: "Unknown error" }));
-    const d = (error as { detail?: unknown }).detail;
-    throw new Error(
-      typeof d === "string"
-        ? d
-        : ((d as { message?: string } | undefined)?.message ?? `API error: ${response.status}`),
-    );
+    throw new ApiError(response.status, error.detail ?? `API error: ${response.status}`);
   }
 
   if (response.status === 204) {

@@ -19,6 +19,9 @@ import {
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
 import { useProject } from "@/features/projects/hooks";
+import { useRetention } from "@/lib/hooks/use-retention";
+import { PricingDialog } from "@/ee/features/billing/PricingDialog";
+import { PlanType } from "@traceroot/core";
 import { DeleteDetectorDialog } from "@/features/detectors/components/delete-detector-dialog";
 import { DetectorPanel } from "@/features/detectors/components/detector-panel";
 import { getTemplate } from "@/features/detectors/templates";
@@ -52,6 +55,9 @@ export default function DetectorsPage() {
   const [actionsOpen, setActionsOpen] = useState<string | null>(null);
   const [selectedDetectorId, setSelectedDetectorId] = useState<string | null>(null);
 
+  const { data: project } = useProject(projectId);
+  const retention = useRetention(projectId);
+
   const {
     state,
     queryOptions,
@@ -60,7 +66,10 @@ export default function DetectorsPage() {
     updateKeyword,
     updateLimit,
     goToPage,
-  } = useListPageState({ defaultDateFilterId: DETECTORS_DEFAULT_DATE_FILTER_ID });
+  } = useListPageState({
+    defaultDateFilterId: DETECTORS_DEFAULT_DATE_FILTER_ID,
+    retentionDays: retention.retentionDays,
+  });
 
   // Carry the selected time range into the detail page so it stays consistent
   // across the list <-> detail navigation, mirroring how the Traces tabs
@@ -73,15 +82,17 @@ export default function DetectorsPage() {
       customEndDate: state.customEndDate,
     });
 
-  const { data: project } = useProject(projectId);
-
   const { data, isLoading, error } = useDetectorList(projectId, {
     page: queryOptions.page,
     limit: queryOptions.limit,
     search_query: queryOptions.search_query,
   });
 
-  const { data: counts, isLoading: countsLoading } = useDetectorCounts(projectId, {
+  const {
+    data: counts,
+    isLoading: countsLoading,
+    error: countsError,
+  } = useDetectorCounts(projectId, {
     start_after: queryOptions.start_after,
     end_before: queryOptions.end_before,
   });
@@ -141,6 +152,8 @@ export default function DetectorsPage() {
           customEndDate={state.customEndDate}
           onDateFilterChange={updateDateFilter}
           onCustomRangeChange={updateCustomRange}
+          retentionDays={retention.retentionDays}
+          onUpgradeClick={retention.onUpgradeClick}
         />
 
         {/* Table */}
@@ -350,6 +363,13 @@ export default function DetectorsPage() {
           isDeleting={deleteMutation.isPending}
         />
       )}
+
+      <PricingDialog
+        open={retention.showPricing}
+        onOpenChange={retention.closePricing}
+        workspaceId={retention.workspaceId}
+        currentPlan={(retention.billingPlan as PlanType) || PlanType.FREE}
+      />
     </div>
   );
 }
