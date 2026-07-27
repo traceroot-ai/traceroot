@@ -140,6 +140,15 @@ GLM_MODEL_CASES = [
     ("glm-4.5-flash", "glm-4.5-flash"),
 ]
 
+XAI_MODEL_CASES = [
+    ("grok-4.20", "grok-4.20"),
+    ("xai/grok-4.20", "grok-4.20"),
+    ("grok-4.20-20260601", "grok-4.20"),
+    ("grok-4", "grok-4"),
+    ("xai/grok-4", "grok-4"),
+    ("grok-4-0709", "grok-4"),
+]
+
 
 GEMINI_MODEL_CASES = [
     ("gemini-3.5-flash", "gemini-3.5-flash"),
@@ -287,6 +296,36 @@ class TestGLMModelIds:
         assert price[MATCHED_MODEL_NAME] == expected_name, (
             f"{model_id} matched a different entry than {expected_name}"
         )
+
+
+class TestXAIModelIds:
+    @pytest.mark.parametrize("model_id,expected_name", XAI_MODEL_CASES)
+    def test_matches_expected_model(self, real_cache, model_id, expected_name):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price(model_id)
+
+        assert price is not None, f"{model_id} should match a pricing entry but returned None"
+        assert "input" in price and "output" in price
+        assert price[MATCHED_MODEL_NAME] == expected_name, (
+            f"{model_id} matched a different entry than {expected_name}"
+        )
+
+    def test_grok_4_fast_not_priced_as_grok_4(self, real_cache):
+        # grok-4-fast is a distinct, cheaper xAI model that shares the grok-4
+        # prefix. The grok-4 entry must not absorb it at grok-4's rates.
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            assert get_model_price("grok-4-fast") is None
+
+    def test_grok_4_calculates_cost(self, real_cache):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            result = calculate_cost("grok-4", "Hello world", "Hi there")
+
+        assert result["input_tokens"] is not None
+        assert result["input_tokens"] > 0
+        assert result["output_tokens"] is not None
+        assert result["output_tokens"] > 0
+        assert result["cost"] is not None
+        assert result["cost"] > 0
 
 
 @patch("worker.tokens.pricing._load_cache", _mock_load_cache)
