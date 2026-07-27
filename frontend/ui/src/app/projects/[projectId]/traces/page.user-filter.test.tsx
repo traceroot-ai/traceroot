@@ -5,10 +5,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 
 vi.mock("@/features/traces/hooks", () => ({
-  // The page also probes "has this project ever traced" via a separate
-  // useTraces({ limit: 1 }) call to gate the onboarding empty state — a
-  // non-empty result here is required so the filter bar (and the user_id
-  // badge inside it) isn't suppressed by showGettingStarted.
   useTraces: () => ({
     data: {
       data: [{ trace_id: "t1", name: "n", trace_start_time: 0, error_count: 0, span_count: 1 }],
@@ -17,6 +13,10 @@ vi.mock("@/features/traces/hooks", () => ({
     isLoading: false,
     error: null,
   }),
+  // The page gates the onboarding empty state on a separate "has this project
+  // ever traced" probe; exists: true is required so the filter bar (and the
+  // user_id badge inside it) isn't suppressed by showGettingStarted.
+  useTracesExist: () => ({ data: { exists: true }, isPending: false, error: null }),
   usePrefetchTraces: () => vi.fn(),
 }));
 vi.mock("@/lib/hooks/use-list-page-state", () => ({
@@ -43,6 +43,17 @@ vi.mock("@/components/layout/app-layout", () => ({
   useLayout: () => ({ setHideAiButton: vi.fn() }),
 }));
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
+vi.mock("@/lib/hooks/use-retention", () => ({
+  useRetention: () => ({
+    retentionDays: 15,
+    showPricing: false,
+    onUpgradeClick: vi.fn(),
+    closePricing: vi.fn(),
+    workspaceId: "ws-1",
+    billingPlan: "free",
+  }),
+}));
+vi.mock("@/ee/features/billing/PricingDialog", () => ({ PricingDialog: () => null }));
 vi.mock("@/features/traces/components", () => ({
   TraceViewerPanel: () => null,
   GettingStarted: () => null,

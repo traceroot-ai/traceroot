@@ -69,4 +69,14 @@ describe("UsersPage", () => {
     render(<UsersPage />);
     expect(screen.getByText("Loading users...")).toBeTruthy();
   });
+
+  it("shows the nav tabs and the no-users empty state", () => {
+    mocks.usersData = { data: [], meta: { total: 0 } };
+    render(<UsersPage />);
+
+    expect(screen.getByText("Traces")).toBeTruthy();
+    expect(screen.getByText("Users")).toBeTruthy();
+    expect(screen.getByText("Sessions")).toBeTruthy();
+    expect(screen.getByText("No users found")).toBeTruthy();
+  });
 });

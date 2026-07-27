@@ -32,6 +32,17 @@ vi.mock("@/features/traces/hooks", () => ({
 }));
 
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
+vi.mock("@/lib/hooks/use-retention", () => ({
+  useRetention: () => ({
+    retentionDays: 15,
+    showPricing: false,
+    onUpgradeClick: vi.fn(),
+    closePricing: vi.fn(),
+    workspaceId: "ws-1",
+    billingPlan: "free",
+  }),
+}));
+vi.mock("@/ee/features/billing/PricingDialog", () => ({ PricingDialog: () => null }));
 vi.mock("@/components/search-filter-bar", () => ({ SearchFilterBar: () => null }));
 vi.mock("@/components/list-pagination", () => ({ ListPagination: () => null }));
 vi.mock("@/features/traces/components/SessionDetailPanel", () => ({
