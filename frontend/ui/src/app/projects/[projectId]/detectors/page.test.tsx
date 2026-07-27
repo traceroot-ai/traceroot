@@ -186,4 +186,17 @@ describe("DetectorsPage", () => {
 
     expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/detectors/det-1?date_filter=7d");
   });
+
+  it("shows the empty state with its glyph when the project has no detectors", () => {
+    mocks.useDetectorList.mockReturnValue({
+      data: { data: [], meta: { total: 0 } },
+      isLoading: false,
+      error: null,
+    });
+
+    render(<DetectorsPage />);
+
+    const heading = screen.getByText("No detectors yet");
+    expect(heading.parentElement?.querySelector("svg")).toBeTruthy();
+  });
 });

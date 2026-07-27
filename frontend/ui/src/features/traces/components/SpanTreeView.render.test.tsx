@@ -3,8 +3,8 @@
 // trace-root rollup and the per-LLM-span badge). SpanTreeView.test.ts covers
 // the pure row-model logic; this file exercises the actual JSX, which needs
 // @tanstack/react-virtual mocked since jsdom has no real layout to measure.
-import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
 import { SpanKind, SpanStatus } from "@traceroot/core";
 import type { TraceDetail } from "@/types/api";
 import type { TraceSelection } from "../types";
@@ -70,6 +70,15 @@ const trace: TraceDetail = {
 
 const selection: TraceSelection = { type: "trace" };
 
+// vitest runs without `globals`, so testing-library's automatic cleanup is
+// inactive and a second render would stack onto the first one's DOM — which
+// would also break the exact badge counts below, since jsdom applies no CSS and
+// the container-query classes that hide these badges at narrow widths never
+// take effect.
+afterEach(() => {
+  cleanup();
+});
+
 function renderTree() {
   render(
     <SpanTreeView
@@ -94,5 +103,18 @@ describe("SpanTreeView token/cost badges", () => {
     // Cost appears twice: the trace rollup (0.0123) and the span's own (0.0123) —
     // both format to the same 4-decimal string here since there's only one span.
     expect(screen.getAllByText("0.0123")).toHaveLength(2);
+  });
+
+  it("draws a glyph alongside each token and cost badge", () => {
+    renderTree();
+
+    // The badge text nodes are wrapped in a span that also holds the icon, so
+    // a missing glyph shows up as a badge with no svg child.
+    for (const badge of screen.getAllByText("0.0123")) {
+      expect(badge.querySelector("svg")).toBeTruthy();
+    }
+    for (const badge of screen.getAllByText("100 → 50 (150)")) {
+      expect(badge.querySelector("svg")).toBeTruthy();
+    }
   });
 });
