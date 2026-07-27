@@ -19,6 +19,9 @@ interface SearchFilterBarProps {
   customEndDate: Date | null;
   onDateFilterChange: (option: DateFilterOption) => void;
   onCustomRangeChange: (startDate: Date, endDate: Date) => void;
+  // Retention gating — options exceeding the window show a lock icon
+  retentionDays?: number | null;
+  onUpgradeClick?: () => void;
   // Optional additional content (e.g., filter badges)
   children?: React.ReactNode;
 }
@@ -33,6 +36,8 @@ export function SearchFilterBar({
   customEndDate,
   onDateFilterChange,
   onCustomRangeChange,
+  retentionDays,
+  onUpgradeClick,
   children,
 }: SearchFilterBarProps) {
   return (
@@ -57,6 +62,8 @@ export function SearchFilterBar({
           customEndDate={customEndDate}
           onDateFilterChange={onDateFilterChange}
           onCustomRangeChange={onCustomRangeChange}
+          retentionDays={retentionDays}
+          onUpgradeClick={onUpgradeClick}
         />
       </div>
     </div>
