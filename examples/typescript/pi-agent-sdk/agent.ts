@@ -45,12 +45,16 @@ import { fileURLToPath } from 'node:url';
 import 'dotenv/config';
 import * as pi from '@earendil-works/pi-coding-agent';
 import {
-  AuthStorage,
   createAgentSession,
   ModelRegistry,
+  ModelRuntime,
   type AgentSession,
 } from '@earendil-works/pi-coding-agent';
 import { TraceRoot, observe, usingAttributes } from '@traceroot-ai/traceroot';
+
+// pi doesn't re-export the pi-ai `Model` type from its entrypoint, so derive it
+// from ModelRegistry.find()'s return type instead of importing it directly.
+type PiModel = NonNullable<ReturnType<ModelRegistry['find']>>;
 
 // One call wires the pi instrumentation (via instrumentModules.piCodingAgent)
 // and registers the OpenTelemetry pipeline. It must run BEFORE
@@ -152,19 +156,30 @@ console.log('pricing tests passed');
 `,
 );
 
-const authStorage = AuthStorage.create();
-const modelRegistry = ModelRegistry.create(authStorage);
-const model = modelRegistry.find('openai', 'gpt-4o-mini');
-if (!model) {
-  // find() only checks pi's static built-in model list, not auth — gpt-4o-mini is
-  // always in that list, so this would only fire if pi renames/drops the model id.
-  throw new Error('gpt-4o-mini is not a known model id in this version of pi-coding-agent.');
-}
-if (!modelRegistry.hasConfiguredAuth(model)) {
-  throw new Error(
-    'No OpenAI credentials found. Set OPENAI_API_KEY in your environment (pi falls back to it ' +
-      "when there's no `pi auth login` credential on disk).",
-  );
+/**
+ * Resolve the pi model + its model/auth runtime. `ModelRuntime` is pi 0.80's
+ * canonical model+credential surface: created async (it reads the on-disk models
+ * catalog), then handed to `createAgentSession`. We inject OPENAI_API_KEY as a
+ * runtime credential so the demo authenticates from env alone, no `pi auth login`.
+ */
+async function resolveModel(): Promise<{ modelRuntime: ModelRuntime; model: PiModel }> {
+  const modelRuntime = await ModelRuntime.create();
+  if (process.env.OPENAI_API_KEY) {
+    await modelRuntime.setRuntimeApiKey('openai', process.env.OPENAI_API_KEY);
+  }
+  const modelRegistry = new ModelRegistry(modelRuntime);
+  const model = modelRegistry.find('openai', 'gpt-4o-mini');
+  if (!model) {
+    // find() only checks pi's static built-in model list, not auth — gpt-4o-mini is
+    // always in that list, so this would only fire if pi renames/drops the model id.
+    throw new Error('gpt-4o-mini is not a known model id in this version of pi-coding-agent.');
+  }
+  if (!modelRegistry.hasConfiguredAuth(model)) {
+    throw new Error(
+      'No OpenAI credentials found. Set OPENAI_API_KEY in your environment (or run `pi auth login`).',
+    );
+  }
+  return { modelRuntime, model };
 }
 
 /** subscribe() surfaces tool calls and assistant messages as they happen — useful
@@ -249,11 +264,11 @@ async function report(session: AgentSession, prompt: string): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  const { modelRuntime, model } = await resolveModel();
   const { session } = await createAgentSession({
     cwd: workspace,
     model,
-    authStorage,
-    modelRegistry,
+    modelRuntime,
     // Deliberately NO `tools` option here. Passing one would permanently cap
     // the tool REGISTRY (not just the active set) to that allowlist, and
     // setActiveToolsByName() could then never widen past it later. Creating
