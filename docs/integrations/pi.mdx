@@ -34,13 +34,18 @@ TraceRoot.initialize({
 Create and run sessions as usual — every session created after initialization is traced automatically:
 
 ```typescript
-import { AuthStorage, createAgentSession, ModelRegistry } from '@earendil-works/pi-coding-agent';
+import { createAgentSession, ModelRegistry, ModelRuntime } from '@earendil-works/pi-coding-agent';
 
-const authStorage = AuthStorage.create();
-const modelRegistry = ModelRegistry.create(authStorage);
+// pi 0.80's model + credential surface. Created async (it reads the on-disk
+// model catalog), then handed to createAgentSession. Injecting OPENAI_API_KEY
+// as a runtime credential authenticates from env alone — no `pi auth login`.
+const modelRuntime = await ModelRuntime.create();
+await modelRuntime.setRuntimeApiKey('openai', process.env.OPENAI_API_KEY);
+
+const modelRegistry = new ModelRegistry(modelRuntime);
 const model = modelRegistry.find('openai', 'gpt-4o-mini');
 
-const { session } = await createAgentSession({ model, authStorage, modelRegistry });
+const { session } = await createAgentSession({ model, modelRuntime });
 try {
   await session.prompt('Write add.js exporting add(a, b), then write and run a test for it.');
 } finally {
