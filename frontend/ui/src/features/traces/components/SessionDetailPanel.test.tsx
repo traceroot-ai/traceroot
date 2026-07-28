@@ -97,10 +97,19 @@ describe("SessionDetailPanel metadata badges", () => {
     };
     renderPanel();
 
-    expect(screen.getByText("Traces:")).toBeDefined();
+    const sessionHeader = screen.getByText("Session").parentElement;
+    expect(sessionHeader?.querySelector("svg")).toBeTruthy();
+
+    const tracesBadge = screen.getByText("Traces:").parentElement;
+    expect(tracesBadge?.querySelector("svg")).toBeTruthy();
+
+    const latencyBadge = screen.getByText("Total Latency:").parentElement;
+    expect(latencyBadge?.querySelector("svg")).toBeTruthy();
+
+    const userBadge = screen.getByText("User:").parentElement;
+    expect(userBadge?.querySelector("svg")).toBeTruthy();
+
     expect(screen.getByText("3")).toBeDefined();
-    expect(screen.getByText("Total Latency:")).toBeDefined();
-    expect(screen.getByText("User:")).toBeDefined();
     expect(screen.getByText("user-42")).toBeDefined();
     expect(screen.getByText("No traces in this session")).toBeDefined();
   });
