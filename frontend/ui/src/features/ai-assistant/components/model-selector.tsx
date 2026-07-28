@@ -20,13 +20,21 @@ interface ModelSelectorProps {
   value: ModelSelection;
   onChange: (selection: ModelSelection) => void;
   workspaceId?: string;
+  autoSelectDefault?: boolean;
+  emptySelectionLabel?: string;
 }
 
 function modelKey(m: { id?: string; model?: string; source: string; provider: string }) {
   return `${m.source}:${m.provider}:${m.id ?? m.model}`;
 }
 
-export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorProps) {
+export function ModelSelector({
+  value,
+  onChange,
+  workspaceId,
+  autoSelectDefault = true,
+  emptySelectionLabel,
+}: ModelSelectorProps) {
   const [open, setOpen] = useState(false);
 
   const { data } = useQuery({
@@ -58,6 +66,7 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
 
     if (!match) {
       if (!value.model) {
+        if (!autoSelectDefault) return;
         const pick = pickDefaultModel(models);
         if (pick) {
           onChange({
@@ -87,10 +96,12 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
         adapter: match.adapter,
       });
     }
-  }, [models, value, onChange]);
+  }, [models, value, onChange, autoSelectDefault]);
 
   const selectedKey = modelKey({ id: value.model, source: value.source, provider: value.provider });
   const selectedModel = models.find((m) => modelKey(m) === selectedKey);
+  const selectedLabel =
+    selectedModel?.label || value.model || emptySelectionLabel || "Select model";
 
   return (
     <div className="flex items-center">
@@ -101,7 +112,7 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
             size="sm"
             className="h-7 gap-1 rounded-sm px-2 text-[11px] text-muted-foreground hover:text-foreground"
           >
-            {selectedModel?.label || value.model || "Select model"}
+            {selectedLabel}
             <ChevronDown className="h-3 w-3" />
           </Button>
         </PopoverTrigger>
@@ -111,6 +122,28 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
           className="z-[70] max-h-[320px] w-[280px] overflow-y-auto p-1"
           sideOffset={4}
         >
+          {emptySelectionLabel && (
+            <button
+              className={cn(
+                "flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-[12px] transition-colors hover:bg-muted/50",
+                !value.model && "font-medium text-foreground",
+              )}
+              onClick={() => {
+                onChange({
+                  model: "",
+                  provider: "",
+                  source: "system",
+                  adapter: "",
+                });
+                setOpen(false);
+              }}
+            >
+              <span className="flex items-center gap-1.5">
+                {!value.model && <span className="text-[11px]">&#10003;</span>}
+                {emptySelectionLabel}
+              </span>
+            </button>
+          )}
           {models.map((m) => {
             const key = modelKey(m);
             const isSelected = key === selectedKey;

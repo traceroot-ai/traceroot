@@ -40,8 +40,9 @@ function conditionsEqual(
  * Diff the form against the last-loaded server snapshot and return only the
  * fields the user actually changed. Saving a partial body means a stale tab
  * can no longer silently revert fields it never touched (the PATCH route
- * leaves omitted fields unchanged). A model/provider cleared to "" is omitted
- * rather than sent, matching the previous save behavior.
+ * leaves omitted fields unchanged). Detection model/provider/source move as an
+ * atomic selector tuple so pinning a model also records its source, and choosing
+ * the empty/default option clears all three fields together.
  */
 export function buildDetectorPatch(
   loaded: DetectorFormValues,
@@ -62,13 +63,13 @@ export function buildDetectorPatch(
   if (!conditionsEqual(form.conditions, loaded.conditions)) {
     patch.triggerConditions = form.conditions;
   }
-  if (form.detectionModel !== loaded.detectionModel && form.detectionModel !== "") {
+  const selectorChanged =
+    form.detectionModel !== loaded.detectionModel ||
+    form.detectionProvider !== loaded.detectionProvider ||
+    form.detectionSource !== loaded.detectionSource;
+  if (selectorChanged) {
     patch.detectionModel = form.detectionModel;
-  }
-  if (form.detectionProvider !== loaded.detectionProvider && form.detectionProvider !== "") {
     patch.detectionProvider = form.detectionProvider;
-  }
-  if (form.detectionSource !== loaded.detectionSource) {
     patch.detectionSource = form.detectionSource;
   }
   return patch;
