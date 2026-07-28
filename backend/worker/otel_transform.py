@@ -300,6 +300,132 @@ def _extract_session_id(attrs: dict[str, Any]) -> str | None:
     return attrs.get("traceroot.trace.session_id") or attrs.get("session.id")
 
 
+_API_INPUT_TOKEN_KEYS = (
+    "llm.token_count.prompt",
+    "gen_ai.usage.input_tokens",
+    "gen_ai.usage.prompt_tokens",
+)
+_API_OUTPUT_TOKEN_KEYS = (
+    "llm.token_count.completion",
+    "gen_ai.usage.output_tokens",
+    "gen_ai.usage.completion_tokens",
+)
+_LLM_RAW_INPUT_TOKEN_KEYS = ("ai.usage.inputTokens", "ai.usage.promptTokens")
+_LLM_RAW_OUTPUT_TOKEN_KEYS = ("ai.usage.outputTokens", "ai.usage.completionTokens")
+_API_CACHE_READ_TOKEN_KEYS = (
+    "llm.token_count.prompt_details.cache_read",
+    "gen_ai.usage.cache_read.input_tokens",
+    "gen_ai.usage.cache_read_input_tokens",
+    "gen_ai.usage.input_cached_tokens",
+    "gen_ai.usage.details.cache_read_tokens",
+    "gen_ai.usage.cache_read_tokens",
+    "gen_ai.usage.details.cache_read_input_tokens",
+    "ai.usage.cachedInputTokens",
+    "ai.usage.inputTokenDetails.cacheReadTokens",
+)
+_API_CACHE_WRITE_TOKEN_KEYS = (
+    "llm.token_count.prompt_details.cache_write",
+    "gen_ai.usage.cache_creation.input_tokens",
+    "gen_ai.usage.cache_creation_input_tokens",
+    "gen_ai.usage.details.cache_write_tokens",
+    "gen_ai.usage.details.cache_creation_input_tokens",
+    "ai.usage.inputTokenDetails.cacheWriteTokens",
+)
+_API_CACHE_WRITE_1H_TOKEN_KEYS = (
+    "llm.token_count.prompt_details.cache_write_1h",
+    "gen_ai.usage.cache_creation.ephemeral_1h_input_tokens",
+    "gen_ai.usage.cache_creation_ephemeral_1h_input_tokens",
+)
+_API_REASONING_TOKEN_KEYS = (
+    "llm.token_count.completion_details.reasoning",
+    "gen_ai.usage.reasoning_tokens",
+    "gen_ai.usage.output_details.reasoning_tokens",
+    "gen_ai.usage.details.reasoning_tokens",
+    "ai.usage.outputTokenDetails.reasoningTokens",
+    "ai.usage.reasoningTokens",
+)
+
+
+def _api_token_keys_for_span_kind(span_kind: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Token count attribute keys to trust for this span kind."""
+    input_token_keys = _API_INPUT_TOKEN_KEYS
+    output_token_keys = _API_OUTPUT_TOKEN_KEYS
+    if span_kind == SpanKind.LLM:
+        # Vercel AI SDK raw GROSS totals are the only token source it normalizes to
+        # neither llm.* nor gen_ai.*, so read them as a fallback only on LLM spans.
+        # The same attrs appear on AGENT/CHAIN wrappers as child sums and would
+        # double-count the trace if trusted there.
+        input_token_keys += _LLM_RAW_INPUT_TOKEN_KEYS
+        output_token_keys += _LLM_RAW_OUTPUT_TOKEN_KEYS
+    return input_token_keys, output_token_keys
+
+
+def _build_api_token_usage_fields(
+    span_attrs: dict[str, Any],
+    span_kind: str,
+    *,
+    scope_name: str | None,
+    model_name: str,
+) -> dict[str, Any] | None:
+    """Build span token/cost fields from API-provided OTEL usage attributes."""
+    input_token_keys, output_token_keys = _api_token_keys_for_span_kind(span_kind)
+    api_input_tokens = first_present_number(span_attrs, list(input_token_keys))
+    api_output_tokens = first_present_number(span_attrs, list(output_token_keys))
+
+    if api_input_tokens is None and api_output_tokens is None:
+        return None
+
+    # Cache buckets. OpenInference prompt_details.* keys are the verified Anthropic/
+    # OpenAI path and must remain first because they match llm.token_count.prompt.
+    api_cache_read_tokens = first_present_number(span_attrs, list(_API_CACHE_READ_TOKEN_KEYS))
+    api_cache_write_tokens = first_present_number(span_attrs, list(_API_CACHE_WRITE_TOKEN_KEYS))
+    # Optional Anthropic 1-hour cache-write portion: a subset of cache_write that is
+    # priced separately when present and omitted from usage_details when absent.
+    api_cache_write_1h_tokens = first_present_number(
+        span_attrs,
+        list(_API_CACHE_WRITE_1H_TOKEN_KEYS),
+    )
+    # Reasoning tokens are a display-only subset of output and must not feed pricing.
+    api_reasoning_tokens = first_present(span_attrs, list(_API_REASONING_TOKEN_KEYS))
+
+    input_tokens = int_or_zero(api_input_tokens)
+    output_tokens = int_or_zero(api_output_tokens)
+
+    from worker.tokens.buckets import normalize_token_usage
+    from worker.tokens.pricing import (
+        cost_from_buckets,
+        get_model_price,
+    )
+
+    buckets = normalize_token_usage(
+        scope_name,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        cache_read_tokens=int_or_zero(api_cache_read_tokens),
+        cache_write_tokens=int_or_zero(api_cache_write_tokens),
+        cache_write_1h_tokens=int_or_zero(api_cache_write_1h_tokens),
+    )
+    gross_input = buckets.input_uncached + buckets.cache_read + buckets.cache_write
+    usage_details = {
+        "cache_read_tokens": buckets.cache_read,
+        "cache_write_tokens": buckets.cache_write,
+        "reasoning_tokens": min(int_or_zero(api_reasoning_tokens), output_tokens),
+    }
+    if buckets.cache_write_1h:
+        usage_details["cache_write_1h_tokens"] = buckets.cache_write_1h
+
+    fields: dict[str, Any] = {
+        "input_tokens": gross_input,
+        "output_tokens": output_tokens,
+        "total_tokens": gross_input + output_tokens,
+        "usage_details": usage_details,
+    }
+    cost = cost_from_buckets(get_model_price(model_name), buckets)
+    if cost is not None:
+        fields["cost"] = cost
+    return fields
+
+
 def transform_otel_to_clickhouse(
     otel_data: dict,
     project_id: str,
@@ -450,154 +576,14 @@ def transform_otel_to_clickhouse(
                 if model_name:
                     span_record["model_name"] = model_name
 
-                    # Try API-provided token counts first (from instrumentors).
-                    # OpenInference: llm.token_count.*  ·  GenAI semconv: gen_ai.usage.*
-                    input_token_keys = [
-                        "llm.token_count.prompt",
-                        "gen_ai.usage.input_tokens",
-                        "gen_ai.usage.prompt_tokens",
-                    ]
-                    output_token_keys = [
-                        "llm.token_count.completion",
-                        "gen_ai.usage.output_tokens",
-                        "gen_ai.usage.completion_tokens",
-                    ]
-                    if span_kind == SpanKind.LLM:
-                        # Vercel AI SDK raw GROSS totals are the only token source it
-                        # normalizes to neither llm.* nor gen_ai.*, so we read them as
-                        # a fallback. But they sit on BOTH the LLM doGenerate span AND
-                        # its AGENT/CHAIN wrapper (ai.generateText/ai.generateObject),
-                        # where they restate the SUM of the wrapper's LLM children.
-                        # Trust them only on the LLM span itself — otherwise the
-                        # wrapper is priced on top of its children (double count).
-                        # generateObject emits only the legacy *Tokens spelling; its
-                        # real usage still lands on an LLM .doGenerate child.
-                        input_token_keys += ["ai.usage.inputTokens", "ai.usage.promptTokens"]
-                        output_token_keys += ["ai.usage.outputTokens", "ai.usage.completionTokens"]
-                    api_input_tokens = first_present_number(span_attrs, input_token_keys)
-                    api_output_tokens = first_present_number(span_attrs, output_token_keys)
-                    # Cache buckets. The OpenInference keys (prompt_details.*) are the
-                    # verified path for Anthropic/OpenAI and MUST be listed first —
-                    # they are the same family as llm.token_count.prompt (read above).
-                    api_cache_read_tokens = first_present_number(
+                    api_usage_fields = _build_api_token_usage_fields(
                         span_attrs,
-                        [
-                            "llm.token_count.prompt_details.cache_read",
-                            "gen_ai.usage.cache_read.input_tokens",
-                            "gen_ai.usage.cache_read_input_tokens",
-                            "gen_ai.usage.input_cached_tokens",
-                            "gen_ai.usage.details.cache_read_tokens",
-                            # pydantic-ai version variants (names differ by release):
-                            "gen_ai.usage.cache_read_tokens",
-                            "gen_ai.usage.details.cache_read_input_tokens",
-                            # Vercel AI SDK: cache detail is NEVER normalized to
-                            # llm.*/gen_ai.* — it exists only under ai.usage.*:
-                            "ai.usage.cachedInputTokens",
-                            "ai.usage.inputTokenDetails.cacheReadTokens",
-                        ],
+                        span_kind,
+                        scope_name=scope_name,
+                        model_name=model_name,
                     )
-                    api_cache_write_tokens = first_present_number(
-                        span_attrs,
-                        [
-                            "llm.token_count.prompt_details.cache_write",
-                            "gen_ai.usage.cache_creation.input_tokens",
-                            "gen_ai.usage.cache_creation_input_tokens",
-                            "gen_ai.usage.details.cache_write_tokens",
-                            # pydantic-ai version variant:
-                            "gen_ai.usage.details.cache_creation_input_tokens",
-                            # Vercel AI SDK raw attr (never normalized upstream):
-                            "ai.usage.inputTokenDetails.cacheWriteTokens",
-                        ],
-                    )
-                    # Optional Anthropic 1-hour cache-write portion (1h write = 2.0x
-                    # input, versus 1.25x for the default 5-minute write). A SUBSET of
-                    # cache_write, priced at its own rate when present; absent for every
-                    # emitter today (the split is dropped at the instrumentation layer),
-                    # so this defaults to None -> 0 and leaves pricing unchanged.
-                    api_cache_write_1h_tokens = first_present_number(
-                        span_attrs,
-                        [
-                            "llm.token_count.prompt_details.cache_write_1h",
-                            "gen_ai.usage.cache_creation.ephemeral_1h_input_tokens",
-                            "gen_ai.usage.cache_creation_ephemeral_1h_input_tokens",
-                        ],
-                    )
-                    # Reasoning tokens (o-series / GPT-5): a SUBSET of output
-                    # tokens, already priced at the output rate, so this is
-                    # display-only and must NOT feed the cost buckets.
-                    api_reasoning_tokens = first_present(
-                        span_attrs,
-                        [
-                            "llm.token_count.completion_details.reasoning",
-                            "gen_ai.usage.reasoning_tokens",
-                            "gen_ai.usage.output_details.reasoning_tokens",
-                            "gen_ai.usage.details.reasoning_tokens",
-                            # Vercel AI SDK raw attrs (aliases of the same value):
-                            "ai.usage.outputTokenDetails.reasoningTokens",
-                            "ai.usage.reasoningTokens",
-                        ],
-                    )
-
-                    if api_input_tokens is not None or api_output_tokens is not None:
-                        # Use API-provided counts (accurate).
-                        input_tokens = int_or_zero(api_input_tokens)
-                        output_tokens = int_or_zero(api_output_tokens)
-                        span_record["output_tokens"] = output_tokens
-
-                        # Normalize counts into disjoint buckets keyed on the
-                        # instrumentation scope. The SAME buckets feed both the
-                        # stored breakdown columns and the cost, so the displayed
-                        # split always reconciles and matches what was priced (#958).
-                        from worker.tokens.buckets import normalize_token_usage
-                        from worker.tokens.pricing import (
-                            cost_from_buckets,
-                            get_model_price,
-                        )
-
-                        buckets = normalize_token_usage(
-                            scope_name,
-                            input_tokens=input_tokens,
-                            output_tokens=output_tokens,
-                            cache_read_tokens=int_or_zero(api_cache_read_tokens),
-                            cache_write_tokens=int_or_zero(api_cache_write_tokens),
-                            cache_write_1h_tokens=int_or_zero(api_cache_write_1h_tokens),
-                        )
-                        # Store a GROSS (cache-inclusive) input reconstructed from the
-                        # disjoint buckets, so the input column always reconciles with
-                        # its cache breakdown. Net/exclusive emitters (e.g.
-                        # claude-agent-sdk) report only the non-cached tokens in
-                        # llm.token_count.prompt with cache as separate additive
-                        # buckets, so the reported input alone (e.g. 2) understates the
-                        # true total; summing the buckets recovers it. Gross emitters
-                        # are unchanged (cache is already a subset of the input).
-                        gross_input = (
-                            buckets.input_uncached + buckets.cache_read + buckets.cache_write
-                        )
-                        span_record["input_tokens"] = gross_input
-                        span_record["total_tokens"] = gross_input + output_tokens
-                        # Persist the breakdown as a generic usage_details map (one
-                        # ClickHouse Map column rather than a column per dimension, so
-                        # new provider token types need no migration). cache_read/
-                        # cache_write come from the disjoint buckets; reasoning is a
-                        # subset of output, capped to it so the output split reconciles.
-                        span_record["usage_details"] = {
-                            "cache_read_tokens": buckets.cache_read,
-                            "cache_write_tokens": buckets.cache_write,
-                            "reasoning_tokens": min(
-                                int_or_zero(api_reasoning_tokens), output_tokens
-                            ),
-                        }
-                        # Persist the 1-hour cache-write portion only when an emitter
-                        # actually reports it, so spans with no 1-hour portion (every
-                        # span today) keep an identical usage_details map. The read path
-                        # defaults the missing key to 0.
-                        if buckets.cache_write_1h:
-                            span_record["usage_details"]["cache_write_1h_tokens"] = (
-                                buckets.cache_write_1h
-                            )
-                        cost = cost_from_buckets(get_model_price(model_name), buckets)
-                        if cost is not None:
-                            span_record["cost"] = cost
+                    if api_usage_fields is not None:
+                        span_record.update(api_usage_fields)
                     elif span_kind == SpanKind.LLM and not _scope_skips_text_token_estimation(
                         scope_name
                     ):

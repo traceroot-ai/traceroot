@@ -7,6 +7,7 @@ import pytest
 
 from tests.fixtures.otel_payloads import make_attr, make_otel_payload, make_span
 from worker.otel_transform import (
+    _build_api_token_usage_fields,
     attributes_to_dict,
     decode_otel_id,
     extract_attribute_value,
@@ -60,6 +61,62 @@ class TestIntOrZero:
     def test_ints_and_floats_parse(self):
         assert int_or_zero(42) == 42
         assert int_or_zero(3.9) == 3
+
+
+class TestBuildApiTokenUsageFields:
+    def test_returns_none_when_only_vercel_raw_totals_are_on_non_llm_span(self):
+        fields = _build_api_token_usage_fields(
+            {
+                "ai.usage.inputTokens": 1234,
+                "ai.usage.outputTokens": 567,
+            },
+            "AGENT",
+            scope_name="ai",
+            model_name="gpt-4o-mini",
+        )
+
+        assert fields is None
+
+    def test_builds_gross_usage_details_and_cost_from_api_counts(self):
+        from unittest.mock import patch
+
+        prices = {
+            "input": 0.000003,
+            "output": 0.000015,
+            "cacheRead": 0.0000003,
+            "cacheWrite": 0.00000375,
+        }
+
+        with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+            fields = _build_api_token_usage_fields(
+                {
+                    "gen_ai.usage.input_tokens": 1000,
+                    "gen_ai.usage.output_tokens": 50,
+                    "gen_ai.usage.cache_read.input_tokens": 900,
+                    "gen_ai.usage.cache_creation.input_tokens": 50,
+                    "gen_ai.usage.reasoning_tokens": 200,
+                },
+                "LLM",
+                scope_name="pydantic-ai",
+                model_name="claude-3-5-sonnet",
+            )
+
+        assert fields == {
+            "input_tokens": 1000,
+            "output_tokens": 50,
+            "total_tokens": 1050,
+            "usage_details": {
+                "cache_read_tokens": 900,
+                "cache_write_tokens": 50,
+                "reasoning_tokens": 50,
+            },
+            "cost": pytest.approx(
+                50 * prices["input"]
+                + 50 * prices["output"]
+                + 900 * prices["cacheRead"]
+                + 50 * prices["cacheWrite"]
+            ),
+        }
 
 
 # ── decode_otel_id ──────────────────────────────────────────────────────
