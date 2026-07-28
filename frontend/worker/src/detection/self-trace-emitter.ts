@@ -20,7 +20,7 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { SpanStatusCode, trace } from "@opentelemetry/api";
-import { TraceRoot, observe, startSpan } from "@traceroot-ai/traceroot";
+import { TraceRoot, observe } from "@traceroot-ai/traceroot";
 
 export interface SelfTraceRunMeta {
   /** Run id; its dashless form is forced as the self-trace's trace id. */
@@ -76,28 +76,6 @@ let forcingBroken = false;
 // keying shutdown off `initialized` would strand those resources unflushed.
 let sdkStarted = false;
 
-/** Valid non-zero 32-hex id; the SDK rejects an all-zero one. */
-const PROBE_TRACE_ID = "0".repeat(31) + "1";
-
-/**
- * Does a forced trace id actually reach the span? Forcing lives on the tracer
- * provider the SDK registers, so it silently does nothing when another OTel
- * provider was registered first (OTel's register() returns false and logs — it
- * does not throw) or when tracing is switched off (initialize() no-ops). Both
- * cases yield spans with unrelated trace ids, which permanently breaks the
- * run↔trace link this feature exists for, so only initialize once forcing is
- * observed to work.
- *
- * The probe span is deliberately never ended: ending it would have the SDK's
- * processor drop it as unattributed (it carries no project id), consuming the
- * module-level one-time "dropping span" warning and masking later genuine
- * drops. Leaving it open only retains a couple of map entries for one span.
- */
-function forcedTraceIdWorks(): boolean {
-  const span = startSpan({ name: "self-trace boot probe", traceId: PROBE_TRACE_ID });
-  return span.traceId === PROBE_TRACE_ID;
-}
-
 /**
  * Initialize the SDK's internal-export pipeline once. No process-default
  * X-Project-Id is configured: every root carries its own projectId, and the
@@ -129,21 +107,23 @@ export function initSelfTraceEmitter(): void {
     // from a tenant trying to label theirs internal.
   });
   sdkStarted = true;
-  // Only an explicit false disables self-tracing: a probe that throws is
-  // inconclusive, and turning the feature off over a bug in its own guard is
-  // worse than tracing with a possibly broken link.
-  let forcingWorks = true;
-  try {
-    forcingWorks = forcedTraceIdWorks();
-  } catch (err) {
-    console.error("[Detector] self-trace forcing probe errored; assuming it works:", err);
-  }
-  if (!forcingWorks) {
+  // Trace-id forcing lives on the provider the SDK registers, so it silently does
+  // nothing if another OTel provider registered first (OTel's register() returns
+  // false and logs rather than throwing) or if tracing is switched off. Either way
+  // runs get random trace ids and the run↔trace link this feature exists for is
+  // broken, so ask the SDK directly rather than inferring it from a probe span.
+  //
+  // NOTE: this reports whether the SDK's provider won global registration. Forcing
+  // ALSO needs internal mode, which holds only because initialize() above is passed
+  // internalExport — the SDK installs its id generator on that condition. If that
+  // config ever changes, this check stops covering forcing; the test asserting
+  // internalExport is passed is what pins the assumption.
+  if (!TraceRoot.isTracingActive()) {
     forcingBroken = true;
     console.error(
-      "[Detector] forced trace ids are not being applied (another OpenTelemetry " +
-        "provider may have been registered first, or tracing is disabled); " +
-        "self-trace emit disabled — detector runs cannot be correlated to traces",
+      "[Detector] tracing is not active (another OpenTelemetry provider may have " +
+        "been registered first, or tracing is disabled); self-trace emit disabled — " +
+        "detector runs cannot be correlated to traces",
     );
     return;
   }

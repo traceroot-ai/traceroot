@@ -1,16 +1,22 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-const { mockInitialize, mockObserve, mockFlush, mockShutdown, mockStartSpan } = vi.hoisted(() => ({
-  mockInitialize: vi.fn(),
-  mockObserve: vi.fn(),
-  mockFlush: vi.fn(),
-  mockShutdown: vi.fn(),
-  mockStartSpan: vi.fn(),
-}));
+const { mockInitialize, mockObserve, mockFlush, mockShutdown, mockIsTracingActive } = vi.hoisted(
+  () => ({
+    mockInitialize: vi.fn(),
+    mockObserve: vi.fn(),
+    mockFlush: vi.fn(),
+    mockShutdown: vi.fn(),
+    mockIsTracingActive: vi.fn(),
+  }),
+);
 vi.mock("@traceroot-ai/traceroot", () => ({
-  TraceRoot: { initialize: mockInitialize, flush: mockFlush, shutdown: mockShutdown },
+  TraceRoot: {
+    initialize: mockInitialize,
+    flush: mockFlush,
+    shutdown: mockShutdown,
+    isTracingActive: mockIsTracingActive,
+  },
   observe: mockObserve,
-  startSpan: mockStartSpan,
 }));
 
 import { SpanStatusCode, trace } from "@opentelemetry/api";
@@ -38,11 +44,8 @@ beforeEach(() => {
   mockShutdown.mockResolvedValue(undefined);
   // Faithful stand-in for the SDK: observe runs the callback and rethrows.
   mockObserve.mockImplementation(async (_opts: unknown, fn: () => Promise<unknown>) => fn());
-  // ...and trace-id forcing works, i.e. the span gets the id it asked for.
-  mockStartSpan.mockImplementation((opts: { traceId?: string }) => ({
-    traceId: opts.traceId,
-    end: vi.fn(),
-  }));
+  // ...and the SDK's provider won global registration, so forcing takes effect.
+  mockIsTracingActive.mockReturnValue(true);
 });
 
 afterEach(async () => {
@@ -226,8 +229,8 @@ describe("with a secret (SDK-traced path)", () => {
   });
 });
 
-describe("trace-id forcing probe", () => {
-  // The probe latches its verdict for the process, so each case that disables
+describe("tracing-active guard", () => {
+  // The guard latches its verdict for the process, so each case that disables
   // self-tracing needs a fresh copy of the module.
   async function freshEmitter() {
     vi.resetModules();
@@ -238,27 +241,22 @@ describe("trace-id forcing probe", () => {
     vi.stubEnv("INTERNAL_API_SECRET", "test-secret");
   });
 
-  it("probes with a valid forced id and never ends the probe span", async () => {
-    const probeSpan = { traceId: "", end: vi.fn() };
-    mockStartSpan.mockImplementation((opts: { traceId: string }) => {
-      probeSpan.traceId = opts.traceId;
-      return probeSpan;
-    });
-
-    const run = await withSelfTrace(meta(), async () => "verdict");
-
-    expect(run).toEqual({ ok: true, value: "verdict", selfTraced: true });
-    expect(mockStartSpan).toHaveBeenCalledTimes(1);
-    const probeId = mockStartSpan.mock.calls[0][0].traceId;
-    expect(probeId).toMatch(/^[0-9a-f]{32}$/);
-    expect(probeId).not.toBe("0".repeat(32));
-    // Ending it would have the SDK drop it as unattributed and burn the
-    // one-time "dropping span" warning.
-    expect(probeSpan.end).not.toHaveBeenCalled();
+  it("passes internalExport, which is what makes trace-id forcing available", async () => {
+    // isTracingActive() reports registration, not forcing. Forcing additionally needs
+    // internal mode, which the SDK enables off internalExport — so if this stops being
+    // passed, the guard silently stops covering the thing it exists to guard.
+    await withSelfTrace(meta(), async () => 1);
+    expect(mockInitialize.mock.calls[0][0].internalExport).toBeDefined();
   });
 
-  it("disables self-tracing when the forced id does not come back", async () => {
-    mockStartSpan.mockReturnValue({ traceId: "f".repeat(32), end: vi.fn() });
+  it("emits normally while tracing is active", async () => {
+    const run = await withSelfTrace(meta(), async () => "verdict");
+    expect(run).toEqual({ ok: true, value: "verdict", selfTraced: true });
+    expect(mockIsTracingActive).toHaveBeenCalled();
+  });
+
+  it("disables self-tracing when the SDK reports tracing inactive", async () => {
+    mockIsTracingActive.mockReturnValue(false);
     const { withSelfTrace: guarded } = await freshEmitter();
 
     let calls = 0;
@@ -273,7 +271,7 @@ describe("trace-id forcing probe", () => {
   });
 
   it("still propagates fn's failure once self-tracing is disabled", async () => {
-    mockStartSpan.mockReturnValue({ traceId: "f".repeat(32), end: vi.fn() });
+    mockIsTracingActive.mockReturnValue(false);
     const { withSelfTrace: guarded } = await freshEmitter();
 
     const run = await guarded(meta(), async () => {
@@ -286,21 +284,20 @@ describe("trace-id forcing probe", () => {
   });
 
   it("does not re-attempt initialization on later runs once disabled", async () => {
-    mockStartSpan.mockReturnValue({ traceId: "f".repeat(32), end: vi.fn() });
+    mockIsTracingActive.mockReturnValue(false);
     const { withSelfTrace: guarded } = await freshEmitter();
 
     await guarded(meta(), async () => 1);
     await guarded(meta(), async () => 2);
 
     expect(mockInitialize).toHaveBeenCalledTimes(1);
-    expect(mockStartSpan).toHaveBeenCalledTimes(1);
   });
 
-  it("still flushes and shuts down the SDK it started when the probe disabled tracing", async () => {
-    // The probe runs AFTER TraceRoot.initialize(), so the failure path leaves a live
-    // provider, exporter and batch processor behind while self-tracing is off. Keying
-    // shutdown off `initialized` would strand them; it keys off "did we start the SDK".
-    mockStartSpan.mockReturnValue({ traceId: "f".repeat(32), end: vi.fn() });
+  it("still flushes and shuts down the SDK it started when the guard disabled tracing", async () => {
+    // The check runs AFTER TraceRoot.initialize(), so the failure path leaves a live
+    // provider, exporter and batch processor behind while self-tracing is off.
+    // Shutdown keys off whether the SDK was started, not whether tracing stayed on.
+    mockIsTracingActive.mockReturnValue(false);
     const { withSelfTrace: guarded, shutdownSelfTraceEmitter: shutdownGuarded } =
       await freshEmitter();
 
@@ -312,17 +309,5 @@ describe("trace-id forcing probe", () => {
 
     expect(mockFlush).toHaveBeenCalledTimes(1);
     expect(mockShutdown).toHaveBeenCalledTimes(1);
-  });
-
-  it("treats a throwing probe as inconclusive and keeps self-tracing on", async () => {
-    mockStartSpan.mockImplementation(() => {
-      throw new Error("probe blew up");
-    });
-    const { withSelfTrace: guarded } = await freshEmitter();
-
-    const run = await guarded(meta(), async () => "verdict");
-
-    expect(run).toEqual({ ok: true, value: "verdict", selfTraced: true });
-    expect(mockObserve).toHaveBeenCalledTimes(1);
   });
 });
