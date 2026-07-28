@@ -290,6 +290,7 @@ export default function DetectorDetailPage() {
           initialFullscreen={startFullscreen}
           newTabPath={`/projects/${projectId}/detectors/${detectorId}`}
           source={selectedTrace.kind === "self" ? "detector" : "user"}
+          runTimestamp={activeRows[selectedIndex]?.timestamp}
         />
       )}
     </div>
