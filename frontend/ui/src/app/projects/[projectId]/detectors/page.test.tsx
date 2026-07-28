@@ -109,24 +109,23 @@ afterEach(() => {
 });
 
 describe("DetectorsPage", () => {
-  it("shows the resolved detector default model with a default marker", () => {
+  it("shows the resolved detector default model, unadorned", () => {
     render(<DetectorsPage />);
 
     const defaultRow = screen.getByText("My Detector").closest("tr");
     expect(defaultRow).not.toBeNull();
     expect(defaultRow?.textContent).toContain(DETECTOR_SYSTEM_DEFAULT_MODEL_ID);
     expect(defaultRow?.textContent).not.toContain("System default:");
-    expect(defaultRow?.textContent).toContain("(default)");
+    expect(defaultRow?.textContent).not.toContain("(default)");
   });
 
-  it("does not label BYOK detectors without a model as a default", () => {
+  it("shows the provider name for BYOK detectors without a model", () => {
     render(<DetectorsPage />);
 
     const byokRow = screen.getByText("BYOK Detector").closest("tr");
     expect(byokRow).not.toBeNull();
     expect(byokRow?.textContent).toContain("Anthropic BYOK");
     expect(byokRow?.textContent).not.toContain("BYOK provider:");
-    expect(byokRow?.textContent).not.toContain("(default)");
     expect(byokRow?.textContent).not.toContain(DETECTOR_SYSTEM_DEFAULT_MODEL_ID);
   });
 
@@ -136,11 +135,10 @@ describe("DetectorsPage", () => {
     const legacyRow = screen.getByText("Legacy Detector").closest("tr");
     expect(legacyRow).not.toBeNull();
     expect(legacyRow?.textContent).toContain(DETECTOR_SYSTEM_DEFAULT_MODEL_ID);
-    expect(legacyRow?.textContent).toContain("(default)");
     expect(legacyRow?.textContent).not.toContain("Auto-selected");
   });
 
-  it("shows pinned detector models without the default marker", () => {
+  it("shows pinned detector models with no source prefix", () => {
     render(<DetectorsPage />);
 
     const pinnedRow = screen.getByText("Pinned Detector").closest("tr");
@@ -148,7 +146,6 @@ describe("DetectorsPage", () => {
     expect(pinnedRow?.textContent).toContain("gpt-5.4");
     expect(pinnedRow?.textContent).not.toContain("System pinned:");
     expect(pinnedRow?.textContent).not.toContain("System default:");
-    expect(pinnedRow?.textContent).not.toContain("(default)");
   });
 
   it("shows pinned BYOK detector models without source prefixes", () => {
@@ -158,7 +155,6 @@ describe("DetectorsPage", () => {
     expect(pinnedByokRow).not.toBeNull();
     expect(pinnedByokRow?.textContent).toContain("gpt-5.4");
     expect(pinnedByokRow?.textContent).not.toContain("BYOK (OpenAI BYOK):");
-    expect(pinnedByokRow?.textContent).not.toContain("(default)");
   });
 
   it("carries the selected time range into the detector detail URL on row click", () => {

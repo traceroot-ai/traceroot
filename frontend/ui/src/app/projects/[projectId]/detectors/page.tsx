@@ -29,16 +29,16 @@ function formatDetectorModel(detector: {
   detectionSource: "system" | "byok" | null;
 }) {
   if (detector.detectionModel) {
-    return { label: detector.detectionModel, isDefault: false };
+    return detector.detectionModel;
   }
 
   if (detector.detectionSource === "byok") {
-    return { label: detector.detectionProvider ?? "configured provider", isDefault: false };
+    return detector.detectionProvider ?? "configured provider";
   }
 
   // Both "system" and a never-set null source resolve to the screening
   // default at eval time, so an unpinned detector reads the same either way.
-  return { label: DETECTOR_SYSTEM_DEFAULT_MODEL_ID, isDefault: true };
+  return DETECTOR_SYSTEM_DEFAULT_MODEL_ID;
 }
 
 export default function DetectorsPage() {
@@ -243,12 +243,7 @@ export default function DetectorsPage() {
                         {template?.label ?? detector.template}
                       </td>
                       <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
-                        {detectorModel.label}
-                        {detectorModel.isDefault && (
-                          <span className="ml-1 text-[11px] text-muted-foreground/70">
-                            (default)
-                          </span>
-                        )}
+                        {detectorModel}
                       </td>
                       <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
                         {detector.sampleRate}%
