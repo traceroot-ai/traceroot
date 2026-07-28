@@ -36,11 +36,9 @@ function formatDetectorModel(detector: {
     return { label: detector.detectionProvider ?? "configured provider", isDefault: false };
   }
 
-  if (detector.detectionSource === "system") {
-    return { label: DETECTOR_SYSTEM_DEFAULT_MODEL_ID, isDefault: true };
-  }
-
-  return { label: "Auto-selected", isDefault: true };
+  // Both "system" and a never-set null source resolve to the screening
+  // default at eval time, so an unpinned detector reads the same either way.
+  return { label: DETECTOR_SYSTEM_DEFAULT_MODEL_ID, isDefault: true };
 }
 
 export default function DetectorsPage() {

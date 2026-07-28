@@ -138,7 +138,7 @@ describe("runDetectionForTrace", () => {
     expect(mockResolvePiModel).toHaveBeenCalledWith(DETECTOR_SYSTEM_DEFAULT_MODEL_ID, null);
   });
 
-  it("keeps legacy null-source detectors on the availability-aware resolver default", async () => {
+  it("screens legacy null-source detectors on the system default, as the UI labels them", async () => {
     mockComplete.mockResolvedValueOnce({
       content: [
         {
@@ -158,7 +158,7 @@ describe("runDetectionForTrace", () => {
       workspaceId: "ws-1",
     });
 
-    expect(mockResolvePiModel).toHaveBeenCalledWith(undefined, null);
+    expect(mockResolvePiModel).toHaveBeenCalledWith(DETECTOR_SYSTEM_DEFAULT_MODEL_ID, null);
   });
 
   it("passes pinned system detector models through to the resolver", async () => {
@@ -557,7 +557,10 @@ describe("runDetectionForTrace", () => {
       expect(result.inferenceSource).toBe("system");
     });
 
-    it("treats null source as null on the EvalResult (processor normalizes)", async () => {
+    // Attribution follows the model that actually ran: a null-source detector
+    // screens on the system default with a system key, so the run is system.
+    // Billing is unaffected either way — the processor only asks `=== "byok"`.
+    it("attributes a null-source run to system on the EvalResult", async () => {
       mockComplete.mockResolvedValueOnce({
         content: [
           {
@@ -570,15 +573,14 @@ describe("runDetectionForTrace", () => {
         stopReason: "toolUse",
       });
 
-      const detectorWithoutSource = { ...DETECTOR };
       const result = await runDetectionForTrace({
         traceId: "t",
         spansJsonl: "{}",
-        detector: detectorWithoutSource,
+        detector: { ...DETECTOR, detectionSource: null },
         workspaceId: "ws-1",
       });
 
-      expect(result.inferenceSource).toBeNull();
+      expect(result.inferenceSource).toBe("system");
       expect(result.inferenceCost).toBeCloseTo(0.002, 6);
     });
   });

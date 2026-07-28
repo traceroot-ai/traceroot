@@ -130,15 +130,14 @@ describe("DetectorsPage", () => {
     expect(byokRow?.textContent).not.toContain(DETECTOR_SYSTEM_DEFAULT_MODEL_ID);
   });
 
-  it("keeps legacy null-source detector labels availability-aware", () => {
+  it("labels legacy null-source detectors with the screening default the worker uses", () => {
     render(<DetectorsPage />);
 
     const legacyRow = screen.getByText("Legacy Detector").closest("tr");
     expect(legacyRow).not.toBeNull();
-    expect(legacyRow?.textContent).toContain("Auto-selected");
-    expect(legacyRow?.textContent).not.toContain("Auto-selected default");
+    expect(legacyRow?.textContent).toContain(DETECTOR_SYSTEM_DEFAULT_MODEL_ID);
     expect(legacyRow?.textContent).toContain("(default)");
-    expect(legacyRow?.textContent).not.toContain(DETECTOR_SYSTEM_DEFAULT_MODEL_ID);
+    expect(legacyRow?.textContent).not.toContain("Auto-selected");
   });
 
   it("shows pinned detector models without the default marker", () => {

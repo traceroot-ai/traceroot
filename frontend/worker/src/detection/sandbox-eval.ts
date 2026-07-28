@@ -136,7 +136,17 @@ export async function runDetectionForTrace(params: {
   workspaceId: string;
 }): Promise<EvalResult> {
   const { traceId, spansJsonl, detector, workspaceId } = params;
-  const source = detector.detectionSource ?? null;
+  // A null source means "never set" — legacy rows, and any API client that
+  // omitted the field. Every UI path writes "system" explicitly and the UI
+  // reads null back as "system", so treat it as system here too.
+  //
+  // Note the reach: with the pickers persisting an empty selection, every
+  // unpinned detector — newly created ones included, not just legacy rows —
+  // screens on the fixed default instead of an availability-aware provider
+  // pick. A deployment holding no key for that model's provider, in env or
+  // in a workspace BYOK row, fails those evals rather than quietly screening
+  // on whichever provider happens to be configured.
+  const source = detector.detectionSource ?? "system";
 
   // 1. BYOK config
   let providerConfig: ProviderModelConfig | null = null;
