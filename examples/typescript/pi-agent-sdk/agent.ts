@@ -14,7 +14,7 @@
  * README for why that's possible, and why the session must be created
  * without a `tools` allowlist for it to work):
  *
- *   incident_inv_2041                        (observe: agent)
+ *   pi-session                               (observe: agent)
  *   ├─ recon                                 (observe: span) — read-only tools
  *   │   ├─ AGENT  prompt 1: map the repo
  *   │   │   └─ TOOL  ls, find
@@ -289,7 +289,7 @@ async function main(): Promise<void> {
       { userId: 'example-user', sessionId: 'pi-agent-sdk-incident-session' },
       () =>
         observe(
-          { name: 'incident_inv_2041', type: 'agent' },
+          { name: 'pi-session', type: 'agent' },
           async (summary: string) => {
             console.log(`\n--- ${summary} ---`);
             await recon(session, RECON_PROMPTS);
