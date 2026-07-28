@@ -822,6 +822,85 @@ class TestTransformOtelToClickhouse:
             assert (s.get("output_tokens") or 0) == 0, f"oi_kind={oi_kind}"
             assert (s.get("cost") or 0) == 0, f"oi_kind={oi_kind}"
 
+    def test_normalized_api_counts_dropped_on_explicit_non_llm_span(self):
+        """An explicitly non-LLM wrapper with a model name and normalized usage
+        must not be priced from those counts. Future instrumentors may add model
+        names to AGENT/CHAIN wrappers that already carry aggregate gen_ai/llm
+        usage; accepting those counts would price wrapper totals as real calls."""
+        from unittest.mock import patch
+
+        prices = {"input": 0.000003, "output": 0.000015, "cacheRead": 0.0, "cacheWrite": 0.0}
+        for oi_kind in ("AGENT", "CHAIN"):
+            payload = make_otel_payload(
+                [
+                    make_span(
+                        "aa" * 16,
+                        "bb" * 8,
+                        name="future.wrapper",
+                        attributes=[
+                            make_attr("openinference.span.kind", oi_kind),
+                            make_attr("llm.model_name", "gpt-4o-mini"),
+                            make_attr("llm.token_count.prompt", 1234),
+                            make_attr("gen_ai.usage.output_tokens", 567),
+                        ],
+                    )
+                ],
+                scope_name="future.instrumentor",
+            )
+            with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+                _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+            s = spans[0]
+            assert (s.get("input_tokens") or 0) == 0, f"oi_kind={oi_kind}"
+            assert (s.get("output_tokens") or 0) == 0, f"oi_kind={oi_kind}"
+            assert (s.get("cost") or 0) == 0, f"oi_kind={oi_kind}"
+
+    def test_normalized_non_llm_wrapper_does_not_double_count_llm_child(self):
+        """If a wrapper rolls child usage up into normalized token keys, trace
+        totals must still come only from the LLM child span."""
+        from unittest.mock import patch
+
+        prices = {"input": 0.000003, "output": 0.000015, "cacheRead": 0.0, "cacheWrite": 0.0}
+        payload = make_otel_payload(
+            [
+                make_span(
+                    "aa" * 16,
+                    "bb" * 8,
+                    name="future.agent_wrapper",
+                    attributes=[
+                        make_attr("openinference.span.kind", "AGENT"),
+                        make_attr("llm.model_name", "gpt-4o-mini"),
+                        make_attr("llm.token_count.prompt", 203),
+                        make_attr("llm.token_count.completion", 178),
+                    ],
+                ),
+                make_span(
+                    "aa" * 16,
+                    "cc" * 8,
+                    name="future.llm_call",
+                    parent_span_id_hex="bb" * 8,
+                    attributes=[
+                        make_attr("openinference.span.kind", "LLM"),
+                        make_attr("llm.model_name", "gpt-4o-mini"),
+                        make_attr("llm.token_count.prompt", 203),
+                        make_attr("llm.token_count.completion", 178),
+                    ],
+                ),
+            ],
+            scope_name="future.instrumentor",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        wrapper = next(s for s in spans if s["name"] == "future.agent_wrapper")
+        child = next(s for s in spans if s["name"] == "future.llm_call")
+        assert (wrapper.get("input_tokens") or 0) == 0
+        assert (wrapper.get("output_tokens") or 0) == 0
+        assert child["input_tokens"] == 203
+        assert child["output_tokens"] == 178
+        assert sum((s.get("input_tokens") or 0) for s in spans) == 203
+        assert sum((s.get("output_tokens") or 0) for s in spans) == 178
+
     def test_vercel_generate_object_legacy_spellings_priced_on_llm_child_only(self):
         """generateObject emits only the legacy ai.usage.promptTokens /
         completionTokens spellings. The AGENT wrapper (ai.generateObject) and its

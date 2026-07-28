@@ -8,8 +8,9 @@ Estimating tokens from a wrapper's text fabricates a duplicate of usage its LLM
 children already report, silently doubling per-trace token totals and cost.
 
 The estimation fallback must therefore fire only for spans classified as LLM.
-API-provided token counts are unaffected: they are trusted on any span kind, because
-some instrumentors legitimately report usage at the wrapper level.
+#1206 extends the same boundary to API-provided token counts: explicitly non-LLM
+wrapper spans can carry aggregate child usage, so adopting those counts silently
+double-counts the real LLM children.
 
 Estimation tests use Claude model names: their token estimate is a deterministic,
 offline `len(text) // 4`, so the tests never depend on tiktoken downloads or pricing DB.
@@ -132,13 +133,12 @@ def test_genai_chat_operation_still_gets_estimated_tokens():
 
 
 # ---------------------------------------------------------------------------
-# API-provided counts are trusted on ANY span kind (the gate must not touch them)
+# API-provided counts are also gated to LLM-kind spans
 # ---------------------------------------------------------------------------
 
 
-def test_agent_span_with_api_counts_keeps_them():
-    """Some instrumentors report real usage at the wrapper level; API-provided
-    counts must survive on non-LLM spans — only ESTIMATION is gated."""
+def test_agent_span_with_api_counts_dropped():
+    """Explicitly non-LLM spans keep their model name but do not adopt counts."""
     spans = _transform(
         [
             _span_with(
@@ -152,12 +152,11 @@ def test_agent_span_with_api_counts_keeps_them():
         ]
     )
     assert spans[0]["span_kind"] == "AGENT"
-    assert spans[0]["input_tokens"] == 120
-    assert spans[0]["output_tokens"] == 45
-    assert spans[0]["total_tokens"] == 165
+    assert spans[0]["model_name"] == MODEL
+    _assert_no_fabricated_tokens(spans[0])
 
 
-def test_agent_span_with_api_counts_still_gets_cost():
+def test_agent_span_with_api_counts_does_not_get_cost():
     mock_prices = {"input": 0.000003, "output": 0.000015}
     with patch("worker.tokens.pricing.get_model_price", return_value=mock_prices):
         spans = _transform(
@@ -172,7 +171,8 @@ def test_agent_span_with_api_counts_still_gets_cost():
                 )
             ]
         )
-    assert spans[0]["cost"] is not None and spans[0]["cost"] > 0
+    assert spans[0]["model_name"] == MODEL
+    _assert_no_fabricated_tokens(spans[0])
 
 
 # ---------------------------------------------------------------------------
