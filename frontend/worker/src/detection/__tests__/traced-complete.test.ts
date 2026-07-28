@@ -94,7 +94,7 @@ describe("tracedComplete inside a self-trace scope", () => {
     expect(llm.parentSpanContext?.spanId).toBe(root.spanContext().spanId);
     expect(llm.spanContext().traceId).toBe(root.spanContext().traceId);
 
-    expect(llm.attributes["traceroot.source"]).toBe("detector");
+    expect(llm.attributes["traceroot.source"]).toBeUndefined();
     expect(llm.attributes["traceroot.project_id"]).toBe("proj-1");
     expect(llm.attributes["traceroot.span.type"]).toBe("LLM");
     // Response model (dated snapshot) wins over the requested id.

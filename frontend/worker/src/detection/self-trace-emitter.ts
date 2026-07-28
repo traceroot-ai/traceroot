@@ -20,7 +20,7 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { SpanStatusCode, trace } from "@opentelemetry/api";
-import { TraceRoot, observe } from "@traceroot-ai/traceroot";
+import { TraceRoot, observe, startSpan } from "@traceroot-ai/traceroot";
 
 export interface SelfTraceRunMeta {
   /** Run id; its dashless form is forced as the self-trace's trace id. */
@@ -66,6 +66,37 @@ export function currentSelfTraceScope(): SelfTraceScope | undefined {
 
 let initialized = false;
 let warnedDisabled = false;
+// Latched separately from `initialized`: withSelfTrace re-runs
+// initSelfTraceEmitter() whenever `initialized` is false, so reusing that flag
+// as the disable latch would re-attempt initialization on every single run.
+let forcingBroken = false;
+// TraceRoot.initialize() succeeded, regardless of whether self-tracing stayed on.
+// Shutdown keys off THIS, not `initialized`: the probe-failure path starts the SDK
+// (global provider, exporter, batch processor) and then leaves self-tracing off, so
+// keying shutdown off `initialized` would strand those resources unflushed.
+let sdkStarted = false;
+
+/** Valid non-zero 32-hex id; the SDK rejects an all-zero one. */
+const PROBE_TRACE_ID = "0".repeat(31) + "1";
+
+/**
+ * Does a forced trace id actually reach the span? Forcing lives on the tracer
+ * provider the SDK registers, so it silently does nothing when another OTel
+ * provider was registered first (OTel's register() returns false and logs — it
+ * does not throw) or when tracing is switched off (initialize() no-ops). Both
+ * cases yield spans with unrelated trace ids, which permanently breaks the
+ * run↔trace link this feature exists for, so only initialize once forcing is
+ * observed to work.
+ *
+ * The probe span is deliberately never ended: ending it would have the SDK's
+ * processor drop it as unattributed (it carries no project id), consuming the
+ * module-level one-time "dropping span" warning and masking later genuine
+ * drops. Leaving it open only retains a couple of map entries for one span.
+ */
+function forcedTraceIdWorks(): boolean {
+  const span = startSpan({ name: "self-trace boot probe", traceId: PROBE_TRACE_ID });
+  return span.traceId === PROBE_TRACE_ID;
+}
 
 /**
  * Initialize the SDK's internal-export pipeline once. No process-default
@@ -75,7 +106,7 @@ let warnedDisabled = false;
  * could only 403.
  */
 export function initSelfTraceEmitter(): void {
-  if (initialized) return;
+  if (initialized || forcingBroken) return;
   // Read at call time (not module load) so a late-injected env still takes
   // effect and tests can vary it.
   const secret = process.env.INTERNAL_API_SECRET || "";
@@ -92,8 +123,30 @@ export function initSelfTraceEmitter(): void {
       path: "/api/v1/internal/traces",
       headers: { "X-Internal-Secret": secret },
     },
-    globalAttributes: { "traceroot.source": "detector" },
+    // No source marker on the wire: the ingest route classifies what it receives
+    // (it is secret-gated, so being called at all is the proof), and the transform
+    // never reads one. Sending it would only make our own traffic indistinguishable
+    // from a tenant trying to label theirs internal.
   });
+  sdkStarted = true;
+  // Only an explicit false disables self-tracing: a probe that throws is
+  // inconclusive, and turning the feature off over a bug in its own guard is
+  // worse than tracing with a possibly broken link.
+  let forcingWorks = true;
+  try {
+    forcingWorks = forcedTraceIdWorks();
+  } catch (err) {
+    console.error("[Detector] self-trace forcing probe errored; assuming it works:", err);
+  }
+  if (!forcingWorks) {
+    forcingBroken = true;
+    console.error(
+      "[Detector] forced trace ids are not being applied (another OpenTelemetry " +
+        "provider may have been registered first, or tracing is disabled); " +
+        "self-trace emit disabled — detector runs cannot be correlated to traces",
+    );
+    return;
+  }
   initialized = true;
   console.log("[Detector] self-trace emitter initialized (internal export)");
 }
@@ -208,7 +261,8 @@ export async function withSelfTrace<T>(
  * rejects on export failure by contract).
  */
 export async function shutdownSelfTraceEmitter(): Promise<void> {
-  if (!initialized) return;
+  if (!sdkStarted) return;
+  sdkStarted = false;
   initialized = false;
   try {
     await TraceRoot.flush();

@@ -79,7 +79,7 @@ export async function tracedComplete(
     // family, so this emitter never trips the unknown-emitter warning.
     span = trace.getTracer("traceroot.detector-worker").startSpan(`chat ${requestedModel}`, {
       attributes: {
-        "traceroot.source": "detector",
+        // No source marker: the secret-gated ingest route classifies these rows.
         "traceroot.project_id": scope.projectId,
         "traceroot.span.type": "LLM",
         "traceroot.llm.model": requestedModel,
