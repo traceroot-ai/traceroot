@@ -53,14 +53,14 @@ class TestGetTraceSourceFilter:
 
     def test_user_source_excludes_detector_in_both_queries(self):
         trace_sql, spans_sql = self._sqls("user")
-        assert "source != 'detector'" in trace_sql
-        assert "source != 'detector'" in spans_sql
+        assert "source = 'user'" in trace_sql
+        assert "source = 'user'" in spans_sql
 
     def test_no_source_leaves_queries_unfiltered(self):
         trace_sql, spans_sql = self._sqls(None)
         for sql in (trace_sql, spans_sql):
             assert "source = 'detector'" not in sql
-            assert "source != 'detector'" not in sql
+            assert "source = 'user'" not in sql
 
 
 class TestListTracesExcludesDetector:
@@ -76,20 +76,20 @@ class TestListTracesExcludesDetector:
 
         data_sql = client.query.call_args_list[0].args[0]
         count_sql = client.query.call_args_list[1].args[0]
-        assert "t.source != 'detector'" in data_sql
-        assert "t.source != 'detector'" in count_sql
+        assert "t.source = 'user'" in data_sql
+        assert "t.source = 'user'" in count_sql
 
 
-class TestExcludeDetectorHelper:
+class TestCustomerTrafficOnlyHelper:
     def test_qualifies_the_column_with_the_alias(self):
-        from rest.services.trace_reader import _exclude_detector
+        from rest.services.trace_reader import customer_traffic_only
 
-        assert _exclude_detector("t") == "t.source != 'detector'"
+        assert customer_traffic_only("t") == "t.source = 'user'"
 
     def test_omits_the_prefix_when_unaliased(self):
-        from rest.services.trace_reader import _exclude_detector
+        from rest.services.trace_reader import customer_traffic_only
 
-        assert _exclude_detector() == "source != 'detector'"
+        assert customer_traffic_only() == "source = 'user'"
 
 
 class TestDistinctSpanValuesExcludesDetector:
@@ -102,7 +102,7 @@ class TestDistinctSpanValuesExcludesDetector:
         service.get_distinct_span_values("p-1", "model_name")
 
         sql = client.query.call_args_list[0].args[0]
-        assert "source != 'detector'" in sql
+        assert "source = 'user'" in sql
 
 
 class TestListSessionsExcludesDetector:
@@ -117,7 +117,7 @@ class TestListSessionsExcludesDetector:
         service.list_sessions("p-1")
 
         for call in client.query.call_args_list[:2]:
-            assert "t.source != 'detector'" in call.args[0]
+            assert "t.source = 'user'" in call.args[0]
 
     def test_io_backfill_query_excludes_detector(self):
         # The backfill re-resolves traces by session_id rather than by the already
@@ -135,7 +135,7 @@ class TestListSessionsExcludesDetector:
         service.list_sessions("p-1")
 
         assert len(client.query.call_args_list) == 3, "backfill query did not run"
-        assert "t.source != 'detector'" in client.query.call_args_list[2].args[0]
+        assert "t.source = 'user'" in client.query.call_args_list[2].args[0]
 
 
 class TestGetSessionExcludesDetector:
@@ -147,7 +147,7 @@ class TestGetSessionExcludesDetector:
 
         assert service.get_session("p-1", "s-1") is None
 
-        assert "t.source != 'detector'" in client.query.call_args_list[0].args[0]
+        assert "t.source = 'user'" in client.query.call_args_list[0].args[0]
 
 
 class TestListUsersExcludesDetector:
@@ -162,4 +162,4 @@ class TestListUsersExcludesDetector:
         service.list_users("p-1")
 
         for call in client.query.call_args_list[:2]:
-            assert "t.source != 'detector'" in call.args[0]
+            assert "t.source = 'user'" in call.args[0]

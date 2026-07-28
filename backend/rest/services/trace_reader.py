@@ -33,18 +33,24 @@ DISTINCT_VALUES_CACHE_MAX = 256
 # open-ended custom ranges. Matches the UI's own default preset ("Last 24 hours").
 DEFAULT_SPAN_SCAN_LOOKBACK_HOURS = 24
 
-# Marker stored in spans.source / traces.source for detector self-traces. Every other
-# row carries 'user' (the column's DEFAULT), so excluding this one value is what keeps
-# internal detector telemetry out of customer-facing reads.
+# Markers stored in spans.source / traces.source. Customer traffic carries 'user' (the
+# column's DEFAULT); internal telemetry carries a marker of its own.
+USER_SOURCE = "user"
 DETECTOR_SOURCE = "detector"
 
 
-def _exclude_detector(alias: str = "") -> str:
-    """WHERE condition dropping detector self-traces from a spans/traces scan.
+def customer_traffic_only(alias: str = "") -> str:
+    """WHERE condition restricting a spans/traces scan to customer traffic.
 
-    Single definition of the exclusion: every customer-facing read that scans spans or
-    traces calls this rather than spelling the comparison out, so a new surface can't
-    quietly ship without it.
+    Single definition of the rule: every customer-facing read that scans spans or traces
+    calls this rather than spelling the comparison out, so a new surface can't quietly
+    ship without it.
+
+    Asserts ``source = 'user'`` rather than ``!= 'detector'`` deliberately. The
+    inequality is fail-open — a second internal marker (an RCA or assistant self-trace,
+    say) would pass it and leak into customer lists, dropdowns and billing until every
+    call site was revisited. Naming the one value that IS customer traffic excludes any
+    future internal marker the day it is introduced.
 
     Args:
         alias (str): Table alias qualifying the column (e.g. ``"t"``), or ``""`` when the
@@ -54,7 +60,7 @@ def _exclude_detector(alias: str = "") -> str:
         str: A WHERE-clause condition.
     """
     column = f"{alias}.source" if alias else "source"
-    return f"{column} != '{DETECTOR_SOURCE}'"
+    return f"{column} = '{USER_SOURCE}'"
 
 
 def _floor_minute(dt: datetime | None) -> datetime | None:
@@ -175,7 +181,7 @@ class TraceReaderService:
         params: dict = {"project_id": project_id}
         # Detector self-traces carry their own model/environment/name values; excluding
         # them keeps internal telemetry out of the customer's filter dropdown options.
-        inner_conditions = ["project_id = {project_id:String}", _exclude_detector()]
+        inner_conditions = ["project_id = {project_id:String}", customer_traffic_only()]
         if normalized_start is not None:
             # Exact bound, no lookback back-off: this is a self-contained window scan with
             # no trace-level semi-join, so the boundary-drift false-negative reasoning that
@@ -232,7 +238,7 @@ class TraceReaderService:
         conditions = ["t.project_id = {project_id:String}"]
         # Detector self-traces are internal telemetry; the customer trace list
         # (data AND count, via the shared where_clause) never shows them.
-        conditions.append(_exclude_detector("t"))
+        conditions.append(customer_traffic_only("t"))
         params = {"project_id": project_id, "limit": limit, "offset": offset}
 
         if name:
@@ -406,8 +412,8 @@ class TraceReaderService:
         # queries — same whitelist pattern as the IO column projection.
         if source == DETECTOR_SOURCE:
             source_condition = f"source = '{DETECTOR_SOURCE}'"
-        elif source == "user":
-            source_condition = _exclude_detector()
+        elif source == USER_SOURCE:
+            source_condition = customer_traffic_only()
         else:
             source_condition = ""
         source_predicate = f"AND {source_condition}" if source_condition else ""
@@ -641,7 +647,7 @@ class TraceReaderService:
         conditions = [
             "t.project_id = {project_id:String}",
             # Self-traces would otherwise inflate session counts and token/cost totals.
-            _exclude_detector("t"),
+            customer_traffic_only("t"),
             "t.session_id IS NOT NULL",
             "t.session_id != ''",
         ]
@@ -781,7 +787,7 @@ class TraceReaderService:
                     SELECT t.session_id, t.trace_id, t.project_id
                     FROM traces AS t
                     WHERE t.project_id = {{project_id:String}}
-                      AND {_exclude_detector("t")}
+                      AND {customer_traffic_only("t")}
                       AND t.session_id IN ({{session_ids:Array(String)}})
                     ORDER BY t.ch_update_time DESC
                     LIMIT 1 BY t.project_id, t.trace_id
@@ -847,7 +853,7 @@ class TraceReaderService:
         conditions = [
             "t.project_id = {project_id:String}",
             # Keep the conversation view consistent with the session list.
-            _exclude_detector("t"),
+            customer_traffic_only("t"),
             "t.session_id = {session_id:String}",
         ]
 
@@ -1029,7 +1035,7 @@ class TraceReaderService:
         conditions = [
             "t.project_id = {project_id:String}",
             # A self-trace carrying a user_id would otherwise surface as a customer user.
-            _exclude_detector("t"),
+            customer_traffic_only("t"),
             "t.user_id IS NOT NULL",
             "t.user_id != ''",
         ]

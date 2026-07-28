@@ -931,10 +931,10 @@ class TestUsageExcludesDetectorTraffic:
         traces_sql = mock_ch.query.call_args_list[0].args[0]
         spans_sql = mock_ch.query.call_args_list[1].args[0]
         runs_sql = mock_ch.query.call_args_list[2].args[0]
-        assert "source != 'detector'" in traces_sql
-        assert "source != 'detector'" in spans_sql
+        assert "source = 'user'" in traces_sql
+        assert "source = 'user'" in spans_sql
         # The detector_runs meter intentionally still counts every run.
-        assert "source != 'detector'" not in runs_sql
+        assert "source = 'user'" not in runs_sql
 
     def test_usage_total_excludes_detector_in_both_subqueries(self, client, mock_ch, secret):
         mock_ch.query.side_effect = [_make_query_result([(12,)], ["total"])]
@@ -945,7 +945,7 @@ class TestUsageExcludesDetectorTraffic:
         )
         assert resp.status_code == 200
         combined_sql = mock_ch.query.call_args_list[0].args[0]
-        assert combined_sql.count("source != 'detector'") == 2
+        assert combined_sql.count("source = 'user'") == 2
 
 
 # =============================================================================

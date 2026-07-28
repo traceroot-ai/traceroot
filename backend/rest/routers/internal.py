@@ -90,20 +90,22 @@ async def get_usage_total(
 
     # ReplacingMergeTree dedup via uniqExact — same trace/span id can have
     # multiple pre-merge rows in ClickHouse.
-    # Detector self-traces are excluded by default so detector activity is not
-    # billed twice (runs are already metered separately); whether self-traces
-    # ever become billable is a later product decision.
+    # Only customer traffic is billed: detector self-traces would double-bill
+    # detector activity (runs are already metered separately), and whether they
+    # ever become billable is a later product decision. Written as source = 'user'
+    # rather than != 'detector' so a future internal marker is excluded from
+    # billing the day it is introduced, not the day someone remembers this query.
     result = ch.query(
         """
         SELECT (
             (SELECT uniqExact(trace_id) FROM traces
              WHERE project_id IN {project_ids:Array(String)}
-               AND source != 'detector'
+               AND source = 'user'
                AND ch_create_time >= {start:String}
                AND ch_create_time < {end:String})
           + (SELECT uniqExact(span_id) FROM spans
              WHERE project_id IN {project_ids:Array(String)}
-               AND source != 'detector'
+               AND source = 'user'
                AND ch_create_time >= {start:String}
                AND ch_create_time < {end:String})
         ) as total
@@ -145,13 +147,13 @@ async def get_usage_details(
     # rows (a single trace can have multiple rows until background merge runs,
     # e.g. on status update). uniqExact is faster than count(DISTINCT trace_id)
     # in ClickHouse and produces identical results.
-    # source filter: see get_usage_total — self-traces are not billed by default.
+    # source filter: see get_usage_total — only customer traffic is billed.
     traces_result = ch.query(
         """
         SELECT uniqExact(trace_id) as total
         FROM traces
         WHERE project_id IN {project_ids:Array(String)}
-          AND source != 'detector'
+          AND source = 'user'
           AND ch_create_time >= {start:String}
           AND ch_create_time < {end:String}
         """,
@@ -168,7 +170,7 @@ async def get_usage_details(
         SELECT uniqExact(span_id) as total
         FROM spans
         WHERE project_id IN {project_ids:Array(String)}
-          AND source != 'detector'
+          AND source = 'user'
           AND ch_create_time >= {start:String}
           AND ch_create_time < {end:String}
         """,
@@ -779,9 +781,9 @@ async def ingest_internal_traces(
 
     Trusted, internal-only counterpart of the public OTLP ingest: the worker
     posts here with the shared secret, spans run through the detector-only
-    multi-project wrapper (which calls the same transform as customer
-    traffic, trust_source=True, once per project group), and the rows are
-    inserted in-process — no S3 hop and no detection enqueue, so a detector
+    multi-project wrapper (which calls the same transform as customer traffic,
+    once per project group), and the rows are inserted in-process — no S3 hop
+    and no detection enqueue, so a detector
     can never scan its own emission. Spans are inserted before the trace row
     so a partial failure cannot leave a trace row that points at missing
     spans. Every record is force-stamped source='detector' regardless of
@@ -858,9 +860,9 @@ async def ingest_internal_traces(
 
     # This route only ever carries detector self-traces, so the marker is a property
     # of the route, not of the payload: stamp it rather than trusting what was sent.
-    # This is the source of truth for `source` here — it deliberately overrides the
-    # transform's trust_source honor-path, so a payload that omits or misstates the
-    # attribute still lands classified correctly.
+    # This is the ONLY place a non-'user' source is written — the transform never sets
+    # one — so a payload that omits or misstates the attribute still lands classified
+    # correctly, and no tenant-supplied value can reach the column.
     for record in (*traces, *spans):
         record["source"] = "detector"
 
