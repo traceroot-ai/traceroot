@@ -132,8 +132,14 @@ describe("DetectorPanel", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("renders the screening-model picker with a system-default placeholder (no auto-pick)", () => {
-    mocks.detector = { ...baseDetector, detectionModel: null, detectionProvider: null };
+  // Passed unconditionally: the placeholder is what an empty selection reads
+  // as, so a pinned detector gets it too — the pin just wins over it. Both
+  // fixtures are listed so the unpinned case the prop exists for is covered.
+  it.each([
+    ["unpinned", { ...baseDetector, detectionModel: null }],
+    ["pinned", baseDetector],
+  ])("hands the screening-model picker the system-default placeholder (%s)", (_label, detector) => {
+    mocks.detector = detector;
     renderPanel();
     expect(mocks.selectorProps?.placeholder).toBe(DETECTOR_SYSTEM_DEFAULT_MODEL_ID);
   });

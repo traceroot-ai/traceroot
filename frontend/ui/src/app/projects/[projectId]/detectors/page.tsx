@@ -219,7 +219,7 @@ export default function DetectorsPage() {
               <tbody>
                 {detectors.map((detector) => {
                   const template = getTemplate(detector.template);
-                  const detectorModel = formatDetectorModel(detector);
+                  const modelLabel = formatDetectorModel(detector);
                   const c = counts?.[detector.id];
                   const findingCount = c?.finding_count ?? 0;
                   const runCount = c?.run_count ?? 0;
@@ -243,7 +243,7 @@ export default function DetectorsPage() {
                         {template?.label ?? detector.template}
                       </td>
                       <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
-                        {detectorModel}
+                        {modelLabel}
                       </td>
                       <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
                         {detector.sampleRate}%

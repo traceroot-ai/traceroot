@@ -111,12 +111,12 @@ describe("ModelSelector", () => {
         value={{ model: "", provider: "", source: "system", adapter: "" }}
         onChange={mocks.onChange}
         workspaceId="workspace-1"
-        placeholder="claude-haiku-4-5"
+        placeholder="Default model"
       />,
     );
 
     expect(mocks.onChange).not.toHaveBeenCalled();
-    expect(screen.getByRole("button").textContent).toContain("claude-haiku-4-5");
+    expect(screen.getByRole("button").textContent).toContain("Default model");
   });
 
   it("still backfills a legacy model-only selection when a placeholder is set", () => {
@@ -137,7 +137,7 @@ describe("ModelSelector", () => {
         value={{ model: "claude-4", provider: "", source: "system", adapter: "" }}
         onChange={mocks.onChange}
         workspaceId="workspace-1"
-        placeholder="claude-haiku-4-5"
+        placeholder="Default model"
       />,
     );
 

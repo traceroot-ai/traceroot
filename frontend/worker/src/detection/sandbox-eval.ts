@@ -31,7 +31,7 @@ export interface EvalResult {
   /** Sum of `response.usage.output` tokens across attempts. */
   inferenceOutputTokens: number;
   /** Source attribution for billing — preserved on error paths so failures still attribute. */
-  inferenceSource: "system" | "byok" | null;
+  inferenceSource: "system" | "byok";
   /** Model id reported by pi-ai (e.g. "claude-haiku-4-5"); null on early-exit error paths. */
   inferenceModel: string | null;
   /** Provider key reported by pi-ai (e.g. "anthropic"); null on early-exit error paths. */
@@ -83,7 +83,7 @@ const TOOL_CHOICE = "auto";
 
 function errorResult(
   message: string,
-  source: "system" | "byok" | null,
+  source: "system" | "byok",
   inferenceCost = 0,
   inferenceInputTokens = 0,
   inferenceOutputTokens = 0,
