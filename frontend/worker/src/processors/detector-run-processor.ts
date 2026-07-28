@@ -130,7 +130,7 @@ export interface ScanUsage {
   inferenceCost: number;
   inferenceInputTokens: number;
   inferenceOutputTokens: number;
-  inferenceSource: "system" | "byok" | null;
+  inferenceSource: "system" | "byok";
   inferenceModel: string | null;
   inferenceProvider: string | null;
 }
