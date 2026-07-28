@@ -1,8 +1,8 @@
-"""Tests for lifting the traceroot.source marker in otel_transform."""
+"""The transform never classifies traffic: it must not write `source` on any record,
+whatever the payload declares. The secret-gated ingest route is the only writer."""
 
 import base64
 import json
-import logging
 
 import pytest
 
@@ -48,55 +48,36 @@ def _otel_payload(span_attributes: list[dict], *, parent_span_id: str | None = N
     }
 
 
-def test_source_marker_lifted_onto_span_and_trace():
-    """traceroot.source becomes the span and trace source field when trusted."""
-    payload = _otel_payload([_attr("traceroot.source", "detector")])
+@pytest.mark.parametrize("declared", ["detector", "user", "anything-else", ""])
+def test_transform_never_sets_source_whatever_the_payload_declares(declared):
+    """The transform does not classify traffic — at all, for any caller.
 
-    traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1", trust_source=True)
-
-    assert len(spans) == 1
-    assert spans[0]["source"] == "detector"
-    assert len(traces) == 1
-    assert traces[0]["source"] == "detector"
-
-
-def test_source_from_child_span_reaches_trace():
-    """A batch without the root span still stamps source on the trace record.
-
-    Every batch re-inserts a trace row and ReplacingMergeTree keeps the
-    newest one, so a child-only batch that dropped the marker would flip
-    an already-classified trace back to 'user'.
+    Classification is the ingest route's job: the secret-gated internal route stamps
+    'detector' on what comes back, and every other row falls through to the column's
+    'user' default. Because no code path here reads traceroot.source into a record,
+    a tenant cannot mark their own traffic as internal (which would hide it from
+    their lists, dropdowns and metering) — the guarantee is structural rather than a
+    coercion branch that a future caller could opt out of.
     """
+    payload = _otel_payload([_attr("traceroot.source", declared)])
+
+    traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert "source" not in spans[0]
+    assert "source" not in traces[0]
+
+
+def test_transform_never_sets_source_from_a_child_only_batch():
+    """Same for a batch carrying no root span — no lifting path exists either."""
     payload = _otel_payload(
         [_attr("traceroot.source", "detector")],
         parent_span_id=_make_span_id(0x03),
     )
 
-    traces, _spans = transform_otel_to_clickhouse(payload, project_id="proj-1", trust_source=True)
+    traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
 
-    assert traces[0]["source"] == "detector"
-
-
-@pytest.mark.parametrize("spoofed", ["detector", "anything-else", ""])
-def test_untrusted_call_coerces_spoofed_source_to_user(spoofed, caplog):
-    """Without trust_source, a tenant-supplied marker can never classify traffic.
-
-    The public OTLP path uses the default; only the internal ingest route
-    passes trust_source=True, so a spoofed traceroot.source must land as
-    'user' on both the span and the trace — and leave a warning breadcrumb
-    naming the project.
-    """
-    payload = _otel_payload([_attr("traceroot.source", spoofed)])
-
-    with caplog.at_level(logging.WARNING):
-        traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
-
-    assert spans[0]["source"] == "user"
-    assert traces[0]["source"] == "user"
-    assert any(
-        record.levelno == logging.WARNING and "proj-1" in record.getMessage()
-        for record in caplog.records
-    )
+    assert "source" not in spans[0]
+    assert "source" not in traces[0]
 
 
 def test_source_marker_not_duplicated_into_metadata():

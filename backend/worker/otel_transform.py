@@ -303,18 +303,24 @@ def _extract_session_id(attrs: dict[str, Any]) -> str | None:
 def transform_otel_to_clickhouse(
     otel_data: dict,
     project_id: str,
-    trust_source: bool = False,
 ) -> tuple[list[dict], list[dict]]:
     """Transform OTEL JSON to ClickHouse traces and spans.
+
+    Never sets `source` on a record. Classification belongs to the ingest route, not
+    the payload: the internal route stamps 'detector' after this returns, and every
+    other row falls through to the column's 'user' default. That makes the anti-spoof
+    guarantee structural — a tenant-supplied traceroot.source is simply never read
+    into a record, so there is no flag that could honor it by mistake.
+
+    Do not reintroduce a "trust the payload marker" path for a new caller. Rows marked
+    non-'user' are excluded from customer reads AND from usage metering, so honoring a
+    tenant-supplied marker would let a tenant suppress their own bill by labelling their
+    traffic internal. A future internal emitter should be classified by its ingest route
+    (as the detector one is), never by an attribute travelling in the payload.
 
     Args:
         otel_data: Parsed OTEL JSON data (camelCase format with resourceSpans)
         project_id: The project ID to associate with all records
-        trust_source: Honor a lifted traceroot.source attribute as-is. The
-            public ingest path keeps the False default, which coerces any
-            non-'user' marker to 'user' so tenants cannot classify their
-            traffic as detector self-traces; only the trusted internal
-            ingest route passes True.
 
     Returns:
         Tuple of (traces, spans) lists ready for ClickHouse insertion
@@ -322,21 +328,17 @@ def transform_otel_to_clickhouse(
     traces: dict[str, dict] = {}  # trace_id -> trace record
     spans: list[dict] = []
 
-    # Track user_id/session_id/source per trace, collected from ANY span
+    # Track user_id/session_id per trace, collected from ANY span
     # Priority: root span values > first child span values
     trace_attrs: dict[
         str, dict[str, str | None]
-    ] = {}  # trace_id -> {"user_id": ..., "session_id": ..., "source": ...}
+    ] = {}  # trace_id -> {"user_id": ..., "session_id": ...}
 
     # Best-known root name per trace: (ids_path_length, name).
     # Shortest ids_path = closest to root. Used to correct eager trace names
     # when the first span in a batch isn't the closest-to-root span for that trace.
     _trace_name_candidates: dict[str, tuple[int, str]] = {}
     trace_git_attrs: dict[str, dict[str, str | None]] = {}
-
-    # Spoof attempts coerced this batch; logged once at the end so a
-    # misbehaving sender cannot flood the logs span-by-span.
-    coerced_source_spans = 0
 
     # camelCase: resourceSpans
     resource_spans = otel_data.get("resourceSpans", [])
@@ -384,13 +386,6 @@ def transform_otel_to_clickhouse(
 
                 # Build span record
                 environment = span_attrs.get("traceroot.environment")
-                source = span_attrs.get("traceroot.source")
-                if source is not None and source != "user" and not trust_source:
-                    # Anti-spoof: only the trusted internal ingest route may
-                    # classify traffic; a tenant-supplied marker on the public
-                    # path is coerced, never honored.
-                    source = "user"
-                    coerced_source_spans += 1
                 span_record = {
                     "span_id": span_id,
                     "trace_id": trace_id,
@@ -404,8 +399,6 @@ def transform_otel_to_clickhouse(
                 }
                 if environment is not None:
                     span_record["environment"] = environment
-                if source is not None:
-                    span_record["source"] = source
 
                 # Extract git source fields for span
                 git_source_file = span_attrs.get("traceroot.git.source_file")
@@ -671,7 +664,7 @@ def transform_otel_to_clickhouse(
 
                 spans.append(span_record)
 
-                # Collect user_id/session_id/source from ANY span (not just root)
+                # Collect user_id/session_id from ANY span (not just root)
                 # Priority: root span values overwrite, child span values only set if empty
                 span_user_id = _extract_user_id(span_attrs)
                 span_session_id = _extract_session_id(span_attrs)
@@ -679,7 +672,7 @@ def transform_otel_to_clickhouse(
                 span_git_repo = span_attrs.get("traceroot.git.repo")
 
                 if trace_id not in trace_attrs:
-                    trace_attrs[trace_id] = {"user_id": None, "session_id": None, "source": None}
+                    trace_attrs[trace_id] = {"user_id": None, "session_id": None}
                 if trace_id not in trace_git_attrs:
                     trace_git_attrs[trace_id] = {"git_ref": None, "git_repo": None}
 
@@ -691,7 +684,6 @@ def transform_otel_to_clickhouse(
                     trace_attrs[trace_id]["session_id"] = (
                         span_session_id or trace_attrs[trace_id]["session_id"]
                     )
-                    trace_attrs[trace_id]["source"] = source or trace_attrs[trace_id]["source"]
                     trace_git_attrs[trace_id]["git_ref"] = (
                         span_git_ref or trace_git_attrs[trace_id]["git_ref"]
                     )
@@ -706,7 +698,6 @@ def transform_otel_to_clickhouse(
                     trace_attrs[trace_id]["session_id"] = (
                         trace_attrs[trace_id]["session_id"] or span_session_id
                     )
-                    trace_attrs[trace_id]["source"] = trace_attrs[trace_id]["source"] or source
                     trace_git_attrs[trace_id]["git_ref"] = (
                         trace_git_attrs[trace_id]["git_ref"] or span_git_ref
                     )
@@ -803,20 +794,14 @@ def transform_otel_to_clickhouse(
         if trace_id in traces:
             traces[trace_id]["name"] = best_name
 
-    # Update trace records with user_id/session_id/source collected from child
-    # spans (in case child spans with these attrs came after the root span was
-    # processed). source in particular must come from ANY span: batches without
-    # the root span still re-insert a trace row, and ReplacingMergeTree keeps
-    # the newest row, so a root-only stamp would flip the trace back to the
-    # 'user' default.
+    # Update trace records with user_id/session_id collected from child spans (in
+    # case child spans with these attrs came after the root span was processed).
     for trace_id, attrs in trace_attrs.items():
         if trace_id in traces:
             if attrs["user_id"] and not traces[trace_id].get("user_id"):
                 traces[trace_id]["user_id"] = attrs["user_id"]
             if attrs["session_id"] and not traces[trace_id].get("session_id"):
                 traces[trace_id]["session_id"] = attrs["session_id"]
-            if attrs["source"] and not traces[trace_id].get("source"):
-                traces[trace_id]["source"] = attrs["source"]
 
     # Git repo/ref are stamped on every SDK span, but the root span often arrives
     # last in live streaming. Promote the first child values so repo/ref are visible
@@ -827,12 +812,5 @@ def transform_otel_to_clickhouse(
                 traces[trace_id]["git_ref"] = attrs["git_ref"]
             if attrs["git_repo"] is not None:
                 traces[trace_id]["git_repo"] = attrs["git_repo"]
-
-    if coerced_source_spans:
-        logger.warning(
-            "Coerced %d spoofed traceroot.source marker(s) to 'user' for project %s",
-            coerced_source_spans,
-            project_id,
-        )
 
     return list(traces.values()), spans
