@@ -6,6 +6,7 @@ import React from "react";
 
 const prefetch = vi.fn();
 let autoRefresh = false;
+let searchParams = new URLSearchParams();
 vi.mock("@/features/traces/hooks", () => ({
   useTraces: () => ({
     data: {
@@ -44,7 +45,7 @@ vi.mock("@/lib/auth-client", () => ({
 }));
 vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "p1" }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => searchParams,
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
 }));
 vi.mock("@/components/layout/app-layout", () => ({
@@ -76,6 +77,7 @@ afterEach(() => {
   cleanup();
   prefetch.mockReset();
   autoRefresh = false;
+  searchParams = new URLSearchParams();
 });
 
 describe("TracesPage prefetch wiring", () => {
@@ -92,5 +94,15 @@ describe("TracesPage prefetch wiring", () => {
     render(<TracesPage />, { wrapper: Wrapper });
     fireEvent.mouseEnter(screen.getByRole("button", { name: /next page/i }));
     expect(prefetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("TracesPage user_id filter badge", () => {
+  it("shows a clearable badge for the active user_id filter", () => {
+    searchParams = new URLSearchParams("user_id=user-42");
+    render(<TracesPage />, { wrapper: Wrapper });
+
+    expect(screen.getByText("User:")).toBeTruthy();
+    expect(screen.getByText("user-42")).toBeTruthy();
   });
 });

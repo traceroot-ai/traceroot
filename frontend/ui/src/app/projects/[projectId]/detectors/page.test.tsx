@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
+import { mockRetention } from "@/test/retention-mock";
 
 const mocks = vi.hoisted(() => ({ push: vi.fn(), useDetectorList: vi.fn() }));
 
@@ -96,14 +97,7 @@ vi.mock("@/features/detectors/hooks/use-detectors", () => ({
 
 vi.mock("@/features/projects/hooks", () => ({ useProject: () => ({ data: undefined }) }));
 vi.mock("@/lib/hooks/use-retention", () => ({
-  useRetention: () => ({
-    retentionDays: 15,
-    showPricing: false,
-    onUpgradeClick: vi.fn(),
-    closePricing: vi.fn(),
-    workspaceId: "ws-1",
-    billingPlan: "free",
-  }),
+  useRetention: () => mockRetention(),
 }));
 vi.mock("@/ee/features/billing/PricingDialog", () => ({ PricingDialog: () => null }));
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
