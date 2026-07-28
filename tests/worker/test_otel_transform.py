@@ -1974,6 +1974,30 @@ class TestManualUsageAttribute:
         # degrade to "no usage", not crash the ingest task.
         assert parse_manual_usage("[" * 200_000 + "]" * 200_000) == {}
 
+    def test_unrecognized_usage_fields_are_reported(self, caplog):
+        """A provider token type we do not model yet (audio, image, a new cache
+        variant) is never examined by the parser, so without a warning it vanishes
+        with no signal anywhere. The recognized fields must still parse."""
+        import logging
+
+        from worker.otel_transform import parse_manual_usage
+
+        with caplog.at_level(logging.WARNING):
+            usage = parse_manual_usage('{"input_tokens": 10, "audio_tokens": 7, "image_tokens": 3}')
+        assert usage == {"input_tokens": 10}
+        warning = "\n".join(r.getMessage() for r in caplog.records)
+        assert "audio_tokens" in warning
+        assert "image_tokens" in warning
+
+    def test_fully_recognized_usage_logs_no_warning(self, caplog):
+        import logging
+
+        from worker.otel_transform import parse_manual_usage
+
+        with caplog.at_level(logging.WARNING):
+            parse_manual_usage('{"input_tokens": 10, "output_tokens": 5}')
+        assert not caplog.records
+
     def test_model_parameters_and_prompt_flow_to_metadata(self):
         import json
 
