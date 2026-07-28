@@ -30,9 +30,9 @@ def transform_detector_traces(
 
     Spans are grouped by their per-span ``traceroot.project_id`` attribute
     (spans without it fall to ``fallback_project_id``), each group is run
-    through the shared transform exactly as it stands, one project per call,
-    and the per-group results are concatenated. A
-    trace is always one project, so a trace's spans stay whole in one call.
+    through the shared transform exactly as it stands, one project per call, and the
+    per-group results are concatenated. A trace is always one project, so a trace's
+    spans stay whole in one call.
     An unattributable span rejects the whole batch: a project is never
     guessed and a span is never fanned out to more than one project.
 

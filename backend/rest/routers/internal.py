@@ -782,9 +782,8 @@ async def ingest_internal_traces(
     Trusted, internal-only counterpart of the public OTLP ingest: the worker
     posts here with the shared secret, spans run through the detector-only
     multi-project wrapper (which calls the same transform as customer traffic,
-    once per project group), and the rows are inserted in-process — no S3 hop
-    and no detection enqueue, so a detector
-    can never scan its own emission. Spans are inserted before the trace row
+    once per project group), and the rows are inserted in-process — no S3 hop and
+    no detection enqueue, so a detector can never scan its own emission. Spans are inserted before the trace row
     so a partial failure cannot leave a trace row that points at missing
     spans. Every record is force-stamped source='detector' regardless of
     payload content.

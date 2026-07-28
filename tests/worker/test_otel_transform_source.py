@@ -54,7 +54,7 @@ def test_transform_never_sets_source_whatever_the_payload_declares(declared):
 
     Classification is the ingest route's job: the secret-gated internal route stamps
     'detector' on what comes back, and every other row falls through to the column's
-    'user' default. Because no code path here reads traceroot.source into a record,
+    written as 'user' by the insert helpers. Because no code path here reads it,
     a tenant cannot mark their own traffic as internal (which would hide it from
     their lists, dropdowns and metering) — the guarantee is structural rather than a
     coercion branch that a future caller could opt out of.

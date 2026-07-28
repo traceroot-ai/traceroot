@@ -62,6 +62,8 @@ _KNOWN_ATTRIBUTE_PREFIXES = {
     "traceroot.llm.",
     "traceroot.trace.",
     "traceroot.environment",
+    # Nothing extracts this any more; it is listed purely to keep a
+    # sender-supplied marker out of the metadata blob the UI renders.
     "traceroot.source",
     "traceroot.git.",
     "openinference.span.kind",
@@ -308,7 +310,8 @@ def transform_otel_to_clickhouse(
 
     Never sets `source` on a record. Classification belongs to the ingest route, not
     the payload: the internal route stamps 'detector' after this returns, and every
-    other row falls through to the column's 'user' default. That makes the anti-spoof
+    other row is written as 'user' by the insert helpers (the column's DEFAULT is the
+    backfill backstop for pre-migration rows, not the path live writes take). That makes the anti-spoof
     guarantee structural — a tenant-supplied traceroot.source is simply never read
     into a record, so there is no flag that could honor it by mistake.
 

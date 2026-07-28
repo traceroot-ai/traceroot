@@ -296,6 +296,24 @@ describe("trace-id forcing probe", () => {
     expect(mockStartSpan).toHaveBeenCalledTimes(1);
   });
 
+  it("still flushes and shuts down the SDK it started when the probe disabled tracing", async () => {
+    // The probe runs AFTER TraceRoot.initialize(), so the failure path leaves a live
+    // provider, exporter and batch processor behind while self-tracing is off. Keying
+    // shutdown off `initialized` would strand them; it keys off "did we start the SDK".
+    mockStartSpan.mockReturnValue({ traceId: "f".repeat(32), end: vi.fn() });
+    const { withSelfTrace: guarded, shutdownSelfTraceEmitter: shutdownGuarded } =
+      await freshEmitter();
+
+    const run = await guarded(meta(), async () => 1);
+    expect(run.selfTraced).toBe(false);
+    expect(mockInitialize).toHaveBeenCalledTimes(1);
+
+    await shutdownGuarded();
+
+    expect(mockFlush).toHaveBeenCalledTimes(1);
+    expect(mockShutdown).toHaveBeenCalledTimes(1);
+  });
+
   it("treats a throwing probe as inconclusive and keeps self-tracing on", async () => {
     mockStartSpan.mockImplementation(() => {
       throw new Error("probe blew up");
