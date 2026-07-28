@@ -237,6 +237,17 @@ def parse_manual_usage(raw: Any) -> dict[str, int]:
         if raw is not None:
             logger.warning("Manual usage attribute is not an object; ignoring it")
         return {}
+    # Fields outside the recognized set are never examined below, so without this
+    # they vanish without any signal at all — a provider token type we don't model
+    # yet (audio, image, a new cache variant) reads as if it was never reported.
+    # Bounded because the payload is client-controlled.
+    unrecognized = sorted(k for k in raw if k not in _MANUAL_USAGE_KEYS)
+    if unrecognized:
+        logger.warning(
+            "Manual usage fields %s are not recognized and were ignored; recognized fields are %s",
+            unrecognized[:10],
+            list(_MANUAL_USAGE_KEYS),
+        )
     usage: dict[str, int] = {}
     for key in _MANUAL_USAGE_KEYS:
         value = raw.get(key)
