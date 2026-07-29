@@ -53,7 +53,7 @@ def customer_traffic_only(alias: str = "") -> str:
 
     Asserts ``source = 'user'`` rather than ``!= 'detector'`` deliberately. The
     inequality is fail-open — a second internal marker (an RCA or assistant self-trace,
-    say) would pass it and leak into customer lists, dropdowns and billing until every
+    say) would pass it and leak into customer lists, sessions and dropdowns until every
     call site was revisited. Naming the one value that IS customer traffic excludes any
     future internal marker the day it is introduced.
 
@@ -279,7 +279,9 @@ class TraceReaderService:
             return cached[1]
 
         params: dict = {"project_id": project_id}
-        inner_conditions = ["project_id = {project_id:String}"]
+        # Detector self-traces carry their own model/environment/name values; excluding
+        # them keeps internal telemetry out of the customer's filter dropdown options.
+        inner_conditions = ["project_id = {project_id:String}", customer_traffic_only()]
         if normalized_start is not None:
             # Exact bound, no lookback back-off: this is a self-contained window scan with
             # no trace-level semi-join, so the boundary-drift false-negative reasoning that

@@ -127,14 +127,29 @@ def test_token_measures_list_components_before_total():
 def test_every_base_relation_excludes_detector_self_traces():
     """No widget view may count detector self-traces as customer data.
 
-    Dashboard measures (count, cost, tokens, latency, error_count) are billed
-    and charted as customer activity, so a base relation that scans spans or
-    traces without the source predicate silently inflates them. Asserted per
-    scan site rather than per view: `traces` reads both tables.
+    Dashboard measures (count, cost, tokens, latency, error_count) are charted as
+    customer activity, so a base relation that scans spans or traces without the
+    source predicate silently inflates them.
+
+    Asserted per scan site, not as a per-view total: `traces` reads both tables, and
+    comparing counts would accept two guards on one subquery and none on the other —
+    which still lets detector rows through the unguarded one.
     """
+    guard = customer_traffic_only()
     for view_name, view in REGISTRY.items():
-        scans = view.base_sql.count("FROM spans") + view.base_sql.count("FROM traces")
-        # Count via the helper, not a literal: hardcoding the spelling would make a
-        # change to the predicate look like a missing guard.
-        guards = view.base_sql.count(customer_traffic_only())
-        assert guards == scans, f"{view_name}: {scans} table scan(s) but {guards} detector guard(s)"
+        sql = view.base_sql
+        # \b so a future `FROM traces_something` CTE can't be mistaken for the table.
+        scans = list(re.finditer(r"FROM\s+(spans|traces)\b", sql))
+        assert scans, f"{view_name}: no table scan found — has the base relation moved?"
+        for scan in scans:
+            # A derived table's own WHERE runs from its FROM up to its dedup; a guard
+            # past that boundary belongs to a different subquery and doesn't protect
+            # this one. Matched via the helper, not a literal, so changing the
+            # predicate's spelling doesn't read as a missing guard.
+            after = sql[scan.end() :]
+            cutoff = after.find("ORDER BY")
+            where_clause = after[:cutoff] if cutoff != -1 else after
+            assert guard in where_clause, (
+                f"{view_name}: the scan of `{scan.group(1)}` at offset {scan.start()} "
+                f"has no detector guard in its own WHERE"
+            )
