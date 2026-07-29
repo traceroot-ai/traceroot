@@ -909,14 +909,14 @@ class TestPerSpanProjectAttribution:
 # =============================================================================
 
 
-class TestUsageExcludesDetectorTraffic:
+class TestUsageBillsEveryStoredRow:
     PARAMS: typing.ClassVar[dict[str, str]] = {
         "project_ids": "p1",
         "start": "2026-07-01T00:00:00Z",
         "end": "2026-08-01T00:00:00Z",
     }
 
-    def test_usage_details_excludes_detector_spans_and_traces(self, client, mock_ch, secret):
+    def test_usage_details_counts_rows_from_every_source(self, client, mock_ch, secret):
         mock_ch.query.side_effect = [
             _make_query_result([(3,)], ["total"]),  # traces
             _make_query_result([(9,)], ["total"]),  # spans
@@ -931,12 +931,15 @@ class TestUsageExcludesDetectorTraffic:
         traces_sql = mock_ch.query.call_args_list[0].args[0]
         spans_sql = mock_ch.query.call_args_list[1].args[0]
         runs_sql = mock_ch.query.call_args_list[2].args[0]
-        assert "source = 'user'" in traces_sql
-        assert "source = 'user'" in spans_sql
-        # The detector_runs meter intentionally still counts every run.
-        assert "source = 'user'" not in runs_sql
+        # Storage is billed whoever produced it, so metering must not filter on source
+        # at all. Asserted rather than left to the commit message: re-adding a filter here
+        # would silently stop billing self-traces again.
+        assert "source" not in traces_sql
+        assert "source" not in spans_sql
+        # detector_runs was never filtered — it is the per-evaluation result record.
+        assert "source" not in runs_sql
 
-    def test_usage_total_excludes_detector_in_both_subqueries(self, client, mock_ch, secret):
+    def test_usage_total_counts_rows_from_every_source(self, client, mock_ch, secret):
         mock_ch.query.side_effect = [_make_query_result([(12,)], ["total"])]
         resp = client.get(
             "/api/v1/internal/usage/total",
@@ -945,7 +948,7 @@ class TestUsageExcludesDetectorTraffic:
         )
         assert resp.status_code == 200
         combined_sql = mock_ch.query.call_args_list[0].args[0]
-        assert combined_sql.count("source = 'user'") == 2
+        assert "source" not in combined_sql
 
 
 # =============================================================================

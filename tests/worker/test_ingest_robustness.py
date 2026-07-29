@@ -98,7 +98,7 @@ class TestPublicPathAntiSpoof:
             TRACE_HEX,
             SPAN_HEX,
             attributes=[
-                make_attr("traceroot.source", "detector"),  # hide from lists/metering
+                make_attr("traceroot.source", "detector"),  # hide from the tenant's own lists
                 make_attr("traceroot.project_id", "victim-project"),  # reroute
                 make_attr("legit.attr", "keep-me"),
             ],
@@ -106,9 +106,10 @@ class TestPublicPathAntiSpoof:
         return make_otel_payload([span])
 
     def test_spoofed_source_never_reaches_the_record(self):
-        """A customer-supplied traceroot.source=detector is ignored outright, so it
-        cannot classify traffic as internal (which would hide it from that tenant's
-        own lists and metering). The insert then writes the column's 'user' default."""
+        """A customer-supplied traceroot.source=detector is ignored outright, so it cannot
+        classify traffic as internal — which would hide it from that tenant's own lists and
+        inject it into a surface presented as internal telemetry. Metering is unaffected
+        either way: it counts every stored row. The insert writes the 'user' default."""
         traces, spans = transform_otel_to_clickhouse(
             self._spoofed_payload(), project_id="caller-project"
         )

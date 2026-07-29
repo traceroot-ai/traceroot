@@ -53,11 +53,12 @@ def test_transform_never_sets_source_whatever_the_payload_declares(declared):
     """The transform does not classify traffic — at all, for any caller.
 
     Classification is the ingest route's job: the secret-gated internal route stamps
-    'detector' on what comes back, and every other row falls through to the column's
-    written as 'user' by the insert helpers. Because no code path here reads it,
-    a tenant cannot mark their own traffic as internal (which would hide it from
-    their lists, dropdowns and metering) — the guarantee is structural rather than a
-    coercion branch that a future caller could opt out of.
+    'detector' on what comes back, and every other row is written as 'user' by the
+    insert helpers. Because no code path here reads the attribute, a tenant cannot mark
+    their own traffic as internal — which would hide it from their own lists and
+    dropdowns, and inject it into a surface presented as internal telemetry. The
+    guarantee is structural rather than a coercion branch a future caller could opt out
+    of. Metering is unaffected either way: it counts every stored row.
     """
     payload = _otel_payload([_attr("traceroot.source", declared)])
 

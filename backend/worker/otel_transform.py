@@ -315,11 +315,14 @@ def transform_otel_to_clickhouse(
     guarantee structural — a tenant-supplied traceroot.source is simply never read
     into a record, so there is no flag that could honor it by mistake.
 
-    Do not reintroduce a "trust the payload marker" path for a new caller. Rows marked
-    non-'user' are excluded from customer reads AND from usage metering, so honoring a
-    tenant-supplied marker would let a tenant suppress their own bill by labelling their
-    traffic internal. A future internal emitter should be classified by its ingest route
-    (as the detector one is), never by an attribute travelling in the payload.
+    Do not reintroduce a "trust the payload marker" path for a new caller. `source` is a
+    trust label with two readers: reads exclude non-'user' rows, and one endpoint selects
+    them (the runs surface opens a self-trace by asking for source='detector'). A
+    tenant-settable value would therefore not merely hide their traffic from their own
+    lists — it would inject it into a surface presented as internal telemetry. Metering is
+    unaffected either way, since it counts every stored row. A future internal emitter
+    should be classified by its ingest route, as the detector one is, never by an attribute
+    travelling in the payload.
 
     Args:
         otel_data: Parsed OTEL JSON data (camelCase format with resourceSpans)
