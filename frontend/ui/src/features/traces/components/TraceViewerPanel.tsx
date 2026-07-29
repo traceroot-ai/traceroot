@@ -26,6 +26,7 @@ import { SpanInfoPanel } from "./SpanInfoPanel";
 import { useLayout } from "@/components/layout/app-layout";
 import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
 import { useTraceStream } from "../hooks/use-trace-stream";
+import { traceQueryKey } from "../hooks";
 import { SpanTimelineView } from "./SpanTimelineView";
 import { TREE_LAYOUT } from "../utils";
 import { useTraceFindings, useRca } from "@/features/detectors/hooks/use-findings";
@@ -181,11 +182,12 @@ export function TraceViewerPanel({
     isLoading,
     error,
   } = useQuery({
-    queryKey: ["trace", projectId, traceId, source ?? null],
+    queryKey: traceQueryKey(projectId, traceId, source),
     queryFn: () => getTrace(projectId, traceId, "", undefined, source),
   });
 
-  useTraceStream(projectId, traceId, true);
+  // source must match the query key above, or SSE span merging silently no-ops.
+  useTraceStream(projectId, traceId, true, source);
 
   // Reset when navigating to a different trace
   useEffect(() => {
