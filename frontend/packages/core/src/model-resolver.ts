@@ -48,6 +48,15 @@ for (const sys of SYSTEM_MODELS) {
 }
 
 /**
+ * Whether `modelId` is one of the compiled-in system models. Lets callers
+ * holding a *stored* id reject one that has left the catalog, which
+ * `resolvePiModel` would otherwise answer with a substitute model.
+ */
+export function isSystemModelId(modelId: string): boolean {
+  return systemModelLookup.has(modelId);
+}
+
+/**
  * Build a pi-ai Model object with the correct `api` protocol while preserving
  * pi-ai registry data (pricing, context window) when available.
  * Falls back to a manual object for models not in the registry.
