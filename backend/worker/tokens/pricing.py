@@ -94,7 +94,6 @@ _GATEWAY_PREFIXES = frozenset(
         "anthropic",
         "bedrock",
         "openrouter",
-        "litellm",
         "models",
         "deepseek",
         "xai",
@@ -107,9 +106,9 @@ _GATEWAY_PREFIXES = frozenset(
 def _strip_gateway_prefix(model: str) -> str:
     """Strip one or more leading gateway/router prefixes separated by ``/``.
 
-    Iterates so chained prefixes like ``openrouter/anthropic/claude-opus-4-8``
-    or ``litellm/openai/gpt-5`` are fully reduced.  Stops as soon as the first
-    path segment is not a recognised gateway name, leaving Bedrock dot-format
+    Iterates so a chained prefix like ``openrouter/anthropic/claude-opus-4-8``
+    is fully reduced.  Stops as soon as the first path segment is not a
+    recognised gateway name, leaving Bedrock dot-format
     (``us.anthropic.claude-...``) and Vertex ``@date`` variants unchanged.
     """
     while True:

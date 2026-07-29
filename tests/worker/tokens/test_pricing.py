@@ -198,12 +198,6 @@ GATEWAY_PREFIX_CASES = [
     ("openrouter/anthropic/claude-opus-4-8", "claude-opus-4-8"),
     ("openrouter/openai/gpt-5", "gpt-5"),
     ("openrouter/google/gemini-2.5-pro", "gemini-2.5-pro"),
-    # litellm/ — single prefix
-    ("litellm/gpt-5", "gpt-5"),
-    ("litellm/gemini-2.5-pro", "gemini-2.5-pro"),
-    # litellm/ — double prefix (litellm/provider/model)
-    ("litellm/openai/gpt-5", "gpt-5"),
-    ("litellm/anthropic/claude-opus-4-8", "claude-opus-4-8"),
     # googleai/ — not included in any Gemini pattern
     ("googleai/gemini-2.5-pro", "gemini-2.5-pro"),
 ]
@@ -216,14 +210,18 @@ class TestStripGatewayPrefix:
     def test_single_known_prefix_stripped(self):
         assert _strip_gateway_prefix("openai/gpt-5") == "gpt-5"
         assert _strip_gateway_prefix("vertex_ai/gemini-2.5-pro") == "gemini-2.5-pro"
-        assert _strip_gateway_prefix("litellm/gpt-5") == "gpt-5"
 
     def test_double_prefix_fully_stripped(self):
         assert _strip_gateway_prefix("openrouter/anthropic/claude-opus-4-8") == "claude-opus-4-8"
-        assert _strip_gateway_prefix("litellm/openai/gpt-5") == "gpt-5"
 
     def test_unknown_prefix_unchanged(self):
         assert _strip_gateway_prefix("my-gateway/gpt-5") == "my-gateway/gpt-5"
+
+    def test_litellm_prefix_unchanged(self):
+        # LiteLLM never emits a literal "litellm/" segment — when it routes
+        # through OpenRouter the id is openrouter/<provider>/<model>, not
+        # litellm/openrouter/... — so "litellm" is not a recognised prefix.
+        assert _strip_gateway_prefix("litellm/gpt-5") == "litellm/gpt-5"
 
     def test_bedrock_dot_format_unchanged(self):
         # Bedrock uses dots, not slashes — must not be altered.
