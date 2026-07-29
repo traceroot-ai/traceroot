@@ -27,7 +27,11 @@ export async function GET(request: NextRequest) {
       if (!workspaceId) {
         return NextResponse.json({ error: "workspaceId required" }, { status: 400 });
       }
-      const memberCheck = await requireWorkspaceMembership(authResult.user.id, workspaceId);
+      const memberCheck = await requireWorkspaceMembership(
+        authResult.user.id,
+        workspaceId,
+        "ADMIN",
+      );
       if (memberCheck.error) return memberCheck.error;
     }
 

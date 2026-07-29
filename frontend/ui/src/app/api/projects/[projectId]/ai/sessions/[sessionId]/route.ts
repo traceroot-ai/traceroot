@@ -13,7 +13,7 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
 
   const { projectId, sessionId } = await params;
 
-  const accessResult = await requireProjectAccess(user.id, projectId);
+  const accessResult = await requireProjectAccess(user.id, projectId, "ADMIN");
   if (accessResult.error) return accessResult.error;
 
   const res = await fetch(

@@ -11,6 +11,7 @@ interface SessionHistoryProps {
   projectId: string;
   onSelect: (session: AISession) => void;
   onDelete: (sessionId: string) => void;
+  canDelete?: boolean;
 }
 
 function getTimeGroup(dateStr: string): string {
@@ -35,21 +36,28 @@ export function SessionHistory({
   projectId,
   onSelect,
   onDelete,
+  canDelete = false,
 }: SessionHistoryProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const handleDelete = async (e: React.MouseEvent, sessionId: string) => {
     e.stopPropagation();
     setDeletingId(sessionId);
+    setDeleteError(null);
     try {
       const res = await fetch(`/api/projects/${projectId}/ai/sessions/${sessionId}`, {
         method: "DELETE",
       });
       if (res.ok) {
         onDelete(sessionId);
+      } else {
+        const body = await res.json().catch(() => ({}));
+        setDeleteError(body?.error ?? "Failed to delete session");
       }
     } catch (err) {
       console.error(err);
+      setDeleteError("Failed to delete session");
     } finally {
       setDeletingId(null);
     }
@@ -78,6 +86,7 @@ export function SessionHistory({
 
   return (
     <div className="max-h-[400px] overflow-y-auto">
+      {deleteError && <p className="px-2.5 py-1.5 text-[11px] text-destructive">{deleteError}</p>}
       {groups.map((group) => (
         <div key={group.label}>
           <div className="px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground">
@@ -97,10 +106,12 @@ export function SessionHistory({
               <span className="min-w-0 flex-1 truncate text-[12px]">
                 {s.title || "Untitled session"}
               </span>
-              <Trash2
-                className="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
-                onClick={(e) => handleDelete(e, s.id)}
-              />
+              {canDelete && (
+                <Trash2
+                  className="h-3.5 w-3.5 shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+                  onClick={(e) => handleDelete(e, s.id)}
+                />
+              )}
             </button>
           ))}
         </div>
