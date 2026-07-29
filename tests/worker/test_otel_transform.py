@@ -1766,7 +1766,7 @@ class TestManualUsageAttribute:
         return make_span(
             "aa" * 16,
             "bb" * 8,
-            name="criteria_scorer_llm",
+            name="custom_llm_call",
             attributes=[
                 make_attr("traceroot.llm.model", "claude-3-5-sonnet"),
                 make_attr(
@@ -1997,6 +1997,26 @@ class TestManualUsageAttribute:
         with caplog.at_level(logging.WARNING):
             parse_manual_usage('{"input_tokens": 10, "output_tokens": 5}')
         assert not caplog.records
+
+    def test_usage_without_priceable_totals_is_reported(self, caplog):
+        """A dict of only cache or reasoning counts parses cleanly but cannot be
+        priced, so the adoption guard drops it. Say so, rather than repeating the
+        silent discard the field-level warnings exist to prevent."""
+        import logging
+        from unittest.mock import patch
+
+        payload = make_otel_payload(
+            [self._manual_span({"cache_read_tokens": 900, "reasoning_tokens": 10})],
+            scope_name="traceroot",
+        )
+        with (
+            caplog.at_level(logging.WARNING),
+            patch("worker.tokens.pricing.get_model_price", return_value=MANUAL_USAGE_PRICES),
+        ):
+            transform_otel_to_clickhouse(payload, "proj-1")
+        logged = "\n".join(r.getMessage() for r in caplog.records)
+        assert "cache_read_tokens" in logged
+        assert "no input_tokens or output_tokens" in logged
 
     def test_model_parameters_and_prompt_flow_to_metadata(self):
         import json
