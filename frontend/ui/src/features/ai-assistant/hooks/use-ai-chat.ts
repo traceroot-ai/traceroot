@@ -5,9 +5,31 @@ import { useAIStream } from "./use-ai-stream";
 import type { AISession, AIMessage, AiTraceContext } from "../types";
 import type { ModelSelection } from "../components/model-selector";
 
+interface RawSessionMessage {
+  id: string;
+  role: string;
+  content: string;
+  createTime: string;
+}
+
+function mapSessionMessages(data: { messages?: RawSessionMessage[] } | null): AIMessage[] {
+  return (data?.messages ?? []).map((m) => ({
+    id: m.id,
+    role: m.role as "user" | "assistant",
+    content: m.content,
+    timestamp: m.createTime,
+  }));
+}
+
 interface UseAiChatOptions extends AiTraceContext {
   projectId: string | undefined;
   initialSessionId?: string; // pre-load an existing session (e.g. RCA session from Step 2)
+  // True while a worker is still writing that session's answer (an RCA run in
+  // pending/running). Drives the working indicator, and its flip to false
+  // reloads the session so the finished answer appears without a manual
+  // refresh. The owner of this flag already tracks the status, so the chat
+  // never polls for it itself.
+  initialSessionPending?: boolean;
 }
 
 export function useAiChat({
@@ -15,6 +37,7 @@ export function useAiChat({
   traceId,
   traceSessionId,
   initialSessionId,
+  initialSessionPending,
 }: UseAiChatOptions) {
   const { messages, isStreaming, sendMessage, abort, setMessages } = useAIStream();
   const sessionIdRef = useRef<string | null>(null);
@@ -27,6 +50,36 @@ export function useAiChat({
   // (session creation + first network round-trip). Without this, React 19 can batch
   // setIsStreaming(true) and setIsStreaming(false) into a single frame, hiding the button.
   const [isSending, setIsSending] = useState(false);
+  // Working indicator for a pre-loaded session whose answer is still being
+  // written elsewhere; see initialSessionPending.
+  const [isLoadingSession, setIsLoadingSession] = useState(false);
+  // The session id we last cleared messages for, so a status-driven reload of
+  // the same session doesn't flash the list empty.
+  const loadedInitialSessionRef = useRef<string | null>(null);
+  // Session whose reload is owed once the user's own turn finishes; see the
+  // deferred-reload effect below.
+  const deferredReloadRef = useRef<string | null>(null);
+  // A stream is writing into `messages` right now. Read from an effect that must
+  // not itself re-run when this flips, so it lives in a ref.
+  const streamActive = isSending || isStreaming || messages.some((m) => m.isStreaming);
+  const streamActiveRef = useRef(streamActive);
+  streamActiveRef.current = streamActive;
+
+  // Replaces the message list with the session's persisted messages.
+  const loadSessionMessages = useCallback(
+    (sessionId: string, signal: AbortSignal) =>
+      fetch(`/api/projects/${projectId}/ai/sessions/${sessionId}/messages`, { signal })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (signal.aborted || !data) return;
+          setMessages(mapSessionMessages(data));
+        })
+        .catch((err) => {
+          if (err?.name !== "AbortError")
+            console.error("[AI Chat] Failed to load initial session:", err);
+        }),
+    [projectId], // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
   // Reset session + messages when the user navigates to a different project so
   // a session ID from project A can never be replayed against project B's chat
@@ -43,38 +96,47 @@ export function useAiChat({
     setMessages([]);
   }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // When initialSessionId is provided, load that session's messages on mount / change.
-  // AbortController guards against stale fetches: if the user switches between
-  // RCA sessions quickly, an older fetch resolving after a newer one would
-  // otherwise overwrite the current session's messages.
+  // Load a pre-loaded session's messages on open, and load them again when
+  // initialSessionPending flips false — that is the one signal that a
+  // worker-written answer has landed, so re-reading then is what makes it appear
+  // without a manual refresh. AbortController guards against a stale fetch
+  // overwriting a newer session's messages.
   useEffect(() => {
     if (!initialSessionId || !projectId) return;
     sessionIdRef.current = initialSessionId;
-    setMessages([]);
+    setIsLoadingSession(!!initialSessionPending);
+    // Clear only when switching sessions, not on a same-session status reload.
+    const isNewSession = loadedInitialSessionRef.current !== initialSessionId;
+    if (isNewSession) {
+      setMessages([]);
+      loadedInitialSessionRef.current = initialSessionId;
+    } else if (streamActiveRef.current) {
+      // Reloading replaces the list wholesale, which would orphan the message
+      // the user's own stream is writing into (useAIStream applies deltas by
+      // message id, so they would land nowhere and the answer would stop
+      // mid-sentence). Owe the reload instead and settle it below.
+      deferredReloadRef.current = initialSessionId;
+      return;
+    }
 
     const ac = new AbortController();
-    fetch(`/api/projects/${projectId}/ai/sessions/${initialSessionId}/messages`, {
-      signal: ac.signal,
-    })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (ac.signal.aborted || !data) return;
-        const all = (data.messages || []).map(
-          (m: { id: string; role: string; content: string; createTime: string }) => ({
-            id: m.id,
-            role: m.role as "user" | "assistant",
-            content: m.content,
-            timestamp: m.createTime,
-          }),
-        );
-        setMessages(all);
-      })
-      .catch((err) => {
-        if (err?.name !== "AbortError")
-          console.error("[AI Chat] Failed to load initial session:", err);
-      });
+    loadSessionMessages(initialSessionId, ac.signal);
     return () => ac.abort();
-  }, [initialSessionId, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [initialSessionId, initialSessionPending, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Settle a reload that was owed while the user was mid-turn. Runs once the
+  // stream ends, so the list picks up both the worker's answer and the user's
+  // completed exchange in one read.
+  useEffect(() => {
+    if (streamActive) return;
+    const sessionId = deferredReloadRef.current;
+    deferredReloadRef.current = null;
+    if (!sessionId || !projectId || sessionId !== sessionIdRef.current) return;
+
+    const ac = new AbortController();
+    loadSessionMessages(sessionId, ac.signal);
+    return () => ac.abort();
+  }, [streamActive, projectId, loadSessionMessages]);
 
   // Lazy session creation — only when first message is sent. The fetch is
   // cancellable so handleClose can prevent a pending response from resurrecting
@@ -171,14 +233,7 @@ export function useAiChat({
       try {
         const res = await fetch(`/api/projects/${projectId}/ai/sessions/${session.id}/messages`);
         if (res.ok) {
-          const data = await res.json();
-          const loaded = (data.messages || []).map((m: any) => ({
-            id: m.id,
-            role: m.role as "user" | "assistant",
-            content: m.content,
-            timestamp: m.createTime,
-          }));
-          setMessages(loaded);
+          setMessages(mapSessionMessages(await res.json()));
         }
       } catch (err) {
         console.error("[AI Chat] Failed to load session messages:", err);
@@ -201,7 +256,10 @@ export function useAiChat({
   return {
     // State
     messages,
-    isStreaming: isSending || isStreaming || messages.some((m) => m.isStreaming),
+    isStreaming: streamActive,
+    // Kept separate from isStreaming so the Stop button (which aborts a live
+    // stream) stays hidden while an RCA session is merely still generating.
+    isLoadingSession,
     sessions,
     historyOpen,
     currentSessionId: sessionIdRef.current,

@@ -93,7 +93,9 @@ export function TraceViewerPanel({
     aiPanelOpen,
     setAiPanelOpen,
     setAiContext,
+    aiInitialSessionId,
     setAiInitialSessionId,
+    setAiInitialSessionPending,
     registerAiHost,
     sidebarCollapsed,
   } = useLayout();
@@ -129,6 +131,16 @@ export function TraceViewerPanel({
   const { data: rcaData } = useRca(projectId, traceFinding?.finding_id ?? "");
   const hasRca = !!traceFinding && !!rcaData?.rca;
   const rcaSessionId = rcaData?.rca?.sessionId ?? undefined;
+  // A worker is still writing this session's answer.
+  const rcaStatus = rcaData?.rca?.status;
+  const rcaPending = rcaStatus === "pending" || rcaStatus === "running";
+  // Latest-value ref so opening the chat can report the run's status in the same
+  // state update as the session id — the chat re-reads the session whenever that
+  // flag changes, so reporting it a render later costs an extra fetch on every
+  // open. A ref rather than a dependency: re-running the open effect on a status
+  // change would re-open a panel the user had closed.
+  const rcaPendingRef = useRef(rcaPending);
+  rcaPendingRef.current = rcaPending;
 
   // Auto-open chat with RCA session loaded when arriving from /detectors.
   // Waits for rcaSessionId so the chat opens already pointing at the session,
@@ -137,8 +149,26 @@ export function TraceViewerPanel({
     if (!autoOpenRca || !rcaSessionId) return;
     setAiContext({ traceId });
     setAiInitialSessionId(rcaSessionId);
+    setAiInitialSessionPending(rcaPendingRef.current);
     setAiPanelOpen(true);
-  }, [autoOpenRca, rcaSessionId, traceId, setAiContext, setAiInitialSessionId, setAiPanelOpen]);
+  }, [
+    autoOpenRca,
+    rcaSessionId,
+    traceId,
+    setAiContext,
+    setAiInitialSessionId,
+    setAiInitialSessionPending,
+    setAiPanelOpen,
+  ]);
+
+  // Keep the chat's view of the run's status current for as long as this trace's
+  // RCA session is the one open: the assistant shows a working indicator until
+  // the worker finishes writing the answer, then reloads it. useRca already polls
+  // this status, so nothing new polls here. Setting an unchanged value is a
+  // no-op, so this costs nothing when the session was opened with it already set.
+  useEffect(() => {
+    setAiInitialSessionPending(!!rcaSessionId && aiInitialSessionId === rcaSessionId && rcaPending);
+  }, [aiInitialSessionId, rcaSessionId, rcaPending, setAiInitialSessionPending]);
 
   const {
     data: trace,
@@ -252,6 +282,8 @@ export function TraceViewerPanel({
                 onClick={() => {
                   setAiContext({ traceId });
                   setAiInitialSessionId(rcaSessionId);
+                  // Same update as the session id — see rcaPendingRef above.
+                  setAiInitialSessionPending(rcaPending);
                   setAiPanelOpen(true);
                 }}
                 className="rounded-md border border-red-300 bg-red-50 px-2 py-1 text-[11px] font-medium text-red-700 transition-colors hover:bg-red-100 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/60"

@@ -25,6 +25,10 @@ interface LayoutContextType {
   // an existing session; clear when opening a fresh chat.
   aiInitialSessionId: string | undefined;
   setAiInitialSessionId: (sessionId: string | undefined) => void;
+  // Set by the host that owns the opened session while a worker is still writing
+  // its answer; see UseAiChatOptions.initialSessionPending.
+  aiInitialSessionPending: boolean;
+  setAiInitialSessionPending: (pending: boolean) => void;
   hideAiButton: boolean;
   setHideAiButton: (hide: boolean) => void;
   // Hosts (TraceViewerPanel / SessionDetailPanel) claim ownership of the AI
@@ -46,6 +50,8 @@ const LayoutContext = createContext<LayoutContextType>({
   setAiContext: () => {},
   aiInitialSessionId: undefined,
   setAiInitialSessionId: () => {},
+  aiInitialSessionPending: false,
+  setAiInitialSessionPending: () => {},
   hideAiButton: false,
   setHideAiButton: () => {},
   viewerOwnsAiSlot: false,
@@ -62,6 +68,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const [aiContext, setAiContext] = useState<AiTraceContext | null>(null);
   const [aiInitialSessionId, setAiInitialSessionId] = useState<string | undefined>(undefined);
+  const [aiInitialSessionPending, setAiInitialSessionPending] = useState(false);
   const [hideAiButton, setHideAiButton] = useState(true);
   const [aiHostRefCount, setAiHostRefCount] = useState(0);
   const pathname = usePathname();
@@ -72,6 +79,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
     setAiPanelOpen(false);
     setAiContext(null);
     setAiInitialSessionId(undefined);
+    setAiInitialSessionPending(false);
   }, [pathname]);
 
   const registerAiHost = useCallback(() => {
@@ -110,6 +118,8 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         setAiContext,
         aiInitialSessionId,
         setAiInitialSessionId,
+        aiInitialSessionPending,
+        setAiInitialSessionPending,
         hideAiButton,
         setHideAiButton,
         viewerOwnsAiSlot,
@@ -120,6 +130,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
         projectId={projectId}
         initialContext={aiContext}
         initialSessionId={aiInitialSessionId}
+        initialSessionPending={aiInitialSessionPending}
       >
         <div className="flex h-screen overflow-hidden">
           <Sidebar collapsed={sidebarCollapsed} />

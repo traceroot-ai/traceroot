@@ -67,6 +67,7 @@ export function AiAssistantPanel({ projectId, onClose, compact = false }: AiAssi
   const {
     messages,
     isStreaming,
+    isLoadingSession,
     sessions,
     historyOpen,
     currentSessionId,
@@ -177,7 +178,13 @@ export function AiAssistantPanel({ projectId, onClose, compact = false }: AiAssi
           </div>
         </div>
       ) : (
-        <MessageList messages={messages} sessionStreaming={isStreaming} />
+        <MessageList
+          messages={messages}
+          sessionStreaming={isStreaming || isLoadingSession}
+          // Only the out-of-band wait gets a label: a live stream shows its own
+          // text arriving, and the run being waited on here is the RCA agent's.
+          waitingLabel={isLoadingSession ? "Analyzing the trace…" : undefined}
+        />
       )}
 
       {/* Input */}

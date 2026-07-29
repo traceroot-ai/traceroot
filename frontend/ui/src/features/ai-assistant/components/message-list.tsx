@@ -16,6 +16,7 @@ import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ChevronRight, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { LoadingState } from "@/components/ui/loading-state";
 import type { AIMessage, ToolCallStep } from "../types";
 import { PANEL_MAX_WIDTH } from "../constants";
 
@@ -470,9 +471,20 @@ function UsageFooter({ msg }: { msg: AIMessage }) {
 interface MessageListProps {
   messages: AIMessage[];
   sessionStreaming?: boolean;
+  /**
+   * Names what is being waited on, for a wait the user has no other feedback on
+   * — nothing streams in and it can run for tens of seconds. Omit for a live
+   * stream, where text arriving is the feedback and a label would just flash
+   * between tokens and tool steps.
+   */
+  waitingLabel?: string;
 }
 
-export function MessageList({ messages, sessionStreaming = false }: MessageListProps) {
+export function MessageList({
+  messages,
+  sessionStreaming = false,
+  waitingLabel,
+}: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
   const userScrolledRef = useRef(false);
@@ -570,7 +582,11 @@ export function MessageList({ messages, sessionStreaming = false }: MessageListP
         })}
         {isWaiting && (
           <div className="px-1 pb-2">
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground/40" />
+            {waitingLabel ? (
+              <LoadingState label={waitingLabel} className="text-[12px]" />
+            ) : (
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground/40" />
+            )}
           </div>
         )}
       </div>

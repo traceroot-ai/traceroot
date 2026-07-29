@@ -8,6 +8,9 @@ const mocks = vi.hoisted(() => ({
   traceError: null as unknown,
   traceLoading: false,
   aiPanelOpen: false,
+  rca: undefined as unknown,
+  setAiInitialSessionId: vi.fn(),
+  setAiInitialSessionPending: vi.fn(),
 }));
 
 // Layout context drives the fullscreen width math (sidebar width).
@@ -16,7 +19,8 @@ vi.mock("@/components/layout/app-layout", () => ({
     aiPanelOpen: mocks.aiPanelOpen,
     setAiPanelOpen: vi.fn(),
     setAiContext: vi.fn(),
-    setAiInitialSessionId: vi.fn(),
+    setAiInitialSessionId: mocks.setAiInitialSessionId,
+    setAiInitialSessionPending: mocks.setAiInitialSessionPending,
     registerAiHost: () => () => {},
     sidebarCollapsed: mocks.sidebarCollapsed,
   }),
@@ -30,7 +34,7 @@ vi.mock("@/lib/api", () => ({ getTrace: vi.fn() }));
 vi.mock("../hooks/use-trace-stream", () => ({ useTraceStream: vi.fn() }));
 vi.mock("@/features/detectors/hooks/use-findings", () => ({
   useTraceFindings: () => ({ data: undefined }),
-  useRca: () => ({ data: undefined }),
+  useRca: () => ({ data: mocks.rca }),
   useTraceDetectorRuns: () => ({ data: undefined, isLoading: false, error: null }),
 }));
 
@@ -57,7 +61,7 @@ vi.mock("@/components/ui/resizable", () => ({
 import { ApiError } from "@/lib/api/client";
 import { TraceViewerPanel } from "./TraceViewerPanel";
 
-function renderPanel(props: { initialFullscreen?: boolean } = {}) {
+function renderPanel(props: { initialFullscreen?: boolean; autoOpenRca?: boolean } = {}) {
   const { container } = render(
     <TraceViewerPanel
       projectId="proj-1"
@@ -80,6 +84,9 @@ afterEach(() => {
   mocks.traceError = null;
   mocks.traceLoading = false;
   mocks.aiPanelOpen = false;
+  mocks.rca = undefined;
+  mocks.setAiInitialSessionId.mockClear();
+  mocks.setAiInitialSessionPending.mockClear();
 });
 
 describe("TraceViewerPanel layout", () => {
@@ -100,6 +107,25 @@ describe("TraceViewerPanel layout", () => {
     const panel = renderPanel({ initialFullscreen: false });
     expect(panel.className).toContain("w-[70%]");
     expect(panel.className).toContain("top-0");
+  });
+});
+
+describe("TraceViewerPanel RCA session hand-off", () => {
+  it("reports a still-generating run in the same update that opens its session", () => {
+    // The chat re-reads the session on every change of the pending flag, so the
+    // status has to travel with the session id. Reporting it a render later
+    // would cost a second fetch of the message list on every open.
+    mocks.rca = { rca: { sessionId: "sess-1", status: "running" } };
+    renderPanel({ autoOpenRca: true });
+    expect(mocks.setAiInitialSessionId).toHaveBeenCalledWith("sess-1");
+    expect(mocks.setAiInitialSessionPending).toHaveBeenCalledWith(true);
+  });
+
+  it("opens a finished run's session with no pending claim", () => {
+    mocks.rca = { rca: { sessionId: "sess-1", status: "done" } };
+    renderPanel({ autoOpenRca: true });
+    expect(mocks.setAiInitialSessionId).toHaveBeenCalledWith("sess-1");
+    expect(mocks.setAiInitialSessionPending).not.toHaveBeenCalledWith(true);
   });
 });
 
