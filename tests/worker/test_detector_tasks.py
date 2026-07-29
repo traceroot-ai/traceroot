@@ -1,6 +1,7 @@
 """Unit tests for the exactly-once detector enqueue path (Redis lock + BullMQ)."""
 
 import json
+import logging
 import threading
 from unittest.mock import MagicMock
 
@@ -407,6 +408,30 @@ class TestParseDetectorRows:
         [det] = dt._parse_detector_rows([("d1", 100, 1, [None, {"field": "x"}])])
         assert det["triggers"] == []
         assert det["trigger_count"] == 1
+
+    def test_no_trigger_row_warns_fail_closed(self, caplog):
+        """The silent fail-closed cases must leave an operator signal."""
+        with caplog.at_level(logging.WARNING):
+            dt._parse_detector_rows([("d1", 100, 0, None)])
+        assert "d1" in caplog.text
+        assert "no trigger row" in caplog.text
+
+    def test_all_malformed_conditions_warn_fail_closed(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            dt._parse_detector_rows([("d1", 100, 1, [None])])
+        assert "d1" in caplog.text
+        assert "malformed" in caplog.text
+
+    def test_explicit_empty_conditions_trigger_does_not_warn(self, caplog):
+        """`[[]]` is "runs on all", not a fail-closed misconfiguration."""
+        with caplog.at_level(logging.WARNING):
+            dt._parse_detector_rows([("d1", 100, 1, [[]])])
+        assert caplog.text == ""
+
+    def test_well_formed_trigger_does_not_warn(self, caplog):
+        with caplog.at_level(logging.WARNING):
+            dt._parse_detector_rows([("d1", 100, 1, [[{"field": "cost", "op": ">", "value": 5}]])])
+        assert caplog.text == ""
 
 
 class TestFailClosedEnqueue:
