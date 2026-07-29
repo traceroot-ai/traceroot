@@ -333,6 +333,30 @@ describe("ModelSelector", () => {
     });
   });
 
+  // Only reachable since the pending gate landed: a settled empty catalog with
+  // a default still names the model that will be attempted, while the list says
+  // there is nothing configured. Naming it matches the worker, which fails the
+  // run rather than substituting.
+  it("still names the default when the settled catalog is empty", () => {
+    mocks.models = { byokProviders: [], systemModels: [] };
+
+    render(
+      <ModelSelector
+        value={{ model: "", provider: "", source: "system", adapter: "" }}
+        onChange={mocks.onChange}
+        workspaceId="workspace-1"
+        defaultModelId="claude-4"
+      />,
+    );
+
+    expect(screen.getByRole("button").textContent).toContain("claude-4");
+    expect(mocks.onChange).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button"));
+    expect(screen.getByText(/No models available/)).toBeDefined();
+    expect(screen.getByRole("link", { name: "configure one" })).toBeDefined();
+  });
+
   // A BYOK detector with no model runs that provider's own model, so showing
   // it the system default would name a model that will not run.
   it("does not present the default to a BYOK selection with no model", () => {
