@@ -184,9 +184,12 @@ def int_or_zero(value: Any) -> int:
         return 0
 
 
-# Fields recognized in the SDKs' manual usage dict (Python
-# ``update_current_span(usage=...)`` / TS ``updateCurrentSpan({usage})``), which
-# both serialize as JSON into the ``traceroot.llm.usage`` span attribute.
+# Fields recognized in the Python SDK's manual usage dict
+# (``update_current_span(usage=...)``), serialized as JSON into the
+# ``traceroot.llm.usage`` span attribute. The TypeScript SDK writes that blob too
+# but with its own vocabulary (``input``/``output``/``cacheRead``), and its usage
+# reaches us through the OpenInference ``llm.token_count.*`` attributes that
+# ``applyUsage`` also stamps — so it takes the instrumentor path, not this one.
 _MANUAL_USAGE_KEYS = (
     "input_tokens",
     "output_tokens",
@@ -209,17 +212,17 @@ def parse_manual_usage(raw: Any) -> dict[str, int]:
     """Parse the manual usage dict reported via the SDKs' update-span API.
 
     The ``traceroot.llm.usage`` attribute is untrusted wire input: a non-JSON
-    string, a non-dict payload, or a non-numeric/negative/non-finite/out-of-range
-    field must
-    never crash ingestion (``json.loads`` accepts literal ``Infinity``/``NaN``,
-    and ``int(inf)`` raises OverflowError). Unusable fields are dropped and
+    string, a non-dict payload, or a non-numeric, negative, non-finite or
+    out-of-range field must never crash ingestion (``json.loads`` accepts literal
+    ``Infinity``/``NaN``, and ``int(inf)`` raises OverflowError). Values are
+    truncated toward zero. Unusable fields are dropped and
     counts are clamped non-negative, so a partially-malformed dict degrades to
     its valid fields (and an entirely unusable one to the text-estimation
     fallback), never to an error.
 
     Args:
-        raw (Any): The raw attribute value (a JSON string from either SDK, or an
-            already-decoded dict).
+        raw (Any): The raw attribute value (a JSON string as the SDK writes it,
+            or an already-decoded dict).
 
     Returns:
         dict[str, int]: The recognized usage fields with non-negative int
@@ -721,6 +724,16 @@ def transform_otel_to_clickhouse(
                             api_cache_write_tokens = manual_usage.get("cache_write_tokens")
                             api_cache_write_1h_tokens = manual_usage.get("cache_write_1h_tokens")
                             api_reasoning_tokens = manual_usage.get("reasoning_tokens")
+                        elif manual_usage:
+                            # Recognized fields, but nothing to price against: a
+                            # cache or reasoning count alone does not describe a
+                            # call. Dropping it silently is the same data loss the
+                            # field-level warnings above exist to surface.
+                            logger.warning(
+                                "Manual usage reported only %s with no input_tokens or "
+                                "output_tokens; ignoring it",
+                                sorted(manual_usage),
+                            )
 
                     if not aggregate_wrapper and (
                         api_input_tokens is not None or api_output_tokens is not None
