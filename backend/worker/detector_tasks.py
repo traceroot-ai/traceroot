@@ -282,12 +282,34 @@ def _parse_detector_rows(rows) -> list[dict]:
         else:
             triggers = trigger_conditions
 
+        kept_triggers = [t for t in triggers if isinstance(t, list)]
+
+        # Fail-closed is silent by construction (`any([])` is False), so surface
+        # the two misconfigurations that stop a detector from ever firing with no
+        # other operator signal: no trigger row at all, or trigger rows whose
+        # conditions were all malformed and dropped. An explicit empty-conditions
+        # trigger (`[[]]`, "runs on all") is a non-empty kept list, so it is not
+        # warned. Logged here (once per detector per poll) rather than in
+        # `_passes_any_trigger`, which runs per trace.
+        if trigger_count == 0:
+            logger.warning(
+                "Detector %s has no trigger row; failing closed (it will never fire)",
+                detector_id,
+            )
+        elif not kept_triggers:
+            logger.warning(
+                "Detector %s has %d trigger row(s) but all conditions were malformed "
+                "and dropped; failing closed (it will never fire)",
+                detector_id,
+                trigger_count,
+            )
+
         detectors.append(
             {
                 "id": detector_id,
                 "sample_rate": sample_rate,
                 "trigger_count": trigger_count,
-                "triggers": [t for t in triggers if isinstance(t, list)],
+                "triggers": kept_triggers,
             }
         )
     return detectors
