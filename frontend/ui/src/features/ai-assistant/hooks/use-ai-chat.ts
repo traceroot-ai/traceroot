@@ -24,11 +24,9 @@ function mapSessionMessages(data: { messages?: RawSessionMessage[] } | null): AI
 interface UseAiChatOptions extends AiTraceContext {
   projectId: string | undefined;
   initialSessionId?: string; // pre-load an existing session (e.g. RCA session from Step 2)
-  // True while a worker is still writing that session's answer (an RCA run in
-  // pending/running). Drives the working indicator, and its flip to false
-  // reloads the session so the finished answer appears without a manual
-  // refresh. The owner of this flag already tracks the status, so the chat
-  // never polls for it itself.
+  // True while a worker is still writing that session's answer. Shows the
+  // working indicator; flipping to false reloads the session so the finished
+  // answer appears. Reported by the caller, so the chat never polls for it.
   initialSessionPending?: boolean;
 }
 
@@ -50,17 +48,14 @@ export function useAiChat({
   // (session creation + first network round-trip). Without this, React 19 can batch
   // setIsStreaming(true) and setIsStreaming(false) into a single frame, hiding the button.
   const [isSending, setIsSending] = useState(false);
-  // Working indicator for a pre-loaded session whose answer is still being
-  // written elsewhere; see initialSessionPending.
+  // Working indicator for a pre-loaded session; see initialSessionPending.
   const [isLoadingSession, setIsLoadingSession] = useState(false);
-  // The session id we last cleared messages for, so a status-driven reload of
-  // the same session doesn't flash the list empty.
+  // Last session we cleared messages for, so a reload of the same session
+  // doesn't flash the list empty.
   const loadedInitialSessionRef = useRef<string | null>(null);
-  // Session whose reload is owed once the user's own turn finishes; see the
-  // deferred-reload effect below.
+  // Session whose reload is owed until the user's own turn finishes.
   const deferredReloadRef = useRef<string | null>(null);
-  // A stream is writing into `messages` right now. Read from an effect that must
-  // not itself re-run when this flips, so it lives in a ref.
+  // A ref because the effect below reads it but must not re-run when it flips.
   const streamActive = isSending || isStreaming || messages.some((m) => m.isStreaming);
   const streamActiveRef = useRef(streamActive);
   streamActiveRef.current = streamActive;
@@ -96,11 +91,10 @@ export function useAiChat({
     setMessages([]);
   }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load a pre-loaded session's messages on open, and load them again when
-  // initialSessionPending flips false — that is the one signal that a
-  // worker-written answer has landed, so re-reading then is what makes it appear
-  // without a manual refresh. AbortController guards against a stale fetch
-  // overwriting a newer session's messages.
+  // Load a pre-loaded session's messages on open, and again when
+  // initialSessionPending flips false — the signal that the worker's answer has
+  // landed. AbortController guards against a stale fetch overwriting a newer
+  // session's messages.
   useEffect(() => {
     if (!initialSessionId || !projectId) return;
     sessionIdRef.current = initialSessionId;
@@ -111,10 +105,8 @@ export function useAiChat({
       setMessages([]);
       loadedInitialSessionRef.current = initialSessionId;
     } else if (streamActiveRef.current) {
-      // Reloading replaces the list wholesale, which would orphan the message
-      // the user's own stream is writing into (useAIStream applies deltas by
-      // message id, so they would land nowhere and the answer would stop
-      // mid-sentence). Owe the reload instead and settle it below.
+      // A reload replaces the whole list, orphaning the message the user's
+      // stream is writing into. Owe it until the stream ends instead.
       deferredReloadRef.current = initialSessionId;
       return;
     }
@@ -124,9 +116,8 @@ export function useAiChat({
     return () => ac.abort();
   }, [initialSessionId, initialSessionPending, projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Settle a reload that was owed while the user was mid-turn. Runs once the
-  // stream ends, so the list picks up both the worker's answer and the user's
-  // completed exchange in one read.
+  // Run a reload that was owed while the user was mid-turn. One read now picks
+  // up both the worker's answer and the user's finished exchange.
   useEffect(() => {
     if (streamActive) return;
     const sessionId = deferredReloadRef.current;
@@ -257,8 +248,8 @@ export function useAiChat({
     // State
     messages,
     isStreaming: streamActive,
-    // Kept separate from isStreaming so the Stop button (which aborts a live
-    // stream) stays hidden while an RCA session is merely still generating.
+    // Separate from isStreaming so the Stop button, which aborts a live stream,
+    // stays hidden while a worker is writing the answer.
     isLoadingSession,
     sessions,
     historyOpen,

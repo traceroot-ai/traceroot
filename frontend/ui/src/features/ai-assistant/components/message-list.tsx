@@ -471,12 +471,8 @@ function UsageFooter({ msg }: { msg: AIMessage }) {
 interface MessageListProps {
   messages: AIMessage[];
   sessionStreaming?: boolean;
-  /**
-   * Names what is being waited on, for a wait the user has no other feedback on
-   * — nothing streams in and it can run for tens of seconds. Omit for a live
-   * stream, where text arriving is the feedback and a label would just flash
-   * between tokens and tool steps.
-   */
+  // Names what is being waited on when nothing is streaming in. Omit for a live
+  // stream, where the text arriving is the feedback.
   waitingLabel?: string;
 }
 

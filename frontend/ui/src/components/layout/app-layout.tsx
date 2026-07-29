@@ -25,8 +25,8 @@ interface LayoutContextType {
   // an existing session; clear when opening a fresh chat.
   aiInitialSessionId: string | undefined;
   setAiInitialSessionId: (sessionId: string | undefined) => void;
-  // Set by the host that owns the opened session while a worker is still writing
-  // its answer; see UseAiChatOptions.initialSessionPending.
+  // True while a worker is still writing the opened session's answer. Set by
+  // the host that owns the session.
   aiInitialSessionPending: boolean;
   setAiInitialSessionPending: (pending: boolean) => void;
   hideAiButton: boolean;

@@ -134,11 +134,9 @@ export function TraceViewerPanel({
   // A worker is still writing this session's answer.
   const rcaStatus = rcaData?.rca?.status;
   const rcaPending = rcaStatus === "pending" || rcaStatus === "running";
-  // Latest-value ref so opening the chat can report the run's status in the same
-  // state update as the session id — the chat re-reads the session whenever that
-  // flag changes, so reporting it a render later costs an extra fetch on every
-  // open. A ref rather than a dependency: re-running the open effect on a status
-  // change would re-open a panel the user had closed.
+  // A ref so the open effect can report the status alongside the session id
+  // without depending on it: the chat re-reads the session on every change of
+  // the flag, and re-running the effect would re-open a closed panel.
   const rcaPendingRef = useRef(rcaPending);
   rcaPendingRef.current = rcaPending;
 
@@ -161,11 +159,9 @@ export function TraceViewerPanel({
     setAiPanelOpen,
   ]);
 
-  // Keep the chat's view of the run's status current for as long as this trace's
-  // RCA session is the one open: the assistant shows a working indicator until
-  // the worker finishes writing the answer, then reloads it. useRca already polls
-  // this status, so nothing new polls here. Setting an unchanged value is a
-  // no-op, so this costs nothing when the session was opened with it already set.
+  // Keep the flag current while this trace's RCA session is the open one, so the
+  // chat clears its indicator and reloads the answer when the run finishes.
+  // useRca already polls the status, and setting an unchanged value is a no-op.
   useEffect(() => {
     setAiInitialSessionPending(!!rcaSessionId && aiInitialSessionId === rcaSessionId && rcaPending);
   }, [aiInitialSessionId, rcaSessionId, rcaPending, setAiInitialSessionPending]);

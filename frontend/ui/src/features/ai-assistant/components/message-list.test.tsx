@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen } from "@testing-library/react";
 
-// Markdown rendering is irrelevant here and pulls in a heavy parser chain.
+// Stub out the markdown parser; rendering it isn't what's under test.
 vi.mock("react-markdown", () => ({
   default: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
 }));
@@ -20,17 +20,15 @@ const PROMPT: AIMessage = {
 
 afterEach(cleanup);
 
-// The waiting indicator carries a label only for a wait the user has no other
-// feedback on — a worker writing an answer out-of-band, which can run for tens
-// of seconds with nothing else moving on screen. A live stream shows its own
-// text arriving, so labelling it would flash between tokens and tool steps.
+// The label is for waits with no other feedback on screen. A live stream shows
+// its own text arriving, so labelling it would flash between tokens.
 describe("MessageList waiting indicator", () => {
   it("names what is being waited on when given a label", () => {
     render(
       <MessageList messages={[PROMPT]} sessionStreaming waitingLabel="Analyzing the trace…" />,
     );
-    // role=status (via LoadingState) is what makes the wait audible to a screen
-    // reader; the bare spinner announces nothing.
+    // LoadingState's role=status is what a screen reader announces; the bare
+    // spinner announces nothing.
     expect(screen.getByRole("status").textContent).toContain("Analyzing the trace…");
   });
 

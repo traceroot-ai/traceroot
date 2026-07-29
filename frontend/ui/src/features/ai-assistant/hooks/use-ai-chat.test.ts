@@ -3,8 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { useState } from "react";
 
-// The real stream is a live SSE connection. Fake it so a test can hold a stream
-// open, which is what makes the message list unsafe to replace.
+// Fake the SSE stream so a test can hold one open mid-turn.
 const stream = vi.hoisted(() => ({ active: false }));
 vi.mock("./use-ai-stream", () => ({
   useAIStream: () => {
@@ -21,11 +20,9 @@ vi.mock("./use-ai-stream", () => ({
 
 import { useAiChat } from "./use-ai-chat";
 
-// Opening a detector-flagged trace pre-loads an RCA session that a worker
-// populates out-of-band, so the answer can arrive after the chat is already on
-// screen. The chat must show a working indicator while the run is still
-// generating (its owner reports that status via `initialSessionPending`) and
-// re-read the session when the run finishes, with no manual page refresh.
+// Opening a detector-flagged trace pre-loads an RCA session that a worker fills
+// in, so the answer can arrive after the chat is already on screen. Until then
+// the chat shows a working indicator, driven by `initialSessionPending`.
 
 type Raw = { id: string; role: "user" | "assistant"; content: string; createTime: string };
 
@@ -69,7 +66,7 @@ describe("useAiChat — pre-loaded RCA session working indicator", () => {
       { initialProps: { pending: true } },
     );
 
-    // Indicator shows immediately — driven by the authoritative running status.
+    // Indicator shows immediately, before any messages have loaded.
     expect(result.current.isLoadingSession).toBe(true);
     await waitFor(() => expect(result.current.messages.map((m) => m.role)).toEqual(["user"]));
     expect(result.current.isLoadingSession).toBe(true);
@@ -85,8 +82,7 @@ describe("useAiChat — pre-loaded RCA session working indicator", () => {
 
   it("holds the completion reload until the user's own stream has finished", async () => {
     // A reload replaces the whole list, so landing one mid-stream would orphan
-    // the message the stream is writing into and the answer would stop
-    // mid-sentence. The read is owed, not dropped: it happens once the turn ends.
+    // the message the stream is writing into. It is owed, not dropped.
     fetchMock.mockResolvedValue(ok([PROMPT, ANSWER]));
 
     const { result, rerender } = renderHook(

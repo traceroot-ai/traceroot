@@ -112,9 +112,8 @@ describe("TraceViewerPanel layout", () => {
 
 describe("TraceViewerPanel RCA session hand-off", () => {
   it("reports a still-generating run in the same update that opens its session", () => {
-    // The chat re-reads the session on every change of the pending flag, so the
-    // status has to travel with the session id. Reporting it a render later
-    // would cost a second fetch of the message list on every open.
+    // The chat re-reads the session on every change of the pending flag, so
+    // reporting the status a render later costs a second fetch on every open.
     mocks.rca = { rca: { sessionId: "sess-1", status: "running" } };
     renderPanel({ autoOpenRca: true });
     expect(mocks.setAiInitialSessionId).toHaveBeenCalledWith("sess-1");
