@@ -104,6 +104,26 @@ describe("ModelSelector", () => {
     expect(mocks.onChange).not.toHaveBeenCalled();
   });
 
+  it("does not backfill a provider onto a partially-hydrated selection while pending", () => {
+    // A legacy row (e.g. project.rca_model set, rca_provider NULL) arrives as a
+    // model-id-only selection. While the query is pending, `models` is the
+    // compiled-in fallback list, which DOES contain this id — so the reconcile
+    // effect must not run yet, or it would backfill provider="Anthropic" the
+    // user never chose and self-enable Save. It reconciles once settled.
+    mocks.models = undefined;
+    mocks.isPending = true;
+
+    render(
+      <ModelSelector
+        value={{ model: "claude-opus-4-8", provider: "", source: "system", adapter: "" }}
+        onChange={mocks.onChange}
+        workspaceId="workspace-1"
+      />,
+    );
+
+    expect(mocks.onChange).not.toHaveBeenCalled();
+  });
+
   it("links to workspace model-provider settings from the empty dropdown state", () => {
     mocks.models = { byokProviders: [], systemModels: [] };
 
