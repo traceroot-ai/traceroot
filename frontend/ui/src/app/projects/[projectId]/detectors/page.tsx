@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Eye, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/ui/loading-state";
@@ -19,6 +20,9 @@ import {
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
 import { useProject } from "@/features/projects/hooks";
+import { useRetention } from "@/lib/hooks/use-retention";
+import { PricingDialog } from "@/ee/features/billing/PricingDialog";
+import { PlanType } from "@traceroot/core";
 import { DeleteDetectorDialog } from "@/features/detectors/components/delete-detector-dialog";
 import { DetectorPanel } from "@/features/detectors/components/detector-panel";
 import { getTemplate } from "@/features/detectors/templates";
@@ -50,6 +54,9 @@ export default function DetectorsPage() {
   const [actionsOpen, setActionsOpen] = useState<string | null>(null);
   const [selectedDetectorId, setSelectedDetectorId] = useState<string | null>(null);
 
+  const { data: project } = useProject(projectId);
+  const retention = useRetention(projectId);
+
   const {
     state,
     queryOptions,
@@ -58,7 +65,10 @@ export default function DetectorsPage() {
     updateKeyword,
     updateLimit,
     goToPage,
-  } = useListPageState({ defaultDateFilterId: DETECTORS_DEFAULT_DATE_FILTER_ID });
+  } = useListPageState({
+    defaultDateFilterId: DETECTORS_DEFAULT_DATE_FILTER_ID,
+    retentionDays: retention.retentionDays,
+  });
 
   // Carry the selected time range into the detail page so it stays consistent
   // across the list <-> detail navigation, mirroring how the Traces tabs
@@ -71,15 +81,17 @@ export default function DetectorsPage() {
       customEndDate: state.customEndDate,
     });
 
-  const { data: project } = useProject(projectId);
-
   const { data, isLoading, error } = useDetectorList(projectId, {
     page: queryOptions.page,
     limit: queryOptions.limit,
     search_query: queryOptions.search_query,
   });
 
-  const { data: counts, isLoading: countsLoading } = useDetectorCounts(projectId, {
+  const {
+    data: counts,
+    isLoading: countsLoading,
+    error: countsError,
+  } = useDetectorCounts(projectId, {
     start_after: queryOptions.start_after,
     end_before: queryOptions.end_before,
   });
@@ -139,6 +151,8 @@ export default function DetectorsPage() {
           customEndDate={state.customEndDate}
           onDateFilterChange={updateDateFilter}
           onCustomRangeChange={updateCustomRange}
+          retentionDays={retention.retentionDays}
+          onUpgradeClick={retention.onUpgradeClick}
         />
 
         {/* Table */}
@@ -153,7 +167,7 @@ export default function DetectorsPage() {
             </div>
           ) : isEmptyProject ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
-              <Eye className="h-8 w-8 text-muted-foreground/40" />
+              <DOMAIN_ICONS.detector className="h-8 w-8 text-muted-foreground/40" />
               <p className="text-[13px] text-muted-foreground">No detectors yet</p>
               <p className="text-[12px] text-muted-foreground">
                 Create a detector to automatically analyze your traces.
@@ -343,6 +357,13 @@ export default function DetectorsPage() {
           isDeleting={deleteMutation.isPending}
         />
       )}
+
+      <PricingDialog
+        open={retention.showPricing}
+        onOpenChange={retention.closePricing}
+        workspaceId={retention.workspaceId}
+        currentPlan={(retention.billingPlan as PlanType) || PlanType.FREE}
+      />
     </div>
   );
 }
