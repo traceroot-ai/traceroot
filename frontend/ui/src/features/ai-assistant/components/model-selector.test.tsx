@@ -153,6 +153,94 @@ describe("ModelSelector", () => {
     expect(other?.textContent).not.toContain("✓");
   });
 
+  it("picking the tracked default keeps the selection empty rather than pinning it", () => {
+    mocks.models = {
+      byokProviders: [],
+      systemModels: [
+        {
+          provider: "anthropic",
+          adapter: "anthropic",
+          source: "system",
+          models: [
+            { id: "claude-4", label: "Claude 4" },
+            { id: "claude-5", label: "Claude 5" },
+          ],
+        },
+      ],
+    };
+
+    render(
+      <ModelSelector
+        value={{ model: "", provider: "", source: "system", adapter: "" }}
+        onChange={mocks.onChange}
+        workspaceId="workspace-1"
+        defaultModelId="claude-4"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button"));
+
+    const rows = screen.getAllByRole("button").filter((b) => !b.hasAttribute("aria-haspopup"));
+    fireEvent.click(rows.find((b) => b.textContent?.includes("Claude 4"))!);
+    expect(mocks.onChange).not.toHaveBeenCalled();
+
+    // Any other row is a real pick and still writes a selection.
+    fireEvent.click(screen.getByRole("button"));
+    fireEvent.click(
+      screen
+        .getAllByRole("button")
+        .filter((b) => !b.hasAttribute("aria-haspopup"))
+        .find((b) => b.textContent?.includes("Claude 5"))!,
+    );
+    expect(mocks.onChange).toHaveBeenCalledWith({
+      model: "claude-5",
+      provider: "anthropic",
+      source: "system",
+      adapter: "anthropic",
+    });
+  });
+
+  // The suppression above applies only while the selection is empty, so a
+  // parent that moved off the default can always move back to it.
+  it("selects the default model normally once something else is pinned", () => {
+    mocks.models = {
+      byokProviders: [],
+      systemModels: [
+        {
+          provider: "anthropic",
+          adapter: "anthropic",
+          source: "system",
+          models: [
+            { id: "claude-4", label: "Claude 4" },
+            { id: "claude-5", label: "Claude 5" },
+          ],
+        },
+      ],
+    };
+
+    render(
+      <ModelSelector
+        value={{ model: "claude-5", provider: "anthropic", source: "system", adapter: "anthropic" }}
+        onChange={mocks.onChange}
+        workspaceId="workspace-1"
+        defaultModelId="claude-4"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button"));
+    fireEvent.click(
+      screen
+        .getAllByRole("button")
+        .filter((b) => !b.hasAttribute("aria-haspopup"))
+        .find((b) => b.textContent?.includes("Claude 4"))!,
+    );
+
+    expect(mocks.onChange).toHaveBeenCalledWith({
+      model: "claude-4",
+      provider: "anthropic",
+      source: "system",
+      adapter: "anthropic",
+    });
+  });
+
   // A BYOK provider may expose the same model id as the system default; that
   // is a separate row and picking it stores a different selection, so only
   // the system row is the tracked default.
