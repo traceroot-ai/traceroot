@@ -156,7 +156,7 @@ export default function NewDetectorPage() {
                     value={modelSelection}
                     onChange={setModelSelection}
                     workspaceId={project?.workspace_id}
-                    placeholder={DETECTOR_SYSTEM_DEFAULT_MODEL_ID}
+                    defaultModelId={DETECTOR_SYSTEM_DEFAULT_MODEL_ID}
                   />
                   <p className="mt-1 text-[11px] text-muted-foreground">
                     Used to evaluate each trace for this detector.

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, cleanup, screen } from "@testing-library/react";
+import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => ({
   models: undefined as
@@ -93,7 +93,7 @@ describe("ModelSelector", () => {
     });
   });
 
-  it("does not auto-pick when a placeholder marks empty as a valid state", () => {
+  it("does not auto-pick when a defaultModelId marks empty as a valid state", () => {
     mocks.models = {
       byokProviders: [],
       systemModels: [
@@ -111,15 +111,90 @@ describe("ModelSelector", () => {
         value={{ model: "", provider: "", source: "system", adapter: "" }}
         onChange={mocks.onChange}
         workspaceId="workspace-1"
-        placeholder="Default model"
+        defaultModelId="claude-4"
       />,
     );
 
     expect(mocks.onChange).not.toHaveBeenCalled();
-    expect(screen.getByRole("button").textContent).toContain("Default model");
+    expect(screen.getByRole("button").textContent).toContain("Claude 4");
   });
 
-  it("still backfills a legacy model-only selection when a placeholder is set", () => {
+  it("ticks the tracked default so an empty selection reads as a real pick", () => {
+    mocks.models = {
+      byokProviders: [],
+      systemModels: [
+        {
+          provider: "anthropic",
+          adapter: "anthropic",
+          source: "system",
+          models: [
+            { id: "claude-4", label: "Claude 4" },
+            { id: "claude-5", label: "Claude 5" },
+          ],
+        },
+      ],
+    };
+
+    render(
+      <ModelSelector
+        value={{ model: "", provider: "", source: "system", adapter: "" }}
+        onChange={mocks.onChange}
+        workspaceId="workspace-1"
+        defaultModelId="claude-4"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button"));
+
+    // The popover trigger repeats the selected label, so exclude it.
+    const rows = screen.getAllByRole("button").filter((b) => !b.hasAttribute("aria-haspopup"));
+    const tracked = rows.find((b) => b.textContent?.includes("Claude 4"));
+    const other = rows.find((b) => b.textContent?.includes("Claude 5"));
+    expect(tracked?.textContent).toContain("✓");
+    expect(other?.textContent).not.toContain("✓");
+  });
+
+  // A BYOK provider may expose the same model id as the system default; that
+  // is a separate row and picking it stores a different selection, so only
+  // the system row is the tracked default.
+  it("ticks only the system row when a BYOK provider exposes the same id", () => {
+    mocks.models = {
+      byokProviders: [
+        {
+          provider: "My Anthropic",
+          adapter: "anthropic",
+          source: "byok",
+          models: [{ id: "claude-4", label: "Claude 4", supported: true }],
+        },
+      ],
+      systemModels: [
+        {
+          provider: "anthropic",
+          adapter: "anthropic",
+          source: "system",
+          models: [{ id: "claude-4", label: "Claude 4" }],
+        },
+      ],
+    };
+
+    render(
+      <ModelSelector
+        value={{ model: "", provider: "", source: "system", adapter: "" }}
+        onChange={mocks.onChange}
+        workspaceId="workspace-1"
+        defaultModelId="claude-4"
+      />,
+    );
+    fireEvent.click(screen.getByRole("button"));
+
+    const ticked = screen
+      .getAllByRole("button")
+      .filter((b) => b.textContent?.includes("✓") && b.textContent?.includes("Claude 4"));
+    expect(ticked).toHaveLength(1);
+    // The BYOK row is the one carrying the provider tag.
+    expect(ticked[0].textContent).not.toContain("My Anthropic");
+  });
+
+  it("still backfills a legacy model-only selection when a defaultModelId is set", () => {
     mocks.models = {
       byokProviders: [],
       systemModels: [
@@ -137,7 +212,7 @@ describe("ModelSelector", () => {
         value={{ model: "claude-4", provider: "", source: "system", adapter: "" }}
         onChange={mocks.onChange}
         workspaceId="workspace-1"
-        placeholder="Default model"
+        defaultModelId="claude-4"
       />,
     );
 

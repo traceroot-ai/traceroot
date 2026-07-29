@@ -21,19 +21,27 @@ interface ModelSelectorProps {
   onChange: (selection: ModelSelection) => void;
   workspaceId?: string;
   /**
-   * When set, an empty selection is a valid persistent state ("use the
-   * system default"): the trigger shows this label and the selector never
-   * writes an auto-picked default into the parent's state. Surfaces that
-   * require a concrete selection leave this unset and get the auto-pick.
+   * System model id the parent falls back to when the selection is empty.
+   * Setting it makes an empty selection a valid persistent state ("track
+   * this model"): the selector never writes an auto-picked default into the
+   * parent's state, and it presents that model exactly as an explicit pick
+   * would — same trigger label, same checkmark — so the user sees what will
+   * run without the parent having to store it. Surfaces that require a
+   * concrete stored selection leave this unset and get the auto-pick.
    */
-  placeholder?: string;
+  defaultModelId?: string;
 }
 
 function modelKey(m: { id?: string; model?: string; source: string; provider: string }) {
   return `${m.source}:${m.provider}:${m.id ?? m.model}`;
 }
 
-export function ModelSelector({ value, onChange, workspaceId, placeholder }: ModelSelectorProps) {
+export function ModelSelector({
+  value,
+  onChange,
+  workspaceId,
+  defaultModelId,
+}: ModelSelectorProps) {
   const [open, setOpen] = useState(false);
 
   const { data } = useQuery({
@@ -51,7 +59,7 @@ export function ModelSelector({ value, onChange, workspaceId, placeholder }: Mod
   //      `model` saved, e.g. `project.rca_model: string`) → backfill the rest
   //   3. no match → preserve the current selection if the user already picked
   //      one, and only auto-pick a default when the model is still empty and
-  //      no placeholder marks "empty" as a valid persistent state.
+  //      no `defaultModelId` marks "empty" as a valid persistent state.
   // Without case 2 the selector would silently auto-pick a default when a
   // partially-hydrated saved selection arrives, clobbering the user's choice.
   useEffect(() => {
@@ -65,7 +73,7 @@ export function ModelSelector({ value, onChange, workspaceId, placeholder }: Mod
     const match = exact ?? modelOnly;
 
     if (!match) {
-      if (!value.model && !placeholder) {
+      if (!value.model && !defaultModelId) {
         const pick = pickDefaultModel(models);
         if (pick) {
           onChange({
@@ -95,9 +103,20 @@ export function ModelSelector({ value, onChange, workspaceId, placeholder }: Mod
         adapter: match.adapter,
       });
     }
-  }, [models, value, onChange, placeholder]);
+  }, [models, value, onChange, defaultModelId]);
 
-  const selectedKey = modelKey({ id: value.model, source: value.source, provider: value.provider });
+  // With nothing explicitly picked, present the tracked default as if it were
+  // the selection, so an unpinned parent looks exactly like one that stored
+  // this model. Scoped to a system row: a BYOK provider exposing the same id
+  // is a different row and must not also be ticked.
+  const trackedDefault =
+    !value.model && defaultModelId
+      ? models.find((m) => m.id === defaultModelId && m.source === "system")
+      : undefined;
+
+  const selectedKey = trackedDefault
+    ? modelKey(trackedDefault)
+    : modelKey({ id: value.model, source: value.source, provider: value.provider });
   const selectedModel = models.find((m) => modelKey(m) === selectedKey);
 
   return (
@@ -109,7 +128,7 @@ export function ModelSelector({ value, onChange, workspaceId, placeholder }: Mod
             size="sm"
             className="h-7 gap-1 rounded-sm px-2 text-[11px] text-muted-foreground hover:text-foreground"
           >
-            {selectedModel?.label || value.model || placeholder || "Select model"}
+            {selectedModel?.label || value.model || defaultModelId || "Select model"}
             <ChevronDown className="h-3 w-3" />
           </Button>
         </PopoverTrigger>
