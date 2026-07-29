@@ -45,13 +45,16 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
   //   2. model-id-only match (legacy/hydrated state where the parent only has
   //      `model` saved, e.g. `project.rca_model: string`) → backfill the rest
   //   3. no match → preserve the current selection if the user already picked
-  //      one, and only auto-pick a default once the query has settled and the
-  //      model is still empty. Gating on settled state (rather than picking from
-  //      the pending fallback list and clearing it later) avoids ever showing a
-  //      phantom default the user didn't choose.
-  // Without case 2 the selector would silently auto-pick a default when a
-  // partially-hydrated saved selection arrives, clobbering the user's choice.
+  //      one, and only auto-pick a default once the model is still empty.
+  // The whole reconcile is skipped while the query is pending: `models` is still
+  // the compiled-in fallback list then, so reconciling against it would backfill
+  // a phantom provider onto a partially-hydrated selection (e.g. a legacy
+  // `project.rca_model` with no provider), self-enabling a Save the user never
+  // touched. Waiting for settled state means case 2 only ever matches real
+  // models, and case 3 only auto-picks from real models.
   useEffect(() => {
+    if (isPending) return;
+
     const exact = models.find(
       (m) => m.id === value.model && m.provider === value.provider && m.source === value.source,
     );
@@ -60,7 +63,7 @@ export function ModelSelector({ value, onChange, workspaceId }: ModelSelectorPro
     const match = exact ?? modelOnly;
 
     if (!match) {
-      if (!value.model && !isPending) {
+      if (!value.model) {
         const pick = pickDefaultModel(models);
         if (pick) {
           onChange({
