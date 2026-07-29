@@ -151,12 +151,18 @@ export function ModelSelector({
                   isSelected && "font-medium text-foreground",
                 )}
                 onClick={() => {
-                  onChange({
-                    model: m.id,
-                    provider: m.provider,
-                    source: m.source,
-                    adapter: m.adapter,
-                  });
+                  // Picking the row that is already the tracked default looks
+                  // like a no-op but would write a selection, pinning the
+                  // parent to this model and quietly opting it out of any
+                  // later change to the default. Leave the empty selection be.
+                  if (!(trackedDefault && isSelected)) {
+                    onChange({
+                      model: m.id,
+                      provider: m.provider,
+                      source: m.source,
+                      adapter: m.adapter,
+                    });
+                  }
                   setOpen(false);
                 }}
               >
