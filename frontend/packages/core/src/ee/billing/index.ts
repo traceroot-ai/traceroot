@@ -13,6 +13,9 @@ export {
   RCA_RUN_QUOTAS,
   DETECTOR_RUN_QUOTAS,
   DETECTOR_HOSTED_LLM_FREE_THRESHOLD,
+  RETENTION_DAYS,
+  FAIL_CLOSED_RETENTION_DAYS,
+  getRetentionDays,
   PlanType,
   // Types
   type PlanConfig,

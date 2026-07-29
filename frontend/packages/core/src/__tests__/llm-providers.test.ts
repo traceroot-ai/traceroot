@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import {
   ADAPTER_MODELS,
@@ -145,4 +146,30 @@ describe("ADAPTER_MODELS", () => {
       }
     });
   });
+});
+
+describe("docs stay in sync with SYSTEM_MODELS", () => {
+  // The BYOK docs table is a hand-maintained copy of SYSTEM_MODELS. Without this
+  // check, adding a model here silently leaves the docs stale (see #1431).
+  const BYOK_DOC = new URL("../../../../../docs/ai-agent/byok.mdx", import.meta.url);
+
+  it.each(SYSTEM_MODELS.map((s) => [s.provider, s.models.map((m) => m.id)] as const))(
+    "the byok.mdx Default Models table lists %s's models in SYSTEM_MODELS order",
+    (provider, expectedIds) => {
+      const row = readFileSync(BYOK_DOC, "utf8")
+        .split("\n")
+        .find((line) => line.startsWith(`| ${provider} |`));
+
+      expect(
+        row,
+        `no "${provider}" row in the Default Models table of docs/ai-agent/byok.mdx`,
+      ).toBeDefined();
+
+      const documentedIds = [...row!.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
+      expect(
+        documentedIds,
+        `docs/ai-agent/byok.mdx is out of sync with SYSTEM_MODELS for ${provider} — update the table`,
+      ).toEqual([...expectedIds]);
+    },
+  );
 });

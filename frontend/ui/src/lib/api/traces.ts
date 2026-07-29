@@ -30,6 +30,13 @@ export async function getTraces(
   return fetchTraceApi<TraceListResponse>(endpoint, {}, user);
 }
 
+export async function tracesExist(
+  projectId: string,
+  user?: TraceApiUser,
+): Promise<{ exists: boolean }> {
+  return fetchTraceApi<{ exists: boolean }>(`/projects/${projectId}/traces/exists`, {}, user);
+}
+
 export async function getTrace(
   projectId: string,
   traceId: string,

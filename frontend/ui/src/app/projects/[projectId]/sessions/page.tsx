@@ -4,12 +4,16 @@ import { useMemo, useLayoutEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
-import { Workflow, Users, Layers } from "lucide-react";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
+import { LoadingState } from "@/components/ui/loading-state";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { SessionDetailPanel } from "@/features/traces/components/SessionDetailPanel";
 import { useSessions } from "@/features/traces/hooks";
+import { useRetention } from "@/lib/hooks/use-retention";
+import { PricingDialog } from "@/ee/features/billing/PricingDialog";
+import { PlanType } from "@traceroot/core";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useSession as useAuthSession } from "@/lib/auth-client";
 import {
@@ -23,9 +27,9 @@ import {
 import type { SessionListItem, SessionQueryOptions } from "@/types/api";
 
 const tabs = [
-  { id: "traces", label: "Traces", icon: Workflow, href: "traces" },
-  { id: "users", label: "Users", icon: Users, href: "users" },
-  { id: "sessions", label: "Sessions", icon: Layers, href: "sessions" },
+  { id: "traces", label: "Traces", icon: DOMAIN_ICONS.trace, href: "traces" },
+  { id: "users", label: "Users", icon: DOMAIN_ICONS.user, href: "users" },
+  { id: "sessions", label: "Sessions", icon: DOMAIN_ICONS.session, href: "sessions" },
 ];
 
 function getTotalCost(session: SessionListItem): number | null {
@@ -41,6 +45,8 @@ export default function SessionsPage() {
   const sessionIdFromUrl = searchParams.get("sessionId");
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(sessionIdFromUrl);
 
+  const retention = useRetention(projectId);
+
   const {
     state,
     updateDateFilter,
@@ -49,7 +55,7 @@ export default function SessionsPage() {
     updateLimit,
     goToPage,
     queryOptions,
-  } = useListPageState();
+  } = useListPageState({ retentionDays: retention.retentionDays });
 
   const sessionQueryOptions = useMemo<SessionQueryOptions>(
     () => ({
@@ -123,13 +129,15 @@ export default function SessionsPage() {
           customEndDate={state.customEndDate}
           onDateFilterChange={updateDateFilter}
           onCustomRangeChange={updateCustomRange}
+          retentionDays={retention.retentionDays}
+          onUpgradeClick={retention.onUpgradeClick}
         />
 
         {/* Content */}
         <div className="flex-1 overflow-auto bg-background">
           {checking ? (
             <div className="flex h-64 items-center justify-center">
-              <p className="text-[13px] text-muted-foreground">Loading sessions...</p>
+              <LoadingState label="Loading sessions..." />
             </div>
           ) : error && !data ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
@@ -140,7 +148,7 @@ export default function SessionsPage() {
             </div>
           ) : sessions.length === 0 ? (
             <div className="flex h-64 flex-col items-center justify-center gap-3">
-              <Layers className="h-10 w-10 text-muted-foreground" />
+              <DOMAIN_ICONS.session className="h-10 w-10 text-muted-foreground" />
               <p className="text-[13px] text-muted-foreground">No sessions found</p>
               <p className="text-[12px] text-muted-foreground">
                 Sessions will appear here when traces include session_id.
@@ -262,6 +270,13 @@ export default function SessionsPage() {
           />
         </div>
       )}
+
+      <PricingDialog
+        open={retention.showPricing}
+        onOpenChange={retention.closePricing}
+        workspaceId={retention.workspaceId}
+        currentPlan={(retention.billingPlan as PlanType) || PlanType.FREE}
+      />
     </div>
   );
 }

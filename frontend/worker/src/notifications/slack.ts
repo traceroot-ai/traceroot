@@ -13,6 +13,8 @@ export interface SendDigestAlertSlackParams {
   windowEnd: Date;
   total: number;
   entries: DigestEntry[];
+  /** Optional LLM-written paragraph; escaped + capped by the block builder. */
+  summary?: string;
 }
 
 export async function sendDigestAlertSlack(params: SendDigestAlertSlackParams): Promise<void> {
@@ -37,6 +39,7 @@ export async function sendDigestAlertSlack(params: SendDigestAlertSlackParams): 
     windowEnd: params.windowEnd,
     total: params.total,
     entries: params.entries,
+    summary: params.summary,
   });
   await client.chat.postMessage({
     channel: params.channelId,

@@ -12,6 +12,7 @@ from rest.rate_limit import (
     limiter,
     resolve_limit,
 )
+from rest.retention import clamp_retention_window
 from rest.routers.deps import RateLimitedProjectAccess
 from rest.schemas.sessions import SessionDetailResponse, SessionListResponse
 from rest.services.trace_reader import get_trace_reader_service
@@ -37,6 +38,7 @@ async def list_sessions(
     end_before: datetime | None = Query(None, description="Filter traces before this time"),
 ):
     """List unique sessions for a project with trace counts and token totals."""
+    start_after, end_before = clamp_retention_window(_access.billing_plan, start_after, end_before)
     try:
         service = get_trace_reader_service()
         result = service.list_sessions(
@@ -70,6 +72,7 @@ async def get_session(
     end_before: datetime | None = Query(None, description="Filter traces before this time"),
 ):
     """Get session detail with all traces for conversation view."""
+    start_after, end_before = clamp_retention_window(_access.billing_plan, start_after, end_before)
     try:
         service = get_trace_reader_service()
         result = service.get_session(

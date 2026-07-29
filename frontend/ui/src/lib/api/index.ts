@@ -58,7 +58,7 @@ export {
 } from "./model-providers";
 
 // Trace APIs
-export { getTraces, getTrace, getSpanIO } from "./traces";
+export { getTraces, getTrace, getSpanIO, tracesExist } from "./traces";
 
 // Re-export all types from types/api.ts for backward compatibility
 export type {

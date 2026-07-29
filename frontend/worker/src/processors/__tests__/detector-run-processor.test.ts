@@ -182,6 +182,42 @@ describe("processTrace — finding + RCA", () => {
     expect(mockQueueAdd.mock.calls[0][1].findingTimestamp).toBe(ts);
   });
 
+  it("enqueues the RCA job with retry attempts and backoff so transient agent failures retry", async () => {
+    mockFetches(60_000, '{"span":1}\n');
+    mockPrisma.detector.findMany.mockResolvedValue([
+      {
+        id: "d1",
+        name: "Slow",
+        prompt: "p",
+        outputSchema: [],
+        detectionModel: null,
+        detectionProvider: null,
+        detectionSource: "system",
+        enableRca: true,
+      },
+    ]);
+    mockRunDetection.mockResolvedValue({
+      identified: true,
+      summary: "found it",
+      data: {},
+      inferenceCost: 0,
+      inferenceInputTokens: 0,
+      inferenceOutputTokens: 0,
+      inferenceSource: "system",
+      inferenceModel: "m",
+      inferenceProvider: "anthropic",
+    });
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    expect(mockQueueAdd.mock.calls[0][2]).toEqual(
+      expect.objectContaining({
+        attempts: 3,
+        backoff: { type: "exponential", delay: 10000 },
+      }),
+    );
+  });
+
   it("writes no finding when nothing triggers", async () => {
     mockFetches(60_000, '{"span":1}\n');
     mockPrisma.detector.findMany.mockResolvedValue([

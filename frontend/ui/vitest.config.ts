@@ -11,7 +11,16 @@ export default defineConfig({
       reporter: ["lcov"],
       reportsDirectory: "./coverage",
       reportOnFailure: true,
-      exclude: ["**/*.test.ts", "**/*.test.tsx", "**/*.spec.ts", "**/*.d.ts", "**/types.ts"],
+      exclude: [
+        "**/*.test.ts",
+        "**/*.test.tsx",
+        "**/*.spec.ts",
+        "**/*.d.ts",
+        "**/types.ts",
+        // Local dev-server build output; its compiled chunks lack usable
+        // sourcemaps and crash the untested-files coverage scan.
+        "**/.next/**",
+      ],
     },
   },
   resolve: {

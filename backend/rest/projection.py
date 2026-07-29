@@ -112,6 +112,28 @@ def io_columns(groups: frozenset[str]) -> frozenset[str]:
     return frozenset(columns)
 
 
+def drop_span_tree_metadata(trace: dict) -> None:
+    """Clear the skeleton's span-path metadata subset, in place.
+
+    The trace-detail skeleton returns a small span-path metadata subset that the
+    dashboard needs to rebuild the tree of a live trace (children are exported
+    before their parents, so the missing ancestors are synthesized from it).
+
+    API clients do no tree repair, and their contract is ``metadata: null``
+    unless the ``metadata`` field group is requested. Handing them the subset
+    instead would be a partial blob they cannot distinguish from a real one —
+    the field's type would not change, so nothing signals the truncation.
+
+    Call this BEFORE ``merge_span_io``: when the projection does request
+    ``metadata``, the merge then repopulates it with the real blob. Clearing
+    afterwards instead would depend on the merge touching every span, which it
+    explicitly does not promise (spans absent from the I/O map are left as-is),
+    so a span the bulk query happened to miss would keep — and leak — the subset.
+    """
+    for span in trace.get("spans", []):
+        span["metadata"] = None
+
+
 def merge_span_io(trace: dict, span_io: dict[str, dict]) -> None:
     """Attach bulk per-span I/O onto a trace's skeleton spans, in place.
 

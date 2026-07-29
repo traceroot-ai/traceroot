@@ -45,12 +45,16 @@ vi.mock("./TraceDetectorsTab", () => ({
 vi.mock("@/features/ai-assistant/components/ai-assistant-panel", () => ({
   AiAssistantPanel: () => <div data-testid="ai-panel" />,
 }));
+vi.mock("@/components/RetentionGateBanner", () => ({
+  RetentionGateBanner: () => <div data-testid="retention-banner" />,
+}));
 vi.mock("@/components/ui/resizable", () => ({
   ResizablePanelGroup: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   ResizablePanel: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   ResizableHandle: () => null,
 }));
 
+import { ApiError } from "@/lib/api/client";
 import { TraceViewerPanel } from "./TraceViewerPanel";
 
 function renderPanel(props: { initialFullscreen?: boolean } = {}) {
@@ -180,6 +184,18 @@ describe("TraceViewerPanel content states", () => {
     mocks.traceError = new Error("boom");
     renderPanel();
     expect(screen.getByText("Error loading trace")).toBeTruthy();
+  });
+
+  it("renders the retention banner when the trace fetch returns 403 retention error", () => {
+    mocks.trace = undefined;
+    mocks.traceError = new ApiError(403, {
+      message: "Data outside retention window",
+      retention_days: 15,
+      cutoff: "2026-06-29T00:00:00",
+      plan: "free",
+    });
+    renderPanel();
+    expect(screen.getByTestId("retention-banner")).toBeTruthy();
   });
 
   it("renders the timeline view in timeline mode", () => {

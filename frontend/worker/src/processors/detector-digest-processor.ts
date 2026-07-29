@@ -1,5 +1,5 @@
 import { Worker } from "bullmq";
-import { prisma } from "@traceroot/core";
+import { prisma, PlanType } from "@traceroot/core";
 import type { DigestEntry } from "@traceroot/slack";
 import {
   DETECTOR_DIGEST_QUEUE,
@@ -12,6 +12,7 @@ import {
 } from "../detection/findings-reader.js";
 import { sendDigestAlertSlack } from "../notifications/slack.js";
 import { sendDigestAlertEmail } from "../notifications/email.js";
+import { generateDigestSummary } from "../notifications/digest-summary.js";
 
 /**
  * Flush one project's alert window: read the per-detector finding counts in
@@ -43,7 +44,17 @@ export async function flushDigest(job: DigestFlushJob): Promise<void> {
     return;
   }
 
-  const summary = await readDetectorWindowSummary(projectId, start, end);
+  // Gates resolved before the read so blocked workspaces never pay for the
+  // summaries join. Kill switch: summaries are enabled unless the env var says
+  // "false" (case/whitespace-insensitive, same idiom as ENABLE_BILLING). Free-
+  // plan gate mirrors RCA so blocked workspaces spend no LLM tokens.
+  const summariesKilled =
+    (process.env.DIGEST_SUMMARY_ENABLED ?? "").trim().toLowerCase() === "false";
+  const summaryAllowed =
+    !summariesKilled && !(recipients.rcaBlocked && recipients.billingPlan === PlanType.FREE);
+  const summary = await readDetectorWindowSummary(projectId, start, end, {
+    includeSummaries: summaryAllowed,
+  });
   const triggeredIds = Object.keys(summary).filter((id) => summary[id].finding_count > 0);
   if (triggeredIds.length === 0) {
     console.log(`[Digest] skip project=${projectId} window=${window} reason=no-findings`);
@@ -66,14 +77,75 @@ export async function flushDigest(job: DigestFlushJob): Promise<void> {
   const entries = buildEntries(detectorIds, nameById, summary);
   const total = entries.reduce((sum, e) => sum + e.findingCount, 0);
 
-  await fanOut(recipients, { projectId, windowStart: start, windowEnd: end, total, entries });
+  // Best-effort LLM paragraph. Never blocks the digest: any failure inside
+  // generateDigestSummary resolves to null and the digest sends as before.
+  // summaryAllowed was computed above (kill switch + free-plan RCA gate).
+  let digestSummary: string | undefined;
+  if (summaryAllowed) {
+    const result = await generateDigestSummary(
+      {
+        projectName: recipients.projectName,
+        windowStart: start,
+        windowEnd: end,
+        detectors: detectorIds.map((id) => ({
+          name: nameById.get(id) ?? id,
+          findingCount: summary[id].finding_count,
+          sampleSummaries: summary[id].sample_summaries ?? [],
+        })),
+      },
+      {
+        workspaceId: recipients.workspaceId,
+        rcaModel: recipients.rcaModel,
+        rcaProvider: recipients.rcaProvider,
+        rcaSource: recipients.rcaSource,
+      },
+    );
+    if (result) {
+      digestSummary = result.summary;
+      // Bookkeeping/observability only: usage metering (usageMetering.ts,
+      // MessageKind = chat|rca|detector) intentionally does NOT meter
+      // "digest-summary" in v1; extending metering is a documented follow-up.
+      await prisma.aIMessage
+        .create({
+          data: {
+            workspaceId: recipients.workspaceId,
+            sessionId: null,
+            kind: "digest-summary",
+            role: "assistant",
+            content: "",
+            model: result.usage.model,
+            provider: result.usage.provider,
+            isByok: result.usage.isByok,
+            inputTokens: result.usage.inputTokens,
+            outputTokens: result.usage.outputTokens,
+            cost: result.usage.cost,
+          },
+        })
+        .catch((err) =>
+          console.error(`[Digest] Failed to write digest-summary aIMessage for ${projectId}:`, err),
+        );
+    }
+  } else {
+    console.log(
+      `[Digest] skip summary project=${projectId} reason=${summariesKilled ? "kill-switch" : "rca-blocked-free-plan"}`,
+    );
+  }
+
+  await fanOut(recipients, {
+    projectId,
+    windowStart: start,
+    windowEnd: end,
+    total,
+    entries,
+    summary: digestSummary,
+  });
 
   // Per-channel failures are caught inside fanOut and don't reach here, so this
   // line means the digest was handed to every configured channel.
   console.log(
     `[Digest] sent project=${projectId} window=${window} findings=${total} ` +
       `detectors=${entries.length} slack=${recipients.slackChannelId ? "yes" : "no"} ` +
-      `email=${recipients.emailAddresses.length}`,
+      `email=${recipients.emailAddresses.length} summary=${digestSummary ? "yes" : "no"}`,
   );
 }
 
@@ -101,6 +173,7 @@ interface DigestContent {
   windowEnd: Date;
   total: number;
   entries: DigestEntry[];
+  summary?: string;
 }
 
 interface DigestRecipients {
@@ -109,6 +182,11 @@ interface DigestRecipients {
   slackChannelId: string | null;
   encryptedBotToken: string | null;
   emailAddresses: string[];
+  billingPlan: string;
+  rcaBlocked: boolean;
+  rcaModel: string | null;
+  rcaProvider: string | null;
+  rcaSource: string | null;
 }
 
 /**
@@ -122,9 +200,17 @@ async function resolveRecipients(projectId: string): Promise<DigestRecipients | 
     where: { id: projectId },
     select: {
       name: true,
+      rcaModel: true,
+      rcaProvider: true,
+      rcaSource: true,
       alertConfig: { select: { emailAddresses: true, slackChannelId: true } },
       workspace: {
-        select: { id: true, slackIntegration: { select: { channelId: true, botToken: true } } },
+        select: {
+          id: true,
+          billingPlan: true,
+          rcaBlocked: true,
+          slackIntegration: { select: { channelId: true, botToken: true } },
+        },
       },
     },
   });
@@ -142,6 +228,11 @@ async function resolveRecipients(projectId: string): Promise<DigestRecipients | 
     slackChannelId: slackReady ? slackChannelId : null,
     encryptedBotToken: slackReady ? slack!.botToken : null,
     emailAddresses,
+    billingPlan: (project.workspace?.billingPlan as string) ?? "free",
+    rcaBlocked: project.workspace?.rcaBlocked ?? false,
+    rcaModel: project.rcaModel,
+    rcaProvider: project.rcaProvider,
+    rcaSource: project.rcaSource,
   };
 }
 

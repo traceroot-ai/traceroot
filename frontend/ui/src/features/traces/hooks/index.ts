@@ -4,7 +4,7 @@
 import { useCallback } from "react";
 import { useQuery, keepPreviousData, useQueryClient } from "@tanstack/react-query";
 import { useSession as useAuthSession } from "@/lib/auth-client";
-import { getTraces, getTrace, getSpanIO } from "@/lib/api";
+import { getTraces, getTrace, getSpanIO, tracesExist } from "@/lib/api";
 import { getSessions, getSession, type SessionDetailOptions } from "@/lib/api/sessions";
 import { getUsers, type UserQueryOptions } from "@/lib/api/users";
 import type { SessionQueryOptions, TraceQueryOptions } from "@/types/api";
@@ -65,6 +65,30 @@ export function useTraces(
     enabled: sessionReady && !!projectId,
     placeholderData: keepPreviousData,
     staleTime: TRACES_LIST_STALE_TIME_MS,
+    ...queryOptions,
+  });
+}
+
+/**
+ * Lightweight probe: has this project ever ingested any traces?
+ * Bypasses retention gating (returns a boolean, not trace data).
+ */
+export function useTracesExist(
+  projectId: string,
+  queryOptions: {
+    refetchInterval?: number | false | ((query: unknown) => number | false);
+  } = {},
+) {
+  const { data: authSession, isPending } = useAuthSession();
+  const sessionReady = !isPending && !!authSession?.user;
+  const user: TraceApiUser | undefined = authSession?.user
+    ? { id: authSession.user.id, email: authSession.user.email }
+    : undefined;
+  return useQuery({
+    queryKey: ["traces-exist", projectId],
+    queryFn: () => tracesExist(projectId, user),
+    enabled: sessionReady && !!projectId,
+    staleTime: Infinity,
     ...queryOptions,
   });
 }

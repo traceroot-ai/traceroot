@@ -39,7 +39,13 @@ async function internalGet<T>(path: string, params: Record<string, string>): Pro
 // a detector that ran but never fired.
 export type DetectorWindowSummary = Record<
   string,
-  { finding_count: number; sample_trace_ids: string[] }
+  {
+    finding_count: number;
+    sample_trace_ids: string[];
+    /** Recent per-detector judge sentences (newest first, SQL-capped); only
+     * present when the read asked for them. Feeds the digest LLM summary. */
+    sample_summaries?: string[];
+  }
 >;
 
 /**
@@ -51,14 +57,17 @@ export async function readDetectorWindowSummary(
   projectId: string,
   start: Date,
   end: Date,
+  opts: { includeSummaries?: boolean } = {},
 ): Promise<DetectorWindowSummary> {
+  const params: Record<string, string> = {
+    project_id: projectId,
+    start_after: start.toISOString(),
+    end_before: end.toISOString(),
+  };
+  if (opts.includeSummaries) params.include_summaries = "true";
   const body = await internalGet<{ data: DetectorWindowSummary }>(
     "/api/v1/internal/detector-window-summary",
-    {
-      project_id: projectId,
-      start_after: start.toISOString(),
-      end_before: end.toISOString(),
-    },
+    params,
   );
   return body.data;
 }
