@@ -89,8 +89,8 @@ describe("NewDetectorPage", () => {
     });
   });
 
-  it("renders the screening-model picker with a system-default placeholder (no auto-pick)", () => {
+  it("renders the screening-model picker with a system-default model id (no auto-pick)", () => {
     render(<NewDetectorPage />);
-    expect(mocks.selectorProps?.placeholder).toBe(DETECTOR_SYSTEM_DEFAULT_MODEL_ID);
+    expect(mocks.selectorProps?.defaultModelId).toBe(DETECTOR_SYSTEM_DEFAULT_MODEL_ID);
   });
 });
