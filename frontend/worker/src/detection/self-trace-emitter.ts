@@ -69,11 +69,11 @@ let warnedDisabled = false;
 // Latched separately from `initialized`: withSelfTrace re-runs
 // initSelfTraceEmitter() whenever `initialized` is false, so reusing that flag
 // as the disable latch would re-attempt initialization on every single run.
-let forcingBroken = false;
+let tracingInactive = false;
 // TraceRoot.initialize() succeeded, regardless of whether self-tracing stayed on.
-// Shutdown keys off THIS, not `initialized`: the probe-failure path starts the SDK
-// (global provider, exporter, batch processor) and then leaves self-tracing off, so
-// keying shutdown off `initialized` would strand those resources unflushed.
+// Shutdown keys off THIS, not `initialized`: the inactive-tracing path starts the
+// SDK (global provider, exporter, batch processor) and then leaves self-tracing off,
+// so keying shutdown off `initialized` would strand those resources unflushed.
 let sdkStarted = false;
 
 /**
@@ -84,7 +84,7 @@ let sdkStarted = false;
  * could only 403.
  */
 export function initSelfTraceEmitter(): void {
-  if (initialized || forcingBroken) return;
+  if (initialized || tracingInactive) return;
   // Read at call time (not module load) so a late-injected env still takes
   // effect and tests can vary it.
   const secret = process.env.INTERNAL_API_SECRET || "";
@@ -114,12 +114,27 @@ export function initSelfTraceEmitter(): void {
   // broken, so ask the SDK directly rather than inferring it from a probe span.
   //
   // NOTE: this reports whether the SDK's provider won global registration. Forcing
-  // ALSO needs internal mode, which holds only because initialize() above is passed
-  // internalExport — the SDK installs its id generator on that condition. If that
-  // config ever changes, this check stops covering forcing; the test asserting
-  // internalExport is passed is what pins the assumption.
-  if (!TraceRoot.isTracingActive()) {
-    forcingBroken = true;
+  // ALSO needs internal mode, which the SDK enables off the internalExport passed
+  // above. Only the caller side of that coupling is pinned here (initialize() is
+  // asserted to receive internalExport); the SDK-side condition lives in another
+  // repo, so a change there would go unnoticed by these tests.
+  let tracingActive: boolean;
+  try {
+    tracingActive = TraceRoot.isTracingActive();
+  } catch (err) {
+    // Absent on an SDK predating the accessor. Latch rather than retry: an SDK that
+    // old may not support forcing either, and without latching every run would
+    // re-enter initialization and log twice for the life of the process.
+    tracingInactive = true;
+    console.error(
+      "[Detector] self-trace guard unavailable (SDK too old?); self-trace emit " +
+        "disabled — detector runs cannot be correlated to traces:",
+      err,
+    );
+    return;
+  }
+  if (!tracingActive) {
+    tracingInactive = true;
     console.error(
       "[Detector] tracing is not active (another OpenTelemetry provider may have " +
         "been registered first, or tracing is disabled); self-trace emit disabled — " +

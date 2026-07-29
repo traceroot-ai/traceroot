@@ -87,6 +87,9 @@ describe("with a secret (SDK-traced path)", () => {
     expect(opts.internalExport.headers["X-Internal-Secret"]).toBe("test-secret");
     // Per-root attribution is primary — no process-default projectId.
     expect(opts.internalExport.projectId).toBeUndefined();
+    // internalExport is also what makes trace-id forcing available: the SDK installs
+    // its id generator only for an internal target. isTracingActive() reports
+    // registration, not forcing, so this is the caller side of that coupling.
     // The route classifies; sending a marker would make our traffic look like a
     // tenant trying to label theirs internal.
     expect(opts.globalAttributes?.["traceroot.source"]).toBeUndefined();
@@ -241,14 +244,6 @@ describe("tracing-active guard", () => {
     vi.stubEnv("INTERNAL_API_SECRET", "test-secret");
   });
 
-  it("passes internalExport, which is what makes trace-id forcing available", async () => {
-    // isTracingActive() reports registration, not forcing. Forcing additionally needs
-    // internal mode, which the SDK enables off internalExport — so if this stops being
-    // passed, the guard silently stops covering the thing it exists to guard.
-    await withSelfTrace(meta(), async () => 1);
-    expect(mockInitialize.mock.calls[0][0].internalExport).toBeDefined();
-  });
-
   it("emits normally while tracing is active", async () => {
     const run = await withSelfTrace(meta(), async () => "verdict");
     expect(run).toEqual({ ok: true, value: "verdict", selfTraced: true });
@@ -291,6 +286,25 @@ describe("tracing-active guard", () => {
     await guarded(meta(), async () => 2);
 
     expect(mockInitialize).toHaveBeenCalledTimes(1);
+    // The latch short-circuits ahead of the guard, not merely ahead of initialize().
+    expect(mockIsTracingActive).toHaveBeenCalledTimes(1);
+  });
+
+  it("latches instead of retrying when the SDK has no isTracingActive", async () => {
+    // An SDK predating the accessor throws here. Without latching, every run would
+    // re-enter initialization and log twice for the life of the process.
+    mockIsTracingActive.mockImplementation(() => {
+      throw new TypeError("TraceRoot.isTracingActive is not a function");
+    });
+    const { withSelfTrace: guarded } = await freshEmitter();
+
+    const first = await guarded(meta(), async () => "verdict");
+    await guarded(meta(), async () => 2);
+
+    expect(first).toEqual({ ok: true, value: "verdict", selfTraced: false });
+    expect(mockObserve).not.toHaveBeenCalled();
+    expect(mockInitialize).toHaveBeenCalledTimes(1);
+    expect(mockIsTracingActive).toHaveBeenCalledTimes(1);
   });
 
   it("still flushes and shuts down the SDK it started when the guard disabled tracing", async () => {
