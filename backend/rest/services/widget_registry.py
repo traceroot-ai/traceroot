@@ -172,9 +172,12 @@ REGISTRY: dict[str, ViewDef] = {
             "cost": _number_measure("cost", "Cost"),
             "input_tokens": _number_measure("input_tokens", "Input tokens"),
             "output_tokens": _number_measure("output_tokens", "Output tokens"),
-            "total_tokens": _number_measure("total_tokens", "Total tokens"),
             "cache_read_tokens": _number_measure("cache_read_tokens", "Cache read tokens"),
             "cache_write_tokens": _number_measure("cache_write_tokens", "Cache write tokens"),
+            # Total last: input + output. Cache read/write are a breakdown of
+            # the input above, not additional addends — summing all four
+            # double-counts the cache tokens.
+            "total_tokens": _number_measure("total_tokens", "Total tokens"),
             # expr="*" is a sentinel: the compiler translates it to count(*).
             "count": FieldDef(expr="*", type="number", label="Count", aggs=("count",)),
         },
@@ -193,9 +196,12 @@ REGISTRY: dict[str, ViewDef] = {
             "cost": _number_measure("cost", "Cost"),
             "input_tokens": _number_measure("input_tokens", "Input tokens"),
             "output_tokens": _number_measure("output_tokens", "Output tokens"),
-            "total_tokens": _number_measure("total_tokens", "Tokens"),
             "cache_read_tokens": _number_measure("cache_read_tokens", "Cache read tokens"),
             "cache_write_tokens": _number_measure("cache_write_tokens", "Cache write tokens"),
+            # Total last: input + output. Cache read/write are a breakdown of
+            # the input above, not additional addends — summing all four
+            # double-counts the cache tokens.
+            "total_tokens": _number_measure("total_tokens", "Tokens"),
             # expr="*" is a sentinel: the compiler translates it to count(*).
             "count": FieldDef(expr="*", type="number", label="Count", aggs=("count",)),
             # Last, so the list reads as the spans measures plus one trailing
