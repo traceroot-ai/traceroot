@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DashboardDetail, DashboardSummary, Widget } from "@/features/dashboards/types";
+import { ApiError } from "@/lib/api/client";
 import DashboardDetailPage from "./page";
 
 class ResizeObserverStub {
@@ -45,12 +46,6 @@ const updateLayout: { mutate: ReturnType<typeof vi.fn>; isPending: boolean; erro
     isPending: false,
     error: null,
   };
-const createWidget: { mutate: ReturnType<typeof vi.fn>; isPending: boolean; error: Error | null } =
-  {
-    mutate: vi.fn(),
-    isPending: false,
-    error: null,
-  };
 const removeWidget: { mutate: ReturnType<typeof vi.fn>; isPending: boolean; error: Error | null } =
   {
     mutate: vi.fn(),
@@ -58,11 +53,13 @@ const removeWidget: { mutate: ReturnType<typeof vi.fn>; isPending: boolean; erro
     error: null,
   };
 
-vi.mock("@/features/dashboards/hooks/use-dashboards", () => ({
+vi.mock("@/features/dashboards/hooks/use-dashboards", async (importOriginal) => ({
+  // Keep the real isDashboardGone: the redirect-on-gone behavior under test
+  // depends on its ApiError-status logic.
+  ...(await importOriginal<object>()),
   useDashboard: vi.fn(),
   useDashboardMutations: () => ({
     updateLayout,
-    createWidget,
     removeWidget,
   }),
 }));
@@ -73,7 +70,6 @@ let lastGridProps: {
   range: unknown;
   readOnly?: boolean;
   onEdit: (w: Widget) => void;
-  onDuplicate: (w: Widget) => void;
   onDelete: (w: Widget) => void;
 } | null = null;
 
@@ -84,7 +80,6 @@ vi.mock("@/features/dashboards/components/DashboardGrid", () => ({
     range: unknown;
     readOnly?: boolean;
     onEdit: (w: Widget) => void;
-    onDuplicate: (w: Widget) => void;
     onDelete: (w: Widget) => void;
   }) => {
     lastGridProps = props;
@@ -93,7 +88,6 @@ vi.mock("@/features/dashboards/components/DashboardGrid", () => ({
         {props.widgets.map((w) => (
           <div key={w.id}>
             <button onClick={() => props.onEdit(w)}>{`edit-${w.id}`}</button>
-            <button onClick={() => props.onDuplicate(w)}>{`duplicate-${w.id}`}</button>
             <button onClick={() => props.onDelete(w)}>{`delete-${w.id}`}</button>
           </div>
         ))}
@@ -153,7 +147,6 @@ describe("DashboardDetailPage", () => {
     push.mockReset();
     replace.mockReset();
     updateLayout.mutate.mockReset();
-    createWidget.mutate.mockReset();
     removeWidget.mutate.mockReset();
     lastGridProps = null;
     mockDetail({ ...DASH_A, layout: [], widgets: [] });
@@ -233,15 +226,22 @@ describe("DashboardDetailPage", () => {
   });
 
   it("redirects to the dashboard index and invalidates the list cache when the dashboard is gone", () => {
-    mockDetail(undefined, new Error("Dashboard not found"));
+    mockDetail(undefined, new ApiError(404, "Dashboard not found"));
     const { invalidateSpy } = renderPage();
 
     expect(replace).toHaveBeenCalledWith("/projects/p1/dashboard");
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["dashboards", "p1"] });
   });
 
+  it("leaves the page when access is revoked instead of retrying a permanent 403", () => {
+    mockDetail(undefined, new ApiError(403, "Not a member of this workspace"));
+    renderPage();
+
+    expect(replace).toHaveBeenCalledWith("/projects/p1/dashboard");
+  });
+
   it("stays put and shows a failure notice on a transient load error", () => {
-    mockDetail(undefined, new Error("API error: 503"));
+    mockDetail(undefined, new ApiError(503, "API error: 503"));
     const { invalidateSpy } = renderPage();
 
     expect(replace).not.toHaveBeenCalled();
@@ -249,10 +249,18 @@ describe("DashboardDetailPage", () => {
     expect(screen.getByText(/Failed to load the dashboard/)).toBeTruthy();
   });
 
+  it("stays put on an untyped error (network failure never has a status)", () => {
+    mockDetail(undefined, new Error("Failed to fetch"));
+    renderPage();
+
+    expect(replace).not.toHaveBeenCalled();
+    expect(screen.getByText(/Failed to load the dashboard/)).toBeTruthy();
+  });
+
   it("keeps rendering the cached dashboard when a background poll fails", () => {
     mockDetail(
       { ...DASH_A, widgets: [WIDGET], layout: [{ i: "w1", x: 0, y: 0, w: 4, h: 4 }] },
-      new Error("API error: 503"),
+      new ApiError(503, "API error: 503"),
     );
     renderPage();
 
@@ -269,7 +277,7 @@ describe("DashboardDetailPage", () => {
     expect(screen.queryByRole("button", { name: "＋ Create widget" })).toBeNull();
   });
 
-  it("passes widgets, layout and range to the grid and wires edit/duplicate/delete", () => {
+  it("passes widgets, layout and range to the grid and wires edit/delete", () => {
     mockDetail({
       ...DASH_A,
       layout: [{ i: "w1", x: 0, y: 0, w: 4, h: 4 }],
@@ -282,15 +290,6 @@ describe("DashboardDetailPage", () => {
     expect(lastGridProps?.layout).toEqual([{ i: "w1", x: 0, y: 0, w: 4, h: 4 }]);
     expect(lastGridProps?.range).toHaveProperty("start");
     expect(lastGridProps?.range).toHaveProperty("end");
-
-    fireEvent.click(screen.getByRole("button", { name: "duplicate-w1" }));
-    expect(createWidget.mutate).toHaveBeenCalledWith({
-      title: "Cost (copy)",
-      type: "query",
-      spec: WIDGET.spec,
-      // A duplicate carries the display settings too, not just the query.
-      displayConfig: WIDGET.displayConfig,
-    });
 
     fireEvent.click(screen.getByRole("button", { name: "delete-w1" }));
     expect(removeWidget.mutate).toHaveBeenCalledWith("w1");

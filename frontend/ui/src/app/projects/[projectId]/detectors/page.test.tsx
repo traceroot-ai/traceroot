@@ -114,6 +114,17 @@ vi.mock("@/features/projects/hooks", () => ({
 vi.mock("@/features/workspaces/hooks", () => ({
   useWorkspace: () => ({ data: mocks.workspaceData }),
 }));
+vi.mock("@/lib/hooks/use-retention", () => ({
+  useRetention: () => ({
+    retentionDays: 15,
+    showPricing: false,
+    onUpgradeClick: vi.fn(),
+    closePricing: vi.fn(),
+    workspaceId: "ws-1",
+    billingPlan: "free",
+  }),
+}));
+vi.mock("@/ee/features/billing/PricingDialog", () => ({ PricingDialog: () => null }));
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
 vi.mock("@/components/search-filter-bar", () => ({ SearchFilterBar: () => null }));
 vi.mock("@/components/list-pagination", () => ({ ListPagination: () => null }));
@@ -273,5 +284,14 @@ describe("DetectorsPage", () => {
 
     expect(screen.getByText("No detectors yet")).toBeDefined();
     expect(screen.queryByRole("button", { name: "New Detector" })).toBeNull();
+  });
+
+  it("shows the empty state with its glyph when the project has no detectors", () => {
+    mocks.detectorListData = { data: [], meta: { total: 0 } };
+
+    render(<DetectorsPage />);
+
+    const heading = screen.getByText("No detectors yet");
+    expect(heading.parentElement?.querySelector("svg")).toBeTruthy();
   });
 });

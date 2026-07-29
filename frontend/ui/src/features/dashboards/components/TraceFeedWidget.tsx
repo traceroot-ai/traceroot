@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { useTraceApiUser } from "@/lib/hooks/use-trace-api-user";
 import { getTraces } from "@/lib/api/traces";
@@ -17,19 +17,17 @@ interface TraceFeedWidgetProps {
   range: TimeRange;
 }
 
-function StatusChip({ errorCount }: { errorCount: number }) {
+// Error count, styled to match the trace-list "Errors" column: a red count
+// badge when a trace recorded errors, a muted zero otherwise.
+function ErrorCount({ errorCount }: { errorCount: number }) {
   if (errorCount > 0) {
     return (
-      <span className="inline-flex rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
-        ERROR
+      <span className="inline-flex min-w-5 justify-center rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
+        {errorCount}
       </span>
     );
   }
-  return (
-    <span className="inline-flex rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
-      OK
-    </span>
-  );
+  return <span className="text-muted-foreground">0</span>;
 }
 
 function fmtTime(iso: string): string {
@@ -41,6 +39,7 @@ function fmtTime(iso: string): string {
 }
 
 export function TraceFeedWidget({ projectId, spec, range }: TraceFeedWidgetProps) {
+  const router = useRouter();
   const limit = spec.limit ?? 10;
   const filters = (spec.filters ?? []).filter(isValidPredicate);
   const { user, sessionReady } = useTraceApiUser();
@@ -90,45 +89,44 @@ export function TraceFeedWidget({ projectId, spec, range }: TraceFeedWidgetProps
     <div className="h-full overflow-auto">
       <table className="w-full text-[11.5px]">
         <thead>
-          <tr className="text-left text-[10px] uppercase tracking-wide text-muted-foreground">
-            <th className="pb-1.5 pr-3 font-medium">Time</th>
+          <tr className="text-left text-[11px] text-muted-foreground">
+            <th className="pb-1.5 pr-3 font-medium">Timestamp</th>
             <th className="pb-1.5 pr-3 font-medium">Name</th>
-            <th className="pb-1.5 pr-3 font-medium">Status</th>
+            <th className="pb-1.5 pr-3 font-medium">Errors</th>
             <th className="pb-1.5 pr-3 font-medium">Cost</th>
             <th className="pb-1.5 font-medium">Latency</th>
           </tr>
         </thead>
         <tbody>
-          {traces.map((trace: TraceListItem) => (
-            <tr key={trace.trace_id} className="border-t border-border/60">
-              <td className="whitespace-nowrap py-1 pr-3 text-muted-foreground">
-                <Link
-                  href={`/projects/${projectId}/traces?traceId=${trace.trace_id}`}
-                  className="hover:underline"
-                >
+          {traces.map((trace: TraceListItem) => {
+            const href = `/projects/${projectId}/traces?traceId=${trace.trace_id}`;
+            return (
+              <tr
+                key={trace.trace_id}
+                // The whole row opens the trace, like the list pages' rows; the
+                // hover prefetch stands in for the removed links' viewport prefetch.
+                onClick={() => router.push(href)}
+                onMouseEnter={() => router.prefetch(href)}
+                className="cursor-pointer border-t border-border/60 transition-colors hover:bg-muted/50"
+              >
+                <td className="whitespace-nowrap py-1 pr-3 text-muted-foreground">
                   {fmtTime(trace.trace_start_time)}
-                </Link>
-              </td>
-              <td className="max-w-[120px] truncate py-1 pr-3">
-                <Link
-                  href={`/projects/${projectId}/traces?traceId=${trace.trace_id}`}
-                  className="hover:underline"
-                  title={trace.name}
-                >
+                </td>
+                <td className="max-w-[120px] truncate py-1 pr-3" title={trace.name}>
                   {trace.name}
-                </Link>
-              </td>
-              <td className="py-1 pr-3">
-                <StatusChip errorCount={trace.error_count} />
-              </td>
-              <td className="py-1 pr-3 tabular-nums text-muted-foreground">
-                {formatCost(trace.total_cost)}
-              </td>
-              <td className="py-1 tabular-nums text-muted-foreground">
-                {formatDuration(trace.duration_ms)}
-              </td>
-            </tr>
-          ))}
+                </td>
+                <td className="py-1 pr-3">
+                  <ErrorCount errorCount={trace.error_count} />
+                </td>
+                <td className="py-1 pr-3 tabular-nums text-muted-foreground">
+                  {formatCost(trace.total_cost)}
+                </td>
+                <td className="py-1 tabular-nums text-muted-foreground">
+                  {formatDuration(trace.duration_ms)}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

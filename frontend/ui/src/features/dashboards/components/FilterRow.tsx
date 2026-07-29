@@ -88,7 +88,7 @@ export function FilterRow({
           }
         />
 
-        {/* op — labeled with the trace-list filter vocabulary (is / is not / ≥ / ≤ / ≠) */}
+        {/* op — labeled with the trace-list filter vocabulary (is / ≥ / ≤) */}
         <Dropdown
           disabled={!fieldMeta}
           trigger={

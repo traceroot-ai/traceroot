@@ -5,11 +5,18 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { ProjectBreadcrumb } from "@/features/projects/components";
-import { useDashboard, useDashboardMutations } from "@/features/dashboards/hooks/use-dashboards";
+import {
+  isDashboardGone,
+  useDashboard,
+  useDashboardMutations,
+} from "@/features/dashboards/hooks/use-dashboards";
 import { DashboardGrid } from "@/features/dashboards/components/DashboardGrid";
 import type { TimeRange, Widget } from "@/features/dashboards/types";
 import { DateFilterSelect } from "@/components/date-filter-select";
 import { useUrlDateFilter } from "@/lib/hooks/use-url-date-filter";
+import { useRetention } from "@/lib/hooks/use-retention";
+import { PricingDialog } from "@/ee/features/billing/PricingDialog";
+import { PlanType } from "@traceroot/core";
 import { Button } from "@/components/ui/button";
 
 export default function DashboardDetailPage() {
@@ -22,14 +29,14 @@ export default function DashboardDetailPage() {
   // ── remote data ──────────────────────────────────────────────────────────────
   const { data: dashboard, error: dashboardError } = useDashboard(projectId, dashboardId);
 
-  const { updateLayout, createWidget, removeWidget } = useDashboardMutations(
-    projectId,
-    dashboardId,
-  );
+  const { updateLayout, removeWidget } = useDashboardMutations(projectId, dashboardId);
+
+  // ── retention — presets beyond the plan's window are locked (same as lists) ──
+  const retention = useRetention(projectId);
 
   // ── time range — the same URL-synced filter AND default the trace list uses ──
   const { dateFilter, customStartDate, customEndDate, setDateFilter, setCustomRange, timestamps } =
-    useUrlDateFilter();
+    useUrlDateFilter(undefined, undefined, retention.retentionDays);
   const range: TimeRange = useMemo(
     () => ({
       // Widgets need concrete bounds. startAfter is only absent for a custom
@@ -67,15 +74,11 @@ export default function DashboardDetailPage() {
     router.push(`/projects/${projectId}/dashboard/${dashboardId}/widgets/${w.id}/edit`);
 
   // ── deleted / missing dashboard redirect ─────────────────────────────────────
-  // fetchNextApi doesn't carry the HTTP status, so gone-ness is detected from
-  // the API's error message. The exact match keeps "Project not found" (a
-  // deleted project) and auth failures from redirecting; only a genuinely
-  // missing dashboard leaves the page. Everything else keeps the user here —
-  // the detail query's 30s poll retries, with a failure notice while empty.
-  const dashboardGone =
-    dashboardError instanceof Error &&
-    (dashboardError.message === "Dashboard not found" ||
-      /API error: 404/i.test(dashboardError.message));
+  // Any permanent failure leaves the page: the dashboard or its project was
+  // deleted (404), or access was revoked (403) — the 30s poll can never
+  // recover from those, so retrying in place would strand the user. Transient
+  // failures keep the user here with a failure notice while the poll retries.
+  const dashboardGone = isDashboardGone(dashboardError);
   useEffect(() => {
     if (dashboardGone) {
       // Invalidate the list so a stale cache can't bounce the user back here.
@@ -94,19 +97,6 @@ export default function DashboardDetailPage() {
       updateLayout.mutate(layout);
     },
     [updateLayout],
-  );
-
-  // ── duplicate widget ─────────────────────────────────────────────────────────
-  const handleDuplicate = useCallback(
-    (w: Widget) => {
-      createWidget.mutate({
-        title: `${w.title} (copy)`,
-        type: w.type,
-        spec: w.spec,
-        displayConfig: w.displayConfig,
-      });
-    },
-    [createWidget],
   );
 
   // ── delete widget ────────────────────────────────────────────────────────────
@@ -164,6 +154,8 @@ export default function DashboardDetailPage() {
               customEndDate={customEndDate}
               onDateFilterChange={setDateFilter}
               onCustomRangeChange={setCustomRange}
+              retentionDays={retention.retentionDays}
+              onUpgradeClick={retention.onUpgradeClick}
             />
           </div>
         </div>
@@ -196,12 +188,18 @@ export default function DashboardDetailPage() {
               width={width}
               onLayoutChange={handleLayoutChange}
               onEdit={openEdit}
-              onDuplicate={handleDuplicate}
               onDelete={handleDelete}
             />
           )}
         </div>
       </div>
+
+      <PricingDialog
+        open={retention.showPricing}
+        onOpenChange={retention.closePricing}
+        workspaceId={retention.workspaceId}
+        currentPlan={(retention.billingPlan as PlanType) || PlanType.FREE}
+      />
     </div>
   );
 }

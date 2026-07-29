@@ -173,6 +173,25 @@ describe("DashboardIndexPage", () => {
     expect(screen.getByRole("button", { name: "＋ New dashboard" })).toBeTruthy();
   });
 
+  it("disables Delete for a sole dashboard — the API would reject it anyway", () => {
+    searchParams = new URLSearchParams("list=1");
+    mockDashboards([OVERVIEW]);
+    render(<DashboardIndexPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Dashboard actions" }));
+    const del = screen.getByRole("button", { name: "Delete" }) as HTMLButtonElement;
+    expect(del.disabled).toBe(true);
+    fireEvent.click(del);
+    expect(screen.queryByTestId("delete-dialog")).toBeNull();
+  });
+
+  it("keeps Delete enabled when other dashboards remain", () => {
+    mockDashboards([OVERVIEW, COSTS]);
+    render(<DashboardIndexPage />);
+    fireEvent.click(screen.getAllByRole("button", { name: "Dashboard actions" })[0]);
+    const del = screen.getByRole("button", { name: "Delete" }) as HTMLButtonElement;
+    expect(del.disabled).toBe(false);
+  });
+
   it("shows a retry button on error and refetches on click", () => {
     mockDashboards(undefined, new Error("boom"));
     render(<DashboardIndexPage />);
