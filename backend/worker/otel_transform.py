@@ -53,6 +53,42 @@ def _scope_skips_text_token_estimation(scope_name: str | None) -> bool:
     return scope_name in _SKIP_TEXT_TOKEN_ESTIMATION_SCOPES
 
 
+# GenAI semconv operation names whose spans AGGREGATE the usage of their model-call
+# descendants: an agent invocation, and one step within it. Emitters restate the
+# children's totals on these spans, so adopting them prices the same tokens twice.
+# Keyed on the operation name rather than the tracer scope: the scope is chosen by
+# the emitting application (a private tracer provider can name it anything), so a
+# scope-keyed check silently misses those traces. "invoke_agent" is a GenAI semconv
+# operation name; "agent_step" is an emitter extension, not in the spec enum.
+_AGGREGATE_USAGE_OPERATIONS = frozenset({"invoke_agent", "agent_step"})
+
+
+def _span_aggregates_child_usage(
+    scope_name: str | None, span_kind: str, attrs: dict[str, Any]
+) -> bool:
+    """Check whether a span restates the token usage of its model-call children.
+
+    Args:
+        scope_name (str | None): Instrumentation scope of the emitting tracer.
+        span_kind (str): Span kind already resolved for this span.
+        attrs (dict[str, Any]): Span attributes.
+
+    Returns:
+        bool: True when the span's token counts duplicate its children's and must
+            neither be adopted nor re-derived from its text.
+    """
+    operation_name = attrs.get("gen_ai.operation.name")
+    if isinstance(operation_name, str) and operation_name.lower() in _AGGREGATE_USAGE_OPERATIONS:
+        return True
+    # Fallback for a wrapper that reaches us without an operation name — an emitter
+    # version that stops setting one would otherwise silently resume double-pricing,
+    # which nothing else in the pipeline would surface. Narrow on purpose: it costs
+    # nothing when the operation name is present, which is the shape observed today.
+    return (
+        isinstance(scope_name, str) and scope_name.lower() == "gen_ai" and span_kind != SpanKind.LLM
+    )
+
+
 # Attributes that are already extracted into dedicated fields
 _KNOWN_ATTRIBUTE_PREFIXES = {
     "traceroot.span.input",
@@ -268,6 +304,10 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
         return SpanKind.LLM
     if operation_name == "execute_tool":
         return SpanKind.TOOL
+    # Agent-invocation roots carry gen_ai.request.model too; decide AGENT here
+    # so the model fallback below cannot flip them to LLM.
+    if operation_name == "invoke_agent":
+        return SpanKind.AGENT
 
     # Infer from LLM-related attributes
     if (
@@ -538,7 +578,18 @@ def transform_otel_to_clickhouse(
                         ],
                     )
 
-                    if api_input_tokens is not None or api_output_tokens is not None:
+                    # Agent-invocation and step spans stamp aggregate
+                    # gen_ai.usage.* totals restating the SUM of their LLM
+                    # children — the same wrapper pattern as the raw ai.usage.*
+                    # keys gated above, moved into the normalized namespace.
+                    # Adopting them prices every token twice.
+                    aggregate_wrapper = _span_aggregates_child_usage(
+                        scope_name, span_kind, span_attrs
+                    )
+
+                    if not aggregate_wrapper and (
+                        api_input_tokens is not None or api_output_tokens is not None
+                    ):
                         # Use API-provided counts (accurate).
                         input_tokens = int_or_zero(api_input_tokens)
                         output_tokens = int_or_zero(api_output_tokens)
@@ -598,14 +649,20 @@ def transform_otel_to_clickhouse(
                         cost = cost_from_buckets(get_model_price(model_name), buckets)
                         if cost is not None:
                             span_record["cost"] = cost
-                    elif span_kind == SpanKind.LLM and not _scope_skips_text_token_estimation(
-                        scope_name
+                    elif (
+                        not aggregate_wrapper
+                        and span_kind == SpanKind.LLM
+                        and not _scope_skips_text_token_estimation(scope_name)
                     ):
                         # Fall back to text-based estimation — only for LLM (completion)
                         # spans. Wrapper AGENT/CHAIN spans restate text their LLM children
                         # already account for (e.g. the Vercel AI SDK's ai.generateText
                         # wrapper carries a model name and the conversation text but no
                         # token counts), so estimating them double-counts the trace.
+                        # Aggregate spans are excluded for the same reason and must be
+                        # named explicitly: unlike AGENT/CHAIN wrappers they can be
+                        # LLM-kind, so the kind check alone would let their conversation
+                        # text be estimated into fabricated counts.
                         # Scopes in _SKIP_TEXT_TOKEN_ESTIMATION_SCOPES leave even their
                         # LLM spans deliberately unset and are skipped as well.
                         from worker.tokens import calculate_cost

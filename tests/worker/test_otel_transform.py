@@ -2,6 +2,7 @@
 
 import base64
 from datetime import datetime
+from typing import ClassVar
 
 import pytest
 
@@ -1094,6 +1095,256 @@ class TestGetSpanKindGenAI:
             )
             == "SPAN"
         )
+
+    def test_gen_ai_operation_name_invoke_agent_is_agent(self):
+        assert get_span_kind({"gen_ai.operation.name": "invoke_agent"}, None) == "AGENT"
+
+    def test_invoke_agent_wins_over_model_presence(self):
+        # Semconv agent-invocation roots carry gen_ai.request.model too; the
+        # operation name must decide the kind before the model fallback flips
+        # the span to LLM. Pricing no longer depends on this (the usage gate
+        # keys on the operation name), but the stored kind does.
+        assert (
+            get_span_kind(
+                {
+                    "gen_ai.operation.name": "invoke_agent",
+                    "gen_ai.request.model": "claude-haiku-4-5-20251001",
+                },
+                None,
+            )
+            == "AGENT"
+        )
+
+
+# ── Vercel AI SDK semconv emitter (tracer scope "gen_ai") ──────────────
+
+
+def _semconv_agent_trace_spans(*, with_openinference_kinds: bool):
+    """Span shapes modeled on an ai@7 semconv-telemetry trace.
+
+    The operation root restates its LLM child's usage as an aggregate; the
+    step span carries no usage or model at all.
+
+    Args:
+        with_openinference_kinds (bool): Include openinference.span.kind attrs
+            (present when the openinference-vercel processor ran); omit them to
+            model a raw @ai-sdk/otel export.
+
+    Returns:
+        list: OTLP span dicts for make_otel_payload.
+    """
+    model = "claude-haiku-4-5-20251001"
+
+    def oi(kind):
+        return [make_attr("openinference.span.kind", kind)] if with_openinference_kinds else []
+
+    root = make_span(
+        "aa" * 16,
+        "bb" * 8,
+        name="example-agent.root",
+        attributes=oi("AGENT")
+        + [
+            make_attr("gen_ai.operation.name", "invoke_agent"),
+            make_attr("gen_ai.agent.name", "example-agent.root"),
+            make_attr("gen_ai.request.model", model),
+            make_attr("gen_ai.usage.input_tokens", 10),
+            make_attr("gen_ai.usage.output_tokens", 16),
+            make_attr("ai.usage.inputTokenDetails.noCacheTokens", 10),
+        ],
+    )
+    step = make_span(
+        "aa" * 16,
+        "cc" * 8,
+        name="step 1",
+        parent_span_id_hex="bb" * 8,
+        attributes=oi("LLM") + [make_attr("gen_ai.operation.name", "agent_step")],
+    )
+    chat = make_span(
+        "aa" * 16,
+        "dd" * 8,
+        name=f"chat {model}",
+        parent_span_id_hex="cc" * 8,
+        attributes=oi("LLM")
+        + [
+            make_attr("gen_ai.operation.name", "chat"),
+            make_attr("gen_ai.request.model", model),
+            make_attr("gen_ai.usage.input_tokens", 10),
+            make_attr("gen_ai.usage.output_tokens", 16),
+            make_attr("ai.usage.inputTokenDetails.noCacheTokens", 10),
+        ],
+    )
+    return [root, step, chat]
+
+
+class TestAggregateUsageSpans:
+    """Agent-invocation and step spans stamp aggregate gen_ai.usage.* totals
+    restating the SUM of their model-call descendants. They are identified by
+    their semconv operation name — not by tracer scope, which the emitting
+    application chooses, nor by span kind, which they do not consistently
+    carry — and neither their reported counts nor their text may be priced."""
+
+    PRICES: ClassVar[dict[str, float]] = {
+        "input": 0.000003,
+        "output": 0.000015,
+        "cacheRead": 0.0,
+        "cacheWrite": 0.0,
+    }
+
+    def _transform(self, spans, scope_name="gen_ai"):
+        from unittest.mock import patch
+
+        payload = make_otel_payload(spans, scope_name=scope_name)
+        with patch("worker.tokens.pricing.get_model_price", return_value=self.PRICES):
+            return transform_otel_to_clickhouse(payload, "proj-1")
+
+    def _assert_only_chat_priced(self, spans):
+        by_name = {s["name"]: s for s in spans}
+        root = by_name["example-agent.root"]
+        chat = by_name["chat claude-haiku-4-5-20251001"]
+        step = by_name["step 1"]
+
+        # Root contributes nothing — its aggregate restates the chat span.
+        assert (root.get("input_tokens") or 0) == 0
+        assert (root.get("output_tokens") or 0) == 0
+        assert (root.get("cost") or 0) == 0
+        # The model name itself is still kept for display.
+        assert root["model_name"] == "claude-haiku-4-5-20251001"
+
+        # The chat span is priced from its own counts.
+        assert chat["input_tokens"] == 10
+        assert chat["output_tokens"] == 16
+        assert chat["total_tokens"] == 26
+        assert chat["cost"] == pytest.approx(10 * 0.000003 + 16 * 0.000015)
+
+        # The step span has no model and stores nothing.
+        assert (step.get("input_tokens") or 0) == 0
+
+        # Trace-wide sums equal the single real call, not 2x.
+        assert sum((s.get("input_tokens") or 0) for s in spans) == 10
+        assert sum((s.get("output_tokens") or 0) for s in spans) == 16
+
+    def test_semconv_agent_root_aggregate_not_double_counted(self):
+        _, spans = self._transform(_semconv_agent_trace_spans(with_openinference_kinds=True))
+        self._assert_only_chat_priced(spans)
+
+    def test_semconv_shape_without_openinference_kinds(self):
+        """A raw @ai-sdk/otel export has no openinference.span.kind attrs, so the
+        root would otherwise infer LLM from its model attribute. Its usage is
+        skipped on the operation name either way; this pins the classification,
+        which the trace tree and span-kind filters also depend on."""
+        _, spans = self._transform(_semconv_agent_trace_spans(with_openinference_kinds=False))
+        by_name = {s["name"]: s for s in spans}
+        assert by_name["example-agent.root"]["span_kind"] == "AGENT"
+        self._assert_only_chat_priced(spans)
+
+    def test_other_scopes_still_price_agent_spans(self):
+        """Only aggregate operations are skipped. An AGENT span carrying no
+        aggregate operation name is an emitter reporting usage at the wrapper
+        level, which stays authoritative and priced."""
+        span = make_span(
+            "aa" * 16,
+            "bb" * 8,
+            name="agent run",
+            attributes=[
+                make_attr("openinference.span.kind", "AGENT"),
+                make_attr("gen_ai.request.model", "gpt-4o-mini"),
+                make_attr("gen_ai.usage.input_tokens", 100),
+                make_attr("gen_ai.usage.output_tokens", 50),
+            ],
+        )
+        _, spans = self._transform([span], scope_name="openinference.instrumentation.openai_agents")
+        assert spans[0]["input_tokens"] == 100
+        assert spans[0]["output_tokens"] == 50
+        assert spans[0]["cost"] == pytest.approx(100 * 0.000003 + 50 * 0.000015)
+
+    def test_agent_step_aggregate_is_not_priced(self):
+        """A step span aggregates the model calls made inside it, and the
+        emitter marks it LLM — so the span-kind half of the check cannot catch
+        it. The semconv operation name is what identifies the aggregate."""
+        span = make_span(
+            "aa" * 16,
+            "bb" * 8,
+            name="step 1",
+            attributes=[
+                make_attr("openinference.span.kind", "LLM"),
+                make_attr("gen_ai.operation.name", "agent_step"),
+                make_attr("gen_ai.request.model", "claude-haiku-4-5-20251001"),
+                make_attr("gen_ai.usage.input_tokens", 10),
+                make_attr("gen_ai.usage.output_tokens", 16),
+            ],
+        )
+        _, spans = self._transform([span])
+        assert spans[0]["span_kind"] == "LLM"
+        assert (spans[0].get("input_tokens") or 0) == 0
+        assert (spans[0].get("cost") or 0) == 0
+        # The model name is still kept for display, as on the operation root.
+        assert spans[0]["model_name"] == "claude-haiku-4-5-20251001"
+
+    def test_aggregate_span_text_is_not_estimated_into_tokens(self):
+        """Refusing the aggregate's reported counts must not hand the span to the
+        estimation fallback instead. These spans are LLM-kind and carry the whole
+        conversation, so estimating them invents counts that are wrong twice over:
+        fabricated, and duplicating the children whose text they restate."""
+        span = make_span(
+            "aa" * 16,
+            "bb" * 8,
+            name="step 1",
+            attributes=[
+                make_attr("openinference.span.kind", "LLM"),
+                make_attr("gen_ai.operation.name", "agent_step"),
+                make_attr("gen_ai.request.model", "claude-haiku-4-5-20251001"),
+                make_attr("gen_ai.usage.input_tokens", 10),
+                make_attr("gen_ai.usage.output_tokens", 16),
+                make_attr("gen_ai.input.messages", "some prompt text " * 40),
+                make_attr("gen_ai.output.messages", "a fairly long response " * 20),
+            ],
+        )
+        _, spans = self._transform([span])
+        assert spans[0].get("input_tokens") is None
+        assert spans[0].get("output_tokens") is None
+        assert spans[0].get("total_tokens") is None
+        assert spans[0].get("cost") is None
+
+    def test_invoke_agent_aggregate_skipped_even_when_labelled_llm(self):
+        """Pricing must not hinge on classification winning the race: an
+        operation root that a processor labelled LLM, under a scope other than
+        "gen_ai", still restates its children and must not be adopted."""
+        span = make_span(
+            "aa" * 16,
+            "bb" * 8,
+            name="agent run",
+            attributes=[
+                make_attr("openinference.span.kind", "LLM"),
+                make_attr("gen_ai.operation.name", "invoke_agent"),
+                make_attr("gen_ai.request.model", "gpt-4o-mini"),
+                make_attr("gen_ai.usage.input_tokens", 100),
+                make_attr("gen_ai.usage.output_tokens", 50),
+            ],
+        )
+        _, spans = self._transform([span], scope_name="some-other-emitter")
+        assert (spans[0].get("input_tokens") or 0) == 0
+        assert (spans[0].get("cost") or 0) == 0
+
+    def test_semconv_wrapper_without_an_operation_name_is_still_skipped(self):
+        """Fallback for an emitter version that stops setting the operation name.
+        A non-LLM span on the semconv scope carrying a model and aggregate counts
+        is a wrapper whatever it calls itself, and resuming double-pricing here
+        would be silent — nothing downstream reconciles a trace against its spans."""
+        span = make_span(
+            "aa" * 16,
+            "bb" * 8,
+            name="some wrapper",
+            attributes=[
+                make_attr("openinference.span.kind", "AGENT"),
+                make_attr("gen_ai.request.model", "claude-haiku-4-5-20251001"),
+                make_attr("gen_ai.usage.input_tokens", 10),
+                make_attr("gen_ai.usage.output_tokens", 16),
+            ],
+        )
+        _, spans = self._transform([span])
+        assert spans[0].get("input_tokens") is None
+        assert spans[0].get("cost") is None
+        assert spans[0]["model_name"] == "claude-haiku-4-5-20251001"
 
 
 # ── GenAI semconv input/output fallback ────────────────────────────────
