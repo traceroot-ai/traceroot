@@ -531,7 +531,7 @@ def transform_otel_to_clickhouse(
                     "span_kind": span_kind,
                     "status": SpanStatus.OK,
                 }
-                if environment is not None:
+                if isinstance(environment, str):
                     span_record["environment"] = environment
 
                 # Extract git source fields for span
@@ -963,7 +963,7 @@ def transform_otel_to_clickhouse(
                         }
                     )
 
-                    if environment is not None:
+                    if isinstance(environment, str):
                         traces[trace_id]["environment"] = environment
                     if trace_git_attrs[trace_id]["git_ref"] is not None:
                         traces[trace_id]["git_ref"] = trace_git_attrs[trace_id]["git_ref"]

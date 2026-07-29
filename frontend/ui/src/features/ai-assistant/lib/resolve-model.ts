@@ -3,8 +3,13 @@
  * Shared by ModelSelector (interactive picker) and AgentModelLink (read-only label).
  *
  * Behavior:
- * - When the API response is undefined (loading / no workspace), fall back to the
- *   compiled-in SYSTEM_MODELS so the UI still renders something usable.
+ * - While the query is still pending (no data and no error yet — covers both the
+ *   initial load and a disabled/no-workspace query), fall back to the compiled-in
+ *   SYSTEM_MODELS so the UI still renders something usable.
+ * - Once the query has settled (success or error) with no usable data, the result
+ *   is genuinely empty — callers must not keep showing the fallback list, since
+ *   that's what caused a fallback-only model to get auto-picked as a phantom
+ *   default even though the workspace has no real models configured.
  * - When the API response is defined, BYOK models come first, then system models.
  *   No deduplication — both consumers depend on this ordering.
  * - Default-pick walks PROVIDER_PRIORITY by adapter, then falls back to models[0].
@@ -33,8 +38,11 @@ const FALLBACK_MODELS: ResolvedModel[] = SYSTEM_MODELS.flatMap((s) =>
   })),
 );
 
-export function flattenAvailableModels(data: LLMModelsResponse | undefined): ResolvedModel[] {
-  if (!data) return FALLBACK_MODELS;
+export function flattenAvailableModels(
+  data: LLMModelsResponse | undefined,
+  isPending: boolean,
+): ResolvedModel[] {
+  if (!data) return isPending ? FALLBACK_MODELS : [];
   const systemList: ResolvedModel[] = data.systemModels.flatMap((g) =>
     g.models.map((m) => ({
       id: m.id,
