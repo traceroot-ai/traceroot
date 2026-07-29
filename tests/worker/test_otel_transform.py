@@ -1744,6 +1744,303 @@ class TestCacheTokenMetadata:
         assert set(ud) == {"cache_read_tokens", "cache_write_tokens", "reasoning_tokens"}
 
 
+MANUAL_USAGE_PRICES = {
+    "input": 0.000003,
+    "output": 0.000015,
+    "cacheRead": 0.0000003,
+    "cacheWrite": 0.00000375,
+}
+
+
+class TestManualUsageAttribute:
+    """The SDKs' update-span API serializes usage as JSON into traceroot.llm.usage
+    — the documented token source for self-instrumented spans (custom clients,
+    gateways, proxies), where no instrumentor maps the provider response. These
+    tests pin that the dict feeds the same bucket/pricing pipeline as instrumentor
+    attributes, loses to them whole-dict, and degrades safely when malformed."""
+
+    @staticmethod
+    def _manual_span(usage, *extra):
+        import json
+
+        return make_span(
+            "aa" * 16,
+            "bb" * 8,
+            name="custom_llm_call",
+            attributes=[
+                make_attr("traceroot.llm.model", "claude-3-5-sonnet"),
+                make_attr(
+                    "traceroot.llm.usage",
+                    json.dumps(usage) if not isinstance(usage, str) else usage,
+                ),
+                *extra,
+            ],
+        )
+
+    def test_manual_1h_cache_write_portion_is_priced_at_its_own_rate(self):
+        """The 1-hour portion is a sub-partition of the cache-write total, priced at
+        its own higher rate. Nothing else in this class reports it, so without this
+        the key could be dropped from the recognized set and only the cost would
+        move — silently, and in the direction that undercharges."""
+        from unittest.mock import patch
+
+        prices = {**MANUAL_USAGE_PRICES, "cacheWrite1h": 0.000006}
+        payload = make_otel_payload(
+            [
+                self._manual_span(
+                    {
+                        "input_tokens": 1000,
+                        "output_tokens": 10,
+                        "cache_write_tokens": 800,
+                        "cache_write_1h_tokens": 300,
+                    }
+                )
+            ],
+            scope_name="traceroot",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=prices):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        span = spans[0]
+        assert span["usage_details"]["cache_write_1h_tokens"] == 300
+        assert span["usage_details"]["cache_write_tokens"] == 800
+        # 200 uncached (1000 gross - 800 written) + the write total split into its
+        # 1-hour portion and the remainder, each at its own rate.
+        expected = (
+            200 * prices["input"]
+            + 300 * prices["cacheWrite1h"]
+            + 500 * prices["cacheWrite"]
+            + 10 * prices["output"]
+        )
+        assert span["cost"] == pytest.approx(expected)
+
+    def test_manual_usage_feeds_tokens_cache_and_cost(self):
+        from unittest.mock import patch
+
+        # Gross input: 1000 = 50 uncached + 900 cache-read + 50 cache-write.
+        payload = make_otel_payload(
+            [
+                self._manual_span(
+                    {
+                        "input_tokens": 1000,
+                        "output_tokens": 200,
+                        "cache_read_tokens": 900,
+                        "cache_write_tokens": 50,
+                        "reasoning_tokens": 150,
+                    },
+                    # Input text present: if estimation ran instead of the manual
+                    # dict, the token counts would come from tiktoken, not 1000/200.
+                    make_attr("traceroot.span.input", "some prompt text " * 50),
+                )
+            ],
+            scope_name="traceroot",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=MANUAL_USAGE_PRICES):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        span = spans[0]
+        assert span["input_tokens"] == 1000
+        assert span["output_tokens"] == 200
+        assert span["usage_details"]["cache_read_tokens"] == 900
+        assert span["usage_details"]["cache_write_tokens"] == 50
+        assert span["usage_details"]["reasoning_tokens"] == 150
+        expected = (
+            50 * MANUAL_USAGE_PRICES["input"]
+            + 900 * MANUAL_USAGE_PRICES["cacheRead"]
+            + 50 * MANUAL_USAGE_PRICES["cacheWrite"]
+            + 200 * MANUAL_USAGE_PRICES["output"]
+        )
+        assert span["cost"] == pytest.approx(expected)
+
+    def test_manual_net_input_floors_uncached_and_prices_cache_in_full(self):
+        from unittest.mock import patch
+
+        # Anthropic-style NET report: input_tokens excludes cache. The uncached
+        # bucket floors to zero and the gross input reconstructs from the buckets.
+        payload = make_otel_payload(
+            [
+                self._manual_span(
+                    {
+                        "input_tokens": 2,
+                        "output_tokens": 204,
+                        "cache_read_tokens": 900,
+                        "cache_write_tokens": 50,
+                    }
+                )
+            ],
+            scope_name="traceroot",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=MANUAL_USAGE_PRICES):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        span = spans[0]
+        assert span["input_tokens"] == 950  # 0 uncached + 900 + 50
+        expected = (
+            900 * MANUAL_USAGE_PRICES["cacheRead"]
+            + 50 * MANUAL_USAGE_PRICES["cacheWrite"]
+            + 204 * MANUAL_USAGE_PRICES["output"]
+        )
+        assert span["cost"] == pytest.approx(expected)
+
+    def test_instrumentor_attributes_win_whole_dict(self):
+        from unittest.mock import patch
+
+        # A span carrying both instrumentor totals and a conflicting manual dict
+        # must be priced from the instrumentor values only — including the cache
+        # fields, which must NOT be merged in from the manual dict.
+        payload = make_otel_payload(
+            [
+                self._manual_span(
+                    {"input_tokens": 9999, "output_tokens": 9999, "cache_read_tokens": 9999},
+                    make_attr("gen_ai.usage.input_tokens", 100),
+                    make_attr("gen_ai.usage.output_tokens", 50),
+                )
+            ],
+            scope_name="traceroot",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=MANUAL_USAGE_PRICES):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        span = spans[0]
+        assert span["input_tokens"] == 100
+        assert span["output_tokens"] == 50
+        assert span["usage_details"]["cache_read_tokens"] == 0
+
+    def test_lone_instrumentor_total_also_suppresses_manual_dict(self):
+        from unittest.mock import patch
+
+        # Even a single instrumentor total (only output here) means the span IS
+        # instrumented, so the manual dict must be suppressed whole — not used
+        # to fill the missing input or merge in cache fields.
+        payload = make_otel_payload(
+            [
+                self._manual_span(
+                    {"input_tokens": 9999, "cache_read_tokens": 9999},
+                    make_attr("gen_ai.usage.output_tokens", 50),
+                )
+            ],
+            scope_name="traceroot",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=MANUAL_USAGE_PRICES):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        span = spans[0]
+        assert span["input_tokens"] == 0
+        assert span["output_tokens"] == 50
+        assert span["usage_details"]["cache_read_tokens"] == 0
+
+    def test_malformed_usage_falls_back_to_estimation(self):
+        from unittest.mock import patch
+
+        payload = make_otel_payload(
+            [
+                self._manual_span(
+                    "not valid json {",
+                    make_attr("traceroot.span.input", "some prompt text " * 50),
+                    make_attr("traceroot.span.output", "a response"),
+                )
+            ],
+            scope_name="traceroot",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=MANUAL_USAGE_PRICES):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        span = spans[0]
+        # Estimation ran (text-derived counts), and no usage_details map is set
+        # on the estimation path — identical to before this change.
+        assert span["input_tokens"] > 0
+        assert "usage_details" not in span
+
+    def test_invalid_fields_dropped_and_negatives_clamped(self):
+        from worker.otel_transform import parse_manual_usage
+
+        assert parse_manual_usage(
+            '{"input_tokens": "abc", "output_tokens": -5, "cache_read_tokens": 900, '
+            '"unknown_key": 7, "reasoning_tokens": true}'
+        ) == {"output_tokens": 0, "cache_read_tokens": 900}
+        # json.loads accepts literal Infinity/NaN; int(inf) raises OverflowError
+        # (not ValueError), so non-finite fields must drop rather than crash.
+        assert parse_manual_usage(
+            '{"input_tokens": Infinity, "output_tokens": NaN, "cache_read_tokens": 5}'
+        ) == {"cache_read_tokens": 5}
+        # The token columns are Int64 and sums of fields are stored, so absurd
+        # magnitudes must drop — an unbounded int would reject the insert batch.
+        assert parse_manual_usage(
+            '{"input_tokens": 99999999999999999999999999, "output_tokens": 7}'
+        ) == {"output_tokens": 7}
+        assert parse_manual_usage(None) == {}
+        assert parse_manual_usage("[1, 2]") == {}
+        # Deeply-nested JSON raises RecursionError inside json.loads; it must
+        # degrade to "no usage", not crash the ingest task.
+        assert parse_manual_usage("[" * 200_000 + "]" * 200_000) == {}
+
+    def test_unrecognized_usage_fields_are_reported(self, caplog):
+        """A provider token type we do not model yet (audio, image, a new cache
+        variant) is never examined by the parser, so without a warning it vanishes
+        with no signal anywhere. The recognized fields must still parse."""
+        import logging
+
+        from worker.otel_transform import parse_manual_usage
+
+        with caplog.at_level(logging.WARNING):
+            usage = parse_manual_usage('{"input_tokens": 10, "audio_tokens": 7, "image_tokens": 3}')
+        assert usage == {"input_tokens": 10}
+        warning = "\n".join(r.getMessage() for r in caplog.records)
+        assert "audio_tokens" in warning
+        assert "image_tokens" in warning
+
+    def test_fully_recognized_usage_logs_no_warning(self, caplog):
+        import logging
+
+        from worker.otel_transform import parse_manual_usage
+
+        with caplog.at_level(logging.WARNING):
+            parse_manual_usage('{"input_tokens": 10, "output_tokens": 5}')
+        assert not caplog.records
+
+    def test_usage_without_priceable_totals_is_reported(self, caplog):
+        """A dict of only cache or reasoning counts parses cleanly but cannot be
+        priced, so the adoption guard drops it. Say so, rather than repeating the
+        silent discard the field-level warnings exist to prevent."""
+        import logging
+        from unittest.mock import patch
+
+        payload = make_otel_payload(
+            [self._manual_span({"cache_read_tokens": 900, "reasoning_tokens": 10})],
+            scope_name="traceroot",
+        )
+        with (
+            caplog.at_level(logging.WARNING),
+            patch("worker.tokens.pricing.get_model_price", return_value=MANUAL_USAGE_PRICES),
+        ):
+            transform_otel_to_clickhouse(payload, "proj-1")
+        logged = "\n".join(r.getMessage() for r in caplog.records)
+        assert "cache_read_tokens" in logged
+        assert "no input_tokens or output_tokens" in logged
+
+    def test_model_parameters_and_prompt_flow_to_metadata(self):
+        import json
+
+        payload = make_otel_payload(
+            [
+                self._manual_span(
+                    {"input_tokens": 10, "output_tokens": 5},
+                    make_attr("traceroot.llm.model_parameters", '{"temperature": 0.2}'),
+                    make_attr("traceroot.llm.prompt", '[{"role": "user"}]'),
+                )
+            ],
+            scope_name="traceroot",
+        )
+        _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        metadata = json.loads(spans[0]["metadata"])
+        assert metadata["traceroot.llm.model_parameters"] == '{"temperature": 0.2}'
+        assert metadata["traceroot.llm.prompt"] == '[{"role": "user"}]'
+        # Extracted keys stay out of metadata.
+        assert "traceroot.llm.model" not in metadata
+        assert "traceroot.llm.usage" not in metadata
+
+
 class TestEnvironmentAttributeTypeGuard:
     """`traceroot.environment` feeds a Nullable(String) ClickHouse column. A
     mis-typed SDK attribute (int/list/etc.) must degrade to "not set" rather
