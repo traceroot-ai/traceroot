@@ -16,11 +16,13 @@ vi.mock("../lib/encryption", () => ({
 
 import {
   resolvePiModel,
+  isSystemModelId,
   fetchProviderConfig,
   findByokKeyForPiProvider,
   invalidateProviderConfigCache,
   type ProviderModelConfig,
 } from "../model-resolver.ts";
+import { SYSTEM_MODELS, DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "../llm-providers.ts";
 import { prisma } from "../lib/prisma.ts";
 
 describe("resolvePiModel", () => {
@@ -204,5 +206,26 @@ describe("findByokKeyForPiProvider", () => {
     );
     const key = await findByokKeyForPiProvider("ws-5", "anthropic");
     expect(key).toBeNull();
+  });
+});
+
+describe("isSystemModelId", () => {
+  it("accepts every id the catalog offers", () => {
+    const ids = SYSTEM_MODELS.flatMap((s) => s.models.map((m) => m.id));
+    expect(ids.length).toBeGreaterThan(0);
+    for (const id of ids) {
+      expect(isSystemModelId(id)).toBe(true);
+    }
+  });
+
+  // Callers reject ids this returns false for, so a default that fell out of
+  // the catalog would fail every unpinned detector rather than degrade.
+  it("accepts the detector screening default", () => {
+    expect(isSystemModelId(DETECTOR_SYSTEM_DEFAULT_MODEL_ID)).toBe(true);
+  });
+
+  it("rejects a retired or invented id", () => {
+    expect(isSystemModelId("claude-retired-1")).toBe(false);
+    expect(isSystemModelId("")).toBe(false);
   });
 });

@@ -4,6 +4,7 @@ import {
   findByokKeyForPiProvider,
   fetchProviderConfig,
   resolvePiModel,
+  isSystemModelId,
   type ProviderModelConfig,
 } from "@traceroot/core/model-resolver";
 import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
@@ -136,16 +137,11 @@ export async function runDetectionForTrace(params: {
   workspaceId: string;
 }): Promise<EvalResult> {
   const { traceId, spansJsonl, detector, workspaceId } = params;
-  // A null source means "never set" — legacy rows, and any API client that
-  // omitted the field. Every UI path writes "system" explicitly and the UI
-  // reads null back as "system", so treat it as system here too.
-  //
-  // Note the reach: with the pickers persisting an empty selection, every
-  // unpinned detector — newly created ones included, not just legacy rows —
-  // screens on the fixed default instead of an availability-aware provider
-  // pick. A deployment holding no key for that model's provider, in env or
-  // in a workspace BYOK row, fails those evals rather than quietly screening
-  // on whichever provider happens to be configured.
+  // A null source means "never set" — legacy rows, and API clients that
+  // omitted the field. Every UI path writes "system" and reads null back as
+  // "system", so treat it as system here too. Unpinned detectors therefore
+  // screen on the fixed default, not an availability-aware pick: a deployment
+  // with no key for that provider fails them rather than substituting.
   const source = detector.detectionSource ?? "system";
 
   // 1. BYOK config
@@ -166,6 +162,14 @@ export async function runDetectionForTrace(params: {
   // 2. Resolve model
   const modelId =
     detector.detectionModel ?? (source === "system" ? DETECTOR_SYSTEM_DEFAULT_MODEL_ID : undefined);
+
+  // A retired or invented id resolves to an unrelated fallback rather than
+  // failing, which would screen on a model nobody chose while every surface
+  // shows the pinned one. A failed run is visible; a substitution is not.
+  if (!providerConfig && modelId && !isSystemModelId(modelId)) {
+    return errorResult(`Detection model "${modelId}" is not a known system model`, source);
+  }
+
   const model = resolvePiModel(modelId, providerConfig);
 
   // 3. Resolve API key (BYOK row → env var → workspace BYOK scan)

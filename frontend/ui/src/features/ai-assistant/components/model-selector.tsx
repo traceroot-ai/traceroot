@@ -22,12 +22,10 @@ interface ModelSelectorProps {
   workspaceId?: string;
   /**
    * System model id the parent falls back to when the selection is empty.
-   * Setting it makes an empty selection a valid persistent state ("track
-   * this model"): the selector never writes an auto-picked default into the
-   * parent's state, and it presents that model exactly as an explicit pick
-   * would — same trigger label, same checkmark — so the user sees what will
-   * run without the parent having to store it. Surfaces that require a
-   * concrete stored selection leave this unset and get the auto-pick.
+   * Setting it makes an empty selection a valid persistent state: the selector
+   * never auto-picks into the parent's state, and presents that model as an
+   * explicit pick of it would. Surfaces needing a concrete stored selection
+   * leave this unset and get the auto-pick.
    */
   defaultModelId?: string;
 }
@@ -68,8 +66,14 @@ export function ModelSelector({
     const exact = models.find(
       (m) => m.id === value.model && m.provider === value.provider && m.source === value.source,
     );
+    // Prefer the selection's own source: the list is BYOK-first and not
+    // deduplicated, so a bare id could bind a system selection to a BYOK
+    // provider sharing that id — same name, different credentials at run time.
     const modelOnly =
-      !exact && value.model && !value.provider ? models.find((m) => m.id === value.model) : null;
+      !exact && value.model && !value.provider
+        ? (models.find((m) => m.id === value.model && m.source === value.source) ??
+          models.find((m) => m.id === value.model))
+        : null;
     const match = exact ?? modelOnly;
 
     if (!match) {
@@ -105,17 +109,16 @@ export function ModelSelector({
     }
   }, [models, value, onChange, defaultModelId]);
 
-  // With nothing explicitly picked, present the tracked default as if it were
-  // the selection, so an unpinned parent looks exactly like one that stored
-  // this model. Scoped to a system row: a BYOK provider exposing the same id
-  // is a different row and must not also be ticked.
-  const trackedDefault =
-    !value.model && defaultModelId
-      ? models.find((m) => m.id === defaultModelId && m.source === "system")
-      : undefined;
+  // Present the tracked default as the selection so an unpinned parent reads
+  // like one that stored this model. A BYOK selection with no model runs its
+  // provider's model, not this one, so it tracks nothing here.
+  const showsDefault = !value.model && value.source !== "byok" && !!defaultModelId;
+  const defaultRow = showsDefault
+    ? models.find((m) => m.id === defaultModelId && m.source === "system")
+    : undefined;
 
-  const selectedKey = trackedDefault
-    ? modelKey(trackedDefault)
+  const selectedKey = defaultRow
+    ? modelKey(defaultRow)
     : modelKey({ id: value.model, source: value.source, provider: value.provider });
   const selectedModel = models.find((m) => modelKey(m) === selectedKey);
 
@@ -128,7 +131,10 @@ export function ModelSelector({
             size="sm"
             className="h-7 gap-1 rounded-sm px-2 text-[11px] text-muted-foreground hover:text-foreground"
           >
-            {selectedModel?.label || value.model || defaultModelId || "Select model"}
+            {selectedModel?.label ||
+              value.model ||
+              (showsDefault ? defaultModelId : "") ||
+              "Select model"}
             <ChevronDown className="h-3 w-3" />
           </Button>
         </PopoverTrigger>
@@ -151,11 +157,10 @@ export function ModelSelector({
                   isSelected && "font-medium text-foreground",
                 )}
                 onClick={() => {
-                  // Picking the row that is already the tracked default looks
-                  // like a no-op but would write a selection, pinning the
-                  // parent to this model and quietly opting it out of any
-                  // later change to the default. Leave the empty selection be.
-                  if (!(trackedDefault && isSelected)) {
+                  // Picking the already-shown default would look like a no-op
+                  // while pinning the parent to it, opting it out of any later
+                  // change to the default.
+                  if (!(defaultRow && isSelected)) {
                     onChange({
                       model: m.id,
                       provider: m.provider,
