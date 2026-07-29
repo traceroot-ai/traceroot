@@ -38,20 +38,29 @@ class ViewDef:
     fields: dict[str, FieldDef] = field(default_factory=dict)
 
 
-_SPANS_BASE = """
+# Preserve NULL when cache token data was never reported.
+_CACHE_READ_TOKENS_EXPR = (
+    "if(mapContains(usage_details, 'cache_read_tokens'), usage_details['cache_read_tokens'], NULL)"
+)
+_CACHE_WRITE_TOKENS_EXPR = "if(mapContains(usage_details, 'cache_write_tokens'), usage_details['cache_write_tokens'], NULL)"
+
+
+_SPANS_BASE = f"""
     SELECT
         name, span_kind, status, model_name, environment,
         span_start_time AS event_time,
         dateDiff('millisecond', span_start_time, span_end_time) AS duration_ms,
-        cost, input_tokens, output_tokens, total_tokens
+        cost, input_tokens, output_tokens, total_tokens,
+        {_CACHE_READ_TOKENS_EXPR} AS cache_read_tokens,
+        {_CACHE_WRITE_TOKENS_EXPR} AS cache_write_tokens
     FROM (
         SELECT
             span_id, trace_id, name, span_kind, status, model_name, environment,
-            span_start_time, span_end_time, cost, input_tokens, output_tokens, total_tokens
+            span_start_time, span_end_time, cost, input_tokens, output_tokens, total_tokens, usage_details
         FROM spans
-        WHERE project_id = {project_id:String}
-          AND span_start_time >= {start_time:DateTime64(3)}
-          AND span_start_time < {end_time:DateTime64(3)}
+        WHERE project_id = {{project_id:String}}
+          AND span_start_time >= {{start_time:DateTime64(3)}}
+          AND span_start_time < {{end_time:DateTime64(3)}}
         ORDER BY ch_update_time DESC
         LIMIT 1 BY project_id, trace_id, span_id
     )
@@ -64,7 +73,7 @@ _SPANS_BASE = """
 # cost, and token counts here may differ from the per-trace detail page (which
 # joins all spans for a trace). The tradeoff is a bounded, fast scan for
 # dashboards vs. exact per-trace metrics in the trace list.
-_TRACES_BASE = """
+_TRACES_BASE = f"""
     SELECT
         t.name AS name, t.user_id AS user_id,
         t.session_id AS session_id, t.environment AS environment,
@@ -77,14 +86,16 @@ _TRACES_BASE = """
         if(sa.trace_id = '', NULL, sa.total_cost) AS cost,
         if(sa.trace_id = '', NULL, sa.input_tokens) AS input_tokens,
         if(sa.trace_id = '', NULL, sa.output_tokens) AS output_tokens,
-        if(sa.trace_id = '', NULL, sa.total_tokens) AS total_tokens
+        if(sa.trace_id = '', NULL, sa.total_tokens) AS total_tokens,
+        if(sa.trace_id = '', NULL, sa.cache_read_tokens) AS cache_read_tokens,
+        if(sa.trace_id = '', NULL, sa.cache_write_tokens) AS cache_write_tokens
     FROM (
         SELECT
             trace_id, name, user_id, session_id, environment, trace_start_time
         FROM traces
-        WHERE project_id = {project_id:String}
-          AND trace_start_time >= {start_time:DateTime64(3)}
-          AND trace_start_time < {end_time:DateTime64(3)}
+        WHERE project_id = {{project_id:String}}
+          AND trace_start_time >= {{start_time:DateTime64(3)}}
+          AND trace_start_time < {{end_time:DateTime64(3)}}
         ORDER BY ch_update_time DESC
         LIMIT 1 BY project_id, trace_id
     ) AS t
@@ -100,15 +111,19 @@ _TRACES_BASE = """
             sum(cost) AS total_cost,
             sum(input_tokens) AS input_tokens,
             sum(output_tokens) AS output_tokens,
-            sum(total_tokens) AS total_tokens
+            sum(total_tokens) AS total_tokens,
+            sum(cache_read_tokens) AS cache_read_tokens,
+            sum(cache_write_tokens) AS cache_write_tokens
         FROM (
             SELECT
                 trace_id, span_id, status, span_start_time, span_end_time, cost,
-                input_tokens, output_tokens, total_tokens
+                input_tokens, output_tokens, total_tokens,
+                {_CACHE_READ_TOKENS_EXPR} AS cache_read_tokens,
+                {_CACHE_WRITE_TOKENS_EXPR} AS cache_write_tokens
             FROM spans
-            WHERE project_id = {project_id:String}
-              AND span_start_time >= {start_time:DateTime64(3)}
-              AND span_start_time < {end_time:DateTime64(3)}
+            WHERE project_id = {{project_id:String}}
+              AND span_start_time >= {{start_time:DateTime64(3)}}
+              AND span_start_time < {{end_time:DateTime64(3)}}
             ORDER BY ch_update_time DESC
             LIMIT 1 BY project_id, trace_id, span_id
         )
@@ -157,6 +172,11 @@ REGISTRY: dict[str, ViewDef] = {
             "cost": _number_measure("cost", "Cost"),
             "input_tokens": _number_measure("input_tokens", "Input tokens"),
             "output_tokens": _number_measure("output_tokens", "Output tokens"),
+            "cache_read_tokens": _number_measure("cache_read_tokens", "Cache read tokens"),
+            "cache_write_tokens": _number_measure("cache_write_tokens", "Cache write tokens"),
+            # Total last: input + output. Cache read/write are a breakdown of
+            # the input above, not additional addends — summing all four
+            # double-counts the cache tokens.
             "total_tokens": _number_measure("total_tokens", "Total tokens"),
             # expr="*" is a sentinel: the compiler translates it to count(*).
             "count": FieldDef(expr="*", type="number", label="Count", aggs=("count",)),
@@ -176,6 +196,11 @@ REGISTRY: dict[str, ViewDef] = {
             "cost": _number_measure("cost", "Cost"),
             "input_tokens": _number_measure("input_tokens", "Input tokens"),
             "output_tokens": _number_measure("output_tokens", "Output tokens"),
+            "cache_read_tokens": _number_measure("cache_read_tokens", "Cache read tokens"),
+            "cache_write_tokens": _number_measure("cache_write_tokens", "Cache write tokens"),
+            # Total last: input + output. Cache read/write are a breakdown of
+            # the input above, not additional addends — summing all four
+            # double-counts the cache tokens.
             "total_tokens": _number_measure("total_tokens", "Tokens"),
             # expr="*" is a sentinel: the compiler translates it to count(*).
             "count": FieldDef(expr="*", type="number", label="Count", aggs=("count",)),
