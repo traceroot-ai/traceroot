@@ -440,3 +440,53 @@ class TestFailClosedEnqueue:
 
         mock_add_job.assert_not_called()
         assert _lock_state(fake_redis)["state"] == "sampled_out"
+
+
+# ── _eval_condition: environment field semantics ────────────────────────
+
+
+class TestEvalConditionEnvironment:
+    """Pins the missing-field semantics (`actual is None` -> `op == "!="`) and
+    its interaction with a populated `environment` value, so a fix at the
+    insert layer that makes `environment` non-NULL cannot silently change how
+    a genuinely absent value is handled."""
+
+    def test_missing_field_equals_never_matches(self):
+        assert dt._eval_condition({}, {"field": "environment", "op": "=", "value": "prod"}) is (
+            False
+        )
+
+    def test_missing_field_not_equals_always_matches(self):
+        assert (
+            dt._eval_condition({}, {"field": "environment", "op": "!=", "value": "staging"}) is True
+        )
+
+    def test_populated_field_equals_matching_value(self):
+        summary = {"environment": "production"}
+        assert (
+            dt._eval_condition(summary, {"field": "environment", "op": "=", "value": "production"})
+            is True
+        )
+
+    def test_populated_field_equals_non_matching_value(self):
+        summary = {"environment": "production"}
+        assert (
+            dt._eval_condition(summary, {"field": "environment", "op": "=", "value": "staging"})
+            is False
+        )
+
+    def test_populated_field_not_equals_excluded_value(self):
+        """A trace whose environment IS the excluded value must not fire."""
+        summary = {"environment": "staging"}
+        assert (
+            dt._eval_condition(summary, {"field": "environment", "op": "!=", "value": "staging"})
+            is False
+        )
+
+    def test_populated_field_not_equals_other_value(self):
+        """A trace outside the excluded value fires."""
+        summary = {"environment": "production"}
+        assert (
+            dt._eval_condition(summary, {"field": "environment", "op": "!=", "value": "staging"})
+            is True
+        )

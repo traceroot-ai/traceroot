@@ -45,7 +45,7 @@ describe("mediaSrc — data URIs", () => {
   });
 });
 
-describe("mediaSrc — bare base64 (magic-byte sniffing)", () => {
+describe("mediaSrc — bare base64 (encoding-prefix matching)", () => {
   it("detects PNG", () => {
     expect(mediaSrc(bare(PNG))?.kind).toBe("image");
     expect(mediaSrc(bare(PNG))?.src).toMatch(/^data:image\/png;base64,/);
@@ -65,8 +65,12 @@ describe("mediaSrc — bare base64 (magic-byte sniffing)", () => {
     expect(mediaSrc(bare("ID3"))?.src).toMatch(/^data:audio\/mpeg;base64,/);
   });
 
-  it("detects MP3 via frame sync", () => {
-    expect(mediaSrc(bare(MP3_FRAME))?.kind).toBe("audio");
+  // Bare MP3 frame sync (0xFF 0xEx) is deliberately NOT detected: it is only 11
+  // bits and collides with ordinary text — e.g. any string starting with "//"
+  // base64-decodes to 0xFF 0xF…. Detecting it mislabels source code as audio
+  // (see the "non-media" regression cases below). ID3-tagged MP3 is still caught.
+  it("does NOT detect bare MP3 frame sync (too ambiguous)", () => {
+    expect(mediaSrc(bare(MP3_FRAME))).toBeNull();
   });
 
   it("detects OGG", () => {
@@ -99,5 +103,35 @@ describe("mediaSrc — non-media", () => {
 
   it("returns null for long non-media base64", () => {
     expect(mediaSrc(bare("hello world this is not media"))).toBeNull();
+  });
+
+  // Regression: real pi/coding-agent bash tool output was mis-detected as audio.
+  // These are actual `sandbox_shell` results from prod trace
+  // c474ea5cc57670f835bdc46992eb7ec4. A leading "//" JS comment base64-decodes to
+  // an MP3 frame sync, so the old byte-sniffer rendered an <audio> player over the
+  // source code. Plain text is not contiguous base64 (spaces/newlines/'.'), so it
+  // must never be treated as media.
+  it("returns null for a JS source dump starting with // (was mis-detected as audio)", () => {
+    const jsFile =
+      "// Minimal user lookup used by the API layer.\n" +
+      'const { runQuery } = require("./client");\n\n' +
+      "// Fetch a user by id from the request. The id comes straight from the\n" +
+      "// untrusted query string.\n" +
+      "function getUser(req) {\n" +
+      "  const id = req.query.id;\n" +
+      '  const sql = "SELECT * FROM users WHERE id = \'" + id + "\'";\n' +
+      "  return runQuery(sql);\n" +
+      "}\n\nmodule.exports = { getUser };";
+    expect(jsFile.length).toBeGreaterThan(100); // clears the length threshold
+    expect(mediaSrc(jsFile)).toBeNull();
+  });
+
+  it("returns null for `ls -la` command output", () => {
+    const lsOut =
+      "total 8\n" +
+      "drwxr-xr-x 4 repair repair 120 Jul 20 05:37 .\n" +
+      "drwxr-xr-x 3 repair repair  96 Jul 20 05:37 ..\n" +
+      "drwxr-xr-x 2 repair repair  64 Jul 20 05:37 src";
+    expect(mediaSrc(lsOut)).toBeNull();
   });
 });

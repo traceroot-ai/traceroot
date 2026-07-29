@@ -6,25 +6,21 @@ import { authClient } from "@/lib/auth-client";
 import { useTheme } from "next-themes";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-  LayoutGrid,
-  LayoutDashboard,
   LifeBuoy,
   ChevronRight,
   Github,
   Sun,
   Moon,
   Monitor,
-  Workflow,
   Settings,
   UserRoundSearch,
-  Eye,
 } from "lucide-react";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/utils";
 import { GitHubStarWidget } from "@/components/layout/GitHubStarWidget";
 import { SidebarUpgradeButton } from "@/components/layout/SidebarUpgradeButton";
-import { getProjectContext } from "@/components/layout/project-context";
 import { clientEnv } from "@/env.client";
 
 function getInitials(name?: string | null, email?: string | null): string {
@@ -64,7 +60,6 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
   // Project/workspace context from the matched dynamic route params
   const projectId = params?.projectId ?? null;
   const workspaceId = params?.workspaceId ?? null;
-  const { isProject } = getProjectContext(pathname);
 
   // Settings target depends on context: project settings inside a project,
   // workspace settings inside a workspace, hidden elsewhere
@@ -153,7 +148,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                       pathname.includes("/traces") ? "bg-muted" : "hover:bg-muted/50",
                     )}
                   >
-                    <Workflow className="h-3.5 w-3.5 shrink-0" />
+                    <DOMAIN_ICONS.trace className="h-3.5 w-3.5 shrink-0" />
                     {!collapsed && "Tracing"}
                   </Link>
                 </TooltipTrigger>
@@ -173,7 +168,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                       pathname.includes("/detectors") ? "bg-muted" : "hover:bg-muted/50",
                     )}
                   >
-                    <Eye className="h-3.5 w-3.5 shrink-0" />
+                    <DOMAIN_ICONS.detector className="h-3.5 w-3.5 shrink-0" />
                     {!collapsed && "Detectors"}
                   </Link>
                 </TooltipTrigger>
@@ -193,7 +188,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                       pathname.includes("/dashboard") ? "bg-muted" : "hover:bg-muted/50",
                     )}
                   >
-                    <LayoutDashboard className="h-3.5 w-3.5 shrink-0" />
+                    <DOMAIN_ICONS.dashboard className="h-3.5 w-3.5 shrink-0" />
                     {!collapsed && "Dashboard"}
                   </Link>
                 </TooltipTrigger>
@@ -219,7 +214,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                       : "hover:bg-muted/50",
                   )}
                 >
-                  <LayoutGrid className="h-3.5 w-3.5 shrink-0" />
+                  <DOMAIN_ICONS.workspace className="h-3.5 w-3.5 shrink-0" />
                   {!collapsed && "Workspaces"}
                 </Link>
               </TooltipTrigger>
@@ -237,9 +232,13 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
           {/* Star widget */}
           {!collapsed && <GitHubStarWidget />}
 
-          {/* Upgrade button - only show when in project context */}
-          {isProject && projectId && (
-            <SidebarUpgradeButton projectId={projectId} collapsed={collapsed} />
+          {/* Upgrade button - only show when in a project or workspace context */}
+          {(projectId || workspaceId) && (
+            <SidebarUpgradeButton
+              projectId={projectId}
+              workspaceId={workspaceId}
+              collapsed={collapsed}
+            />
           )}
 
           {/* GitHub link */}
