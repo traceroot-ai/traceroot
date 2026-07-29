@@ -1,6 +1,6 @@
 """Endpoint tests for the widget query router."""
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -10,8 +10,7 @@ from rest.main import app
 from rest.routers.deps import ProjectAccessInfo, get_project_access
 
 
-@pytest.fixture()
-def client():
+def _override_plan(billing_plan: str):
     # Mirror the validate-project-access contract (workspaceId + billingPlan)
     # so get_rate_limited_project_access stamps a real workspace for the
     # per-workspace rate limiter.
@@ -20,9 +19,28 @@ def client():
         user_id="user-1",
         role="admin",
         workspace_id="ws-test",
-        billing_plan="free",
+        billing_plan=billing_plan,
     )
-    yield TestClient(app)
+    return TestClient(app)
+
+
+@pytest.fixture()
+def client():
+    # Free plan (15-day retention) — exercises the retention clamp path.
+    yield _override_plan("free")
+
+
+@pytest.fixture()
+def enterprise_client():
+    # Unlimited retention: no clamp, so an endpoint's raw window threads through
+    # verbatim — isolates the plumbing from the retention gate.
+    yield _override_plan("enterprise")
+
+
+# ~ now - 15 days, minus a generous slack for the 1h buffer and test runtime;
+# a clamped free-plan start must land at or after this.
+def _free_clamp_floor():
+    return datetime.now(UTC).replace(tzinfo=None) - timedelta(days=15, hours=2)
 
 
 VALID_BODY = {
@@ -56,9 +74,34 @@ def test_query_endpoint_executes(client):
     assert mock_run.call_args.kwargs["project_id"] == "proj-1"
 
 
-def test_query_endpoint_spec_error_is_422_with_step(client):
+def test_query_clamps_start_for_limited_plan(client):
+    # Free plan: an out-of-window widget query has its start pulled to the cutoff
+    # before hitting ClickHouse, matching every other data endpoint.
+    body = {**VALID_BODY, "start_time": "2020-01-01T00:00:00Z", "end_time": "2020-02-01T00:00:00Z"}
+    fake = {"columns": [], "rows": [], "meta": {}}
+    with patch("rest.routers.dashboards.run_widget_query", return_value=fake) as mock_run:
+        resp = client.post("/api/v1/projects/proj-1/widgets/query", json=body)
+    assert resp.status_code == 200
+    clamped = mock_run.call_args.kwargs["start_time"]
+    assert clamped > datetime(2020, 1, 2)  # not the ancient input
+    assert clamped >= _free_clamp_floor()  # pulled up to ~ now - 15 days
+
+
+def test_query_preserves_window_for_unlimited_plan(enterprise_client):
+    # Enterprise (unlimited retention): the body window reaches the query verbatim.
+    body = {**VALID_BODY, "start_time": "2020-01-01T00:00:00Z", "end_time": "2020-02-01T00:00:00Z"}
+    fake = {"columns": [], "rows": [], "meta": {}}
+    with patch("rest.routers.dashboards.run_widget_query", return_value=fake) as mock_run:
+        resp = enterprise_client.post("/api/v1/projects/proj-1/widgets/query", json=body)
+    assert resp.status_code == 200
+    assert mock_run.call_args.kwargs["start_time"] == datetime(2020, 1, 1, tzinfo=UTC)
+
+
+def test_query_endpoint_spec_error_is_422_with_step(enterprise_client):
+    # Unlimited retention so the clamp can't invert VALID_BODY's fixed window;
+    # this isolates spec (breakdown) validation, which is plan-agnostic.
     bad = {**VALID_BODY, "spec": {**VALID_BODY["spec"], "breakdown": "cost"}}
-    resp = client.post("/api/v1/projects/proj-1/widgets/query", json=bad)
+    resp = enterprise_client.post("/api/v1/projects/proj-1/widgets/query", json=bad)
     assert resp.status_code == 422
     detail = resp.json()["detail"]
     assert detail["step"] == "breakdown"
@@ -116,9 +159,10 @@ class TestWidgetFieldValues:
         assert kw["column"] == "user_id"
         mock_trace_reader.get_distinct_span_values.assert_not_called()
 
-    def test_time_window_threads_to_the_service(self, client, mock_trace_reader):
+    def test_time_window_threads_to_the_service(self, enterprise_client, mock_trace_reader):
+        # Unlimited retention: the requested window reaches the service verbatim.
         mock_trace_reader.get_distinct_span_values.return_value = []
-        resp = client.get(
+        resp = enterprise_client.get(
             "/api/v1/projects/proj-1/widgets/field-values/spans/environment"
             "?start_time=2026-06-01T00:00:00&end_time=2026-06-02T00:00:00"
         )
@@ -127,14 +171,36 @@ class TestWidgetFieldValues:
         assert kw["start_after"] == datetime(2026, 6, 1, 0, 0, 0)
         assert kw["end_before"] == datetime(2026, 6, 2, 0, 0, 0)
 
-    def test_no_window_passes_none_bounds(self, client, mock_trace_reader):
-        """The service itself defaults a lookback; the endpoint passes what it got."""
+    def test_no_window_passes_none_bounds(self, enterprise_client, mock_trace_reader):
+        """Unlimited retention: the service itself defaults a lookback; the endpoint passes None."""
         mock_trace_reader.get_distinct_span_values.return_value = []
-        resp = client.get("/api/v1/projects/proj-1/widgets/field-values/spans/status")
+        resp = enterprise_client.get("/api/v1/projects/proj-1/widgets/field-values/spans/status")
         assert resp.status_code == 200
         kw = mock_trace_reader.get_distinct_span_values.call_args.kwargs
         assert kw["start_after"] is None
         assert kw["end_before"] is None
+
+    def test_out_of_window_start_is_clamped_for_limited_plan(self, client, mock_trace_reader):
+        # Free plan (15-day retention): a request reaching past the window is
+        # silently pulled forward to the cutoff — the server-side safety net.
+        mock_trace_reader.get_distinct_span_values.return_value = []
+        resp = client.get(
+            "/api/v1/projects/proj-1/widgets/field-values/spans/environment"
+            "?start_time=2020-01-01T00:00:00"
+        )
+        assert resp.status_code == 200
+        clamped = mock_trace_reader.get_distinct_span_values.call_args.kwargs["start_after"]
+        assert clamped > datetime(2020, 1, 2)  # not the ancient input
+        assert clamped >= _free_clamp_floor()  # pulled up to ~ now - 15 days
+
+    def test_missing_start_is_clamped_for_limited_plan(self, client, mock_trace_reader):
+        # Free plan with no start_time would otherwise scan back to day zero.
+        mock_trace_reader.get_distinct_span_values.return_value = []
+        resp = client.get("/api/v1/projects/proj-1/widgets/field-values/spans/status")
+        assert resp.status_code == 200
+        clamped = mock_trace_reader.get_distinct_span_values.call_args.kwargs["start_after"]
+        assert clamped is not None
+        assert clamped >= _free_clamp_floor()
 
     def test_unknown_view_is_404(self, client, mock_trace_reader):
         resp = client.get("/api/v1/projects/proj-1/widgets/field-values/sessions/name")

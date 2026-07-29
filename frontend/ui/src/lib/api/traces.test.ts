@@ -5,7 +5,7 @@ vi.mock("@/lib/auth-client", () => ({
   authClient: { getSession: vi.fn().mockResolvedValue({ data: null }) },
 }));
 
-import { getSpanIO, getTraces } from "./traces";
+import { getSpanIO, getTraces, tracesExist } from "./traces";
 import type { Predicate } from "@/types/api";
 
 describe("getSpanIO", () => {
@@ -98,5 +98,37 @@ describe("getTraces filters serialization", () => {
 
     const url = new URL(fetchMock.mock.calls[0][0] as string, "http://x");
     expect(url.searchParams.has("filters")).toBe(false);
+  });
+});
+
+describe("tracesExist", () => {
+  beforeEach(() => vi.restoreAllMocks());
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("calls the /traces/exists endpoint and returns the boolean result", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ exists: true }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await tracesExist("proj-1", { id: "user-1", email: "u@example.com" });
+
+    expect(result).toEqual({ exists: true });
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toContain("/projects/proj-1/traces/exists");
+  });
+
+  it("returns exists: false for a project with no traces", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ exists: false }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await tracesExist("proj-2", { id: "user-1" });
+    expect(result).toEqual({ exists: false });
   });
 });

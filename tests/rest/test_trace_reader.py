@@ -541,3 +541,34 @@ class TestGetSpanIO:
         assert result["input"] == "new-input"
         assert result["output"] == "new-output"
         assert result["metadata"] == "new-meta"
+
+
+class TestHasTraces:
+    def test_returns_true_when_spans_exist(self):
+        service, _ = _make_service(lambda *a, **kw: _rows([(1,)]))
+        assert service.has_traces("proj-1") is True
+
+    def test_returns_false_when_no_spans(self):
+        service, _ = _make_service(lambda *a, **kw: _rows([]))
+        assert service.has_traces("proj-1") is False
+
+    def test_caches_true_result(self):
+        call_count = {"n": 0}
+
+        def side_effect(*a, **kw):
+            call_count["n"] += 1
+            return _rows([(1,)])
+
+        service, _ = _make_service(side_effect)
+        assert service.has_traces("proj-1") is True
+        assert service.has_traces("proj-1") is True
+        assert call_count["n"] == 1
+
+    def test_evicts_oldest_when_cache_full(self):
+        service, _ = _make_service(lambda *a, **kw: _rows([(1,)]))
+        service._HAS_TRACES_CACHE_MAX = 2
+        service.has_traces("a")
+        service.has_traces("b")
+        service.has_traces("c")
+        assert "a" not in service._has_traces_cache
+        assert "c" in service._has_traces_cache
