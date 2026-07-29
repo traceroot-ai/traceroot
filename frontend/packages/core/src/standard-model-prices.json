@@ -28,7 +28,7 @@
   {
     "id": "tr-claude-opus-5",
     "modelName": "claude-opus-5",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-5(\\[1m\\])?(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-opus-5(-[\\d-]+)?(-v\\d+:\\d+)?|claude-5-opus(@[\\d-]+)?)$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-5(\\[1m\\])?(-[\\d-]+)?(@[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-opus-5(-[\\d-]+)?(-v\\d+:\\d+)?|claude-5-opus(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.000005,
