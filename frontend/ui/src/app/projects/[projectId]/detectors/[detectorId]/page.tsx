@@ -14,6 +14,9 @@ import { DetectorRunsTable } from "@/features/detectors/components/detector-runs
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
 import { TraceViewerPanel } from "@/features/traces/components/TraceViewerPanel";
+import { useRetention } from "@/lib/hooks/use-retention";
+import { PricingDialog } from "@/ee/features/billing/PricingDialog";
+import { PlanType } from "@traceroot/core";
 
 /**
  * Which trace the consolidated panel shows. `kind` selects RCA auto-open:
@@ -55,6 +58,8 @@ export default function DetectorDetailPage() {
 
   // Single shared state across both tabs — same pattern as traces/sessions/users.
   // Pagination, search, and date filter live in the URL so a tab switch keeps them.
+  const retention = useRetention(projectId);
+
   const {
     state,
     queryOptions,
@@ -63,7 +68,10 @@ export default function DetectorDetailPage() {
     updateKeyword,
     updateLimit,
     goToPage,
-  } = useListPageState({ defaultDateFilterId: DETECTORS_DEFAULT_DATE_FILTER_ID });
+  } = useListPageState({
+    defaultDateFilterId: DETECTORS_DEFAULT_DATE_FILTER_ID,
+    retentionDays: retention.retentionDays,
+  });
 
   // Carry the selected range back to the list (and into the breadcrumb) so the
   // detectors section keeps one consistent time range across navigation, the
@@ -194,6 +202,8 @@ export default function DetectorDetailPage() {
           customEndDate={state.customEndDate}
           onDateFilterChange={updateDateFilter}
           onCustomRangeChange={updateCustomRange}
+          retentionDays={retention.retentionDays}
+          onUpgradeClick={retention.onUpgradeClick}
         />
 
         {/* Content — both tabs render the same DetectorRunsTable; Findings is
@@ -263,6 +273,13 @@ export default function DetectorDetailPage() {
           newTabPath={`/projects/${projectId}/detectors/${detectorId}`}
         />
       )}
+
+      <PricingDialog
+        open={retention.showPricing}
+        onOpenChange={retention.closePricing}
+        workspaceId={retention.workspaceId}
+        currentPlan={(retention.billingPlan as PlanType) || PlanType.FREE}
+      />
     </div>
   );
 }

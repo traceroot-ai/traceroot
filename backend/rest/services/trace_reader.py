@@ -117,6 +117,13 @@ class TraceReaderService:
         self._client = get_clickhouse_client()
         # Per-(project, column, window) cache of distinct values: key -> (expiry, rows).
         self._distinct_cache: dict[tuple, tuple[float, list[dict]]] = {}
+        # has_traces cache: project_id -> (expiry, result). True results use a
+        # long TTL (1 hour); False results expire after 10s so the onboarding
+        # poll doesn't scan all partitions every 3s. Bounded to 1024 entries.
+        self._has_traces_cache: dict[str, tuple[float, bool]] = {}
+        # Trace start time cache: "project:trace" -> (expiry, datetime|None).
+        # Immutable once written, so 1-hour TTL is safe. Bounded to 1024 entries.
+        self._trace_start_cache: dict[str, tuple[float, datetime | None]] = {}
 
     def get_distinct_span_values(
         self,
@@ -281,6 +288,66 @@ class TraceReaderService:
             self._distinct_cache.pop(next(iter(self._distinct_cache)))
         self._distinct_cache[cache_key] = (now + DISTINCT_VALUES_CACHE_TTL_SECONDS, rows)
         return rows
+
+    _HAS_TRACES_CACHE_MAX = 1024
+
+    def has_traces(self, project_id: str) -> bool:
+        """Check if a project has ever ingested any spans (ignores retention)."""
+        now = time.monotonic()
+        cached = self._has_traces_cache.get(project_id)
+        if cached is not None:
+            expiry, value = cached
+            if now < expiry:
+                return value
+
+        result = self._client.query(
+            "SELECT 1 FROM spans WHERE project_id = {project_id:String} LIMIT 1",
+            parameters={"project_id": project_id},
+        )
+        found = len(result.result_rows) > 0
+        ttl = 3600.0 if found else 10.0
+        if len(self._has_traces_cache) >= self._HAS_TRACES_CACHE_MAX:
+            self._has_traces_cache.pop(next(iter(self._has_traces_cache)))
+        self._has_traces_cache[project_id] = (now + ttl, found)
+        return found
+
+    _TRACE_START_CACHE_MAX = 1024
+
+    def get_trace_start_time(self, project_id: str, trace_id: str) -> datetime | None:
+        """Lightweight query: just the trace's root-span start time.
+
+        Immutable once written, so results are cached for 1 hour.
+        Used by retention gating on by-id endpoints (span IO, live SSE)
+        without the cost of a full get_trace() skeleton fetch.
+        """
+        cache_key = f"{project_id}:{trace_id}"
+        now = time.monotonic()
+        cached = self._trace_start_cache.get(cache_key)
+        if cached is not None:
+            expiry, value = cached
+            if now < expiry:
+                return value
+
+        result = self._client.query(
+            """
+            SELECT minOrNull(span_start_time)
+            FROM (
+                SELECT parent_span_id, span_start_time FROM spans
+                WHERE project_id = {project_id:String}
+                  AND trace_id   = {trace_id:String}
+                ORDER BY ch_update_time DESC
+                LIMIT 1 BY span_id
+            )
+            WHERE isNull(parent_span_id)
+            """,
+            parameters={"project_id": project_id, "trace_id": trace_id},
+        )
+        rows = result.result_rows
+        ts = rows[0][0] if rows else None
+        if len(self._trace_start_cache) >= self._TRACE_START_CACHE_MAX:
+            self._trace_start_cache.pop(next(iter(self._trace_start_cache)))
+        self._trace_start_cache[cache_key] = (now + 3600.0, ts)
+        return ts
 
     def list_traces(
         self,

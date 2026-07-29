@@ -14,6 +14,9 @@ import { DashboardGrid } from "@/features/dashboards/components/DashboardGrid";
 import type { TimeRange, Widget } from "@/features/dashboards/types";
 import { DateFilterSelect } from "@/components/date-filter-select";
 import { useUrlDateFilter } from "@/lib/hooks/use-url-date-filter";
+import { useRetention } from "@/lib/hooks/use-retention";
+import { PricingDialog } from "@/ee/features/billing/PricingDialog";
+import { PlanType } from "@traceroot/core";
 import { Button } from "@/components/ui/button";
 
 export default function DashboardDetailPage() {
@@ -28,9 +31,12 @@ export default function DashboardDetailPage() {
 
   const { updateLayout, removeWidget } = useDashboardMutations(projectId, dashboardId);
 
+  // ── retention — presets beyond the plan's window are locked (same as lists) ──
+  const retention = useRetention(projectId);
+
   // ── time range — the same URL-synced filter AND default the trace list uses ──
   const { dateFilter, customStartDate, customEndDate, setDateFilter, setCustomRange, timestamps } =
-    useUrlDateFilter();
+    useUrlDateFilter(undefined, undefined, retention.retentionDays);
   const range: TimeRange = useMemo(
     () => ({
       // Widgets need concrete bounds. startAfter is only absent for a custom
@@ -148,6 +154,8 @@ export default function DashboardDetailPage() {
               customEndDate={customEndDate}
               onDateFilterChange={setDateFilter}
               onCustomRangeChange={setCustomRange}
+              retentionDays={retention.retentionDays}
+              onUpgradeClick={retention.onUpgradeClick}
             />
           </div>
         </div>
@@ -185,6 +193,13 @@ export default function DashboardDetailPage() {
           )}
         </div>
       </div>
+
+      <PricingDialog
+        open={retention.showPricing}
+        onOpenChange={retention.closePricing}
+        workspaceId={retention.workspaceId}
+        currentPlan={(retention.billingPlan as PlanType) || PlanType.FREE}
+      />
     </div>
   );
 }

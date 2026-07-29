@@ -111,7 +111,7 @@ function errorResult(
  *   3. System source fallback → any enabled BYOK row in the workspace whose
  *      adapter maps to the same pi-ai provider (matches agent behavior)
  */
-async function resolveDetectorApiKey(
+export async function resolveDetectorApiKey(
   workspaceId: string,
   providerConfig: ProviderModelConfig | null,
   piProvider: string,

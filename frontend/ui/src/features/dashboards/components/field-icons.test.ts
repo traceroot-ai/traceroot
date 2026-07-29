@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  AlertCircle,
+  CircleAlert,
   Box,
   CircleCheck,
   CircleDollarSign,
@@ -25,7 +25,7 @@ describe("fieldIcon", () => {
   });
 
   it("maps the widget registry's own spellings and token variants", () => {
-    expect(fieldIcon("error_count")).toBe(AlertCircle);
+    expect(fieldIcon("error_count")).toBe(CircleAlert);
     expect(fieldIcon("input_tokens")).toBe(CircleStop);
     expect(fieldIcon("output_tokens")).toBe(CircleStop);
   });
