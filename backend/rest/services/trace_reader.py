@@ -38,6 +38,35 @@ DISTINCT_VALUES_CACHE_MAX = 256
 # open-ended custom ranges. Matches the UI's own default preset ("Last 24 hours").
 DEFAULT_SPAN_SCAN_LOOKBACK_HOURS = 24
 
+# Markers stored in spans.source / traces.source. Customer traffic carries 'user' (the
+# column's DEFAULT); internal telemetry carries a marker of its own.
+USER_SOURCE = "user"
+DETECTOR_SOURCE = "detector"
+
+
+def customer_traffic_only(alias: str = "") -> str:
+    """WHERE condition restricting a spans/traces scan to customer traffic.
+
+    Single definition of the rule: every customer-facing read that scans spans or traces
+    calls this rather than spelling the comparison out, so a new surface can't quietly
+    ship without it.
+
+    Asserts ``source = 'user'`` rather than ``!= 'detector'`` deliberately. The
+    inequality is fail-open — a second internal marker (an RCA or assistant self-trace,
+    say) would pass it and leak into customer lists, dropdowns and billing until every
+    call site was revisited. Naming the one value that IS customer traffic excludes any
+    future internal marker the day it is introduced.
+
+    Args:
+        alias (str): Table alias qualifying the column (e.g. ``"t"``), or ``""`` when the
+            scan is unaliased.
+
+    Returns:
+        str: A WHERE-clause condition.
+    """
+    column = f"{alias}.source" if alias else "source"
+    return f"{column} = '{USER_SOURCE}'"
+
 
 def _floor_minute(dt: datetime | None) -> datetime | None:
     """Truncate a datetime to the whole minute (for the distinct-values cache key)."""

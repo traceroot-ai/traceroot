@@ -7,6 +7,7 @@ not the internal shape of individual fields.
 import json
 import re
 
+from rest.services.trace_reader import customer_traffic_only
 from rest.services.widget_registry import REGISTRY, registry_schema
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -121,3 +122,19 @@ def test_token_measures_list_components_before_total():
             "cache_write_tokens",
             "total_tokens",
         ], f"{view}: token measures out of order: {token_order}"
+
+
+def test_every_base_relation_excludes_detector_self_traces():
+    """No widget view may count detector self-traces as customer data.
+
+    Dashboard measures (count, cost, tokens, latency, error_count) are billed
+    and charted as customer activity, so a base relation that scans spans or
+    traces without the source predicate silently inflates them. Asserted per
+    scan site rather than per view: `traces` reads both tables.
+    """
+    for view_name, view in REGISTRY.items():
+        scans = view.base_sql.count("FROM spans") + view.base_sql.count("FROM traces")
+        # Count via the helper, not a literal: hardcoding the spelling would make a
+        # change to the predicate look like a missing guard.
+        guards = view.base_sql.count(customer_traffic_only())
+        assert guards == scans, f"{view_name}: {scans} table scan(s) but {guards} detector guard(s)"
