@@ -241,6 +241,122 @@ describe("ModelSelector", () => {
     });
   });
 
+  // A BYOK detector with no model runs that provider's own model, so showing
+  // it the system default would name a model that will not run.
+  it("does not present the default to a BYOK selection with no model", () => {
+    mocks.models = {
+      byokProviders: [
+        {
+          provider: "My OpenAI",
+          adapter: "openai",
+          source: "byok",
+          models: [{ id: "gpt-5", label: "GPT-5", supported: true }],
+        },
+      ],
+      systemModels: [
+        {
+          provider: "anthropic",
+          adapter: "anthropic",
+          source: "system",
+          models: [{ id: "claude-4", label: "Claude 4" }],
+        },
+      ],
+    };
+
+    render(
+      <ModelSelector
+        value={{ model: "", provider: "My OpenAI", source: "byok", adapter: "openai" }}
+        onChange={mocks.onChange}
+        workspaceId="workspace-1"
+        defaultModelId="claude-4"
+      />,
+    );
+
+    expect(screen.getByRole("button").textContent).toContain("Select model");
+    expect(screen.getByRole("button").textContent).not.toContain("Claude 4");
+
+    fireEvent.click(screen.getByRole("button"));
+    const ticked = screen.getAllByRole("button").filter((b) => b.textContent?.includes("✓"));
+    expect(ticked).toHaveLength(0);
+  });
+
+  // The catalog lists BYOK first and is not deduplicated, so an id-only match
+  // must not bind a system selection to a BYOK provider's credentials.
+  it("backfills a model-only selection from its own source, not the first row", () => {
+    mocks.models = {
+      byokProviders: [
+        {
+          provider: "My Anthropic",
+          adapter: "anthropic",
+          source: "byok",
+          models: [{ id: "claude-4", label: "Claude 4", supported: true }],
+        },
+      ],
+      systemModels: [
+        {
+          provider: "anthropic",
+          adapter: "anthropic",
+          source: "system",
+          models: [{ id: "claude-4", label: "Claude 4" }],
+        },
+      ],
+    };
+
+    render(
+      <ModelSelector
+        value={{ model: "claude-4", provider: "", source: "system", adapter: "" }}
+        onChange={mocks.onChange}
+        workspaceId="workspace-1"
+      />,
+    );
+
+    expect(mocks.onChange).toHaveBeenCalledWith({
+      model: "claude-4",
+      provider: "anthropic",
+      source: "system",
+      adapter: "anthropic",
+    });
+  });
+
+  // The source-preferring match must still fall back: a legacy hydrated
+  // selection (model id only, no provider) may name a model that exists only
+  // under BYOK, and dropping the fallback would stop backfilling it.
+  it("falls back across sources when the id exists under no other", () => {
+    mocks.models = {
+      byokProviders: [
+        {
+          provider: "My LLM",
+          adapter: "openai",
+          source: "byok",
+          models: [{ id: "custom-llm", label: "Custom LLM", supported: true }],
+        },
+      ],
+      systemModels: [
+        {
+          provider: "anthropic",
+          adapter: "anthropic",
+          source: "system",
+          models: [{ id: "claude-4", label: "Claude 4" }],
+        },
+      ],
+    };
+
+    render(
+      <ModelSelector
+        value={{ model: "custom-llm", provider: "", source: "system", adapter: "" }}
+        onChange={mocks.onChange}
+        workspaceId="workspace-1"
+      />,
+    );
+
+    expect(mocks.onChange).toHaveBeenCalledWith({
+      model: "custom-llm",
+      provider: "My LLM",
+      source: "byok",
+      adapter: "openai",
+    });
+  });
+
   // A BYOK provider may expose the same model id as the system default; that
   // is a separate row and picking it stores a different selection, so only
   // the system row is the tracked default.
