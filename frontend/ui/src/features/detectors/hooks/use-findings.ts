@@ -92,6 +92,11 @@ function fetchRca(projectId: string, findingId: string) {
 // The worker writes findings, runs and RCA after a trace is ingested, so a trace
 // opened live starts with none of them. These queries poll until they arrive, so
 // the Alert button, Detectors tab and RCA answer show up without a refresh.
+//
+// The detection state (useTraceDetectionState) says when to stop: "sampled_out"
+// means nothing will ever appear, "pending" names the runs to expect. Only a
+// queued detection earns the long window; without that signal — an expired record
+// on an older trace — we wait out the write race and give up.
 export const TRACE_POLL_INTERVAL_MS = 3000;
 // Waiting for results the pipeline still owes us. Must outlast it: evaluation
 // waits for the trace to go quiet (EVALUATOR_DELAY, ~60s) and jobs have no cap.
@@ -101,23 +106,77 @@ export const TRACE_POLL_WINDOW_MS = 300000;
 // coming at all.
 export const TRACE_POLL_GRACE_MS = 30000;
 
+/** Worker enqueue-claim state for a trace; `null` means "no signal". */
+export type DetectionStateValue = "deciding" | "pending" | "sampled_out" | null;
+
+export interface TraceDetectionState {
+  state: DetectionStateValue;
+  /** Detectors enqueued for this trace. Populated only when state is "pending". */
+  detectorIds: string[];
+}
+
+/** Nothing will ever appear for this trace, so don't poll and don't promise results. */
+export function detectionRuledOut(detection: TraceDetectionState | undefined): boolean {
+  return detection?.state === "sampled_out";
+}
+
+/** Detection is queued or being decided — the working signal, before any result exists. */
+export function detectionInFlight(detection: TraceDetectionState | undefined): boolean {
+  return detection?.state === "pending" || detection?.state === "deciding";
+}
+
 /** Poll until `settled`, giving up at `windowMs`. */
 function pollUntilSettled(settled: boolean, elapsedMs: number, windowMs: number): number | false {
   if (settled) return false;
   return elapsedMs < windowMs ? TRACE_POLL_INTERVAL_MS : false;
 }
 
-/** Settled once a finding exists: the Alert button and useRca take over. */
-export function findingsPollInterval(findingCount: number, elapsedMs: number): number | false {
-  return pollUntilSettled(findingCount > 0, elapsedMs, TRACE_POLL_WINDOW_MS);
+/**
+ * How long to keep waiting: the long window only when detection says results are
+ * still coming. Absent that, a trace whose claim record has expired would poll for
+ * minutes with nothing on the way.
+ */
+function windowFor(detection?: TraceDetectionState): number {
+  return detectionInFlight(detection) ? TRACE_POLL_WINDOW_MS : TRACE_POLL_GRACE_MS;
+}
+
+/** Settled once a finding exists (Alert button and useRca take over) or is ruled out. */
+export function findingsPollInterval(
+  findingCount: number,
+  elapsedMs: number,
+  detection?: TraceDetectionState,
+): number | false {
+  return pollUntilSettled(
+    findingCount > 0 || detectionRuledOut(detection),
+    elapsedMs,
+    windowFor(detection),
+  );
 }
 
 /**
- * A run row appears only once its detector finishes, so there is no way to tell
- * "all runs are in" from "one is still coming". Poll for the whole window.
+ * A run row appears only once its detector finishes, so completion means every
+ * enqueued detector has one. Also settled when detection is ruled out.
  */
-export function detectorRunsPollInterval(elapsedMs: number): number | false {
-  return elapsedMs < TRACE_POLL_WINDOW_MS ? TRACE_POLL_INTERVAL_MS : false;
+export function detectorRunsPollInterval(
+  runCount: number,
+  elapsedMs: number,
+  detection?: TraceDetectionState,
+): number | false {
+  const expected = detection?.state === "pending" ? detection.detectorIds.length : 0;
+  return pollUntilSettled(
+    detectionRuledOut(detection) || (expected > 0 && runCount >= expected),
+    elapsedMs,
+    windowFor(detection),
+  );
+}
+
+/**
+ * Only "deciding" is worth re-reading. "pending" and "sampled_out" stay put for
+ * the record's TTL, and re-reading a missing record would put a standing poll on
+ * every historical trace view.
+ */
+export function detectionStatePollInterval(state: DetectionStateValue): number | false {
+  return state === "deciding" ? TRACE_POLL_INTERVAL_MS : false;
 }
 
 /**
@@ -226,14 +285,51 @@ export function useRuns(projectId: string, detectorId: string, query: RunsQuery 
   });
 }
 
+const EMPTY_DETECTION: TraceDetectionState = { state: null, detectorIds: [] };
+
+/**
+ * Reads the trace's detection state. Fails soft to an empty state — it only gates
+ * polling, so an outage should fall back to the window, not error the page.
+ */
+async function fetchTraceDetectionState(
+  projectId: string,
+  traceId: string,
+): Promise<TraceDetectionState> {
+  const res = await fetch(`/api/projects/${projectId}/traces/${traceId}/detection-state`);
+  if (!res.ok) return EMPTY_DETECTION;
+  const data = (await res.json()) as { state?: string | null; detector_ids?: unknown };
+  return {
+    state: (data.state ?? null) as DetectionStateValue,
+    detectorIds: Array.isArray(data.detector_ids)
+      ? data.detector_ids.filter((d): d is string => typeof d === "string")
+      : [],
+  };
+}
+
+/**
+ * Whether detection will produce anything for this trace, and what to expect. Lets
+ * the page show a working state right away and stop polling exactly when it should.
+ */
+export function useTraceDetectionState(projectId: string, traceId: string) {
+  return useQuery({
+    queryKey: ["trace-detection-state", projectId, traceId],
+    queryFn: () => fetchTraceDetectionState(projectId, traceId),
+    enabled: !!projectId && !!traceId,
+    refetchInterval: (query) => detectionStatePollInterval(query.state.data?.state ?? null),
+  });
+}
+
 export function useTraceFindings(projectId: string, traceId: string) {
   const elapsed = useElapsedSince(traceId);
+  // Read here rather than passed in, so call sites need no plumbing. React Query
+  // dedupes it against the panel's own subscription to the same key.
+  const { data: detection } = useTraceDetectionState(projectId, traceId);
   return useQuery({
     queryKey: ["trace-findings", projectId, traceId],
     queryFn: () => fetchTraceFindings(projectId, traceId),
     enabled: !!projectId && !!traceId,
     refetchInterval: (query) =>
-      findingsPollInterval(query.state.data?.findings?.length ?? 0, elapsed()),
+      findingsPollInterval(query.state.data?.findings?.length ?? 0, elapsed(), detection),
   });
 }
 
@@ -246,10 +342,12 @@ function fetchTraceDetectorRuns(projectId: string, traceId: string) {
 
 export function useTraceDetectorRuns(projectId: string, traceId: string) {
   const elapsed = useElapsedSince(traceId);
+  const { data: detection } = useTraceDetectionState(projectId, traceId);
   return useQuery({
     queryKey: ["trace-detector-runs", projectId, traceId],
     queryFn: () => fetchTraceDetectorRuns(projectId, traceId),
     enabled: !!projectId && !!traceId,
-    refetchInterval: () => detectorRunsPollInterval(elapsed()),
+    refetchInterval: (query) =>
+      detectorRunsPollInterval(query.state.data?.runs?.length ?? 0, elapsed(), detection),
   });
 }
