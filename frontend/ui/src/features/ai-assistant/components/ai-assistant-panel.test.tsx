@@ -83,6 +83,18 @@ afterEach(() => {
   mocks.onClose.mockReset();
 });
 
+describe("AiAssistantPanel", () => {
+  it("renders a clickable link to model providers in the no-models empty state", () => {
+    mocks.projectData = { workspace_id: "ws-abc" };
+    mocks.llmModels = { systemModels: [], byokProviders: [] };
+
+    render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
+
+    const link = screen.getByRole("link", { name: /Workspace Settings.*Model Providers/i });
+    expect(link.getAttribute("href")).toBe("/workspaces/ws-abc/settings/model-providers");
+  });
+});
+
 describe("AiAssistantPanel — canDelete passed to SessionHistory", () => {
   it("passes canDelete=true when current user is ADMIN", () => {
     mocks.projectData = { workspace_id: "ws-1" };
