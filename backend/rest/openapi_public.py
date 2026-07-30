@@ -105,6 +105,105 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
             op["responses"].setdefault("500", _error_response("Failed to read finding"))
 
 
+# Agent/CLI-facing tool curation, keyed by operationId. Reviewed in the same PR
+# as any endpoint change so tool naming can't drift from the API. Every public
+# operation MUST have an entry: enabled tools carry the agent-facing
+# description; disabled ones are excluded from generated tool registries.
+# `name` equals the operationId today but stays an explicit field so a tool
+# could be renamed without an API change.
+_TOOL_CURATION: dict[str, dict[str, Any]] = {
+    "whoami": {
+        "name": "whoami",
+        "description": "Identify the project and workspace the current credential belongs to.",
+        "enabled": True,
+    },
+    "ingest_traces": {"enabled": False},
+    "list_traces": {
+        "name": "list_traces",
+        "description": (
+            "List recent traces for the project (newest first), optionally bounded to a "
+            "time range. Use this for discovery before fetching a specific trace."
+        ),
+        "enabled": True,
+    },
+    "get_trace": {
+        "name": "get_trace",
+        "description": (
+            "Fetch one trace with its span tree. Defaults to the lightweight skeleton "
+            "projection; pass fields=full for per-span input/output/metadata."
+        ),
+        "enabled": True,
+    },
+    "export_trace": {
+        "name": "export_trace",
+        "description": (
+            "Export the complete bundle (trace, spans, git context, manifest) for one trace."
+        ),
+        "enabled": True,
+    },
+    "list_detectors": {
+        "name": "list_detectors",
+        "description": (
+            "List the project's detectors (id, name, template, enabled flag, creation time)."
+        ),
+        "enabled": True,
+    },
+    "list_findings": {
+        "name": "list_findings",
+        "description": (
+            "List detector findings for the project, optionally filtered by detector "
+            "(id, name, or template), trace id, or time range."
+        ),
+        "enabled": True,
+    },
+    "get_finding": {
+        "name": "get_finding",
+        "description": "Fetch one detector finding by id, with its full analysis detail.",
+        "enabled": True,
+    },
+    "get_finding_by_trace": {
+        "name": "get_finding_by_trace",
+        "description": "Fetch the detector finding attached to a specific trace, if any.",
+        "enabled": True,
+    },
+}
+
+
+def _apply_tool_curation(schema: dict[str, Any]) -> None:
+    """Stamp the per-operation ``x-tool`` block from ``_TOOL_CURATION``.
+
+    Args:
+        schema (dict[str, Any]): The public-only OpenAPI document; mutated in
+            place.
+
+    Raises:
+        ValueError: If a public operation has no curation entry — forces every
+            new endpoint to make an explicit tool decision in the same PR — or
+            if a curation entry matches no public operation (stale after a
+            rename or removal).
+    """
+    consumed: set[str] = set()
+    for path, item in schema["paths"].items():
+        for method, op in item.items():
+            if method not in _HTTP_METHODS:
+                continue
+            op_id = op.get("operationId")
+            entry = _TOOL_CURATION.get(op_id or "")
+            if entry is None:
+                raise ValueError(
+                    f"public operation {method.upper()} {path} ({op_id}) has no "
+                    "_TOOL_CURATION entry — add one (enabled or disabled)"
+                )
+            consumed.add(op_id)
+            op["x-tool"] = copy.deepcopy(entry)
+    stale = set(_TOOL_CURATION) - consumed
+    if stale:
+        raise ValueError(
+            "stale _TOOL_CURATION entries with no matching public operation: "
+            + ", ".join(sorted(stale))
+        )
+
+
 def _collect_refs(node: Any, acc: set[str]) -> None:
     """Collect component schema names referenced by `$ref` anywhere under `node`."""
     if isinstance(node, dict):
@@ -162,6 +261,7 @@ def build_public_schema(app: Any) -> dict[str, Any]:
         "components": components,
     }
     _apply_public_contract(schema)
+    _apply_tool_curation(schema)
     return schema
 
 
