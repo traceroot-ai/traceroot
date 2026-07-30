@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ChevronRight, Flag, History } from "lucide-react";
 import { SearchFilterBar } from "@/components/search-filter-bar";
+import { LoadingState } from "@/components/ui/loading-state";
 import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { cn, buildUrlWithFilters } from "@/lib/utils";
@@ -13,6 +14,9 @@ import { DetectorRunsTable } from "@/features/detectors/components/detector-runs
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
 import { TraceViewerPanel } from "@/features/traces/components/TraceViewerPanel";
+import { useRetention } from "@/lib/hooks/use-retention";
+import { PricingDialog } from "@/ee/features/billing/PricingDialog";
+import { PlanType } from "@traceroot/core";
 
 /**
  * Which trace the consolidated panel shows. `kind` selects RCA auto-open:
@@ -54,6 +58,8 @@ export default function DetectorDetailPage() {
 
   // Single shared state across both tabs — same pattern as traces/sessions/users.
   // Pagination, search, and date filter live in the URL so a tab switch keeps them.
+  const retention = useRetention(projectId);
+
   const {
     state,
     queryOptions,
@@ -62,7 +68,10 @@ export default function DetectorDetailPage() {
     updateKeyword,
     updateLimit,
     goToPage,
-  } = useListPageState({ defaultDateFilterId: DETECTORS_DEFAULT_DATE_FILTER_ID });
+  } = useListPageState({
+    defaultDateFilterId: DETECTORS_DEFAULT_DATE_FILTER_ID,
+    retentionDays: retention.retentionDays,
+  });
 
   // Carry the selected range back to the list (and into the breadcrumb) so the
   // detectors section keeps one consistent time range across navigation, the
@@ -193,6 +202,8 @@ export default function DetectorDetailPage() {
           customEndDate={state.customEndDate}
           onDateFilterChange={updateDateFilter}
           onCustomRangeChange={updateCustomRange}
+          retentionDays={retention.retentionDays}
+          onUpgradeClick={retention.onUpgradeClick}
         />
 
         {/* Content — both tabs render the same DetectorRunsTable; Findings is
@@ -206,7 +217,7 @@ export default function DetectorDetailPage() {
             if (loading) {
               return (
                 <div className="flex h-64 items-center justify-center">
-                  <p className="text-[13px] text-muted-foreground">Loading {noun}...</p>
+                  <LoadingState label={`Loading ${noun}...`} />
                 </div>
               );
             }
@@ -263,6 +274,13 @@ export default function DetectorDetailPage() {
           source={selectedTrace.kind === "self" ? "detector" : "user"}
         />
       )}
+
+      <PricingDialog
+        open={retention.showPricing}
+        onOpenChange={retention.closePricing}
+        workspaceId={retention.workspaceId}
+        currentPlan={(retention.billingPlan as PlanType) || PlanType.FREE}
+      />
     </div>
   );
 }

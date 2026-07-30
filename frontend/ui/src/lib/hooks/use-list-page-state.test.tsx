@@ -10,6 +10,8 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => currentParams,
   useRouter: () => ({ replace }),
   usePathname: () => "/traces",
+  // The date filter persists its selection per project via useParams.
+  useParams: () => ({ projectId: "p1" }),
 }));
 
 import { useListPageState } from "./use-list-page-state";
