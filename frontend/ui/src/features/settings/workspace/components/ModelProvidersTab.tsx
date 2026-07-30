@@ -44,6 +44,17 @@ interface ModelProvidersTabProps {
   workspaceId: string;
 }
 
+export function getBaseUrlPayload(
+  baseUrl: string,
+  isEditMode: boolean,
+): { baseUrl?: string | null } {
+  const trimmedBaseUrl = baseUrl.trim();
+
+  if (trimmedBaseUrl) return { baseUrl: trimmedBaseUrl };
+  if (isEditMode) return { baseUrl: null };
+  return {};
+}
+
 export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -56,7 +67,11 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
   const [apiKey, setApiKey] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [customModels, setCustomModels] = useState<string[]>([]);
-  const [testResult, setTestResult] = useState<{ success: boolean; error?: string } | null>(null);
+  const [testResult, setTestResult] = useState<{
+    success: boolean;
+    error?: string;
+    detail?: string;
+  } | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   // Per-model API protocol overrides: modelId -> protocol
   const [modelProtocols, setModelProtocols] = useState<Record<string, string>>({});
@@ -106,6 +121,14 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     mutationFn: (input: Parameters<typeof testModelProvider>[1]) =>
       testModelProvider(workspaceId, input),
     onSuccess: (result) => setTestResult(result),
+    // The request itself can fail (expired session, offline, 500). Without this
+    // the spinner would just stop and the user would see no result at all.
+    onError: (err) =>
+      setTestResult({
+        success: false,
+        error: "Connection failed",
+        detail: err instanceof Error ? err.message : undefined,
+      }),
   });
 
   function closeDialog() {
@@ -167,11 +190,10 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     }
     const config: Record<string, unknown> = {};
     if (Object.keys(filteredProtocols).length > 0) config.modelProtocols = filteredProtocols;
-
     const base: Record<string, unknown> = {
       adapter,
       provider: providerName,
-      baseUrl: baseUrl || undefined,
+      ...getBaseUrlPayload(baseUrl, !!editProvider),
       customModels: trimmedModels,
       withDefaultModels: true,
       ...(Object.keys(config).length > 0 ? { config } : {}),
@@ -215,7 +237,8 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
       // Use stored key from DB
       testData.providerId = editProvider.id;
     }
-    if (baseUrl) testData.baseUrl = baseUrl;
+    const trimmedBaseUrl = baseUrl.trim();
+    if (trimmedBaseUrl) testData.baseUrl = trimmedBaseUrl;
     setTestResult(null);
     testMutation.mutate(testData as any);
   }
@@ -308,7 +331,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
       : editProvider
         ? true // existing key is kept
         : !!apiKey;
-  const hasRequiredBaseUrl = adapterConfig?.requiresBaseUrl ? !!baseUrl : true;
+  const hasRequiredBaseUrl = adapterConfig?.requiresBaseUrl ? !!baseUrl.trim() : true;
   const canSave = adapter && providerName && hasCredentials && hasRequiredBaseUrl;
 
   const curatedModelsForAdapter = adapter ? ADAPTER_MODELS[adapter as LLMAdapter] : null;
@@ -614,31 +637,39 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
             )}
 
             {/* Test Connection */}
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={!canTest || testMutation.isPending}
-                onClick={handleTest}
-              >
-                {testMutation.isPending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
-                Test Connection
-              </Button>
-              {testResult && (
-                <span className="flex items-center gap-1 text-xs">
-                  {testResult.success ? (
-                    <>
-                      <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
-                      <span className="text-green-600">Connected</span>
-                    </>
-                  ) : (
-                    <>
-                      <XCircle className="h-3.5 w-3.5 text-destructive" />
-                      <span className="text-destructive">{testResult.error}</span>
-                    </>
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={!canTest || testMutation.isPending}
+                  onClick={handleTest}
+                >
+                  {testMutation.isPending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
+                  Test Connection
+                </Button>
+                {testResult?.success && (
+                  <span className="flex items-center gap-1 text-xs">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+                    <span className="text-green-600">Connected</span>
+                  </span>
+                )}
+              </div>
+              {testResult && !testResult.success && (
+                <div className="flex min-w-0 flex-col gap-0.5 text-xs text-destructive">
+                  <div className="flex items-start gap-1">
+                    <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span className="min-w-0 break-words">{testResult.error}</span>
+                  </div>
+                  {testResult.detail && (
+                    // Indent past the icon (h-3.5) and its gap-1 so the detail
+                    // aligns under the headline text.
+                    <span className="min-w-0 break-words pl-[1.125rem] text-muted-foreground">
+                      {testResult.detail}
+                    </span>
                   )}
-                </span>
+                </div>
               )}
             </div>
           </div>
