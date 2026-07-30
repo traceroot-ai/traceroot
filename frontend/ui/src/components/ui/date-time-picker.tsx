@@ -10,6 +10,10 @@ interface DateRangePickerProps {
   endDate?: Date | null;
   onApply: (startDate: Date | null, endDate: Date | null) => void;
   className?: string;
+  // Earliest selectable instant (the plan's retention cutoff). When set, an
+  // applied range is clamped into [minDate, now] so the custom picker can't
+  // reach past retention — matching the locked presets and the server clamp.
+  minDate?: Date | null;
 }
 
 interface TimeInputProps {
@@ -231,13 +235,30 @@ function getDefaultEnd(): Date {
   return new Date();
 }
 
-export function DateRangePicker({ startDate, endDate, onApply, className }: DateRangePickerProps) {
+export function DateRangePicker({
+  startDate,
+  endDate,
+  onApply,
+  className,
+  minDate,
+}: DateRangePickerProps) {
   const [start, setStart] = useState<Date | null>(() => startDate || getDefaultStart());
   const [end, setEnd] = useState<Date | null>(() => endDate || getDefaultEnd());
 
   const handleApply = useCallback(() => {
-    onApply(start, end);
-  }, [start, end, onApply]);
+    let s = start;
+    let e = end;
+    // Clamp into the retention window so the applied (and displayed) range never
+    // claims data the server will silently drop. A start before the cutoff snaps
+    // to it; a range that ends before the cutoff (fully out of window) collapses
+    // to [cutoff, now] rather than an inverted range.
+    if (minDate) {
+      const floor = minDate.getTime();
+      if (s && s.getTime() < floor) s = minDate;
+      if (e && e.getTime() < floor) e = getDefaultEnd();
+    }
+    onApply(s, e);
+  }, [start, end, minDate, onApply]);
 
   return (
     <div className={cn("p-3", className)}>

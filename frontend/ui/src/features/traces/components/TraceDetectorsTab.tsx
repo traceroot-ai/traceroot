@@ -7,6 +7,7 @@ import {
   selfTraceId,
   type BackendRun,
 } from "@/features/detectors/hooks/use-findings";
+import { LoadingState } from "@/components/ui/loading-state";
 import {
   DETECTOR_TH,
   DETECTOR_TD,
@@ -57,7 +58,7 @@ export function TraceDetectorsTab({ projectId, traceId }: TraceDetectorsTabProps
   if (isLoading) {
     return (
       <div className="flex h-64 items-center justify-center">
-        <p className="text-[13px] text-muted-foreground">Loading detectors...</p>
+        <LoadingState label="Loading detectors..." />
       </div>
     );
   }
