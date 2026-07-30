@@ -12,6 +12,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
+from rest.services.trace_reader import customer_traffic_only
+
 FILTER_OPS_STRING = ("=", "contains")
 FILTER_OPS_NUMBER = (">", ">=", "<", "<=", "=")
 AGGS_NUMBER = ("sum", "avg", "min", "max", "p50", "p95", "p99")
@@ -59,6 +61,7 @@ _SPANS_BASE = f"""
             span_start_time, span_end_time, cost, input_tokens, output_tokens, total_tokens, usage_details
         FROM spans
         WHERE project_id = {{project_id:String}}
+          AND {customer_traffic_only()}
           AND span_start_time >= {{start_time:DateTime64(3)}}
           AND span_start_time < {{end_time:DateTime64(3)}}
         ORDER BY ch_update_time DESC
@@ -94,6 +97,7 @@ _TRACES_BASE = f"""
             trace_id, name, user_id, session_id, environment, trace_start_time
         FROM traces
         WHERE project_id = {{project_id:String}}
+          AND {customer_traffic_only()}
           AND trace_start_time >= {{start_time:DateTime64(3)}}
           AND trace_start_time < {{end_time:DateTime64(3)}}
         ORDER BY ch_update_time DESC
@@ -122,6 +126,7 @@ _TRACES_BASE = f"""
                 {_CACHE_WRITE_TOKENS_EXPR} AS cache_write_tokens
             FROM spans
             WHERE project_id = {{project_id:String}}
+              AND {customer_traffic_only()}
               AND span_start_time >= {{start_time:DateTime64(3)}}
               AND span_start_time < {{end_time:DateTime64(3)}}
             ORDER BY ch_update_time DESC

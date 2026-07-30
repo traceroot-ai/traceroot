@@ -151,6 +151,20 @@ class TestGetDistinctSpanValues:
         params = kwargs["parameters"]
         assert params["project_id"] == "p1"
 
+    def test_excludes_detector_self_traces(self, monkeypatch):
+        # A self-trace carries its own name, environment and model, so an unguarded
+        # scan offers them as options in the customer's own dropdown. Asserted via the
+        # helper, not a literal: changing the predicate shouldn't look like a lost guard.
+        from rest.services.trace_reader import customer_traffic_only
+
+        mock_client = MagicMock()
+        mock_client.query.return_value.result_rows = []
+        svc = self._service(monkeypatch, mock_client)
+
+        svc.get_distinct_span_values(project_id="p1", column="model_name")
+
+        assert customer_traffic_only() in mock_client.query.call_args[0][0]
+
     def test_no_window_defaults_a_lookback_bound_never_unbounded(self, monkeypatch):
         """A direct caller passing no window must not trigger an all-time span scan:
         a default lower bound is injected (symmetric with the filtered trace list)."""
@@ -297,6 +311,19 @@ class TestGetDistinctTraceValues:
         # Deduped to the latest ReplacingMergeTree version per trace before counting.
         assert "LIMIT 1 BY project_id, trace_id" in query_text
         assert kwargs["parameters"]["project_id"] == "p1"
+
+    def test_excludes_detector_self_traces(self, monkeypatch):
+        # Same shared helper as the spans wrapper, asserted separately: both wrappers
+        # feed customer-facing dropdowns, so a guard lost on either one leaks.
+        from rest.services.trace_reader import customer_traffic_only
+
+        mock_client = MagicMock()
+        mock_client.query.return_value.result_rows = []
+        svc = self._service(monkeypatch, mock_client)
+
+        svc.get_distinct_trace_values(project_id="p1", column="name")
+
+        assert customer_traffic_only() in mock_client.query.call_args[0][0]
 
     def test_no_window_defaults_a_lookback_bound_never_unbounded(self, monkeypatch):
         """Same never-scan-all-time rule as the span variant, on trace_start_time."""
