@@ -10,16 +10,21 @@ import { useWorkspace } from "@/features/workspaces/hooks";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
 
 interface SidebarUpgradeButtonProps {
-  projectId: string;
+  projectId?: string | null;
+  workspaceId?: string | null;
   collapsed: boolean;
 }
 
-export function SidebarUpgradeButton({ projectId, collapsed }: SidebarUpgradeButtonProps) {
+export function SidebarUpgradeButton({
+  projectId,
+  workspaceId: propWorkspaceId,
+  collapsed,
+}: SidebarUpgradeButtonProps) {
   const [showPricingDialog, setShowPricingDialog] = useState(false);
 
-  // Resolve the project's workspace so the pricing dialog can act on its plan
-  const { data: project } = useProject(projectId);
-  const workspaceId = project?.workspace_id ?? "";
+  // Resolve the workspace so the pricing dialog can act on its plan
+  const { data: project } = useProject(projectId as string);
+  const workspaceId = propWorkspaceId || project?.workspace_id || "";
   const { data: workspace } = useWorkspace(workspaceId);
 
   return (
