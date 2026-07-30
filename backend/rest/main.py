@@ -34,7 +34,7 @@ from shared.config import settings
 
 app = FastAPI(
     title="TraceRoot API",
-    description="Observability platform for LLM applications",
+    description="Observability and self-improving layer for AI agents",
     version="0.1.0",
 )
 
