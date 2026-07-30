@@ -95,17 +95,32 @@ export function initSelfTraceEmitter(): void {
     }
     return;
   }
-  TraceRoot.initialize({
-    baseUrl: process.env.BACKEND_INTERNAL_URL || "http://localhost:8000",
-    internalExport: {
-      path: "/api/v1/internal/traces",
-      headers: { "X-Internal-Secret": secret },
-    },
-    // No source marker on the wire: the ingest route classifies what it receives
-    // (it is secret-gated, so being called at all is the proof), and the transform
-    // never reads one. Sending it would only make our own traffic indistinguishable
-    // from a tenant trying to label theirs internal.
-  });
+  try {
+    TraceRoot.initialize({
+      baseUrl: process.env.BACKEND_INTERNAL_URL || "http://localhost:8000",
+      internalExport: {
+        path: "/api/v1/internal/traces",
+        headers: { "X-Internal-Secret": secret },
+      },
+      // No source marker on the wire: the ingest route classifies what it receives
+      // (it is secret-gated, so being called at all is the proof), and the transform
+      // never reads one. Sending it would only make our own traffic indistinguishable
+      // from a tenant trying to label theirs internal.
+    });
+  } catch (err) {
+    // Latch, don't retry. initialize() fails on configuration (the SDK rejects an
+    // internalExport path that doesn't start with '/') or on local provider setup —
+    // neither fixes itself mid-process, so without the latch withSelfTrace re-enters
+    // here and logs once per detector run for the life of the worker. sdkStarted
+    // stays false, so shutdown correctly has nothing to tear down.
+    tracingInactive = true;
+    console.error(
+      "[Detector] self-trace SDK initialization failed; self-trace emit disabled — " +
+        "detector runs cannot be correlated to traces:",
+      err,
+    );
+    return;
+  }
   sdkStarted = true;
   // Trace-id forcing lives on the provider the SDK registers, so it silently does
   // nothing if another OTel provider registered first (OTel's register() returns

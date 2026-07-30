@@ -82,6 +82,9 @@ function makeJob(over: Partial<Job<DetectorRunJob>> = {}): Job<DetectorRunJob> {
   return { data: BASE_JOB, moveToDelayed: vi.fn(), ...over } as unknown as Job<DetectorRunJob>;
 }
 
+type RecordedIo = { input?: string; output?: string; error?: string };
+let lastRecordedIo: RecordedIo | undefined;
+
 beforeEach(() => {
   vi.clearAllMocks();
   mockPrisma.detector.findMany.mockResolvedValue([]);
@@ -100,13 +103,25 @@ beforeEach(() => {
   mockPrisma.detectorRca.upsert.mockResolvedValue(undefined);
   // Default: tracing works — run fn once, report selfTraced, surface throws
   // as ok:false (mirrors the real withSelfTrace contract).
-  mockWithSelfTrace.mockImplementation(async (_meta: unknown, fn: () => Promise<unknown>) => {
-    try {
-      return { ok: true, value: await fn(), selfTraced: true };
-    } catch (error) {
-      return { ok: false, error, selfTraced: true };
-    }
-  });
+  lastRecordedIo = undefined;
+  // Faithful stand-in: the real withSelfTrace invokes options.recordIo with fn's
+  // result to fill the root span's boundary I/O. Dropping the third argument here
+  // meant the processor's recordIo body was never executed by any test.
+  mockWithSelfTrace.mockImplementation(
+    async (
+      _meta: unknown,
+      fn: () => Promise<unknown>,
+      options?: { recordIo?: (v: unknown) => RecordedIo },
+    ) => {
+      try {
+        const value = await fn();
+        lastRecordedIo = options?.recordIo?.(value);
+        return { ok: true, value, selfTraced: true };
+      } catch (error) {
+        return { ok: false, error, selfTraced: true };
+      }
+    },
+  );
 });
 
 describe("handleDetectorRunJob — quiescence gate", () => {
@@ -350,6 +365,21 @@ describe("processTrace — self-trace emission", () => {
     // The eval genuinely ran inside the wrapper.
     expect(mockRunDetection).toHaveBeenCalledTimes(1);
     expect(mockWriteRun).toHaveBeenCalledWith(expect.objectContaining({ selfTraced: true }));
+  });
+
+  it("supplies the self-trace root's boundary I/O, and the eval error when one is reported", async () => {
+    // recordIo fills the root span's input/output — which the transform promotes to the
+    // trace record, so it is what the trace header shows — and marks the root ERROR for
+    // an eval that resolved with a failure rather than throwing.
+    mockRunDetection.mockResolvedValue({ ...CLEAN_RESULT, error: "provider down" });
+
+    await processTrace("t1", "p1", ["d1"]);
+
+    expect(lastRecordedIo).toBeDefined();
+    expect(typeof lastRecordedIo?.input).toBe("string");
+    expect(lastRecordedIo?.input).toContain("Slow");
+    expect(typeof lastRecordedIo?.output).toBe("string");
+    expect(lastRecordedIo?.error).toBe("provider down");
   });
 
   it("stamps the failed run write when the eval throws inside the wrapper", async () => {

@@ -190,8 +190,8 @@ class TestListTraceDetectorRuns:
     def _fake_data(self):
         return _make_query_result(
             rows=[
-                ("r1", "d-a", "p1", "trace-1", "f1", "triggered", self.TS, "Found it"),
-                ("r2", "d-b", "p1", "trace-1", None, "clean", self.TS, ""),
+                ("r1", "d-a", "p1", "trace-1", "f1", "triggered", self.TS, "Found it", True),
+                ("r2", "d-b", "p1", "trace-1", None, "clean", self.TS, "", False),
             ],
             column_names=[
                 "run_id",
@@ -202,6 +202,9 @@ class TestListTraceDetectorRuns:
                 "status",
                 "timestamp",
                 "summary",
+                # The endpoint selects this; without it here the fixture pins a shape
+                # production can no longer produce, and the field goes untested.
+                "self_traced",
             ],
         )
 
@@ -227,6 +230,7 @@ class TestListTraceDetectorRuns:
             "status": "triggered",
             "timestamp": self.TS.isoformat(),
             "summary": "Found it",
+            "self_traced": True,
         }
         assert runs[1] == {
             "run_id": "r2",
@@ -237,6 +241,7 @@ class TestListTraceDetectorRuns:
             "status": "clean",
             "timestamp": self.TS.isoformat(),
             "summary": "",
+            "self_traced": False,
         }
 
     def test_filters_by_trace_and_project(self, client, mock_ch, secret):

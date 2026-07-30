@@ -39,7 +39,11 @@ function meta(over: Partial<SelfTraceRunMeta> = {}): SelfTraceRunMeta {
 }
 
 beforeEach(() => {
+  // clearAllMocks resets calls but NOT implementations, so a test that makes one of
+  // these throw would leak that into every test after it. Re-establish the happy
+  // path explicitly rather than relying on the clear.
   vi.clearAllMocks();
+  mockInitialize.mockImplementation(() => {});
   mockFlush.mockResolvedValue(undefined);
   mockShutdown.mockResolvedValue(undefined);
   // Faithful stand-in for the SDK: observe runs the callback and rethrows.
@@ -288,6 +292,22 @@ describe("tracing-active guard", () => {
     expect(mockInitialize).toHaveBeenCalledTimes(1);
     // The latch short-circuits ahead of the guard, not merely ahead of initialize().
     expect(mockIsTracingActive).toHaveBeenCalledTimes(1);
+  });
+
+  it("latches instead of retrying when SDK initialization throws", async () => {
+    // initialize() fails on configuration or local provider setup — neither recovers
+    // mid-process, so without a latch every run re-enters and logs again.
+    mockInitialize.mockImplementation(() => {
+      throw new TypeError("internalExport.path must start with '/'");
+    });
+    const { withSelfTrace: guarded } = await freshEmitter();
+
+    const first = await guarded(meta(), async () => "verdict");
+    await guarded(meta(), async () => 2);
+
+    expect(first).toEqual({ ok: true, value: "verdict", selfTraced: false });
+    expect(mockObserve).not.toHaveBeenCalled();
+    expect(mockInitialize).toHaveBeenCalledTimes(1);
   });
 
   it("latches instead of retrying when the SDK has no isTracingActive", async () => {

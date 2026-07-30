@@ -353,6 +353,33 @@ describe("run_id → self-trace link", () => {
     expect(panel.getAttribute("data-auto-open-rca")).toBe("false");
   });
 
+  it("honors a second deep link without a remount", () => {
+    // Navigating detector -> same detector from a trace's Detectors tab changes only the
+    // query string, so the component stays mounted. A one-shot boolean latch swallowed
+    // every link after the first, leaving the URL claiming one trace and the panel
+    // showing another.
+    mocks.useRuns.mockImplementation(useRunsWithSelfRows);
+    let currentTraceId = "aaaabbbb";
+    mocks.searchParam.mockImplementation((key: string) => {
+      if (key === "traceId") return currentTraceId;
+      if (key === "source") return "detector";
+      if (key === "tab") return "runs";
+      return null;
+    });
+
+    const { rerender } = render(<DetectorDetailPage />);
+    expect(within(screen.getByTestId("trace-panel")).getByTestId("panel-trace").textContent).toBe(
+      "aaaabbbb",
+    );
+
+    // Second link, same mount — the other self-traced run in the fixture.
+    currentTraceId = "ccccdddd";
+    rerender(<DetectorDetailPage />);
+    expect(within(screen.getByTestId("trace-panel")).getByTestId("panel-trace").textContent).toBe(
+      "ccccdddd",
+    );
+  });
+
   it("does not auto-open when the deep-linked self-trace matches no run row", () => {
     mocks.useRuns.mockImplementation(useRunsWithSelfRows);
     mocks.searchParam.mockImplementation((key: string) => {

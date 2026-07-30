@@ -47,7 +47,7 @@ export default function DetectorDetailPage() {
   const traceIdFromUrl = searchParams.get("traceId");
   const sourceFromUrl = searchParams.get("source");
   const [startFullscreen, setStartFullscreen] = useState(searchParams.get("fullscreen") === "1");
-  const [didAutoOpen, setDidAutoOpen] = useState(false);
+  const [autoOpenedKey, setAutoOpenedKey] = useState<string | null>(null);
 
   // Deep-link the tab (e.g. the trace detectors tab sends clean runs to "runs"
   // and findings to "findings"); default to findings for any other value.
@@ -130,19 +130,25 @@ export default function DetectorDetailPage() {
   }, [activeRows, selectedTrace]);
 
   // Deep-link: when arriving with ?traceId=... (popped out from another tab or
-  // linked from a trace's Detectors tab), open that trace once the list has
-  // loaded. Runs once, so closing the panel doesn't reopen it.
+  // linked from a trace's Detectors tab), open that trace once the list has loaded.
+  //
+  // Latched on WHICH link was consumed rather than a bare boolean: closing the panel
+  // must not reopen the same trace, but a different deep link has to still work.
+  // Navigating detector -> same detector from a trace's Detectors tab changes only the
+  // query string, which does not remount, so a boolean would swallow every later link
+  // for the life of the mount. (The ?tab= effect above already learned this.)
+  const deepLinkKey = traceIdFromUrl ? `${sourceFromUrl ?? ""}:${traceIdFromUrl}` : null;
   useEffect(() => {
-    if (didAutoOpen || !traceIdFromUrl) return;
+    if (!traceIdFromUrl || !deepLinkKey || autoOpenedKey === deepLinkKey) return;
     const sel: SelectedTrace = {
       traceId: traceIdFromUrl,
       kind: sourceFromUrl === "detector" ? "self" : "original",
     };
     if (activeRows.some((r) => rowMatchesSelection(r, sel))) {
       setSelectedTrace(sel);
-      setDidAutoOpen(true);
+      setAutoOpenedKey(deepLinkKey);
     }
-  }, [didAutoOpen, traceIdFromUrl, sourceFromUrl, activeRows]);
+  }, [autoOpenedKey, deepLinkKey, traceIdFromUrl, sourceFromUrl, activeRows]);
 
   const selectedIndex = selectedTrace
     ? activeRows.findIndex((r) => rowMatchesSelection(r, selectedTrace))
