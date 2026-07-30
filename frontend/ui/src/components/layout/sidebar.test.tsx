@@ -80,12 +80,17 @@ describe("Sidebar", () => {
     expect(container.querySelector('[data-testid="star-widget"]')).toBeNull();
   });
 
-  it("shows the upgrade button only in project context", () => {
+  it("shows the upgrade button only in a project or workspace context", () => {
     render();
     expect(container.querySelector('[data-testid="upgrade-button"]')).toBeNull();
 
     navigation.pathname = "/projects/p1/traces";
     navigation.params = { projectId: "p1" };
+    render();
+    expect(container.querySelector('[data-testid="upgrade-button"]')).not.toBeNull();
+
+    navigation.pathname = "/workspaces/w1";
+    navigation.params = { workspaceId: "w1" };
     render();
     expect(container.querySelector('[data-testid="upgrade-button"]')).not.toBeNull();
   });

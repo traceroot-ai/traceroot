@@ -3,14 +3,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/auth-client", () => ({ authClient: { getSession: vi.fn() } }));
 
 import { fetchTraceApi } from "./client";
-import { TraceApiError } from "./errors";
+import { ApiError } from "./errors";
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe("fetchTraceApi error classification", () => {
-  it("throws TraceApiError carrying the HTTP status and backend detail", async () => {
+  it("throws ApiError carrying the HTTP status and backend detail", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -21,9 +21,9 @@ describe("fetchTraceApi error classification", () => {
     );
 
     const err = await fetchTraceApi("/x", {}, { id: "u1" }).catch((e) => e);
-    expect(err).toBeInstanceOf(TraceApiError);
-    expect((err as TraceApiError).status).toBe(404);
-    expect((err as TraceApiError).message).toBe("Trace not found");
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(404);
+    expect((err as ApiError).message).toBe("Trace not found");
   });
 
   it("falls back to a generic message when the error body is not JSON", async () => {
@@ -37,8 +37,8 @@ describe("fetchTraceApi error classification", () => {
     );
 
     const err = await fetchTraceApi("/x", {}, { id: "u1" }).catch((e) => e);
-    expect(err).toBeInstanceOf(TraceApiError);
-    expect((err as TraceApiError).status).toBe(502);
-    expect((err as TraceApiError).message).toBe("Unknown error");
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(502);
+    expect((err as ApiError).message).toBe("Unknown error");
   });
 });

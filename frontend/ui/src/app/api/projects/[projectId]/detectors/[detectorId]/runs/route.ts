@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
-import { prisma } from "@traceroot/core";
+import { prisma, PlanType } from "@traceroot/core";
 import { requireAuth, requireProjectAccess, errorResponse } from "@/lib/auth-helpers";
+import { clampStartAfter } from "@/lib/server/retention";
 import { env } from "@/env";
 
 const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
@@ -24,10 +25,17 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   const rawPage = parseInt(searchParams.get("page") ?? "0", 10);
   const limit = isNaN(rawLimit) ? 50 : Math.min(Math.max(rawLimit, 1), 200);
   const page = isNaN(rawPage) ? 0 : Math.max(rawPage, 0);
-  const startAfter = searchParams.get("start_after");
+  let startAfter = searchParams.get("start_after");
   const endBefore = searchParams.get("end_before");
   const searchQuery = searchParams.get("search_query");
   const identified = searchParams.get("identified");
+
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: accessResult.project.workspaceId },
+    select: { billingPlan: true },
+  });
+  const billingPlan = workspace?.billingPlan || PlanType.FREE;
+  startAfter = clampStartAfter(billingPlan, startAfter);
 
   const backendParams = new URLSearchParams({
     project_id: projectId,

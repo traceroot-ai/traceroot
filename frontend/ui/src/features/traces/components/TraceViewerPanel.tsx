@@ -3,23 +3,22 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Workflow,
   X,
   ArrowUp,
   ArrowDown,
-  BotMessageSquare,
   ListTree,
   SquareGanttChart,
-  Eye,
   Expand,
   Shrink,
   SquareArrowOutUpRight,
 } from "lucide-react";
 import { cn, buildUrlWithFilters } from "@/lib/utils";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { Button } from "@/components/ui/button";
+import { LoadingState } from "@/components/ui/loading-state";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { getTrace } from "@/lib/api";
-import { TraceApiError } from "@/lib/api/errors";
+import { ApiError } from "@/lib/api/errors";
 import type { TraceSelection } from "../types";
 import { SpanTreeView, type SpanTreeViewHandle } from "./SpanTreeView";
 import { SpanInfoPanel } from "./SpanInfoPanel";
@@ -30,6 +29,8 @@ import { SpanTimelineView } from "./SpanTimelineView";
 import { TREE_LAYOUT } from "../utils";
 import { useTraceFindings, useRca } from "@/features/detectors/hooks/use-findings";
 import { TraceDetectorsTab } from "./TraceDetectorsTab";
+import { isRetentionError, getRetentionDetail } from "@/lib/api/retention";
+import { RetentionGateBanner } from "@/components/RetentionGateBanner";
 
 interface TraceViewerPanelProps {
   projectId: string;
@@ -247,7 +248,7 @@ export function TraceViewerPanel({
         {/* ── MAIN HEADER ── */}
         <div className="flex h-12 items-center justify-between border-b border-border bg-muted/30 px-4">
           <div className="flex min-w-0 items-center gap-2">
-            <Workflow className="h-4 w-4 text-muted-foreground" />
+            <DOMAIN_ICONS.trace className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm font-medium">Trace</span>
             <span className="truncate font-mono text-xs text-muted-foreground">{traceId}</span>
           </div>
@@ -338,7 +339,7 @@ export function TraceViewerPanel({
               className="h-7 w-7 p-0"
               title="AI Assistant"
             >
-              <BotMessageSquare className="h-4 w-4" />
+              <DOMAIN_ICONS.assistant className="h-4 w-4" />
             </Button>
             <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0">
               <X className="h-4 w-4" />
@@ -380,7 +381,7 @@ export function TraceViewerPanel({
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
-              <Eye className="h-3.5 w-3.5" /> Detectors
+              <DOMAIN_ICONS.detector className="h-3.5 w-3.5" /> Detectors
             </button>
           </div>
         </div>
@@ -446,12 +447,17 @@ export function TraceViewerPanel({
                     <TraceDetectorsTab projectId={projectId} traceId={traceId} />
                   ) : isLoading ? (
                     <div className="flex h-full items-center justify-center">
-                      <p className="text-sm text-muted-foreground">Loading trace...</p>
+                      <LoadingState label="Loading trace..." />
                     </div>
+                  ) : error && isRetentionError(error) ? (
+                    <RetentionGateBanner
+                      projectId={projectId}
+                      detail={getRetentionDetail(error)!}
+                    />
                   ) : error || !trace ? (
                     <div className="flex h-full items-center justify-center">
                       {source === "detector" &&
-                      (!error || (error instanceof TraceApiError && error.status === 404)) ? (
+                      (!error || (error instanceof ApiError && error.status === 404)) ? (
                         // self_traced is set optimistically at emit time, but the
                         // SDK export is batched — the trace may not be ingested
                         // yet, so a 404 miss here is expected, not an error. A
