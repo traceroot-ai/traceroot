@@ -720,6 +720,7 @@ class TestListDetectorWindowSummary:
         assert data["d-a"]["sample_summaries"] == ["kept sentence"]
         assert "d-ghost" not in data
 
+
 # =============================================================================
 # /traces (internal OTLP ingest for detector self-traces)
 # =============================================================================
