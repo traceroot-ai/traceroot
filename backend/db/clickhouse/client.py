@@ -38,7 +38,13 @@ class ClickHouseClient:
         return cls(client)
 
     def insert_traces_batch(self, traces: list[dict[str, Any]]) -> None:
-        """Insert multiple trace records."""
+        """Insert multiple trace records.
+
+        Args:
+            traces (list[dict[str, Any]]): Trace records; an optional
+                "source" field distinguishes detector self-traces from
+                customer traffic and defaults to "user".
+        """
         if not traces:
             return
 
@@ -51,6 +57,7 @@ class ClickHouseClient:
                     t["project_id"],
                     t["trace_start_time"],
                     t["name"],
+                    t.get("source", "user"),
                     t.get("user_id"),
                     t.get("session_id"),
                     t.get("git_ref"),
@@ -72,6 +79,7 @@ class ClickHouseClient:
                 "project_id",
                 "trace_start_time",
                 "name",
+                "source",
                 "user_id",
                 "session_id",
                 "git_ref",
@@ -86,7 +94,13 @@ class ClickHouseClient:
         )
 
     def insert_spans_batch(self, spans: list[dict[str, Any]]) -> None:
-        """Insert multiple span records."""
+        """Insert multiple span records.
+
+        Args:
+            spans (list[dict[str, Any]]): Span records; an optional
+                "source" field distinguishes detector self-traces from
+                customer traffic and defaults to "user".
+        """
         if not spans:
             return
 
@@ -103,6 +117,7 @@ class ClickHouseClient:
                     s.get("span_end_time"),
                     s["name"],
                     s["span_kind"],
+                    s.get("source", "user"),
                     s.get("status", "OK"),
                     s.get("status_message"),
                     s.get("model_name"),
@@ -135,6 +150,7 @@ class ClickHouseClient:
                 "span_end_time",
                 "name",
                 "span_kind",
+                "source",
                 "status",
                 "status_message",
                 "model_name",
