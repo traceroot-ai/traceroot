@@ -139,7 +139,7 @@ export default function DetectorDetailPage() {
   // for the life of the mount. (The ?tab= effect above already learned this.)
   const deepLinkKey = traceIdFromUrl ? `${sourceFromUrl ?? ""}:${traceIdFromUrl}` : null;
   useEffect(() => {
-    if (!traceIdFromUrl || !deepLinkKey || autoOpenedKey === deepLinkKey) return;
+    if (!traceIdFromUrl || autoOpenedKey === deepLinkKey) return;
     const sel: SelectedTrace = {
       traceId: traceIdFromUrl,
       kind: sourceFromUrl === "detector" ? "self" : "original",

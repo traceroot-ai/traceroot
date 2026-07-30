@@ -94,7 +94,10 @@ export function useTraceStream(
       eventSourceRef.current = null;
       setIsStreaming(false);
     };
-  }, [projectId, traceId, enabled, queryClient]);
+    // `source` belongs here: it is part of the cache key this effect writes to. Omitting
+    // it lets the panel re-key its useQuery while the stream keeps writing the old key —
+    // the exact silent span-dropping this hook was fixed for.
+  }, [projectId, traceId, enabled, source, queryClient]);
 
   return { isStreaming };
 }
