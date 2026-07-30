@@ -55,14 +55,17 @@ vi.mock("./TraceDetectorsTab", () => ({
 vi.mock("@/features/ai-assistant/components/ai-assistant-panel", () => ({
   AiAssistantPanel: () => <div data-testid="ai-panel" />,
 }));
+vi.mock("@/components/RetentionGateBanner", () => ({
+  RetentionGateBanner: () => <div data-testid="retention-banner" />,
+}));
 vi.mock("@/components/ui/resizable", () => ({
   ResizablePanelGroup: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   ResizablePanel: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   ResizableHandle: () => null,
 }));
 
+import { ApiError } from "@/lib/api/client";
 import { TraceViewerPanel } from "./TraceViewerPanel";
-import { TraceApiError } from "@/lib/api/errors";
 
 function renderPanel(
   props: {
@@ -199,6 +202,18 @@ describe("TraceViewerPanel content states", () => {
     expect(screen.getByText("Error loading trace")).toBeTruthy();
   });
 
+  it("renders the retention banner when the trace fetch returns 403 retention error", () => {
+    mocks.trace = undefined;
+    mocks.traceError = new ApiError(403, {
+      message: "Data outside retention window",
+      retention_days: 15,
+      cutoff: "2026-06-29T00:00:00",
+      plan: "free",
+    });
+    renderPanel();
+    expect(screen.getByTestId("retention-banner")).toBeTruthy();
+  });
+
   it("renders the timeline view in timeline mode", () => {
     renderPanel();
     fireEvent.click(screen.getByRole("button", { name: /timeline/i }));
@@ -243,7 +258,7 @@ describe("detector self-trace not-yet-ingested state", () => {
 
   it("treats a 404 as not-yet-ingested for a detector trace", () => {
     mocks.trace = null;
-    mocks.traceError = new TraceApiError("Trace not found", 404);
+    mocks.traceError = new ApiError(404, "Trace not found");
     renderPanel({ source: "detector" });
     expect(screen.getByText(/still being recorded/i)).toBeTruthy();
     expect(screen.queryByText("Error loading trace")).toBeNull();
@@ -251,7 +266,7 @@ describe("detector self-trace not-yet-ingested state", () => {
 
   it("surfaces a non-404 failure as a real error for a detector trace", () => {
     mocks.trace = null;
-    mocks.traceError = new TraceApiError("backend exploded", 500);
+    mocks.traceError = new ApiError(500, "backend exploded");
     renderPanel({ source: "detector" });
     expect(screen.getByText("Error loading trace")).toBeTruthy();
     expect(screen.queryByText(/still being recorded/i)).toBeNull();
@@ -282,7 +297,7 @@ describe("detector self-trace pending window", () => {
 
   it("keeps the pending hint for a run inside the export window", () => {
     mocks.trace = null;
-    mocks.traceError = new TraceApiError("Trace not found", 404);
+    mocks.traceError = new ApiError(404, "Trace not found");
     renderPanel({ source: "detector", runTimestamp: ago(5_000) });
     expect(screen.getByText(/still being recorded/i)).toBeTruthy();
     expect(screen.queryByText(/didn’t reach the backend/i)).toBeNull();
@@ -290,7 +305,7 @@ describe("detector self-trace pending window", () => {
 
   it("reports a permanently failed export once the window has passed", () => {
     mocks.trace = null;
-    mocks.traceError = new TraceApiError("Trace not found", 404);
+    mocks.traceError = new ApiError(404, "Trace not found");
     renderPanel({ source: "detector", runTimestamp: ago(10 * 60_000) });
     expect(screen.getByText(/didn’t reach the backend/i)).toBeTruthy();
     expect(screen.queryByText(/still being recorded/i)).toBeNull();
@@ -299,7 +314,7 @@ describe("detector self-trace pending window", () => {
   it("stays pending when the run timestamp is unparseable", () => {
     // An unknown run time is not evidence that the export failed.
     mocks.trace = null;
-    mocks.traceError = new TraceApiError("Trace not found", 404);
+    mocks.traceError = new ApiError(404, "Trace not found");
     renderPanel({ source: "detector", runTimestamp: "not-a-date" });
     expect(screen.getByText(/still being recorded/i)).toBeTruthy();
     expect(screen.queryByText(/didn’t reach the backend/i)).toBeNull();
@@ -307,7 +322,7 @@ describe("detector self-trace pending window", () => {
 
   it("still surfaces a non-404 failure as a real error for an old run", () => {
     mocks.trace = null;
-    mocks.traceError = new TraceApiError("backend exploded", 500);
+    mocks.traceError = new ApiError(500, "backend exploded");
     renderPanel({ source: "detector", runTimestamp: ago(10 * 60_000) });
     expect(screen.getByText("Error loading trace")).toBeTruthy();
     expect(screen.queryByText(/didn’t reach the backend/i)).toBeNull();

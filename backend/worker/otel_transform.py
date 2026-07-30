@@ -38,6 +38,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from shared.enums import SpanKind, SpanStatus
+from shared.span_attributes import SPAN_IDS_PATH, SPAN_PATH, SPAN_TREE_ATTRIBUTES
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,42 @@ def _scope_skips_text_token_estimation(scope_name: str | None) -> bool:
     return scope_name in _SKIP_TEXT_TOKEN_ESTIMATION_SCOPES
 
 
+# GenAI semconv operation names whose spans AGGREGATE the usage of their model-call
+# descendants: an agent invocation, and one step within it. Emitters restate the
+# children's totals on these spans, so adopting them prices the same tokens twice.
+# Keyed on the operation name rather than the tracer scope: the scope is chosen by
+# the emitting application (a private tracer provider can name it anything), so a
+# scope-keyed check silently misses those traces. "invoke_agent" is a GenAI semconv
+# operation name; "agent_step" is an emitter extension, not in the spec enum.
+_AGGREGATE_USAGE_OPERATIONS = frozenset({"invoke_agent", "agent_step"})
+
+
+def _span_aggregates_child_usage(
+    scope_name: str | None, span_kind: str, attrs: dict[str, Any]
+) -> bool:
+    """Check whether a span restates the token usage of its model-call children.
+
+    Args:
+        scope_name (str | None): Instrumentation scope of the emitting tracer.
+        span_kind (str): Span kind already resolved for this span.
+        attrs (dict[str, Any]): Span attributes.
+
+    Returns:
+        bool: True when the span's token counts duplicate its children's and must
+            neither be adopted nor re-derived from its text.
+    """
+    operation_name = attrs.get("gen_ai.operation.name")
+    if isinstance(operation_name, str) and operation_name.lower() in _AGGREGATE_USAGE_OPERATIONS:
+        return True
+    # Fallback for a wrapper that reaches us without an operation name — an emitter
+    # version that stops setting one would otherwise silently resume double-pricing,
+    # which nothing else in the pipeline would surface. Narrow on purpose: it costs
+    # nothing when the operation name is present, which is the shape observed today.
+    return (
+        isinstance(scope_name, str) and scope_name.lower() == "gen_ai" and span_kind != SpanKind.LLM
+    )
+
+
 # Attributes that are already extracted into dedicated fields
 _KNOWN_ATTRIBUTE_PREFIXES = {
     "traceroot.span.input",
@@ -59,7 +96,6 @@ _KNOWN_ATTRIBUTE_PREFIXES = {
     "traceroot.span.type",
     "traceroot.span.metadata",
     "traceroot.span.tags",
-    "traceroot.llm.",
     "traceroot.trace.",
     "traceroot.environment",
     # Nothing extracts this any more; it is listed purely to keep a
@@ -80,9 +116,25 @@ _KNOWN_ATTRIBUTE_PREFIXES = {
 }
 
 
+# Extracted attributes matched by EXACT name — a prefix entry would also swallow
+# siblings that are NOT extracted (e.g. "traceroot.llm.model" prefix-matches
+# traceroot.llm.model_parameters, which must flow to metadata instead).
+_KNOWN_ATTRIBUTE_EXACT = frozenset(
+    {
+        "traceroot.llm.model",  # -> model_name column + LLM span-kind detection
+        # -> token/cost pipeline (parse_manual_usage). Consumed only when a model
+        # name is present (the token block is model-gated), so usage reported
+        # without traceroot.llm.model is dropped entirely rather than priced.
+        "traceroot.llm.usage",
+    }
+)
+
+
 def _is_known_attribute(key: str) -> bool:
     """Check if an attribute key is already extracted into a dedicated field."""
-    return any(key == prefix or key.startswith(prefix) for prefix in _KNOWN_ATTRIBUTE_PREFIXES)
+    return key in _KNOWN_ATTRIBUTE_EXACT or any(
+        key == prefix or key.startswith(prefix) for prefix in _KNOWN_ATTRIBUTE_PREFIXES
+    )
 
 
 def first_present(attrs: dict[str, Any], keys: list[str]) -> Any:
@@ -133,6 +185,100 @@ def int_or_zero(value: Any) -> int:
     except (TypeError, ValueError):
         logger.warning("Non-numeric OTEL token attribute %r; treating as 0", value)
         return 0
+
+
+# Fields recognized in the Python SDK's manual usage dict
+# (``update_current_span(usage=...)``), serialized as JSON into the
+# ``traceroot.llm.usage`` span attribute. The TypeScript SDK writes that blob too
+# but with its own vocabulary (``input``/``output``/``cacheRead``), and its usage
+# reaches us through the OpenInference ``llm.token_count.*`` attributes that
+# ``applyUsage`` also stamps — so it takes the instrumentor path, not this one.
+_MANUAL_USAGE_KEYS = (
+    "input_tokens",
+    "output_tokens",
+    "cache_read_tokens",
+    "cache_write_tokens",
+    "cache_write_1h_tokens",
+    "reasoning_tokens",
+)
+
+# Upper sanity bound per manual usage field. The token columns are Int64 and we
+# store SUMS of fields (total_tokens = uncached + cache buckets + output), so the
+# bound must sit far below Int64-max — capping at Int64-max itself would still
+# let two capped fields overflow the stored sum and reject the whole insert
+# batch. 10^15 tokens is orders of magnitude beyond any real span while keeping
+# any sum of the six fields comfortably inside Int64.
+_MANUAL_USAGE_MAX_TOKENS = 10**15
+
+
+def parse_manual_usage(raw: Any) -> dict[str, int]:
+    """Parse the manual usage dict reported via the SDKs' update-span API.
+
+    The ``traceroot.llm.usage`` attribute is untrusted wire input: a non-JSON
+    string, a non-dict payload, or a non-numeric, negative, non-finite or
+    out-of-range field must never crash ingestion (``json.loads`` accepts literal
+    ``Infinity``/``NaN``, and ``int(inf)`` raises OverflowError). Values are
+    truncated toward zero. Unusable fields are dropped and
+    counts are clamped non-negative, so a partially-malformed dict degrades to
+    its valid fields (and an entirely unusable one to the text-estimation
+    fallback), never to an error.
+
+    Args:
+        raw (Any): The raw attribute value (a JSON string as the SDK writes it,
+            or an already-decoded dict).
+
+    Returns:
+        dict[str, int]: The recognized usage fields with non-negative int
+            values; empty when the payload is missing or unusable.
+    """
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        # RecursionError: json.loads raises it on deeply-nested payloads, which
+        # would otherwise fail the whole ingest task instead of this one attribute.
+        except (TypeError, ValueError, RecursionError):
+            logger.warning("Manual usage attribute is not valid JSON; ignoring it")
+            return {}
+    if not isinstance(raw, dict):
+        if raw is not None:
+            logger.warning("Manual usage attribute is not an object; ignoring it")
+        return {}
+    # Fields outside the recognized set are never examined below, so without this
+    # they vanish without any signal at all — a provider token type we don't model
+    # yet (audio, image, a new cache variant) reads as if it was never reported.
+    # Bounded because the payload is client-controlled.
+    unrecognized = sorted(k for k in raw if k not in _MANUAL_USAGE_KEYS)
+    if unrecognized:
+        logger.warning(
+            "Manual usage fields %s are not recognized and were ignored; recognized fields are %s",
+            unrecognized[:10],
+            list(_MANUAL_USAGE_KEYS),
+        )
+    usage: dict[str, int] = {}
+    for key in _MANUAL_USAGE_KEYS:
+        value = raw.get(key)
+        if value is None:
+            continue
+        # A dropped field is silent data loss from the user's point of view: they
+        # reported a count and it is priced as if absent. Warn as int_or_zero does
+        # for the same input class, so the discard is diagnosable from the logs.
+        if isinstance(value, bool):
+            logger.warning("Manual usage field %s is a bool (%r); ignoring it", key, value)
+            continue
+        try:
+            parsed = max(int(value), 0)
+        except (TypeError, ValueError, OverflowError):
+            logger.warning(
+                "Manual usage field %s is not a usable number (%r); ignoring it", key, value
+            )
+            continue
+        if parsed > _MANUAL_USAGE_MAX_TOKENS:
+            logger.warning(
+                "Manual usage field %s exceeds the sanity bound (%r); ignoring it", key, value
+            )
+            continue
+        usage[key] = parsed
+    return usage
 
 
 def decode_otel_id(b64_value: str | None) -> str | None:
@@ -270,6 +416,10 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
         return SpanKind.LLM
     if operation_name == "execute_tool":
         return SpanKind.TOOL
+    # Agent-invocation roots carry gen_ai.request.model too; decide AGENT here
+    # so the model fallback below cannot flip them to LLM.
+    if operation_name == "invoke_agent":
+        return SpanKind.AGENT
 
     # Infer from LLM-related attributes
     if (
@@ -403,7 +553,7 @@ def transform_otel_to_clickhouse(
                     "span_kind": span_kind,
                     "status": SpanStatus.OK,
                 }
-                if environment is not None:
+                if isinstance(environment, str):
                     span_record["environment"] = environment
 
                 # Extract git source fields for span
@@ -556,7 +706,57 @@ def transform_otel_to_clickhouse(
                         ],
                     )
 
-                    if api_input_tokens is not None or api_output_tokens is not None:
+                    # Agent-invocation and step spans stamp aggregate
+                    # gen_ai.usage.* totals restating the SUM of their LLM
+                    # children — the same wrapper pattern as the raw ai.usage.*
+                    # keys gated above, moved into the normalized namespace.
+                    # Adopting them prices every token twice.
+                    aggregate_wrapper = _span_aggregates_child_usage(
+                        scope_name, span_kind, span_attrs
+                    )
+
+                    # Manual usage reported via the SDKs' update-span API
+                    # (traceroot.llm.usage) — the documented token source for
+                    # self-instrumented spans, where no instrumentor maps the
+                    # provider response (custom clients, gateways, proxies).
+                    # Instrumentor attributes win WHOLE-DICT, never per-field:
+                    # merging could pair counts measured under different
+                    # conventions (gross vs net input) and double-price cache.
+                    # When the manual dict is used, it replaces every field, so
+                    # the span is priced under the reporter's one convention.
+                    # The aggregate check here is belt-and-braces, not load-bearing:
+                    # the adoption branch below is gated on it too, so a wrapper's
+                    # manual dict would be parsed and then discarded anyway. Keeping
+                    # it states the invariant where the dict is read — manual usage
+                    # must never resurrect counts on a span we suppressed — and skips
+                    # a needless parse.
+                    if (
+                        not aggregate_wrapper
+                        and api_input_tokens is None
+                        and api_output_tokens is None
+                    ):
+                        manual_usage = parse_manual_usage(span_attrs.get("traceroot.llm.usage"))
+                        if "input_tokens" in manual_usage or "output_tokens" in manual_usage:
+                            api_input_tokens = manual_usage.get("input_tokens")
+                            api_output_tokens = manual_usage.get("output_tokens")
+                            api_cache_read_tokens = manual_usage.get("cache_read_tokens")
+                            api_cache_write_tokens = manual_usage.get("cache_write_tokens")
+                            api_cache_write_1h_tokens = manual_usage.get("cache_write_1h_tokens")
+                            api_reasoning_tokens = manual_usage.get("reasoning_tokens")
+                        elif manual_usage:
+                            # Recognized fields, but nothing to price against: a
+                            # cache or reasoning count alone does not describe a
+                            # call. Dropping it silently is the same data loss the
+                            # field-level warnings above exist to surface.
+                            logger.warning(
+                                "Manual usage reported only %s with no input_tokens or "
+                                "output_tokens; ignoring it",
+                                sorted(manual_usage),
+                            )
+
+                    if not aggregate_wrapper and (
+                        api_input_tokens is not None or api_output_tokens is not None
+                    ):
                         # Use API-provided counts (accurate).
                         input_tokens = int_or_zero(api_input_tokens)
                         output_tokens = int_or_zero(api_output_tokens)
@@ -616,14 +816,20 @@ def transform_otel_to_clickhouse(
                         cost = cost_from_buckets(get_model_price(model_name), buckets)
                         if cost is not None:
                             span_record["cost"] = cost
-                    elif span_kind == SpanKind.LLM and not _scope_skips_text_token_estimation(
-                        scope_name
+                    elif (
+                        not aggregate_wrapper
+                        and span_kind == SpanKind.LLM
+                        and not _scope_skips_text_token_estimation(scope_name)
                     ):
                         # Fall back to text-based estimation — only for LLM (completion)
                         # spans. Wrapper AGENT/CHAIN spans restate text their LLM children
                         # already account for (e.g. the Vercel AI SDK's ai.generateText
                         # wrapper carries a model name and the conversation text but no
                         # token counts), so estimating them double-counts the trace.
+                        # Aggregate spans are excluded for the same reason and must be
+                        # named explicitly: unlike AGENT/CHAIN wrappers they can be
+                        # LLM-kind, so the kind check alone would let their conversation
+                        # text be estimated into fabricated counts.
                         # Scopes in _SKIP_TEXT_TOKEN_ESTIMATION_SCOPES leave even their
                         # LLM spans deliberately unset and are skipped as well.
                         from worker.tokens import calculate_cost
@@ -643,15 +849,40 @@ def transform_otel_to_clickhouse(
                             span_record["cost"] = usage["cost"]
 
                 # Extract metadata
-                # Priority: explicit traceroot.span.metadata > remaining attributes
+                # Priority: explicit traceroot.span.metadata > remaining attributes.
+                #
+                # The span-path attributes are merged in EITHER way. They are how
+                # the client rebuilds the tree of an in-flight trace, and the two
+                # branches used to be exclusive: a span that set explicit metadata
+                # had its paths dropped here and then rendered as an orphan while
+                # its parent was still open. That hit exactly the spans users
+                # annotate — usually leaves, whose long-lived parents are the ones
+                # still in flight — so the paths ride along with user metadata.
+                span_path_attrs = {
+                    key: span_attrs[key]
+                    for key in SPAN_TREE_ATTRIBUTES
+                    if span_attrs.get(key) is not None
+                }
                 explicit_metadata = span_attrs.get("traceroot.span.metadata")
                 if explicit_metadata is not None:
-                    if isinstance(explicit_metadata, str):
+                    parsed_explicit = explicit_metadata
+                    if isinstance(parsed_explicit, str):
+                        try:
+                            parsed_explicit = json.loads(parsed_explicit)
+                        except (TypeError, ValueError):
+                            parsed_explicit = None
+                    if isinstance(parsed_explicit, dict):
+                        span_record["metadata"] = json.dumps({**parsed_explicit, **span_path_attrs})
+                    elif isinstance(explicit_metadata, str):
+                        # Not a JSON object (free-text or a scalar): store it as
+                        # given. Nothing to merge into, so this span has no paths.
                         span_record["metadata"] = explicit_metadata
                     else:
                         span_record["metadata"] = json.dumps(explicit_metadata)
                 else:
-                    # Collect non-internal attributes as metadata
+                    # Collect non-internal attributes as metadata. The span-path
+                    # attributes are not "known" (they have no dedicated column),
+                    # so they already fall in here.
                     extra_attrs = {
                         k: v
                         for k, v in span_attrs.items()
@@ -741,8 +972,8 @@ def transform_otel_to_clickhouse(
                     # Actual root span — definitive, depth 0.
                     _trace_name_candidates[trace_id] = (0, span_name)
                 else:
-                    span_path_c = span_attrs.get("traceroot.span.path")
-                    ids_path_c = span_attrs.get("traceroot.span.ids_path")
+                    span_path_c = span_attrs.get(SPAN_PATH)
+                    ids_path_c = span_attrs.get(SPAN_IDS_PATH)
                     candidate_name = (
                         span_path_c[0]
                         if isinstance(span_path_c, (list, tuple)) and span_path_c
@@ -764,7 +995,7 @@ def transform_otel_to_clickhouse(
                         }
                     )
 
-                    if environment is not None:
+                    if isinstance(environment, str):
                         traces[trace_id]["environment"] = environment
                     if trace_git_attrs[trace_id]["git_ref"] is not None:
                         traces[trace_id]["git_ref"] = trace_git_attrs[trace_id]["git_ref"]

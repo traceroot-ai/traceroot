@@ -7,6 +7,7 @@ import {
   findByokKeyForPiProvider,
   fetchProviderConfig,
   resolvePiModel,
+  isSystemModelId,
   type ProviderModelConfig,
 } from "@traceroot/core/model-resolver";
 import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
@@ -34,7 +35,7 @@ export interface EvalResult {
   /** Sum of `response.usage.output` tokens across attempts. */
   inferenceOutputTokens: number;
   /** Source attribution for billing — preserved on error paths so failures still attribute. */
-  inferenceSource: "system" | "byok" | null;
+  inferenceSource: "system" | "byok";
   /** Model id reported by pi-ai (e.g. "claude-haiku-4-5"); null on early-exit error paths. */
   inferenceModel: string | null;
   /** Provider key reported by pi-ai (e.g. "anthropic"); null on early-exit error paths. */
@@ -86,7 +87,7 @@ const TOOL_CHOICE = "auto";
 
 function errorResult(
   message: string,
-  source: "system" | "byok" | null,
+  source: "system" | "byok",
   inferenceCost = 0,
   inferenceInputTokens = 0,
   inferenceOutputTokens = 0,
@@ -114,7 +115,7 @@ function errorResult(
  *   3. System source fallback → any enabled BYOK row in the workspace whose
  *      adapter maps to the same pi-ai provider (matches agent behavior)
  */
-async function resolveDetectorApiKey(
+export async function resolveDetectorApiKey(
   workspaceId: string,
   providerConfig: ProviderModelConfig | null,
   piProvider: string,
@@ -139,7 +140,12 @@ export async function runDetectionForTrace(params: {
   workspaceId: string;
 }): Promise<EvalResult> {
   const { traceId, spansJsonl, detector, workspaceId } = params;
-  const source = detector.detectionSource ?? null;
+  // A null source means "never set" — legacy rows, and API clients that
+  // omitted the field. Every UI path writes "system" and reads null back as
+  // "system", so treat it as system here too. Unpinned detectors therefore
+  // screen on the fixed default, not an availability-aware pick: a deployment
+  // with no key for that provider fails them rather than substituting.
+  const source = detector.detectionSource ?? "system";
 
   // 1. BYOK config
   let providerConfig: ProviderModelConfig | null = null;
@@ -159,6 +165,14 @@ export async function runDetectionForTrace(params: {
   // 2. Resolve model
   const modelId =
     detector.detectionModel ?? (source === "system" ? DETECTOR_SYSTEM_DEFAULT_MODEL_ID : undefined);
+
+  // A retired or invented id resolves to an unrelated fallback rather than
+  // failing, which would screen on a model nobody chose while every surface
+  // shows the pinned one. A failed run is visible; a substitution is not.
+  if (!providerConfig && modelId && !isSystemModelId(modelId)) {
+    return errorResult(`Detection model "${modelId}" is not a known system model`, source);
+  }
+
   const model = resolvePiModel(modelId, providerConfig);
 
   // 3. Resolve API key (BYOK row → env var → workspace BYOK scan)

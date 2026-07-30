@@ -85,6 +85,17 @@ vi.mock("@/features/detectors/hooks/use-findings", () => ({
 }));
 
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
+vi.mock("@/lib/hooks/use-retention", () => ({
+  useRetention: () => ({
+    retentionDays: 15,
+    showPricing: false,
+    onUpgradeClick: vi.fn(),
+    closePricing: vi.fn(),
+    workspaceId: "ws-1",
+    billingPlan: "free",
+  }),
+}));
+vi.mock("@/ee/features/billing/PricingDialog", () => ({ PricingDialog: () => null }));
 vi.mock("@/components/search-filter-bar", () => ({ SearchFilterBar: () => null }));
 vi.mock("@/components/list-pagination", () => ({ ListPagination: () => null }));
 // The panel mock surfaces traceId + autoOpenRca and exposes close/navigate so
