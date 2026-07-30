@@ -217,8 +217,9 @@ async def get_trace(
             ``metadata``) or an alias (``skeleton``/``full``). ``None`` selects
             the default `skeleton` projection.
         source (Literal["detector", "user"] | None): "detector" restricts the
-            read to detector self-traces, "user" excludes them, None applies
-            no filter.
+            read to detector self-traces. "user" and None both restrict it to
+            customer traffic — internal telemetry is opt-in, so omitting the
+            parameter never widens the read.
 
     Returns:
         TraceDetailResponse: The trace with span skeletons, plus per-span I/O

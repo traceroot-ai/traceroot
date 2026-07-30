@@ -56,11 +56,15 @@ class TestGetTraceSourceFilter:
         assert "source = 'user'" in trace_sql
         assert "source = 'user'" in spans_sql
 
-    def test_no_source_leaves_queries_unfiltered(self):
+    def test_no_source_defaults_to_customer_traffic(self):
+        # Fail-closed: a caller that omits `source` must not be handed internal
+        # telemetry. A self-trace's id is the dashless run id the runs surface shows
+        # the customer, so an unscoped by-id read would be directly reachable from
+        # the public trace endpoint and its export.
         trace_sql, spans_sql = self._sqls(None)
         for sql in (trace_sql, spans_sql):
+            assert "source = 'user'" in sql
             assert "source = 'detector'" not in sql
-            assert "source = 'user'" not in sql
 
 
 class TestListTracesExcludesDetector:

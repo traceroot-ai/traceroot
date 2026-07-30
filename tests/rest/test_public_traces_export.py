@@ -182,6 +182,15 @@ class TestExportBundle:
         assert kw["project_id"] == "proj-A"
         assert kw["trace_id"] == "abc123"
 
+    def test_never_opts_into_internal_telemetry(self, client, mock_reader):
+        # A self-trace's id is the dashless detector run id, which the runs surface
+        # shows the customer — so exporting one by id is directly reachable. The
+        # reader defaults to customer traffic, and export must not override that:
+        # otherwise internal telemetry would land in the customer's own pipeline.
+        mock_reader.get_trace.return_value = dict(TRACE_DETAIL)
+        client.get("/api/v1/public/traces/abc123/export", headers=AUTH)
+        assert mock_reader.get_trace.call_args.kwargs.get("source") in (None, "user")
+
     def test_trace_url_present(self, client, mock_reader):
         mock_reader.get_trace.return_value = dict(TRACE_DETAIL)
         body = client.get("/api/v1/public/traces/abc123/export", headers=AUTH).json()

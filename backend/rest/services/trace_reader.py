@@ -405,18 +405,29 @@ class TraceReaderService:
         Args:
             project_id (str): Project that owns the trace.
             trace_id (str): Trace to fetch.
-            source (str | None): "detector" restricts to self-traces, "user"
-                excludes them, None applies no filter.
+            source (str | None): "detector" restricts the read to self-traces.
+                Anything else — including None — restricts it to customer
+                traffic; reading internal telemetry is opt-in, never a default.
+
+        Returns:
+            dict | None: The trace with span skeletons, or None when no row
+                matches the id and the resolved source scope.
         """
         # Fixed internal predicate (never user input), interpolated into both
         # queries — same whitelist pattern as the IO column projection.
+        #
+        # There is deliberately no unscoped branch. A self-trace's id is the dashless
+        # detector run id, which the runs surface shows the customer, so an unscoped
+        # by-id read is directly reachable: it would serve internal telemetry (detector
+        # prompt, judge transcript) from the public trace endpoint and its export, for a
+        # trace the public list already hides. Defaulting to customer traffic keeps the
+        # fail-closed property the whole source scheme rests on — a future internal
+        # producer is excluded by every caller that hasn't opted in.
         if source == DETECTOR_SOURCE:
             source_condition = f"source = '{DETECTOR_SOURCE}'"
-        elif source == USER_SOURCE:
-            source_condition = customer_traffic_only()
         else:
-            source_condition = ""
-        source_predicate = f"AND {source_condition}" if source_condition else ""
+            source_condition = customer_traffic_only()
+        source_predicate = f"AND {source_condition}"
 
         # Fetch trace
         # Dedup the ReplacingMergeTree row without FINAL: keep the latest version
