@@ -114,7 +114,7 @@ export async function testModelProvider(
     awsRegion?: string;
     useDefaultCredentials?: boolean;
   },
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; detail?: string }> {
   return fetchNextApi(`/workspaces/${workspaceId}/model-providers/test`, {
     method: "POST",
     body: JSON.stringify(data),
