@@ -304,11 +304,14 @@ describe("tracing-active guard", () => {
       await freshEmitter();
 
     const first = await guarded(meta(), async () => "verdict");
-    const second = await guarded(meta(), async () => 2);
+    // Counted, not inferred: a resolved value of 2 is equally consistent with fn having
+    // run twice, and running a detector's evaluation twice is the costly failure here.
+    const secondFn = vi.fn(async () => 2);
+    const second = await guarded(meta(), secondFn);
 
     expect(first).toEqual({ ok: true, value: "verdict", selfTraced: false });
-    // The second run still executes fn exactly once and reports the same degradation.
     expect(second).toEqual({ ok: true, value: 2, selfTraced: false });
+    expect(secondFn).toHaveBeenCalledTimes(1);
     expect(mockObserve).not.toHaveBeenCalled();
     expect(mockInitialize).toHaveBeenCalledTimes(1);
 
@@ -329,9 +332,12 @@ describe("tracing-active guard", () => {
     const { withSelfTrace: guarded } = await freshEmitter();
 
     const first = await guarded(meta(), async () => "verdict");
-    await guarded(meta(), async () => 2);
+    const secondFn = vi.fn(async () => 2);
+    const second = await guarded(meta(), secondFn);
 
     expect(first).toEqual({ ok: true, value: "verdict", selfTraced: false });
+    expect(second).toEqual({ ok: true, value: 2, selfTraced: false });
+    expect(secondFn).toHaveBeenCalledTimes(1);
     expect(mockObserve).not.toHaveBeenCalled();
     expect(mockInitialize).toHaveBeenCalledTimes(1);
     expect(mockIsTracingActive).toHaveBeenCalledTimes(1);

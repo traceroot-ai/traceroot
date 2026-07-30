@@ -76,10 +76,11 @@ async function main(): Promise<void> {
   // Construct the self-trace emitter up front so the first detector run does
   // not pay the provider setup, and misconfiguration (no secret) logs at boot.
   // Best-effort like every other tracing path: runs degrade to untraced rather
-  // than the worker crashing. The emitter latches its own failures internally
-  // (a failed init is never retried, so it can't log once per run), so this
-  // try/catch is belt-and-braces against a future throwing path, not the
-  // mechanism — nothing it currently calls escapes.
+  // than the worker crashing. The emitter latches its own errors internally, so
+  // an init failure is never retried (a missing secret is the deliberate
+  // exception — it re-checks each run so a late-injected env still takes effect,
+  // and logs only once). This try/catch is therefore belt-and-braces against a
+  // future throwing path, not the mechanism — nothing it calls today escapes.
   try {
     initSelfTraceEmitter();
   } catch (error) {

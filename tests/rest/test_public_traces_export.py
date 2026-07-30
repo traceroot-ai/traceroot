@@ -189,7 +189,10 @@ class TestExportBundle:
         # otherwise internal telemetry would land in the customer's own pipeline.
         mock_reader.get_trace.return_value = dict(TRACE_DETAIL)
         client.get("/api/v1/public/traces/abc123/export", headers=AUTH)
-        assert mock_reader.get_trace.call_args.kwargs.get("source") in (None, "user")
+        call = mock_reader.get_trace.call_args
+        # Both forms, so switching to a positional call can't make this pass vacuously.
+        assert call.kwargs.get("source") in (None, "user")
+        assert "detector" not in call.args
 
     def test_trace_url_present(self, client, mock_reader):
         mock_reader.get_trace.return_value = dict(TRACE_DETAIL)

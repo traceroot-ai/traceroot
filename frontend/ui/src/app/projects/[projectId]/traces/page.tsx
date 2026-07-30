@@ -398,11 +398,11 @@ export default function TracesPage() {
           customStartDate={state.customStartDate}
           customEndDate={state.customEndDate}
           initialFullscreen={startFullscreen}
-          // Customer surface, so scope the by-id read to customer traffic. traceId is
-          // seeded from the URL, and a self-trace id is just the dashless run id shown
-          // in the runs table — without this, ?traceId=<run id> would render internal
-          // telemetry here. Self-traces are reached from the detector runs surface,
-          // which asks for source="detector" explicitly.
+          // Customer surface, so state the scope explicitly rather than inheriting it:
+          // the reader already defaults to customer traffic, so this is defense in depth,
+          // and it also pins the trace-detail cache key this panel shares with the live
+          // SSE writer. Self-traces are reached from the detector runs surface, which
+          // asks for source="detector" explicitly.
           source="user"
         />
       )}

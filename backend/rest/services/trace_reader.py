@@ -420,9 +420,14 @@ class TraceReaderService:
         # detector run id, which the runs surface shows the customer, so an unscoped
         # by-id read is directly reachable: it would serve internal telemetry (detector
         # prompt, judge transcript) from the public trace endpoint and its export, for a
-        # trace the public list already hides. Defaulting to customer traffic keeps the
-        # fail-closed property the whole source scheme rests on — a future internal
-        # producer is excluded by every caller that hasn't opted in.
+        # trace the public list already hides. Defaulting to customer traffic means a
+        # caller has to opt in to internal telemetry rather than opt out of it.
+        #
+        # This gates the trace and its span skeletons only. The on-demand span-I/O
+        # readers below and the live SSE route are still source-agnostic; they are
+        # reached through a trace this predicate already resolved, so they are not a
+        # way in, but they are not themselves scoped — don't read this comment as
+        # covering every span read in the file.
         if source == DETECTOR_SOURCE:
             source_condition = f"source = '{DETECTOR_SOURCE}'"
         else:
@@ -470,9 +475,11 @@ class TraceReaderService:
         spans_conditions = [
             "project_id = {project_id:String}",
             "trace_id = {trace_id:String}",
+            # Unconditional: both branches above resolve to a predicate, so there is no
+            # unscoped state to guard for. A truthiness check here would read as though
+            # one still existed.
+            source_condition,
         ]
-        if source_condition:
-            spans_conditions.append(source_condition)
         spans_params = {"project_id": project_id, "trace_id": trace_id}
         if trace["trace_start_time"] is not None:
             # Lower-bound the spans scan by the trace start time so ClickHouse

@@ -198,7 +198,10 @@ async def get_trace(
     _access: RateLimitedProjectAccess,  # Validates access + sets rate-limit identity
     fields: str | None = Query(None, description=FIELDS_PARAM_DESC),
     source: Literal["detector", "user"] | None = Query(
-        None, description="'detector' for self-traces, 'user' to exclude them"
+        None,
+        description=(
+            "'detector' reads detector self-traces; omitted or 'user' reads customer traffic only"
+        ),
     ),
 ):
     """Get a single trace for a project.

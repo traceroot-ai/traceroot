@@ -222,7 +222,10 @@ class TestPublicGetTrace:
         # customer traffic; this pins that the route doesn't widen it.
         mock_reader.get_trace.return_value = dict(TRACE_DETAIL)
         client.get("/api/v1/public/traces/abc123", headers=AUTH_HEADER)
-        assert mock_reader.get_trace.call_args.kwargs.get("source") in (None, "user")
+        call = mock_reader.get_trace.call_args
+        # Both forms, so switching to a positional call can't make this pass vacuously.
+        assert call.kwargs.get("source") in (None, "user")
+        assert "detector" not in call.args
 
     def test_returns_full_payload_with_trace_url(self, client, mock_reader):
         mock_reader.get_trace.return_value = dict(TRACE_DETAIL)
