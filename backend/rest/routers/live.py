@@ -13,7 +13,9 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Request
 from starlette.responses import StreamingResponse
 
+from rest.retention import enforce_retention_by_time
 from rest.routers.deps import ProjectAccess
+from rest.services.trace_reader import get_trace_reader_service
 from shared.config import settings
 
 logger = logging.getLogger(__name__)
@@ -84,19 +86,31 @@ async def live_trace_stream(
     reach the client before trace_complete closes the frontend stream.
     """
 
+    from shared.redis import get_async_redis_client
+
+    redis_client = get_async_redis_client()
+    pubsub = redis_client.pubsub()
+    channel = f"trace:live:{project_id}:{trace_id}"
+
+    # Subscribe FIRST so no live events are lost during subsequent checks.
+    await pubsub.subscribe(channel)
+    logger.info(f"SSE client subscribed to {channel}")
+
+    # Retention check after subscribe but before StreamingResponse — a 403
+    # here is still a proper HTTP error (response headers not yet sent).
+    try:
+        service = get_trace_reader_service()
+        trace_start_time = await asyncio.to_thread(
+            service.get_trace_start_time, project_id, trace_id
+        )
+        enforce_retention_by_time(_access.billing_plan, trace_start_time)
+    except BaseException:
+        await pubsub.unsubscribe(channel)
+        await pubsub.close()
+        raise
+
     async def event_generator():
-        from shared.redis import get_async_redis_client
-
-        redis_client = get_async_redis_client()
-        pubsub = redis_client.pubsub()
-        channel = f"trace:live:{project_id}:{trace_id}"
-
         try:
-            # Subscribe BEFORE checking ClickHouse so we don't miss events from
-            # Celery tasks that publish between the check and the subscribe.
-            await pubsub.subscribe(channel)
-            logger.info(f"SSE client subscribed to {channel}")
-
             # Check whether ClickHouse already has a root span with an end time.
             # That starts the quiet window, but it does not immediately close the
             # stream: distributed traces can still receive descendant spans after

@@ -130,7 +130,7 @@ export interface ScanUsage {
   inferenceCost: number;
   inferenceInputTokens: number;
   inferenceOutputTokens: number;
-  inferenceSource: "system" | "byok" | null;
+  inferenceSource: "system" | "byok";
   inferenceModel: string | null;
   inferenceProvider: string | null;
 }
@@ -473,7 +473,16 @@ async function evaluateTrace(
         findings: rcaFindings,
         findingTimestamp,
       },
-      { jobId: `rca-${findingId}`, removeOnComplete: 100, removeOnFail: 50 },
+      {
+        jobId: `rca-${findingId}`,
+        removeOnComplete: 100,
+        removeOnFail: 50,
+        // Modest attempts: each retry re-invokes the agent (LLM cost), but a
+        // thrown RCA run is meant to retry through transient causes (rate
+        // limits, provider 5xx) rather than land permanently failed on one shot.
+        attempts: 3,
+        backoff: { type: "exponential", delay: 10000 },
+      },
     );
   } else {
     console.log(

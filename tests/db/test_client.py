@@ -27,6 +27,7 @@ class TestInsertTracesBatch:
                 "git_repo": "owner/repo",
                 "input": "hello",
                 "output": "world",
+                "environment": "production",
             }
         ]
         client.insert_traces_batch(traces)
@@ -54,7 +55,9 @@ class TestInsertTracesBatch:
         # ch_create_time and ch_update_time are auto-set
         assert isinstance(row[12], datetime)
         assert isinstance(row[13], datetime)
-        assert len(columns) == 14
+        assert len(columns) == 15
+        assert "environment" in columns
+        assert row[columns.index("environment")] == "production"
 
     def test_empty_batch_no_insert(self):
         """Empty list -> no _client.insert() call."""
@@ -93,6 +96,26 @@ class TestInsertTracesBatch:
         assert rows[1][source_idx] == "user"
         assert all(len(row) == len(columns) for row in rows)
 
+    def test_environment_defaults_to_none_when_absent(self):
+        """A trace record without an environment key must not raise and must
+        insert NULL rather than silently omitting the column."""
+        mock_internal = MagicMock()
+        client = ClickHouseClient(mock_internal)
+
+        traces = [
+            {
+                "trace_id": "trace-1",
+                "project_id": "proj-1",
+                "trace_start_time": datetime(2024, 1, 15, 12, 0, 0),
+                "name": "test-trace",
+            }
+        ]
+        client.insert_traces_batch(traces)
+
+        columns = mock_internal.insert.call_args[1]["column_names"]
+        row = mock_internal.insert.call_args[0][1][0]
+        assert row[columns.index("environment")] is None
+
 
 class TestInsertSpansBatch:
     def test_builds_correct_rows(self):
@@ -119,6 +142,7 @@ class TestInsertSpansBatch:
                 "total_tokens": 150,
                 "input": "hello",
                 "output": "world",
+                "environment": "production",
             }
         ]
         client.insert_spans_batch(spans)
@@ -144,9 +168,11 @@ class TestInsertSpansBatch:
         assert row[14] == 50  # output_tokens
         assert row[15] == 150  # total_tokens
         # 3 fixed breakdown columns collapsed into one usage_details map (net -2),
-        # then source added.
-        assert len(columns) == 25
+        # then source and environment added.
+        assert len(columns) == 26
         assert "usage_details" in columns
+        assert "environment" in columns
+        assert row[columns.index("environment")] == "production"
 
     def test_optional_fields_none(self):
         """None values for optional fields (cost, tokens)."""
@@ -174,6 +200,8 @@ class TestInsertSpansBatch:
         assert row[13] is None  # input_tokens
         assert row[14] is None  # output_tokens
         assert row[15] is None  # total_tokens
+        columns = mock_internal.insert.call_args[1]["column_names"]
+        assert row[columns.index("environment")] is None
 
     def test_source_passthrough_and_default(self):
         """Spans carry their source through; spans without one write 'user'."""

@@ -85,7 +85,10 @@ export function flattenTreeWithMetrics(
 
     const offsetMs = startTimes.get(span.span_id)! - traceStartMs;
     const durationMs = getSpanDuration(span) ?? 0;
-    const isInProgress = span.span_end_time === null;
+    // A pending placeholder has no end time because we never received it, not
+    // because it is still running — rendering it as in-progress would pulse a
+    // "live" bar on a trace that finished (or died) long ago.
+    const isInProgress = span.span_end_time === null && !span.pending;
 
     const startOffsetPx = (offsetMs / safeTraceDuration) * scaleWidth;
     const widthPx = (durationMs / safeTraceDuration) * scaleWidth;
