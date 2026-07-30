@@ -3,7 +3,9 @@
     <img src="frontend/ui/public/images/traceroot_logo.png" alt="TraceRoot Logo">
   </a>
 
-[TraceRoot](https://traceroot.ai/) is the open-source self-improving layer for AI agents — observability that detects failures in production, root-causes them against your source code and GitHub history, opens verified fix PRs, and closes the loop with golden datasets and evals — so your agent automatically grows more robust, accurate, and efficient with every release.
+[TraceRoot](https://traceroot.ai/) is the open-source self-improving layer for AI agents.
+
+Detects failures in production, root-causes them against your source code and GitHub history, opens verified fix PRs, and evals every fix — so your agent gets more robust, accurate, and efficient with every release.
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]
