@@ -185,7 +185,12 @@ export async function withSelfTrace<T>(
   try {
     if (!initialized) initSelfTraceEmitter();
   } catch (err) {
-    console.error("[Detector] self-trace init failed:", err);
+    // Belt-and-braces: initSelfTraceEmitter catches both fallible SDK calls itself, so
+    // nothing left in it can throw. Latch anyway — if a future change reintroduces a
+    // throwing path, an unlatched catch here would log once per detector run forever,
+    // which is the failure mode the latches inside exist to prevent.
+    tracingInactive = true;
+    console.error("[Detector] self-trace init failed; self-trace emit disabled:", err);
   }
   if (!initialized) return runPlain(fn);
 

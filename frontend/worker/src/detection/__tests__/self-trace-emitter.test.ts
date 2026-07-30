@@ -300,14 +300,24 @@ describe("tracing-active guard", () => {
     mockInitialize.mockImplementation(() => {
       throw new TypeError("internalExport.path must start with '/'");
     });
-    const { withSelfTrace: guarded } = await freshEmitter();
+    const { withSelfTrace: guarded, shutdownSelfTraceEmitter: shutdownGuarded } =
+      await freshEmitter();
 
     const first = await guarded(meta(), async () => "verdict");
-    await guarded(meta(), async () => 2);
+    const second = await guarded(meta(), async () => 2);
 
     expect(first).toEqual({ ok: true, value: "verdict", selfTraced: false });
+    // The second run still executes fn exactly once and reports the same degradation.
+    expect(second).toEqual({ ok: true, value: 2, selfTraced: false });
     expect(mockObserve).not.toHaveBeenCalled();
     expect(mockInitialize).toHaveBeenCalledTimes(1);
+
+    // The mirror of the disabled-tracing case: initialize() threw, so no provider,
+    // exporter or batch processor exists (the SDK rolls its own back on a failed
+    // register), and shutdown must not flush a pipeline that was never started.
+    await shutdownGuarded();
+    expect(mockFlush).not.toHaveBeenCalled();
+    expect(mockShutdown).not.toHaveBeenCalled();
   });
 
   it("latches instead of retrying when the SDK has no isTracingActive", async () => {
