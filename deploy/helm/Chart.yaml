@@ -1,7 +1,7 @@
 # deploy/helm/Chart.yaml
 apiVersion: v2
 name: traceroot
-description: AI agent observability platform
+description: Observability and self-improving layer for AI agents
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
