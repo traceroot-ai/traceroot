@@ -159,3 +159,27 @@ def test_detectors_list_route_documents_error_responses():
     assert "get" in paths["/api/v1/public/detectors"]
     responses = paths["/api/v1/public/detectors"]["get"]["responses"]
     assert set(responses) >= {"200", "401", "500"}
+
+
+_METHODS = {"get", "post", "put", "patch", "delete"}
+
+EXPECTED_OPERATION_IDS = {
+    "/api/v1/public/detectors": {"get": "list_detectors"},
+    "/api/v1/public/detectors/findings": {"get": "list_findings"},
+    "/api/v1/public/detectors/findings/{finding_id}": {"get": "get_finding"},
+    "/api/v1/public/detectors/traces/{trace_id}/finding": {"get": "get_finding_by_trace"},
+    "/api/v1/public/traces": {"get": "list_traces", "post": "ingest_traces"},
+    "/api/v1/public/traces/{trace_id}": {"get": "get_trace"},
+    "/api/v1/public/traces/{trace_id}/export": {"get": "export_trace"},
+    "/api/v1/public/whoami": {"get": "whoami"},
+}
+
+
+def test_operation_ids_are_clean_tool_names():
+    """Public operationIds are short snake_case names, not path-mangled defaults."""
+    schema = _schema()
+    actual = {
+        path: {m: op["operationId"] for m, op in item.items() if m in _METHODS}
+        for path, item in schema["paths"].items()
+    }
+    assert actual == EXPECTED_OPERATION_IDS

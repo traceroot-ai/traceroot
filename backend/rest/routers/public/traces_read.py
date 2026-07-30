@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/public/traces", tags=["Traces (Public)"])
 
 
-@router.get("", response_model=PublicTraceListResponse)
+@router.get("", response_model=PublicTraceListResponse, operation_id="list_traces")
 @limiter.shared_limit(
     resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
 )
@@ -87,7 +87,7 @@ async def list_traces(
     return result
 
 
-@router.get("/{trace_id}", response_model=PublicTraceDetailResponse)
+@router.get("/{trace_id}", response_model=PublicTraceDetailResponse, operation_id="get_trace")
 @limiter.shared_limit(
     resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
 )
@@ -124,7 +124,9 @@ async def get_trace(
     return public_trace_detail(trace, auth.project_id)
 
 
-@router.get("/{trace_id}/export", response_model=PublicTraceExportResponse)
+@router.get(
+    "/{trace_id}/export", response_model=PublicTraceExportResponse, operation_id="export_trace"
+)
 @limiter.limit(resolve_limit, key_func=key_export, exempt_when=is_request_rate_limit_exempt)
 async def export_trace(
     request: Request,
