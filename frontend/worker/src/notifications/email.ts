@@ -1,6 +1,7 @@
 import nodemailer from "nodemailer";
 import {
   detectorFindingsUrl,
+  DIGEST_SUMMARY_RENDER_CAP,
   formatWindowRange,
   traceUrl,
   type DigestEntry,
@@ -50,6 +51,7 @@ export async function sendDigestAlertEmail(params: {
   windowEnd: Date;
   total: number;
   entries: DigestEntry[];
+  summary?: string;
 }): Promise<void> {
   const transport = createTransport();
   if (!transport || params.to.length === 0) return;
@@ -67,11 +69,20 @@ export async function sendDigestAlertEmail(params: {
   const shown = entries.slice(0, MAX_DIGEST_ROWS);
   const omitted = entries.length - shown.length;
 
+  // LLM-synthesized summary is optional and untrusted: cap it to the shared
+  // render limit (with ellipsis) and HTML-escape it where it lands in markup.
+  const summaryText = params.summary?.trim()
+    ? params.summary.trim().length > DIGEST_SUMMARY_RENDER_CAP
+      ? params.summary.trim().slice(0, DIGEST_SUMMARY_RENDER_CAP - 1) + "…"
+      : params.summary.trim()
+    : "";
+
   const textParts = [
     `${total} ${noun} in project ${projectName}.`,
     `${windowRange} · ${entries.length} detector${entries.length === 1 ? "" : "s"}`,
     ``,
   ];
+  if (summaryText) textParts.splice(2, 0, ``, summaryText);
   for (const e of shown) {
     const findingNoun = e.findingCount === 1 ? "finding" : "findings";
     // Omit the trace segment when there is no latest trace (mirrors the Slack
@@ -121,7 +132,17 @@ export async function sendDigestAlertEmail(params: {
         <td style="padding: 0 40px 24px 40px; text-align: center;">
           <p style="margin: 0; color: #888; font-size: 12px;">${windowRange} · ${entries.length} detector${entries.length === 1 ? "" : "s"}</p>
         </td>
-      </tr>
+      </tr>${
+        summaryText
+          ? `
+      <!-- AI summary -->
+      <tr>
+        <td style="padding: 0 40px 20px 40px;">
+          <p style="margin: 0; color: #333; font-size: 14px; line-height: 1.6;">${escapeHtml(summaryText)}</p>
+        </td>
+      </tr>`
+          : ""
+      }
 
       <!-- Per-detector rows -->
       <tr>
