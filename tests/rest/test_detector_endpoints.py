@@ -244,6 +244,21 @@ class TestListTraceDetectorRuns:
             "self_traced": False,
         }
 
+    def test_query_selects_self_traced(self, client, mock_ch, secret):
+        """The envelope assertions above can't see the SELECT list.
+
+        The endpoint builds its dicts with ``dict(zip(result.column_names, row))``
+        and the fixture supplies ``column_names`` itself, so dropping the column
+        from the query leaves every field assertion passing. Pin the SQL directly.
+        """
+        mock_ch.query.return_value = self._fake_data()
+        client.get(
+            "/api/v1/internal/traces/trace-1/detector-runs",
+            params={"project_id": "p1"},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert "r.self_traced" in mock_ch.query.call_args_list[0].args[0]
+
     def test_filters_by_trace_and_project(self, client, mock_ch, secret):
         mock_ch.query.return_value = _make_query_result(rows=[], column_names=[])
         resp = client.get(
