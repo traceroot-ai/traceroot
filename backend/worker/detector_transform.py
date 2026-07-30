@@ -5,8 +5,8 @@ batch can carry self-traces for several projects. Following the standard
 OpenTelemetry multi-tenancy pattern, the worker stamps each span with a
 per-span ``traceroot.project_id`` attribute and this wrapper routes on it:
 spans are grouped by project and the shared single-project transform runs
-once per group, with ``trust_source=True`` (the only caller is the
-secret-gated internal ingest route).
+once per group. The transform never classifies traffic; the secret-gated
+internal ingest route stamps ``source='detector'`` on what comes back.
 
 Only the internal route imports this module. The public ingest path cannot
 honor a payload project id because this code simply is not in its chain —
@@ -30,9 +30,9 @@ def transform_detector_traces(
 
     Spans are grouped by their per-span ``traceroot.project_id`` attribute
     (spans without it fall to ``fallback_project_id``), each group is run
-    through the shared transform exactly as it stands — one project per call,
-    ``trust_source=True`` — and the per-group results are concatenated. A
-    trace is always one project, so a trace's spans stay whole in one call.
+    through the shared transform exactly as it stands, one project per call, and the
+    per-group results are concatenated. A trace is always one project, so a trace's
+    spans stay whole in one call.
     An unattributable span rejects the whole batch: a project is never
     guessed and a span is never fanned out to more than one project.
 
@@ -95,7 +95,7 @@ def transform_detector_traces(
     all_traces: list[dict] = []
     all_spans: list[dict] = []
     for project_id, group in grouped.items():
-        traces, spans = transform_otel_to_clickhouse(group, project_id, trust_source=True)
+        traces, spans = transform_otel_to_clickhouse(group, project_id)
         all_traces.extend(traces)
         all_spans.extend(spans)
     return all_traces, all_spans

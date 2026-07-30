@@ -103,7 +103,7 @@ export function useTrace(projectId: string, traceId: string, enabled: boolean = 
     ? { id: authSession.user.id, email: authSession.user.email }
     : undefined;
   return useQuery({
-    queryKey: ["trace", projectId, traceId],
+    queryKey: traceQueryKey(projectId, traceId),
     queryFn: () => getTrace(projectId, traceId, "", user),
     enabled: sessionReady && enabled,
   });
@@ -120,6 +120,19 @@ export const SPAN_IO_STALE_TIME_MS = 5 * 60 * 1000;
  */
 export function spanIOQueryKey(projectId: string, traceId: string, spanId: string) {
   return ["span-io", projectId, traceId, spanId] as const;
+}
+
+/**
+ * React Query key for one trace's detail. Source is part of the key because a
+ * detector self-trace and a customer trace can share neither id nor cache entry.
+ *
+ * Exported so every reader and writer keys identically: the live SSE stream
+ * merges incoming spans with an exact-match setQueryData, so a key that differs
+ * by even one element makes every span event a silent no-op — the view then only
+ * refreshes on trace_complete, because invalidateQueries matches by prefix.
+ */
+export function traceQueryKey(projectId: string, traceId: string, source?: "detector" | "user") {
+  return ["trace", projectId, traceId, source ?? null] as const;
 }
 
 /**

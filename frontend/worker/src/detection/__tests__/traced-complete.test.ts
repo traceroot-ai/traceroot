@@ -12,9 +12,16 @@ const { mockComplete, mockInitialize, mockFlush, mockShutdown } = vi.hoisted(() 
 vi.mock("@earendil-works/pi-ai/compat", () => ({ complete: mockComplete }));
 // SDK stand-in: initialize is a no-op (a real provider is registered below);
 // observe opens a REAL active span so the shim's child parents into it, the
-// way the SDK's startActiveSpan does.
+// way the SDK's startActiveSpan does. isTracingActive reports true because this
+// file's provider IS the pipeline under test — the emitter refuses to trace when
+// it reports false, which is what makes the guard meaningful in production.
 vi.mock("@traceroot-ai/traceroot", () => ({
-  TraceRoot: { initialize: mockInitialize, flush: mockFlush, shutdown: mockShutdown },
+  TraceRoot: {
+    initialize: mockInitialize,
+    flush: mockFlush,
+    shutdown: mockShutdown,
+    isTracingActive: () => true,
+  },
   observe: async (opts: { name: string }, fn: () => Promise<unknown>) =>
     trace.getTracer("sdk").startActiveSpan(opts.name, async (span) => {
       try {
@@ -94,7 +101,7 @@ describe("tracedComplete inside a self-trace scope", () => {
     expect(llm.parentSpanContext?.spanId).toBe(root.spanContext().spanId);
     expect(llm.spanContext().traceId).toBe(root.spanContext().traceId);
 
-    expect(llm.attributes["traceroot.source"]).toBe("detector");
+    expect(llm.attributes["traceroot.source"]).toBeUndefined();
     expect(llm.attributes["traceroot.project_id"]).toBe("proj-1");
     expect(llm.attributes["traceroot.span.type"]).toBe("LLM");
     // Response model (dated snapshot) wins over the requested id.

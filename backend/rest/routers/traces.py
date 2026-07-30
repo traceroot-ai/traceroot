@@ -220,7 +220,10 @@ async def get_trace(
     _access: RateLimitedProjectAccess,  # Validates access + sets rate-limit identity
     fields: str | None = Query(None, description=FIELDS_PARAM_DESC),
     source: Literal["detector", "user"] | None = Query(
-        None, description="'detector' for self-traces, 'user' to exclude them"
+        None,
+        description=(
+            "'detector' reads detector self-traces; omitted or 'user' reads customer traffic only"
+        ),
     ),
 ):
     """Get a single trace for a project.
@@ -239,8 +242,9 @@ async def get_trace(
             ``metadata``) or an alias (``skeleton``/``full``). ``None`` selects
             the default `skeleton` projection.
         source (Literal["detector", "user"] | None): "detector" restricts the
-            read to detector self-traces, "user" excludes them, None applies
-            no filter.
+            read to detector self-traces. "user" and None both restrict it to
+            customer traffic — internal telemetry is opt-in, so omitting the
+            parameter never widens the read.
 
     Returns:
         TraceDetailResponse: The trace with span skeletons, plus per-span I/O

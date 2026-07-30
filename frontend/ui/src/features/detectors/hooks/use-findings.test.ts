@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
-import { describeRcaStatus, useRuns, useTraceDetectorRuns } from "./use-findings";
+import { describeRcaStatus, selfTraceId, useRuns, useTraceDetectorRuns } from "./use-findings";
 
 function wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -114,43 +114,24 @@ describe("useTraceDetectorRuns — per-trace runs fetch", () => {
   });
 });
 
-describe("useRuns — self_traced passthrough", () => {
-  it("surfaces self_traced on run rows (and tolerates its absence on old reads)", async () => {
-    fetchMock.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        data: [
-          {
-            run_id: "r1",
-            detector_id: "d1",
-            project_id: "p1",
-            trace_id: "t1",
-            finding_id: null,
-            status: "completed",
-            timestamp: "2026-07-01T12:00:00Z",
-            summary: "",
-            self_traced: true,
-          },
-          {
-            run_id: "r2",
-            detector_id: "d1",
-            project_id: "p1",
-            trace_id: "t2",
-            finding_id: null,
-            status: "completed",
-            timestamp: "2026-07-01T12:01:00Z",
-            summary: "",
-          },
-        ],
-        meta: { page: 0, limit: 50, total: 2 },
-      }),
-    });
+describe("selfTraceId", () => {
+  // The read side of the run-to-trace correlation: the emitter forces the self-trace's
+  // trace_id to the dashless run id, and this is the only place the UI reconstructs it.
+  // A drift here breaks every self-trace link, so pin the transform against the emit side.
+  it("strips dashes from a uuid run id", () => {
+    expect(selfTraceId({ run_id: "aaaa1111-bbbb-2222-cccc-3333dddd4444" })).toBe(
+      "aaaa1111bbbb2222cccc3333dddd4444",
+    );
+  });
 
-    const { result } = renderHook(() => useRuns("proj-1", "det-1"), { wrapper });
+  it("leaves an already-dashless id untouched", () => {
+    // The shape deterministicRunId actually produces on the worker side.
+    expect(selfTraceId({ run_id: "a".repeat(32) })).toBe("a".repeat(32));
+  });
 
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    const rows = result.current.data!.data;
-    expect(rows[0].self_traced).toBe(true);
-    expect(rows[1].self_traced).toBeUndefined();
+  it("produces a valid trace id shape", () => {
+    expect(selfTraceId({ run_id: "aaaa1111-bbbb-2222-cccc-3333dddd4444" })).toMatch(
+      /^[0-9a-f]{32}$/,
+    );
   });
 });

@@ -1,4 +1,10 @@
 // @vitest-environment jsdom
+// Pin a non-UTC zone before anything reads the clock. CI runners are UTC, where
+// new Date(naive) and parseAsUTC(naive) agree — so the self-trace pending-window
+// tests below could not tell a local-time parse from a UTC one, and the regression
+// they exist to guard would sail through.
+process.env.TZ = "America/New_York";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 
@@ -58,11 +64,16 @@ vi.mock("@/components/ui/resizable", () => ({
   ResizableHandle: () => null,
 }));
 
-import { ApiError } from "@/lib/api/client";
-import { TraceViewerPanel } from "./TraceViewerPanel";
 import { ApiError } from "@/lib/api/errors";
+import { TraceViewerPanel } from "./TraceViewerPanel";
 
-function renderPanel(props: { initialFullscreen?: boolean; source?: "detector" | "user" } = {}) {
+function renderPanel(
+  props: {
+    initialFullscreen?: boolean;
+    source?: "detector" | "user";
+    runTimestamp?: string;
+  } = {},
+) {
   const { container } = render(
     <TraceViewerPanel
       projectId="proj-1"
@@ -273,6 +284,48 @@ describe("detector self-trace not-yet-ingested state", () => {
     mocks.trace = null;
     renderPanel({ source: "user" });
     expect(screen.getByText("Error loading trace")).toBeTruthy();
+    expect(screen.queryByText(/still being recorded/i)).toBeNull();
+  });
+});
+
+describe("detector self-trace pending window", () => {
+  // Mirrors the wire format: the runs endpoint serializes a ClickHouse DateTime64 via
+  // datetime.isoformat() on a naive value, so there is NO trailing "Z". Building these
+  // with toISOString() would hide a local-vs-UTC parsing bug, since only the naive
+  // shape is misread as local time.
+  const ago = (ms: number) => new Date(Date.now() - ms).toISOString().replace("Z", "");
+
+  it("keeps the pending hint for a run inside the export window", () => {
+    mocks.trace = null;
+    mocks.traceError = new ApiError(404, "Trace not found");
+    renderPanel({ source: "detector", runTimestamp: ago(5_000) });
+    expect(screen.getByText(/still being recorded/i)).toBeTruthy();
+    expect(screen.queryByText(/didn’t reach the backend/i)).toBeNull();
+  });
+
+  it("reports a permanently failed export once the window has passed", () => {
+    mocks.trace = null;
+    mocks.traceError = new ApiError(404, "Trace not found");
+    renderPanel({ source: "detector", runTimestamp: ago(10 * 60_000) });
+    expect(screen.getByText(/didn’t reach the backend/i)).toBeTruthy();
+    expect(screen.queryByText(/still being recorded/i)).toBeNull();
+  });
+
+  it("stays pending when the run timestamp is unparseable", () => {
+    // An unknown run time is not evidence that the export failed.
+    mocks.trace = null;
+    mocks.traceError = new ApiError(404, "Trace not found");
+    renderPanel({ source: "detector", runTimestamp: "not-a-date" });
+    expect(screen.getByText(/still being recorded/i)).toBeTruthy();
+    expect(screen.queryByText(/didn’t reach the backend/i)).toBeNull();
+  });
+
+  it("still surfaces a non-404 failure as a real error for an old run", () => {
+    mocks.trace = null;
+    mocks.traceError = new ApiError(500, "backend exploded");
+    renderPanel({ source: "detector", runTimestamp: ago(10 * 60_000) });
+    expect(screen.getByText("Error loading trace")).toBeTruthy();
+    expect(screen.queryByText(/didn’t reach the backend/i)).toBeNull();
     expect(screen.queryByText(/still being recorded/i)).toBeNull();
   });
 });

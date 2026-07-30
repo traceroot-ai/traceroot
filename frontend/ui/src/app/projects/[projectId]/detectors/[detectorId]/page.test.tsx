@@ -105,6 +105,7 @@ vi.mock("@/features/traces/components/TraceViewerPanel", () => ({
     traceId,
     autoOpenRca,
     source,
+    runTimestamp,
     onClose,
     onNavigate,
     canNavigateUp,
@@ -113,6 +114,7 @@ vi.mock("@/features/traces/components/TraceViewerPanel", () => ({
     traceId: string;
     autoOpenRca?: boolean;
     source?: "detector" | "user";
+    runTimestamp?: string;
     onClose: () => void;
     onNavigate: (d: "up" | "down") => void;
     canNavigateUp: boolean;
@@ -122,6 +124,7 @@ vi.mock("@/features/traces/components/TraceViewerPanel", () => ({
       data-testid="trace-panel"
       data-auto-open-rca={String(autoOpenRca)}
       data-source={String(source)}
+      data-run-timestamp={String(runTimestamp)}
     >
       <span data-testid="panel-trace">{traceId}</span>
       <button type="button" onClick={onClose}>
@@ -328,6 +331,10 @@ describe("run_id → self-trace link", () => {
     expect(within(panel).getByTestId("panel-trace").textContent).toBe("aaaabbbb");
     expect(panel.getAttribute("data-source")).toBe("detector");
     expect(panel.getAttribute("data-auto-open-rca")).toBe("false");
+    // The panel time-bounds its "still being recorded" copy off this, so the row's
+    // own timestamp has to reach it — passing the wrong field would silently make
+    // every self-trace 404 read as a permanent export failure.
+    expect(panel.getAttribute("data-run-timestamp")).toBe(selfRun.timestamp);
     // A self-trace is a point-open — it can never step into an original trace.
     expect(within(panel).getByRole("button", { name: "panel-up" })).toHaveProperty(
       "disabled",
@@ -355,6 +362,33 @@ describe("run_id → self-trace link", () => {
     expect(within(panel).getByTestId("panel-trace").textContent).toBe("aaaabbbb");
     expect(panel.getAttribute("data-source")).toBe("detector");
     expect(panel.getAttribute("data-auto-open-rca")).toBe("false");
+  });
+
+  it("honors a second deep link without a remount", () => {
+    // Navigating detector -> same detector from a trace's Detectors tab changes only the
+    // query string, so the component stays mounted. A one-shot boolean latch swallowed
+    // every link after the first, leaving the URL claiming one trace and the panel
+    // showing another.
+    mocks.useRuns.mockImplementation(useRunsWithSelfRows);
+    let currentTraceId = "aaaabbbb";
+    mocks.searchParam.mockImplementation((key: string) => {
+      if (key === "traceId") return currentTraceId;
+      if (key === "source") return "detector";
+      if (key === "tab") return "runs";
+      return null;
+    });
+
+    const { rerender } = render(<DetectorDetailPage />);
+    expect(within(screen.getByTestId("trace-panel")).getByTestId("panel-trace").textContent).toBe(
+      "aaaabbbb",
+    );
+
+    // Second link, same mount — the other self-traced run in the fixture.
+    currentTraceId = "ccccdddd";
+    rerender(<DetectorDetailPage />);
+    expect(within(screen.getByTestId("trace-panel")).getByTestId("panel-trace").textContent).toBe(
+      "ccccdddd",
+    );
   });
 
   it("does not auto-open when the deep-linked self-trace matches no run row", () => {

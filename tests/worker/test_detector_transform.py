@@ -129,9 +129,10 @@ class TestProjectFanOut:
 
 
 class TestTransformPassThrough:
-    def test_source_attribute_is_honored_not_coerced(self):
-        """The wrapper must call the shared transform with trust_source=True so
-        the worker's traceroot.source=detector marker survives."""
+    def test_wrapper_leaves_source_unset_for_the_route_to_stamp(self):
+        """The wrapper does not classify: it returns records with no source, and the
+        secret-gated route stamps 'detector' on them. Asserted here so a future change
+        that starts honoring the payload marker has to break this test first."""
         payload = _payload(
             [
                 _span(
@@ -147,7 +148,7 @@ class TestTransformPassThrough:
 
         _traces, spans = transform_detector_traces(payload)
 
-        assert spans[0]["source"] == "detector"
+        assert "source" not in spans[0]
 
     def test_routing_attribute_is_not_leaked_into_span_metadata(self):
         """traceroot.project_id is routing input consumed by the wrapper; it

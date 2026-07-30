@@ -66,6 +66,15 @@ export function currentSelfTraceScope(): SelfTraceScope | undefined {
 
 let initialized = false;
 let warnedDisabled = false;
+// Latched separately from `initialized`: withSelfTrace re-runs
+// initSelfTraceEmitter() whenever `initialized` is false, so reusing that flag
+// as the disable latch would re-attempt initialization on every single run.
+let tracingInactive = false;
+// TraceRoot.initialize() succeeded, regardless of whether self-tracing stayed on.
+// Shutdown keys off THIS, not `initialized`: the inactive-tracing path starts the
+// SDK (global provider, exporter, batch processor) and then leaves self-tracing off,
+// so keying shutdown off `initialized` would strand those resources unflushed.
+let sdkStarted = false;
 
 /**
  * Initialize the SDK's internal-export pipeline once. No process-default
@@ -75,7 +84,7 @@ let warnedDisabled = false;
  * could only 403.
  */
 export function initSelfTraceEmitter(): void {
-  if (initialized) return;
+  if (initialized || tracingInactive) return;
   // Read at call time (not module load) so a late-injected env still takes
   // effect and tests can vary it.
   const secret = process.env.INTERNAL_API_SECRET || "";
@@ -86,14 +95,68 @@ export function initSelfTraceEmitter(): void {
     }
     return;
   }
-  TraceRoot.initialize({
-    baseUrl: process.env.BACKEND_INTERNAL_URL || "http://localhost:8000",
-    internalExport: {
-      path: "/api/v1/internal/traces",
-      headers: { "X-Internal-Secret": secret },
-    },
-    globalAttributes: { "traceroot.source": "detector" },
-  });
+  try {
+    TraceRoot.initialize({
+      baseUrl: process.env.BACKEND_INTERNAL_URL || "http://localhost:8000",
+      internalExport: {
+        path: "/api/v1/internal/traces",
+        headers: { "X-Internal-Secret": secret },
+      },
+      // No source marker on the wire: the ingest route classifies what it receives
+      // (it is secret-gated, so being called at all is the proof), and the transform
+      // never reads one. Sending it would only make our own traffic indistinguishable
+      // from a tenant trying to label theirs internal.
+    });
+  } catch (err) {
+    // Latch, don't retry. initialize() fails on configuration (the SDK rejects an
+    // internalExport path that doesn't start with '/') or on local provider setup —
+    // neither fixes itself mid-process, so without the latch withSelfTrace re-enters
+    // here and logs once per detector run for the life of the worker. sdkStarted
+    // stays false, so shutdown correctly has nothing to tear down.
+    tracingInactive = true;
+    console.error(
+      "[Detector] self-trace SDK initialization failed; self-trace emit disabled — " +
+        "detector runs cannot be correlated to traces:",
+      err,
+    );
+    return;
+  }
+  sdkStarted = true;
+  // Trace-id forcing lives on the provider the SDK registers, so it silently does
+  // nothing if another OTel provider registered first (OTel's register() returns
+  // false and logs rather than throwing) or if tracing is switched off. Either way
+  // runs get random trace ids and the run↔trace link this feature exists for is
+  // broken, so ask the SDK directly rather than inferring it from a probe span.
+  //
+  // NOTE: this reports whether the SDK's provider won global registration. Forcing
+  // ALSO needs internal mode, which the SDK enables off the internalExport passed
+  // above. Only the caller side of that coupling is pinned here (initialize() is
+  // asserted to receive internalExport); the SDK-side condition lives in another
+  // repo, so a change there would go unnoticed by these tests.
+  let tracingActive: boolean;
+  try {
+    tracingActive = TraceRoot.isTracingActive();
+  } catch (err) {
+    // Absent on an SDK predating the accessor. Latch rather than retry: an SDK that
+    // old may not support forcing either, and without latching every run would
+    // re-enter initialization and log twice for the life of the process.
+    tracingInactive = true;
+    console.error(
+      "[Detector] self-trace guard unavailable (SDK too old?); self-trace emit " +
+        "disabled — detector runs cannot be correlated to traces:",
+      err,
+    );
+    return;
+  }
+  if (!tracingActive) {
+    tracingInactive = true;
+    console.error(
+      "[Detector] tracing is not active (another OpenTelemetry provider may have " +
+        "been registered first, or tracing is disabled); self-trace emit disabled — " +
+        "detector runs cannot be correlated to traces",
+    );
+    return;
+  }
   initialized = true;
   console.log("[Detector] self-trace emitter initialized (internal export)");
 }
@@ -122,7 +185,14 @@ export async function withSelfTrace<T>(
   try {
     if (!initialized) initSelfTraceEmitter();
   } catch (err) {
-    console.error("[Detector] self-trace init failed:", err);
+    // Belt-and-braces: initSelfTraceEmitter catches both fallible SDK calls itself, so
+    // nothing left in it can throw. Latch anyway — if a future change reintroduces a
+    // throwing path, an unlatched catch here would log once per detector run forever,
+    // which is the failure mode the latches inside exist to prevent. Guarded on
+    // !initialized so a throw from a future line placed after initialization succeeded
+    // can't latch a working pipeline into "disabled" while it keeps tracing.
+    if (!initialized) tracingInactive = true;
+    console.error("[Detector] self-trace init failed; self-trace emit disabled:", err);
   }
   if (!initialized) return runPlain(fn);
 
@@ -208,7 +278,8 @@ export async function withSelfTrace<T>(
  * rejects on export failure by contract).
  */
 export async function shutdownSelfTraceEmitter(): Promise<void> {
-  if (!initialized) return;
+  if (!sdkStarted) return;
+  sdkStarted = false;
   initialized = false;
   try {
     await TraceRoot.flush();

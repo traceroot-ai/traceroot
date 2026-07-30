@@ -98,22 +98,23 @@ class TestPublicPathAntiSpoof:
             TRACE_HEX,
             SPAN_HEX,
             attributes=[
-                make_attr("traceroot.source", "detector"),  # hide from lists/metering
+                make_attr("traceroot.source", "detector"),  # hide from the tenant's own lists
                 make_attr("traceroot.project_id", "victim-project"),  # reroute
                 make_attr("legit.attr", "keep-me"),
             ],
         )
         return make_otel_payload([span])
 
-    def test_spoofed_source_is_coerced_to_user(self):
-        """The public path calls the transform with trust_source=False, so a
-        customer-supplied traceroot.source=detector can never classify traffic
-        as detector-sourced (which would hide it from lists and metering)."""
+    def test_spoofed_source_never_reaches_the_record(self):
+        """A customer-supplied traceroot.source=detector is ignored outright, so it cannot
+        classify traffic as internal — which would hide it from that tenant's own lists and
+        inject it into a surface presented as internal telemetry. Metering is unaffected
+        either way: it counts every stored row. The insert writes the 'user' default."""
         traces, spans = transform_otel_to_clickhouse(
             self._spoofed_payload(), project_id="caller-project"
         )
-        assert spans and all(s["source"] == "user" for s in spans)
-        assert traces and all(t["source"] == "user" for t in traces)
+        assert spans and not any("source" in s for s in spans)
+        assert traces and not any("source" in t for t in traces)
 
     def test_spoofed_project_id_does_not_reroute(self):
         """traceroot.project_id is not a routing input on the public transform
