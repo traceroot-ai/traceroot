@@ -64,7 +64,7 @@ vi.mock("@/components/ui/resizable", () => ({
   ResizableHandle: () => null,
 }));
 
-import { ApiError } from "@/lib/api/client";
+import { ApiError } from "@/lib/api/errors";
 import { TraceViewerPanel } from "./TraceViewerPanel";
 
 function renderPanel(
