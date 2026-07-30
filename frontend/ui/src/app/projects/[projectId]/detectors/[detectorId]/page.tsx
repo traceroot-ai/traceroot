@@ -271,6 +271,7 @@ export default function DetectorDetailPage() {
           autoOpenRca={selectedTrace.kind === "original"}
           initialFullscreen={startFullscreen}
           newTabPath={`/projects/${projectId}/detectors/${detectorId}`}
+          source={selectedTrace.kind === "self" ? "detector" : "user"}
         />
       )}
 
