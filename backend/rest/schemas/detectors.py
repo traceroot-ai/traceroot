@@ -18,6 +18,8 @@ class RunItem(BaseModel):
     status: str
     timestamp: datetime
     summary: str
+    # False for rows written before the flag existed (reads default it).
+    self_traced: bool = False
 
 
 class RunListResponse(BaseModel):
