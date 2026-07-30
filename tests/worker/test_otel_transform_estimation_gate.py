@@ -8,8 +8,10 @@ Estimating tokens from a wrapper's text fabricates a duplicate of usage its LLM
 children already report, silently doubling per-trace token totals and cost.
 
 The estimation fallback must therefore fire only for spans classified as LLM.
-API-provided token counts are unaffected: they are trusted on any span kind, because
-some instrumentors legitimately report usage at the wrapper level.
+API-provided token counts are trusted on any span kind — some instrumentors
+legitimately report usage at the wrapper level — except on spans whose semconv
+operation name marks them as aggregates of their descendants, which are excluded
+from both estimation and adoption (see TestAggregateUsageSpans).
 
 Estimation tests use Claude model names: their token estimate is a deterministic,
 offline `len(text) // 4`, so the tests never depend on tiktoken downloads or pricing DB.

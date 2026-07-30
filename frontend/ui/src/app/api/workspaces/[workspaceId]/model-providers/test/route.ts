@@ -11,7 +11,7 @@ import {
 // baseUrl — that accepts the socket but never responds would otherwise leave
 // this handler hanging. `withTimeout` keeps the deadline armed across the whole
 // provider check (including the error-body reads below).
-import { withTimeout } from "./timeout";
+import { TimeoutError, withTimeout } from "./timeout";
 
 const ADAPTER_VALUES = [
   LLMAdapter.OPENAI,
@@ -47,8 +47,14 @@ type RouteParams = { params: Promise<{ workspaceId: string }> };
 // timeout; a merely unparseable/empty body falls back to the HTTP status line.
 async function readErrorMessage(res: Response, signal: AbortSignal): Promise<string | undefined> {
   try {
-    const body = (await res.json()) as { error?: { message?: unknown } };
-    return body?.error?.message ? String(body.error.message) : undefined;
+    const body = (await res.json()) as { error?: { message?: unknown } | string };
+    if (body?.error && typeof body.error === "object" && "message" in body.error) {
+      return body.error.message ? String(body.error.message) : undefined;
+    }
+    if (typeof body?.error === "string") {
+      return body.error;
+    }
+    return undefined;
   } catch (err) {
     if (signal.aborted) throw err;
     return undefined;
@@ -60,13 +66,41 @@ async function readErrorMessage(res: Response, signal: AbortSignal): Promise<str
 async function checkEndpoint(
   url: string,
   headers: Record<string, string>,
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true } | { ok: false; error: string; detail?: string }> {
   return withTimeout(async (signal) => {
     const res = await fetch(url, { headers, signal });
     if (res.ok) return { ok: true as const };
+
+    // Check status before reading the body — 401/403 never need the provider's message.
+    if (res.status === 401) {
+      return { ok: false as const, error: "Invalid API key" };
+    }
+    if (res.status === 403) {
+      return { ok: false as const, error: "API lacks permission" };
+    }
+
     const message = await readErrorMessage(res, signal);
-    return { ok: false as const, error: message ?? `HTTP ${res.status}: ${res.statusText}` };
+    const isGoogleInvalidKey = /api key not valid/i.test(message ?? "");
+
+    let normalizedError: string;
+    let errorDetail: string | undefined;
+    if (res.status === 400 && isGoogleInvalidKey) {
+      // Google's machine-readable API_KEY_INVALID lives in error.details[].reason, which
+      // readErrorMessage does not surface — so match the prose in error.message instead.
+      normalizedError = "Invalid API key";
+    } else if (res.status === 400 && message && /incorrect api key/i.test(message)) {
+      // xAI returns 400 with a plain-string error mentioning "Incorrect API key".
+      normalizedError = "Invalid API key";
+    } else {
+      normalizedError = "Connection failed";
+      errorDetail = message ?? `HTTP ${res.status}: ${res.statusText}`;
+    }
+    return { ok: false as const, error: normalizedError, detail: errorDetail };
   });
+}
+
+function adapterBaseUrl(adapter: string, baseUrl?: string): string {
+  return (baseUrl || ADAPTER_DEFAULT_BASE_URL[adapter]).replace(/\/$/, "");
 }
 
 // POST /api/workspaces/[workspaceId]/model-providers/test
@@ -113,19 +147,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
     switch (adapter) {
       case "openai": {
-        const url = baseUrl
-          ? `${baseUrl.replace(/\/$/, "")}/v1/models`
-          : "https://api.openai.com/v1/models";
+        const openaiBase = adapterBaseUrl(adapter, baseUrl);
+        const url = `${openaiBase}/models`;
         const check = await checkEndpoint(url, { Authorization: `Bearer ${apiKey}` });
-        if (!check.ok) return successResponse({ success: false, error: check.error });
+        if (!check.ok)
+          return successResponse({ success: false, error: check.error, detail: check.detail });
         break;
       }
 
       case "anthropic": {
         // Anthropic has no list-models endpoint; a minimal message call only
         // distinguishes an invalid key (401) from a reachable provider.
+        const anthropicBase = adapterBaseUrl(adapter, baseUrl);
         const check = await withTimeout(async (signal) => {
-          const res = await fetch("https://api.anthropic.com/v1/messages", {
+          const res = await fetch(`${anthropicBase}/v1/messages`, {
             method: "POST",
             headers: {
               "x-api-key": apiKey || "",
@@ -139,20 +174,22 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             }),
             signal,
           });
-          if (res.ok || res.status !== 401) return { invalid: false as const };
-          const message = await readErrorMessage(res, signal);
-          return { invalid: true as const, error: message ?? "Invalid API key" };
+          if (res.ok) return { invalid: false as const };
+          if (res.status === 401) return { invalid: true as const, error: "Invalid API key" };
+          if (res.status === 403) return { invalid: true as const, error: "API lacks permission" };
+          return { invalid: false as const };
         });
         if (check.invalid) return successResponse({ success: false, error: check.error });
         break;
       }
 
       case "google": {
-        const check = await checkEndpoint(
-          "https://generativelanguage.googleapis.com/v1beta/models",
-          { "x-goog-api-key": apiKey || "" },
-        );
-        if (!check.ok) return successResponse({ success: false, error: check.error });
+        const googleBase = adapterBaseUrl(adapter, baseUrl);
+        const check = await checkEndpoint(`${googleBase}/models`, {
+          "x-goog-api-key": apiKey || "",
+        });
+        if (!check.ok)
+          return successResponse({ success: false, error: check.error, detail: check.detail });
         break;
       }
 
@@ -164,11 +201,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           });
         }
         const apiVersion = "2024-06-01";
-        const check = await checkEndpoint(
-          `${baseUrl.replace(/\/$/, "")}/models?api-version=${apiVersion}`,
-          { "api-key": apiKey || "" },
-        );
-        if (!check.ok) return successResponse({ success: false, error: check.error });
+        const azureBase = adapterBaseUrl(adapter, baseUrl);
+        const check = await checkEndpoint(`${azureBase}/models?api-version=${apiVersion}`, {
+          "api-key": apiKey || "",
+        });
+        if (!check.ok)
+          return successResponse({ success: false, error: check.error, detail: check.detail });
         break;
       }
 
@@ -195,55 +233,68 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
 
       case "deepseek": {
-        const deepseekBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.deepseek;
-        const check = await checkEndpoint(`${deepseekBase.replace(/\/$/, "")}/models`, {
+        const deepseekBase = adapterBaseUrl(adapter, baseUrl);
+        const check = await checkEndpoint(`${deepseekBase}/models`, {
           Authorization: `Bearer ${apiKey}`,
         });
-        if (!check.ok) return successResponse({ success: false, error: check.error });
+        if (!check.ok)
+          return successResponse({ success: false, error: check.error, detail: check.detail });
         break;
       }
 
       case "openrouter": {
-        const check = await checkEndpoint("https://openrouter.ai/api/v1/models", {
+        const openrouterBase = adapterBaseUrl(adapter, baseUrl);
+        const check = await checkEndpoint(`${openrouterBase}/models`, {
           Authorization: `Bearer ${apiKey}`,
         });
-        if (!check.ok) return successResponse({ success: false, error: check.error });
+        if (!check.ok)
+          return successResponse({ success: false, error: check.error, detail: check.detail });
         break;
       }
 
       case "xai": {
-        const xaiBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.xai;
-        const check = await checkEndpoint(`${xaiBase.replace(/\/$/, "")}/models`, {
+        const xaiBase = adapterBaseUrl(adapter, baseUrl);
+        const check = await checkEndpoint(`${xaiBase}/models`, {
           Authorization: `Bearer ${apiKey}`,
         });
-        if (!check.ok) return successResponse({ success: false, error: check.error });
+        if (!check.ok)
+          return successResponse({ success: false, error: check.error, detail: check.detail });
         break;
       }
 
       case "moonshot": {
-        const moonshotBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.moonshot;
-        const check = await checkEndpoint(`${moonshotBase.replace(/\/$/, "")}/models`, {
+        const moonshotBase = adapterBaseUrl(adapter, baseUrl);
+        const check = await checkEndpoint(`${moonshotBase}/models`, {
           Authorization: `Bearer ${apiKey}`,
         });
-        if (!check.ok) return successResponse({ success: false, error: check.error });
+        if (!check.ok)
+          return successResponse({ success: false, error: check.error, detail: check.detail });
         break;
       }
 
       case "zai": {
-        const zaiBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.zai;
-        const check = await checkEndpoint(`${zaiBase.replace(/\/$/, "")}/models`, {
+        const zaiBase = adapterBaseUrl(adapter, baseUrl);
+        const check = await checkEndpoint(`${zaiBase}/models`, {
           Authorization: `Bearer ${apiKey}`,
         });
-        if (!check.ok) return successResponse({ success: false, error: check.error });
+        if (!check.ok)
+          return successResponse({ success: false, error: check.error, detail: check.detail });
         break;
       }
     }
 
     return successResponse({ success: true });
   } catch (err) {
+    // A timeout message stands on its own as a headline. Transport failures
+    // ("fetch failed", "ECONNREFUSED") are raw runtime text, so they belong in
+    // the detail line under a normalized headline.
+    if (err instanceof TimeoutError) {
+      return successResponse({ success: false, error: err.message });
+    }
     return successResponse({
       success: false,
-      error: err instanceof Error ? err.message : "Connection failed",
+      error: "Connection failed",
+      detail: err instanceof Error ? err.message : undefined,
     });
   }
 }
