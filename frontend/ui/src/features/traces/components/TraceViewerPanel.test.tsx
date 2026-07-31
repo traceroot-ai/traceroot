@@ -260,6 +260,9 @@ describe("TraceViewerPanel detection indicator", () => {
     mocks.detection = { state: "sampled_out", detectorIds: [] };
     renderPanel();
     expect(screen.queryByText("Detecting…")).toBeNull();
+  });
+});
+
 describe("source-scoped fetch", () => {
   it("threads source into the queryKey and the getTrace call", async () => {
     renderPanel({ source: "detector" });
