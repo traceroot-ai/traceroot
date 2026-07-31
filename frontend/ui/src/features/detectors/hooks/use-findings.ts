@@ -123,6 +123,21 @@ export interface BackendRun {
    * fired); absent = enrichment unavailable or the run never triggered.
    */
   rca_status?: "pending" | "running" | "done" | "failed" | null;
+  /**
+   * True when the worker emitted a self-trace for this run (trace_id = run_id);
+   * gates the runs-tab link to the run's own trace. Optional for back-compat
+   * with reads from an un-migrated backend, which imply false.
+   */
+  self_traced?: boolean;
+}
+
+/**
+ * A run's self-trace id is its dashless run_id (trace_id = run_id by
+ * construction on the emit side). One shared helper so every self-trace
+ * opener and matcher derives the id the same way.
+ */
+export function selfTraceId(run: Pick<BackendRun, "run_id">): string {
+  return run.run_id.replaceAll("-", "");
 }
 
 export interface RunsQuery {

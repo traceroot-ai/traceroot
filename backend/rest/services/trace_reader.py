@@ -38,6 +38,35 @@ DISTINCT_VALUES_CACHE_MAX = 256
 # open-ended custom ranges. Matches the UI's own default preset ("Last 24 hours").
 DEFAULT_SPAN_SCAN_LOOKBACK_HOURS = 24
 
+# Markers stored in spans.source / traces.source. Customer traffic carries 'user' (the
+# column's DEFAULT); internal telemetry carries a marker of its own.
+USER_SOURCE = "user"
+DETECTOR_SOURCE = "detector"
+
+
+def customer_traffic_only(alias: str = "") -> str:
+    """WHERE condition restricting a spans/traces scan to customer traffic.
+
+    Single definition of the rule: every customer-facing read that scans spans or traces
+    calls this rather than spelling the comparison out, so a new surface can't quietly
+    ship without it.
+
+    Asserts ``source = 'user'`` rather than ``!= 'detector'`` deliberately. The
+    inequality is fail-open — a second internal marker (an RCA or assistant self-trace,
+    say) would pass it and leak into customer lists, sessions and dropdowns until every
+    call site was revisited. Naming the one value that IS customer traffic excludes any
+    future internal marker the day it is introduced.
+
+    Args:
+        alias (str): Table alias qualifying the column (e.g. ``"t"``), or ``""`` when the
+            scan is unaliased.
+
+    Returns:
+        str: A WHERE-clause condition.
+    """
+    column = f"{alias}.source" if alias else "source"
+    return f"{column} = '{USER_SOURCE}'"
+
 
 def _floor_minute(dt: datetime | None) -> datetime | None:
     """Truncate a datetime to the whole minute (for the distinct-values cache key)."""
@@ -250,7 +279,9 @@ class TraceReaderService:
             return cached[1]
 
         params: dict = {"project_id": project_id}
-        inner_conditions = ["project_id = {project_id:String}"]
+        # Detector self-traces carry their own model/environment/name values; excluding
+        # them keeps internal telemetry out of the customer's filter dropdown options.
+        inner_conditions = ["project_id = {project_id:String}", customer_traffic_only()]
         if normalized_start is not None:
             # Exact bound, no lookback back-off: this is a self-contained window scan with
             # no trace-level semi-join, so the boundary-drift false-negative reasoning that
@@ -366,6 +397,9 @@ class TraceReaderService:
 
         # Build WHERE conditions
         conditions = ["t.project_id = {project_id:String}"]
+        # Detector self-traces are internal telemetry; the customer trace list
+        # (data AND count, via the shared where_clause) never shows them.
+        conditions.append(customer_traffic_only("t"))
         params = {"project_id": project_id, "limit": limit, "offset": offset}
 
         if name:
@@ -517,7 +551,7 @@ class TraceReaderService:
             "meta": {"page": page, "limit": limit, "total": total},
         }
 
-    def get_trace(self, project_id: str, trace_id: str) -> dict | None:
+    def get_trace(self, project_id: str, trace_id: str, source: str | None = None) -> dict | None:
         """Get single trace with span skeletons (no per-span I/O).
 
         Returns trace metadata plus lightweight span skeletons that omit the
@@ -537,16 +571,49 @@ class TraceReaderService:
 
         Trace-level input/output/metadata (on the trace row) are kept: they're
         small and already present.
+
+        Args:
+            project_id (str): Project that owns the trace.
+            trace_id (str): Trace to fetch.
+            source (str | None): "detector" restricts the read to self-traces.
+                Anything else — including None — restricts it to customer
+                traffic; reading internal telemetry is opt-in, never a default.
+
+        Returns:
+            dict | None: The trace with span skeletons, or None when no row
+                matches the id and the resolved source scope.
         """
+        # Fixed internal predicate (never user input), interpolated into both
+        # queries — same whitelist pattern as the IO column projection.
+        #
+        # There is deliberately no unscoped branch. A self-trace's id is the dashless
+        # detector run id, which the runs surface shows the customer, so an unscoped
+        # by-id read is directly reachable: it would serve internal telemetry (detector
+        # prompt, judge transcript) from the public trace endpoint and its export, for a
+        # trace the public list already hides. Defaulting to customer traffic means a
+        # caller has to opt in to internal telemetry rather than opt out of it.
+        #
+        # This gates the trace and its span skeletons only. The on-demand span-I/O
+        # readers below and the live SSE route are still source-agnostic; they are
+        # reached through a trace this predicate already resolved, so they are not a
+        # way in, but they are not themselves scoped — don't read this comment as
+        # covering every span read in the file.
+        if source == DETECTOR_SOURCE:
+            source_condition = f"source = '{DETECTOR_SOURCE}'"
+        else:
+            source_condition = customer_traffic_only()
+        source_predicate = f"AND {source_condition}"
+
         # Fetch trace
         # Dedup the ReplacingMergeTree row without FINAL: keep the latest version
         # of this trace_id.
-        trace_query = """
+        trace_query = f"""
             SELECT
                 trace_id, project_id, name, trace_start_time,
                 user_id, session_id, git_ref, git_repo, input, output, metadata
             FROM traces
-            WHERE project_id = {project_id:String} AND trace_id = {trace_id:String}
+            WHERE project_id = {{project_id:String}} AND trace_id = {{trace_id:String}}
+            {source_predicate}
             ORDER BY ch_update_time DESC
             LIMIT 1 BY trace_id
         """
@@ -578,6 +645,10 @@ class TraceReaderService:
         spans_conditions = [
             "project_id = {project_id:String}",
             "trace_id = {trace_id:String}",
+            # Unconditional: both branches above resolve to a predicate, so there is no
+            # unscoped state to guard for. A truthiness check here would read as though
+            # one still existed.
+            source_condition,
         ]
         spans_params = {"project_id": project_id, "trace_id": trace_id}
         if trace["trace_start_time"] is not None:
@@ -786,6 +857,8 @@ class TraceReaderService:
         # Build WHERE conditions on the traces table
         conditions = [
             "t.project_id = {project_id:String}",
+            # Self-traces would otherwise inflate session counts and token/cost totals.
+            customer_traffic_only("t"),
             "t.session_id IS NOT NULL",
             "t.session_id != ''",
         ]
@@ -920,19 +993,20 @@ class TraceReaderService:
             # (latest per trace), then dedup only the spans in those traces
             # (scoped via the trace_id IN subquery so we never dedup the whole
             # project), then join + aggregate.
-            span_io_query = """
+            span_io_query = f"""
                 WITH session_traces AS (
                     SELECT t.session_id, t.trace_id, t.project_id
                     FROM traces AS t
-                    WHERE t.project_id = {project_id:String}
-                      AND t.session_id IN ({session_ids:Array(String)})
+                    WHERE t.project_id = {{project_id:String}}
+                      AND {customer_traffic_only("t")}
+                      AND t.session_id IN ({{session_ids:Array(String)}})
                     ORDER BY t.ch_update_time DESC
                     LIMIT 1 BY t.project_id, t.trace_id
                 ),
                 spans_dedup AS (
                     SELECT trace_id, project_id, input, output, span_start_time, span_end_time
                     FROM spans
-                    WHERE project_id = {project_id:String}
+                    WHERE project_id = {{project_id:String}}
                       AND trace_id IN (SELECT trace_id FROM session_traces)
                     ORDER BY ch_update_time DESC
                     LIMIT 1 BY span_id
@@ -944,7 +1018,7 @@ class TraceReaderService:
                 FROM session_traces AS st
                 JOIN spans_dedup AS s
                     ON st.trace_id = s.trace_id AND st.project_id = s.project_id
-                WHERE ((s.input != '' AND s.input != '{}') OR (s.output != '' AND s.output != '{}'))
+                WHERE ((s.input != '' AND s.input != '{{}}') OR (s.output != '' AND s.output != '{{}}'))
                 GROUP BY st.session_id
             """
             span_io_result = self._client.query(
@@ -989,6 +1063,8 @@ class TraceReaderService:
         # Build WHERE conditions
         conditions = [
             "t.project_id = {project_id:String}",
+            # Keep the conversation view consistent with the session list.
+            customer_traffic_only("t"),
             "t.session_id = {session_id:String}",
         ]
 
@@ -1169,6 +1245,8 @@ class TraceReaderService:
         # Build WHERE conditions
         conditions = [
             "t.project_id = {project_id:String}",
+            # A self-trace carrying a user_id would otherwise surface as a customer user.
+            customer_traffic_only("t"),
             "t.user_id IS NOT NULL",
             "t.user_id != ''",
         ]

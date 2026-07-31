@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { X, Copy, Check, ArrowUp, ArrowDown } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { useDetector, useUpdateDetector } from "../hooks/use-detectors";
+import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 import { DEFAULT_DETECTOR_SAMPLE_RATE } from "../templates";
 import { useProject } from "@/features/projects/hooks";
 import { TriggerEditor } from "./trigger-editor";
@@ -238,6 +239,7 @@ export function DetectorPanel({
                 value={editModelSelection}
                 onChange={setEditModelSelection}
                 workspaceId={workspaceId}
+                defaultModelId={DETECTOR_SYSTEM_DEFAULT_MODEL_ID}
               />
               <p className="mt-1 text-[11px] text-muted-foreground">
                 Used to evaluate each trace for this detector.

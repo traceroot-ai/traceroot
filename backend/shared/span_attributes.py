@@ -8,7 +8,8 @@ only when they end), and these attributes let the client synthesize the missing
 ancestors instead of pinning their children to the root as orphans.
 
 They reach the client through the span `metadata` column: the worker's
-`_KNOWN_ATTRIBUTE_PREFIXES` deliberately does NOT cover them, so they fall
+`_KNOWN_ATTRIBUTE_PREFIXES`/`_KNOWN_ATTRIBUTE_EXACT` deliberately do NOT cover
+them, so they fall
 through to the leftover-attribute bag that becomes `metadata` (see
 `worker/otel_transform.py`). Renaming one — or adding it to that prefix set —
 silently disables live-tree repair, so both sides reference these constants
