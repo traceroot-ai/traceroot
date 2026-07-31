@@ -410,6 +410,12 @@ export default function TracesPage() {
           customStartDate={state.customStartDate}
           customEndDate={state.customEndDate}
           initialFullscreen={startFullscreen}
+          // Customer surface, so state the scope explicitly rather than inheriting it:
+          // the reader already defaults to customer traffic, so this is defense in depth,
+          // and it also pins the trace-detail cache key this panel shares with the live
+          // SSE writer. Self-traces are reached from the detector runs surface, which
+          // asks for source="detector" explicitly.
+          source="user"
         />
       )}
 

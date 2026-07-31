@@ -13,18 +13,20 @@ import {
   SquareArrowOutUpRight,
   Loader2,
 } from "lucide-react";
-import { cn, buildUrlWithFilters } from "@/lib/utils";
+import { cn, buildUrlWithFilters, parseAsUTC } from "@/lib/utils";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { Button } from "@/components/ui/button";
 import { LoadingState } from "@/components/ui/loading-state";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { getTrace } from "@/lib/api";
+import { ApiError } from "@/lib/api/errors";
 import type { TraceSelection } from "../types";
 import { SpanTreeView, type SpanTreeViewHandle } from "./SpanTreeView";
 import { SpanInfoPanel } from "./SpanInfoPanel";
 import { useLayout } from "@/components/layout/app-layout";
 import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
 import { useTraceStream } from "../hooks/use-trace-stream";
+import { traceQueryKey } from "../hooks";
 import { SpanTimelineView } from "./SpanTimelineView";
 import { TREE_LAYOUT } from "../utils";
 import {
@@ -58,6 +60,40 @@ interface TraceViewerPanelProps {
    * detector tab.
    */
   newTabPath?: string;
+  /**
+   * Scope the trace fetch: "detector" opens a detector self-trace (excluded
+   * from normal reads), "user" excludes self-traces. Omit for no scoping.
+   */
+  source?: "detector" | "user";
+  /**
+   * ISO timestamp of the detector run being viewed. Bounds how long a missing
+   * self-trace still reads as "being recorded" — see
+   * SELF_TRACE_PENDING_WINDOW_MS. Omit when unknown.
+   */
+  runTimestamp?: string;
+}
+
+/**
+ * How long a detector self-trace may legitimately be missing. The SDK batches
+ * exports on a 5s delay with a 30s export timeout, so ~35s plus ingest lag is
+ * the worst case for a trace that is genuinely still on its way. Past this
+ * window a miss means the export failed for good, not that it is pending.
+ */
+const SELF_TRACE_PENDING_WINDOW_MS = 60_000;
+
+/**
+ * Whether a missing self-trace is still plausibly in flight. An unknown run
+ * time (absent or unparseable) stays "pending": not knowing when the run
+ * started is no evidence that its export failed.
+ */
+function isSelfTracePending(runTimestamp: string | undefined): boolean {
+  if (!runTimestamp) return true;
+  // parseAsUTC, not new Date(): the runs endpoint serializes a ClickHouse DateTime64
+  // with no timezone marker, and bare Date() would read that as local time — shifting
+  // the window by the viewer's offset and accusing a healthy in-flight export of
+  // having failed everywhere east of UTC.
+  const startedAt = parseAsUTC(runTimestamp).getTime();
+  return Number.isNaN(startedAt) || Date.now() - startedAt < SELF_TRACE_PENDING_WINDOW_MS;
 }
 
 /**
@@ -86,6 +122,8 @@ export function TraceViewerPanel({
   autoOpenRca,
   initialFullscreen,
   newTabPath,
+  source,
+  runTimestamp,
 }: TraceViewerPanelProps) {
   const [selection, setSelection] = useState<TraceSelection>({ type: "trace" });
   const [viewMode, setViewMode] = useState<"tree" | "timeline" | "detectors">("tree");
@@ -155,11 +193,12 @@ export function TraceViewerPanel({
     isLoading,
     error,
   } = useQuery({
-    queryKey: ["trace", projectId, traceId],
-    queryFn: () => getTrace(projectId, traceId, ""),
+    queryKey: traceQueryKey(projectId, traceId, source),
+    queryFn: () => getTrace(projectId, traceId, "", undefined, source),
   });
 
-  useTraceStream(projectId, traceId, true);
+  // source must match the query key above, or SSE span merging silently no-ops.
+  useTraceStream(projectId, traceId, true, source);
 
   // Reset when navigating to a different trace
   useEffect(() => {
@@ -317,7 +356,13 @@ export function TraceViewerPanel({
                     dateFilter,
                     customStartDate,
                     customEndDate,
-                    extraParams: { traceId, fullscreen: "1" },
+                    // A self-trace's id matches no list row's trace_id, so the
+                    // receiving page needs the source to reopen it as a
+                    // self-trace instead of looking it up as an original.
+                    extraParams:
+                      source === "detector"
+                        ? { traceId, fullscreen: "1", source }
+                        : { traceId, fullscreen: "1" },
                   }),
                   "_blank",
                 )
@@ -462,7 +507,29 @@ export function TraceViewerPanel({
                     />
                   ) : error || !trace ? (
                     <div className="flex h-full items-center justify-center">
-                      <p className="text-sm text-destructive">Error loading trace</p>
+                      {source === "detector" &&
+                      (!error || (error instanceof ApiError && error.status === 404)) ? (
+                        // self_traced is set optimistically at emit time, but the
+                        // SDK export is batched — the trace may not be ingested
+                        // yet, so a 404 miss here is expected, not an error. A
+                        // non-404 failure still surfaces as a real error below.
+                        // Once the export window has passed, the stamp is stale:
+                        // the export failed and nothing will arrive, so say so
+                        // instead of telling the user to keep waiting.
+                        isSelfTracePending(runTimestamp) ? (
+                          <p className="text-sm text-muted-foreground">
+                            This detector run&rsquo;s trace is still being recorded. Check back in a
+                            moment.
+                          </p>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">
+                            No trace was recorded for this run — the self-trace export didn&rsquo;t
+                            reach the backend.
+                          </p>
+                        )
+                      ) : (
+                        <p className="text-sm text-destructive">Error loading trace</p>
+                      )}
                     </div>
                   ) : viewMode === "tree" ? (
                     <SpanInfoPanel

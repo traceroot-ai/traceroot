@@ -4,21 +4,14 @@
 import { authClient } from "@/lib/auth-client";
 import { clientEnv } from "@/env.client";
 
+import { ApiError } from "./errors";
+
+// Re-export: the class lives in the dependency-free errors module, but most
+// callers already import it from the client — keep both paths working.
+export { ApiError };
+
 // Python backend URL for trace APIs only
 const TRACE_API_BASE = clientEnv.NEXT_PUBLIC_API_URL;
-
-export class ApiError extends Error {
-  status: number;
-  detail: unknown;
-
-  constructor(status: number, detail: unknown) {
-    const message = typeof detail === "string" ? detail : `API error: ${status}`;
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-    this.detail = detail;
-  }
-}
 
 /**
  * Fetch from Next.js API routes (no auth headers needed, uses cookies)

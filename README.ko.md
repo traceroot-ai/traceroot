@@ -3,7 +3,7 @@
     <img src="frontend/ui/public/images/traceroot_logo.png" alt="TraceRoot Logo">
   </a>
 
-[TraceRoot]("https://traceroot.ai/")는 AI 에이전트를 위한 오픈소스 옵저버빌리티 플랫폼입니다 — 트레이스 수집, 프로덕션 이슈 모니터링, 그리고 소스 코드 및 GitHub 히스토리를 이해하는 AI 기반 디버깅 기능을 제공합니다.
+[TraceRoot](https://traceroot.ai/)는 AI 에이전트를 위한 오픈소스 self-improving 레이어입니다 — 프로덕션에서 장애를 탐지하고, 소스 코드와 GitHub 히스토리를 바탕으로 root cause를 규명하며, 검증된 수정 PR을 생성하고, 모든 수정에 대해 eval을 실행하는 옵저버빌리티입니다. 릴리스를 거듭할수록 에이전트는 더 견고하고, 정확하고, 효율적으로 발전합니다.
 
   [![Y Combinator][y-combinator-image]][y-combinator-url]
   [![License][license-image]][license-url]
@@ -33,6 +33,7 @@
 | ------- | ----------- |
 | Detectors | LLM-as-a-Judge evaluator가 hallucination, 툴/로직 실패, 안전성 위반, intent drift를 모니터링합니다. 이상 징후를 탐지하고 이메일 및 Slack 알림과 함께 root cause analysis를 자동 수행합니다. |
 | Agentic Debugging | 모든 트레이스를 이해하는 AI가 프로덕션 소스 코드가 연결된 샌드박스에서 정확한 실패 지점을 식별하고, GitHub 커밋·PR·이슈와 연관 분석합니다. 모든 모델 프로바이더에 대해 BYOK를 지원합니다. |
+| Datasets & Evals | 프로덕션에서 발견된 문제를 클릭 한 번으로 golden dataset으로 전환합니다. Claude Code, Codex, Cursor 같은 코딩 에이전트 안에서 TraceRoot CLI 또는 SDK로 오프라인 eval을 실행해 모든 수정을 검증하고, 에이전트의 견고함과 성능을 체계적으로 개선합니다. |
 | Tracing | OpenTelemetry 호환 SDK를 통해 LLM 호출, 에이전트 액션, 툴 사용 내역을 수집합니다. 노이즈는 제거하고 중요한 시그널 중심으로 트레이스를 제공합니다. |
 
 ## Why TraceRoot?
@@ -41,9 +42,13 @@
 
   AI 에이전트 시스템이 복잡해질수록 모든 트레이스를 사람이 직접 분석하는 방식은 한계가 있습니다. TraceRoot의 Detectors는 유입되는 트레이스를 선별적으로 분석해 hallucination, 툴 실패, 로직 오류, 안전성 이슈를 자동으로 탐지합니다. 문제를 찾는 데 시간을 쓰는 대신, 문제를 해결하는 데 집중할 수 있습니다.
 
-- **AI 에이전트 디버깅은 어렵습니다.**
+- **프로덕션에서 AI 에이전트 시스템을 디버깅하는 일은 고통스럽습니다.**
 
   Hallucination, 툴 호출 불안정성, 버전 변경 등 다양한 원인으로 발생하는 장애의 root cause를 추적하는 일은 쉽지 않습니다. TraceRoot의 AI는 프로덕션 소스 코드가 실행되는 샌드박스에 연결되어 정확한 실패 지점을 식별하고, GitHub 커밋·PR·오픈 이슈와 교차 분석해 수정용 PR까지 생성합니다.
+
+- **에이전트 개선은 임기응변이 아니라 체계적이어야 합니다.**
+
+  대부분의 팀은 프로덕션 이슈를 디버깅하고 그냥 넘어갑니다 — 그 과정에서 얻은 교훈은 사라집니다. TraceRoot는 온라인과 오프라인 평가를 하나의 루프로 연결합니다. Detectors가 라이브 트래픽을 평가하고, 확인된 실패는 golden dataset이 되며, 오프라인 eval이 모든 수정을 검증합니다. 릴리스를 거듭할수록 에이전트는 측정 가능한 수준으로 더 견고해지고 성능이 향상됩니다 — 개선이 일회성 대응이 아닌 반복 가능한 프로세스가 됩니다.
 
 - **완전한 오픈소스. 벤더 락인 없음.**
 
