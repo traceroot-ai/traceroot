@@ -490,6 +490,14 @@ model Widget {
 // `currentVersionId` points at the latest published one.
 model Dataset {
   id               String   @id @default(cuid()) @db.VarChar
+  // The id the SDK chooses for this dataset (e.g. "regression", "default").
+  // It is deliberately NOT the primary key: as a PK it would put every tenant
+  // in one global keyspace, so any API key could squat a natural id ("prod",
+  // "eval") and permanently block every other project from creating it, and
+  // the create response would leak whether some tenant already owns that id.
+  // Scoping it to the project makes the keyspace per-tenant by construction;
+  // public-API lookups use `projectId_clientDatasetId`, never `id`.
+  clientDatasetId  String?  @map("client_dataset_id") @db.VarChar
   projectId        String   @map("project_id") @db.VarChar
   name             String   @db.VarChar
   description      String?  @db.Text
@@ -501,6 +509,7 @@ model Dataset {
   project  Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   versions DatasetVersion[]
 
+  @@unique([projectId, clientDatasetId], map: "uq_dataset_project_client_id")
   @@index([projectId], map: "ix_dataset_project_id")
   @@map("datasets")
 }
@@ -509,15 +518,15 @@ model Dataset {
 // publishes a new version; historical versions (and any run that pinned them)
 // are never rewritten.
 model DatasetVersion {
-  id            String   @id @default(cuid()) @db.VarChar
-  datasetId     String   @map("dataset_id") @db.VarChar
-  projectId     String   @map("project_id") @db.VarChar
-  versionNumber Int      @map("version_number") // 1-based
-  label         String   @db.VarChar // human label, e.g. "v12"
-  note          String?  @db.Text
-  createdBy     String?  @map("created_by") @db.VarChar
-  idempotencyKey String? @map("idempotency_key") @db.VarChar // SDK publish idempotency (A4)
-  createTime    DateTime @default(now()) @map("create_time") @db.Timestamp(6)
+  id             String   @id @default(cuid()) @db.VarChar
+  datasetId      String   @map("dataset_id") @db.VarChar
+  projectId      String   @map("project_id") @db.VarChar
+  versionNumber  Int      @map("version_number") // 1-based
+  label          String   @db.VarChar // human label, e.g. "v12"
+  note           String?  @db.Text
+  createdBy      String?  @map("created_by") @db.VarChar
+  idempotencyKey String?  @map("idempotency_key") @db.VarChar // SDK publish idempotency (A4)
+  createTime     DateTime @default(now()) @map("create_time") @db.Timestamp(6)
 
   dataset   Dataset         @relation(fields: [datasetId], references: [id], onDelete: Cascade)
   testCases TestCase[]
@@ -573,7 +582,12 @@ model Evaluation {
   project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   runs    EvaluationRun[]
 
-  @@index([projectId], map: "ix_evaluation_project_id")
+  // The lineage identity. Runs are grouped by it, so a duplicate would split an
+  // evaluation's history in two (run numbers restarting at 1, baselines no
+  // longer lining up). Concurrent registrations of the same name now collide
+  // with P2002 instead of both inserting. Leads with project_id, so it also
+  // serves the project-scoped list query.
+  @@unique([projectId, name], map: "uq_evaluation_project_name")
   @@index([datasetId], map: "ix_evaluation_dataset_id")
   @@map("evaluations")
 }
@@ -606,14 +620,29 @@ model EvaluationRun {
   updateTime       DateTime  @updatedAt @map("update_time") @db.Timestamp(6)
 
   evaluation     Evaluation         @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
-  datasetVersion DatasetVersion     @relation(fields: [datasetVersionId], references: [id])
+  // NoAction rather than the Prisma default (Restrict): both refuse a bare
+  // delete of a version a run pinned, but Restrict is non-deferrable in
+  // Postgres and fires before the rest of the statement settles. Deleting a
+  // project cascades into dataset_versions and evaluation_runs down two
+  // sibling branches of one statement, and under Restrict whether that
+  // succeeds depends on trigger ordering. NoAction is checked at end of
+  // statement, by which point the cascaded runs are gone, so project and
+  // workspace deletion succeed deterministically. Deleting a dataset that has
+  // been evaluated still fails (evaluations are not cascaded by dataset), so
+  // that handler must pre-check and answer 409 instead of surfacing a 500.
+  datasetVersion DatasetVersion     @relation(fields: [datasetVersionId], references: [id], onDelete: NoAction)
   baselineRun    EvaluationRun?     @relation("Baseline", fields: [baselineRunId], references: [id], onDelete: SetNull)
   baselinedBy    EvaluationRun[]    @relation("Baseline")
   results        EvaluationResult[]
 
   @@unique([evaluationId, clientRunId], map: "uq_run_client_run_id")
+  // runNumber is allocated server-side as max + 1 within the lineage; without
+  // this two concurrent registrations both read N and both insert N + 1,
+  // leaving two runs labelled "Run #N+1". Mirrors uq_dataset_version_number,
+  // turning the race into a retryable P2002. Leads with evaluation_id, so it
+  // also serves the per-evaluation run list.
+  @@unique([evaluationId, runNumber], map: "uq_run_evaluation_run_number")
   @@index([projectId], map: "ix_evaluation_run_project_id")
-  @@index([evaluationId], map: "ix_evaluation_run_evaluation_id")
   @@map("evaluation_runs")
 }
 
@@ -668,7 +697,13 @@ model Score {
 
   result EvaluationResult @relation(fields: [resultId], references: [id], onDelete: Cascade)
 
-  @@index([resultId], map: "ix_score_result_id")
+  // One row per scorer per result. Scores arrive incrementally (parallel
+  // scorers, delayed judges, client retries) and are merged read-then-write, so
+  // without this a duplicate slips in — and duplicates are aggregated rather
+  // than deduped by the scorer catalog, double-counting runs and skewing means.
+  // Lets the merge be a real upsert. Leads with result_id, so it also serves
+  // the per-result score fetch.
+  @@unique([resultId, scorerName, scorerVersion], map: "uq_score_result_scorer")
   @@index([projectId], map: "ix_score_project_id")
   @@map("scores")
 }

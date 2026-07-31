@@ -1,6 +1,7 @@
 -- CreateTable
 CREATE TABLE "datasets" (
     "id" VARCHAR NOT NULL,
+    "client_dataset_id" VARCHAR,
     "project_id" VARCHAR NOT NULL,
     "name" VARCHAR NOT NULL,
     "description" TEXT,
@@ -149,6 +150,10 @@ CREATE TABLE "human_scores" (
 -- CreateIndex
 CREATE INDEX "ix_dataset_project_id" ON "datasets"("project_id");
 
+-- CreateIndex: the SDK-chosen dataset id is unique per project, not globally,
+-- so tenants cannot squat each other's natural ids ("prod", "default", ...).
+CREATE UNIQUE INDEX "uq_dataset_project_client_id" ON "datasets"("project_id", "client_dataset_id");
+
 -- CreateIndex
 CREATE INDEX "ix_dataset_version_project_id" ON "dataset_versions"("project_id");
 
@@ -164,8 +169,10 @@ CREATE INDEX "ix_test_case_project_id" ON "test_cases"("project_id");
 -- CreateIndex
 CREATE INDEX "ix_test_case_source_trace_id" ON "test_cases"("source_trace_id");
 
--- CreateIndex
-CREATE INDEX "ix_evaluation_project_id" ON "evaluations"("project_id");
+-- CreateIndex: (project_id, name) is the evaluation lineage identity — a
+-- duplicate would split one evaluation's history into two. Also serves the
+-- project-scoped list query, so no separate project_id index is needed.
+CREATE UNIQUE INDEX "uq_evaluation_project_name" ON "evaluations"("project_id", "name");
 
 -- CreateIndex
 CREATE INDEX "ix_evaluation_dataset_id" ON "evaluations"("dataset_id");
@@ -174,10 +181,13 @@ CREATE INDEX "ix_evaluation_dataset_id" ON "evaluations"("dataset_id");
 CREATE INDEX "ix_evaluation_run_project_id" ON "evaluation_runs"("project_id");
 
 -- CreateIndex
-CREATE INDEX "ix_evaluation_run_evaluation_id" ON "evaluation_runs"("evaluation_id");
-
--- CreateIndex
 CREATE UNIQUE INDEX "uq_run_client_run_id" ON "evaluation_runs"("evaluation_id", "client_run_id");
+
+-- CreateIndex: run_number is allocated as max + 1 within the lineage; this
+-- turns a concurrent allocation into a retryable unique violation instead of
+-- two runs sharing a number. Leads with evaluation_id, so it also serves the
+-- per-evaluation run list.
+CREATE UNIQUE INDEX "uq_run_evaluation_run_number" ON "evaluation_runs"("evaluation_id", "run_number");
 
 -- CreateIndex
 CREATE INDEX "ix_evaluation_result_project_id" ON "evaluation_results"("project_id");
@@ -188,8 +198,10 @@ CREATE INDEX "ix_evaluation_result_trace_id" ON "evaluation_results"("trace_id")
 -- CreateIndex
 CREATE UNIQUE INDEX "uq_result_run_test_case" ON "evaluation_results"("run_id", "test_case_id");
 
--- CreateIndex
-CREATE INDEX "ix_score_result_id" ON "scores"("result_id");
+-- CreateIndex: one row per scorer per result — scores arrive incrementally and
+-- are merged, and duplicates would be aggregated rather than deduped. Leads
+-- with result_id, so it also serves the per-result score fetch.
+CREATE UNIQUE INDEX "uq_score_result_scorer" ON "scores"("result_id", "scorer_name", "scorer_version");
 
 -- CreateIndex
 CREATE INDEX "ix_score_project_id" ON "scores"("project_id");
@@ -215,8 +227,13 @@ ALTER TABLE "evaluations" ADD CONSTRAINT "evaluations_project_id_fkey" FOREIGN K
 -- AddForeignKey
 ALTER TABLE "evaluation_runs" ADD CONSTRAINT "evaluation_runs_evaluation_id_fkey" FOREIGN KEY ("evaluation_id") REFERENCES "evaluations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
--- AddForeignKey
-ALTER TABLE "evaluation_runs" ADD CONSTRAINT "evaluation_runs_dataset_version_id_fkey" FOREIGN KEY ("dataset_version_id") REFERENCES "dataset_versions"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+-- AddForeignKey: NO ACTION, not RESTRICT. Both refuse a bare delete of a
+-- version that a run pinned, but RESTRICT is non-deferrable in Postgres, so
+-- deleting a project — which cascades into dataset_versions and
+-- evaluation_runs down two sibling branches of the same statement — would
+-- succeed or fail depending on trigger ordering. NO ACTION is checked at end
+-- of statement, by which point the cascaded runs are gone.
+ALTER TABLE "evaluation_runs" ADD CONSTRAINT "evaluation_runs_dataset_version_id_fkey" FOREIGN KEY ("dataset_version_id") REFERENCES "dataset_versions"("id") ON DELETE NO ACTION ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "evaluation_runs" ADD CONSTRAINT "evaluation_runs_baseline_run_id_fkey" FOREIGN KEY ("baseline_run_id") REFERENCES "evaluation_runs"("id") ON DELETE SET NULL ON UPDATE CASCADE;
