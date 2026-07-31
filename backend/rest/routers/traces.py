@@ -2,6 +2,7 @@
 
 import logging
 from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 
@@ -19,6 +20,7 @@ from rest.rate_limit import (
     limiter,
     resolve_limit,
 )
+from rest.retention import clamp_retention_window, enforce_retention_by_time
 from rest.routers.deps import RateLimitedProjectAccess
 from rest.schemas.traces import (
     FilterFieldsResponse,
@@ -34,6 +36,25 @@ from rest.services.trace_reader import get_trace_reader_service
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/projects/{project_id}/traces", tags=["Traces"])
+
+
+@router.get("/exists")
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def traces_exist(
+    request: Request,
+    response: Response,
+    project_id: str,
+    _access: RateLimitedProjectAccess,
+):
+    """Check if a project has ever ingested traces (bypasses retention).
+
+    Returns a boolean — no trace data is exposed, so retention gating
+    is intentionally skipped. Used by the frontend onboarding probe.
+    """
+    service = get_trace_reader_service()
+    return {"exists": service.has_traces(project_id)}
 
 
 @router.get("", response_model=TraceListResponse)
@@ -61,6 +82,7 @@ async def list_traces(
     """List traces for a project with pagination and filtering."""
     # Parse + validate filters before the DB try-block so a bad predicate surfaces as a
     # 422 rather than being swallowed by the broad 500 handler below.
+    start_after, end_before = clamp_retention_window(_access.billing_plan, start_after, end_before)
     try:
         parsed_filters = parse_filters_param(filters)
     except ValueError as e:
@@ -166,6 +188,7 @@ async def get_filter_values(
         HTTPException: 404 if the field is not in the registry, 400 if it is not a
             distinct-query categorical.
     """
+    start_after, end_before = clamp_retention_window(_access.billing_plan, start_after, end_before)
     column = filter_columns.get_column(field)
     if column is None:
         raise HTTPException(
@@ -196,6 +219,12 @@ async def get_trace(
     trace_id: str,
     _access: RateLimitedProjectAccess,  # Validates access + sets rate-limit identity
     fields: str | None = Query(None, description=FIELDS_PARAM_DESC),
+    source: Literal["detector", "user"] | None = Query(
+        None,
+        description=(
+            "'detector' reads detector self-traces; omitted or 'user' reads customer traffic only"
+        ),
+    ),
 ):
     """Get a single trace for a project.
 
@@ -212,6 +241,10 @@ async def get_trace(
         fields (str | None): Comma-separated projection groups (e.g. ``io``,
             ``metadata``) or an alias (``skeleton``/``full``). ``None`` selects
             the default `skeleton` projection.
+        source (Literal["detector", "user"] | None): "detector" restricts the
+            read to detector self-traces. "user" and None both restrict it to
+            customer traffic — internal telemetry is opt-in, so omitting the
+            parameter never widens the read.
 
     Returns:
         TraceDetailResponse: The trace with span skeletons, plus per-span I/O
@@ -226,13 +259,15 @@ async def get_trace(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
     service = get_trace_reader_service()
-    trace = service.get_trace(project_id=project_id, trace_id=trace_id)
+    trace = service.get_trace(project_id=project_id, trace_id=trace_id, source=source)
 
     if not trace:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Trace not found",
         )
+
+    enforce_retention_by_time(_access.billing_plan, trace.get("trace_start_time"))
 
     hydrate_span_io(service, trace, project_id=project_id, trace_id=trace_id, groups=groups)
     return trace
@@ -253,6 +288,9 @@ async def get_span_io(
     """Get full input/output/metadata for a single span on demand."""
     service = get_trace_reader_service()
     try:
+        trace_start = service.get_trace_start_time(project_id, trace_id)
+        enforce_retention_by_time(_access.billing_plan, trace_start)
+
         result = service.get_span_io(
             project_id=project_id,
             trace_id=trace_id,

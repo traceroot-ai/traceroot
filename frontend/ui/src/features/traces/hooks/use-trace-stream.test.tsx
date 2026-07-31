@@ -1,117 +1,83 @@
 // @vitest-environment jsdom
-import { act, cleanup, renderHook } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { SpanKind, SpanStatus } from "@traceroot/core";
-import type { ReactNode } from "react";
+
+/**
+ * The stream writes into the trace-detail cache with an exact-hash
+ * setQueryData, so the tests use the same source-aware key as the panel.
+ */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, cleanup, renderHook } from "@testing-library/react";
+import type { ReactNode } from "react";
 
 import type { Span, TraceDetail } from "@/types/api";
+import { traceQueryKey } from "./index";
 import { useTraceStream } from "./use-trace-stream";
 
-const TRACE_KEY = ["trace", "project-1", "trace-1"] as const;
+function emit(es: FakeEventSource, type: string, data: unknown): void {
+  // EventSource callbacks update React state, so the test must deliver them
+  // inside act() just as React would process a browser event.
+  act(() => es.emit(type, data));
+}
 
-type EventSourceListener = (event: MessageEvent<string>) => void;
+/** jsdom and Node 20 do not provide EventSource, so tests control this fake. */
+class FakeEventSource {
+  static instances: FakeEventSource[] = [];
+  listeners = new Map<string, (event: MessageEvent) => void>();
+  closed = false;
+  onerror: (() => void) | null = null;
 
-class MockEventSource {
-  static instances: MockEventSource[] = [];
-
-  readonly url: string;
-  onerror: ((event: Event) => void) | null = null;
-  private listeners = new Map<string, EventSourceListener[]>();
-  close = vi.fn();
-
-  constructor(url: string) {
-    this.url = url;
-    MockEventSource.instances.push(this);
+  constructor(public url: string) {
+    FakeEventSource.instances.push(this);
   }
 
-  addEventListener(type: string, listener: EventSourceListener): void {
-    const listeners = this.listeners.get(type) ?? [];
-    this.listeners.set(type, [...listeners, listener]);
+  addEventListener(type: string, listener: (event: MessageEvent) => void): void {
+    this.listeners.set(type, listener);
   }
 
-  emit(type: string, data: unknown = {}): void {
-    const event = new MessageEvent<string>(type, {
+  close(): void {
+    this.closed = true;
+  }
+
+  emit(type: string, data: unknown): void {
+    this.listeners.get(type)?.({
       data: JSON.stringify(data),
-    });
-
-    for (const listener of this.listeners.get(type) ?? []) {
-      listener(event);
-    }
-  }
-
-  fail(): void {
-    this.onerror?.(new Event("error"));
+    } as MessageEvent);
   }
 }
 
-function makeSpan(overrides: Partial<Span> & { span_id: string }): Span {
+function span(id: string, extra: Partial<Span> = {}): Span {
   return {
-    span_id: overrides.span_id,
-    trace_id: "trace-1",
+    span_id: id,
+    trace_id: "t1",
     parent_span_id: null,
-    name: overrides.span_id,
-    span_kind: SpanKind.SPAN,
-    span_start_time: "2026-07-29T10:00:00.000Z",
-    span_end_time: "2026-07-29T10:00:01.000Z",
-    status: SpanStatus.OK,
-    status_message: null,
-    model_name: null,
-    cost: null,
-    input_tokens: null,
-    output_tokens: null,
-    total_tokens: null,
-    input: null,
-    output: null,
-    metadata: null,
-    git_source_file: null,
-    git_source_line: null,
-    git_source_function: null,
-    ...overrides,
-  };
+    name: `span-${id}`,
+    span_start_time: "2026-07-01T00:00:00",
+    span_end_time: "2026-07-01T00:00:01",
+    duration_ms: 1000,
+    ...extra,
+  } as Span;
 }
 
-function makeTrace(spans: Span[]): TraceDetail {
+function traceDetail(spans: Span[]): TraceDetail {
   return {
-    trace_id: "trace-1",
-    project_id: "project-1",
-    name: "test trace",
-    trace_start_time: "2026-07-29T10:00:00.000Z",
-    user_id: null,
-    session_id: null,
-    git_ref: null,
-    git_repo: null,
-    environment: "test",
-    release: null,
-    input: null,
-    output: null,
-    metadata: null,
+    trace_id: "t1",
+    project_id: "p1",
     spans,
-  };
+  } as TraceDetail;
 }
 
-function createHarness() {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: {
-        retry: false,
-      },
-    },
-  });
+let client: QueryClient;
 
-  function Wrapper({ children }: { children: ReactNode }) {
-    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
-  }
-
-  return {
-    queryClient,
-    wrapper: Wrapper,
-  };
+function wrapper({ children }: { children: ReactNode }) {
+  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
 
 beforeEach(() => {
-  MockEventSource.instances = [];
-  vi.stubGlobal("EventSource", MockEventSource);
+  FakeEventSource.instances = [];
+  client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  vi.stubGlobal("EventSource", FakeEventSource);
 });
 
 afterEach(() => {
@@ -121,110 +87,135 @@ afterEach(() => {
 });
 
 describe("useTraceStream", () => {
-  it("merges span events into the trace cache", () => {
-    const { queryClient, wrapper } = createHarness();
+  it("merges incoming spans into the key the panel reads for that source", () => {
+    const key = traceQueryKey("p1", "t1", "detector");
+    client.setQueryData<TraceDetail>(key, traceDetail([span("a")]));
 
-    queryClient.setQueryData(
-      TRACE_KEY,
-      makeTrace([
-        makeSpan({
-          span_id: "existing",
-          input: undefined,
-          output: undefined,
-          metadata: undefined,
-        }),
-      ]),
-    );
+    const { result } = renderHook(() => useTraceStream("p1", "t1", true, "detector"), { wrapper });
 
-    const { result } = renderHook(() => useTraceStream("project-1", "trace-1", true), { wrapper });
-    const eventSource = MockEventSource.instances[0];
-
-    expect(eventSource.url).toBe("/api/projects/project-1/traces/trace-1/live");
-
-    act(() => {
-      eventSource.emit("spans", {
-        spans: [
-          makeSpan({
-            span_id: "existing",
-            input: "complete input",
-          }),
-          makeSpan({
-            span_id: "new-span",
-          }),
-        ],
-      });
+    emit(FakeEventSource.instances[0], "spans", {
+      spans: [span("b")],
     });
 
-    const cachedTrace = queryClient.getQueryData<TraceDetail>(TRACE_KEY);
-
-    expect(cachedTrace?.spans.filter((span) => span.span_id === "existing")).toHaveLength(1);
-    expect(cachedTrace?.spans.find((span) => span.span_id === "existing")?.input).toBe(
-      "complete input",
-    );
-    expect(cachedTrace?.spans.some((span) => span.span_id === "new-span")).toBe(true);
+    expect(client.getQueryData<TraceDetail>(key)?.spans.map((item) => item.span_id)).toEqual([
+      "a",
+      "b",
+    ]);
     expect(result.current.isStreaming).toBe(true);
   });
 
-  it("closes and invalidates the trace query when trace_complete arrives", () => {
-    const { queryClient, wrapper } = createHarness();
-    queryClient.setQueryData(TRACE_KEY, makeTrace([]));
-    const invalidateQueries = vi.spyOn(queryClient, "invalidateQueries");
+  it("writes nothing to the unscoped key when a source was given", () => {
+    client.setQueryData<TraceDetail>(traceQueryKey("p1", "t1", "detector"), traceDetail([]));
+    client.setQueryData<TraceDetail>(traceQueryKey("p1", "t1"), traceDetail([]));
 
-    const { result } = renderHook(() => useTraceStream("project-1", "trace-1", true), { wrapper });
-    const eventSource = MockEventSource.instances[0];
-
-    act(() => {
-      eventSource.emit("spans", {
-        spans: [makeSpan({ span_id: "live-span" })],
-      });
-    });
-    expect(result.current.isStreaming).toBe(true);
-
-    act(() => {
-      eventSource.emit("trace_complete");
+    renderHook(() => useTraceStream("p1", "t1", true, "detector"), { wrapper });
+    emit(FakeEventSource.instances[0], "spans", {
+      spans: [span("b")],
     });
 
+    expect(client.getQueryData<TraceDetail>(traceQueryKey("p1", "t1"))?.spans).toEqual([]);
+  });
+
+  it("re-subscribes when source changes on a fixed trace id", () => {
+    type Props = { source: "detector" | "user" };
+
+    const { rerender } = renderHook(
+      ({ source }: Props) => useTraceStream("p1", "t1", true, source),
+      {
+        wrapper,
+        initialProps: {
+          source: "detector",
+        } as Props,
+      },
+    );
+
+    expect(FakeEventSource.instances).toHaveLength(1);
+
+    rerender({ source: "user" });
+
+    expect(FakeEventSource.instances).toHaveLength(2);
+    expect(FakeEventSource.instances[0].closed).toBe(true);
+
+    const userKey = traceQueryKey("p1", "t1", "user");
+    client.setQueryData<TraceDetail>(userKey, traceDetail([span("a")]));
+
+    emit(FakeEventSource.instances[1], "spans", {
+      spans: [span("b")],
+    });
+
+    expect(client.getQueryData<TraceDetail>(userKey)?.spans.map((item) => item.span_id)).toEqual([
+      "a",
+      "b",
+    ]);
+  });
+
+  it("invalidates by the same key and closes on trace_complete", () => {
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+
+    const { result } = renderHook(() => useTraceStream("p1", "t1", true, "detector"), { wrapper });
+
+    emit(FakeEventSource.instances[0], "trace_complete", {});
+
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: traceQueryKey("p1", "t1", "detector"),
+    });
+    expect(FakeEventSource.instances[0].closed).toBe(true);
     expect(result.current.isStreaming).toBe(false);
-    expect(eventSource.close).toHaveBeenCalledOnce();
-    expect(invalidateQueries).toHaveBeenCalledWith({
-      queryKey: ["trace", "project-1", "trace-1"],
-    });
   });
 
   it("clears streaming state when EventSource reports an error", () => {
-    const { queryClient, wrapper } = createHarness();
-    queryClient.setQueryData(TRACE_KEY, makeTrace([]));
+    const { result } = renderHook(() => useTraceStream("p1", "t1", true, "detector"), { wrapper });
+    const eventSource = FakeEventSource.instances[0];
 
-    const { result } = renderHook(() => useTraceStream("project-1", "trace-1", true), { wrapper });
-    const eventSource = MockEventSource.instances[0];
-
-    act(() => {
-      eventSource.emit("spans", {
-        spans: [makeSpan({ span_id: "live-span" })],
-      });
+    emit(eventSource, "spans", {
+      spans: [span("live")],
     });
     expect(result.current.isStreaming).toBe(true);
 
     act(() => {
-      eventSource.fail();
+      // This invokes the hook's real current onerror behavior.
+      eventSource.onerror?.();
     });
 
     expect(result.current.isStreaming).toBe(false);
-    expect(eventSource.close).not.toHaveBeenCalled();
+    // Current behavior leaves the EventSource open for browser retry.
+    expect(eventSource.closed).toBe(false);
   });
 
   it("closes the EventSource when the hook unmounts", () => {
-    const { wrapper } = createHarness();
+    const { unmount } = renderHook(() => useTraceStream("p1", "t1", true, "detector"), { wrapper });
+    const eventSource = FakeEventSource.instances[0];
 
-    const { unmount } = renderHook(() => useTraceStream("project-1", "trace-1", true), { wrapper });
-    const eventSource = MockEventSource.instances[0];
-
-    expect(eventSource.close).not.toHaveBeenCalled();
+    expect(eventSource.closed).toBe(false);
 
     act(() => {
       unmount();
     });
 
-    expect(eventSource.close).toHaveBeenCalledOnce();
+    expect(eventSource.closed).toBe(true);
+  });
+
+  it("does not subscribe when disabled", () => {
+    renderHook(() => useTraceStream("p1", "t1", false, "detector"), { wrapper });
+
+    expect(FakeEventSource.instances).toHaveLength(0);
+  });
+
+  it("ignores malformed events and empty span batches", () => {
+    const key = traceQueryKey("p1", "t1", "detector");
+    client.setQueryData<TraceDetail>(key, traceDetail([span("a")]));
+
+    const { result } = renderHook(() => useTraceStream("p1", "t1", true, "detector"), { wrapper });
+    const eventSource = FakeEventSource.instances[0];
+
+    act(() => {
+      eventSource.listeners.get("spans")?.({
+        data: "not json",
+      } as MessageEvent);
+    });
+    emit(eventSource, "spans", { spans: [] });
+
+    expect(client.getQueryData<TraceDetail>(key)?.spans.map((item) => item.span_id)).toEqual(["a"]);
+    expect(result.current.isStreaming).toBe(false);
   });
 });

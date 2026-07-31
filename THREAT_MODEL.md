@@ -9,7 +9,7 @@
 
 ## 1. What Are We Building?
 
-TraceRoot is an open-source observability and self-healing platform for AI agents. It captures LLM traces, filters signal from noise, and enables AI-assisted root cause analysis by connecting to a sandbox with production source code and GitHub history.
+TraceRoot is an open-source observability and self-improving platform for AI agents. It captures LLM traces, filters signal from noise, and enables AI-assisted root cause analysis by connecting to a sandbox with production source code and GitHub history.
 
 ### System Components
 

@@ -12,7 +12,7 @@ const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "TraceRoot",
-  description: "AI Observability Platform",
+  description: "Observability and self-improving layer for AI agents",
   icons: {
     icon: "/images/favicon.ico",
   },

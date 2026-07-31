@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
+import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 import { getTemplate } from "@/features/detectors/templates";
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   mutateAsync: vi.fn().mockResolvedValue({ id: "det-1" }),
+  selectorProps: null as Record<string, unknown> | null,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -22,7 +24,10 @@ vi.mock("@/features/projects/components", () => ({
   ProjectBreadcrumb: () => null,
 }));
 vi.mock("@/features/ai-assistant/components/model-selector", () => ({
-  ModelSelector: () => null,
+  ModelSelector: (props: Record<string, unknown>) => {
+    mocks.selectorProps = props;
+    return null;
+  },
 }));
 vi.mock("@/features/detectors/components/trigger-editor", () => ({
   TriggerEditor: () => null,
@@ -40,6 +45,7 @@ afterEach(() => {
   cleanup();
   mocks.mutateAsync.mockClear();
   mocks.push.mockClear();
+  mocks.selectorProps = null;
 });
 
 describe("NewDetectorPage", () => {
@@ -81,5 +87,10 @@ describe("NewDetectorPage", () => {
       prompt: "my prompt",
       template: "failure",
     });
+  });
+
+  it("renders the screening-model picker with a system-default model id (no auto-pick)", () => {
+    render(<NewDetectorPage />);
+    expect(mocks.selectorProps?.defaultModelId).toBe(DETECTOR_SYSTEM_DEFAULT_MODEL_ID);
   });
 });

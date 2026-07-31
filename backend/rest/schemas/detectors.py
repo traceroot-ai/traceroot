@@ -18,6 +18,8 @@ class RunItem(BaseModel):
     status: str
     timestamp: datetime
     summary: str
+    # False for rows written before the flag existed (reads default it).
+    self_traced: bool = False
 
 
 class RunListResponse(BaseModel):
@@ -37,6 +39,10 @@ class DetectorWindowSummary(BaseModel):
     # later (a SQL-only change) without touching this contract — and so the
     # digest gets its deep-link target without a second per-detector read.
     sample_trace_ids: list[str] = []
+    # Recent per-detector judge summaries (newest-first, capped in SQL), only
+    # populated when the request sets include_summaries=true. Feeds the digest
+    # LLM summary; empty otherwise.
+    sample_summaries: list[str] = []
 
 
 class DetectorWindowSummaryResponse(BaseModel):

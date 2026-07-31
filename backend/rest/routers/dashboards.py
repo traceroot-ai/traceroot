@@ -17,6 +17,7 @@ from rest.rate_limit import (
     limiter,
     resolve_limit,
 )
+from rest.retention import clamp_retention_window
 from rest.routers.deps import RateLimitedProjectAccess
 from rest.schemas.dashboards import WidgetQueryRequest, WidgetQueryResponse
 from rest.schemas.traces import FilterValuesResponse
@@ -86,6 +87,11 @@ async def get_widget_field_values(
             detail=f"Field '{field}' does not support distinct-value listing",
         )
 
+    # Retention gate: pull an out-of-window start up to the plan's cutoff so a
+    # widget can't enumerate values from data older than the plan allows
+    # (mirrors the list endpoints; unlimited plans pass through unchanged).
+    start_time, end_time = clamp_retention_window(_access.billing_plan, start_time, end_time)
+
     service = get_trace_reader_service()
     # String dims declare their expr as the bare physical column name on the
     # view's source table, so it feeds the distinct scan directly.
@@ -132,12 +138,18 @@ async def query_widget_data(
     _access: RateLimitedProjectAccess,  # Validates access + sets rate-limit identity
 ):
     """Execute a widget spec. Stateless: used by saved widgets and builder previews."""
+    # Retention gate: clamp the widget's start bound to the plan's cutoff before
+    # any ClickHouse scan, so aggregates can't reach past the retention window
+    # (mirrors the list endpoints; unlimited plans pass through unchanged).
+    start_time, end_time = clamp_retention_window(
+        _access.billing_plan, body.start_time, body.end_time
+    )
     try:
         return run_widget_query(
             spec=body.spec,
             project_id=project_id,
-            start_time=body.start_time,
-            end_time=body.end_time,
+            start_time=start_time,
+            end_time=end_time,
         )
     except WidgetSpecError as e:
         raise HTTPException(

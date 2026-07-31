@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 
 const prefetch = vi.fn();
+let searchParamsValue = "";
 let autoRefresh = false;
 vi.mock("@/features/traces/hooks", () => ({
   useTraces: () => ({
@@ -16,6 +17,7 @@ vi.mock("@/features/traces/hooks", () => ({
     error: null,
   }),
   usePrefetchTraces: () => prefetch,
+  useTracesExist: () => ({ data: { exists: true }, isPending: false }),
 }));
 vi.mock("@/lib/hooks/use-list-page-state", () => ({
   useListPageState: () => ({
@@ -43,7 +45,7 @@ vi.mock("@/lib/auth-client", () => ({
 }));
 vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "p1" }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(searchParamsValue),
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
 }));
 vi.mock("@/components/layout/app-layout", () => ({
@@ -51,7 +53,9 @@ vi.mock("@/components/layout/app-layout", () => ({
 }));
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
 vi.mock("@/features/traces/components", () => ({
-  TraceViewerPanel: () => null,
+  TraceViewerPanel: ({ traceId, source }: { traceId: string; source?: string }) => (
+    <div data-testid="trace-panel" data-trace-id={traceId} data-source={String(source)} />
+  ),
   GettingStarted: () => null,
 }));
 vi.mock("@/components/search-filter-bar", () => ({
@@ -91,5 +95,27 @@ describe("TracesPage prefetch wiring", () => {
     render(<TracesPage />, { wrapper: Wrapper });
     fireEvent.mouseEnter(screen.getByRole("button", { name: /next page/i }));
     expect(prefetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("TracesPage by-id scoping", () => {
+  afterEach(() => {
+    searchParamsValue = "";
+  });
+
+  it("scopes a URL-seeded traceId to customer traffic", () => {
+    // A self-trace id is just the dashless run id, visible in the detector runs table,
+    // so ?traceId=<run id> is trivially constructible. Without source="user" the by-id
+    // read is unscoped and would render internal telemetry on the customer surface.
+    searchParamsValue = "traceId=aaaaaaaabbbbccccddddeeeeeeeeeeee";
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <TracesPage />
+      </QueryClientProvider>,
+    );
+    const panel = screen.getByTestId("trace-panel");
+    expect(panel.getAttribute("data-trace-id")).toBe("aaaaaaaabbbbccccddddeeeeeeeeeeee");
+    expect(panel.getAttribute("data-source")).toBe("user");
   });
 });
