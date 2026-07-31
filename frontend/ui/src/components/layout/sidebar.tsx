@@ -4,7 +4,15 @@ import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
 import { useTheme } from "next-themes";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   LifeBuoy,
   ChevronRight,
@@ -14,6 +22,7 @@ import {
   Monitor,
   Settings,
   UserRoundSearch,
+  LogOut,
 } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
@@ -311,9 +320,10 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
           </Tooltip>
 
           {/* User menu */}
-          <Popover>
-            <PopoverTrigger asChild>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
               <button
+                aria-label="Account menu"
                 className={cn(
                   "flex w-full items-center gap-2 py-2 transition-colors hover:bg-muted/50",
                   collapsed ? "justify-center px-2" : "px-3",
@@ -331,8 +341,8 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                   </>
                 )}
               </button>
-            </PopoverTrigger>
-            <PopoverContent
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
               side="right"
               align="end"
               className="w-48 p-0"
@@ -352,62 +362,38 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
 
               <div className="h-px bg-border" />
 
-              {/* Theme selector with submenu */}
               <div className="p-1">
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <button className="flex w-full items-center justify-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent">
-                      <span>Theme</span>
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent side="right" align="start" className="w-28 p-1" sideOffset={4}>
-                    <button
-                      className={cn(
-                        "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors",
-                        theme === "light" ? "bg-accent" : "hover:bg-accent",
-                      )}
-                      onClick={() => setTheme("light")}
-                    >
-                      <span>Light</span>
-                      <Sun className="h-4 w-4" />
-                    </button>
-                    <button
-                      className={cn(
-                        "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors",
-                        theme === "dark" ? "bg-accent" : "hover:bg-accent",
-                      )}
-                      onClick={() => setTheme("dark")}
-                    >
-                      <span>Dark</span>
-                      <Moon className="h-4 w-4" />
-                    </button>
-                    <button
-                      className={cn(
-                        "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors",
-                        theme === "system" || !theme ? "bg-accent" : "hover:bg-accent",
-                      )}
-                      onClick={() => setTheme("system")}
-                    >
-                      <span>System</span>
-                      <Monitor className="h-4 w-4" />
-                    </button>
-                  </PopoverContent>
-                </Popover>
+                {/* Theme selector — inline, keyboard-navigable radio items */}
+                <DropdownMenuRadioGroup value={theme ?? "system"} onValueChange={setTheme}>
+                  <DropdownMenuRadioItem value="light" onSelect={(e) => e.preventDefault()}>
+                    <Sun className="h-4 w-4 text-muted-foreground" />
+                    Light
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="dark" onSelect={(e) => e.preventDefault()}>
+                    <Moon className="h-4 w-4 text-muted-foreground" />
+                    Dark
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="system" onSelect={(e) => e.preventDefault()}>
+                    <Monitor className="h-4 w-4 text-muted-foreground" />
+                    System
+                  </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
 
-                {/* Sign out */}
-                <button
-                  className="flex w-full items-center justify-center rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
-                  onClick={async () => {
+                <DropdownMenuSeparator />
+
+                <DropdownMenuItem
+                  className="text-red-600 focus:text-red-600"
+                  onSelect={async () => {
                     await authClient.signOut();
                     window.location.href = "/auth/sign-in";
                   }}
                 >
+                  <LogOut className="h-4 w-4" />
                   Log Out
-                </button>
+                </DropdownMenuItem>
               </div>
-            </PopoverContent>
-          </Popover>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     </TooltipProvider>
