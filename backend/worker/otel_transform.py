@@ -150,24 +150,59 @@ def first_present(attrs: dict[str, Any], keys: list[str]) -> Any:
     return None
 
 
+# Upper sanity bound per token field, shared by the manual-usage and instrumentor
+# paths. Sized by the tightest downstream column, which is `cost`, not the token
+# columns: every accepted count is priced into Decimal64(9) — Decimal(18,9), nine
+# integer digits, so strictly under $10^9 (the same ceiling `filters/translate.py`
+# derives for that type). Pricing multiplies a count by a per-token rate, and the
+# catalog's most expensive model is under 1e-3/token summed across its input,
+# cache, and output rates, so a bound of 10^9 prices to under $10^6 — three orders
+# inside the column, which keeps the guard correct no matter what rate a future
+# catalog row carries rather than resting on today's most expensive model. Any sum
+# of the fields stays far inside the Int64 token columns. 10^9 tokens is orders of
+# magnitude beyond any shipped context window, so nothing legitimate is near it.
+_MAX_PLAUSIBLE_TOKENS = 10**9
+
+
+def _usable_token_value(value: Any) -> bool:
+    """Check whether a token attribute will survive ``int_or_zero`` intact.
+
+    Single source of truth for "usable count", so the candidate-list scan and the
+    coercion cannot disagree about which values are worth taking.
+
+    Args:
+        value (Any): Raw OTEL attribute value.
+
+    Returns:
+        bool: True when the value parses to a non-negative int within the
+            plausible bound -- i.e. ``int_or_zero`` will return it unchanged.
+    """
+    if value is None or value == "" or isinstance(value, bool):
+        return False
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return False
+    return 0 <= parsed <= _MAX_PLAUSIBLE_TOKENS
+
+
 def first_present_number(attrs: dict[str, Any], keys: list[str]) -> Any:
     """Like ``first_present`` but for numeric token attributes: skip keys whose
     value is missing or malformed (empty / non-numeric) so a malformed
     high-priority attribute cannot suppress a valid lower-priority fallback.
 
-    Validity mirrors ``int_or_zero`` (the value must coerce via ``int``); a present
-    but unusable value is skipped rather than short-circuiting the candidate list.
+    Validity is exactly what ``int_or_zero`` will accept, via the shared
+    ``_usable_token_value`` predicate. The two must not drift: a value this
+    function returns but ``int_or_zero`` then drops to 0 gets the worst of both
+    behaviours -- the malformed attribute short-circuits the candidate list AND
+    resolves to nothing, so a perfectly good lower-priority fallback is never
+    reached and the span is stored with no usage at all.
+
     Returns the first usable value, or None if none qualify.
     """
     for key in keys:
-        value = attrs.get(key)
-        if value is None or value == "":
-            continue
-        try:
-            int(value)
-        except (TypeError, ValueError):
-            continue
-        return value
+        if _usable_token_value(attrs.get(key)):
+            return attrs.get(key)
     return None
 
 
@@ -177,14 +212,97 @@ def int_or_zero(value: Any) -> int:
     ``first_present`` returns falsy-but-present values (e.g. an empty string for
     an attribute that exists with a non-numeric value), so guard the cast — a
     single malformed attribute must not crash ingestion of the whole batch.
+
+    Bounded by the same limit as the manual-usage path, and an over-bound value is
+    dropped to 0 rather than clamped (see below): these values are summed into
+    ``total_tokens`` (Int64) and priced into ``cost`` (Decimal(18,9)), so an
+    unbounded per-field value overflows the column and ClickHouse rejects the
+    whole insert — which on the public path discards every trace in the batch,
+    not just this span. Negative counts are floored at 0 for the same reason the
+    manual path floors them: they are meaningless as usage and would subtract
+    from dashboard sums.
     """
     if value is None or value == "":
         return 0
     try:
-        return int(value)
+        parsed = int(value)
     except (TypeError, ValueError):
         logger.warning("Non-numeric OTEL token attribute %r; treating as 0", value)
         return 0
+    if parsed < 0:
+        logger.warning("Negative OTEL token attribute %r; treating as 0", value)
+        return 0
+    if parsed > _MAX_PLAUSIBLE_TOKENS:
+        # Dropped, not clamped. Clamping substitutes an implausible count that is then
+        # priced and stored, so one malformed span lands a trillion-token, nine-figure
+        # row that dominates every cost and token aggregate it appears in. The
+        # manual-usage path discards an over-bound field for the same reason, and every
+        # other unusable value here already resolves to 0.
+        logger.warning(
+            "OTEL token attribute %r exceeds the plausible bound %d; treating as 0",
+            value,
+            _MAX_PLAUSIBLE_TOKENS,
+        )
+        return 0
+    return parsed
+
+
+def str_or_none(value: Any) -> str | None:
+    """Coerce a present OTEL attribute to str for a String column; None stays None.
+
+    Same hazard as ``str_attr``, one layer later: OTLP values are typed, so an
+    ordinary sender can put an int in ``user.id`` or a bool in ``session.id``. Those
+    reach ClickHouse columns typed ``Nullable(String)``, which rejects a non-string
+    and fails the INSERT — and the insert carries the whole batch, so on the public
+    path one such span discards every trace in the export after the route already
+    returned 200. Coerce rather than drop: the value is still the caller's identifier,
+    just wrongly typed on the wire.
+    """
+    if value is None or isinstance(value, str):
+        return value
+    return str(value)
+
+
+def int32_or_none(value: Any) -> int | None:
+    """Coerce a present OTEL attribute to an Int32-representable int; else None.
+
+    Mirror of ``str_or_none`` for the ``Nullable(Int32)`` columns. An SDK is free to
+    report a line number as a string, a float, or a value past the Int32 range, and
+    any of those fails the INSERT for the whole batch. Out-of-range and unparseable
+    values become None rather than being clamped: a wrong line number is worse than
+    an absent one, since it points a reader at unrelated source.
+    """
+    # isinstance(True, int) is True and int(True) is 1, so an unguarded bool would
+    # silently record line 1 -- the "points a reader at unrelated source" outcome
+    # this helper drops out-of-range values to avoid.
+    if value is None or value == "" or isinstance(value, bool):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        logger.warning("Non-numeric OTEL Int32 attribute %r; dropping", value)
+        return None
+    if not (-(2**31) <= parsed < 2**31):
+        logger.warning("OTEL Int32 attribute %r outside the column range; dropping", value)
+        return None
+    return parsed
+
+
+def str_attr(value: Any) -> str:
+    """Coerce a present OTEL attribute to str for case-folding; missing -> "".
+
+    OTLP attribute values are typed — a sender may legitimately supply an int,
+    bool, double or array for a key we expect to be a string. Guarding only for
+    None (``attrs.get(k) or ""``) leaves ``.upper()``/``.lower()`` to raise
+    AttributeError on those, which on the public path is fatal well past the
+    point of no return: the route has already 200'd, so the whole S3 batch —
+    every trace in that export, not just the offending span — is lost after the
+    task's retries. Coerce instead; a wrong-typed value simply fails to match
+    any known kind and falls through to the normal inference path.
+    """
+    if value is None:
+        return ""
+    return value if isinstance(value, str) else str(value)
 
 
 # Fields recognized in the Python SDK's manual usage dict
@@ -201,14 +319,6 @@ _MANUAL_USAGE_KEYS = (
     "cache_write_1h_tokens",
     "reasoning_tokens",
 )
-
-# Upper sanity bound per manual usage field. The token columns are Int64 and we
-# store SUMS of fields (total_tokens = uncached + cache buckets + output), so the
-# bound must sit far below Int64-max — capping at Int64-max itself would still
-# let two capped fields overflow the stored sum and reject the whole insert
-# batch. 10^15 tokens is orders of magnitude beyond any real span while keeping
-# any sum of the six fields comfortably inside Int64.
-_MANUAL_USAGE_MAX_TOKENS = 10**15
 
 
 def parse_manual_usage(raw: Any) -> dict[str, int]:
@@ -272,7 +382,7 @@ def parse_manual_usage(raw: Any) -> dict[str, int]:
                 "Manual usage field %s is not a usable number (%r); ignoring it", key, value
             )
             continue
-        if parsed > _MANUAL_USAGE_MAX_TOKENS:
+        if parsed > _MAX_PLAUSIBLE_TOKENS:
             logger.warning(
                 "Manual usage field %s exceeds the sanity bound (%r); ignoring it", key, value
             )
@@ -395,12 +505,12 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
         One of: "LLM", "SPAN", "AGENT", "TOOL"
     """
     # Check explicit type attribute (handle None values)
-    explicit_type = (attrs.get("traceroot.span.type") or "").upper()
+    explicit_type = str_attr(attrs.get("traceroot.span.type")).upper()
     if explicit_type in (SpanKind.LLM, SpanKind.SPAN, SpanKind.AGENT, SpanKind.TOOL):
         return explicit_type
 
     # Check OpenInference semantic conventions (handle None values)
-    openinference_type = (attrs.get("openinference.span.kind") or "").upper()
+    openinference_type = str_attr(attrs.get("openinference.span.kind")).upper()
     if openinference_type == SpanKind.LLM:
         return SpanKind.LLM
     elif openinference_type == SpanKind.AGENT:
@@ -411,7 +521,7 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
         return SpanKind.SPAN
 
     # GenAI semconv operation name (pydantic-ai, native OTel GenAI instrumentors)
-    operation_name = (attrs.get("gen_ai.operation.name") or "").lower()
+    operation_name = str_attr(attrs.get("gen_ai.operation.name")).lower()
     if operation_name in ("chat", "text_completion", "embeddings"):
         return SpanKind.LLM
     if operation_name == "execute_tool":
@@ -442,14 +552,14 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
 
 def _extract_user_id(attrs: dict[str, Any]) -> str | None:
     """Extract user_id from span attributes, checking multiple keys."""
-    return (
+    return str_or_none(
         attrs.get("traceroot.trace.user_id") or attrs.get("user.id") or attrs.get("session.user_id")
     )
 
 
 def _extract_session_id(attrs: dict[str, Any]) -> str | None:
     """Extract session_id from span attributes, checking multiple keys."""
-    return attrs.get("traceroot.trace.session_id") or attrs.get("session.id")
+    return str_or_none(attrs.get("traceroot.trace.session_id") or attrs.get("session.id"))
 
 
 def transform_otel_to_clickhouse(
@@ -538,7 +648,10 @@ def transform_otel_to_clickhouse(
                 if span_kind == SpanKind.TOOL:
                     tool_name = span_attrs.get("gen_ai.tool.name") or span_attrs.get("tool.name")
                     if tool_name:
-                        span_name = tool_name
+                        # `name` is a non-nullable String on both spans and traces, and
+                        # this is the one path that sources it from a caller attribute
+                        # rather than the proto's own string field.
+                        span_name = str_attr(tool_name)
 
                 # Build span record
                 environment = span_attrs.get("traceroot.environment")
@@ -557,9 +670,11 @@ def transform_otel_to_clickhouse(
                     span_record["environment"] = environment
 
                 # Extract git source fields for span
-                git_source_file = span_attrs.get("traceroot.git.source_file")
-                git_source_line = span_attrs.get("traceroot.git.source_line")
-                git_source_function = span_attrs.get("traceroot.git.source_function")
+                git_source_file = str_or_none(span_attrs.get("traceroot.git.source_file"))
+                # source_line lands in Nullable(Int32): parse it like any other numeric
+                # attribute rather than passing a non-numeric string straight through.
+                git_source_line = int32_or_none(span_attrs.get("traceroot.git.source_line"))
+                git_source_function = str_or_none(span_attrs.get("traceroot.git.source_function"))
                 if git_source_file is not None:
                     span_record["git_source_file"] = git_source_file
                 if git_source_line is not None:
@@ -610,7 +725,12 @@ def transform_otel_to_clickhouse(
                 # name is present, not just for LLM spans. Auto-instrumentors
                 # (OpenInference, GenAI) set model/token attrs on AGENT and CHAIN spans
                 # too. Text-based ESTIMATION, however, is LLM-spans-only (see below).
-                model_name = (
+                # Coerced before use, not just before storage: a non-string model
+                # reaches `get_model_price`, whose catalog lookup is a regex match and
+                # raises TypeError on a non-str — out of the per-span loop and out of
+                # the whole transform, so the batch is lost before it ever reaches an
+                # INSERT the column type could reject.
+                model_name = str_or_none(
                     span_attrs.get("traceroot.llm.model")
                     or span_attrs.get("gen_ai.request.model")
                     or span_attrs.get("llm.model_name")
@@ -905,8 +1025,8 @@ def transform_otel_to_clickhouse(
                 # Priority: root span values overwrite, child span values only set if empty
                 span_user_id = _extract_user_id(span_attrs)
                 span_session_id = _extract_session_id(span_attrs)
-                span_git_ref = span_attrs.get("traceroot.git.ref")
-                span_git_repo = span_attrs.get("traceroot.git.repo")
+                span_git_ref = str_or_none(span_attrs.get("traceroot.git.ref"))
+                span_git_repo = str_or_none(span_attrs.get("traceroot.git.repo"))
 
                 if trace_id not in trace_attrs:
                     trace_attrs[trace_id] = {"user_id": None, "session_id": None}
@@ -975,7 +1095,7 @@ def transform_otel_to_clickhouse(
                     span_path_c = span_attrs.get(SPAN_PATH)
                     ids_path_c = span_attrs.get(SPAN_IDS_PATH)
                     candidate_name = (
-                        span_path_c[0]
+                        str_attr(span_path_c[0])
                         if isinstance(span_path_c, (list, tuple)) and span_path_c
                         else span_name
                     )
