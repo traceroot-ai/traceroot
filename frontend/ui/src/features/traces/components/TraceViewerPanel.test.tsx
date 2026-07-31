@@ -193,6 +193,32 @@ describe("TraceViewerPanel detectors view", () => {
   });
 });
 
+describe("TraceViewerPanel detection indicator", () => {
+  it("shows a Detecting chip while detection is queued", () => {
+    // Evaluation is debounced ~1min, so without this the header sits empty for
+    // that whole time and the page looks idle.
+    mocks.detection = { state: "pending", detectorIds: ["d1"] };
+    renderPanel();
+    expect(screen.getByText("Detecting…")).toBeTruthy();
+  });
+
+  it("hides the chip once the analysis is available", () => {
+    // hasRca means results have landed; the Alert badge speaks for them.
+    mocks.detection = { state: "pending", detectorIds: ["d1"] };
+    mocks.finding = { finding_id: "f1" };
+    mocks.rca = { rca: { sessionId: "s1", status: "done" } };
+    renderPanel();
+    expect(screen.queryByText("Detecting…")).toBeNull();
+    expect(screen.getByRole("button", { name: "Alert" })).toBeTruthy();
+  });
+
+  it("shows no chip when detection is ruled out or unknown", () => {
+    mocks.detection = { state: "sampled_out", detectorIds: [] };
+    renderPanel();
+    expect(screen.queryByText("Detecting…")).toBeNull();
+  });
+});
+
 describe("TraceViewerPanel content states", () => {
   it("renders the span detail panel in tree mode", () => {
     renderPanel();
@@ -234,32 +260,6 @@ describe("TraceViewerPanel content states", () => {
     mocks.aiPanelOpen = true;
     renderPanel();
     expect(screen.getByTestId("ai-panel")).toBeTruthy();
-  });
-});
-
-describe("TraceViewerPanel detection indicator", () => {
-  it("shows a Detecting chip while detection is queued", () => {
-    // Evaluation is debounced ~1min, so without this the header sits empty for
-    // that whole time and the page looks idle.
-    mocks.detection = { state: "pending", detectorIds: ["d1"] };
-    renderPanel();
-    expect(screen.getByText("Detecting…")).toBeTruthy();
-  });
-
-  it("hides the chip once the analysis is available", () => {
-    // hasRca means results have landed; the Alert badge speaks for them.
-    mocks.detection = { state: "pending", detectorIds: ["d1"] };
-    mocks.finding = { finding_id: "f1" };
-    mocks.rca = { rca: { sessionId: "s1", status: "done" } };
-    renderPanel();
-    expect(screen.queryByText("Detecting…")).toBeNull();
-    expect(screen.getByRole("button", { name: "Alert" })).toBeTruthy();
-  });
-
-  it("shows no chip when detection is ruled out or unknown", () => {
-    mocks.detection = { state: "sampled_out", detectorIds: [] };
-    renderPanel();
-    expect(screen.queryByText("Detecting…")).toBeNull();
   });
 });
 
