@@ -76,7 +76,7 @@ function renderPanel(
     initialFullscreen?: boolean;
     source?: "detector" | "user";
     runTimestamp?: string;
-    autoOpenRca?: boolean
+    autoOpenRca?: boolean;
   } = {},
 ) {
   const { container } = render(
