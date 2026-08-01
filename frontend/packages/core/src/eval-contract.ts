@@ -205,26 +205,34 @@ export const RegisterRunRequestSchema = z
   .strict();
 export type RegisterRunRequest = z.infer<typeof RegisterRunRequestSchema>;
 
-export interface RegisterRunResponse {
-  evaluation_id: string;
-  evaluation_run_id: string;
-  run_number: number;
-  dataset_version_id: string;
+/**
+ * The response bodies are schemas, not bare interfaces, so the structural parity
+ * guard can introspect them the same way it introspects the requests — a response
+ * field added on one layer only is otherwise invisible to every test. The gateway
+ * proxies the upstream body verbatim, so these are the published contract and the
+ * inferred types below stay the single definition the handlers write against.
+ */
+export const RegisterRunResponseSchema = z.object({
+  evaluation_id: z.string(),
+  evaluation_run_id: z.string(),
+  run_number: z.number().int(),
+  dataset_version_id: z.string(),
   /**
    * UI-relative path to the run, `/projects/<projectId>/evaluations/<runId>`. The
    * backend owns the route shape. Kept for back-compat; prefer `run_url` for the
    * printed link — joining `run_path` to the SDK's `host_url` only resolves when the
    * API and UI share an origin (breaks in split-origin dev, where host_url is the API).
    */
-  run_path: string;
+  run_path: z.string(),
   /**
    * Absolute, clickable run URL — `run_path` resolved against the control plane's
    * configured public app origin (`NEXT_PUBLIC_APP_URL`). Correct regardless of how
    * the API and UI origins are split, so the SDK should print this verbatim rather
    * than reconstructing the link from `host_url`.
    */
-  run_url: string;
-}
+  run_url: z.string(),
+});
+export type RegisterRunResponse = z.infer<typeof RegisterRunResponseSchema>;
 
 /**
  * Upsert one test-case result. Idempotent on (`run_id`, `test_case_id`).
@@ -280,9 +288,10 @@ export const UpsertResultRequestSchema = z
   .strict();
 export type UpsertResultRequest = z.infer<typeof UpsertResultRequestSchema>;
 
-export interface UpsertResultResponse {
-  evaluation_result_id: string;
-}
+export const UpsertResultResponseSchema = z.object({
+  evaluation_result_id: z.string(),
+});
+export type UpsertResultResponse = z.infer<typeof UpsertResultResponseSchema>;
 
 /** Complete/fail a run, reporting final completeness counts. */
 export const CompleteRunRequestSchema = z
@@ -296,6 +305,13 @@ export const CompleteRunRequestSchema = z
   })
   .strict();
 export type CompleteRunRequest = z.infer<typeof CompleteRunRequestSchema>;
+
+export const CompleteRunResponseSchema = z.object({
+  evaluation_run_id: z.string(),
+  /** Echoes the persisted run status. */
+  status: EvalRunStatusSchema,
+});
+export type CompleteRunResponse = z.infer<typeof CompleteRunResponseSchema>;
 
 // ---------------------------------------------------------------------------
 // User-session CRUD requests (Datasets pages)
