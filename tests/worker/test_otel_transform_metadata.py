@@ -7,6 +7,7 @@ from shared.span_attributes import (
     SPAN_IDS_PATH,
     SPAN_PATH,
     SPAN_STARTS_PATH,
+    SPAN_TAGS,
     SPAN_TREE_ATTRIBUTES,
 )
 from worker.otel_transform import _is_known_attribute, transform_otel_to_clickhouse
@@ -399,3 +400,46 @@ def test_non_object_explicit_metadata_is_stored_verbatim():
 
     _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
     assert spans[0]["metadata"] == "just a note"
+
+
+def test_span_tags_survive_into_metadata():
+    """Tags sent through the SDK's typed option must reach the stored `metadata`.
+
+    The SDK ships `tags` as a first-class option and serializes it onto the span
+    as `traceroot.span.tags`. Nothing extracts that key and no column holds it,
+    so listing it in `_KNOWN_ATTRIBUTE_PREFIXES` stripped it from the leftover
+    bag and wrote it nowhere: ingest answered 200 and the values were gone. It
+    now survives into `metadata` like any other unextracted attribute, which
+    keeps customer labels recoverable until tags get a dedicated field.
+    """
+    payload = _otel_payload([_array_attr(SPAN_TAGS, ["prod", "checkout"])])
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    metadata = json.loads(spans[0]["metadata"])
+    assert metadata[SPAN_TAGS] == ["prod", "checkout"]
+
+
+def test_span_tags_are_not_known_attributes():
+    """Direct guard on the mechanism above, independent of the transform."""
+    assert not _is_known_attribute(SPAN_TAGS), (
+        f"{SPAN_TAGS} is treated as a known attribute, so it would be stripped "
+        "from span metadata while no extraction and no column exist for it, and "
+        "customer-sent tags would be destroyed on write"
+    )
+
+
+def test_span_tags_survive_alongside_explicit_metadata():
+    """A span that also sets explicit metadata must KEEP its tags."""
+    payload = _otel_payload(
+        [
+            _attr("traceroot.span.metadata", {"stage": "checkout"}),
+            _array_attr(SPAN_TAGS, ["prod"]),
+        ]
+    )
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    metadata = json.loads(spans[0]["metadata"])
+    assert metadata["stage"] == "checkout"
+    assert metadata[SPAN_TAGS] == ["prod"]

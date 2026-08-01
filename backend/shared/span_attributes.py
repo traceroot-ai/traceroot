@@ -38,3 +38,13 @@ SPAN_TREE_ATTRIBUTES = (SPAN_PATH, SPAN_IDS_PATH, SPAN_STARTS_PATH)
 Not the same as what the trace-detail read returns: that returns only the
 attributes the client actually consumes.
 """
+
+SPAN_TAGS = "traceroot.span.tags"
+"""Caller-supplied labels from the SDK's typed `tags` option.
+
+Customer data with no dedicated column yet, so it rides in `metadata` on the
+same terms as the span-path attributes above. It has to survive both metadata
+branches in `worker/otel_transform.py`: a span that sets explicit metadata is
+exactly a span whose author is labelling things, so dropping tags there would
+lose them from the spans most likely to carry them.
+"""
