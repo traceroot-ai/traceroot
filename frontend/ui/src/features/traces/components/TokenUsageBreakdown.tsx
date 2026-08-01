@@ -10,6 +10,41 @@ interface TokenUsageBreakdownProps {
   usageDetails?: Record<string, number> | null;
 }
 
+interface ExtraRow {
+  /** Original map key (e.g. "extra:audio_tokens") — unique, used as the React key. */
+  key: string;
+  label: string;
+  value: number;
+}
+
+/**
+ * Build display rows for the unpriced `extra:*` usage keys in `usage_details`.
+ *
+ * The raw `extra:*` key is preserved as the row identity so distinct keys can
+ * never collapse onto the same React key. The display label humanizes the suffix
+ * (underscores → spaces); when two distinct keys humanize identically (e.g.
+ * `extra:some_key` vs `extra:some key`), each is disambiguated by its raw key so
+ * the rows stay distinguishable during live-trace updates.
+ */
+export function buildExtraRows(
+  usageDetails: Record<string, number> | null | undefined,
+): ExtraRow[] {
+  const rows: ExtraRow[] = Object.entries(usageDetails ?? {})
+    .filter(([key, val]) => key.startsWith("extra:") && val > 0)
+    .map(([key, val]) => ({
+      key,
+      label: key.substring(6).replace(/_/g, " "),
+      value: val,
+    }));
+  const labelCounts = new Map<string, number>();
+  for (const row of rows) {
+    labelCounts.set(row.label, (labelCounts.get(row.label) ?? 0) + 1);
+  }
+  return rows.map((row) =>
+    labelCounts.get(row.label)! > 1 ? { ...row, label: `${row.label} (${row.key})` } : row,
+  );
+}
+
 function Row({ label, value }: { label: string; value: number }) {
   return (
     <div className="flex justify-between gap-8 text-muted-foreground">
@@ -49,15 +84,10 @@ export function TokenUsageBreakdown({
   const uncachedInput = Math.max(input - cacheRead - cacheWrite, 0);
   const plainOutput = Math.max(output - reasoning, 0);
 
-  // Extract extra unpriced usage fields (e.g. extra:audio_tokens)
-  const extraRows = usageDetails
-    ? Object.entries(usageDetails)
-        .filter(([key, val]) => key.startsWith("extra:") && val > 0)
-        .map(([key, val]) => {
-          const label = key.substring(6).replace(/_/g, " ");
-          return { label, value: val };
-        })
-    : [];
+  // Extract extra unpriced usage fields (e.g. extra:audio_tokens). Each row keeps
+  // its raw extra:* key as identity so colliding display labels cannot produce
+  // duplicate React keys or unstable row reconciliation on live updates.
+  const extraRows = buildExtraRows(usageDetails);
 
   return (
     <div className="min-w-[220px] text-xs">
@@ -91,7 +121,7 @@ export function TokenUsageBreakdown({
           </div>
           <div className="mt-1 space-y-0.5">
             {extraRows.map((row) => (
-              <Row key={row.label} label={row.label} value={row.value} />
+              <Row key={row.key} label={row.label} value={row.value} />
             ))}
           </div>
         </>

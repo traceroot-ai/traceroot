@@ -1947,6 +1947,26 @@ class TestManualUsageAttribute:
         )
         assert span["cost"] == pytest.approx(expected)
 
+    def test_manual_extras_only_usage_is_persisted_without_priced_tokens(self):
+        from unittest.mock import patch
+
+        # A manual dict with only unrecognized fields (no input/output) must still
+        # surface its extra usage in usage_details, independent of the priced guard.
+        payload = make_otel_payload(
+            [self._manual_span({"audio_tokens": 30, "image_tokens": 45})],
+            scope_name="traceroot",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=MANUAL_USAGE_PRICES):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        span = spans[0]
+        assert span["usage_details"]["extra:audio_tokens"] == 30
+        assert span["usage_details"]["extra:image_tokens"] == 45
+        # No priced buckets are fabricated from extras alone.
+        assert "cache_read_tokens" not in span["usage_details"]
+        assert "cache_write_tokens" not in span["usage_details"]
+        assert "reasoning_tokens" not in span["usage_details"]
+
     def test_lone_instrumentor_total_also_suppresses_manual_dict(self):
         from unittest.mock import patch
 

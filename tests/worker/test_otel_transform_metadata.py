@@ -447,3 +447,30 @@ def test_extra_unrecognized_usage_keys_are_stored():
     )
     _t, spans_no_extra = transform_otel_to_clickhouse(payload_no_extra, project_id="proj-1")
     assert span.get("cost") == spans_no_extra[0].get("cost")
+
+
+def test_extras_only_usage_is_persisted_without_priced_tokens():
+    """An audio/image-only span (no input/output counts) still surfaces its extra
+    usage in usage_details — extras must persist independently of the priced guard."""
+    payload = _otel_payload(
+        [
+            _attr("llm.model_name", "claude-3-5-sonnet-20241022"),
+            _attr("gen_ai.usage.audio_tokens", 30),
+            _attr("gen_ai.usage.image_tokens", 45),
+        ]
+    )
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert len(spans) == 1
+    span = spans[0]
+    # Extras persist without any priced input/output tokens present.
+    assert span["usage_details"]["extra:audio_tokens"] == 30
+    assert span["usage_details"]["extra:image_tokens"] == 45
+    # No priced buckets are fabricated — only the display-only extras land in
+    # usage_details. The LLM span still gets its text-estimation zeros (no text),
+    # but nothing is priced from the extras themselves.
+    assert "cache_read_tokens" not in span["usage_details"]
+    assert "cache_write_tokens" not in span["usage_details"]
+    assert "reasoning_tokens" not in span["usage_details"]
+    assert span["input_tokens"] == 0

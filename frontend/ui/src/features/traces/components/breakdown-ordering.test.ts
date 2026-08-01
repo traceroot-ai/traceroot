@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { TokenUsageBreakdown } from "./TokenUsageBreakdown";
+import { TokenUsageBreakdown, buildExtraRows } from "./TokenUsageBreakdown";
 import { CostBreakdown } from "./CostBreakdown";
 
 // Both panels split input into the same three categories; they must render
@@ -65,5 +65,39 @@ describe("breakdown row ordering", () => {
     expect(markup).toContain("image tokens");
     expect(markup).toContain("150");
     expect(markup).toContain("75");
+  });
+
+  it("disambiguates extra keys whose humanized labels collide", () => {
+    // Distinct keys that humanize to the same label must keep unique identities
+    // and distinct labels — otherwise React sees duplicate keys and row
+    // reconciliation breaks on live-trace updates.
+    const rows = buildExtraRows({
+      "extra:some_key": 1,
+      "extra:some key": 2,
+      "extra:audio_tokens": 3,
+    });
+    const keys = rows.map((r) => r.key);
+    expect(new Set(keys).size).toBe(keys.length);
+    const labels = rows.map((r) => r.label);
+    expect(new Set(labels).size).toBe(labels.length);
+    expect(labels).toContain("some key (extra:some_key)");
+    expect(labels).toContain("some key (extra:some key)");
+    expect(labels).toContain("audio tokens");
+  });
+
+  it("renders colliding extra keys as distinct rows", () => {
+    const markup = renderToStaticMarkup(
+      createElement(TokenUsageBreakdown, {
+        inputTokens: 100,
+        outputTokens: 0,
+        totalTokens: 100,
+        usageDetails: {
+          "extra:some_key": 1,
+          "extra:some key": 2,
+        },
+      }),
+    );
+    expect(markup).toContain("some key (extra:some_key)");
+    expect(markup).toContain("some key (extra:some key)");
   });
 });

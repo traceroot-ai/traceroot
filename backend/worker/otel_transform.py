@@ -955,11 +955,11 @@ def transform_otel_to_clickhouse(
                         elif manual_usage:
                             # Recognized fields, but nothing to price against: a
                             # cache or reasoning count alone does not describe a
-                            # call. Dropping it silently is the same data loss the
-                            # field-level warnings above exist to surface.
+                            # call. Extras (extra:*) still surface in usage_details
+                            # for display; only the unpriced fields are dropped.
                             logger.warning(
                                 "Manual usage reported only %s with no input_tokens or "
-                                "output_tokens; ignoring it",
+                                "output_tokens; only unpriced display-only fields are kept",
                                 sorted(manual_usage),
                             )
 
@@ -1023,32 +1023,6 @@ def transform_otel_to_clickhouse(
                                 buckets.cache_write_1h
                             )
 
-                        # Capture unrecognized usage attributes as display-only extra keys.
-                        # These are NOT priced — they appear in usage_details for visibility
-                        # only, prefixed with "extra:" to separate them from priced buckets.
-                        for attr_key, attr_val in span_attrs.items():
-                            if attr_key in _PRICED_USAGE_ATTRS:
-                                continue
-                            # Match usage attribute namespaces
-                            extra_key = None
-                            if attr_key.startswith("gen_ai.usage."):
-                                extra_key = attr_key[len("gen_ai.usage.") :]
-                            elif attr_key.startswith("llm.token_count."):
-                                extra_key = attr_key[len("llm.token_count.") :]
-                            elif attr_key.startswith("ai.usage."):
-                                extra_key = attr_key[len("ai.usage.") :]
-                            if extra_key is not None:
-                                val = int_or_zero(attr_val)
-                                if val > 0:
-                                    # Convert camelCase to snake_case for consistency
-                                    normalized = _camel_to_snake(extra_key)
-                                    span_record["usage_details"][f"extra:{normalized}"] = val
-
-                        # Same display-only treatment for unrecognized keys reported
-                        # through the manual usage dict (traceroot.llm.usage).
-                        for extra_key, val in manual_extra_usage.items():
-                            span_record["usage_details"][extra_key] = val
-
                         cost = cost_from_buckets(get_model_price(model_name), buckets)
                         if cost is not None:
                             span_record["cost"] = cost
@@ -1083,6 +1057,39 @@ def transform_otel_to_clickhouse(
                             span_record["total_tokens"] = usage["total_tokens"]
                         if usage["cost"] is not None:
                             span_record["cost"] = usage["cost"]
+
+                    # Capture unrecognized usage attributes as display-only extra keys.
+                    # These are NOT priced — they appear in usage_details for visibility
+                    # only, prefixed with "extra:" to separate them from priced buckets.
+                    # This runs independent of whether priced input/output tokens were
+                    # present, so an audio/image-only span (no input/output counts) still
+                    # surfaces its extra usage instead of vanishing. Aggregate wrappers
+                    # restate their children's usage, so their extras are suppressed too.
+                    if not aggregate_wrapper:
+                        for attr_key, attr_val in span_attrs.items():
+                            if attr_key in _PRICED_USAGE_ATTRS:
+                                continue
+                            # Match usage attribute namespaces
+                            extra_key = None
+                            if attr_key.startswith("gen_ai.usage."):
+                                extra_key = attr_key[len("gen_ai.usage.") :]
+                            elif attr_key.startswith("llm.token_count."):
+                                extra_key = attr_key[len("llm.token_count.") :]
+                            elif attr_key.startswith("ai.usage."):
+                                extra_key = attr_key[len("ai.usage.") :]
+                            if extra_key is not None:
+                                val = int_or_zero(attr_val)
+                                if val > 0:
+                                    # Convert camelCase to snake_case for consistency
+                                    normalized = _camel_to_snake(extra_key)
+                                    span_record.setdefault("usage_details", {})[
+                                        f"extra:{normalized}"
+                                    ] = val
+
+                        # Same display-only treatment for unrecognized keys reported
+                        # through the manual usage dict (traceroot.llm.usage).
+                        for extra_key, val in manual_extra_usage.items():
+                            span_record.setdefault("usage_details", {})[extra_key] = val
 
                 # Extract metadata
                 # Priority: explicit traceroot.span.metadata > remaining attributes.
