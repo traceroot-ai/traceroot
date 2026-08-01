@@ -187,6 +187,35 @@ class TestPublicListTraces:
         assert kwargs["start_after"] == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
         assert kwargs["end_before"] == datetime(2024, 1, 31, 23, 59, 59, tzinfo=UTC)
 
+    def test_forwards_end_before_id_keyset_cursor(self, client, mock_reader):
+        mock_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        resp = client.get(
+            "/api/v1/public/traces?end_before=2024-01-31T23:59:59Z&end_before_id=trace-abc",
+            headers=AUTH_HEADER,
+        )
+        assert resp.status_code == 200
+        kwargs = mock_reader.list_traces.call_args.kwargs
+        assert kwargs["end_before"] == datetime(2024, 1, 31, 23, 59, 59, tzinfo=UTC)
+        assert kwargs["end_before_id"] == "trace-abc"
+
+    def test_end_before_id_defaults_to_none_when_absent(self, client, mock_reader):
+        mock_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        resp = client.get("/api/v1/public/traces", headers=AUTH_HEADER)
+        assert resp.status_code == 200
+        assert mock_reader.list_traces.call_args.kwargs["end_before_id"] is None
+
+    def test_end_before_id_without_end_before_rejected(self, client, mock_reader):
+        """A keyset cursor without its time half is meaningless — reject with 422."""
+        resp = client.get("/api/v1/public/traces?end_before_id=trace-abc", headers=AUTH_HEADER)
+        assert resp.status_code == 422
+        assert mock_reader.list_traces.call_args is None
+
     def test_time_range_defaults_to_none_when_absent(self, client, mock_reader):
         mock_reader.list_traces.return_value = {
             "data": [],
