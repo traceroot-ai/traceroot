@@ -182,8 +182,15 @@ def test_keyset_end_before_id_lands_in_both_page_and_count_queries():
 
     page_sql = svc._client.query.call_args_list[0].args[0]
     count_sql = svc._client.query.call_args_list[1].args[0]
+    # Guard the FULL keyset predicate — both halves of the OR. The exclusive branch
+    # (trace_start_time < end_before) is what lets pagination advance across
+    # timestamps; the tie branch (trace_start_time = end_before AND trace_id <
+    # end_before_id) walks through the tied group. Dropping either half would
+    # re-introduce the #1747 data loss while a partial assertion would miss it.
     keyset = (
-        "t.trace_start_time = {end_before:DateTime64(3)} AND t.trace_id < {end_before_id:String}"
+        "(t.trace_start_time < {end_before:DateTime64(3)} "
+        "OR (t.trace_start_time = {end_before:DateTime64(3)} "
+        "AND t.trace_id < {end_before_id:String}))"
     )
     assert keyset in page_sql
     assert keyset in count_sql  # the invariant — cursor reaches the total too
