@@ -6,14 +6,10 @@ import { getTemplate } from "@/features/detectors/templates";
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
-<<<<<<< HEAD
   mutate: vi.fn((_input: unknown, options?: { onSuccess?: () => void }) => {
     options?.onSuccess?.();
   }),
-=======
-  mutateAsync: vi.fn().mockResolvedValue({ id: "det-1" }),
   selectorProps: null as Record<string, unknown> | null,
->>>>>>> c630f5dba178e4184b0c3db5111ee62f69932171
 }));
 
 vi.mock("next/navigation", () => ({
