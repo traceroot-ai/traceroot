@@ -168,3 +168,57 @@ def test_unfiltered_list_without_window_stays_unbounded():
     params = svc._client.query.call_args_list[0].kwargs["parameters"]
     assert "start_after" not in params
     assert "t.trace_start_time >=" not in page_sql
+
+
+def test_page_dedup_does_not_carry_io_text_through_its_sort():
+    """The trace-paging dedup must not list input/output.
+
+    That dedup sorts every row matching the WHERE, so any column named in it is
+    materialized for the whole matching set, not for the page. Carrying the I/O
+    text there made peak memory scale with (matching rows x payload width),
+    which is unbounded in tenant size — a page load on a large tenant could
+    exhaust a shared node. The text is fetched separately for the page's traces.
+    """
+    svc = _service_with_mock_client()
+    _drive(svc)
+
+    svc.list_traces(project_id="p1")
+
+    page_sql = svc._client.query.call_args_list[0].args[0]
+    dedup = page_sql.split("page_keys AS (")[1].split("),")[0]
+    assert "input" not in dedup, (
+        "input rides through the pre-page dedup sort again; peak memory is back to "
+        "scaling with the matching set instead of the page"
+    )
+    assert "output" not in dedup
+
+
+def test_io_text_is_fetched_only_for_the_page_and_pinned_to_the_deduped_row():
+    """The I/O fetch must be restricted to the page and to the row the dedup chose.
+
+    Restricted to the page so it stays bounded; pinned on (trace_id,
+    ch_update_time) so metadata and text cannot come from two different versions
+    of the same trace when several rows share one update time.
+    """
+    svc = _service_with_mock_client()
+    _drive(svc)
+
+    svc.list_traces(project_id="p1")
+
+    page_sql = svc._client.query.call_args_list[0].args[0]
+    io_cte = page_sql.split("page_io AS (")[1].split("),")[0]
+    assert "input" in io_cte and "output" in io_cte
+    assert "(trace_id, ch_update_time) IN (" in io_cte
+    assert "SELECT trace_id, ch_update_time FROM page_keys" in io_cte
+
+
+def test_page_still_exposes_io_columns_to_the_final_select():
+    """Splitting the fetch must not change what the list returns."""
+    svc = _service_with_mock_client()
+    _drive(svc)
+
+    svc.list_traces(project_id="p1")
+
+    page_sql = svc._client.query.call_args_list[0].args[0]
+    assert "p.input" in page_sql
+    assert "p.output" in page_sql

@@ -450,16 +450,22 @@ class TraceReaderService:
         # This avoids scanning/joining every span in the project on each list call,
         # and never groups by the large input/output text columns. See #963.
         query = f"""
-            WITH page AS (
+            WITH page_keys AS (
                 -- Dedup ReplacingMergeTree by latest ch_update_time FIRST (correctness),
                 -- THEN order by start time for pagination.
+                --
+                -- input/output are deliberately absent here. This dedup sorts every
+                -- row matching the WHERE, so any column listed rides through that
+                -- sort: carrying the I/O text made peak memory scale with
+                -- (matching rows x payload width) instead of with the page. The
+                -- text is fetched below for the page's traces only.
                 SELECT
                     trace_id, project_id, name, trace_start_time,
-                    user_id, session_id, input, output
+                    user_id, session_id, ch_update_time
                 FROM (
                     SELECT
                         t.trace_id, t.project_id, t.name, t.trace_start_time,
-                        t.user_id, t.session_id, t.input, t.output
+                        t.user_id, t.session_id, t.ch_update_time
                     FROM traces AS t
                     WHERE {where_clause}
                     ORDER BY t.ch_update_time DESC
@@ -467,6 +473,30 @@ class TraceReaderService:
                 )
                 ORDER BY trace_start_time DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
+            ),
+            page_io AS (
+                -- The heavy columns, for the page's traces only. Pinned to the exact
+                -- (trace_id, ch_update_time) row the dedup above selected, so the
+                -- text cannot come from a different version than the metadata when
+                -- a trace has several rows sharing one update time.
+                SELECT trace_id, input, output
+                FROM (
+                    SELECT trace_id, input, output, ch_update_time
+                    FROM traces
+                    WHERE project_id = {{project_id:String}}
+                      AND (trace_id, ch_update_time) IN (
+                          SELECT trace_id, ch_update_time FROM page_keys
+                      )
+                    ORDER BY ch_update_time DESC
+                    LIMIT 1 BY project_id, trace_id
+                )
+            ),
+            page AS (
+                SELECT
+                    k.trace_id, k.project_id, k.name, k.trace_start_time,
+                    k.user_id, k.session_id, io.input AS input, io.output AS output
+                FROM page_keys AS k
+                LEFT JOIN page_io AS io ON k.trace_id = io.trace_id
             ),
             span_agg AS (
                 SELECT
