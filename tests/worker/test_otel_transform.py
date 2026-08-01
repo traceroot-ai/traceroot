@@ -2060,6 +2060,13 @@ class TestManualUsageAttribute:
         assert parse_manual_usage('{"audioTokens": 10, "audio_tokens": 20}') == {
             "extra:audio_tokens": 30
         }
+        # A merged sum that would exceed the plausible bound drops the incoming
+        # contribution instead of storing an unbounded Int64.
+        assert parse_manual_usage('{"audioTokens": 900000000, "audio_tokens": 900000000}') == {
+            "extra:audio_tokens": 900000000
+        }
+        # Non-finite unrecognized fields are dropped, never fatal.
+        assert parse_manual_usage('{"audio_tokens": Infinity}') == {}
 
     def test_fully_recognized_usage_logs_no_warning(self, caplog):
         import logging

@@ -493,3 +493,59 @@ def test_extra_attr_spelling_collisions_are_summed():
 
     assert len(spans) == 1
     assert spans[0]["usage_details"]["extra:audio_tokens"] == 30
+
+
+def test_non_finite_extra_attr_does_not_crash_ingestion():
+    """An Infinity/NaN extra usage attribute must not abort ingestion of the batch;
+    it resolves to 0 and is not persisted."""
+    payload = _otel_payload(
+        [
+            _attr("llm.model_name", "claude-3-5-sonnet-20241022"),
+            _attr("gen_ai.usage.audio_tokens", float("inf")),
+            _attr("gen_ai.usage.image_tokens", float("nan")),
+        ]
+    )
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert len(spans) == 1
+    assert "extra:audio_tokens" not in spans[0].get("usage_details", {})
+    assert "extra:image_tokens" not in spans[0].get("usage_details", {})
+
+
+def test_non_finite_priced_attr_does_not_crash_ingestion():
+    """Infinity in a priced token attribute is dropped to 0, not fatal."""
+    payload = _otel_payload(
+        [
+            _attr("llm.model_name", "claude-3-5-sonnet-20241022"),
+            _attr("gen_ai.usage.input_tokens", float("inf")),
+            _attr("gen_ai.usage.output_tokens", 200),
+        ]
+    )
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert len(spans) == 1
+    assert spans[0]["input_tokens"] == 0
+    assert spans[0]["output_tokens"] == 200
+
+
+def test_extra_attr_collision_sum_is_bounded():
+    """Colliding spellings whose merged value would exceed the plausible token
+    bound drop the incoming contribution instead of storing an unbounded Int64."""
+    payload = _otel_payload(
+        [
+            _attr("llm.model_name", "claude-3-5-sonnet-20241022"),
+            _attr("gen_ai.usage.input_tokens", 1000),
+            _attr("gen_ai.usage.output_tokens", 200),
+            _attr("ai.usage.audioTokens", 900_000_000),
+            _attr("gen_ai.usage.audio_tokens", 900_000_000),
+        ]
+    )
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert len(spans) == 1
+    # First spelling lands; the second would push the sum past the bound and is
+    # dropped rather than stored unbounded.
+    assert spans[0]["usage_details"]["extra:audio_tokens"] == 900_000_000

@@ -238,7 +238,7 @@ def _usable_token_value(value: Any) -> bool:
         return False
     try:
         parsed = int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return False
     return 0 <= parsed <= _MAX_PLAUSIBLE_TOKENS
 
@@ -283,7 +283,10 @@ def int_or_zero(value: Any) -> int:
         return 0
     try:
         parsed = int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        # OverflowError: int(float('inf')) / int(1e400) raise it, and OTEL
+        # double attributes can legitimately carry Infinity/NaN — a single
+        # non-finite attribute must not abort ingestion of the whole batch.
         logger.warning("Non-numeric OTEL token attribute %r; treating as 0", value)
         return 0
     if parsed < 0:
@@ -403,6 +406,28 @@ def _parse_manual_value(key: str, value: Any) -> int | None:
     return parsed
 
 
+def _add_extra_value(usage: dict[str, int], key: str, value: int, source: str) -> None:
+    """Add a display-only extra usage value to a dict, bounded like the priced paths.
+
+    Individual extra values are validated against ``_MAX_PLAUSIBLE_TOKENS`` before
+    they reach this helper, but colliding spellings that normalize to the same key
+    are summed — and the SUM is not individually bounded. Cap it here: a merged
+    value that would exceed the plausible bound drops the incoming contribution, so
+    no unbounded Int64 usage entry is persisted (later rollups would amplify it).
+    """
+    merged = usage.get(key, 0) + value
+    if merged > _MAX_PLAUSIBLE_TOKENS:
+        logger.warning(
+            "Extra usage field %s from %s would exceed the sanity bound (%d); "
+            "dropping the contribution",
+            key,
+            source,
+            _MAX_PLAUSIBLE_TOKENS,
+        )
+        return
+    usage[key] = merged
+
+
 def parse_manual_usage(raw: Any) -> dict[str, int]:
     """Parse the manual usage dict reported via the SDKs' update-span API.
 
@@ -470,8 +495,7 @@ def parse_manual_usage(raw: Any) -> dict[str, int]:
     for key in unrecognized:
         parsed = _parse_manual_value(key, raw[key])
         if parsed is not None:
-            extra_key = f"extra:{_camel_to_snake(key)}"
-            usage[extra_key] = usage.get(extra_key, 0) + parsed
+            _add_extra_value(usage, f"extra:{_camel_to_snake(key)}", parsed, "manual usage")
     return usage
 
 
@@ -1089,17 +1113,21 @@ def transform_otel_to_clickhouse(
                                     # ai.usage.audioTokens vs gen_ai.usage.audio_tokens)
                                     # so neither reported value is silently dropped.
                                     stored_key = f"extra:{_camel_to_snake(extra_key)}"
-                                    span_record.setdefault("usage_details", {})
-                                    span_record["usage_details"][stored_key] = (
-                                        span_record["usage_details"].get(stored_key, 0) + val
+                                    _add_extra_value(
+                                        span_record.setdefault("usage_details", {}),
+                                        stored_key,
+                                        val,
+                                        attr_key,
                                     )
 
                         # Same display-only treatment for unrecognized keys reported
                         # through the manual usage dict (traceroot.llm.usage).
                         for extra_key, val in manual_extra_usage.items():
-                            span_record.setdefault("usage_details", {})
-                            span_record["usage_details"][extra_key] = (
-                                span_record["usage_details"].get(extra_key, 0) + val
+                            _add_extra_value(
+                                span_record.setdefault("usage_details", {}),
+                                extra_key,
+                                val,
+                                "manual usage",
                             )
 
                 # Extract metadata
