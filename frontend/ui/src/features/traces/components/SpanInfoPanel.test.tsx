@@ -142,6 +142,16 @@ describe("SpanInfoPanel - Error box source location badges", () => {
     expect(errorMessage.className).toContain("break-all");
   });
 
+  it("renders the model_name pill with its icon", () => {
+    render(<SpanInfoPanel projectId="proj-123" trace={mockTrace} selection={mockSelection} />);
+
+    const modelPill = screen.getByText("gpt-4o");
+    expect(modelPill).toBeTruthy();
+
+    const modelIcon = modelPill.querySelector("svg");
+    expect(modelIcon).toBeTruthy();
+  });
+
   it("renders Trace header with git_repo and git_ref badges with correct wrapping styles", () => {
     const mockTraceSelection: TraceSelection = {
       type: "trace",
@@ -188,5 +198,19 @@ describe("SpanInfoPanel - Error box source location badges", () => {
     const headerRefLabel = screen.getByText("Ref:");
     expect(headerRefLabel).toBeTruthy();
     expect(headerRefLabel.className).toContain("shrink-0");
+  });
+
+  it("renders User and Session link badges when the trace has both ids", () => {
+    const traceWithIds: TraceDetail = { ...mockTrace, user_id: "user-42", session_id: "session-7" };
+    const mockTraceSelection: TraceSelection = { type: "trace" };
+
+    render(
+      <SpanInfoPanel projectId="proj-123" trace={traceWithIds} selection={mockTraceSelection} />,
+    );
+
+    expect(screen.getByText("User:")).toBeTruthy();
+    expect(screen.getByText("user-42")).toBeTruthy();
+    expect(screen.getByText("Session:")).toBeTruthy();
+    expect(screen.getByText("session-7")).toBeTruthy();
   });
 });

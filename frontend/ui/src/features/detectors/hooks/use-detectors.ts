@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { broadcastQueryInvalidation } from "@/lib/cross-tab-sync";
 import { fetchNextApi } from "@/lib/api/client";
+import { ApiError } from "@/lib/api/client";
 
 export interface Detector {
   id: string;

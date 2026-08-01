@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent } from "@testing-library/react";
+import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 import type { Detector } from "../hooks/use-detectors";
 
 const mocks = vi.hoisted(() => ({
   detector: undefined as Detector | undefined,
   mutate: vi.fn(),
   mutationError: null as Error | null,
+  selectorProps: null as Record<string, unknown> | null,
 }));
 
 vi.mock("../hooks/use-detectors", () => ({
@@ -28,7 +30,10 @@ vi.mock("./agent-model-link", () => ({
   AgentModelLink: () => null,
 }));
 vi.mock("@/features/ai-assistant/components/model-selector", () => ({
-  ModelSelector: () => null,
+  ModelSelector: (props: Record<string, unknown>) => {
+    mocks.selectorProps = props;
+    return null;
+  },
 }));
 vi.mock("./rca-toggle", () => ({
   RcaToggle: ({
@@ -88,6 +93,7 @@ afterEach(() => {
   mocks.detector = undefined;
   mocks.mutate.mockReset();
   mocks.mutationError = null;
+  mocks.selectorProps = null;
 });
 
 describe("DetectorPanel", () => {
@@ -131,6 +137,18 @@ describe("DetectorPanel", () => {
     fireEvent.click(saveButton());
     expect(mocks.mutate).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
+  });
+
+  // Passed unconditionally: it names the model an empty selection falls back
+  // to, so a pinned detector gets it too — the pin just wins over it. Both
+  // fixtures are listed so the unpinned case the prop exists for is covered.
+  it.each([
+    ["unpinned", { ...baseDetector, detectionModel: null }],
+    ["pinned", baseDetector],
+  ])("hands the screening-model picker the system-default model id (%s)", (_label, detector) => {
+    mocks.detector = detector;
+    renderPanel();
+    expect(mocks.selectorProps?.defaultModelId).toBe(DETECTOR_SYSTEM_DEFAULT_MODEL_ID);
   });
 
   it("clears the form and disables Save while the loaded detector does not match the id", () => {
