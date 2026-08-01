@@ -6,6 +6,7 @@ import {
   enrichSpansWithPending,
   getSpanDuration,
   getTraceDuration,
+  getTraceTokenUsage,
   summarizeCostDetails,
   getTraceCostBreakdown,
 } from "./index";
@@ -354,6 +355,74 @@ describe("summarizeCostDetails", () => {
     expect(s.inputCost).toBe(0);
     expect(s.outputCost).toBe(0);
     expect(s.total).toBe(0);
+  });
+});
+
+describe("getTraceTokenUsage", () => {
+  it("aggregates extra unpriced usage keys across spans into usageDetails", () => {
+    const trace = {
+      spans: [
+        makeSpan({
+          span_id: "a",
+          total_tokens: 1200,
+          input_tokens: 1000,
+          output_tokens: 200,
+          usage_details: {
+            cache_read_tokens: 300,
+            "extra:audio_tokens": 30,
+            "extra:image_tokens": 45,
+          },
+        }),
+        makeSpan({
+          span_id: "b",
+          total_tokens: 500,
+          input_tokens: 400,
+          output_tokens: 100,
+          usage_details: {
+            "extra:audio_tokens": 70,
+            "extra:video_tokens": 12,
+          },
+        }),
+      ],
+    } as unknown as TraceDetail;
+
+    const result = getTraceTokenUsage(trace)!;
+    expect(result.totalTokens).toBe(1700);
+    expect(result.inputTokens).toBe(1400);
+    expect(result.outputTokens).toBe(300);
+    expect(result.cacheReadTokens).toBe(300);
+    expect(result.usageDetails).toEqual({
+      "extra:audio_tokens": 100,
+      "extra:image_tokens": 45,
+      "extra:video_tokens": 12,
+    });
+  });
+
+  it("excludes non-extra and non-positive usage_details keys", () => {
+    const trace = {
+      spans: [
+        makeSpan({
+          span_id: "a",
+          total_tokens: 100,
+          input_tokens: 100,
+          output_tokens: 0,
+          usage_details: {
+            cache_read_tokens: 0,
+            reasoning_tokens: 10,
+            "extra:audio_tokens": 0,
+            "extra:image_tokens": 5,
+          },
+        }),
+      ],
+    } as unknown as TraceDetail;
+
+    const result = getTraceTokenUsage(trace)!;
+    expect(result.usageDetails).toEqual({ "extra:image_tokens": 5 });
+  });
+
+  it("returns null when no span reports total tokens", () => {
+    const trace = { spans: [makeSpan({ span_id: "a" })] } as unknown as TraceDetail;
+    expect(getTraceTokenUsage(trace)).toBeNull();
   });
 });
 

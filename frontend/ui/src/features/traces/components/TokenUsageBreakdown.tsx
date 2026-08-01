@@ -7,6 +7,7 @@ interface TokenUsageBreakdownProps {
   cacheReadTokens?: number | null;
   cacheWriteTokens?: number | null;
   reasoningTokens?: number | null;
+  usageDetails?: Record<string, number> | null;
 }
 
 function Row({ label, value }: { label: string; value: number }) {
@@ -36,6 +37,7 @@ export function TokenUsageBreakdown({
   cacheReadTokens,
   cacheWriteTokens,
   reasoningTokens,
+  usageDetails,
 }: TokenUsageBreakdownProps) {
   const input = inputTokens ?? 0;
   const output = outputTokens ?? 0;
@@ -46,6 +48,16 @@ export function TokenUsageBreakdown({
   // Disjoint remainders so each section's rows sum to its total.
   const uncachedInput = Math.max(input - cacheRead - cacheWrite, 0);
   const plainOutput = Math.max(output - reasoning, 0);
+
+  // Extract extra unpriced usage fields (e.g. extra:audio_tokens)
+  const extraRows = usageDetails
+    ? Object.entries(usageDetails)
+        .filter(([key, val]) => key.startsWith("extra:") && val > 0)
+        .map(([key, val]) => {
+          const label = key.substring(6).replace(/_/g, " ");
+          return { label, value: val };
+        })
+    : [];
 
   return (
     <div className="min-w-[220px] text-xs">
@@ -71,6 +83,19 @@ export function TokenUsageBreakdown({
         {reasoning > 0 && <Row label="reasoning" value={reasoning} />}
         <Row label="output" value={plainOutput} />
       </div>
+
+      {extraRows.length > 0 && (
+        <>
+          <div className="mt-2 flex justify-between gap-8 border-b border-border/60 pb-1 font-medium">
+            <span>Other usage</span>
+          </div>
+          <div className="mt-1 space-y-0.5">
+            {extraRows.map((row) => (
+              <Row key={row.label} label={row.label} value={row.value} />
+            ))}
+          </div>
+        </>
+      )}
 
       <div className="mt-2 flex justify-between gap-8 border-t border-border/60 pt-1 font-semibold">
         <span>Total usage</span>

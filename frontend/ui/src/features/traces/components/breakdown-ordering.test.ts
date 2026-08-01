@@ -45,4 +45,25 @@ describe("breakdown row ordering", () => {
     expect(read).toBeGreaterThan(uncached);
     expect(write).toBeGreaterThan(read);
   });
+
+  it("renders extra/unrecognized usage keys in Other usage section", () => {
+    const markup = renderToStaticMarkup(
+      createElement(TokenUsageBreakdown, {
+        inputTokens: 1000,
+        outputTokens: 200,
+        totalTokens: 1200,
+        cacheReadTokens: 300,
+        cacheWriteTokens: 100,
+        usageDetails: {
+          "extra:audio_tokens": 150,
+          "extra:image_tokens": 75,
+        },
+      }),
+    );
+    expect(markup).toContain("Other usage");
+    expect(markup).toContain("audio tokens");
+    expect(markup).toContain("image tokens");
+    expect(markup).toContain("150");
+    expect(markup).toContain("75");
+  });
 });

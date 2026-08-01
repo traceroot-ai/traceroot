@@ -399,3 +399,51 @@ def test_non_object_explicit_metadata_is_stored_verbatim():
 
     _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
     assert spans[0]["metadata"] == "just a note"
+
+
+def test_extra_unrecognized_usage_keys_are_stored():
+    """Unrecognized usage attributes land in usage_details with extra: prefix, normalized and not priced."""
+    payload = _otel_payload(
+        [
+            _attr("llm.model_name", "claude-3-5-sonnet-20241022"),
+            _attr("gen_ai.usage.input_tokens", 1000),
+            _attr("gen_ai.usage.output_tokens", 200),
+            _attr("gen_ai.usage.cache_read_input_tokens", 800),
+            _attr("gen_ai.usage.audio_tokens", 30),
+            _attr("gen_ai.usage.image_tokens", 45),
+            _attr("ai.usage.videoTokens", 12),
+            _attr("llm.token_count.audio", 9),
+            _attr("gen_ai.usage.zero_tokens", 0),  # should be skipped
+        ]
+    )
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert len(spans) == 1
+    span = spans[0]
+    # Gross columns are unchanged
+    assert span["input_tokens"] == 1000
+    assert span["output_tokens"] == 200
+    # Priced keys are normal in usage_details
+    assert span["usage_details"]["cache_read_tokens"] == 800
+    assert "extra:cache_read_tokens" not in span["usage_details"]
+    # Unrecognized keys land with extra: prefix and camelCase normalization
+    assert span["usage_details"]["extra:audio_tokens"] == 30
+    assert span["usage_details"]["extra:image_tokens"] == 45
+    assert span["usage_details"]["extra:video_tokens"] == 12
+    assert span["usage_details"]["extra:audio"] == 9
+    # Zero tokens are skipped
+    assert "extra:zero_tokens" not in span["usage_details"]
+
+    # Cost should not be changed by adding extra keys
+    # Let's compare with a span that does not have extra keys
+    payload_no_extra = _otel_payload(
+        [
+            _attr("llm.model_name", "claude-3-5-sonnet-20241022"),
+            _attr("gen_ai.usage.input_tokens", 1000),
+            _attr("gen_ai.usage.output_tokens", 200),
+            _attr("gen_ai.usage.cache_read_input_tokens", 800),
+        ]
+    )
+    _t, spans_no_extra = transform_otel_to_clickhouse(payload_no_extra, project_id="proj-1")
+    assert span.get("cost") == spans_no_extra[0].get("cost")

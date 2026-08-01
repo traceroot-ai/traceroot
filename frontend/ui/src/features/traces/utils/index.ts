@@ -312,6 +312,7 @@ export function getTraceTokenUsage(trace: TraceDetail): {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   reasoningTokens: number;
+  usageDetails: Record<string, number>;
 } | null {
   const spansWithTokens = trace.spans.filter((s) => s.total_tokens !== null);
   if (spansWithTokens.length === 0) return null;
@@ -320,6 +321,7 @@ export function getTraceTokenUsage(trace: TraceDetail): {
   // renders "-" (via formatTokenFlow) instead of a misleading 0.
   const hasInput = spansWithTokens.some((s) => s.input_tokens !== null);
   const hasOutput = spansWithTokens.some((s) => s.output_tokens !== null);
+  const usageDetails: Record<string, number> = {};
   const acc = spansWithTokens.reduce(
     (acc, s) => {
       acc.inputTokens += s.input_tokens ?? 0;
@@ -328,6 +330,15 @@ export function getTraceTokenUsage(trace: TraceDetail): {
       acc.cacheReadTokens += s.usage_details?.cache_read_tokens ?? 0;
       acc.cacheWriteTokens += s.usage_details?.cache_write_tokens ?? 0;
       acc.reasoningTokens += s.usage_details?.reasoning_tokens ?? 0;
+
+      if (s.usage_details) {
+        Object.entries(s.usage_details).forEach(([key, val]) => {
+          if (key.startsWith("extra:") && val > 0) {
+            usageDetails[key] = (usageDetails[key] ?? 0) + val;
+          }
+        });
+      }
+
       return acc;
     },
     {
@@ -343,6 +354,7 @@ export function getTraceTokenUsage(trace: TraceDetail): {
     ...acc,
     inputTokens: hasInput ? acc.inputTokens : null,
     outputTokens: hasOutput ? acc.outputTokens : null,
+    usageDetails,
   };
 }
 
