@@ -5,7 +5,9 @@ import { getTemplate } from "@/features/detectors/templates";
 
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
-  mutateAsync: vi.fn().mockResolvedValue({ id: "det-1" }),
+  mutate: vi.fn((_input: unknown, options?: { onSuccess?: () => void }) => {
+    options?.onSuccess?.();
+  }),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -13,7 +15,12 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.push }),
 }));
 vi.mock("@/features/detectors/hooks/use-detectors", () => ({
-  useCreateDetector: () => ({ mutateAsync: mocks.mutateAsync, isPending: false }),
+  useCreateDetector: () => ({
+    mutate: mocks.mutate,
+    isPending: false,
+    isError: false,
+    error: null,
+  }),
 }));
 vi.mock("@/features/projects/hooks", () => ({
   useProject: () => ({ data: undefined }),
@@ -38,7 +45,7 @@ import NewDetectorPage from "./page";
 
 afterEach(() => {
   cleanup();
-  mocks.mutateAsync.mockClear();
+  mocks.mutate.mockClear();
   mocks.push.mockClear();
 });
 
@@ -47,21 +54,24 @@ describe("NewDetectorPage", () => {
     render(<NewDetectorPage />);
     fireEvent.click(screen.getByRole("button", { name: "Create Detector" }));
 
-    await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledTimes(1));
     const failure = getTemplate("failure")!;
-    expect(mocks.mutateAsync).toHaveBeenCalledWith({
-      name: "Failure Detector",
-      template: "failure",
-      prompt: failure.prompt,
-      outputSchema: failure.outputSchema,
-      triggerConditions: failure.defaultConditions,
-      sampleRate: 25,
-      enabled: true,
-      enableRca: true,
-      detectionModel: undefined,
-      detectionProvider: undefined,
-      detectionSource: "system",
-    });
+    expect(mocks.mutate).toHaveBeenCalledWith(
+      {
+        name: "Failure Detector",
+        template: "failure",
+        prompt: failure.prompt,
+        outputSchema: failure.outputSchema,
+        triggerConditions: failure.defaultConditions,
+        sampleRate: 25,
+        enabled: true,
+        enableRca: true,
+        detectionModel: undefined,
+        detectionProvider: undefined,
+        detectionSource: "system",
+      },
+      expect.any(Object),
+    );
     expect(mocks.push).toHaveBeenCalledWith("/projects/proj-1/detectors");
   });
 
@@ -75,8 +85,8 @@ describe("NewDetectorPage", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Create Detector" }));
 
-    await waitFor(() => expect(mocks.mutateAsync).toHaveBeenCalledTimes(1));
-    expect(mocks.mutateAsync.mock.calls[0][0]).toMatchObject({
+    await waitFor(() => expect(mocks.mutate).toHaveBeenCalledTimes(1));
+    expect(mocks.mutate.mock.calls[0][0]).toMatchObject({
       name: "My detector",
       prompt: "my prompt",
       template: "failure",
