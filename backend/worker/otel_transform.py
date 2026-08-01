@@ -464,10 +464,14 @@ def parse_manual_usage(raw: Any) -> dict[str, int]:
     # Unrecognized fields use the same validation as the recognized ones; the
     # normalized snake_case name keeps the stored key consistent across the
     # OTEL-attribute path (gen_ai.usage.audio_tokens -> extra:audio_tokens).
+    # Distinct spellings that normalize alike (audioTokens vs audio_tokens) are
+    # summed rather than overwriting each other, so neither reported value is
+    # silently lost from the display-only breakdown.
     for key in unrecognized:
         parsed = _parse_manual_value(key, raw[key])
         if parsed is not None:
-            usage[f"extra:{_camel_to_snake(key)}"] = parsed
+            extra_key = f"extra:{_camel_to_snake(key)}"
+            usage[extra_key] = usage.get(extra_key, 0) + parsed
     return usage
 
 
@@ -1080,16 +1084,23 @@ def transform_otel_to_clickhouse(
                             if extra_key is not None:
                                 val = int_or_zero(attr_val)
                                 if val > 0:
-                                    # Convert camelCase to snake_case for consistency
-                                    normalized = _camel_to_snake(extra_key)
-                                    span_record.setdefault("usage_details", {})[
-                                        f"extra:{normalized}"
-                                    ] = val
+                                    # Convert camelCase to snake_case for consistency,
+                                    # summing spellings that normalize alike (e.g.
+                                    # ai.usage.audioTokens vs gen_ai.usage.audio_tokens)
+                                    # so neither reported value is silently dropped.
+                                    stored_key = f"extra:{_camel_to_snake(extra_key)}"
+                                    span_record.setdefault("usage_details", {})
+                                    span_record["usage_details"][stored_key] = (
+                                        span_record["usage_details"].get(stored_key, 0) + val
+                                    )
 
                         # Same display-only treatment for unrecognized keys reported
                         # through the manual usage dict (traceroot.llm.usage).
                         for extra_key, val in manual_extra_usage.items():
-                            span_record.setdefault("usage_details", {})[extra_key] = val
+                            span_record.setdefault("usage_details", {})
+                            span_record["usage_details"][extra_key] = (
+                                span_record["usage_details"].get(extra_key, 0) + val
+                            )
 
                 # Extract metadata
                 # Priority: explicit traceroot.span.metadata > remaining attributes.

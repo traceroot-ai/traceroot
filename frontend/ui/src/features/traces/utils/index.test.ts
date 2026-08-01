@@ -359,7 +359,7 @@ describe("summarizeCostDetails", () => {
 });
 
 describe("getTraceTokenUsage", () => {
-  it("aggregates extra unpriced usage keys across spans into usageDetails", () => {
+  it("aggregates extra unpriced usage keys across all spans into usageDetails", () => {
     const trace = {
       spans: [
         makeSpan({
@@ -383,6 +383,14 @@ describe("getTraceTokenUsage", () => {
             "extra:video_tokens": 12,
           },
         }),
+        // Extras-only span: no total_tokens, so it must not feed priced totals
+        // but still contributes its extra usage to the breakdown.
+        makeSpan({
+          span_id: "c",
+          usage_details: {
+            "extra:audio_tokens": 100,
+          },
+        }),
       ],
     } as unknown as TraceDetail;
 
@@ -392,7 +400,7 @@ describe("getTraceTokenUsage", () => {
     expect(result.outputTokens).toBe(300);
     expect(result.cacheReadTokens).toBe(300);
     expect(result.usageDetails).toEqual({
-      "extra:audio_tokens": 100,
+      "extra:audio_tokens": 200,
       "extra:image_tokens": 45,
       "extra:video_tokens": 12,
     });
@@ -420,7 +428,31 @@ describe("getTraceTokenUsage", () => {
     expect(result.usageDetails).toEqual({ "extra:image_tokens": 5 });
   });
 
-  it("returns null when no span reports total tokens", () => {
+  it("returns extras-only usage when no span reports total tokens", () => {
+    const trace = {
+      spans: [
+        makeSpan({
+          span_id: "a",
+          usage_details: {
+            "extra:audio_tokens": 30,
+            "extra:image_tokens": 45,
+          },
+        }),
+      ],
+    } as unknown as TraceDetail;
+
+    const result = getTraceTokenUsage(trace)!;
+    expect(result).not.toBeNull();
+    expect(result.inputTokens).toBeNull();
+    expect(result.outputTokens).toBeNull();
+    expect(result.totalTokens).toBe(0);
+    expect(result.usageDetails).toEqual({
+      "extra:audio_tokens": 30,
+      "extra:image_tokens": 45,
+    });
+  });
+
+  it("returns null when no span reports total tokens or extra usage", () => {
     const trace = { spans: [makeSpan({ span_id: "a" })] } as unknown as TraceDetail;
     expect(getTraceTokenUsage(trace)).toBeNull();
   });

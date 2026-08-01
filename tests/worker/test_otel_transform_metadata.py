@@ -474,3 +474,22 @@ def test_extras_only_usage_is_persisted_without_priced_tokens():
     assert "cache_write_tokens" not in span["usage_details"]
     assert "reasoning_tokens" not in span["usage_details"]
     assert span["input_tokens"] == 0
+
+
+def test_extra_attr_spelling_collisions_are_summed():
+    """Spellings that normalize to the same extra: key (ai.usage.audioTokens vs
+    gen_ai.usage.audio_tokens) are summed, not overwritten."""
+    payload = _otel_payload(
+        [
+            _attr("llm.model_name", "claude-3-5-sonnet-20241022"),
+            _attr("gen_ai.usage.input_tokens", 1000),
+            _attr("gen_ai.usage.output_tokens", 200),
+            _attr("ai.usage.audioTokens", 10),
+            _attr("gen_ai.usage.audio_tokens", 20),
+        ]
+    )
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert len(spans) == 1
+    assert spans[0]["usage_details"]["extra:audio_tokens"] == 30

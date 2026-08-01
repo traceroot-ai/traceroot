@@ -2052,6 +2052,15 @@ class TestManualUsageAttribute:
         assert "image_tokens" in warning
         assert "display-only" in warning
 
+    def test_manual_extra_key_spelling_collisions_are_summed(self):
+        from worker.otel_transform import parse_manual_usage
+
+        # Distinct spellings of the same token type normalize to the same extra:
+        # key; both values must survive (summed), not silently overwrite each other.
+        assert parse_manual_usage('{"audioTokens": 10, "audio_tokens": 20}') == {
+            "extra:audio_tokens": 30
+        }
+
     def test_fully_recognized_usage_logs_no_warning(self, caplog):
         import logging
 
