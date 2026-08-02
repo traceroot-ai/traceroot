@@ -61,7 +61,32 @@ import type {
   CompareResultRow,
   CompareRunsResponse,
   ResultRowComparison,
+  HumanScoreRow,
+  HumanReviewSummary,
 } from "../types";
+import { HUMAN_VERDICT_LABEL, type HumanReview, type HumanVerdict } from "@/features/offline-eval/types";
+
+/** The single canonical dimension reviewed in V1. */
+const REVIEW_DIMENSION = "overall";
+
+/**
+ * Map the read-model review row a result carries into the panel's `HumanReview`
+ * shape, so re-opening the review drawer pre-fills the saved verdict/quality/comment
+ * instead of a blank form (nulls → undefined; the review's `updateTime` is its `at`).
+ */
+function toExistingReview(humanScores: HumanScoreRow[]): HumanReview | undefined {
+  const saved =
+    humanScores.find((h) => h.dimension === REVIEW_DIMENSION) ?? humanScores[0];
+  return saved
+    ? {
+        verdict: saved.verdict as HumanVerdict,
+        quality: saved.quality ?? undefined,
+        comment: saved.comment ?? undefined,
+        reviewer: saved.reviewer,
+        at: saved.updateTime,
+      }
+    : undefined;
+}
 
 /** Case/run duration; "Unknown" when unmeasured (never 0s). */
 function fmtDurationMs(ms: number | null | undefined): string {
@@ -243,7 +268,10 @@ type ResultFilterId =
   | "failed"
   | "errors"
   | "unpaired"
-  | "not_scored";
+  | "not_scored"
+  | "needs_human_review"
+  | "human_reviewed"
+  | "judge_disagreement";
 
 const RESULT_FILTERS: Array<{ id: ResultFilterId; label: string }> = [
   { id: "all", label: "All" },
@@ -253,7 +281,67 @@ const RESULT_FILTERS: Array<{ id: ResultFilterId; label: string }> = [
   { id: "errors", label: "Errors" },
   { id: "unpaired", label: "Unpaired" },
   { id: "not_scored", label: "Not scored" },
+  { id: "needs_human_review", label: "Needs human review" },
+  { id: "human_reviewed", label: "Reviewed" },
+  { id: "judge_disagreement", label: "Judge disagreement" },
 ];
+
+/** The result's canonical human review (V1: the "overall" dimension), if any. */
+function resultReview(r: ResultRow): HumanScoreRow | undefined {
+  const reviews = r.humanScores ?? [];
+  return reviews.find((h) => h.dimension === REVIEW_DIMENSION) ?? reviews[0];
+}
+
+/**
+ * A human pass/fail verdict disagreeing with the automated pass/fail — both must be
+ * boolean, so "unsure" and a quality-only review never count (mirrors the backend
+ * `deriveHumanReviewSummary`). Read-only: this never alters the automated score.
+ */
+function isJudgeDisagreement(r: ResultRow): boolean {
+  const review = resultReview(r);
+  if (!review || (review.verdict !== "pass" && review.verdict !== "fail")) return false;
+  const automatedPass = r.status === "passed" ? true : r.status === "failed" ? false : null;
+  if (automatedPass === null) return false;
+  return (review.verdict === "pass") !== automatedPass;
+}
+
+/** Compact human-review chip for the result drawer — verdict/quality/reviewer, plus a
+ *  disagreement flag. Never renders the automated score; it sits beside it. */
+function ReviewTag({
+  review,
+  disagreement,
+}: {
+  review: HumanScoreRow | undefined;
+  disagreement: boolean;
+}) {
+  if (!review) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-md border bg-muted/40 px-2.5 py-1 text-xs">
+        <span className="text-muted-foreground">Human review:</span>
+        <span className="font-medium text-muted-foreground">Pending</span>
+      </span>
+    );
+  }
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs ${
+        disagreement
+          ? "border-amber-400/60 bg-amber-100/50 dark:border-amber-700/60 dark:bg-amber-950/30"
+          : "bg-muted/40"
+      }`}
+    >
+      <span className="text-muted-foreground">Human review:</span>
+      <span className="font-medium">{HUMAN_VERDICT_LABEL[review.verdict as HumanVerdict]}</span>
+      {review.quality != null && <span className="text-muted-foreground">· {review.quality}/5</span>}
+      <span className="text-muted-foreground">· {review.reviewer}</span>
+      {disagreement && (
+        <span className="font-medium text-amber-700 dark:text-amber-400">
+          · Disagrees with automated
+        </span>
+      )}
+    </span>
+  );
+}
 
 // Filters key on the DERIVED case verdict (comparison.caseChange), never the stored
 // change column. "Unpaired" folds in not_comparable (paired but un-trustable) cases.
@@ -266,6 +354,9 @@ const RESULT_FILTER_FN: Record<ResultFilterId, (r: ResultRow) => boolean> = {
   unpaired: (r) =>
     r.comparison?.caseChange === "unpaired" || r.comparison?.caseChange === "not_comparable",
   not_scored: (r) => r.status === "not_scored",
+  needs_human_review: (r) => !resultReview(r),
+  human_reviewed: (r) => !!resultReview(r),
+  judge_disagreement: isJudgeDisagreement,
 };
 
 /**
@@ -484,7 +575,7 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
                 className="h-7 text-[12px]"
                 onClick={() => setReviewOpen(true)}
               >
-                Review output
+                {resultReview(openResult) ? "Edit review" : "Review output"}
               </Button>
               <Link
                 href={`/projects/${projectId}/datasets/${run.datasetId}?case=${openResult.testCaseId}`}
@@ -530,6 +621,9 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
                   {run.datasetName} · {run.datasetVersionLabel}
                 </span>
               </span>
+              {/* Human review — shown ALONGSIDE the automated score/status (never
+                  replacing it); a disagreement between the two is labelled, not hidden. */}
+              <ReviewTag review={resultReview(openResult)} disagreement={isJudgeDisagreement(openResult)} />
             </>
           )}
           /* Baseline run's trace + a per-span matcher. Powers the viewer's Diff
@@ -569,7 +663,7 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
                   display: s.error ? "Scorer error" : scoreValue(s),
                   explanation: s.error ?? s.explanation ?? undefined,
                 })),
-                existing: undefined,
+                existing: toExistingReview(openResult.humanScores),
               } satisfies ReviewTarget)
             : null
         }
@@ -954,7 +1048,45 @@ function HeadlineMetrics({ run }: { run: RunDetail }) {
         )}
       </HeadlineStat>
       <HeadlineStat label="Duration">{fmtDurationMs(run.elapsedMs)}</HeadlineStat>
+      <HumanReviewHeadline hr={run.humanReview} />
     </div>
+  );
+}
+
+/**
+ * Run-level human-review summary. Sits alongside the automated headline stats and
+ * never replaces them — human review is a separate, co-equal signal.
+ */
+function HumanReviewHeadline({ hr }: { hr: HumanReviewSummary | undefined }) {
+  if (!hr || hr.dimensions.length === 0) {
+    return (
+      <HeadlineStat label="Human review">
+        <span className="text-muted-foreground">Not started</span>
+      </HeadlineStat>
+    );
+  }
+  const total = hr.reviewedCount + hr.pendingCount;
+  const judged = hr.passCount + hr.failCount;
+  return (
+    <>
+      <HeadlineStat label="Human review">
+        {hr.reviewedCount} / {total}
+      </HeadlineStat>
+      <HeadlineStat label="Human pass rate">
+        {judged === 0 ? (
+          <span className="text-muted-foreground">—</span>
+        ) : (
+          pctFraction(hr.passCount / judged)
+        )}
+      </HeadlineStat>
+      <HeadlineStat label="Disagreements">
+        {hr.disagreementCount === 0 ? (
+          <span className="text-muted-foreground">0</span>
+        ) : (
+          <span className="text-amber-600 dark:text-amber-500">{hr.disagreementCount}</span>
+        )}
+      </HeadlineStat>
+    </>
   );
 }
 
