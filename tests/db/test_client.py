@@ -3,10 +3,33 @@
 Tests row construction without a real ClickHouse connection.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
-from db.clickhouse.client import ClickHouseClient
+from db.clickhouse.client import ClickHouseClient, _make_trace_version
+
+
+def test_authoritative_trace_beats_a_newer_internal_placeholder():
+    """Authority, not request completion order, decides the winner."""
+    root_time = datetime(2026, 1, 1, tzinfo=UTC)
+    later_placeholder_time = root_time + timedelta(days=1)
+
+    assert _make_trace_version(root_time, authoritative=True) > _make_trace_version(
+        later_placeholder_time, authoritative=False
+    )
+
+
+def test_newer_trace_wins_when_authority_is_equal():
+    """The old timestamp ordering is preserved within each authority class."""
+    older_time = datetime(2026, 1, 1, tzinfo=UTC)
+    newer_time = older_time + timedelta(seconds=1)
+
+    assert _make_trace_version(newer_time, authoritative=True) > _make_trace_version(
+        older_time, authoritative=True
+    )
+    assert _make_trace_version(newer_time, authoritative=False) > _make_trace_version(
+        older_time, authoritative=False
+    )
 
 
 class TestInsertTracesBatch:
@@ -55,9 +78,16 @@ class TestInsertTracesBatch:
         # ch_create_time and ch_update_time are auto-set
         assert isinstance(row[12], datetime)
         assert isinstance(row[13], datetime)
-        assert len(columns) == 15
+        assert len(columns) == 17
         assert "environment" in columns
         assert row[columns.index("environment")] == "production"
+        # Omitting root_bearing_keys is the public/legacy path: preserve its
+        # existing timestamp-only behavior by treating the row as authority 1.
+        assert row[columns.index("trace_authority")] == 1
+        assert row[columns.index("trace_version")] == _make_trace_version(
+            row[columns.index("ch_update_time")],
+            authoritative=True,
+        )
 
     def test_empty_batch_no_insert(self):
         """Empty list -> no _client.insert() call."""
@@ -115,6 +145,40 @@ class TestInsertTracesBatch:
         columns = mock_internal.insert.call_args[1]["column_names"]
         row = mock_internal.insert.call_args[0][1][0]
         assert row[columns.index("environment")] is None
+
+    def test_internal_root_keys_classify_root_and_placeholder_rows(self):
+        """An empty/internal root set differs from the public None default."""
+        mock_internal = MagicMock()
+        client = ClickHouseClient(mock_internal)
+
+        traces = [
+            {
+                "trace_id": "root-trace",
+                "project_id": "proj-1",
+                "trace_start_time": datetime(2024, 1, 15, 12, 0, 0),
+                "name": "root",
+            },
+            {
+                "trace_id": "child-only-trace",
+                "project_id": "proj-1",
+                "trace_start_time": datetime(2024, 1, 15, 12, 0, 0),
+                "name": "placeholder",
+            },
+        ]
+
+        client.insert_traces_batch(
+            traces,
+            root_bearing_keys={("proj-1", "root-trace")},
+        )
+
+        columns = mock_internal.insert.call_args.kwargs["column_names"]
+        rows = mock_internal.insert.call_args.args[1]
+        authority_index = columns.index("trace_authority")
+        version_index = columns.index("trace_version")
+
+        assert rows[0][authority_index] == 1
+        assert rows[1][authority_index] == 0
+        assert rows[0][version_index] > rows[1][version_index]
 
 
 class TestInsertSpansBatch:

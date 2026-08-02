@@ -1000,6 +1000,9 @@ class TestInternalTraceIngest:
         assert len(inserted_traces) == 1
         assert inserted_traces[0]["trace_id"] == trace_id_hex
         assert inserted_traces[0]["project_id"] == "proj-1"
+        assert mock_ch.insert_traces_batch.call_args.kwargs["root_bearing_keys"] == {
+            ("proj-1", trace_id_hex)
+        }
 
         # A root-bearing trace is authoritative, so the route should write it
         # directly without asking ClickHouse whether it already exists.
@@ -1089,6 +1092,10 @@ class TestInternalTraceIngest:
         assert len(inserted_traces) == 1
         assert inserted_traces[0]["project_id"] == "proj-1"
         assert inserted_traces[0]["trace_id"] == trace_id_hex
+        # An empty set means this internal batch was inspected and contained
+        # no root; the client therefore writes authority 0, not the public
+        # authority-1 default represented by root_bearing_keys=None.
+        assert mock_ch.insert_traces_batch.call_args.kwargs["root_bearing_keys"] == set()
 
     def test_existing_pair_does_not_suppress_same_trace_id_in_another_project(
         self,
@@ -1179,6 +1186,9 @@ class TestInternalTraceIngest:
         assert [(trace["project_id"], trace["trace_id"]) for trace in inserted_traces] == [
             ("proj-a", root_trace_id_hex)
         ]
+        assert mock_ch.insert_traces_batch.call_args.kwargs["root_bearing_keys"] == {
+            ("proj-a", root_trace_id_hex)
+        }
 
         # Only rootless candidates should be sent to the existence query.
         # The authoritative root-bearing trace must not be queried.

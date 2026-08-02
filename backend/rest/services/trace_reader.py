@@ -605,8 +605,10 @@ class TraceReaderService:
         source_predicate = f"AND {source_condition}"
 
         # Fetch trace
-        # Dedup the ReplacingMergeTree row without FINAL: keep the latest version
-        # of this trace_id.
+        # Dedup the ReplacingMergeTree row without FINAL using the same winner
+        # rule as the table engine. This matters for detector self-traces:
+        # background merging may not have removed a later rootless placeholder
+        # yet, but its lower trace_version must not hide the root-bearing row.
         trace_query = f"""
             SELECT
                 trace_id, project_id, name, trace_start_time,
@@ -614,7 +616,7 @@ class TraceReaderService:
             FROM traces
             WHERE project_id = {{project_id:String}} AND trace_id = {{trace_id:String}}
             {source_predicate}
-            ORDER BY ch_update_time DESC
+            ORDER BY trace_version DESC
             LIMIT 1 BY trace_id
         """
         trace_result = self._client.query(

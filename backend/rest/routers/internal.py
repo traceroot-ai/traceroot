@@ -1066,5 +1066,5 @@ async def ingest_internal_traces(
     # Preserve the existing empty-payload no-op call, but avoid invoking the
     # trace writer when a real rootless batch was entirely filtered out.
     if traces or not had_trace_records:
-        ch.insert_traces_batch(traces)
+        ch.insert_traces_batch(traces, root_bearing_keys=root_bearing_keys)
     return {"ok": True}
