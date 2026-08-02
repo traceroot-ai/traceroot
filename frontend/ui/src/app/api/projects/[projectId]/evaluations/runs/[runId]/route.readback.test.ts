@@ -282,9 +282,11 @@ describe("run/result read-back", () => {
     const run = (await read()).body.run as Record<string, unknown>;
     expect(run.baselineComparable).toBe(false);
     expect(run.changeFromBaseline).toBeNull();
-    expect((run.comparison as { reasons: string[] }).reasons).toContain(
-      "different_dataset_version",
-    );
+    const cmp = run.comparison as { reasons: string[]; state: string };
+    expect(cmp.reasons).toContain("different_dataset_version");
+    // Computed but non-authoritative → the explicit `exploratory` state, distinct on
+    // the wire from a still-running `pending` comparison.
+    expect(cmp.state).toBe("exploratory");
   });
 
   it("404s an unknown run", async () => {
