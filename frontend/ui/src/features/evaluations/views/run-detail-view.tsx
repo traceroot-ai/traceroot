@@ -19,6 +19,13 @@ import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { Table, TBody, THead, TR, TRHead, Td, Th } from "@/components/ui/table";
 import { ProjectBreadcrumb } from "@/features/projects/components";
@@ -44,6 +51,10 @@ import { useEvaluationRun, useEvaluationRuns, useCreateHumanScore, useCompareRun
 import { PullCodeDrawer } from "../components/pull-code-drawer";
 import { PassRate } from "../components/pass-rate";
 import { SaveTestCaseDrawer } from "../components/trace-integration";
+import {
+  SaveResultToDatasetDrawer,
+  type ResultDatasetAction,
+} from "../components/save-result-to-dataset-drawer";
 import { reproduceRunCode, reproduceRunCodeTs } from "@/features/offline-eval/utils";
 import { matchSpans } from "@/lib/eval/span-match";
 import {
@@ -378,6 +389,10 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
   // "Save as test case" drawer (only for real ingested traces): which span it targets.
   const [saveTestCaseOpen, setSaveTestCaseOpen] = React.useState(false);
   const [saveTestCaseSpanId, setSaveTestCaseSpanId] = React.useState<string | undefined>(undefined);
+  // Result→dataset drawer: which action the "Add to dataset" menu picked (null = closed).
+  const [resultDatasetAction, setResultDatasetAction] = React.useState<ResultDatasetAction | null>(
+    null,
+  );
   // "Compare with" — another run of the SAME evaluation, chosen inline. The current run
   // is the candidate; the picked run is the baseline. Comparison is computed on demand
   // by the backend engine (the SDK no longer declares baselines).
@@ -584,21 +599,66 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
                 <Database className="h-3.5 w-3.5" aria-hidden />
                 View source test case
               </Link>
-              {useRealTrace && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 text-[12px]"
-                  onClick={() => {
-                    setSaveTestCaseSpanId(
-                      selection.type === "span" ? selection.span.span_id : undefined,
-                    );
-                    setSaveTestCaseOpen(true);
-                  }}
-                >
-                  Save as test case
-                </Button>
-              )}
+              {/* Result → dataset: the three case-level actions live under one menu.
+                  Saving/duplicating/updating operates on the RESULT (its whole
+                  candidate output for this case), publishing a new immutable dataset
+                  version; the finer "save a specific span" capture stays available
+                  below for real ingested traces. */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-7 gap-1 text-[12px]">
+                    <Database className="h-3.5 w-3.5" aria-hidden />
+                    Add to dataset
+                    <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-64">
+                  <DropdownMenuItem onSelect={() => setResultDatasetAction("update_existing_case")}>
+                    <div>
+                      <div className="text-[12px] font-medium">Update source case</div>
+                      <div className="text-[11px] text-muted-foreground">
+                        Publish a new version of this case
+                      </div>
+                    </div>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setResultDatasetAction("save_new_case")}>
+                    <div>
+                      <div className="text-[12px] font-medium">Save as a new case</div>
+                      <div className="text-[11px] text-muted-foreground">
+                        Add a new case to a dataset
+                      </div>
+                    </div>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setResultDatasetAction("duplicate_as_variant")}>
+                    <div>
+                      <div className="text-[12px] font-medium">Duplicate as a variant</div>
+                      <div className="text-[11px] text-muted-foreground">
+                        Branch this case without touching the original
+                      </div>
+                    </div>
+                  </DropdownMenuItem>
+                  {useRealTrace && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onSelect={() => {
+                          setSaveTestCaseSpanId(
+                            selection.type === "span" ? selection.span.span_id : undefined,
+                          );
+                          setSaveTestCaseOpen(true);
+                        }}
+                      >
+                        <div>
+                          <div className="text-[12px] font-medium">Save a span as a case…</div>
+                          <div className="text-[11px] text-muted-foreground">
+                            Capture the selected span&rsquo;s input/output
+                          </div>
+                        </div>
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </>
           )}
           spanExtraTags={() => (
@@ -695,6 +755,28 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
         open={saveTestCaseOpen}
         onOpenChange={setSaveTestCaseOpen}
       />
+
+      {/* Result → dataset: update the source case, save a new one, or duplicate as a
+          variant. Publishes a new immutable dataset version; never a scoring action. */}
+      {openResult && run && (
+        <SaveResultToDatasetDrawer
+          projectId={projectId}
+          open={resultDatasetAction !== null}
+          onOpenChange={(o) => {
+            if (!o) setResultDatasetAction(null);
+          }}
+          action={resultDatasetAction ?? "update_existing_case"}
+          result={{
+            id: openResult.id,
+            input: openResult.input,
+            expectedOutput: openResult.expectedOutput,
+            candidateOutput: openResult.candidateOutput,
+            testCaseId: openResult.testCaseId,
+          }}
+          sourceDatasetId={run.datasetId}
+          sourceDatasetName={run.datasetName ?? "this run's dataset"}
+        />
+      )}
     </>
   );
 }
