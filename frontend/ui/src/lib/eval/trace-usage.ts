@@ -57,6 +57,10 @@ export interface UsageBucket {
   outputTokens: number;
   totalTokens: number;
   cost: number;
+  /** Whether ANY leaf summed here reported a cost. `cost === 0` with `costKnown` false
+   *  is "cost not attributed yet" (show Unknown); with `costKnown` true it's a genuine
+   *  zero. Ingest can attach token usage before it computes cost, so the two differ. */
+  costKnown: boolean;
   /** How many usage-bearing leaf spans were summed into this bucket. */
   spanCount: number;
   /** Distinct OBSERVED model names among the leaves summed here (sorted). Empty when
@@ -79,7 +83,15 @@ export interface TraceUsage {
 const WRAPPER_KINDS = new Set(["EVALUATION", "TASK", "SCORER"]);
 
 function emptyBucket(): UsageBucket {
-  return { inputTokens: 0, outputTokens: 0, totalTokens: 0, cost: 0, spanCount: 0, models: [] };
+  return {
+    inputTokens: 0,
+    outputTokens: 0,
+    totalTokens: 0,
+    cost: 0,
+    costKnown: false,
+    spanCount: 0,
+    models: [],
+  };
 }
 
 /** A span carries provider usage if any token count or a cost is present. */
@@ -97,6 +109,7 @@ function addUsage(bucket: UsageBucket, s: UsageSpan, models: Set<string>): void 
   bucket.outputTokens += s.output_tokens ?? 0;
   bucket.totalTokens += s.total_tokens ?? (s.input_tokens ?? 0) + (s.output_tokens ?? 0);
   bucket.cost += s.cost ?? 0;
+  if (s.cost !== null) bucket.costKnown = true;
   bucket.spanCount += 1;
   if (s.model_name) models.add(s.model_name);
 }

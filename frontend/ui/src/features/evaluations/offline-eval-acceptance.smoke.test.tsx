@@ -188,7 +188,7 @@ describe("offline-eval acceptance — one case, Opus(Pass) → Sonnet(Fail)", ()
     expect(screen.getByText("Fail")).toBeDefined();
 
     // Observed models: the baseline ran Opus, the candidate ran Sonnet.
-    const observed = screen.getByText("Observed model").parentElement?.textContent ?? "";
+    const observed = screen.getByText("Observed task model").parentElement?.textContent ?? "";
     expect(observed).toMatch(/claude-opus-4.*→.*claude-sonnet-4/);
 
     // Baseline → Candidate orientation in the footer.

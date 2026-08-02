@@ -114,8 +114,50 @@ describe("CompareCaseDrawer — task vs judge overhead and observed models", () 
     expect(rowText("Evaluation overhead")).toMatch(/None.*→.*45/);
     expect(rowText("Evaluation overhead")).toMatch(/judge tokens/);
 
-    // Observed models are measured per side from the trace, not the "opus"/"sonnet"
-    // candidate labels.
-    expect(rowText("Observed model")).toMatch(/claude-opus-4.*→.*claude-sonnet-4/);
+    // Observed CANDIDATE (task) models are measured per side from the trace, not the
+    // "opus"/"sonnet" candidate labels.
+    expect(rowText("Observed task model")).toMatch(/claude-opus-4.*→.*claude-sonnet-4/);
+
+    // Observed JUDGE model is separate: the baseline had no judge (—), the candidate's
+    // judge ran gpt-4o-judge. The judge is never presented as the model being evaluated.
+    expect(rowText("Judge model")).toMatch(/—.*→.*gpt-4o-judge/);
+  });
+
+  it("shows a shared judge on both sides while the candidate models stay distinct", () => {
+    // Different candidate models, SAME judge on both sides.
+    const traces = {
+      base: [
+        { span_id: "r", parent_span_id: null, span_kind: "EVALUATION" },
+        { span_id: "t", parent_span_id: "r", span_kind: "TASK" },
+        { span_id: "l", parent_span_id: "t", span_kind: "LLM", total_tokens: 90, cost: 0.002, model_name: "claude-opus-4" },
+        { span_id: "s", parent_span_id: "r", span_kind: "SCORER" },
+        { span_id: "j", parent_span_id: "s", span_kind: "LLM", total_tokens: 40, cost: 0.001, model_name: "gpt-4o-judge" },
+      ],
+      cand: [
+        { span_id: "r", parent_span_id: null, span_kind: "EVALUATION" },
+        { span_id: "t", parent_span_id: "r", span_kind: "TASK" },
+        { span_id: "l", parent_span_id: "t", span_kind: "LLM", total_tokens: 70, cost: 0.001, model_name: "gpt-4o-mini" },
+        { span_id: "s", parent_span_id: "r", span_kind: "SCORER" },
+        { span_id: "j", parent_span_id: "s", span_kind: "LLM", total_tokens: 42, cost: 0.001, model_name: "gpt-4o-judge" },
+      ],
+    };
+    TRACES.tr_base = traces.base;
+    TRACES.tr_cand = traces.cand;
+
+    render(
+      <CompareCaseDrawer
+        projectId="p1"
+        row={ROW}
+        candidate={RUN(2, "sonnet")}
+        baseline={RUN(1, "opus")}
+        onClose={() => {}}
+      />,
+    );
+
+    // Candidate models differ per side...
+    expect(rowText("Observed task model")).toMatch(/claude-opus-4.*→.*gpt-4o-mini/);
+    // ...but the same judge reads identically on both sides, without implying the
+    // candidate models match.
+    expect(rowText("Judge model")).toMatch(/gpt-4o-judge.*→.*gpt-4o-judge/);
   });
 });

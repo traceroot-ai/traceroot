@@ -57,8 +57,10 @@ import {
 } from "../components/save-result-to-dataset-drawer";
 import { reproduceRunCode, reproduceRunCodeTs } from "@/features/offline-eval/utils";
 import { matchSpans } from "@/lib/eval/span-match";
+import { attributeTraceUsage, type UsageSpan } from "@/lib/eval/trace-usage";
 import { ComparabilityBanner } from "@/features/evaluations/components/comparability-banner";
 import { CandidateIdentity } from "@/features/evaluations/components/candidate-identity";
+import { ResultUsageSummary } from "@/features/evaluations/components/result-usage-summary";
 import {
   Select,
   SelectContent,
@@ -450,6 +452,15 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
 
   const openTraceSpans = useRealTrace ? realTrace.data?.spans : panelOverride?.spans;
 
+  // Per-result usage split (candidate task vs evaluation-judge overhead), trace-derived
+  // and reliable per result — so it lives in this drawer, not as a run-level aggregate.
+  // A reconstructed trace (no real telemetry) has no usage to attribute, so this stays
+  // pending/unknown there rather than reporting a fabricated split.
+  const resultUsage = React.useMemo(
+    () => attributeTraceUsage(useRealTrace ? (openTraceSpans as UsageSpan[] | undefined) : null),
+    [useRealTrace, openTraceSpans],
+  );
+
   // The baseline case's trace (from the picked compare run), fetched so the trace
   // viewer's Diff toggle can diff each span (I/O, metadata, latency/token/cost) against
   // its baseline counterpart. Span ids differ across runs, so we match structurally
@@ -666,6 +677,13 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
               {/* Human review — shown ALONGSIDE the automated score/status (never
                   replacing it); a disagreement between the two is labelled, not hidden. */}
               <ReviewTag review={resultReview(openResult)} disagreement={isJudgeDisagreement(openResult)} />
+              {/* Candidate execution vs evaluation overhead for THIS result — trace
+                  derived; the judge's cost/model never fold into the candidate's. */}
+              <ResultUsageSummary
+                usage={resultUsage}
+                durationMs={openResult.durationMs}
+                taskCost={openResult.cost}
+              />
             </>
           )}
           /* Baseline run's trace + a per-span matcher. Powers the viewer's Diff
@@ -1164,7 +1182,10 @@ function HeadlineMetrics({ run }: { run: RunDetail }) {
       <HeadlineStat label="Pass rate">
         <PassRate counts={run} />
       </HeadlineStat>
-      <HeadlineStat label="Cost">
+      <HeadlineStat
+        label="Cost (candidate)"
+        title="Candidate task cost only — excludes evaluation (judge) cost. Open a result for the candidate-vs-evaluation split."
+      >
         {run.cost === null || run.cost === undefined ? (
           <span className="text-muted-foreground">—</span>
         ) : (
@@ -1214,16 +1235,22 @@ function HumanReviewHeadline({ hr }: { hr: HumanReviewSummary | undefined }) {
   );
 }
 
-function HeadlineStat({ label, children }: { label: string; children: React.ReactNode }) {
+function HeadlineStat({
+  label,
+  title,
+  children,
+}: {
+  label: string;
+  title?: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="flex flex-col gap-0.5">
+    <div className="flex flex-col gap-0.5" title={title}>
       <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>
       <div className="text-[13px] font-medium tabular-nums">{children}</div>
     </div>
   );
 }
-
-const RESULT_COLUMN_COUNT = 7;
 
 function ResultsSection({
   run,
