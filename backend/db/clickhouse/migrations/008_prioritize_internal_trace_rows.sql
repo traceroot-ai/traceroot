@@ -10,10 +10,11 @@
 --   1. trace_authority (authoritative rows beat internal placeholders)
 --   2. ch_update_time (newer rows win when authority is equal)
 --
--- As with migration 005, ingestion must be paused for the copy-and-swap
--- window because ClickHouse cannot change the engine's version column in
--- place and this migration has no concurrent-write catch-up step.
+-- A temporary materialized view mirrors writes that arrive during the
+-- copy-and-swap window, so active ingestion cannot strand new rows in the
+-- renamed backup table.
 
+DROP TABLE IF EXISTS traces_authority_write_mirror;
 DROP TABLE IF EXISTS traces_with_authority;
 DROP TABLE IF EXISTS traces_before_authority;
 
@@ -50,6 +51,47 @@ ENGINE = ReplacingMergeTree(trace_version)
 PARTITION BY toYYYYMM(trace_start_time)
 ORDER BY (project_id, toDate(trace_start_time), trace_id);
 
+-- Existing REST/worker pods may keep inserting into `traces` while the
+-- historical copy below runs. This temporary materialized view forwards every
+-- newly inserted block into the replacement table so those rows participate in
+-- the atomic table swap instead of being stranded in the backup table.
+CREATE MATERIALIZED VIEW traces_authority_write_mirror
+TO traces_with_authority
+AS
+SELECT
+    trace_id,
+    project_id,
+    trace_start_time,
+    name,
+    user_id,
+    session_id,
+    git_ref,
+    git_repo,
+    input,
+    output,
+    metadata,
+    ch_create_time,
+    ch_update_time,
+    environment,
+    source,
+
+    -- The currently deployed writers do not provide authority information.
+    -- Preserve their previous/public behavior by treating those rows as
+    -- authoritative. New application pods explicitly mark internal rootless
+    -- rows after the migration finishes.
+    toUInt8(1) AS trace_authority,
+
+    -- Authority occupies the high bit. The timestamp continues deciding
+    -- between two rows that have the same authority.
+    bitShiftLeft(toUInt64(1), 63)
+        + toUInt64(toUnixTimestamp64Milli(ch_update_time))
+        AS trace_version
+FROM traces;
+
+-- Copy all rows that existed before the migration. A concurrently inserted
+-- row may occasionally arrive through both this copy and the materialized
+-- view. That is safe: both copies have the same ReplacingMergeTree key and
+-- version and therefore collapse to one winner.
 INSERT INTO traces_with_authority
 (
     trace_id,
@@ -101,11 +143,16 @@ RENAME TABLE
     traces TO traces_before_authority,
     traces_with_authority TO traces;
 
+-- New writes now resolve `traces` directly to the replacement table, so the
+-- temporary forwarding rule is no longer necessary.
+DROP TABLE traces_authority_write_mirror;
+
 
 -- +goose Down
 
 -- Rebuild the pre-version schema from the current table so rows written after
 -- the Up migration survive rollback.
+DROP TABLE IF EXISTS traces_without_authority_write_mirror;
 DROP TABLE IF EXISTS traces_without_authority;
 
 CREATE TABLE traces_without_authority
@@ -129,6 +176,28 @@ CREATE TABLE traces_without_authority
 ENGINE = ReplacingMergeTree(ch_update_time)
 PARTITION BY toYYYYMM(trace_start_time)
 ORDER BY (project_id, toDate(trace_start_time), trace_id);
+
+-- Keep forwarding new writes while the rollback table is populated.
+CREATE MATERIALIZED VIEW traces_without_authority_write_mirror
+TO traces_without_authority
+AS
+SELECT
+    trace_id,
+    project_id,
+    trace_start_time,
+    name,
+    user_id,
+    session_id,
+    git_ref,
+    git_repo,
+    input,
+    output,
+    metadata,
+    ch_create_time,
+    ch_update_time,
+    environment,
+    source
+FROM traces;
 
 INSERT INTO traces_without_authority
 (
@@ -172,3 +241,5 @@ DROP TABLE IF EXISTS traces_before_authority;
 RENAME TABLE
     traces TO traces_before_authority,
     traces_without_authority TO traces;
+
+DROP TABLE traces_without_authority_write_mirror;
