@@ -1,13 +1,14 @@
 /**
  * Human-scoring one evaluation result. This is a SCORING action, not a dataset edit:
- * it appends a HumanScore row scoped to the project and never touches the case's
- * expected output. The result must belong to the caller's project. Auth + Prisma mocked.
+ * it writes ONE canonical HumanScore per (result, dimension), scoped to the project,
+ * and never touches the case's expected output or the automated score. Re-reviewing
+ * upserts in place. The result must belong to the caller's project. Auth + Prisma mocked.
  */
 import { it, expect, vi, beforeEach } from "vitest";
 
 const prismaMock = vi.hoisted(() => ({
   evaluationResult: { findFirst: vi.fn() },
-  humanScore: { create: vi.fn() },
+  humanScore: { upsert: vi.fn() },
 }));
 const auth = vi.hoisted(() => ({ requireAuth: vi.fn(), requireProjectAccess: vi.fn() }));
 
@@ -49,26 +50,36 @@ beforeEach(() => {
   auth.requireAuth.mockResolvedValue({ user: { id: "u1" } });
   auth.requireProjectAccess.mockResolvedValue({ project: { id: "p1" } });
   prismaMock.evaluationResult.findFirst.mockResolvedValue({ id: "res_1" });
-  prismaMock.humanScore.create.mockImplementation(async (args: { data: unknown }) => ({
+  prismaMock.humanScore.upsert.mockImplementation(async (args: { create: unknown }) => ({
     id: "hs_1",
-    ...(args.data as Record<string, unknown>),
+    ...(args.create as Record<string, unknown>),
   }));
 });
 
-it("appends a human score to a result in the caller's project and 201s", async () => {
+it("writes one canonical review per (result, dimension) via upsert and 201s", async () => {
   const res = await POST(req(valid), params);
   expect(res.status).toBe(201);
   expect((await body(res)).humanScore).toMatchObject({ id: "hs_1", verdict: "pass", quality: 4 });
-  expect(prismaMock.humanScore.create).toHaveBeenCalledWith({
-    data: {
+  expect(prismaMock.humanScore.upsert).toHaveBeenCalledWith({
+    // Canonical key: the default "overall" dimension.
+    where: { resultId_dimension: { resultId: "res_1", dimension: "overall" } },
+    create: {
       resultId: "res_1",
       projectId: "p1",
+      dimension: "overall",
       verdict: "pass",
       quality: 4,
       comment: "reads well",
-      // The session identity is authoritative: a body `reviewer` is ignored, so a
-      // member cannot attribute their judgment to someone else.
+      // The session identity is authoritative: a body `reviewer` is ignored.
       reviewer: "u1",
+      status: "reviewed",
+    },
+    update: {
+      verdict: "pass",
+      quality: 4,
+      comment: "reads well",
+      reviewer: "u1",
+      status: "reviewed",
     },
   });
   // Scoped lookup — a result id from another project cannot be scored.
@@ -78,15 +89,22 @@ it("appends a human score to a result in the caller's project and 201s", async (
   });
 });
 
+it("keys the canonical review on an explicit dimension", async () => {
+  await POST(req({ ...valid, dimension: "safety" }), params);
+  const call = prismaMock.humanScore.upsert.mock.calls[0][0];
+  expect(call.where).toEqual({ resultId_dimension: { resultId: "res_1", dimension: "safety" } });
+  expect(call.create.dimension).toBe("safety");
+});
+
 it("attributes the score to the signed-in reviewer, not a body-supplied one", async () => {
   auth.requireAuth.mockResolvedValue({ user: { id: "u1", email: "hao@example.com" } });
   await POST(req({ ...valid, reviewer: "someone-else" }), params);
-  expect(prismaMock.humanScore.create.mock.calls[0][0].data.reviewer).toBe("hao@example.com");
+  expect(prismaMock.humanScore.upsert.mock.calls[0][0].create.reviewer).toBe("hao@example.com");
 });
 
 it("stores null for an omitted quality and comment", async () => {
   await POST(req({ verdict: "unsure", reviewer: "hao" }), params);
-  expect(prismaMock.humanScore.create.mock.calls[0][0].data).toMatchObject({
+  expect(prismaMock.humanScore.upsert.mock.calls[0][0].create).toMatchObject({
     quality: null,
     comment: null,
   });
@@ -96,13 +114,13 @@ it("400s an unparseable body", async () => {
   const res = await POST(badJsonReq(), params);
   expect(res.status).toBe(400);
   expect(await body(res)).toEqual({ error: "Invalid JSON" });
-  expect(prismaMock.humanScore.create).not.toHaveBeenCalled();
+  expect(prismaMock.humanScore.upsert).not.toHaveBeenCalled();
 });
 
 it("400s an unknown verdict", async () => {
   const res = await POST(req({ verdict: "maybe", reviewer: "hao" }), params);
   expect(res.status).toBe(400);
-  expect(prismaMock.humanScore.create).not.toHaveBeenCalled();
+  expect(prismaMock.humanScore.upsert).not.toHaveBeenCalled();
 });
 
 it("400s a missing reviewer", async () => {
@@ -118,7 +136,7 @@ it("404s a result that is not in this project", async () => {
   const res = await POST(req(valid), params);
   expect(res.status).toBe(404);
   expect(await body(res)).toEqual({ error: "Evaluation result not found" });
-  expect(prismaMock.humanScore.create).not.toHaveBeenCalled();
+  expect(prismaMock.humanScore.upsert).not.toHaveBeenCalled();
 });
 
 it("401s an unauthenticated caller before touching the database", async () => {
@@ -134,5 +152,5 @@ it("403s a viewer without write access", async () => {
     error: { status: 403, json: async () => ({ error: "Forbidden" }) },
   });
   expect((await POST(req(valid), params)).status).toBe(403);
-  expect(prismaMock.humanScore.create).not.toHaveBeenCalled();
+  expect(prismaMock.humanScore.upsert).not.toHaveBeenCalled();
 });

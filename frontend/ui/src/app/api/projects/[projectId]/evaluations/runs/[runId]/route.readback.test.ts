@@ -109,7 +109,15 @@ beforeEach(() => {
           },
         ],
         humanScores: [
-          { id: "h1", verdict: "pass", quality: 4, comment: "looks right", reviewer: "e@x.com" },
+          {
+            id: "h1",
+            dimension: "overall",
+            verdict: "pass",
+            quality: 4,
+            comment: "looks right",
+            reviewer: "e@x.com",
+            status: "reviewed",
+          },
         ],
       },
       {
@@ -236,6 +244,37 @@ describe("run/result read-back", () => {
     expect(prov.sdk_language).toBe("python");
     // The dropped orphan `model` column no longer appears on the read model.
     expect("model" in run).toBe(false);
+  });
+
+  it("derives the human-review summary read-only, without touching automated signals", async () => {
+    // res1 (auto passed) carries an "overall" human pass; res2 (auto errored) has none.
+    const run = (await read()).body.run as Record<string, unknown>;
+    const hr = run.humanReview as Record<string, number | string[]>;
+    expect(hr.dimensions).toEqual(["overall"]);
+    expect(hr.reviewedCount).toBe(1);
+    expect(hr.pendingCount).toBe(1); // res2 not reviewed on the active "overall" dimension
+    expect(hr.passCount).toBe(1);
+    expect(hr.failCount).toBe(0);
+    expect(hr.disagreementCount).toBe(0); // human pass agrees with the automated pass
+    // Automated signals are exactly what the comparison/status produce — never rewritten.
+    expect(run.status).toBe("completed_with_errors");
+    expect(run.changeFromBaseline).toBeCloseTo(0.5);
+    expect(run.baselineComparable).toBe(true);
+  });
+
+  it("counts a human-vs-automated disagreement without changing the automated verdict", async () => {
+    // Flip the human verdict on the auto-passed result to a fail → one disagreement.
+    (
+      db.run as { results: Array<{ humanScores: Array<{ verdict: string }> }> }
+    ).results[0].humanScores[0].verdict = "fail";
+    const run = (await read()).body.run as Record<string, unknown>;
+    const hr = run.humanReview as Record<string, number>;
+    expect(hr.disagreementCount).toBe(1);
+    expect(hr.failCount).toBe(1);
+    // The automated main score / status / comparison are untouched by the disagreement.
+    expect(run.mainScore).toBe(0.9);
+    expect(run.status).toBe("completed_with_errors");
+    expect(run.changeFromBaseline).toBeCloseTo(0.5);
   });
 
   it("marks an incompatible baseline (different dataset version) as not comparable", async () => {
