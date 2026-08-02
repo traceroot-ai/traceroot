@@ -697,14 +697,25 @@ model HumanScore {
   id         String   @id @default(cuid()) @db.VarChar
   resultId   String   @map("result_id") @db.VarChar
   projectId  String   @map("project_id") @db.VarChar
+  // A named review dimension. V1 supports one canonical review per (result,
+  // dimension); "overall" is the default single dimension. A dimension becomes
+  // "configured/active" for a run once any result is reviewed on it.
+  dimension  String   @default("overall") @db.VarChar
   verdict    String   @db.VarChar // pass|fail|unsure
   quality    Int? // optional 1-5
   comment    String?  @db.Text
   reviewer   String   @db.VarChar
+  // Review lifecycle status. V1 writes "reviewed" on submit; kept as a field so the
+  // read model can carry it and future states extend without a migration.
+  status     String   @default("reviewed") @db.VarChar
   createTime DateTime @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime DateTime @updatedAt @map("update_time") @db.Timestamp(6)
 
   result EvaluationResult @relation(fields: [resultId], references: [id], onDelete: Cascade)
 
+  // One canonical review per (result, dimension): a re-review upserts in place
+  // rather than appending, so counts and disagreement are unambiguous.
+  @@unique([resultId, dimension], map: "uq_human_score_result_dimension")
   @@index([resultId], map: "ix_human_score_result_id")
   @@index([projectId], map: "ix_human_score_project_id")
   @@map("human_scores")

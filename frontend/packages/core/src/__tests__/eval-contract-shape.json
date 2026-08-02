@@ -707,6 +707,14 @@
       "kind": "object",
       "unknown_keys": "forbid",
       "fields": {
+        "dimension": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 100,
+          "required": false,
+          "nullable": false,
+          "default": "overall"
+        },
         "verdict": {
           "type": "enum",
           "enum": [
