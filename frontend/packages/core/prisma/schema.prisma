@@ -523,6 +523,11 @@ model TestCase {
   sourceSpanId     String?  @map("source_span_id") @db.VarChar
   sourceSpanName   String?  @map("source_span_name") @db.VarChar
   sourceSpanKind   String?  @map("source_span_kind") @db.VarChar // "AGENT"|"LLM"|"TOOL"|"SPAN"|"trace"
+  // Provenance when a case is saved from an evaluation result: the run and result
+  // it was captured from. Distinct from trace/span provenance (a result also carries
+  // a trace id, but the run/result ids are the authoritative eval-side origin).
+  sourceRunId      String?  @map("source_run_id") @db.VarChar
+  sourceResultId   String?  @map("source_result_id") @db.VarChar
   addedBy          String?  @map("added_by") @db.VarChar
   createTime       DateTime @default(now()) @map("create_time") @db.Timestamp(6)
 

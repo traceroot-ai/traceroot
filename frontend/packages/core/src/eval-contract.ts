@@ -395,6 +395,40 @@ export const UpdateTestCaseRequestSchema = z
   .strict();
 export type UpdateTestCaseRequest = z.infer<typeof UpdateTestCaseRequestSchema>;
 
+/** The three explicit evaluation-result → dataset actions the UI can request. */
+export const ResultDatasetActionSchema = z.enum([
+  "update_existing_case",
+  "save_new_case",
+  "duplicate_as_variant",
+]);
+export type ResultDatasetAction = z.infer<typeof ResultDatasetActionSchema>;
+
+/**
+ * Save an evaluation result into a dataset. Candidate output is NEVER used as the
+ * expected output unless `use_candidate_as_expected` is set (or an explicit
+ * `expected` is supplied). Re-saving a result into its ORIGINATING dataset as a new
+ * case is refused with a conflict that directs the client to update instead — only
+ * `duplicate_as_variant` intentionally creates a second logical case.
+ */
+export const SaveResultToDatasetRequestSchema = z
+  .object({
+    action: ResultDatasetActionSchema,
+    /** Target dataset for save_new_case / duplicate_as_variant. For
+     *  update_existing_case it is ignored (the originating dataset is used). */
+    dataset_id: z.string().min(1).max(64).nullable().optional(),
+    /** Case input; defaults to the result's recorded input when omitted. */
+    input: z.string().max(EVAL_PAYLOAD_TEXT_MAX).nullable().optional(),
+    /** Explicit expected output. */
+    expected: z.string().max(EVAL_PAYLOAD_TEXT_MAX).nullable().optional(),
+    /** Explicit opt-in to set expected = the result's candidate output. */
+    use_candidate_as_expected: z.boolean().optional(),
+    metadata: MetadataSchema.nullable().optional(),
+    /** Idempotency for retried requests (a replay returns the version already published). */
+    idempotency_key: z.string().min(1).max(128).nullable().optional(),
+  })
+  .strict();
+export type SaveResultToDatasetRequest = z.infer<typeof SaveResultToDatasetRequestSchema>;
+
 export const CreateHumanScoreRequestSchema = z
   .object({
     verdict: HumanVerdictSchema,

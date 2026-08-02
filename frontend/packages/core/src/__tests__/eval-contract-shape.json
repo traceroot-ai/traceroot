@@ -912,6 +912,58 @@
           "nullable": true
         }
       }
+    },
+    "SaveResultToDatasetRequest": {
+      "kind": "object",
+      "unknown_keys": "forbid",
+      "fields": {
+        "action": {
+          "type": "enum",
+          "enum": [
+            "update_existing_case",
+            "save_new_case",
+            "duplicate_as_variant"
+          ],
+          "required": true,
+          "nullable": false
+        },
+        "dataset_id": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 64,
+          "required": false,
+          "nullable": true
+        },
+        "input": {
+          "type": "string",
+          "max_length": 1000000,
+          "required": false,
+          "nullable": true
+        },
+        "expected": {
+          "type": "string",
+          "max_length": 1000000,
+          "required": false,
+          "nullable": true
+        },
+        "use_candidate_as_expected": {
+          "type": "boolean",
+          "required": false,
+          "nullable": false
+        },
+        "metadata": {
+          "type": "json_object",
+          "required": false,
+          "nullable": true
+        },
+        "idempotency_key": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 128,
+          "required": false,
+          "nullable": true
+        }
+      }
     }
   },
   "_pydantic_only_comment": "Gateway models with no Zod counterpart. ErrorResponse is the gateway's OWN normalized {detail} envelope: the control plane returns {error: ...} and the gateway rewrites it, so a Zod schema for it would assert something the control plane does not emit.",
