@@ -176,6 +176,36 @@ export type ScoreInput = z.infer<typeof ScoreInputSchema>;
 // ---------------------------------------------------------------------------
 
 /**
+ * Structured, machine-collected run provenance — the verifiable execution
+ * context around the run. Distinct from free-form `metadata`: every field is
+ * typed, optional, and reported by the SDK from what it can actually observe
+ * (git/CI/SDK identity). Unknown values are omitted or null and are never
+ * inferred; a missing block never rejects a run. `candidate_version` stays the
+ * user-facing label — provenance is not a substitute for it and is never
+ * treated as a verified identity beyond what the SDK reported.
+ */
+export const RunProvenanceSchema = z
+  .object({
+    git_repository: z.string().max(500).nullable().optional(),
+    git_ref: z.string().max(500).nullable().optional(),
+    git_commit: z.string().max(200).nullable().optional(),
+    git_dirty: z.boolean().nullable().optional(),
+    ci_provider: z.string().max(100).nullable().optional(),
+    ci_build_id: z.string().max(200).nullable().optional(),
+    sdk_language: z.string().max(50).nullable().optional(),
+    sdk_version: z.string().max(50).nullable().optional(),
+    /**
+     * Declared candidate identity — surfaced only if the SDK reports it, never
+     * inferred from `candidate_version` or any label.
+     */
+    declared_model: z.string().max(200).nullable().optional(),
+    declared_prompt_version: z.string().max(200).nullable().optional(),
+  });
+// Non-strict (strips unknown keys), mirroring ScorerRef and the permissive
+// gateway: a newer SDK adding a provenance field must not 422 the whole run.
+export type RunProvenance = z.infer<typeof RunProvenanceSchema>;
+
+/**
  * Register/start a run. Idempotent on `client_run_id` within an evaluation:
  * re-sending the same key returns the existing run. The evaluation lineage is
  * resolved (create-if-absent) from `evaluation_name` + `dataset_id`.
@@ -195,10 +225,15 @@ export const RegisterRunRequestSchema = z
     baseline_run_id: z.string().min(1).max(64).nullable().optional(),
     case_count: z.number().int().nonnegative().nullable().optional(),
     /**
-     * Structured run provenance (model, prompt, config, git repo/ref/commit, …).
-     * Free-form and optional — the current SDK does not send it, and its absence
-     * never rejects a run. Presented as informational secondary detail, never as
-     * an evaluation error, and never a source of secrets.
+     * Typed execution provenance (git/CI/SDK identity, declared candidate
+     * model/prompt). Optional; absence never rejects a run. See
+     * {@link RunProvenanceSchema}.
+     */
+    provenance: RunProvenanceSchema.nullable().optional(),
+    /**
+     * Free-form run metadata — arbitrary user key/values, kept verbatim. Distinct
+     * from `provenance` (typed) — presented as informational secondary detail,
+     * never an evaluation error, and never a source of secrets.
      */
     metadata: MetadataSchema.nullable().optional(),
   })
