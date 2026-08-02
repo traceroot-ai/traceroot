@@ -28,6 +28,19 @@
             ],
             "title": "Main Score"
           },
+          "main_score_name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Main Score Name"
+          },
           "scored_count": {
             "anyOf": [
               {

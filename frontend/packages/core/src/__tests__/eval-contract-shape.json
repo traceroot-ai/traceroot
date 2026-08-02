@@ -498,6 +498,13 @@
           "required": false,
           "nullable": true
         },
+        "main_score_name": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 200,
+          "required": false,
+          "nullable": true
+        },
         "case_count": {
           "type": "integer",
           "minimum": 0,

@@ -334,6 +334,10 @@ class CompleteRunRequest(BaseModel):
 
     status: EvalRunStatus
     main_score: JsonFloat | None = None
+    # The run-level main-score metric name, RESOLVED at completion — lets an SDK
+    # register before any scorer's emitted name is known and name it here. Additive:
+    # an older SDK omits it. Mirrors ``main_score_name`` on the Zod CompleteRunRequest.
+    main_score_name: str | None = Field(default=None, min_length=1, max_length=200)
     case_count: JsonNonNegativeInt | None = None
     scored_count: JsonNonNegativeInt | None = None
     task_error_count: JsonNonNegativeInt | None = None
