@@ -38,12 +38,19 @@ vi.mock("./hooks", () => hooks);
 
 import { CompareRunsView } from "./views/compare-runs-view";
 
-const runSummary = (id: string, runNumber: number, ver: string, mainScore: number) => ({
+const runSummary = (
+  id: string,
+  runNumber: number,
+  ver: string,
+  mainScore: number,
+  declaredModel: string | null = null,
+) => ({
   id,
   runNumber,
   evaluationId: "ev1",
   evaluationName: "ticket-routing-quality",
   candidateVersion: ver,
+  declaredModel,
   datasetVersionId: "dv1",
   datasetVersionLabel: "v3",
   status: "completed",
@@ -189,8 +196,8 @@ const ticket05 = {
 };
 
 const labData = {
-  candidate: runSummary("sonnet", 42, "sonnet", 6 / 7),
-  baseline: runSummary("opus", 41, "opus", 1),
+  candidate: runSummary("sonnet", 42, "sonnet", 6 / 7, "claude-sonnet-4-5"),
+  baseline: runSummary("opus", 41, "opus", 1, "claude-opus-4-1"),
   comparison: {
     available: true,
     trustworthy: true,
@@ -267,6 +274,11 @@ describe("CompareRunsView — Opus → Sonnet lab", () => {
     expect(labels[1]).toBe("Candidate");
     expect(screen.getByText("Run #41")).toBeTruthy(); // baseline
     expect(screen.getByText("Run #42")).toBeTruthy(); // candidate
+    // Each run states the model it DECLARED — the candidate identity, never a test
+    // case's. Opus for the baseline, Sonnet for the candidate.
+    expect(screen.getByText("claude-opus-4-1")).toBeTruthy();
+    expect(screen.getByText("claude-sonnet-4-5")).toBeTruthy();
+    expect(screen.getAllByText("Declared model")).toHaveLength(2);
   });
 
   it("verdict is a Regression with transparent reasons", () => {

@@ -246,6 +246,9 @@ export interface CompareRunSummary {
   evaluationId: string;
   evaluationName: string;
   candidateVersion: string;
+  /** The candidate model the run declared (provenance.declared_model); null when none.
+   *  Declared identity — distinct from the models observed in a result's trace. */
+  declaredModel: string | null;
   datasetVersionId: string;
   datasetVersionLabel: string;
   status: EvalRunStatus;
