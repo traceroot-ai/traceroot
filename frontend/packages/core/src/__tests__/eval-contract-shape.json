@@ -88,6 +88,17 @@
           "required": false,
           "nullable": true
         },
+        "required_inputs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "min_length": 1,
+            "max_length": 100
+          },
+          "max_items": 20,
+          "required": false,
+          "nullable": true
+        },
         "metadata": {
           "type": "any",
           "required": false,

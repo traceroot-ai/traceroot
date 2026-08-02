@@ -1001,6 +1001,56 @@ function NotProvided() {
   return <span className="text-muted-foreground">—</span>;
 }
 
+/** Input names that name the REFERENCE ANSWER — the expected/ground-truth output. If
+ *  a scorer requires one of these it grades against a reference; otherwise it judges
+ *  the output on its own (a reference answer is "not required"). Matched case-insensitively. */
+const REFERENCE_ANSWER_KEYS = new Set([
+  "expected",
+  "expected_output",
+  "reference",
+  "reference_output",
+  "ground_truth",
+]);
+
+function usesReferenceAnswer(inputs: string[]): boolean {
+  return inputs.some((i) => REFERENCE_ANSWER_KEYS.has(i.trim().toLowerCase()));
+}
+
+/**
+ * The scorer's declared inputs + whether it needs a reference answer. Null = the SDK
+ * never declared its inputs (unknown), rendered as "—" — NOT as "reads nothing". An
+ * explicit empty list is a real "reads no case fields". The reference-answer line is
+ * always shown for a declared scorer so a case with no expected output can tell, at a
+ * glance, whether that's a gap or simply "not required by this scorer".
+ */
+function ScorerRequires({ requiredInputs }: { requiredInputs: string[] | null }) {
+  // `== null` also catches a pre-deploy read model that never carried the field.
+  if (requiredInputs == null) return <NotProvided />;
+  if (requiredInputs.length === 0)
+    return <span className="text-muted-foreground">Reads no case fields</span>;
+  const usesRef = usesReferenceAnswer(requiredInputs);
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap gap-1">
+        {requiredInputs.map((i) => (
+          <span
+            key={i}
+            className="rounded border border-border bg-muted/40 px-1.5 py-0.5 font-mono text-[11px]"
+          >
+            {i}
+          </span>
+        ))}
+      </div>
+      <div className="text-[11px] text-muted-foreground">
+        Reference answer{" "}
+        <span className={usesRef ? "font-medium text-foreground" : ""}>
+          {usesRef ? "used by this scorer" : "not required by this scorer"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 /** Labeled value inside a card — a muted caption over the value, for cards that
  *  hold several small fields (Config, Usage) rather than one big one. */
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -1258,6 +1308,9 @@ function ScorerDetail({
             {scorer.direction ? DIRECTION_LABEL[scorer.direction] : <NotProvided />}
           </Field>
           <Field label="Description">{scorer.description ?? <NotProvided />}</Field>
+          <Field label="Requires">
+            <ScorerRequires requiredInputs={scorer.requiredInputs} />
+          </Field>
           <Field label="Metadata">
             {scorer.metadata != null ? (
               <pre className="whitespace-pre-wrap break-all font-mono text-[11px]">

@@ -106,6 +106,9 @@ SCORER_MESSAGES_MAX = 50
 SCORER_MESSAGE_CONTENT_MAX = 20_000
 #: Max characters of a code scorer's ``source`` snippet.
 SCORER_SOURCE_MAX = 50_000
+#: Max number (and each length) of ``required_inputs`` a scorer may declare.
+SCORER_REQUIRED_INPUTS_MAX = 20
+SCORER_REQUIRED_INPUT_LEN_MAX = 100
 
 
 def _check_json_size(value: Any, max_chars: int, field: str) -> Any:
@@ -184,6 +187,16 @@ class ScorerRef(BaseModel):
     scorer_type: ScorerType | None = None
     output_type: ScorerOutputType | None = None
     description: str | None = Field(default=None, max_length=2000)
+    # The inputs the scorer actually reads (e.g. "input", "output", "expected"). Free
+    # strings, SDK-reported; the UI interprets known ones (notably whether "expected",
+    # the reference answer, is used). Absent = unknown, never "needs nothing".
+    required_inputs: (
+        Annotated[
+            list[Annotated[str, Field(min_length=1, max_length=SCORER_REQUIRED_INPUT_LEN_MAX)]],
+            Field(max_length=SCORER_REQUIRED_INPUTS_MAX),
+        ]
+        | None
+    ) = None
     metadata: Any | None = None
     # llm_judge
     model: str | None = Field(default=None, max_length=200)

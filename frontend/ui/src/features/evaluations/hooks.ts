@@ -396,6 +396,8 @@ export interface ScorerRegistryRow {
   scorerType: "llm_judge" | "code" | null;
   outputType: "score" | "classification" | null;
   description: string | null;
+  /** Inputs the scorer reads (e.g. "expected"); null = the SDK didn't declare them. */
+  requiredInputs: string[] | null;
   metadata: unknown | null;
   model: string | null;
   messages: Array<{ role: string; content: string }> | null;

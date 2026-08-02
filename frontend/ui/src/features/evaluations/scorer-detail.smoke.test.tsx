@@ -38,6 +38,7 @@ function row(p: Partial<ScorerRegistryRow>): ScorerRegistryRow {
     scorerType: null,
     outputType: null,
     description: null,
+    requiredInputs: null,
     metadata: null,
     model: null,
     messages: null,
@@ -115,5 +116,30 @@ describe("ScorerDetailPanel", () => {
     expect(detail.textContent).toContain("—");
     // No observed-usage/analytics block on the read-only detail.
     expect(within(detail).queryByText("Observed usage")).toBeNull();
+  });
+
+  it("Requires — reference answer USED when the scorer reads `expected`", () => {
+    mount(row({ name: "exact_match", requiredInputs: ["input", "output", "expected"] }));
+    const detail = screen.getByLabelText("Scorer detail");
+    expect(within(detail).getByText("Requires")).toBeDefined();
+    // The declared inputs are shown, and the reference-answer line reads "used".
+    expect(within(detail).getByText("expected")).toBeDefined();
+    expect(detail.textContent).toContain("used by this scorer");
+    expect(detail.textContent).not.toContain("not required by this scorer");
+  });
+
+  it("Requires — reference answer NOT required (a reference-free judge)", () => {
+    mount(row({ name: "conciseness", requiredInputs: ["input", "output"] }));
+    const detail = screen.getByLabelText("Scorer detail");
+    // A case with no expected output can tell this is deliberate, not a gap.
+    expect(detail.textContent).toContain("not required by this scorer");
+  });
+
+  it("Requires — em dash when the SDK never declared the inputs (unknown, not 'nothing')", () => {
+    mount(row({ name: "routing_accuracy", requiredInputs: null }));
+    const detail = screen.getByLabelText("Scorer detail");
+    const requires = within(detail).getByText("Requires").parentElement;
+    expect(requires?.textContent).toContain("—");
+    expect(requires?.textContent).not.toContain("Reference answer");
   });
 });
