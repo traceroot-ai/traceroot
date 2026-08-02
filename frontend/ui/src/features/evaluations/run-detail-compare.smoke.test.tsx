@@ -116,6 +116,7 @@ const runRow = (id: string, runNumber: number, version: string, mainScore: numbe
 const emptyComparison = {
   available: false,
   trustworthy: false,
+  state: "unavailable",
   reasons: ["no_baseline"],
   baseline: null,
   mainScore: { candidate: 1, baseline: null, delta: null },
@@ -170,6 +171,7 @@ const COMPARE = {
   comparison: {
     available: true,
     trustworthy: true,
+    state: "trustworthy",
     reasons: [],
     baseline: { runId: "run2", runNumber: 26, candidateVersion: "v1" },
     mainScore: { candidate: 1, baseline: 0, delta: 1 },
