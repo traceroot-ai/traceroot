@@ -24,6 +24,19 @@
  * States: `pending` (no trace yet — it may still be ingesting), `unknown` (a trace with
  * no provider usage anywhere), `present` (real usage found). A real zero is only reported
  * when the trace proves zero; missing usage is never coerced to 0.
+ *
+ * Models: each bucket also carries the DISTINCT observed model names of the leaves
+ * summed into it (`task.models` = candidate models, `scorer.models` = judge models),
+ * taken from the span's reported `model_name` and never inferred from a candidate
+ * label. A leaf with no reported model contributes nothing, so an empty `models` is an
+ * honest "not attributed" rather than a guess.
+ *
+ * Scope: this attributes a SINGLE trace (per-result). A per-RUN aggregate of observed
+ * models is NOT derivable here — it would require the ingest worker to denormalize the
+ * per-result model onto `EvaluationResult` (as it already does for `cost`). Until that
+ * source exists, callers should report per-run observed models as unknown rather than
+ * summing traces client-side, and candidate performance comparisons must use the task
+ * bucket only (judge/scorer overhead is shown separately and never enters the verdict).
  */
 
 export interface UsageSpan {
@@ -34,6 +47,9 @@ export interface UsageSpan {
   output_tokens: number | null;
   total_tokens: number | null;
   cost: number | null;
+  /** The OBSERVED model on this LLM leaf (from the span, never inferred from a
+   *  candidate label). Null when the span didn't report one. */
+  model_name: string | null;
 }
 
 export interface UsageBucket {
@@ -43,6 +59,9 @@ export interface UsageBucket {
   cost: number;
   /** How many usage-bearing leaf spans were summed into this bucket. */
   spanCount: number;
+  /** Distinct OBSERVED model names among the leaves summed here (sorted). Empty when
+   *  no leaf reported a model — models are observed, never inferred from a label. */
+  models: string[];
 }
 
 export type UsageState = "pending" | "unknown" | "present";
@@ -60,7 +79,7 @@ export interface TraceUsage {
 const WRAPPER_KINDS = new Set(["EVALUATION", "TASK", "SCORER"]);
 
 function emptyBucket(): UsageBucket {
-  return { inputTokens: 0, outputTokens: 0, totalTokens: 0, cost: 0, spanCount: 0 };
+  return { inputTokens: 0, outputTokens: 0, totalTokens: 0, cost: 0, spanCount: 0, models: [] };
 }
 
 /** A span carries provider usage if any token count or a cost is present. */
@@ -73,12 +92,13 @@ function hasUsage(s: UsageSpan): boolean {
   );
 }
 
-function addUsage(bucket: UsageBucket, s: UsageSpan): void {
+function addUsage(bucket: UsageBucket, s: UsageSpan, models: Set<string>): void {
   bucket.inputTokens += s.input_tokens ?? 0;
   bucket.outputTokens += s.output_tokens ?? 0;
   bucket.totalTokens += s.total_tokens ?? (s.input_tokens ?? 0) + (s.output_tokens ?? 0);
   bucket.cost += s.cost ?? 0;
   bucket.spanCount += 1;
+  if (s.model_name) models.add(s.model_name);
 }
 
 /**
@@ -111,6 +131,9 @@ export function attributeTraceUsage(spans: UsageSpan[] | null | undefined): Trac
   }
 
   const byId = new Map(spans.map((s) => [s.span_id, s]));
+  const taskModels = new Set<string>();
+  const scorerModels = new Set<string>();
+  const combinedModels = new Set<string>();
   let found = false;
 
   for (const s of spans) {
@@ -120,9 +143,14 @@ export function attributeTraceUsage(spans: UsageSpan[] | null | undefined): Trac
     if (!hasUsage(s)) continue;
     found = true;
     const where = attributionOf(s, byId);
-    addUsage(where === "task" ? task : scorer, s);
-    addUsage(combined, s);
+    if (where === "task") addUsage(task, s, taskModels);
+    else addUsage(scorer, s, scorerModels);
+    addUsage(combined, s, combinedModels);
   }
+
+  task.models = [...taskModels].sort();
+  scorer.models = [...scorerModels].sort();
+  combined.models = [...combinedModels].sort();
 
   return { task, scorer, combined, state: found ? "present" : "unknown" };
 }
