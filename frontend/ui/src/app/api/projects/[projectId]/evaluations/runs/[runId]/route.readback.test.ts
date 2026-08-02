@@ -218,6 +218,26 @@ describe("run/result read-back", () => {
     expect((errored.scores as unknown[]).length).toBe(0);
   });
 
+  it("surfaces structured run provenance in the read model", async () => {
+    (db.run as Record<string, unknown>).provenance = {
+      git_repository: "github.com/acme/agent",
+      git_commit: "4a91c02",
+      git_dirty: false,
+      ci_provider: "github-actions",
+      sdk_language: "python",
+      sdk_version: "0.4.1",
+      declared_model: "gpt-4o-2024-08-06",
+      declared_prompt_version: "router-v7",
+    };
+    const run = (await read()).body.run as Record<string, unknown>;
+    const prov = run.provenance as Record<string, unknown>;
+    expect(prov.git_commit).toBe("4a91c02");
+    expect(prov.declared_model).toBe("gpt-4o-2024-08-06");
+    expect(prov.sdk_language).toBe("python");
+    // The dropped orphan `model` column no longer appears on the read model.
+    expect("model" in run).toBe(false);
+  });
+
   it("marks an incompatible baseline (different dataset version) as not comparable", async () => {
     (db.baseline as { datasetVersionId: string }).datasetVersionId = "dv11";
     const run = (await read()).body.run as Record<string, unknown>;
