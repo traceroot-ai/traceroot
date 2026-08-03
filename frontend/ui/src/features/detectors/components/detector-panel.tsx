@@ -305,6 +305,10 @@ export function DetectorPanel({
           </div>
         </div>
 
+        {updateMutation.isError && (
+          <p className="text-[12px] text-destructive">{updateMutation.error.message}</p>
+        )}
+
         {/* Save / Cancel */}
         <div className="flex justify-end gap-2 pt-1">
           <Button variant="outline" size="sm" onClick={onClose} className="h-7 text-[12px]">
