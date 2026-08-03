@@ -34,6 +34,22 @@ export function diffLines(baseline: string, candidate: string): DiffLine[] {
   const m = a.length;
   const n = b.length;
 
+  // The LCS table below is O(m·n) in time AND memory. For a very large payload that
+  // would freeze the tab or exhaust memory, skip the line-level diff and fall back to
+  // a whole-value replace (all of baseline removed, all of candidate added) — bounded
+  // and O(m+n). Identical inputs short-circuit to plain context so an unchanged large
+  // value doesn't render as a full remove+add.
+  const LCS_CELL_CAP = 2_000_000;
+  if (m * n > LCS_CELL_CAP) {
+    if (m === n && a.every((line, i) => line === b[i])) {
+      return a.map((text) => ({ type: "context" as const, text }));
+    }
+    return [
+      ...a.map((text) => ({ type: "remove" as const, text })),
+      ...b.map((text) => ({ type: "add" as const, text })),
+    ];
+  }
+
   // LCS length table (suffix form), so we can walk forward emitting a stable diff.
   const dp: number[][] = Array.from({ length: m + 1 }, () => new Array<number>(n + 1).fill(0));
   for (let i = m - 1; i >= 0; i--) {
