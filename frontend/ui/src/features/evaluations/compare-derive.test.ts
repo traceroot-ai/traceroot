@@ -107,7 +107,12 @@ describe("deriveVerdict", () => {
 
   it("tradeoff: quality up but ops worsened", () => {
     const v = deriveVerdict(
-      comparison({ mainScore: { candidate: 1, baseline: 0.8, delta: 0.2 } }),
+      // "Quality up" is now read from the per-case classifications (a case improved,
+      // none regressed), which respect each scorer's direction — not the raw delta sign.
+      comparison({
+        mainScore: { candidate: 1, baseline: 0.8, delta: 0.2 },
+        caseCounts: counts({ improved: 1 }),
+      }),
       "completed",
       "completed",
       true,

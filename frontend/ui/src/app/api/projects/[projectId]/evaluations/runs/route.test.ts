@@ -490,9 +490,10 @@ it("whitelists sort — an unrecognized value falls back to startedAt desc, neve
 
   // sort is unrecognized, so it falls back to the default field (startedAt);
   // order is independently valid ("asc") and still applies to that field —
-  // the point is that the raw sort value never reaches `orderBy`.
+  // the point is that the raw sort value never reaches `orderBy`. The unique id is
+  // the secondary key so equal values still have a stable total order across pages.
   expect(prismaMock.evaluationRun.findMany).toHaveBeenCalledWith(
-    expect.objectContaining({ orderBy: { startedAt: "asc" } }),
+    expect.objectContaining({ orderBy: [{ startedAt: "asc" }, { id: "asc" }] }),
   );
 });
 
@@ -504,7 +505,7 @@ it("sorts by mainScore ascending via the DB when sort=mainScore&order=asc", asyn
   await GET(nextUrl("sort=mainScore&order=asc") as never, params);
 
   expect(prismaMock.evaluationRun.findMany).toHaveBeenCalledWith(
-    expect.objectContaining({ orderBy: { mainScore: "asc" } }),
+    expect.objectContaining({ orderBy: [{ mainScore: "asc" }, { id: "asc" }] }),
   );
 });
 

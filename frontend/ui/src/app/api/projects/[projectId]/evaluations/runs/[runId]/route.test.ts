@@ -10,6 +10,7 @@ import { it, expect, vi, beforeEach } from "vitest";
 const prismaMock = vi.hoisted(() => ({
   evaluationRun: { findFirst: vi.fn() },
   dataset: { findFirst: vi.fn() },
+  evaluationResult: { groupBy: vi.fn() },
 }));
 const auth = vi.hoisted(() => ({ requireAuth: vi.fn(), requireProjectAccess: vi.fn() }));
 
@@ -148,9 +149,13 @@ function baseline(over: Record<string, unknown> = {}) {
 beforeEach(() => {
   prismaMock.evaluationRun.findFirst.mockReset();
   prismaMock.dataset.findFirst.mockReset();
+  prismaMock.evaluationResult.groupBy.mockReset();
   auth.requireAuth.mockResolvedValue({ user: { id: "u1" } });
   auth.requireProjectAccess.mockResolvedValue({ project: { id: "p1" } });
   prismaMock.dataset.findFirst.mockResolvedValue({ id: "ds1", name: "Billing routing" });
+  // Status counts now come from a grouped aggregate over ALL of a run's results, not the
+  // (capped) results page. Default to none; the per-status-counts test supplies its own.
+  prismaMock.evaluationResult.groupBy.mockResolvedValue([]);
 });
 
 it("derives change/baselineOutput + a comparison block from raw scores; ignores stored columns", async () => {
@@ -226,6 +231,12 @@ it("derives per-status counts from the run's own results", async () => {
       ],
     }),
   );
+  // Counts are aggregated over the whole run in the DB (one passed, failed, errored each).
+  prismaMock.evaluationResult.groupBy.mockResolvedValueOnce([
+    { status: "passed", _count: { _all: 1 } },
+    { status: "failed", _count: { _all: 1 } },
+    { status: "errored", _count: { _all: 1 } },
+  ]);
 
   const body = (await (await GET({} as never, params)).json()) as {
     run: Record<string, unknown>;

@@ -196,16 +196,15 @@ export function DatasetDetailView({
     };
   }, [reviewCase, dataset]);
 
-  const submitReview = async (result: { review: ReviewStatus; correctedExpected?: string }) => {
+  const submitReview = (result: { review: ReviewStatus; correctedExpected?: string }) => {
     if (!reviewCase) return;
-    // Return the promise so the drawer only reports success / closes once the publish
-    // actually lands, and stays open (input intact) on failure. The drawer owns the
-    // success toast + close; a rejection there keeps the reviewer's work.
-    await update.mutateAsync({
-      testCaseId: reviewCase.testCaseId,
-      patch: {
-        review: result.review,
-        ...(result.correctedExpected ? { expected: result.correctedExpected } : {}),
+    update.mutate(
+      {
+        testCaseId: reviewCase.testCaseId,
+        patch: {
+          review: result.review,
+          ...(result.correctedExpected ? { expected: result.correctedExpected } : {}),
+        },
       },
       {
         onSuccess: () => {

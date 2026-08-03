@@ -59,6 +59,7 @@ beforeEach(() => {
   // A dataset pinned to version dv1 with two test cases.
   fakePrisma.dataset.rows.push({
     id: "ds1",
+    clientDatasetId: "ds1",
     projectId: PROJECT_ID,
     currentVersionId: "dv1",
   });

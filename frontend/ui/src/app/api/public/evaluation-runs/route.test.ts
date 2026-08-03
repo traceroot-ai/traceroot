@@ -63,6 +63,15 @@ function makeDb() {
     $transaction: async (fn: (tx: unknown) => unknown) => fn(client),
 
     dataset: {
+      // The register route resolves the SDK's project-scoped client id, not the PK.
+      findUnique: async ({ where }: Args) => {
+        const key = where.projectId_clientDatasetId;
+        return (
+          rows.dataset.find(
+            (d) => d.projectId === key.projectId && d.clientDatasetId === key.clientDatasetId,
+          ) ?? null
+        );
+      },
       findFirst: async ({ where }: Args) =>
         rows.dataset.find((d) => d.id === where.id && d.projectId === where.projectId) ?? null,
     },
@@ -165,7 +174,12 @@ beforeEach(() => {
   process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   auth.requireApiKeyProject.mockResolvedValue({ projectId: PROJECT_ID });
 
-  db.rows.dataset.push({ id: "ds1", projectId: PROJECT_ID, currentVersionId: "dv1" });
+  db.rows.dataset.push({
+    id: "ds1",
+    clientDatasetId: "ds1",
+    projectId: PROJECT_ID,
+    currentVersionId: "dv1",
+  });
   db.rows.datasetVersion.push({ id: "dv1", datasetId: "ds1", projectId: PROJECT_ID });
   db.rows.datasetVersion.push({ id: "dv2", datasetId: "ds1", projectId: PROJECT_ID });
   db.rows.testCase.push({ id: "tc1", datasetVersionId: "dv1" });
@@ -173,6 +187,7 @@ beforeEach(() => {
   // Another tenant's dataset, reachable only by guessing its id.
   db.rows.dataset.push({
     id: "ds_other",
+    clientDatasetId: "ds_other",
     projectId: OTHER_PROJECT_ID,
     currentVersionId: "dv_other",
   });
