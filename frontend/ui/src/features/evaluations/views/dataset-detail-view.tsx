@@ -406,6 +406,9 @@ export function DatasetDetailView({
                     variant="ghost"
                     size="sm"
                     className="h-7 gap-1 px-1.5 text-[12px] text-muted-foreground hover:text-foreground"
+                    // Duplicate publishes into the current version — disabled while
+                    // viewing a read-only older snapshot.
+                    disabled={!isCurrentVersion}
                     onClick={duplicateSelected}
                   >
                     <Copy className="h-3.5 w-3.5" aria-hidden />
@@ -1020,9 +1023,13 @@ function CasePanel({
             Save changes
           </Button>
         )}
-        <Button size="sm" className="h-8 flex-1 text-[12px]" onClick={onReview}>
-          Review
-        </Button>
+        {/* Review publishes a new version, so it's only offered on the editable
+            current snapshot — not while viewing a read-only older version. */}
+        {!readOnly && (
+          <Button size="sm" className="h-8 flex-1 text-[12px]" onClick={onReview}>
+            Review
+          </Button>
+        )}
       </div>
     </div>
   );
