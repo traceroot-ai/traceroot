@@ -35,6 +35,9 @@ vi.mock("@/lib/api/traces", () => ({
 // changes, so a fresh literal per render would clobber the normalised value.
 const spanIO = vi.hoisted(() => ({
   data: {
+    // Must match the selected span's id — the drawer only treats the I/O as ready
+    // (seeds fields, enables Save) when spanIO.span_id === span.span_id.
+    span_id: "root",
     input: '{"message":"I was charged twice","channel":"email"}',
     output: '{"route":"billing"}',
     metadata: '{\n  "suite": "smoke"\n}',
