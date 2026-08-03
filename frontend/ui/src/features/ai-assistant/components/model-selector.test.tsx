@@ -432,7 +432,9 @@ describe("ModelSelector", () => {
     expect(screen.getByRole("button").textContent).not.toContain("Claude 4");
 
     fireEvent.click(screen.getByRole("button"));
-    const ticked = screen.getAllByRole("button").filter((b) => b.querySelector("svg") !== null && !b.hasAttribute("aria-haspopup"));
+    const ticked = screen
+      .getAllByRole("button")
+      .filter((b) => b.querySelector("svg") !== null && !b.hasAttribute("aria-haspopup"));
     expect(ticked).toHaveLength(0);
   });
 
@@ -548,7 +550,12 @@ describe("ModelSelector", () => {
 
     const ticked = screen
       .getAllByRole("button")
-      .filter((b) => b.querySelector("svg") !== null && b.textContent?.includes("Claude 4") && !b.hasAttribute("aria-haspopup"));
+      .filter(
+        (b) =>
+          b.querySelector("svg") !== null &&
+          b.textContent?.includes("Claude 4") &&
+          !b.hasAttribute("aria-haspopup"),
+      );
     expect(ticked).toHaveLength(1);
     // The BYOK row is the one carrying the provider tag.
     expect(ticked[0].textContent).not.toContain("My Anthropic");
