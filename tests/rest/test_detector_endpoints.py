@@ -754,11 +754,15 @@ def _otlp_body(
     span_id: bytes = b"\x01" * 8,
     parent_span_id: bytes | None = None,
     span_project_ids: tuple[str | None, ...] = (),
+    parent_span_ids: tuple[bytes | None, ...] = (),
 ) -> bytes:
     """Serialize an OTLP ExportTraceServiceRequest with one span per trace id.
 
     ``span_project_ids`` optionally stamps the Nth span with a per-span
     ``traceroot.project_id`` attribute (None leaves that span unattributed).
+    ``parent_span_id`` sets the parent on the first span only (legacy); give
+    ``parent_span_ids`` a tuple to set the parent on each span individually
+    (None marks that span a root).
     """
     request = ExportTraceServiceRequest()
     resource_spans = request.resource_spans.add()
@@ -768,7 +772,10 @@ def _otlp_body(
         span = scope_spans.spans.add()
         span.trace_id = tid
         span.span_id = span_id if index == 0 else bytes([index + 1]) * 8
-        if index == 0 and parent_span_id is not None:
+        if index < len(parent_span_ids):
+            if parent_span_ids[index] is not None:
+                span.parent_span_id = parent_span_ids[index]
+        elif index == 0 and parent_span_id is not None:
             span.parent_span_id = parent_span_id
         if index < len(span_project_ids) and span_project_ids[index]:
             attr = span.attributes.add()
@@ -1049,6 +1056,81 @@ class TestPerSpanProjectAttribution:
         assert resp.status_code == 400
         mock_ch.insert_spans_batch.assert_not_called()
         mock_ch.insert_traces_batch.assert_not_called()
+
+
+class TestInternalTraceIngestRootGuard:
+    """The internal route must not overwrite a populated trace row with a
+    shallow one from a rootless batch (issue #1749): the worker's
+    BatchSpanProcessor exports chunks concurrently on shutdown, so a rootless
+    chunk can land after the root-bearing chunk, and traces is a
+    ReplacingMergeTree where the later write wins."""
+
+    URL = "/api/v1/internal/traces?project_id=proj-1"
+
+    def test_root_bearing_batch_inserts_trace_without_probe(self, client, secret, mock_ch):
+        """A batch that carries the root span inserts the trace row directly —
+        no existence probe needed."""
+        resp = client.post(
+            self.URL,
+            content=_otlp_body(parent_span_id=None),
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        assert mock_ch.insert_traces_batch.called
+        mock_ch.query.assert_not_called()
+
+    def test_rootless_batch_new_trace_inserts_after_probe(self, client, secret, mock_ch):
+        """A rootless batch whose trace has no existing row is genuinely new —
+        the probe returns nothing, so the shallow trace row is still inserted."""
+        mock_ch.query.return_value = _make_query_result([], ["trace_id"])
+        resp = client.post(
+            self.URL,
+            content=_otlp_body(parent_span_id=b"\x02" * 8),
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        traces = mock_ch.insert_traces_batch.call_args[0][0]
+        assert len(traces) == 1
+        assert traces[0]["trace_id"] == "ab" * 16
+
+    def test_rootless_batch_existing_trace_is_skipped(self, client, secret, mock_ch):
+        """The #1749 case: a rootless batch landing after the root-bearing one
+        must not overwrite the populated trace row — the probe finds the trace
+        already present, so the shallow row is withheld. Spans still insert."""
+        mock_ch.query.return_value = _make_query_result([("ab" * 16,)], ["trace_id"])
+        resp = client.post(
+            self.URL,
+            content=_otlp_body(parent_span_id=b"\x02" * 8),
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        assert mock_ch.insert_traces_batch.call_args[0][0] == []
+        spans = mock_ch.insert_spans_batch.call_args[0][0]
+        assert spans and all(s["trace_id"] == "ab" * 16 for s in spans)
+
+    def test_multi_project_rootless_probe_keyed_per_project(self, client, secret, mock_ch):
+        """A detector batch can carry several projects: the existence probe must
+        be scoped to each trace's own project (sort-key prefix) so it prunes
+        correctly and never queries a row under the wrong project."""
+        mock_ch.query.return_value = _make_query_result([], ["trace_id"])
+        body = _otlp_body(
+            extra_trace_ids=(b"\xcd" * 16,),
+            parent_span_ids=(b"\x02" * 8, b"\x03" * 8),
+            span_project_ids=("proj-a", "proj-b"),
+        )
+        resp = client.post(self.URL, content=body, headers={"X-Internal-Secret": secret})
+        assert resp.status_code == 200
+        assert mock_ch.query.call_count == 2
+        probe_sql = mock_ch.query.call_args_list[0].args[0]
+        assert "FROM traces FINAL" in probe_sql
+        assert "WHERE project_id = {project_id:String}" in probe_sql
+        assert "AND trace_id IN {ids:Array(String)}" in probe_sql
+        assert {
+            call.kwargs["parameters"]["project_id"] for call in mock_ch.query.call_args_list
+        } == {
+            "proj-a",
+            "proj-b",
+        }
 
 
 # =============================================================================

@@ -1024,6 +1024,44 @@ async def ingest_internal_traces(
         record["source"] = "detector"
 
     ch = get_clickhouse_client()
+
+    # Root-span guard (mirror of the public ingest path's guard, keyed per
+    # project because a detector batch can carry several projects): only
+    # insert a trace record if this batch contains the trace's root span
+    # (parent_span_id is None) OR the trace is genuinely new (no existing
+    # ClickHouse record). A rootless batch landing after the root-bearing
+    # batch must not overwrite a correctly-named trace record with a shallow
+    # one — traces is a ReplacingMergeTree, so the later write wins. The
+    # worker's BatchSpanProcessor exports chunks concurrently on shutdown, so
+    # a rootless chunk can land after the root's chunk.
+    root_bearing_trace_ids = {s["trace_id"] for s in spans if s.get("parent_span_id") is None}
+    if traces:
+        trace_records_missing_root = [
+            t for t in traces if t["trace_id"] not in root_bearing_trace_ids
+        ]
+        if trace_records_missing_root:
+            existing_ids: set[str] = set()
+            by_project: dict[str, list[dict]] = {}
+            for t in trace_records_missing_root:
+                by_project.setdefault(t["project_id"], []).append(t)
+            for project_id, records in by_project.items():
+                ids = [t["trace_id"] for t in records]
+                # project_id is the sort-key prefix and trace_id carries no skip
+                # index — without this predicate the probe cannot prune and becomes
+                # a FINAL scan of every project in the table.
+                result = ch.query(
+                    "SELECT DISTINCT trace_id FROM traces FINAL"
+                    " WHERE project_id = {project_id:String}"
+                    " AND trace_id IN {ids:Array(String)}",
+                    parameters={"ids": ids, "project_id": project_id},
+                )
+                existing_ids.update(row[0] for row in result.result_rows)
+            traces = [
+                t
+                for t in traces
+                if t["trace_id"] in root_bearing_trace_ids or t["trace_id"] not in existing_ids
+            ]
+
     ch.insert_spans_batch(spans)
     ch.insert_traces_batch(traces)
     return {"ok": True}
