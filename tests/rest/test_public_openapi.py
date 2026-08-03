@@ -181,6 +181,7 @@ EXPECTED_OPERATION_IDS = {
     "/api/v1/public/sessions": {"get": "list_sessions"},
     "/api/v1/public/sessions/{session_id}": {"get": "get_session"},
     "/api/v1/public/traces": {"get": "list_traces", "post": "ingest_traces"},
+    "/api/v1/public/traces/filter-values/{field}": {"get": "list_trace_filter_values"},
     "/api/v1/public/traces/{trace_id}": {"get": "get_trace"},
     "/api/v1/public/traces/{trace_id}/export": {"get": "export_trace"},
     "/api/v1/public/whoami": {"get": "whoami"},
@@ -235,6 +236,7 @@ def test_x_tool_enabled_set_and_shape():
     assert set(enabled) == {
         "whoami",
         "list_traces",
+        "list_trace_filter_values",
         "get_trace",
         "export_trace",
         "list_sessions",
@@ -246,6 +248,89 @@ def test_x_tool_enabled_set_and_shape():
     }
     for name, tool in enabled.items():
         assert tool["description"], f"{name} needs an agent-facing description"
+
+
+def _filters_param(schema):
+    params = schema["paths"]["/api/v1/public/traces"]["get"]["parameters"]
+    matches = [p for p in params if p["name"] == "filters"]
+    assert len(matches) == 1
+    return matches[0]
+
+
+def test_filters_param_is_json_content_with_registry_variants():
+    """The filters param schema is generated from the filter-field registry."""
+    from rest.services.filters.columns import FILTER_COLUMNS
+
+    param = _filters_param(_schema())
+    assert param["in"] == "query"
+    assert param.get("required") is not True
+    inner = param["content"]["application/json"]["schema"]
+    assert inner["type"] == "array"
+    from rest.services.filters.translate import MAX_FILTERS
+
+    # The runtime bounds the predicate count; the contract declares the same cap.
+    assert inner["maxItems"] == MAX_FILTERS
+    variants = inner["items"]["anyOf"]
+    assert len(variants) == len(FILTER_COLUMNS)
+    by_field = {v["properties"]["field"]["const"]: v for v in variants}
+    assert set(by_field) == {c.name for c in FILTER_COLUMNS}
+    from rest.services.filters.translate import MAX_KEY_LENGTH
+
+    for col in FILTER_COLUMNS:
+        v = by_field[col.name]
+        assert v["properties"]["op"]["enum"] == [str(o) for o in col.operators]
+        assert v["additionalProperties"] is False
+        if col.requires_key:
+            # A keyed field carries the map key, mirroring the runtime validator.
+            assert v["required"] == ["field", "key", "op", "value"]
+            key_schema = v["properties"]["key"]
+            assert key_schema["type"] == "string"
+            assert key_schema["minLength"] == 1
+            assert key_schema["maxLength"] == MAX_KEY_LENGTH
+        else:
+            assert v["required"] == ["field", "op", "value"]
+            assert "key" not in v["properties"]
+
+
+def test_filters_param_value_types_match_field_kinds():
+    from rest.services.filters.translate import MAX_VALUE_LENGTH
+
+    param = _filters_param(_schema())
+    variants = param["content"]["application/json"]["schema"]["items"]["anyOf"]
+    by_field = {v["properties"]["field"]["const"]: v for v in variants}
+    # categorical: non-empty array of strings, each element length-capped
+    assert by_field["model_name"]["properties"]["value"] == {
+        "type": "array",
+        "items": {"type": "string", "maxLength": MAX_VALUE_LENGTH},
+        "minItems": 1,
+    }
+    # numeric: number
+    # numeric: non-negative, per-column-type inclusive maximum; integer
+    # columns additionally reject fractions
+    assert by_field["duration_ms"]["properties"]["value"] == {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 2**63 - 1,
+    }
+    assert by_field["errors"]["properties"]["value"] == {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 2**64 - 1,
+    }
+    assert by_field["cost"]["properties"]["value"] == {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 10**9 - 1,
+    }
+    # text: the validator rejects empty strings and caps the length
+    assert by_field["trace_id"]["properties"]["value"] == {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": MAX_VALUE_LENGTH,
+    }
+    # categorical items carry no minLength: the runtime validator permits empty
+    # strings inside an 'in' list, and the schema must mirror, not exceed, it
+    assert "minLength" not in by_field["model_name"]["properties"]["value"]["items"]
 
 
 def test_uncurated_public_op_fails_build():
