@@ -754,11 +754,20 @@ def _otlp_body(
     span_id: bytes = b"\x01" * 8,
     parent_span_id: bytes | None = None,
     span_project_ids: tuple[str | None, ...] = (),
+    parent_span_ids: tuple[bytes | None, ...] = (),
 ) -> bytes:
     """Serialize an OTLP ExportTraceServiceRequest with one span per trace id.
 
     ``span_project_ids`` optionally stamps the Nth span with a per-span
     ``traceroot.project_id`` attribute (None leaves that span unattributed).
+
+    ``parent_span_ids`` optionally controls whether each generated span is
+    a root or child:
+    - None means the span is a root.
+    - bytes means the span is a child of that parent.
+
+    The existing ``parent_span_id`` argument remains supported for tests that
+    generate only one span.
     """
     request = ExportTraceServiceRequest()
     resource_spans = request.resource_spans.add()
@@ -768,8 +777,18 @@ def _otlp_body(
         span = scope_spans.spans.add()
         span.trace_id = tid
         span.span_id = span_id if index == 0 else bytes([index + 1]) * 8
-        if index == 0 and parent_span_id is not None:
-            span.parent_span_id = parent_span_id
+
+        selected_parent_span_id = (
+            parent_span_ids[index]
+            if index < len(parent_span_ids)
+            else parent_span_id
+            if index == 0
+            else None
+        )
+
+        # In OTLP, an absent parent_span_id means this is a root span.
+        if selected_parent_span_id is not None:
+            span.parent_span_id = selected_parent_span_id
         if index < len(span_project_ids) and span_project_ids[index]:
             attr = span.attributes.add()
             attr.key = "traceroot.project_id"
@@ -947,6 +966,237 @@ class TestInternalTraceIngest:
         import rest.routers.internal as internal_module
 
         assert "enqueue_detector_runs" not in inspect.getsource(internal_module)
+
+    def test_rootless_batch_does_not_overwrite_existing_trace(
+        self,
+        client,
+        secret,
+        mock_ch,
+    ):
+        trace_id = b"\xab" * 16
+        trace_id_hex = "ab" * 16
+        headers = {"X-Internal-Secret": secret}
+
+        # ---------------------------------------------------------
+        # Request 1: send the root span.
+        #
+        # parent_span_id=None means this span is the trace root.
+        # This should create the complete trace row.
+        # ---------------------------------------------------------
+        first_response = client.post(
+            self.URL,
+            content=_otlp_body(
+                trace_id=trace_id,
+                span_id=b"\x01" * 8,
+                parent_span_id=None,
+            ),
+            headers=headers,
+        )
+
+        assert first_response.status_code == 200
+
+        inserted_traces = mock_ch.insert_traces_batch.call_args.args[0]
+
+        assert len(inserted_traces) == 1
+        assert inserted_traces[0]["trace_id"] == trace_id_hex
+        assert inserted_traces[0]["project_id"] == "proj-1"
+        assert mock_ch.insert_traces_batch.call_args.kwargs["root_bearing_keys"] == {
+            ("proj-1", trace_id_hex)
+        }
+
+        # A root-bearing trace is authoritative, so the route should write it
+        # directly without asking ClickHouse whether it already exists.
+        mock_ch.query.assert_not_called()
+
+        mock_ch.reset_mock()
+
+        # Simulate ClickHouse reporting that this exact project/trace pair
+        # already has a summary row.
+        mock_ch.query.return_value = _make_query_result(
+            rows=[("proj-1", trace_id_hex)],
+            column_names=["project_id", "trace_id"],
+        )
+
+        # ---------------------------------------------------------
+        # Request 2: send only a child span for the same trace.
+        #
+        # A non-null parent_span_id means this is not the root.
+        # ---------------------------------------------------------
+        second_response = client.post(
+            self.URL,
+            content=_otlp_body(
+                trace_id=trace_id,
+                span_id=b"\x02" * 8,
+                parent_span_id=b"\x01" * 8,
+            ),
+            headers=headers,
+        )
+
+        assert second_response.status_code == 200
+
+        # The child span must still be stored.
+        mock_ch.insert_spans_batch.assert_called_once()
+
+        # But no new trace summary row should be written, because the
+        # complete trace row already exists.
+        mock_ch.insert_traces_batch.assert_not_called()
+
+        # Verify the existence check uses ClickHouse's deduplicated FINAL view
+        # and both parts of the internal trace identity.
+        query_sql = mock_ch.query.call_args.args[0]
+        query_parameters = mock_ch.query.call_args.kwargs["parameters"]
+
+        assert "FROM traces FINAL" in query_sql
+        assert "project_id IN" in query_sql
+        assert "trace_id IN" in query_sql
+        assert query_parameters == {
+            "project_ids": ["proj-1"],
+            "trace_ids": [trace_id_hex],
+        }
+
+    def test_new_rootless_trace_writes_first_placeholder(
+        self,
+        client,
+        secret,
+        mock_ch,
+    ):
+        trace_id = b"\xbc" * 16
+        trace_id_hex = "bc" * 16
+
+        # ClickHouse has no row for this project/trace pair.
+        #
+        # Even though the batch lacks its root, we need one initial placeholder
+        # so the trace exists until its authoritative root-bearing batch arrives.
+        mock_ch.query.return_value = _make_query_result(
+            rows=[],
+            column_names=["project_id", "trace_id"],
+        )
+
+        response = client.post(
+            self.URL,
+            content=_otlp_body(
+                trace_id=trace_id,
+                parent_span_id=b"\x01" * 8,
+            ),
+            headers={"X-Internal-Secret": secret},
+        )
+
+        assert response.status_code == 200
+
+        # The individual child span must always be stored.
+        mock_ch.insert_spans_batch.assert_called_once()
+
+        # Because no trace row exists yet, the rootless placeholder remains
+        # in ``traces`` and therefore reaches insert_traces_batch().
+        inserted_traces = mock_ch.insert_traces_batch.call_args.args[0]
+        assert len(inserted_traces) == 1
+        assert inserted_traces[0]["project_id"] == "proj-1"
+        assert inserted_traces[0]["trace_id"] == trace_id_hex
+        # An empty set means this internal batch was inspected and contained
+        # no root; the client therefore writes authority 0, not the public
+        # authority-1 default represented by root_bearing_keys=None.
+        assert mock_ch.insert_traces_batch.call_args.kwargs["root_bearing_keys"] == set()
+
+    def test_existing_pair_does_not_suppress_same_trace_id_in_another_project(
+        self,
+        client,
+        secret,
+        mock_ch,
+    ):
+        trace_id = b"\xcd" * 16
+        trace_id_hex = "cd" * 16
+
+        # Both incoming spans use the same trace_id, but belong to different
+        # projects. Therefore they represent two different trace records:
+        #
+        #     ("proj-a", trace_id)
+        #     ("proj-b", trace_id)
+        #
+        # ClickHouse reports that only proj-a's record already exists.
+        mock_ch.query.return_value = _make_query_result(
+            rows=[("proj-a", trace_id_hex)],
+            column_names=["project_id", "trace_id"],
+        )
+
+        response = client.post(
+            "/api/v1/internal/traces",
+            content=_otlp_body(
+                trace_id=trace_id,
+                extra_trace_ids=(trace_id,),
+                span_project_ids=("proj-a", "proj-b"),
+                # Both spans are children, so both generated trace records
+                # are candidates for the existence check.
+                parent_span_ids=(b"\x10" * 8, b"\x20" * 8),
+            ),
+            headers={"X-Internal-Secret": secret},
+        )
+
+        assert response.status_code == 200
+
+        # Filtering trace summaries must never remove the actual spans.
+        inserted_spans = mock_ch.insert_spans_batch.call_args.args[0]
+        assert len(inserted_spans) == 2
+
+        # proj-a is suppressed because that exact pair exists.
+        # proj-b remains even though it has the same trace_id.
+        inserted_traces = mock_ch.insert_traces_batch.call_args.args[0]
+        assert [(trace["project_id"], trace["trace_id"]) for trace in inserted_traces] == [
+            ("proj-b", trace_id_hex)
+        ]
+
+    def test_mixed_batch_keeps_root_and_queries_only_rootless_candidates(
+        self,
+        client,
+        secret,
+        mock_ch,
+    ):
+        root_trace_id = b"\xde" * 16
+        root_trace_id_hex = "de" * 16
+        rootless_trace_id = b"\xef" * 16
+        rootless_trace_id_hex = "ef" * 16
+
+        # Only the rootless trace already exists.
+        mock_ch.query.return_value = _make_query_result(
+            rows=[("proj-b", rootless_trace_id_hex)],
+            column_names=["project_id", "trace_id"],
+        )
+
+        response = client.post(
+            "/api/v1/internal/traces",
+            content=_otlp_body(
+                trace_id=root_trace_id,
+                extra_trace_ids=(rootless_trace_id,),
+                span_project_ids=("proj-a", "proj-b"),
+                # First span: root.
+                # Second span: child/rootless.
+                parent_span_ids=(None, b"\x30" * 8),
+            ),
+            headers={"X-Internal-Secret": secret},
+        )
+
+        assert response.status_code == 200
+
+        # Both actual spans are stored, regardless of trace-summary filtering.
+        inserted_spans = mock_ch.insert_spans_batch.call_args.args[0]
+        assert len(inserted_spans) == 2
+
+        # The existing rootless summary is filtered out, while the
+        # authoritative root-bearing summary remains.
+        inserted_traces = mock_ch.insert_traces_batch.call_args.args[0]
+        assert [(trace["project_id"], trace["trace_id"]) for trace in inserted_traces] == [
+            ("proj-a", root_trace_id_hex)
+        ]
+        assert mock_ch.insert_traces_batch.call_args.kwargs["root_bearing_keys"] == {
+            ("proj-a", root_trace_id_hex)
+        }
+
+        # Only rootless candidates should be sent to the existence query.
+        # The authoritative root-bearing trace must not be queried.
+        query_parameters = mock_ch.query.call_args.kwargs["parameters"]
+        assert query_parameters == {
+            "project_ids": ["proj-b"],
+            "trace_ids": [rootless_trace_id_hex],
+        }
 
 
 class TestPerSpanProjectAttribution:

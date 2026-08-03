@@ -1025,5 +1025,46 @@ async def ingest_internal_traces(
 
     ch = get_clickhouse_client()
     ch.insert_spans_batch(spans)
-    ch.insert_traces_batch(traces)
+    had_trace_records = bool(traces)
+
+    # Unlike public ingest, one internal batch can carry several projects.
+    # Therefore, a trace is identified by the exact (project_id, trace_id) pair.
+    root_bearing_keys = {
+        (span["project_id"], span["trace_id"])
+        for span in spans
+        if span.get("parent_span_id") is None
+    }
+
+    trace_records_missing_root = [
+        trace
+        for trace in traces
+        if (trace["project_id"], trace["trace_id"]) not in root_bearing_keys
+    ]
+
+    if trace_records_missing_root:
+        project_ids = sorted({trace["project_id"] for trace in trace_records_missing_root})
+        trace_ids = sorted({trace["trace_id"] for trace in trace_records_missing_root})
+
+        result = ch.query(
+            "SELECT DISTINCT project_id, trace_id FROM traces FINAL"
+            " WHERE project_id IN {project_ids:Array(String)}"
+            " AND trace_id IN {trace_ids:Array(String)}",
+            parameters={
+                "project_ids": project_ids,
+                "trace_ids": trace_ids,
+            },
+        )
+        existing_keys = {(row[0], row[1]) for row in result.result_rows}
+
+        traces = [
+            trace
+            for trace in traces
+            if (trace["project_id"], trace["trace_id"]) in root_bearing_keys
+            or (trace["project_id"], trace["trace_id"]) not in existing_keys
+        ]
+
+    # Preserve the existing empty-payload no-op call, but avoid invoking the
+    # trace writer when a real rootless batch was entirely filtered out.
+    if traces or not had_trace_records:
+        ch.insert_traces_batch(traces, root_bearing_keys=root_bearing_keys)
     return {"ok": True}

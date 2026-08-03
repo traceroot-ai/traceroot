@@ -1,5 +1,6 @@
 """ClickHouse client using clickhouse-connect."""
 
+from collections.abc import Set
 from datetime import UTC, datetime
 from typing import Any
 
@@ -8,6 +9,19 @@ from clickhouse_connect.driver.client import Client
 from clickhouse_connect.driver.query import QueryResult
 
 from shared.config import settings
+
+_TRACE_AUTHORITY_SHIFT = 63
+
+
+def _make_trace_version(written_at: datetime, *, authoritative: bool) -> int:
+    """Build the trace-summary winner value used by ReplacingMergeTree.
+
+    The highest UInt64 bit stores authority, while the lower bits store Unix
+    milliseconds. Therefore, an authoritative row always beats an internal
+    rootless placeholder; when authority is equal, the newer row wins.
+    """
+    unix_milliseconds = int(written_at.timestamp() * 1_000)
+    return (int(authoritative) << _TRACE_AUTHORITY_SHIFT) | unix_milliseconds
 
 
 class ClickHouseClient:
@@ -37,13 +51,22 @@ class ClickHouseClient:
         )
         return cls(client)
 
-    def insert_traces_batch(self, traces: list[dict[str, Any]]) -> None:
+    def insert_traces_batch(
+        self,
+        traces: list[dict[str, Any]],
+        *,
+        root_bearing_keys: Set[tuple[str, str]] | None = None,
+    ) -> None:
         """Insert multiple trace records.
 
         Args:
             traces (list[dict[str, Any]]): Trace records; an optional
                 "source" field distinguishes detector self-traces from
                 customer traffic and defaults to "user".
+            root_bearing_keys: For internal ingest, exact ``(project_id,
+                trace_id)`` pairs whose batch contained the root span. ``None``
+                preserves existing public behavior by treating every public
+                row as authoritative.
         """
         if not traces:
             return
@@ -51,6 +74,8 @@ class ClickHouseClient:
         now = datetime.now(UTC)
         rows = []
         for t in traces:
+            trace_key = (t["project_id"], t["trace_id"])
+            authoritative = True if root_bearing_keys is None else trace_key in root_bearing_keys
             rows.append(
                 [
                     t["trace_id"],
@@ -68,6 +93,8 @@ class ClickHouseClient:
                     now,  # ch_create_time
                     now,  # ch_update_time
                     t.get("environment"),
+                    int(authoritative),
+                    _make_trace_version(now, authoritative=authoritative),
                 ]
             )
 
@@ -90,6 +117,8 @@ class ClickHouseClient:
                 "ch_create_time",
                 "ch_update_time",
                 "environment",
+                "trace_authority",
+                "trace_version",
             ],
         )
 

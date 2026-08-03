@@ -50,6 +50,9 @@ class TestGetTraceSourceFilter:
         trace_sql, spans_sql = self._sqls("detector")
         assert "source = 'detector'" in trace_sql
         assert "source = 'detector'" in spans_sql
+        # A detector root must be selected immediately even while an
+        # authority-0 placeholder still exists before background merging.
+        assert "ORDER BY trace_version DESC" in trace_sql
 
     def test_user_source_excludes_detector_in_both_queries(self):
         trace_sql, spans_sql = self._sqls("user")
