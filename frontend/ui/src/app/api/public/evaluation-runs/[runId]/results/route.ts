@@ -44,7 +44,10 @@ export async function POST(request: Request, { params }: RouteParams) {
     cost: r.cost ?? null,
     traceId: r.trace_id ?? null,
   };
-  const scoreRows = r.scores.map((s) => ({
+  // `scores` is optional with no default: undefined = leave the result's stored scores
+  // alone (a follow-up that only attaches a trace_id must not wipe them); [] = clear;
+  // a list = replace. Build defensively so an omitted `scores` never `.map`s undefined.
+  const scoreRows = (r.scores ?? []).map((s) => ({
     projectId,
     scorerName: s.scorer_name,
     scorerVersion: s.scorer_version,
@@ -63,11 +66,15 @@ export async function POST(request: Request, { params }: RouteParams) {
     });
     if (existing) {
       await tx.evaluationResult.update({ where: { id: existing.id }, data: resultFields });
-      await tx.score.deleteMany({ where: { resultId: existing.id } });
-      if (scoreRows.length > 0) {
-        await tx.score.createMany({
-          data: scoreRows.map((s) => ({ ...s, resultId: existing.id })),
-        });
+      // Only rewrite scores when the caller actually sent the field — omitting it
+      // leaves the previously-reported scores intact (out-of-order trace linking).
+      if (r.scores !== undefined) {
+        await tx.score.deleteMany({ where: { resultId: existing.id } });
+        if (scoreRows.length > 0) {
+          await tx.score.createMany({
+            data: scoreRows.map((s) => ({ ...s, resultId: existing.id })),
+          });
+        }
       }
       return existing.id;
     }
