@@ -55,8 +55,9 @@ def parse_filters_param(raw: str | None) -> list[Predicate]:
         list[Predicate]: The parsed, registry-validated predicates.
 
     Raises:
-        ValueError: If the value is not a JSON array of valid predicate objects, or
-            names an unknown field or a non-whitelisted operator.
+        ValueError: If the value is not a JSON array of valid predicate objects,
+            names an unknown field or a non-whitelisted operator, or is nested
+            too deeply to parse.
     """
     if not raw:
         return []
@@ -64,6 +65,11 @@ def parse_filters_param(raw: str | None) -> list[Predicate]:
         data = json.loads(raw)
     except json.JSONDecodeError as e:
         raise ValueError(f"filters is not valid JSON: {e}") from e
+    except RecursionError as e:
+        # Past the parser's depth limit json.loads raises RecursionError
+        # rather than JSONDecodeError; normalize it so callers keep their
+        # 400-on-malformed-input contract instead of a 500.
+        raise ValueError("filters is nested too deeply") from e
     if not isinstance(data, list):
         raise ValueError("filters must be a JSON array of predicate objects")
     predicates: list[Predicate] = []
@@ -111,7 +117,7 @@ def _is_number(x: object) -> bool:
 # Decimal64(9) is Decimal(18, 9) — 9 integer digits — so its largest value is < 10**9; the
 # whole-number cap is deliberately conservative (rejects the absurd top fractional cent
 # too) to guarantee no overflow rather than track the exact per-scale maximum.
-_NUMERIC_TYPE_MAX = {"Int64": 2**63 - 1, "UInt64": 2**64 - 1, "Decimal64(9)": 10**9 - 1}
+NUMERIC_TYPE_MAX = {"Int64": 2**63 - 1, "UInt64": 2**64 - 1, "Decimal64(9)": 10**9 - 1}
 
 
 def _validate_value(pred: Predicate, col: FilterColumn) -> None:
@@ -163,7 +169,7 @@ def _validate_numeric(x: object, pred: Predicate, col: FilterColumn) -> None:
         raise ValueError(
             f"{pred.op!r} filter on {pred.field!r} takes whole numbers only (got {x!r})"
         )
-    max_val = _NUMERIC_TYPE_MAX.get(col.ch_type)
+    max_val = NUMERIC_TYPE_MAX.get(col.ch_type)
     if max_val is not None and x > max_val:
         raise ValueError(f"{pred.op!r} filter on {pred.field!r} exceeds its maximum value")
 

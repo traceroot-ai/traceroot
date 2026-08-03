@@ -36,6 +36,9 @@ from rest.schemas.public import (
     PublicTraceExportResponse,
     PublicTraceListResponse,
 )
+from rest.schemas.traces import FilterValuesResponse
+from rest.services.filters import columns as filter_columns
+from rest.services.filters.translate import parse_filters_param
 from rest.services.trace_reader import get_trace_reader_service
 from rest.url_utils import build_trace_url
 from shared.config import settings
@@ -67,8 +70,21 @@ async def list_traces(
     search_query: str | None = Query(
         None, description="Search across trace_id, name, session_id, user_id"
     ),
+    filters: str | None = Query(
+        None,
+        description=(
+            "JSON array of typed filter predicates ({field, op, value}); the "
+            "field catalog and per-field operators are defined in the schema"
+        ),
+    ),
 ):
     """List recent traces for the API key's project (newest first)."""
+    # Parse + validate filters before the DB try-block so a bad predicate
+    # surfaces as a 400 with an actionable message, not a 500.
+    try:
+        parsed_filters = parse_filters_param(filters)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     start_after, end_before = clamp_retention_window(auth.billing_plan, start_after, end_before)
     try:
         service = get_trace_reader_service()
@@ -80,6 +96,7 @@ async def list_traces(
             name=name,
             user_id=user_id,
             search_query=search_query,
+            filters=parsed_filters,
         )
     except Exception as e:
         logger.exception(f"Error listing traces: {e}")
@@ -93,6 +110,83 @@ async def list_traces(
             settings.traceroot_public_ui_url, auth.project_id, item["trace_id"]
         )
     return result
+
+
+# Declared above the /{trace_id} route so the literal `filter-values` segment
+# is matched here and never captured as a trace id.
+@router.get(
+    "/filter-values/{field}",
+    response_model=FilterValuesResponse,
+    operation_id="list_trace_filter_values",
+)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def list_trace_filter_values(
+    request: Request,
+    response: Response,
+    auth: StampedAuth,
+    field: str,
+    start_after: datetime | None = Query(
+        None, description="Only consider spans starting at or after this timestamp"
+    ),
+    end_before: datetime | None = Query(
+        None, description="Only consider spans starting before this timestamp"
+    ),
+):
+    """Distinct values for an open-ended categorical filter field.
+
+    The values-discovery companion to the typed ``filters`` parameter on the
+    trace list: the filterable field catalog lives in the generated schema,
+    while a field's current values are dynamic per project. Only fields the
+    registry marks as distinct-query (model_name, environment) are listable;
+    the field is resolved through the registry before it reaches SQL, so it can
+    never be a raw client-supplied column name.
+
+    Args:
+        auth (StampedAuth): Resolved API-key context; scopes the read to its
+            project and stamps the rate-limit identity.
+        field (str): The categorical field to enumerate.
+        start_after (datetime | None): Lower bound on span start time (active
+            window).
+        end_before (datetime | None): Upper bound on span start time (active
+            window), symmetric with ``start_after`` so options match the list's
+            window.
+
+    Returns:
+        FilterValuesResponse: Distinct values ordered by descending frequency.
+
+    Raises:
+        HTTPException: 400 if the field is unknown or not a distinct-query
+            categorical, 500 on a reader failure.
+    """
+    start_after, end_before = clamp_retention_window(auth.billing_plan, start_after, end_before)
+    column = filter_columns.get_column(field)
+    if column is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown filter field: {field}",
+        )
+    if column.value_source != filter_columns.ValueSource.DISTINCT_QUERY:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Field '{field}' does not support distinct-value listing",
+        )
+    try:
+        service = get_trace_reader_service()
+        values = service.get_distinct_span_values(
+            project_id=auth.project_id,
+            column=column.name,
+            start_after=start_after,
+            end_before=end_before,
+        )
+    except Exception as e:
+        logger.exception(f"Error listing filter values: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to list filter values",
+        ) from e
+    return {"field": field, "values": values}
 
 
 @router.get("/{trace_id}", response_model=PublicTraceDetailResponse, operation_id="get_trace")

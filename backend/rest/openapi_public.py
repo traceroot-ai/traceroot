@@ -11,6 +11,9 @@ import copy
 import json
 from typing import Any
 
+from rest.services.filters.columns import FILTER_COLUMNS, FilterType
+from rest.services.filters.translate import NUMERIC_TYPE_MAX
+
 PUBLIC_PREFIX = "/api/v1/public/"
 TITLE = "TraceRoot Public API"
 
@@ -76,6 +79,7 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
     # Trace read/export error contract (matches the route code).
     list_op = schema["paths"].get("/api/v1/public/traces", {}).get("get")
     if list_op is not None:
+        list_op["responses"].setdefault("400", _error_response("Invalid filters parameter"))
         list_op["responses"].setdefault("500", _error_response("Failed to list traces"))
     for path in ("/api/v1/public/traces/{trace_id}", "/api/v1/public/traces/{trace_id}/export"):
         op = schema["paths"].get(path, {}).get("get")
@@ -83,6 +87,18 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
             op["responses"].setdefault("400", _error_response("Invalid fields parameter"))
             op["responses"].setdefault("404", _error_response("Trace not found"))
             op["responses"].setdefault("500", _error_response("Failed to get trace"))
+
+    # Filter-values discovery error contract (matches the route code).
+    filter_values_op = (
+        schema["paths"].get("/api/v1/public/traces/filter-values/{field}", {}).get("get")
+    )
+    if filter_values_op is not None:
+        filter_values_op["responses"].setdefault(
+            "400", _error_response("Field is not filterable by distinct values")
+        )
+        filter_values_op["responses"].setdefault(
+            "500", _error_response("Failed to list filter values")
+        )
 
     # Detector catalog list error contract (matches the route code).
     detectors_list_op = schema["paths"].get("/api/v1/public/detectors", {}).get("get")
@@ -114,6 +130,86 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
         session_get_op["responses"].setdefault("500", _error_response("Failed to get session"))
 
 
+def _filter_predicate_variants() -> list[dict[str, Any]]:
+    """One JSON-Schema variant per filterable field, generated from the registry.
+
+    The field registry (``rest.services.filters.columns``) is the single source
+    of truth; this builder mirrors each column's operator whitelist and value
+    shape into the public contract, so adding a filter field remains one
+    registry entry and a schema regeneration.
+
+    Returns:
+        list[dict[str, Any]]: ``anyOf`` variants for the ``filters`` parameter.
+    """
+    variants: list[dict[str, Any]] = []
+    for col in FILTER_COLUMNS:
+        if col.type == FilterType.CATEGORICAL:
+            value_schema: dict[str, Any] = {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 1,
+            }
+        elif col.type == FilterType.NUMERIC:
+            # Mirror the runtime validator: metrics are non-negative, integer
+            # columns reject fractional values, and each column type has an
+            # inclusive maximum (shared map with the validator).
+            if col.is_integer:
+                value_schema = {"type": "integer", "minimum": 0}
+            else:
+                value_schema = {"type": "number", "minimum": 0}
+            max_val = NUMERIC_TYPE_MAX.get(col.ch_type)
+            if max_val is not None:
+                value_schema["maximum"] = max_val
+        elif col.type == FilterType.TEXT:
+            # The validator rejects empty strings.
+            value_schema = {"type": "string", "minLength": 1}
+        else:
+            # A new FilterType member must get an explicit value schema here;
+            # failing the build beats silently typing it as free text.
+            raise ValueError(f"unhandled filter type for schema generation: {col.type!r}")
+        variants.append(
+            {
+                "type": "object",
+                "properties": {
+                    "field": {"const": col.name, "title": col.label},
+                    "op": {"enum": [str(o) for o in col.operators]},
+                    "value": value_schema,
+                },
+                "required": ["field", "op", "value"],
+                "additionalProperties": False,
+            }
+        )
+    return variants
+
+
+def _apply_filters_param_schema(schema: dict[str, Any]) -> None:
+    """Replace the string-typed ``filters`` query param with its JSON-content form.
+
+    FastAPI declares the route param as a plain string; the real contract is a
+    JSON array of typed predicates. OpenAPI models JSON-in-query as a parameter
+    with ``content`` instead of ``schema`` — downstream generators read
+    ``content["application/json"].schema``.
+
+    Args:
+        schema (dict[str, Any]): The public-only OpenAPI document; mutated in
+            place. No-op if the operation or parameter is absent.
+    """
+    op = schema["paths"].get("/api/v1/public/traces", {}).get("get")
+    if op is None:
+        return
+    for param in op.get("parameters", []):
+        if param.get("name") == "filters" and param.get("in") == "query":
+            param.pop("schema", None)
+            param["content"] = {
+                "application/json": {
+                    "schema": {
+                        "type": "array",
+                        "items": {"anyOf": _filter_predicate_variants()},
+                    }
+                }
+            }
+
+
 # Agent/CLI-facing tool curation, keyed by operationId. Reviewed in the same PR
 # as any endpoint change so tool naming can't drift from the API. Every public
 # operation MUST have an entry: enabled tools carry the agent-facing
@@ -132,7 +228,18 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         "description": (
             "List recent traces for the project (newest first). Filter by time range, "
             "trace name, user id, or a free-text search across trace/session/user ids "
-            "and names. Use this for discovery before fetching a specific trace."
+            "and names. Use this for discovery before fetching a specific trace. "
+            "Structured filters (model, environment, cost, tokens, latency, error "
+            "count) are available via the typed filters parameter."
+        ),
+        "enabled": True,
+    },
+    "list_trace_filter_values": {
+        "name": "list_trace_filter_values",
+        "description": (
+            "Discover the current values of a categorical trace filter field "
+            "(e.g. model_name, environment) for the project — use before "
+            "filtering the trace list by that field."
         ),
         "enabled": True,
     },
@@ -287,6 +394,7 @@ def build_public_schema(app: Any) -> dict[str, Any]:
         "components": components,
     }
     _apply_public_contract(schema)
+    _apply_filters_param_schema(schema)
     _apply_tool_curation(schema)
     return schema
 
