@@ -22,7 +22,7 @@
     "@daytonaio/sdk": "0.148.0",
     "@earendil-works/pi-agent-core": "0.74.0",
     "@earendil-works/pi-ai": "0.80.3",
-    "@hono/node-server": "^1.19.13",
+    "@hono/node-server": "^2.0.10",
     "@traceroot/core": "workspace:*",
     "hono": "^4.12.25"
   },
