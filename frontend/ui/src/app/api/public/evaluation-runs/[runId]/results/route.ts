@@ -44,7 +44,10 @@ export async function POST(request: Request, { params }: RouteParams) {
     cost: r.cost ?? null,
     traceId: r.trace_id ?? null,
   };
-  const scoreRows = r.scores.map((s) => ({
+  // `scores` is optional with no default: undefined = leave the result's stored scores
+  // alone (a follow-up that only attaches a trace_id must not wipe them); [] = clear;
+  // a list = replace. Build defensively so an omitted `scores` never `.map`s undefined.
+  const scoreRows = (r.scores ?? []).map((s) => ({
     projectId,
     scorerName: s.scorer_name,
     scorerVersion: s.scorer_version,
@@ -57,34 +60,32 @@ export async function POST(request: Request, { params }: RouteParams) {
   }));
 
   const resultId = await prisma.$transaction(async (tx) => {
-    const existing = await tx.evaluationResult.findFirst({
-      where: { runId, testCaseId: r.test_case_id },
-      select: { id: true },
-    });
-    if (existing) {
-      await tx.evaluationResult.update({ where: { id: existing.id }, data: resultFields });
-      await tx.score.deleteMany({ where: { resultId: existing.id } });
-      if (scoreRows.length > 0) {
-        await tx.score.createMany({
-          data: scoreRows.map((s) => ({ ...s, resultId: existing.id })),
-        });
-      }
-      return existing.id;
-    }
-    const created = await tx.evaluationResult.create({
-      data: {
+    // Atomic upsert on (runId, testCaseId) — a find-then-create let two concurrent
+    // first reports for the same case both pass the existence check and then one 500
+    // on the unique key. INSERT ... ON CONFLICT DO UPDATE serialises them.
+    const result = await tx.evaluationResult.upsert({
+      where: { runId_testCaseId: { runId, testCaseId: r.test_case_id } },
+      create: {
         runId,
         evaluationId: run.evaluationId,
         projectId,
         testCaseId: r.test_case_id,
         ...resultFields,
       },
+      update: resultFields,
       select: { id: true },
     });
-    if (scoreRows.length > 0) {
-      await tx.score.createMany({ data: scoreRows.map((s) => ({ ...s, resultId: created.id })) });
+    // Only rewrite scores when the caller actually sent the field — omitting it leaves
+    // the previously-reported scores intact (out-of-order trace linking).
+    if (r.scores !== undefined) {
+      await tx.score.deleteMany({ where: { resultId: result.id } });
+      if (scoreRows.length > 0) {
+        await tx.score.createMany({
+          data: scoreRows.map((s) => ({ ...s, resultId: result.id })),
+        });
+      }
     }
-    return created.id;
+    return result.id;
   });
 
   return NextResponse.json({ evaluation_result_id: resultId } satisfies UpsertResultResponse, {
