@@ -12,14 +12,15 @@ export async function GET(request: Request, { params }: RouteParams) {
   const { projectId } = auth;
   const { datasetId } = await params;
 
-  const dataset = await prisma.dataset.findFirst({
-    where: { id: datasetId, projectId },
-    select: { id: true, name: true, description: true, currentVersionId: true },
+  // The path value is the SDK's project-scoped client id, not the internal PK.
+  const dataset = await prisma.dataset.findUnique({
+    where: { projectId_clientDatasetId: { projectId, clientDatasetId: datasetId } },
+    select: { clientDatasetId: true, name: true, description: true, currentVersionId: true },
   });
   if (!dataset) return NextResponse.json({ error: "Dataset not found" }, { status: 404 });
 
   return NextResponse.json({
-    dataset_id: dataset.id,
+    dataset_id: dataset.clientDatasetId ?? datasetId,
     name: dataset.name,
     description: dataset.description,
     current_dataset_version_id: dataset.currentVersionId,
@@ -46,14 +47,16 @@ export async function PATCH(request: Request, { params }: RouteParams) {
   }
   const c = parsed.data;
 
-  const existing = await prisma.dataset.findFirst({
-    where: { id: datasetId, projectId },
+  // Resolve the client id to the internal row id, then update by the PK (the client
+  // id alone is not unique — it's only unique per project).
+  const existing = await prisma.dataset.findUnique({
+    where: { projectId_clientDatasetId: { projectId, clientDatasetId: datasetId } },
     select: { id: true },
   });
   if (!existing) return NextResponse.json({ error: "Dataset not found" }, { status: 404 });
 
   const updated = await prisma.dataset.update({
-    where: { id: datasetId },
+    where: { id: existing.id },
     data: {
       ...(c.name !== undefined ? { name: c.name } : {}),
       ...(c.description !== undefined ? { description: c.description } : {}),
@@ -62,10 +65,10 @@ export async function PATCH(request: Request, { params }: RouteParams) {
         ? { metadata: c.metadata === null ? Prisma.DbNull : (c.metadata as Prisma.InputJsonValue) }
         : {}),
     },
-    select: { id: true, name: true, description: true, currentVersionId: true },
+    select: { clientDatasetId: true, name: true, description: true, currentVersionId: true },
   });
   return NextResponse.json({
-    dataset_id: updated.id,
+    dataset_id: updated.clientDatasetId ?? datasetId,
     name: updated.name,
     description: updated.description,
     current_dataset_version_id: updated.currentVersionId,

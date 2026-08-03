@@ -92,10 +92,13 @@ describe("A2: upsert a dataset by client id", () => {
     expect((await readJson(again)).dataset_id).toBe("ds_01");
   });
 
-  it("hides a dataset id owned by another project (404)", async () => {
+  it("lets two projects reuse the same client dataset id (per-project keyspace)", async () => {
     await upsertDataset(req({ dataset_id: "ds_shared", name: "mine" }));
     const res = await upsertDataset(req({ dataset_id: "ds_shared", name: "theirs" }, OTHER_KEY));
-    expect(res.status).toBe(404);
+    // `clientDatasetId` is unique per project, not globally: the other project creates
+    // its OWN dataset under the same id rather than being blocked (or shown it exists).
+    expect(res.status).toBe(201);
+    expect(fakePrisma.dataset.rows).toHaveLength(2);
   });
 });
 
