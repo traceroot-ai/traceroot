@@ -95,4 +95,46 @@ describe("BillingTab", () => {
     expect(screen.queryByText("unknown")).toBeNull();
     expect(screen.getByText("claude-opus-4-8")).toBeTruthy();
   });
+
+  it("shows a not-yet-computed state instead of zero counts when no usage snapshot exists", () => {
+    render(<BillingTab workspaceId="ws_1" currentPlan={PlanType.FREE} currentUsage={null} />);
+
+    expect(screen.getByText(/Usage has not been computed yet/)).toBeTruthy();
+    expect(screen.queryByText("Traces")).toBeNull();
+    expect(screen.queryByText("Spans")).toBeNull();
+    expect(screen.queryByText("Total events")).toBeNull();
+  });
+
+  it("renders genuine zero counts when a computed snapshot reports zero usage", () => {
+    const usage: UsageStats = {
+      traces: 0,
+      spans: 0,
+      tokens: 0,
+      updatedAt: "2026-07-01T00:00:00.000Z",
+    };
+
+    render(<BillingTab workspaceId="ws_1" currentPlan={PlanType.FREE} currentUsage={usage} />);
+
+    expect(screen.queryByText(/Usage has not been computed yet/)).toBeNull();
+    expect(screen.getByText("Traces")).toBeTruthy();
+    expect(screen.getByText("Spans")).toBeTruthy();
+    expect(screen.getByText(/Last updated:/)).toBeTruthy();
+  });
+
+  it("omits the quota suffix on total events for an unlimited plan", () => {
+    const usage: UsageStats = {
+      traces: 5,
+      spans: 3,
+      tokens: 0,
+      updatedAt: "2026-07-01T00:00:00.000Z",
+    };
+
+    render(
+      <BillingTab workspaceId="ws_1" currentPlan={PlanType.ENTERPRISE} currentUsage={usage} />,
+    );
+
+    const totalEventsRow = screen.getByText("Total events").closest("div");
+    expect(totalEventsRow?.textContent).toContain("8");
+    expect(totalEventsRow?.textContent).not.toContain("/");
+  });
 });
