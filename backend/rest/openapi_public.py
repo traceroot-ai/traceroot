@@ -17,10 +17,67 @@ TITLE = "TraceRoot Public API"
 _HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
 _BEARER_SCHEME = {"type": "http", "scheme": "bearer"}
 _ERROR_SCHEMA = {"type": "object", "properties": {"detail": {"type": "string"}}}
+_ROUTE_ERROR_RESPONSES: dict[str, dict[str, dict[str, str]]] = {
+    "/api/v1/public/traces": {
+        "post": {
+            "400": "Invalid request body",
+            "402": "Free plan limit exceeded",
+            "415": "Unsupported media type",
+            "500": "Storage error",
+        },
+        "get": {"500": "Failed to list traces"},
+    },
+    "/api/v1/public/traces/{trace_id}": {
+        "get": {
+            "400": "Invalid fields parameter",
+            "404": "Trace not found",
+            "500": "Failed to get trace",
+        },
+    },
+    "/api/v1/public/traces/{trace_id}/export": {
+        "get": {
+            "400": "Invalid fields parameter",
+            "404": "Trace not found",
+            "500": "Failed to get trace",
+        },
+    },
+    "/api/v1/public/detectors": {
+        "get": {"500": "Failed to list detectors"},
+    },
+    "/api/v1/public/detectors/findings": {
+        "get": {"500": "Failed to list findings"},
+    },
+    "/api/v1/public/detectors/findings/{finding_id}": {
+        "get": {
+            "404": "Finding not found",
+            "500": "Failed to read finding",
+        },
+    },
+    "/api/v1/public/detectors/traces/{trace_id}/finding": {
+        "get": {
+            "404": "Finding not found",
+            "500": "Failed to read finding",
+        },
+    },
+}
 
 
 def _error_response(description: str) -> dict[str, Any]:
     return {"description": description, "content": {"application/json": {"schema": _ERROR_SCHEMA}}}
+
+
+def _apply_route_error_contract(schema: dict[str, Any]) -> None:
+    for path, methods in _ROUTE_ERROR_RESPONSES.items():
+        path_item = schema["paths"].get(path)
+        if path_item is None:
+            continue
+        for method, errors in methods.items():
+            op = path_item.get(method)
+            if op is None:
+                continue
+            responses = op.setdefault("responses", {})
+            for code, description in errors.items():
+                responses.setdefault(code, _error_response(description))
 
 
 def _apply_public_contract(schema: dict[str, Any]) -> None:
@@ -56,9 +113,7 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
             responses.setdefault("401", _error_response("Authentication failed"))
             responses.setdefault("503", _error_response("Authentication service unavailable"))
 
-    # Public ingestion accepts an OTLP protobuf body (read from the raw request)
-    # and documents its runtime error contract: 400 (bad/empty/undecodable body),
-    # 402 (plan limit), 415 (wrong Content-Type), 500 (S3 storage failure).
+    # Public ingestion accepts an OTLP protobuf body (read from the raw request).
     ingest = schema["paths"].get("/api/v1/public/traces", {}).get("post")
     if ingest is not None:
         ingest["requestBody"] = {
@@ -67,42 +122,7 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
                 "application/x-protobuf": {"schema": {"type": "string", "format": "binary"}}
             },
         }
-        ingest_responses = ingest["responses"]
-        ingest_responses.setdefault("400", _error_response("Invalid request body"))
-        ingest_responses.setdefault("402", _error_response("Free plan limit exceeded"))
-        ingest_responses.setdefault("415", _error_response("Unsupported media type"))
-        ingest_responses.setdefault("500", _error_response("Storage error"))
-
-    # Trace read/export error contract (matches the route code).
-    list_op = schema["paths"].get("/api/v1/public/traces", {}).get("get")
-    if list_op is not None:
-        list_op["responses"].setdefault("500", _error_response("Failed to list traces"))
-    for path in ("/api/v1/public/traces/{trace_id}", "/api/v1/public/traces/{trace_id}/export"):
-        op = schema["paths"].get(path, {}).get("get")
-        if op is not None:
-            op["responses"].setdefault("400", _error_response("Invalid fields parameter"))
-            op["responses"].setdefault("404", _error_response("Trace not found"))
-            op["responses"].setdefault("500", _error_response("Failed to get trace"))
-
-    # Detector catalog list error contract (matches the route code).
-    detectors_list_op = schema["paths"].get("/api/v1/public/detectors", {}).get("get")
-    if detectors_list_op is not None:
-        detectors_list_op["responses"].setdefault(
-            "500", _error_response("Failed to list detectors")
-        )
-
-    # Detector findings read error contract (matches the route code).
-    findings_list_op = schema["paths"].get("/api/v1/public/detectors/findings", {}).get("get")
-    if findings_list_op is not None:
-        findings_list_op["responses"].setdefault("500", _error_response("Failed to list findings"))
-    for path in (
-        "/api/v1/public/detectors/findings/{finding_id}",
-        "/api/v1/public/detectors/traces/{trace_id}/finding",
-    ):
-        op = schema["paths"].get(path, {}).get("get")
-        if op is not None:
-            op["responses"].setdefault("404", _error_response("Finding not found"))
-            op["responses"].setdefault("500", _error_response("Failed to read finding"))
+    _apply_route_error_contract(schema)
 
 
 def _collect_refs(node: Any, acc: set[str]) -> None:
