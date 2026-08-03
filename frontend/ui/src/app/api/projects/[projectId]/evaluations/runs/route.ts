@@ -64,6 +64,12 @@ function parseDateParam(value: string | null): Date | null {
 // that would already have been fetched.
 const DB_SORTABLE = new Set<SortField>(["startedAt", "mainScore", "status"]);
 
+// cost/elapsed can't be ordered in the DB (cost is a sum over related results; elapsed
+// is derived), so they're sorted in Node. Bound how many runs that pulls so a large
+// project history can't load every run — and every run's results for the cost sum —
+// into memory to serve one page.
+const MAX_INMEMORY_SORT = 500;
+
 // GET — evaluation runs (executions) for the project. Filters: evaluation_id,
 // dataset_id, status, search_query, started_after, started_before. Sort:
 // sort/order over startedAt|mainScore|cost|elapsedMs|status.
@@ -131,7 +137,20 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       prisma.evaluationRun.count({ where }),
     ]);
   } else {
-    const all = await prisma.evaluationRun.findMany({ where, include });
+    // Bound the set pulled for the Node-side sort (and thus the cost groupBy over its
+    // ids) to the most recent runs, so this can't OOM on a large project history.
+    const all = await prisma.evaluationRun.findMany({
+      where,
+      include,
+      orderBy: { runNumber: "desc" },
+      take: MAX_INMEMORY_SORT + 1,
+    });
+    if (all.length > MAX_INMEMORY_SORT) {
+      all.length = MAX_INMEMORY_SORT;
+      console.warn(
+        `runs list: cost/duration sort bounded to the ${MAX_INMEMORY_SORT} most recent runs`,
+      );
+    }
     total = all.length;
 
     let sortValue: (r: (typeof all)[number]) => number | null;
