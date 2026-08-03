@@ -145,6 +145,21 @@ spec:
                   key: {{ .Values.googleOAuth.keys.clientSecret }}
             {{- end }}
             {{- end }}
+            # --- GitHub OAuth Login (conditional) ---
+            {{- if .Values.githubOAuth }}
+            {{- if .Values.githubOAuth.existingSecret }}
+            - name: AUTH_GITHUB_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.githubOAuth.existingSecret }}
+                  key: {{ .Values.githubOAuth.keys.clientId }}
+            - name: AUTH_GITHUB_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.githubOAuth.existingSecret }}
+                  key: {{ .Values.githubOAuth.keys.clientSecret }}
+            {{- end }}
+            {{- end }}
             # --- Stripe (conditional) ---
             {{- if .Values.stripe }}
             {{- if .Values.stripe.existingSecret }}

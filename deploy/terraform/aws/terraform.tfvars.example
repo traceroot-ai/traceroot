@@ -59,6 +59,10 @@ cache_node_type = "cache.t4g.micro"
 # google_oauth_client_id     = "123456.apps.googleusercontent.com"
 # google_oauth_client_secret = "GOCSPX-..."
 
+# GitHub OAuth Login
+# github_oauth_client_id     = "Ov23li..."
+# github_oauth_client_secret = "gho_..."
+
 # Stripe Billing
 # Note: Use test keys for staging, live keys for production
 # stripe_secret_key              = "sk_test_..."
