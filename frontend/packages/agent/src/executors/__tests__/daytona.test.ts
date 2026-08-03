@@ -132,6 +132,55 @@ describe("DaytonaExecutor", () => {
       expect(mockSandbox.fs.uploadFile).toHaveBeenCalledWith(Buffer.from("hello"), "/tmp/test.txt");
     });
 
+    it("creates the parent directory before uploading a nested path", async () => {
+      // The download tools write into per-item subdirs that init() never creates
+      // (e.g. /workspace/traces/<id>_<name>/); uploadFile does not create parents,
+      // so writeFile must mkdir -p the parent first — and before the upload.
+      await executor.init();
+      vi.clearAllMocks();
+
+      await executor.writeFile("/workspace/traces/t1_name/spans.jsonl", "{}\n");
+
+      const mkdir = mockSandbox.process.executeCommand.mock.calls.find((c: [string]) =>
+        c[0].startsWith("mkdir -p"),
+      );
+      expect(mkdir).toBeTruthy();
+      expect(mkdir![0]).toBe("mkdir -p '/workspace/traces/t1_name'");
+      // mkdir runs before the upload
+      const mkdirOrder = mockSandbox.process.executeCommand.mock.invocationCallOrder[0];
+      const uploadOrder = mockSandbox.fs.uploadFile.mock.invocationCallOrder[0];
+      expect(mkdirOrder).toBeLessThan(uploadOrder);
+      expect(mockSandbox.fs.uploadFile).toHaveBeenCalledWith(
+        Buffer.from("{}\n"),
+        "/workspace/traces/t1_name/spans.jsonl",
+      );
+    });
+
+    it("does not mkdir for a root-level path", async () => {
+      await executor.init();
+      vi.clearAllMocks();
+
+      await executor.writeFile("/foo.txt", "x");
+
+      const mkdir = mockSandbox.process.executeCommand.mock.calls.find((c: [string]) =>
+        c[0].startsWith("mkdir -p"),
+      );
+      expect(mkdir).toBeUndefined();
+      expect(mockSandbox.fs.uploadFile).toHaveBeenCalledWith(Buffer.from("x"), "/foo.txt");
+    });
+
+    it("shell-escapes a parent dir containing single quotes", async () => {
+      await executor.init();
+      vi.clearAllMocks();
+
+      await executor.writeFile("/workspace/traces/o'brien/spans.jsonl", "{}\n");
+
+      const mkdir = mockSandbox.process.executeCommand.mock.calls.find((c: [string]) =>
+        c[0].startsWith("mkdir -p"),
+      );
+      expect(mkdir![0]).toBe("mkdir -p '/workspace/traces/o'\\''brien'");
+    });
+
     it("throws if not initialized", async () => {
       await expect(executor.writeFile("/tmp/x", "y")).rejects.toThrow("not initialized");
     });
