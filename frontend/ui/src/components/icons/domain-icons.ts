@@ -46,6 +46,7 @@ export const DOMAIN_ICONS = {
   assistant: BotMessageSquare,
   user: Users,
   session: Layers,
+  lineage: Layers,
   trace: Workflow,
   id: Hash,
   // Distinct concept from `id` (a count of things vs. an identifier) that

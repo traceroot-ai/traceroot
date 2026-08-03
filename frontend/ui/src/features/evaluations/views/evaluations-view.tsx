@@ -9,12 +9,12 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Layers,
   ListChecks,
   Ruler,
   Search,
   X,
 } from "lucide-react";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ModelSelector } from "@/features/ai-assistant/components/model-selector";
@@ -536,7 +536,7 @@ function RunsTab({ projectId }: { projectId: string }) {
         </Toggle>
         {!scopedEvalId && (
           <Toggle active={groupBy} onClick={() => setGroupBy((v) => !v)}>
-            <Layers className="h-3.5 w-3.5" aria-hidden />
+            <DOMAIN_ICONS.lineage className="h-3.5 w-3.5" aria-hidden />
             Group by evaluation
           </Toggle>
         )}
