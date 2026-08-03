@@ -111,7 +111,11 @@ export function DatasetDetailView({
   // null = the current version. Selecting an older version loads its snapshot
   // (read-only — editing always branches from the current version).
   const [selectedVersionId, setSelectedVersionId] = React.useState<string | null>(null);
-  const { data, isLoading, error, refetch } = useDataset(projectId, datasetId, selectedVersionId);
+  const { data, isLoading, error, refetch, isFetching } = useDataset(
+    projectId,
+    datasetId,
+    selectedVersionId,
+  );
   const save = useSaveTestCase(projectId, datasetId);
   const update = useUpdateTestCase(projectId, datasetId);
 
@@ -148,7 +152,10 @@ export function DatasetDetailView({
   // to `undefined === null` -> false on the server, which would otherwise lock
   // the page read-only before the first row can ever be added.
   const hasVersions = versions.length > 0;
-  const isCurrentVersion = !hasVersions || (data?.isCurrentVersion ?? true);
+  // While a newly-selected version is still loading, `data` reflects the PREVIOUS
+  // snapshot, so treat the page as non-current (read-only) until the fetch settles —
+  // otherwise a click mid-fetch would edit/publish against the wrong version.
+  const isCurrentVersion = (!hasVersions || (data?.isCurrentVersion ?? true)) && !isFetching;
   const allCases = React.useMemo(() => data?.testCases ?? [], [data]);
 
   const cases = React.useMemo(() => {
@@ -349,7 +356,9 @@ export function DatasetDetailView({
                 {selectedVersion?.label ? ` · ${selectedVersion.label}` : ""} — read only.{" "}
                 <button
                   type="button"
-                  onClick={() => setSelectedVersionId(data.currentVersion?.id ?? null)}
+                  // null = follow the LIVE current pointer. Pinning the current version's
+                  // id would strand the page on a now-historical version after the next edit.
+                  onClick={() => setSelectedVersionId(null)}
                   className="underline underline-offset-2"
                 >
                   Back to current

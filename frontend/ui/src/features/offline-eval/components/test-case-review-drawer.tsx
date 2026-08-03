@@ -48,7 +48,7 @@ export function TestCaseReviewDrawer({
   target: TestCaseReviewTarget | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (result: { review: ReviewStatus; correctedExpected?: string }) => void;
+  onSubmit: (result: { review: ReviewStatus; correctedExpected?: string }) => void | Promise<void>;
 }) {
   const [checked, setChecked] = React.useState<boolean[]>(() => CHECKS.map(() => false));
   const [corrected, setCorrected] = React.useState("");
