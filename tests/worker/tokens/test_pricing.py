@@ -759,3 +759,110 @@ def test_anthropic_entries_have_2x_input_1h_cache_rate():
             continue
         assert "cacheWrite1h" in prices, f"{entry['modelName']} missing cacheWrite1h"
         assert prices["cacheWrite1h"] == pytest.approx(prices["input"] * 2), entry["modelName"]
+
+
+# ---------------------------------------------------------------------------
+# Catalog invariants (issue #1597)
+#
+# The $0/mispriced-cost class has been patched five times symptom-by-symptom
+# (#1558, #1545, #1556 ...) because nothing asserts that the catalog we SHIP
+# actually resolves. These tests turn "someone adds a model and pricing silently
+# breaks" into a failing check. They run over every entry in
+# standard-model-prices.json, so they cover future entries automatically.
+# ---------------------------------------------------------------------------
+
+GATEWAY_PREFIX_CASES = ["vertex_ai/", "openrouter/", "litellm/", "azure/"]
+
+
+class TestCatalogInvariants:
+    def test_every_model_name_resolves_to_itself(self, real_cache):
+        """Catches pattern/ID drift (#1558: a pattern that missed its own GA id)."""
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            for entry in real_cache:
+                name = entry["model_name"]
+                price = get_model_price(name)
+                assert price is not None, f"{name} does not resolve at all"
+                assert price[MATCHED_MODEL_NAME] == name, (
+                    f"{name} resolved to {price[MATCHED_MODEL_NAME]} instead of itself"
+                )
+
+    def test_no_pattern_claims_another_entrys_model_name(self, real_cache):
+        """Catches subsumption: a shorter entry swallowing its own successor.
+
+        `claude-sonnet-4`'s pattern matches `claude-sonnet-4-5`/`-4-6` via its optional
+        version tail. Harmless only while those SKUs share prices — a silent mispricing
+        the day they don't. Most-specific-wins resolution must keep each id on its own
+        entry regardless of row order.
+        """
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            for entry in real_cache:
+                name = entry["model_name"]
+                price = get_model_price(name)
+                assert price[MATCHED_MODEL_NAME] == name, (
+                    f"{name} was claimed by {price[MATCHED_MODEL_NAME]}'s pattern"
+                )
+
+    @pytest.mark.parametrize("prefix", GATEWAY_PREFIX_CASES)
+    def test_gateway_prefixed_ids_resolve_like_the_bare_id(self, real_cache, prefix):
+        """Locks in gateway-prefix normalisation (#1556).
+
+        `usage.inferenceModel` comes from pi-ai's `response.model`, which carries these
+        prefixes for OpenRouter/LiteLLM/Vertex — and both TS callers of the resolver are
+        billable inference, so an unresolved id records the run at $0.
+        """
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            for entry in real_cache:
+                name = entry["model_name"]
+                prefixed = get_model_price(prefix + name)
+                assert prefixed is not None, f"{prefix}{name} resolved to None (would cost $0)"
+                assert prefixed[MATCHED_MODEL_NAME] == name, (
+                    f"{prefix}{name} resolved to {prefixed[MATCHED_MODEL_NAME]}, not {name}"
+                )
+
+    def test_resolution_is_independent_of_row_order(self, real_cache):
+        """Resolution must not depend on DB row order.
+
+        Python sorts (`ORDER BY m.model_name`); the TS resolver had no `orderBy`, so the
+        two engines could disagree on which overlapping pattern matched. Most-specific-wins
+        removes the dependency entirely — shuffling the catalog must change nothing.
+        """
+        import random
+
+        baseline = {}
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            for entry in real_cache:
+                baseline[entry["model_name"]] = get_model_price(entry["model_name"])[
+                    MATCHED_MODEL_NAME
+                ]
+
+        for seed in (1, 2, 3):
+            shuffled = list(real_cache)
+            random.Random(seed).shuffle(shuffled)
+            # Bind `shuffled` as a default arg: a bare `lambda: shuffled` would close over
+            # the loop variable and read the LAST shuffle on every iteration (ruff B023).
+            with patch("worker.tokens.pricing._load_cache", lambda rows=shuffled: rows):
+                for model_name, expected in baseline.items():
+                    got = get_model_price(model_name)[MATCHED_MODEL_NAME]
+                    assert got == expected, (
+                        f"seed={seed}: {model_name} resolved to {got}, expected {expected}"
+                    )
+
+
+class TestNormalizeModelId:
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("vertex_ai/gemini-2.5-pro", "gemini-2.5-pro"),
+            ("openrouter/claude-sonnet-4-5", "claude-sonnet-4-5"),
+            ("litellm/gpt-5.1", "gpt-5.1"),
+            ("azure/gpt-5.1", "gpt-5.1"),
+            ("openrouter/vertex_ai/gemini-2.5-pro", "gemini-2.5-pro"),  # nested
+            ("gpt-5.1", "gpt-5.1"),  # untouched
+            ("anthropic/claude-sonnet-4-5", "anthropic/claude-sonnet-4-5"),  # real pattern form
+            ("", ""),
+        ],
+    )
+    def test_strips_only_known_gateway_prefixes(self, raw, expected):
+        from worker.tokens.pricing import normalize_model_id
+
+        assert normalize_model_id(raw) == expected
