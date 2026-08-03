@@ -18,6 +18,7 @@ export function useAiChat({
 }: UseAiChatOptions) {
   const { messages, isStreaming, sendMessage, abort, setMessages } = useAIStream();
   const sessionIdRef = useRef<string | null>(null);
+  const selectSessionAborterRef = useRef<AbortController | null>(null);
   // Set so concurrent ensureSession calls don't cancel each other; handleClose
   // aborts all in-flight POST /sessions to prevent post-close resurrection.
   const ensureSessionAbortersRef = useRef<Set<AbortController>>(new Set());
@@ -38,6 +39,8 @@ export function useAiChat({
   // When initialSessionId is set, the loading useEffect below owns session
   // ownership, so we bail here to avoid clobbering its fetched messages.
   useEffect(() => {
+    selectSessionAborterRef.current?.abort();
+    selectSessionAborterRef.current = null;
     if (initialSessionId) return;
     sessionIdRef.current = null;
     setMessages([]);
@@ -132,6 +135,8 @@ export function useAiChat({
     // in the background. Its SSE deltas may briefly bleed into this fresh
     // chat view until the backend turn completes — tracked separately as a
     // follow-up (see the linked discussion / issue on #784).
+    selectSessionAborterRef.current?.abort();
+    selectSessionAborterRef.current = null;
     sessionIdRef.current = null;
     setMessages([]);
   }, [setMessages]);
@@ -144,6 +149,8 @@ export function useAiChat({
   const handleClose = useCallback(() => {
     for (const ac of ensureSessionAbortersRef.current) ac.abort();
     ensureSessionAbortersRef.current.clear();
+    selectSessionAborterRef.current?.abort();
+    selectSessionAborterRef.current = null;
     abort();
     sessionIdRef.current = null;
     setMessages([]);
@@ -163,25 +170,39 @@ export function useAiChat({
 
   const handleSelectSession = useCallback(
     async (session: AISession) => {
+      if (!projectId) return;
+      selectSessionAborterRef.current?.abort();
+      const ac = new AbortController();
+      selectSessionAborterRef.current = ac;
       sessionIdRef.current = session.id;
       setMessages([]);
       setHistoryOpen(false);
 
-      if (!projectId) return;
       try {
-        const res = await fetch(`/api/projects/${projectId}/ai/sessions/${session.id}/messages`);
+        const res = await fetch(`/api/projects/${projectId}/ai/sessions/${session.id}/messages`, {
+          signal: ac.signal,
+        });
         if (res.ok) {
           const data = await res.json();
-          const loaded = (data.messages || []).map((m: any) => ({
-            id: m.id,
-            role: m.role as "user" | "assistant",
-            content: m.content,
-            timestamp: m.createTime,
-          }));
+          if (ac.signal.aborted) return;
+          const loaded = (data.messages || []).map(
+            (m: { id: string; role: string; content: string; createTime: string }): AIMessage => ({
+              id: m.id,
+              role: m.role as "user" | "assistant",
+              content: m.content,
+              timestamp: m.createTime,
+            }),
+          );
           setMessages(loaded);
         }
       } catch (err) {
-        console.error("[AI Chat] Failed to load session messages:", err);
+        if ((err as Error).name !== "AbortError") {
+          console.error("[AI Chat] Failed to load session messages:", err);
+        }
+      } finally {
+        if (selectSessionAborterRef.current === ac) {
+          selectSessionAborterRef.current = null;
+        }
       }
     },
     [projectId, setMessages],
@@ -191,6 +212,8 @@ export function useAiChat({
     (sessionId: string) => {
       setSessions((prev) => prev.filter((s) => s.id !== sessionId));
       if (sessionIdRef.current === sessionId) {
+        selectSessionAborterRef.current?.abort();
+        selectSessionAborterRef.current = null;
         sessionIdRef.current = null;
         setMessages([]);
       }
