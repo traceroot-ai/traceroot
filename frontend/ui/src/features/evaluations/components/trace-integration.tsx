@@ -152,17 +152,28 @@ export function SaveTestCaseDrawer({
   // The trace-detail response OMITS span input/output/metadata — they are fetched
   // per span on demand (getSpanIO), so read them from that hook, not the span.
   const { data: spanIO } = useSpanIO(projectId, traceId ?? "", span?.span_id ?? null);
+  // True only once the fetched I/O actually belongs to the selected span. Switching
+  // spans leaves `spanIO` on the PREVIOUS span's values until the new fetch lands, so
+  // this gates both seeding and Save — otherwise a click made immediately after
+  // navigating would publish the new span's id with the previous span's input/output.
+  const spanIOReady = !!spanIO && !!span && spanIO.span_id === span.span_id;
 
   // Input / output / metadata follow the fetched span I/O (incl. nav). Output reseeds
-  // from the recorded output on each span (nav resets any in-progress edit).
+  // from the recorded output on each span (nav resets any in-progress edit). Cleared
+  // while the current span's I/O hasn't arrived rather than left on the previous span.
   React.useEffect(() => {
-    if (open && spanIO) {
+    if (!open) return;
+    if (spanIOReady && spanIO) {
       setInput(spanIO.input ?? "");
       setMetadata(prettyJson(spanIO.metadata));
       setOutput(spanIO.output ?? "");
       setOutputEdited(false);
+    } else {
+      setInput("");
+      setMetadata("");
+      setOutput("");
     }
-  }, [open, spanIO]);
+  }, [open, spanIOReady, spanIO]);
 
   // Reset the duplicate note whenever the selected span changes.
   React.useEffect(() => {
@@ -217,7 +228,9 @@ export function SaveTestCaseDrawer({
     span?.status === "ERROR" ? (displayKind === "TOOL" ? "failed_tool" : "error") : "manual";
 
   const canSave =
-    !!span && (creatingNew ? newDatasetName.trim() !== "" : datasetId !== "") && !save.isPending;
+    spanIOReady &&
+    (creatingNew ? newDatasetName.trim() !== "" : datasetId !== "") &&
+    !save.isPending;
 
   const navigate = (dir: "up" | "down") => {
     if (currentIndex < 0) return;

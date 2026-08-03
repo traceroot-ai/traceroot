@@ -220,23 +220,26 @@ export function DatasetDetailView({
     );
   };
 
-  const duplicateSelected = () => {
+  const duplicateSelected = async () => {
     const chosen = cases.filter((c) => sel.has(c.id));
     if (chosen.length === 0) return;
-    Promise.all(
-      chosen.map((c) =>
-        save.mutateAsync({
+    try {
+      // Sequential, NOT Promise.all: each duplicate publishes a new version off the
+      // PREVIOUS one. Firing them concurrently makes every publish copy the same
+      // pre-duplication snapshot, so all but one duplicate is dropped from the live
+      // dataset (and, with the publish CAS, the losers now conflict outright).
+      for (const c of chosen) {
+        await save.mutateAsync({
           input: c.input,
           expected: c.expected,
           metadata: asRecord(c.metadata),
           capture_reason: "manual",
-        }),
-      ),
-    )
-      .then(() => toast({ title: `Duplicated ${chosen.length}`, tone: "success" }))
-      .catch((e) =>
-        toast({ title: "Could not duplicate", description: String(e), tone: "warning" }),
-      );
+        });
+      }
+      toast({ title: `Duplicated ${chosen.length}`, tone: "success" });
+    } catch (e) {
+      toast({ title: "Could not duplicate", description: String(e), tone: "warning" });
+    }
     sel.clear();
   };
 
