@@ -44,27 +44,27 @@ export async function POST(request: Request, { params }: RouteParams) {
     error: s.error ?? null,
   };
 
-  const scoreId = await prisma.$transaction(async (tx) => {
-    const existing = await tx.score.findFirst({
-      where: { resultId: result.id, scorerName: s.scorer_name, scorerVersion: s.scorer_version },
-      select: { id: true },
-    });
-    if (existing) {
-      await tx.score.update({ where: { id: existing.id }, data: fields });
-      return existing.id;
-    }
-    const created = await tx.score.create({
-      data: {
+  // Atomic upsert on the compound unique — a find-then-create let two concurrent
+  // submissions for the same scorer both pass the read and then one lose the unique-key
+  // race with a 500. Postgres INSERT ... ON CONFLICT DO UPDATE serialises them.
+  const upserted = await prisma.score.upsert({
+    where: {
+      resultId_scorerName_scorerVersion: {
         resultId: result.id,
-        projectId,
         scorerName: s.scorer_name,
         scorerVersion: s.scorer_version,
-        ...fields,
       },
-      select: { id: true },
-    });
-    return created.id;
+    },
+    create: {
+      resultId: result.id,
+      projectId,
+      scorerName: s.scorer_name,
+      scorerVersion: s.scorer_version,
+      ...fields,
+    },
+    update: fields,
+    select: { id: true },
   });
 
-  return NextResponse.json({ score_id: scoreId }, { status: 200 });
+  return NextResponse.json({ score_id: upserted.id }, { status: 200 });
 }
