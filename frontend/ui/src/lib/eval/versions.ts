@@ -167,10 +167,19 @@ export async function publishDatasetVersion(opts: {
       });
     }
 
-    await tx.dataset.update({
-      where: { id: opts.datasetId },
+    // Conditional pointer move: repoint only if `currentVersionId` is still what we
+    // read at the top of this transaction. Under READ COMMITTED two concurrent
+    // publishes can both clear the `baseVersionId` check above and then both write
+    // here, silently dropping one update. Gating the write on the observed value makes
+    // the loser match zero rows, which we surface as a VersionConflict to retry —
+    // never a lost publish.
+    const moved = await tx.dataset.updateMany({
+      where: { id: opts.datasetId, currentVersionId: dataset.currentVersionId },
       data: { currentVersionId: version.id },
     });
+    if (moved.count === 0) {
+      throw new VersionConflict(dataset.currentVersionId ?? null);
+    }
 
     return {
       versionId: version.id,
