@@ -60,9 +60,13 @@ export async function POST(request: Request) {
         }
       }
 
+      // Get-or-create by (projectId, name) — the Evaluation's actual unique key. Looking
+      // up with datasetId too would miss an eval of the same name first registered
+      // against another dataset, then fail the (projectId, name) constraint on create
+      // with a 500 instead of reusing it.
       const evaluation =
         (await tx.evaluation.findFirst({
-          where: { projectId, datasetId: dataset.id, name: req.evaluation_name },
+          where: { projectId, name: req.evaluation_name },
           select: { id: true },
         })) ??
         (await tx.evaluation.create({
