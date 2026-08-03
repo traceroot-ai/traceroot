@@ -84,18 +84,15 @@ export function deriveVerdict(
   const mainDelta = comparison.mainScore.delta;
   const reasons: string[] = [];
 
-  // Main-scorer direction.
+  // Main-scorer direction, taken from the per-case classifications — which the engine
+  // already computed WITH each scorer's direction, so a lower-is-better main scorer
+  // reads a score DECREASE as an improvement. Deriving direction from the raw mainDelta
+  // sign (as before) mislabeled every lower-is-better run's improvements as regressions.
+  // (mainDelta is still used below for the human-readable magnitude, not the verdict.)
   let mainVerdict: "up" | "down" | "flat";
-  if (mainDelta === null) {
-    // Categorical / no numeric main delta — fall back to case verdicts.
-    if (cases.regressed > 0 && cases.improved === 0) mainVerdict = "down";
-    else if (cases.improved > 0 && cases.regressed === 0) mainVerdict = "up";
-    else if (cases.regressed > 0 && cases.improved > 0)
-      mainVerdict = "flat"; // mixed → decided below
-    else mainVerdict = "flat";
-  } else if (mainDelta < 0) mainVerdict = "down";
-  else if (mainDelta > 0) mainVerdict = "up";
-  else mainVerdict = "flat";
+  if (cases.regressed > 0 && cases.improved === 0) mainVerdict = "down";
+  else if (cases.improved > 0 && cases.regressed === 0) mainVerdict = "up";
+  else mainVerdict = "flat"; // none changed, or mixed → decided below
 
   const casesPaired = cases.improved + cases.regressed + cases.unchanged + cases.changed;
   if (mainDelta !== null) {

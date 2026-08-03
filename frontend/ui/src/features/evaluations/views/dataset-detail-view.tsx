@@ -111,7 +111,11 @@ export function DatasetDetailView({
   // null = the current version. Selecting an older version loads its snapshot
   // (read-only — editing always branches from the current version).
   const [selectedVersionId, setSelectedVersionId] = React.useState<string | null>(null);
-  const { data, isLoading, error, refetch } = useDataset(projectId, datasetId, selectedVersionId);
+  const { data, isLoading, error, refetch, isFetching } = useDataset(
+    projectId,
+    datasetId,
+    selectedVersionId,
+  );
   const save = useSaveTestCase(projectId, datasetId);
   const update = useUpdateTestCase(projectId, datasetId);
 
@@ -148,7 +152,10 @@ export function DatasetDetailView({
   // to `undefined === null` -> false on the server, which would otherwise lock
   // the page read-only before the first row can ever be added.
   const hasVersions = versions.length > 0;
-  const isCurrentVersion = !hasVersions || (data?.isCurrentVersion ?? true);
+  // While a newly-selected version is still loading, `data` reflects the PREVIOUS
+  // snapshot, so treat the page as non-current (read-only) until the fetch settles —
+  // otherwise a click mid-fetch would edit/publish against the wrong version.
+  const isCurrentVersion = (!hasVersions || (data?.isCurrentVersion ?? true)) && !isFetching;
   const allCases = React.useMemo(() => data?.testCases ?? [], [data]);
 
   const cases = React.useMemo(() => {
@@ -349,7 +356,9 @@ export function DatasetDetailView({
                 {selectedVersion?.label ? ` · ${selectedVersion.label}` : ""} — read only.{" "}
                 <button
                   type="button"
-                  onClick={() => setSelectedVersionId(data.currentVersion?.id ?? null)}
+                  // null = follow the LIVE current pointer. Pinning the current version's
+                  // id would strand the page on a now-historical version after the next edit.
+                  onClick={() => setSelectedVersionId(null)}
                   className="underline underline-offset-2"
                 >
                   Back to current
@@ -675,15 +684,17 @@ function CasePanel({
   const [expectedText, setExpectedText] = React.useState(testCase.expected ?? "");
   const [metadataText, setMetadataText] = React.useState(initialMetadata);
 
-  // Re-seed only when the case identity changes, not on every value change —
-  // otherwise a background refetch (60s staleTime, cross-tab sync) that pulls in
-  // a new server value stomps text the user is mid-way through typing.
+  // Re-seed on the per-version ROW id, not the stable testCaseId. A save or a
+  // snapshot switch publishes a NEW version — same testCaseId, new row id and values —
+  // so keying on the row id refreshes the buffer to the just-saved/selected values
+  // (otherwise a successful metadata save looks lost). A same-version background
+  // refetch keeps the same row id, so it still can't stomp in-progress typing.
   React.useEffect(() => {
     setInputText(testCase.input);
     setExpectedText(testCase.expected ?? "");
     setMetadataText(initialMetadata);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [testCase.testCaseId]);
+  }, [testCase.id]);
 
   const dirty =
     !readOnly &&
