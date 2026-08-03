@@ -104,6 +104,15 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
             op["responses"].setdefault("404", _error_response("Finding not found"))
             op["responses"].setdefault("500", _error_response("Failed to read finding"))
 
+    # Session read error contract (matches the route code).
+    sessions_list_op = schema["paths"].get("/api/v1/public/sessions", {}).get("get")
+    if sessions_list_op is not None:
+        sessions_list_op["responses"].setdefault("500", _error_response("Failed to list sessions"))
+    session_get_op = schema["paths"].get("/api/v1/public/sessions/{session_id}", {}).get("get")
+    if session_get_op is not None:
+        session_get_op["responses"].setdefault("404", _error_response("Session not found"))
+        session_get_op["responses"].setdefault("500", _error_response("Failed to get session"))
+
 
 # Agent/CLI-facing tool curation, keyed by operationId. Reviewed in the same PR
 # as any endpoint change so tool naming can't drift from the API. Every public
@@ -121,8 +130,9 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
     "list_traces": {
         "name": "list_traces",
         "description": (
-            "List recent traces for the project (newest first), optionally bounded to a "
-            "time range. Use this for discovery before fetching a specific trace."
+            "List recent traces for the project (newest first). Filter by time range, "
+            "trace name, user id, or a free-text search across trace/session/user ids "
+            "and names. Use this for discovery before fetching a specific trace."
         ),
         "enabled": True,
     },
@@ -138,6 +148,22 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         "name": "export_trace",
         "description": (
             "Export the complete bundle (trace, spans, git context, manifest) for one trace."
+        ),
+        "enabled": True,
+    },
+    "list_sessions": {
+        "name": "list_sessions",
+        "description": (
+            "List recent sessions (groups of traces sharing a session id) for the "
+            "project, with trace counts and durations. Search by session id substring."
+        ),
+        "enabled": True,
+    },
+    "get_session": {
+        "name": "get_session",
+        "description": (
+            "Fetch one session with all its traces (ids, names, status, I/O summaries). "
+            "Use before deep-diving individual traces of a conversation."
         ),
         "enabled": True,
     },

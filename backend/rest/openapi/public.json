@@ -765,6 +765,337 @@
         "title": "RCAResult",
         "type": "object"
       },
+      "SessionDetailResponse": {
+        "description": "Session detail with all traces for conversation view.",
+        "properties": {
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "first_trace_time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Trace Time"
+          },
+          "last_trace_time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Trace Time"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "total_cost": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Cost"
+          },
+          "total_input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Input Tokens"
+          },
+          "total_output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Output Tokens"
+          },
+          "trace_count": {
+            "title": "Trace Count",
+            "type": "integer"
+          },
+          "traces": {
+            "items": {
+              "$ref": "#/components/schemas/SessionTraceItem"
+            },
+            "title": "Traces",
+            "type": "array"
+          },
+          "user_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "User Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "session_id",
+          "traces",
+          "user_ids",
+          "trace_count",
+          "first_trace_time",
+          "last_trace_time",
+          "duration_ms",
+          "total_input_tokens",
+          "total_output_tokens"
+        ],
+        "title": "SessionDetailResponse",
+        "type": "object"
+      },
+      "SessionListItem": {
+        "description": "Single session with aggregated trace statistics.",
+        "properties": {
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "first_trace_time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Trace Time"
+          },
+          "input": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input"
+          },
+          "last_trace_time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Trace Time"
+          },
+          "output": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "total_cost": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Cost"
+          },
+          "total_input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Input Tokens"
+          },
+          "total_output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Output Tokens"
+          },
+          "trace_count": {
+            "title": "Trace Count",
+            "type": "integer"
+          },
+          "user_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "User Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "session_id",
+          "trace_count",
+          "user_ids",
+          "first_trace_time",
+          "last_trace_time",
+          "duration_ms",
+          "total_input_tokens",
+          "total_output_tokens",
+          "input",
+          "output"
+        ],
+        "title": "SessionListItem",
+        "type": "object"
+      },
+      "SessionListResponse": {
+        "description": "Paginated list of sessions.",
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/SessionListItem"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/PaginationMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SessionListResponse",
+        "type": "object"
+      },
+      "SessionTraceItem": {
+        "description": "Single trace within a session, for conversation view.",
+        "properties": {
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "input": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "output": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "trace_id": {
+            "title": "Trace Id",
+            "type": "string"
+          },
+          "trace_start_time": {
+            "format": "date-time",
+            "title": "Trace Start Time",
+            "type": "string"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          }
+        },
+        "required": [
+          "trace_id",
+          "name",
+          "trace_start_time",
+          "user_id",
+          "input",
+          "output",
+          "duration_ms",
+          "status"
+        ],
+        "title": "SessionTraceItem",
+        "type": "object"
+      },
       "SpanResponse": {
         "description": "A span skeleton plus its per-span I/O blobs (``input``/``output``/``metadata``).\n\nThe projection-capable superset returned by the trace get/export endpoints.\nThe blobs default to ``None`` and are populated only when the caller requests\nthe matching field group (``io``/``metadata``; see\n``rest.projection``). The default ``skeleton`` projection leaves them ``None``\nand never runs the bulk span-I/O query, so there is no payload or query-cost\nregression for the dashboard. Keeping the fields present (as ``null``) rather\nthan omitting them is additive: a few bytes per span, and it matches the\nfields the shipped CLI's generated types already declare.\n\nOne internal-only exception: the dashboard's trace-detail read leaves a small\nSDK span-path subset in ``metadata`` on the skeleton, which it needs to\nrebuild the tree of an in-flight trace. The public routes drop it (see\n``rest.projection.drop_span_tree_metadata``), so for API clients the contract\nabove holds exactly: ``metadata`` is ``null`` unless requested.",
         "properties": {
@@ -1659,6 +1990,316 @@
         }
       }
     },
+    "/api/v1/public/sessions": {
+      "get": {
+        "description": "List unique sessions for the API key's project with trace counts.\n\nArgs:\n    auth (StampedAuth): Resolved API-key context; scopes the read to its\n        project and stamps the rate-limit identity.\n    limit (int): Items per page (1-200).\n    search_query (str | None): Substring match on session id.\n    start_after (datetime | None): Inclusive lower bound on trace time.\n    end_before (datetime | None): Exclusive upper bound on trace time.\n\nReturns:\n    SessionListResponse: Session summaries, newest first.\n\nRaises:\n    HTTPException: 500 on a reader failure.",
+        "operationId": "list_sessions",
+        "parameters": [
+          {
+            "description": "Items per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Search by session_id",
+            "in": "query",
+            "name": "search_query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Search by session_id",
+              "title": "Search Query"
+            }
+          },
+          {
+            "description": "Only sessions with traces at or after this time (inclusive, ISO 8601)",
+            "in": "query",
+            "name": "start_after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only sessions with traces at or after this time (inclusive, ISO 8601)",
+              "title": "Start After"
+            }
+          },
+          {
+            "description": "Only sessions with traces before this time (exclusive, ISO 8601)",
+            "in": "query",
+            "name": "end_before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only sessions with traces before this time (exclusive, ISO 8601)",
+              "title": "End Before"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Failed to list sessions"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List Sessions",
+        "tags": [
+          "Sessions (Public)"
+        ],
+        "x-tool": {
+          "description": "List recent sessions (groups of traces sharing a session id) for the project, with trace counts and durations. Search by session id substring.",
+          "enabled": true,
+          "name": "list_sessions"
+        }
+      }
+    },
+    "/api/v1/public/sessions/{session_id}": {
+      "get": {
+        "description": "Get one session with all its traces for the key's project.\n\nRetention uses the silent list-style clamp rather than a 403: a session\nthat contains traces older than the plan window degrades to showing only\nthe in-window traces instead of failing outright.\n\nArgs:\n    auth (StampedAuth): Resolved API-key context; scopes the read to its\n        project and stamps the rate-limit identity.\n    session_id (str): Session to fetch.\n    start_after (datetime | None): Inclusive lower bound on trace time.\n    end_before (datetime | None): Exclusive upper bound on trace time.\n\nReturns:\n    SessionDetailResponse: The session overview and its traces.\n\nRaises:\n    HTTPException: 404 if the session is missing or outside the key's\n        project, 500 on a reader failure.",
+        "operationId": "get_session",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only traces at or after this time (inclusive, ISO 8601)",
+            "in": "query",
+            "name": "start_after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only traces at or after this time (inclusive, ISO 8601)",
+              "title": "Start After"
+            }
+          },
+          {
+            "description": "Only traces before this time (exclusive, ISO 8601)",
+            "in": "query",
+            "name": "end_before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only traces before this time (exclusive, ISO 8601)",
+              "title": "End Before"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Session not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Failed to get session"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Session",
+        "tags": [
+          "Sessions (Public)"
+        ],
+        "x-tool": {
+          "description": "Fetch one session with all its traces (ids, names, status, I/O summaries). Use before deep-diving individual traces of a conversation.",
+          "enabled": true,
+          "name": "get_session"
+        }
+      }
+    },
     "/api/v1/public/traces": {
       "get": {
         "description": "List recent traces for the API key's project (newest first).",
@@ -1714,6 +2355,60 @@
               ],
               "description": "Only traces that started before this time (exclusive, ISO 8601)",
               "title": "End Before"
+            }
+          },
+          {
+            "description": "Filter by trace name (substring match)",
+            "in": "query",
+            "name": "name",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by trace name (substring match)",
+              "title": "Name"
+            }
+          },
+          {
+            "description": "Filter by the user id recorded on the trace",
+            "in": "query",
+            "name": "user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by the user id recorded on the trace",
+              "title": "User Id"
+            }
+          },
+          {
+            "description": "Search across trace_id, name, session_id, user_id",
+            "in": "query",
+            "name": "search_query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Search across trace_id, name, session_id, user_id",
+              "title": "Search Query"
             }
           }
         ],
@@ -1794,7 +2489,7 @@
           "Traces (Public)"
         ],
         "x-tool": {
-          "description": "List recent traces for the project (newest first), optionally bounded to a time range. Use this for discovery before fetching a specific trace.",
+          "description": "List recent traces for the project (newest first). Filter by time range, trace name, user id, or a free-text search across trace/session/user ids and names. Use this for discovery before fetching a specific trace.",
           "enabled": true,
           "name": "list_traces"
         }
