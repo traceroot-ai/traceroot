@@ -675,15 +675,17 @@ function CasePanel({
   const [expectedText, setExpectedText] = React.useState(testCase.expected ?? "");
   const [metadataText, setMetadataText] = React.useState(initialMetadata);
 
-  // Re-seed only when the case identity changes, not on every value change —
-  // otherwise a background refetch (60s staleTime, cross-tab sync) that pulls in
-  // a new server value stomps text the user is mid-way through typing.
+  // Re-seed on the per-version ROW id, not the stable testCaseId. A save or a
+  // snapshot switch publishes a NEW version — same testCaseId, new row id and values —
+  // so keying on the row id refreshes the buffer to the just-saved/selected values
+  // (otherwise a successful metadata save looks lost). A same-version background
+  // refetch keeps the same row id, so it still can't stomp in-progress typing.
   React.useEffect(() => {
     setInputText(testCase.input);
     setExpectedText(testCase.expected ?? "");
     setMetadataText(initialMetadata);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [testCase.testCaseId]);
+  }, [testCase.id]);
 
   const dirty =
     !readOnly &&
