@@ -63,8 +63,12 @@ async function registerRun(
   projectId: string,
   req: RegisterRunRequest,
 ): Promise<RegisterOutcome> {
-  const dataset = await tx.dataset.findFirst({
-    where: { id: req.dataset_id, projectId },
+  // The SDK's `dataset_id` is the project-scoped client id, never the internal PK
+  // (which is an auto-generated cuid the caller never sees) — resolve it here and
+  // thread the internal `dataset.id` through the version, evaluation and run below.
+  // Looking up by the internal id would 404 every SDK-registered run.
+  const dataset = await tx.dataset.findUnique({
+    where: { projectId_clientDatasetId: { projectId, clientDatasetId: req.dataset_id } },
     select: { id: true, currentVersionId: true },
   });
   if (!dataset) return { httpError: { message: "Dataset not found", status: 404 } };
@@ -76,7 +80,7 @@ async function registerRun(
     };
   }
   const version = await tx.datasetVersion.findFirst({
-    where: { id: versionId, datasetId: req.dataset_id, projectId },
+    where: { id: versionId, datasetId: dataset.id, projectId },
     select: { id: true },
   });
   if (!version) return { httpError: { message: "Dataset version not found", status: 400 } };
@@ -107,7 +111,7 @@ async function registerRun(
     (await tx.evaluation.create({
       data: {
         projectId,
-        datasetId: req.dataset_id,
+        datasetId: dataset.id,
         name: req.evaluation_name,
         mainScoreName: req.main_score_name ?? "Score",
       },
@@ -156,7 +160,7 @@ async function registerRun(
     data: {
       evaluationId: evaluation.id,
       projectId,
-      datasetId: req.dataset_id,
+      datasetId: dataset.id,
       datasetVersionId: versionId,
       runNumber,
       candidateVersion: req.candidate_version,
