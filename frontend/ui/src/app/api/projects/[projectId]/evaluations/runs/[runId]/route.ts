@@ -117,6 +117,16 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     };
   });
 
+  // Run-wide status counts from a grouped aggregate — NOT the capped `results` page,
+  // which would under-count pass/fail/errored for a run over MAX_RUN_DETAIL_RESULTS.
+  // `resultsTruncated` below still flags that the detail table + derived comparison are
+  // a partial view of a very large run.
+  const statusGroups = await prisma.evaluationResult.groupBy({
+    by: ["status"],
+    where: { runId, projectId },
+    _count: { _all: true },
+  });
+
   const { results: _omit, ...runFields } = run;
   return successResponse({
     run: {
@@ -131,7 +141,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
       baselineComparable: comparison.trustworthy,
       errorCount: run.taskErrorCount + run.scorerErrorCount,
       elapsedMs: elapsedMs(run.startedAt, run.completedAt),
-      ...countResultStatuses(run.results),
+      ...countResultStatuses(statusGroups.map((g) => ({ status: g.status, count: g._count._all }))),
       comparison,
       // True when `results` (and the comparison derived from it) is a partial view —
       // the run has more cases than the cap above.
