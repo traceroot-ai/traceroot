@@ -250,15 +250,6 @@ describe("DetectorsTab agent model", () => {
     mocks.project.rca_provider = null;
     mocks.project.rca_source = null;
     mocks.getAvailableLLMModels = () => new Promise(() => {});
-    mocks.modelSelectorReconcile = (value) =>
-      value.model === "claude-opus-4-8"
-        ? {
-            model: "claude-opus-4-8",
-            provider: "Anthropic",
-            source: "system",
-            adapter: "anthropic",
-          }
-        : value;
 
     renderTab();
 

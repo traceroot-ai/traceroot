@@ -35,7 +35,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
   const queryClient = useQueryClient();
   const { data: project, isLoading } = useProject(projectId);
   const { data: slack } = useSlackStatus(project?.workspace_id);
-  const { data: llmModelData } = useQuery({
+  const { data: llmModelData, isPending: isLlmModelPending } = useQuery({
     queryKey: ["llm-models", project?.workspace_id],
     queryFn: () => getAvailableLLMModels(project!.workspace_id!),
     enabled: !!project?.workspace_id,
@@ -105,10 +105,12 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
     source: (project?.rca_source as "system" | "byok") ?? "system",
     adapter: "",
   };
-  const savedAgentModelBaseline = reconcileModelSelection(
-    savedAgentModelSelection,
-    flattenAvailableModels(llmModelData),
-  );
+  const savedAgentModelBaseline = isLlmModelPending
+    ? savedAgentModelSelection
+    : reconcileModelSelection(
+        savedAgentModelSelection,
+        flattenAvailableModels(llmModelData, isLlmModelPending),
+      );
   const isModelDirty =
     agentModelSelection.model !== savedAgentModelBaseline.model ||
     agentModelSelection.provider !== savedAgentModelBaseline.provider ||
