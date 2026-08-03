@@ -69,6 +69,18 @@ describe("DaytonaExecutor", () => {
       expect(apt).toContain("ca-certificates");
       expect(apt).toContain("git");
     });
+
+    it("fails init and resets readiness when required tool installation fails", async () => {
+      mockSandbox.process.executeCommand
+        .mockResolvedValueOnce({ exitCode: 0, result: "" })
+        .mockResolvedValueOnce({ exitCode: 100, result: "apt failed" });
+
+      await expect(executor.init()).rejects.toThrow(
+        "Failed to install required sandbox tools: apt failed",
+      );
+      expect(mockSandbox.delete).toHaveBeenCalled();
+      expect(executor.isReady()).toBe(false);
+    });
   });
 
   describe("exec()", () => {

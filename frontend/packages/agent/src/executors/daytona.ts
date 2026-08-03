@@ -40,9 +40,15 @@ export class DaytonaExecutor implements Executor {
     // certs must be present before any HTTPS clone. We intentionally do NOT rely
     // on Daytona's native go-git here — its daemon caches an empty cert pool at
     // boot on this image, so its in-process TLS can't be fixed by a later apt.
-    await this.sandbox.process.executeCommand(
-      "apt-get update -qq && apt-get install -y -qq ca-certificates git jq curl > /dev/null 2>&1 || true",
+    const installResult = await this.sandbox.process.executeCommand(
+      "apt-get update -qq && apt-get install -y -qq ca-certificates git jq curl",
     );
+    if ((installResult.exitCode ?? 1) !== 0) {
+      const output = installResult.result?.trim() || "no output";
+      await Promise.resolve(this.sandbox.delete()).catch(() => {});
+      this.sandbox = null;
+      throw new Error(`Failed to install required sandbox tools: ${output}`);
+    }
 
     console.log(`[DaytonaExecutor] Sandbox ready, workDir: ${this.workDir}`);
   }
