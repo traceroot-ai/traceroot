@@ -31,8 +31,9 @@ export async function POST(request: Request) {
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      const dataset = await tx.dataset.findFirst({
-        where: { id: req.dataset_id, projectId },
+      // The SDK's dataset_id is the project-scoped client id, never the internal PK.
+      const dataset = await tx.dataset.findUnique({
+        where: { projectId_clientDatasetId: { projectId, clientDatasetId: req.dataset_id } },
         select: { id: true, currentVersionId: true },
       });
       if (!dataset) return { httpError: { message: "Dataset not found", status: 404 } };
@@ -44,7 +45,7 @@ export async function POST(request: Request) {
         };
       }
       const version = await tx.datasetVersion.findFirst({
-        where: { id: versionId, datasetId: req.dataset_id, projectId },
+        where: { id: versionId, datasetId: dataset.id, projectId },
         select: { id: true },
       });
       if (!version) return { httpError: { message: "Dataset version not found", status: 400 } };
@@ -61,13 +62,13 @@ export async function POST(request: Request) {
 
       const evaluation =
         (await tx.evaluation.findFirst({
-          where: { projectId, datasetId: req.dataset_id, name: req.evaluation_name },
+          where: { projectId, datasetId: dataset.id, name: req.evaluation_name },
           select: { id: true },
         })) ??
         (await tx.evaluation.create({
           data: {
             projectId,
-            datasetId: req.dataset_id,
+            datasetId: dataset.id,
             name: req.evaluation_name,
             mainScoreName: req.main_score_name ?? "Score",
           },
@@ -105,7 +106,7 @@ export async function POST(request: Request) {
         data: {
           evaluationId: evaluation.id,
           projectId,
-          datasetId: req.dataset_id,
+          datasetId: dataset.id,
           datasetVersionId: versionId,
           runNumber,
           candidateVersion: req.candidate_version,
