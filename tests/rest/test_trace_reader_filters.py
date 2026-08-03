@@ -168,3 +168,58 @@ def test_unfiltered_list_without_window_stays_unbounded():
     params = svc._client.query.call_args_list[0].kwargs["parameters"]
     assert "start_after" not in params
     assert "t.trace_start_time >=" not in page_sql
+
+
+def test_keyset_end_before_id_lands_in_both_page_and_count_queries():
+    """#1747: end_before_id (keyset on trace_start_time + trace_id) must reach BOTH
+    queries so the page stays consistent with the total — the whole tie group at the
+    bound timestamp is walkable, never silently dropped."""
+    svc = _service_with_mock_client()
+    _drive(svc)
+    end = datetime(2026, 6, 2, 12, 0, 0)
+
+    svc.list_traces(project_id="p1", end_before=end, end_before_id="trace-abc")
+
+    page_sql = svc._client.query.call_args_list[0].args[0]
+    count_sql = svc._client.query.call_args_list[1].args[0]
+    # Guard the FULL keyset predicate — both halves of the OR. The exclusive branch
+    # (trace_start_time < end_before) is what lets pagination advance across
+    # timestamps; the tie branch (trace_start_time = end_before AND trace_id <
+    # end_before_id) walks through the tied group. Dropping either half would
+    # re-introduce the #1747 data loss while a partial assertion would miss it.
+    keyset = (
+        "(t.trace_start_time < {end_before:DateTime64(3)} "
+        "OR (t.trace_start_time = {end_before:DateTime64(3)} "
+        "AND t.trace_id < {end_before_id:String}))"
+    )
+    assert keyset in page_sql
+    assert keyset in count_sql  # the invariant — cursor reaches the total too
+    params = svc._client.query.call_args_list[0].kwargs["parameters"]
+    assert params["end_before_id"] == "trace-abc"
+    assert params["end_before"] == end
+
+
+def test_plain_end_before_keeps_exclusive_time_bound():
+    """Without end_before_id the bound is the legacy exclusive time predicate."""
+    svc = _service_with_mock_client()
+    _drive(svc)
+    end = datetime(2026, 6, 2, 12, 0, 0)
+
+    svc.list_traces(project_id="p1", end_before=end)
+
+    page_sql = svc._client.query.call_args_list[0].args[0]
+    assert "t.trace_start_time < {end_before:DateTime64(3)}" in page_sql
+    assert "end_before_id" not in svc._client.query.call_args_list[0].kwargs["parameters"]
+
+
+def test_list_traces_orders_by_trace_id_tiebreaker():
+    """#1747: the page and final ORDER BY must tie-break ties on trace_id so
+    OFFSET pagination (dashboard) is stable and keyset cursoring is well-defined."""
+    svc = _service_with_mock_client()
+    _drive(svc)
+
+    svc.list_traces(project_id="p1")
+
+    page_sql = svc._client.query.call_args_list[0].args[0]
+    assert "ORDER BY trace_start_time DESC, trace_id DESC" in page_sql
+    assert "ORDER BY p.trace_start_time DESC, p.trace_id DESC" in page_sql
