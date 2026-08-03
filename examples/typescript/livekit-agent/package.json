@@ -1,0 +1,26 @@
+{
+  "name": "@traceroot/example-livekit-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "demo": "tsx agent.ts demo",
+    "dev": "tsx agent.ts dev",
+    "start": "tsx agent.ts start",
+    "console": "lk agent console agent.ts",
+    "console:text": "lk agent console --text agent.ts"
+  },
+  "dependencies": {
+    "@livekit/agents": "^1.5.0",
+    "@opentelemetry/api": "^1.9.1",
+    "@traceroot-ai/traceroot": "^0.1.6",
+    "dotenv": "^16.4.5",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  }
+}
