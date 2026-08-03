@@ -2,12 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const fetchProviderConfigMock = vi.fn();
 const resolvePiModelMock = vi.fn();
+const isSystemModelIdMock = vi.fn();
 const modelProviderFindMany = vi.fn().mockResolvedValue([]);
 const digestAddMock = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("@traceroot/core/model-resolver", async () => ({
   fetchProviderConfig: (...args: any[]) => fetchProviderConfigMock(...args),
   resolvePiModel: (...args: any[]) => resolvePiModelMock(...args),
+  isSystemModelId: (...args: any[]) => isSystemModelIdMock(...args),
 }));
 
 vi.mock("../../queues/digest-queue.js", async (importOriginal) => {
@@ -32,6 +34,7 @@ vi.mock("@traceroot/core", async (importOriginal) => {
 afterEach(() => {
   fetchProviderConfigMock.mockReset();
   resolvePiModelMock.mockReset();
+  isSystemModelIdMock.mockReset();
   modelProviderFindMany.mockReset();
   modelProviderFindMany.mockResolvedValue([]);
   digestAddMock.mockReset().mockResolvedValue(undefined);
@@ -66,11 +69,13 @@ describe("resolveProjectModel", () => {
   });
 
   it("resolves a system model via resolvePiModel", async () => {
+    isSystemModelIdMock.mockReturnValue(true);
     resolvePiModelMock.mockReturnValue({ id: "claude-sonnet-4-5", provider: "anthropic" });
 
     const { resolveProjectModel } = await import("../detector-rca-processor.js");
     const res = await resolveProjectModel("claude-sonnet-4-5", null, null, "ws-123");
 
+    expect(isSystemModelIdMock).toHaveBeenCalledWith("claude-sonnet-4-5");
     expect(resolvePiModelMock).toHaveBeenCalledWith("claude-sonnet-4-5", null);
     expect(res).toEqual({
       model: "claude-sonnet-4-5",
@@ -99,11 +104,17 @@ describe("resolveProjectModel", () => {
     expect(res).toEqual({ model: "deepseek-chat", providerName: "my-deepseek", source: "byok" });
   });
 
-  it("returns null for unknown models not in system catalog", async () => {
-    const { resolveProjectModel } = await import("../detector-rca-processor.js");
-    const res = await resolveProjectModel("unknown-model", null, null, "ws-123");
+  it("rejects a configured model that has left the system catalog", async () => {
+    isSystemModelIdMock.mockReturnValue(false);
 
-    expect(res).toBeNull();
+    const { resolveProjectModel } = await import("../detector-rca-processor.js");
+
+    //   requires an exception containing the invalid stored model ID.
+    await expect(resolveProjectModel("retired-rca-test", null, "system", "ws-123")).rejects.toThrow(
+      'RCA model "retired-rca-test" is not a known system model',
+    );
+
+    expect(resolvePiModelMock).not.toHaveBeenCalled();
     expect(fetchProviderConfigMock).not.toHaveBeenCalled();
   });
 
@@ -113,14 +124,18 @@ describe("resolveProjectModel", () => {
     expect(await resolveProjectModel(undefined, null, null, "ws-123")).toBeNull();
   });
 
-  it("handles errors in legacy BYOK provider lookup gracefully", async () => {
+  it("rejects the unknown model when legacy BYOK lookup cannot resolve it", async () => {
+    isSystemModelIdMock.mockReturnValue(false);
     modelProviderFindMany.mockRejectedValue(new Error("DB down"));
 
     const { resolveProjectModel } = await import("../detector-rca-processor.js");
-    const res = await resolveProjectModel("unknown-custom-model", null, null, "ws-123");
 
-    expect(res).toBeNull();
+    await expect(resolveProjectModel("unknown-custom-model", null, null, "ws-123")).rejects.toThrow(
+      'RCA model "unknown-custom-model" is not a known system model',
+    );
+
     expect(modelProviderFindMany).toHaveBeenCalled();
+    expect(resolvePiModelMock).not.toHaveBeenCalled();
   });
 });
 
@@ -172,6 +187,36 @@ const textDeltaFrame = {
 };
 
 describe("runRcaSession", () => {
+  it("does not send an RCA message when the configured model is retired", async () => {
+    isSystemModelIdMock.mockReturnValue(false);
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ id: "s1" }),
+    });
+
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+
+    const { runRcaSession } = await import("../detector-rca-processor.js");
+
+    await expect(
+      runRcaSession({
+        findingId: "f1",
+        projectId: "p1",
+        workspaceId: "ws1",
+        traceId: "t1",
+        findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+        hasGitHub: false,
+        rcaModel: "retired-rca-test",
+        rcaProvider: null,
+        rcaSource: "system",
+      }),
+    ).rejects.toThrow(/retired-rca-test/);
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
   it("calls resolveProjectModel and builds message body", async () => {
     fetchProviderConfigMock.mockResolvedValue({
       adapter: "openai",
