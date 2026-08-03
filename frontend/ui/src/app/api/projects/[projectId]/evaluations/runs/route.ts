@@ -64,6 +64,12 @@ function parseDateParam(value: string | null): Date | null {
 // that would already have been fetched.
 const DB_SORTABLE = new Set<SortField>(["startedAt", "mainScore", "status"]);
 
+// cost/elapsed can't be ordered in the DB (cost is a sum over related results; elapsed
+// is derived), so they're sorted in Node. Bound how many runs that pulls so a large
+// project history can't load every run — and every run's results for the cost sum —
+// into memory to serve one page.
+const MAX_INMEMORY_SORT = 500;
+
 // GET — evaluation runs (executions) for the project. Filters: evaluation_id,
 // dataset_id, status, search_query, started_after, started_before. Sort:
 // sort/order over startedAt|mainScore|cost|elapsedMs|status.
@@ -123,7 +129,10 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     [runs, total] = await prisma.$transaction([
       prisma.evaluationRun.findMany({
         where,
-        orderBy: { [sort]: order },
+        // Secondary sort on the unique id so ties (equal mainScore/status) have a
+        // stable total order — otherwise skip/take pagination can duplicate or drop
+        // runs across pages.
+        orderBy: [{ [sort]: order }, { id: order }],
         skip: page * limit,
         take: limit,
         include,
@@ -131,7 +140,20 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       prisma.evaluationRun.count({ where }),
     ]);
   } else {
-    const all = await prisma.evaluationRun.findMany({ where, include });
+    // Bound the set pulled for the Node-side sort (and thus the cost groupBy over its
+    // ids) to the most recent runs, so this can't OOM on a large project history.
+    const all = await prisma.evaluationRun.findMany({
+      where,
+      include,
+      orderBy: { runNumber: "desc" },
+      take: MAX_INMEMORY_SORT + 1,
+    });
+    if (all.length > MAX_INMEMORY_SORT) {
+      all.length = MAX_INMEMORY_SORT;
+      console.warn(
+        `runs list: cost/duration sort bounded to the ${MAX_INMEMORY_SORT} most recent runs`,
+      );
+    }
     total = all.length;
 
     let sortValue: (r: (typeof all)[number]) => number | null;
@@ -152,15 +174,19 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     }
 
     const dir = order === "asc" ? 1 : -1;
+    // Break every tie on the unique id so the order is total and deterministic —
+    // an unstable sort re-orders equal values (or all-nulls) between requests, which
+    // slices into duplicated/skipped runs across pages.
+    const byId = (a: (typeof all)[number], b: (typeof all)[number]) => a.id.localeCompare(b.id);
     all.sort((a, b) => {
       const av = sortValue(a);
       const bv = sortValue(b);
       // Unknown (still running / no cost reported) always sorts last, in
       // either direction — never a misleading position for missing data.
-      if (av === null && bv === null) return 0;
+      if (av === null && bv === null) return byId(a, b);
       if (av === null) return 1;
       if (bv === null) return -1;
-      return (av - bv) * dir;
+      return (av - bv) * dir || byId(a, b);
     });
 
     runs = all.slice(page * limit, page * limit + limit);
