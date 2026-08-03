@@ -62,6 +62,11 @@ async def list_traces(
         None,
         description="Only traces that started before this time (exclusive, ISO 8601)",
     ),
+    name: str | None = Query(None, description="Filter by trace name (substring match)"),
+    user_id: str | None = Query(None, description="Filter by the user id recorded on the trace"),
+    search_query: str | None = Query(
+        None, description="Search across trace_id, name, session_id, user_id"
+    ),
 ):
     """List recent traces for the API key's project (newest first)."""
     start_after, end_before = clamp_retention_window(auth.billing_plan, start_after, end_before)
@@ -72,6 +77,9 @@ async def list_traces(
             limit=limit,
             start_after=start_after,
             end_before=end_before,
+            name=name,
+            user_id=user_id,
+            search_query=search_query,
         )
     except Exception as e:
         logger.exception(f"Error listing traces: {e}")
