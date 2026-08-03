@@ -312,9 +312,36 @@ export function getTraceTokenUsage(trace: TraceDetail): {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   reasoningTokens: number;
+  usageDetails: Record<string, number>;
 } | null {
+  // Aggregate display-only extra:* usage across ALL spans — including
+  // audio/image-only spans that report extras but no input/output/total
+  // tokens — so the trace-level "Other usage" breakdown is complete.
+  const usageDetails: Record<string, number> = {};
+  for (const span of trace.spans) {
+    if (!span.usage_details) continue;
+    for (const [key, val] of Object.entries(span.usage_details)) {
+      if (key.startsWith("extra:") && val > 0) {
+        usageDetails[key] = (usageDetails[key] ?? 0) + val;
+      }
+    }
+  }
+
   const spansWithTokens = trace.spans.filter((s) => s.total_tokens !== null);
-  if (spansWithTokens.length === 0) return null;
+  if (spansWithTokens.length === 0) {
+    // No priced tokens anywhere: surface extras if any were reported (so
+    // audio/image-only traces still show their "Other usage"), else null.
+    if (Object.keys(usageDetails).length === 0) return null;
+    return {
+      inputTokens: null,
+      outputTokens: null,
+      totalTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      reasoningTokens: 0,
+      usageDetails,
+    };
+  }
   // Preserve the unknown-vs-zero distinction: only coerce input/output to a
   // number when at least one span actually reports it, so a total-only trace
   // renders "-" (via formatTokenFlow) instead of a misleading 0.
@@ -343,6 +370,7 @@ export function getTraceTokenUsage(trace: TraceDetail): {
     ...acc,
     inputTokens: hasInput ? acc.inputTokens : null,
     outputTokens: hasOutput ? acc.outputTokens : null,
+    usageDetails,
   };
 }
 

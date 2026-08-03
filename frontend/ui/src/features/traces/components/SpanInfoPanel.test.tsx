@@ -213,4 +213,47 @@ describe("SpanInfoPanel - Error box source location badges", () => {
     expect(screen.getByText("Session:")).toBeTruthy();
     expect(screen.getByText("session-7")).toBeTruthy();
   });
+
+  it("renders the trace-level TokenChip with aggregated extra usage details", () => {
+    // Trace branch: spans with total tokens and extra:* usage keys must flow
+    // through getTraceTokenUsage -> TokenChip -> TokenUsageBreakdown.
+    const traceWithTokens: TraceDetail = {
+      ...mockTrace,
+      spans: [
+        {
+          span_id: "s1",
+          trace_id: "trace-123",
+          parent_span_id: null,
+          name: "llm-1",
+          span_kind: "LLM",
+          span_start_time: "2026-07-12T12:00:00Z",
+          span_end_time: "2026-07-12T12:00:01Z",
+          status: SpanStatus.OK,
+          status_message: null,
+          model_name: "gpt-4o",
+          cost: 0.005,
+          input_tokens: 1000,
+          output_tokens: 200,
+          total_tokens: 1200,
+          git_source_file: null,
+          git_source_line: null,
+          git_source_function: null,
+          usage_details: {
+            cache_read_tokens: 300,
+            "extra:audio_tokens": 30,
+          },
+        },
+      ],
+    };
+    const mockTraceSelection: TraceSelection = { type: "trace" };
+
+    render(
+      <SpanInfoPanel projectId="proj-123" trace={traceWithTokens} selection={mockTraceSelection} />,
+    );
+
+    // The token chip renders with the input → output (total) flow.
+    const tokenChip = screen.getByText((content) => content.includes("→"));
+    expect(tokenChip).toBeTruthy();
+    expect(tokenChip.textContent).toContain("1.2K");
+  });
 });

@@ -10,6 +10,7 @@ interface TokenChipProps {
   cacheReadTokens?: number | null;
   cacheWriteTokens?: number | null;
   reasoningTokens?: number | null;
+  usageDetails?: Record<string, number> | null;
 }
 
 /**
@@ -23,6 +24,7 @@ export function TokenChip({
   cacheReadTokens,
   cacheWriteTokens,
   reasoningTokens,
+  usageDetails,
 }: TokenChipProps) {
   return (
     <TooltipProvider delayDuration={150}>
@@ -43,6 +45,7 @@ export function TokenChip({
             cacheReadTokens={cacheReadTokens}
             cacheWriteTokens={cacheWriteTokens}
             reasoningTokens={reasoningTokens}
+            usageDetails={usageDetails}
           />
         </TooltipContent>
       </Tooltip>

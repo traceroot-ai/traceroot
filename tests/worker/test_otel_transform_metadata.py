@@ -399,3 +399,153 @@ def test_non_object_explicit_metadata_is_stored_verbatim():
 
     _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
     assert spans[0]["metadata"] == "just a note"
+
+
+def test_extra_unrecognized_usage_keys_are_stored():
+    """Unrecognized usage attributes land in usage_details with extra: prefix, normalized and not priced."""
+    payload = _otel_payload(
+        [
+            _attr("llm.model_name", "claude-3-5-sonnet-20241022"),
+            _attr("gen_ai.usage.input_tokens", 1000),
+            _attr("gen_ai.usage.output_tokens", 200),
+            _attr("gen_ai.usage.cache_read_input_tokens", 800),
+            _attr("gen_ai.usage.audio_tokens", 30),
+            _attr("gen_ai.usage.image_tokens", 45),
+            _attr("ai.usage.videoTokens", 12),
+            _attr("llm.token_count.audio", 9),
+            _attr("gen_ai.usage.zero_tokens", 0),  # should be skipped
+        ]
+    )
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert len(spans) == 1
+    span = spans[0]
+    # Gross columns are unchanged
+    assert span["input_tokens"] == 1000
+    assert span["output_tokens"] == 200
+    # Priced keys are normal in usage_details
+    assert span["usage_details"]["cache_read_tokens"] == 800
+    assert "extra:cache_read_tokens" not in span["usage_details"]
+    # Unrecognized keys land with extra: prefix and camelCase normalization
+    assert span["usage_details"]["extra:audio_tokens"] == 30
+    assert span["usage_details"]["extra:image_tokens"] == 45
+    assert span["usage_details"]["extra:video_tokens"] == 12
+    assert span["usage_details"]["extra:audio"] == 9
+    # Zero tokens are skipped
+    assert "extra:zero_tokens" not in span["usage_details"]
+
+    # Cost should not be changed by adding extra keys
+    # Let's compare with a span that does not have extra keys
+    payload_no_extra = _otel_payload(
+        [
+            _attr("llm.model_name", "claude-3-5-sonnet-20241022"),
+            _attr("gen_ai.usage.input_tokens", 1000),
+            _attr("gen_ai.usage.output_tokens", 200),
+            _attr("gen_ai.usage.cache_read_input_tokens", 800),
+        ]
+    )
+    _t, spans_no_extra = transform_otel_to_clickhouse(payload_no_extra, project_id="proj-1")
+    assert span.get("cost") == spans_no_extra[0].get("cost")
+
+
+def test_extras_only_usage_is_persisted_without_priced_tokens():
+    """An audio/image-only span (no input/output counts) still surfaces its extra
+    usage in usage_details — extras must persist independently of the priced guard."""
+    payload = _otel_payload(
+        [
+            _attr("llm.model_name", "claude-3-5-sonnet-20241022"),
+            _attr("gen_ai.usage.audio_tokens", 30),
+            _attr("gen_ai.usage.image_tokens", 45),
+        ]
+    )
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert len(spans) == 1
+    span = spans[0]
+    # Extras persist without any priced input/output tokens present.
+    assert span["usage_details"]["extra:audio_tokens"] == 30
+    assert span["usage_details"]["extra:image_tokens"] == 45
+    # No priced buckets are fabricated — only the display-only extras land in
+    # usage_details. The LLM span still gets its text-estimation zeros (no text),
+    # but nothing is priced from the extras themselves.
+    assert "cache_read_tokens" not in span["usage_details"]
+    assert "cache_write_tokens" not in span["usage_details"]
+    assert "reasoning_tokens" not in span["usage_details"]
+    assert span["input_tokens"] == 0
+
+
+def test_extra_attr_spelling_collisions_are_summed():
+    """Spellings that normalize to the same extra: key (ai.usage.audioTokens vs
+    gen_ai.usage.audio_tokens) are summed, not overwritten."""
+    payload = _otel_payload(
+        [
+            _attr("llm.model_name", "claude-3-5-sonnet-20241022"),
+            _attr("gen_ai.usage.input_tokens", 1000),
+            _attr("gen_ai.usage.output_tokens", 200),
+            _attr("ai.usage.audioTokens", 10),
+            _attr("gen_ai.usage.audio_tokens", 20),
+        ]
+    )
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert len(spans) == 1
+    assert spans[0]["usage_details"]["extra:audio_tokens"] == 30
+
+
+def test_non_finite_extra_attr_does_not_crash_ingestion():
+    """An Infinity/NaN extra usage attribute must not abort ingestion of the batch;
+    it resolves to 0 and is not persisted."""
+    payload = _otel_payload(
+        [
+            _attr("llm.model_name", "claude-3-5-sonnet-20241022"),
+            _attr("gen_ai.usage.audio_tokens", float("inf")),
+            _attr("gen_ai.usage.image_tokens", float("nan")),
+        ]
+    )
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert len(spans) == 1
+    assert "extra:audio_tokens" not in spans[0].get("usage_details", {})
+    assert "extra:image_tokens" not in spans[0].get("usage_details", {})
+
+
+def test_non_finite_priced_attr_does_not_crash_ingestion():
+    """Infinity in a priced token attribute is dropped to 0, not fatal."""
+    payload = _otel_payload(
+        [
+            _attr("llm.model_name", "claude-3-5-sonnet-20241022"),
+            _attr("gen_ai.usage.input_tokens", float("inf")),
+            _attr("gen_ai.usage.output_tokens", 200),
+        ]
+    )
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert len(spans) == 1
+    assert spans[0]["input_tokens"] == 0
+    assert spans[0]["output_tokens"] == 200
+
+
+def test_extra_attr_collision_sum_is_bounded():
+    """Colliding spellings whose merged value would exceed the plausible token
+    bound drop the incoming contribution instead of storing an unbounded Int64."""
+    payload = _otel_payload(
+        [
+            _attr("llm.model_name", "claude-3-5-sonnet-20241022"),
+            _attr("gen_ai.usage.input_tokens", 1000),
+            _attr("gen_ai.usage.output_tokens", 200),
+            _attr("ai.usage.audioTokens", 900_000_000),
+            _attr("gen_ai.usage.audio_tokens", 900_000_000),
+        ]
+    )
+
+    _traces, spans = transform_otel_to_clickhouse(payload, project_id="proj-1")
+
+    assert len(spans) == 1
+    # First spelling lands; the second would push the sum past the bound and is
+    # dropped rather than stored unbounded.
+    assert spans[0]["usage_details"]["extra:audio_tokens"] == 900_000_000

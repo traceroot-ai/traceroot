@@ -34,6 +34,7 @@ OTEL JSON structure (camelCase - standard OTLP format):
 import base64
 import json
 import logging
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -41,6 +42,62 @@ from shared.enums import SpanKind, SpanStatus
 from shared.span_attributes import SPAN_IDS_PATH, SPAN_PATH, SPAN_TREE_ATTRIBUTES
 
 logger = logging.getLogger(__name__)
+
+_CAMEL_RE = re.compile(r"(?<=[a-z0-9])([A-Z])")
+
+
+def _camel_to_snake(name: str) -> str:
+    return _CAMEL_RE.sub(r"_\1", name).lower()
+
+
+# Keys that are already extracted into dedicated usage_details entries and
+# feed the cost calculation. These are EXCLUDED from the extra-usage scan.
+_PRICED_USAGE_ATTRS: frozenset[str] = frozenset(
+    {
+        # input_tokens / output_tokens (top-level columns, not usage_details)
+        "llm.token_count.prompt",
+        "gen_ai.usage.input_tokens",
+        "gen_ai.usage.prompt_tokens",
+        "ai.usage.inputTokens",
+        "ai.usage.promptTokens",
+        "llm.token_count.completion",
+        "gen_ai.usage.output_tokens",
+        "gen_ai.usage.completion_tokens",
+        "ai.usage.outputTokens",
+        "ai.usage.completionTokens",
+        # cache_read_tokens
+        "llm.token_count.prompt_details.cache_read",
+        "gen_ai.usage.cache_read.input_tokens",
+        "gen_ai.usage.cache_read_input_tokens",
+        "gen_ai.usage.input_cached_tokens",
+        "gen_ai.usage.details.cache_read_tokens",
+        "gen_ai.usage.cache_read_tokens",
+        "gen_ai.usage.details.cache_read_input_tokens",
+        "ai.usage.cachedInputTokens",
+        "ai.usage.inputTokenDetails.cacheReadTokens",
+        # cache_write_tokens
+        "llm.token_count.prompt_details.cache_write",
+        "gen_ai.usage.cache_creation.input_tokens",
+        "gen_ai.usage.cache_creation_input_tokens",
+        "gen_ai.usage.details.cache_write_tokens",
+        "gen_ai.usage.details.cache_creation_input_tokens",
+        "ai.usage.inputTokenDetails.cacheWriteTokens",
+        # cache_write_1h_tokens
+        "llm.token_count.prompt_details.cache_write_1h",
+        "gen_ai.usage.cache_creation.ephemeral_1h_input_tokens",
+        "gen_ai.usage.cache_creation_ephemeral_1h_input_tokens",
+        # reasoning_tokens
+        "llm.token_count.completion_details.reasoning",
+        "gen_ai.usage.reasoning_tokens",
+        "gen_ai.usage.output_details.reasoning_tokens",
+        "gen_ai.usage.details.reasoning_tokens",
+        "ai.usage.outputTokenDetails.reasoningTokens",
+        "ai.usage.reasoningTokens",
+        # total_tokens (top-level)
+        "gen_ai.usage.total_tokens",
+        "llm.token_count.total",
+    }
+)
 
 # Scopes whose LLM spans intentionally leave per-turn token counts unset (usage is
 # aggregated onto a few result spans). Skip text-based estimation for them, else the
@@ -181,7 +238,7 @@ def _usable_token_value(value: Any) -> bool:
         return False
     try:
         parsed = int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return False
     return 0 <= parsed <= _MAX_PLAUSIBLE_TOKENS
 
@@ -226,7 +283,10 @@ def int_or_zero(value: Any) -> int:
         return 0
     try:
         parsed = int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
+        # OverflowError: int(float('inf')) / int(1e400) raise it, and OTEL
+        # double attributes can legitimately carry Infinity/NaN — a single
+        # non-finite attribute must not abort ingestion of the whole batch.
         logger.warning("Non-numeric OTEL token attribute %r; treating as 0", value)
         return 0
     if parsed < 0:
@@ -321,6 +381,53 @@ _MANUAL_USAGE_KEYS = (
 )
 
 
+def _parse_manual_value(key: str, value: Any) -> int | None:
+    """Validate one manual-usage field, returning its non-negative int or None.
+
+    A dropped field is silent data loss from the user's point of view: they
+    reported a count and it is priced as if absent. Warn as int_or_zero does
+    for the same input class, so the discard is diagnosable from the logs.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        logger.warning("Manual usage field %s is a bool (%r); ignoring it", key, value)
+        return None
+    try:
+        parsed = max(int(value), 0)
+    except (TypeError, ValueError, OverflowError):
+        logger.warning("Manual usage field %s is not a usable number (%r); ignoring it", key, value)
+        return None
+    if parsed > _MAX_PLAUSIBLE_TOKENS:
+        logger.warning(
+            "Manual usage field %s exceeds the sanity bound (%r); ignoring it", key, value
+        )
+        return None
+    return parsed
+
+
+def _add_extra_value(usage: dict[str, int], key: str, value: int, source: str) -> None:
+    """Add a display-only extra usage value to a dict, bounded like the priced paths.
+
+    Individual extra values are validated against ``_MAX_PLAUSIBLE_TOKENS`` before
+    they reach this helper, but colliding spellings that normalize to the same key
+    are summed — and the SUM is not individually bounded. Cap it here: a merged
+    value that would exceed the plausible bound drops the incoming contribution, so
+    no unbounded Int64 usage entry is persisted (later rollups would amplify it).
+    """
+    merged = usage.get(key, 0) + value
+    if merged > _MAX_PLAUSIBLE_TOKENS:
+        logger.warning(
+            "Extra usage field %s from %s would exceed the sanity bound (%d); "
+            "dropping the contribution",
+            key,
+            source,
+            _MAX_PLAUSIBLE_TOKENS,
+        )
+        return
+    usage[key] = merged
+
+
 def parse_manual_usage(raw: Any) -> dict[str, int]:
     """Parse the manual usage dict reported via the SDKs' update-span API.
 
@@ -333,13 +440,21 @@ def parse_manual_usage(raw: Any) -> dict[str, int]:
     its valid fields (and an entirely unusable one to the text-estimation
     fallback), never to an error.
 
+    Fields outside the recognized set (e.g. ``audio_tokens``, ``image_tokens``,
+    a new cache variant) are NOT discarded: they are returned as display-only
+    entries keyed ``extra:<name>`` so the ingest path can surface them in
+    ``usage_details`` without pricing them. The ``extra:`` prefix keeps them
+    visibly separate from the priced buckets, preserving the property that the
+    priced keys reconcile with the stored ``input_tokens``/``output_tokens``.
+
     Args:
         raw (Any): The raw attribute value (a JSON string as the SDK writes it,
             or an already-decoded dict).
 
     Returns:
         dict[str, int]: The recognized usage fields with non-negative int
-            values; empty when the payload is missing or unusable.
+            values, plus unrecognized fields as ``extra:*`` display-only keys;
+            empty when the payload is missing or unusable.
     """
     if isinstance(raw, str):
         try:
@@ -353,41 +468,34 @@ def parse_manual_usage(raw: Any) -> dict[str, int]:
         if raw is not None:
             logger.warning("Manual usage attribute is not an object; ignoring it")
         return {}
-    # Fields outside the recognized set are never examined below, so without this
-    # they vanish without any signal at all — a provider token type we don't model
-    # yet (audio, image, a new cache variant) reads as if it was never reported.
-    # Bounded because the payload is client-controlled.
-    unrecognized = sorted(k for k in raw if k not in _MANUAL_USAGE_KEYS)
+    # Fields outside the recognized set are stored as display-only extra keys, so
+    # a provider token type we don't model yet (audio, image, a new cache
+    # variant) is surfaced rather than vanishing. Bounded because the payload is
+    # client-controlled. JSON object keys are strings, but a directly-decoded
+    # dict is untrusted too, so non-string keys are skipped rather than sorted.
+    unrecognized = sorted(k for k in raw if isinstance(k, str) and k not in _MANUAL_USAGE_KEYS)
     if unrecognized:
         logger.warning(
-            "Manual usage fields %s are not recognized and were ignored; recognized fields are %s",
+            "Manual usage fields %s are not recognized and are stored as display-only "
+            "extra keys (unpriced); recognized fields are %s",
             unrecognized[:10],
             list(_MANUAL_USAGE_KEYS),
         )
     usage: dict[str, int] = {}
     for key in _MANUAL_USAGE_KEYS:
-        value = raw.get(key)
-        if value is None:
-            continue
-        # A dropped field is silent data loss from the user's point of view: they
-        # reported a count and it is priced as if absent. Warn as int_or_zero does
-        # for the same input class, so the discard is diagnosable from the logs.
-        if isinstance(value, bool):
-            logger.warning("Manual usage field %s is a bool (%r); ignoring it", key, value)
-            continue
-        try:
-            parsed = max(int(value), 0)
-        except (TypeError, ValueError, OverflowError):
-            logger.warning(
-                "Manual usage field %s is not a usable number (%r); ignoring it", key, value
-            )
-            continue
-        if parsed > _MAX_PLAUSIBLE_TOKENS:
-            logger.warning(
-                "Manual usage field %s exceeds the sanity bound (%r); ignoring it", key, value
-            )
-            continue
-        usage[key] = parsed
+        parsed = _parse_manual_value(key, raw.get(key))
+        if parsed is not None:
+            usage[key] = parsed
+    # Unrecognized fields use the same validation as the recognized ones; the
+    # normalized snake_case name keeps the stored key consistent across the
+    # OTEL-attribute path (gen_ai.usage.audio_tokens -> extra:audio_tokens).
+    # Distinct spellings that normalize alike (audioTokens vs audio_tokens) are
+    # summed rather than overwriting each other, so neither reported value is
+    # silently lost from the display-only breakdown.
+    for key in unrecognized:
+        parsed = _parse_manual_value(key, raw[key])
+        if parsed is not None:
+            _add_extra_value(usage, f"extra:{_camel_to_snake(key)}", parsed, "manual usage")
     return usage
 
 
@@ -850,12 +958,21 @@ def transform_otel_to_clickhouse(
                     # it states the invariant where the dict is read — manual usage
                     # must never resurrect counts on a span we suppressed — and skips
                     # a needless parse.
+                    manual_extra_usage: dict[str, int] = {}
                     if (
                         not aggregate_wrapper
                         and api_input_tokens is None
                         and api_output_tokens is None
                     ):
                         manual_usage = parse_manual_usage(span_attrs.get("traceroot.llm.usage"))
+                        # Unrecognized fields come back as display-only extra:* keys.
+                        # They must not feed pricing, but should surface in
+                        # usage_details so the reported counts are visible.
+                        manual_extra_usage = {
+                            key: val
+                            for key, val in manual_usage.items()
+                            if key.startswith("extra:")
+                        }
                         if "input_tokens" in manual_usage or "output_tokens" in manual_usage:
                             api_input_tokens = manual_usage.get("input_tokens")
                             api_output_tokens = manual_usage.get("output_tokens")
@@ -866,11 +983,11 @@ def transform_otel_to_clickhouse(
                         elif manual_usage:
                             # Recognized fields, but nothing to price against: a
                             # cache or reasoning count alone does not describe a
-                            # call. Dropping it silently is the same data loss the
-                            # field-level warnings above exist to surface.
+                            # call. Extras (extra:*) still surface in usage_details
+                            # for display; only the unpriced fields are dropped.
                             logger.warning(
                                 "Manual usage reported only %s with no input_tokens or "
-                                "output_tokens; ignoring it",
+                                "output_tokens; only unpriced display-only fields are kept",
                                 sorted(manual_usage),
                             )
 
@@ -933,6 +1050,7 @@ def transform_otel_to_clickhouse(
                             span_record["usage_details"]["cache_write_1h_tokens"] = (
                                 buckets.cache_write_1h
                             )
+
                         cost = cost_from_buckets(get_model_price(model_name), buckets)
                         if cost is not None:
                             span_record["cost"] = cost
@@ -967,6 +1085,50 @@ def transform_otel_to_clickhouse(
                             span_record["total_tokens"] = usage["total_tokens"]
                         if usage["cost"] is not None:
                             span_record["cost"] = usage["cost"]
+
+                    # Capture unrecognized usage attributes as display-only extra keys.
+                    # These are NOT priced — they appear in usage_details for visibility
+                    # only, prefixed with "extra:" to separate them from priced buckets.
+                    # This runs independent of whether priced input/output tokens were
+                    # present, so an audio/image-only span (no input/output counts) still
+                    # surfaces its extra usage instead of vanishing. Aggregate wrappers
+                    # restate their children's usage, so their extras are suppressed too.
+                    if not aggregate_wrapper:
+                        for attr_key, attr_val in span_attrs.items():
+                            if attr_key in _PRICED_USAGE_ATTRS:
+                                continue
+                            # Match usage attribute namespaces
+                            extra_key = None
+                            if attr_key.startswith("gen_ai.usage."):
+                                extra_key = attr_key[len("gen_ai.usage.") :]
+                            elif attr_key.startswith("llm.token_count."):
+                                extra_key = attr_key[len("llm.token_count.") :]
+                            elif attr_key.startswith("ai.usage."):
+                                extra_key = attr_key[len("ai.usage.") :]
+                            if extra_key is not None:
+                                val = int_or_zero(attr_val)
+                                if val > 0:
+                                    # Convert camelCase to snake_case for consistency,
+                                    # summing spellings that normalize alike (e.g.
+                                    # ai.usage.audioTokens vs gen_ai.usage.audio_tokens)
+                                    # so neither reported value is silently dropped.
+                                    stored_key = f"extra:{_camel_to_snake(extra_key)}"
+                                    _add_extra_value(
+                                        span_record.setdefault("usage_details", {}),
+                                        stored_key,
+                                        val,
+                                        attr_key,
+                                    )
+
+                        # Same display-only treatment for unrecognized keys reported
+                        # through the manual usage dict (traceroot.llm.usage).
+                        for extra_key, val in manual_extra_usage.items():
+                            _add_extra_value(
+                                span_record.setdefault("usage_details", {}),
+                                extra_key,
+                                val,
+                                "manual usage",
+                            )
 
                 # Extract metadata
                 # Priority: explicit traceroot.span.metadata > remaining attributes.
