@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import {
   prisma,
+  Prisma,
   RegisterRunRequestSchema,
   type RegisterRunResponse,
-  type Prisma,
 } from "@traceroot/core";
 import { requireApiKeyProject } from "@/lib/eval/auth";
 
@@ -41,9 +41,10 @@ export async function POST(request: Request) {
   const req = parsed.data;
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
-      const dataset = await tx.dataset.findFirst({
-        where: { id: req.dataset_id, projectId },
+    const runRegistration = async (tx: Prisma.TransactionClient) => {
+      // The SDK's dataset_id is the project-scoped client id, never the internal PK.
+      const dataset = await tx.dataset.findUnique({
+        where: { projectId_clientDatasetId: { projectId, clientDatasetId: req.dataset_id } },
         select: { id: true, currentVersionId: true },
       });
       if (!dataset) return { httpError: { message: "Dataset not found", status: 404 } };
@@ -55,7 +56,7 @@ export async function POST(request: Request) {
         };
       }
       const version = await tx.datasetVersion.findFirst({
-        where: { id: versionId, datasetId: req.dataset_id, projectId },
+        where: { id: versionId, datasetId: dataset.id, projectId },
         select: { id: true },
       });
       if (!version) return { httpError: { message: "Dataset version not found", status: 400 } };
@@ -74,7 +75,9 @@ export async function POST(request: Request) {
       // evaluation are additive (run #N) and comparable, even when the dataset id
       // churns (e.g. the SDK creates a fresh Dataset each run). The per-run dataset /
       // version is recorded on the run, and comparison flags a dataset mismatch. Oldest
-      // same-named evaluation wins so grouping is stable.
+      // same-named evaluation wins so grouping is stable. Looking up with datasetId too
+      // would miss an eval first registered against another dataset and then fail the
+      // (projectId, name) constraint on create with a 500 instead of reusing it.
       const evaluation =
         (await tx.evaluation.findFirst({
           where: { projectId, name: req.evaluation_name },
@@ -84,7 +87,7 @@ export async function POST(request: Request) {
         (await tx.evaluation.create({
           data: {
             projectId,
-            datasetId: req.dataset_id,
+            datasetId: dataset.id,
             name: req.evaluation_name,
             mainScoreName: req.main_score_name ?? "Score",
           },
@@ -123,7 +126,7 @@ export async function POST(request: Request) {
         data: {
           evaluationId: evaluation.id,
           projectId,
-          datasetId: req.dataset_id,
+          datasetId: dataset.id,
           datasetVersionId: versionId,
           runNumber,
           candidateVersion: req.candidate_version,
@@ -153,7 +156,31 @@ export async function POST(request: Request) {
           ...runLink(projectId, run.id),
         } satisfies RegisterRunResponse,
       };
-    });
+    };
+
+    // Retry the registration on a unique-key collision: concurrent first registrations
+    // can read the same max run number (or race the client_run_id insert) and one loses
+    // uq_run_evaluation_run_number — a normal parallel SDK call, not a 500. Each attempt
+    // re-reads the max in a fresh transaction.
+    let result: Awaited<ReturnType<typeof runRegistration>> | undefined;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        result = await prisma.$transaction(runRegistration);
+        break;
+      } catch (e) {
+        if (
+          e instanceof Prisma.PrismaClientKnownRequestError &&
+          e.code === "P2002" &&
+          attempt < 4
+        ) {
+          continue;
+        }
+        throw e;
+      }
+    }
+    if (!result) {
+      return NextResponse.json({ error: "Failed to register run" }, { status: 500 });
+    }
 
     if ("httpError" in result && result.httpError) {
       return NextResponse.json(

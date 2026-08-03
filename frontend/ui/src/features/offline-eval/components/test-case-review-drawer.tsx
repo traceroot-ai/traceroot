@@ -47,7 +47,7 @@ export function TestCaseReviewDrawer({
   target: TestCaseReviewTarget | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (result: { review: ReviewStatus; correctedExpected?: string }) => void;
+  onSubmit: (result: { review: ReviewStatus; correctedExpected?: string }) => void | Promise<void>;
 }) {
   const { toast } = useToast();
   const [checked, setChecked] = React.useState<boolean[]>(() => CHECKS.map(() => false));
@@ -63,8 +63,21 @@ export function TestCaseReviewDrawer({
 
   const expectedChanged = corrected.trim() !== "" && corrected.trim() !== (target.expected ?? "");
 
-  const submit = (review: ReviewStatus) => {
-    onSubmit({ review, correctedExpected: expectedChanged ? corrected.trim() : undefined });
+  const submit = async (review: ReviewStatus) => {
+    try {
+      // Await the persist so a failed request is never shown as saved.
+      await onSubmit({
+        review,
+        correctedExpected: expectedChanged ? corrected.trim() : undefined,
+      });
+    } catch {
+      toast({
+        title: "Could not save review",
+        description: "It wasn't persisted — please try again.",
+        tone: "warning",
+      });
+      return; // keep the drawer open
+    }
     toast({
       title: review === "ready" ? "Marked Ready" : "Sent back for work",
       description: expectedChanged
