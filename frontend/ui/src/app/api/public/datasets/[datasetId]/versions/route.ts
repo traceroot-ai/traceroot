@@ -51,9 +51,17 @@ export async function POST(request: Request, { params }: RouteParams) {
     );
   }
 
+  // Resolve the SDK client id to the internal row id; `publishDatasetVersion` (also
+  // called by internal UI routes) keys on the internal id.
+  const ds = await prisma.dataset.findUnique({
+    where: { projectId_clientDatasetId: { projectId, clientDatasetId: datasetId } },
+    select: { id: true },
+  });
+  if (!ds) return NextResponse.json({ error: "Dataset not found" }, { status: 404 });
+
   try {
     const result = await publishDatasetVersion({
-      datasetId,
+      datasetId: ds.id,
       projectId,
       label: c.label,
       baseVersionId: c.base_version_id,
@@ -128,22 +136,27 @@ export async function GET(request: Request, { params }: RouteParams) {
   const { projectId } = auth;
   const { datasetId } = await params;
 
-  const dataset = await prisma.dataset.findFirst({
-    where: { id: datasetId, projectId },
+  // The SDK id is the project-scoped client id; resolve it to the internal row id
+  // before querying versions (whose `datasetId` FK is the internal id, not the client one).
+  const dataset = await prisma.dataset.findUnique({
+    where: { projectId_clientDatasetId: { projectId, clientDatasetId: datasetId } },
     select: { id: true, currentVersionId: true },
   });
   if (!dataset) return NextResponse.json({ error: "Dataset not found" }, { status: 404 });
 
   const url = new URL(request.url);
   const rawLimit = Number(url.searchParams.get("limit"));
+  // Floor THEN clamp: a positive fraction floors to 0, an empty page whose cursor
+  // still dereferences its last row — a 500. Clamp the floored value to at least 1.
+  const flooredLimit = Math.floor(rawLimit);
   const limit =
-    Number.isFinite(rawLimit) && rawLimit > 0
-      ? Math.min(Math.floor(rawLimit), MAX_LIMIT)
+    Number.isFinite(rawLimit) && flooredLimit >= 1
+      ? Math.min(flooredLimit, MAX_LIMIT)
       : DEFAULT_LIMIT;
   const cursor = url.searchParams.get("cursor");
 
   const rows = await prisma.datasetVersion.findMany({
-    where: { datasetId, projectId },
+    where: { datasetId: dataset.id, projectId },
     orderBy: { versionNumber: "desc" },
     take: limit + 1,
     ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
