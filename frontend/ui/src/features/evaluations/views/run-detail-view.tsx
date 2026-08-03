@@ -572,12 +572,16 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
         open={reviewOpen}
         onOpenChange={setReviewOpen}
         onSave={(review) =>
-          humanScore.mutate({
-            verdict: review.verdict,
-            quality: review.quality ?? null,
-            comment: review.comment ?? null,
-            reviewer: review.reviewer,
-          })
+          // Return the promise so the panel awaits persistence — a failed human-score
+          // request is no longer shown as saved.
+          humanScore
+            .mutateAsync({
+              verdict: review.verdict,
+              quality: review.quality ?? null,
+              comment: review.comment ?? null,
+              reviewer: review.reviewer,
+            })
+            .then(() => {})
         }
       />
 
