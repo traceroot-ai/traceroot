@@ -49,7 +49,11 @@ export class DockerExecutor implements Executor {
     if (!this.containerId) throw new Error("Container not initialized");
 
     return new Promise((resolve) => {
-      const child = spawn("docker", ["exec", this.containerId!, "sh", "-c", command], {
+      const envArgs = Object.entries(options?.env ?? {}).flatMap(([key, value]) => [
+        "-e",
+        `${key}=${value}`,
+      ]);
+      const child = spawn("docker", ["exec", ...envArgs, this.containerId!, "sh", "-c", command], {
         stdio: ["ignore", "pipe", "pipe"],
       });
 
