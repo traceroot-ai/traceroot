@@ -55,7 +55,15 @@ export function TR({ className, selected, interactive, onClick, onKeyDown, ...pr
       role={interactive && onClick ? "button" : undefined}
       onClick={onClick}
       onKeyDown={(e) => {
-        if (interactive && onClick && (e.key === "Enter" || e.key === " ")) {
+        // Only the row itself activates row navigation — a keypress on a nested
+        // action (a button/link inside the row) bubbles here, and activating the row
+        // too would fire both the action AND the navigation from one Enter/Space.
+        if (
+          interactive &&
+          onClick &&
+          e.target === e.currentTarget &&
+          (e.key === "Enter" || e.key === " ")
+        ) {
           e.preventDefault();
           onClick(e as unknown as React.MouseEvent<HTMLTableRowElement>);
         }
