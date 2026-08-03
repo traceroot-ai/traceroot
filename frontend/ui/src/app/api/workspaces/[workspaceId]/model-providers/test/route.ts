@@ -24,6 +24,7 @@ const ADAPTER_VALUES = [
   LLMAdapter.XAI,
   LLMAdapter.MOONSHOT,
   LLMAdapter.ZAI,
+  LLMAdapter.GROQ,
 ] as const;
 
 const testSchema = z.object({
@@ -275,6 +276,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       case "zai": {
         const zaiBase = adapterBaseUrl(adapter, baseUrl);
         const check = await checkEndpoint(`${zaiBase}/models`, {
+          Authorization: `Bearer ${apiKey}`,
+        });
+        if (!check.ok)
+          return successResponse({ success: false, error: check.error, detail: check.detail });
+        break;
+      }
+
+      case "groq": {
+        const groqBase = baseUrl || ADAPTER_DEFAULT_BASE_URL.groq;
+        const check = await checkEndpoint(`${groqBase.replace(/\/$/, "")}/models`, {
           Authorization: `Bearer ${apiKey}`,
         });
         if (!check.ok)
