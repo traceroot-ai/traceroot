@@ -39,12 +39,16 @@ describe("UpsertResultRequestSchema.scores", () => {
   });
 
   it("rejects more scores than the per-result cap", () => {
-    const score = { scorer_name: "s", scorer_version: "1" };
-    const under = Array.from({ length: EVAL_SCORER_LIST_MAX }, () => score);
+    // DISTINCT scorer pairs — identical ones would trip the duplicate-(name,version)
+    // refine first, so this would test dedup rather than the per-result cap.
+    const scoreAt = (i: number) => ({ scorer_name: `s${i}`, scorer_version: "1" });
+    const under = Array.from({ length: EVAL_SCORER_LIST_MAX }, (_, i) => scoreAt(i));
     expect(UpsertResultRequestSchema.safeParse(result({ scores: under })).success).toBe(true);
-    expect(UpsertResultRequestSchema.safeParse(result({ scores: [...under, score] })).success).toBe(
-      false,
-    );
+    expect(
+      UpsertResultRequestSchema.safeParse(
+        result({ scores: [...under, scoreAt(EVAL_SCORER_LIST_MAX)] }),
+      ).success,
+    ).toBe(false);
   });
 });
 
