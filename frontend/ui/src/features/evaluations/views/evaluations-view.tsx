@@ -9,15 +9,14 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Layers,
   ListChecks,
   Ruler,
   Search,
   X,
 } from "lucide-react";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { ModelSelector } from "@/features/ai-assistant/components/model-selector";
 import {
   Select,
@@ -27,7 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SearchFilterBar } from "@/components/search-filter-bar";
-import { DATE_FILTER_OPTIONS, type DateFilterOption } from "@/lib/date-filter";
+import { DATE_FILTER_OPTIONS, toTimestampBounds, type DateFilterOption } from "@/lib/date-filter";
 import { useKeywordSearch } from "@/lib/hooks/use-keyword-search";
 import { Table, TBody, Td, Th, THead, TR, TRHead } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
@@ -499,11 +498,20 @@ function RunsTab({ projectId }: { projectId: string }) {
 
   const { toast } = useToast();
   const { data: datasetsData } = useDatasets(projectId, { limit: 200 });
+  // Resolve the selected range to actual bounds and send them to the query — the date
+  // control was previously read for display only, so it never narrowed the runs list.
+  const { startAfter, endBefore } = toTimestampBounds(
+    dateFilter.id,
+    customStart ?? undefined,
+    customEnd ?? undefined,
+  );
   const { data, isLoading, error, refetch } = useEvaluationRuns(projectId, {
     evaluation_id: scopedEvalId ?? undefined,
     search_query: searchQuery,
     dataset_id: datasetFilter === ALL ? undefined : datasetFilter,
     status: statusFilter === ALL ? undefined : statusFilter,
+    started_after: startAfter,
+    started_before: endBefore,
     page,
     limit: RUNS_PAGE_LIMIT,
   });
