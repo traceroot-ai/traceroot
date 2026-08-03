@@ -30,13 +30,22 @@ export async function getTraces(
   return fetchTraceApi<TraceListResponse>(endpoint, {}, user);
 }
 
+export async function tracesExist(
+  projectId: string,
+  user?: TraceApiUser,
+): Promise<{ exists: boolean }> {
+  return fetchTraceApi<{ exists: boolean }>(`/projects/${projectId}/traces/exists`, {}, user);
+}
+
 export async function getTrace(
   projectId: string,
   traceId: string,
   _apiKey: string,
   user?: TraceApiUser,
+  source?: "detector" | "user",
 ): Promise<TraceDetail> {
-  return fetchTraceApi<TraceDetail>(`/projects/${projectId}/traces/${traceId}`, {}, user);
+  const query = source ? `?source=${source}` : "";
+  return fetchTraceApi<TraceDetail>(`/projects/${projectId}/traces/${traceId}${query}`, {}, user);
 }
 
 /** Registry of filterable fields driving the filter dropdown (Python source of truth). */

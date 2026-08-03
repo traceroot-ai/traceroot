@@ -323,7 +323,8 @@ def test_span_path_attributes_survive_into_metadata():
     This is what lets the client rebuild the tree of an in-flight trace: children
     are exported before their parents, so the missing ancestors are synthesized
     from these keys. They survive only because they are absent from
-    `_KNOWN_ATTRIBUTE_PREFIXES` and therefore fall into the leftover-attribute
+    `_KNOWN_ATTRIBUTE_PREFIXES` or `_KNOWN_ATTRIBUTE_EXACT`, and therefore fall
+    into the leftover-attribute
     bag that becomes `metadata` — an incidental mechanism. Adding them to that
     prefix set would silently disable live-tree repair with no other failure, so
     it is pinned here.

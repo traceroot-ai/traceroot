@@ -121,10 +121,16 @@ def process_s3_traces(self, s3_key: str, project_id: str) -> dict:
                 ]
                 if trace_records_missing_root:
                     ids = [t["trace_id"] for t in trace_records_missing_root]
+                    # project_id is the sort-key prefix, and trace_id carries no skip
+                    # index — so without this predicate the probe cannot prune and
+                    # becomes a FINAL scan of every project in the table to answer a
+                    # question about one. Still O(project), not O(batch): nothing
+                    # bounds trace_start_time here.
                     result = ch_client.query(
                         "SELECT DISTINCT trace_id FROM traces FINAL"
-                        " WHERE trace_id IN {ids:Array(String)}",
-                        parameters={"ids": ids},
+                        " WHERE project_id = {project_id:String}"
+                        " AND trace_id IN {ids:Array(String)}",
+                        parameters={"ids": ids, "project_id": project_id},
                     )
                     existing_ids = {row[0] for row in result.result_rows}
                     traces = [

@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
-import { describeRcaStatus, useRuns, useTraceDetectorRuns } from "./use-findings";
+import { describeRcaStatus, selfTraceId, useRuns, useTraceDetectorRuns } from "./use-findings";
 
 function wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -111,5 +111,27 @@ describe("useTraceDetectorRuns — per-trace runs fetch", () => {
 
     await waitFor(() => expect(result.current.isError).toBe(true));
     expect(result.current.error?.message).toContain("404");
+  });
+});
+
+describe("selfTraceId", () => {
+  // The read side of the run-to-trace correlation: the emitter forces the self-trace's
+  // trace_id to the dashless run id, and this is the only place the UI reconstructs it.
+  // A drift here breaks every self-trace link, so pin the transform against the emit side.
+  it("strips dashes from a uuid run id", () => {
+    expect(selfTraceId({ run_id: "aaaa1111-bbbb-2222-cccc-3333dddd4444" })).toBe(
+      "aaaa1111bbbb2222cccc3333dddd4444",
+    );
+  });
+
+  it("leaves an already-dashless id untouched", () => {
+    // The shape deterministicRunId actually produces on the worker side.
+    expect(selfTraceId({ run_id: "a".repeat(32) })).toBe("a".repeat(32));
+  });
+
+  it("produces a valid trace id shape", () => {
+    expect(selfTraceId({ run_id: "aaaa1111-bbbb-2222-cccc-3333dddd4444" })).toMatch(
+      /^[0-9a-f]{32}$/,
+    );
   });
 });

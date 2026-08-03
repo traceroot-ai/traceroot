@@ -54,16 +54,20 @@ interface UseListPageStateReturn {
 }
 
 export function useListPageState(
-  options: { defaultLimit?: number; defaultDateFilterId?: string } = {},
+  options: {
+    defaultLimit?: number;
+    defaultDateFilterId?: string;
+    retentionDays?: number | null;
+  } = {},
 ): UseListPageStateReturn {
-  const { defaultLimit = 50, defaultDateFilterId } = options;
+  const { defaultLimit = 50, defaultDateFilterId, retentionDays } = options;
 
   // URL-synced pagination hook - persists page/limit in URL
   const pagination = useUrlPagination(defaultLimit);
 
   // URL-synced date filter hook - resets page on change
   const { dateFilter, customStartDate, customEndDate, setDateFilter, setCustomRange, timestamps } =
-    useUrlDateFilter(pagination.resetPage, defaultDateFilterId);
+    useUrlDateFilter(pagination.resetPage, defaultDateFilterId, retentionDays);
 
   // Search hook - resets page on change
   const { keyword, setKeyword, searchQuery } = useKeywordSearch(pagination.resetPage);

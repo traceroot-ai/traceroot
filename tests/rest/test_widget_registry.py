@@ -7,6 +7,7 @@ not the internal shape of individual fields.
 import json
 import re
 
+from rest.services.trace_reader import customer_traffic_only
 from rest.services.widget_registry import REGISTRY, registry_schema
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -93,3 +94,62 @@ def test_schema_histogrammable_mirrors_compiler_rule():
     # The concrete case that motivated the flag: count is not histogrammable.
     assert schema["spans"]["fields"]["count"]["histogrammable"] is False
     assert schema["spans"]["fields"]["cost"]["histogrammable"] is True
+
+
+def test_registry_schema_exposes_cache_tokens():
+    """cache_read_tokens and cache_write_tokens must be exposed on both views."""
+    schema = registry_schema()
+    for view in ["spans", "traces"]:
+        fields = schema[view]["fields"]
+        assert "cache_read_tokens" in fields, f"{view}: missing cache_read_tokens"
+        assert "cache_write_tokens" in fields, f"{view}: missing cache_write_tokens"
+
+
+def test_token_measures_list_components_before_total():
+    """The token measures must end with the total, not wedge it in the middle.
+
+    The builder renders fields in schema order, so the group should read as the
+    component measures (input, output, cache read, cache write) followed by the
+    total. Cache read/write decompose the gross input rather than adding to it,
+    so the total is input + output — listed last as the umbrella figure."""
+    for view in ["spans", "traces"]:
+        names = list(registry_schema()[view]["fields"])
+        token_order = [n for n in names if n.endswith("_tokens")]
+        assert token_order == [
+            "input_tokens",
+            "output_tokens",
+            "cache_read_tokens",
+            "cache_write_tokens",
+            "total_tokens",
+        ], f"{view}: token measures out of order: {token_order}"
+
+
+def test_every_base_relation_excludes_detector_self_traces():
+    """No widget view may count detector self-traces as customer data.
+
+    Dashboard measures (count, cost, tokens, latency, error_count) are charted as
+    customer activity, so a base relation that scans spans or traces without the
+    source predicate silently inflates them.
+
+    Asserted per scan site, not as a per-view total: `traces` reads both tables, and
+    comparing counts would accept two guards on one subquery and none on the other —
+    which still lets detector rows through the unguarded one.
+    """
+    guard = customer_traffic_only()
+    for view_name, view in REGISTRY.items():
+        sql = view.base_sql
+        # \b so a future `FROM traces_something` CTE can't be mistaken for the table.
+        scans = list(re.finditer(r"FROM\s+(spans|traces)\b", sql))
+        assert scans, f"{view_name}: no table scan found — has the base relation moved?"
+        for scan in scans:
+            # A derived table's own WHERE runs from its FROM up to its dedup; a guard
+            # past that boundary belongs to a different subquery and doesn't protect
+            # this one. Matched via the helper, not a literal, so changing the
+            # predicate's spelling doesn't read as a missing guard.
+            after = sql[scan.end() :]
+            cutoff = after.find("ORDER BY")
+            where_clause = after[:cutoff] if cutoff != -1 else after
+            assert guard in where_clause, (
+                f"{view_name}: the scan of `{scan.group(1)}` at offset {scan.start()} "
+                f"has no detector guard in its own WHERE"
+            )
