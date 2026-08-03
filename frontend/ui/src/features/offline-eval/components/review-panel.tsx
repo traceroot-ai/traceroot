@@ -49,7 +49,7 @@ export function ReviewPanel({
   target: ReviewTarget | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSave: (review: HumanReview) => void;
+  onSave: (review: HumanReview) => void | Promise<void>;
   /** Toast description shown after saving; omit for none. */
   savedDescription?: string;
   /** Small note in the footer (e.g. "Saved in this page only."). */
@@ -73,14 +73,25 @@ export function ReviewPanel({
 
   if (!target) return null;
 
-  const handleSave = () => {
-    onSave({
-      verdict,
-      quality,
-      comment: comment.trim() || undefined,
-      reviewer: "You",
-      at: new Date().toISOString(),
-    });
+  const handleSave = async () => {
+    try {
+      // Await the persist so a failed request is never presented as saved. onSave may
+      // be sync (returns void) or return a promise that rejects on failure.
+      await onSave({
+        verdict,
+        quality,
+        comment: comment.trim() || undefined,
+        reviewer: "You",
+        at: new Date().toISOString(),
+      });
+    } catch {
+      toast({
+        title: "Could not save review",
+        description: "It wasn't persisted — please try again.",
+        tone: "warning",
+      });
+      return; // keep the drawer open with the reviewer's input intact
+    }
     toast({
       title: "Review saved",
       ...(savedDescription ? { description: savedDescription } : {}),

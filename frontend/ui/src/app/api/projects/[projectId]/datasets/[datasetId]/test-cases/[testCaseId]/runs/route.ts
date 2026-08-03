@@ -13,12 +13,15 @@ type RouteParams = {
 export async function GET(_req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
-  const { projectId, testCaseId } = await params;
+  const { projectId, datasetId, testCaseId } = await params;
   const accessResult = await requireProjectAccess(authResult.user.id, projectId);
   if (accessResult.error) return accessResult.error;
 
+  // A stable testCaseId can recur across datasets in the same project (it's only
+  // unique within a dataset lineage), so scope through the run's dataset — otherwise
+  // this tab would surface runs from a different dataset that reused the id.
   const results = await prisma.evaluationResult.findMany({
-    where: { projectId, testCaseId },
+    where: { projectId, testCaseId, run: { datasetId } },
     orderBy: { createTime: "desc" },
     select: {
       id: true,
