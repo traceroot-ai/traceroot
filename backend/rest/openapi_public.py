@@ -58,7 +58,8 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
 
     # Public ingestion accepts an OTLP protobuf body (read from the raw request)
     # and documents its runtime error contract: 400 (bad/empty/undecodable body),
-    # 402 (plan limit), 415 (wrong Content-Type), 500 (S3 storage failure).
+    # 402 (plan limit), 415 (wrong Content-Type), 503 (auth/enqueue unavailable),
+    # and 500 (S3 storage failure).
     ingest = schema["paths"].get("/api/v1/public/traces", {}).get("post")
     if ingest is not None:
         ingest["requestBody"] = {
@@ -71,6 +72,17 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
         ingest_responses.setdefault("400", _error_response("Invalid request body"))
         ingest_responses.setdefault("402", _error_response("Free plan limit exceeded"))
         ingest_responses.setdefault("415", _error_response("Unsupported media type"))
+        ingest_responses["503"] = _error_response(
+            "Temporary authentication or ingest queue unavailability; retry the request"
+        )
+        ingest_responses["503"]["headers"] = {
+            "Retry-After": {
+                "description": (
+                    "When present for ingest queue unavailability, delay in seconds before retrying"
+                ),
+                "schema": {"type": "string"},
+            }
+        }
         ingest_responses.setdefault("500", _error_response("Storage error"))
 
     # Trace read/export error contract (matches the route code).
