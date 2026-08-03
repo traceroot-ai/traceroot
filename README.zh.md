@@ -170,13 +170,18 @@ import { TraceRoot, observe } from '@traceroot-ai/traceroot';
 TraceRoot.initialize({ instrumentModules: { openAI: OpenAI } });
 const openai = new OpenAI();
 
-const myAgent = observe({ name: 'my_agent', type: 'agent' }, async (query: string) => {
-  const response = await openai.chat.completions.create({
-    model: 'gpt-4o',
-    messages: [{ role: 'user', content: query }],
-  });
-  return response.choices[0].message.content;
-});
+const myAgent = (query: string) =>
+  observe(
+    { name: "my_agent", type: "agent" },
+    async (query: string) => {
+      const response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [{ role: "user", content: query }],
+      });
+      return response.choices[0]?.message.content;
+    },
+    query,
+  );
 
 async function main() {
   try {
