@@ -11,6 +11,7 @@ from dataclasses import FrozenInstanceError
 import pytest
 
 from rest.services.filters import columns as reg
+from rest.services.token_rollup import authoritative_sum_expr
 
 MEMBERSHIP_FIELDS = {"model_name", "environment"}
 AGGREGATE_FIELDS = {"cost", "total_tokens", "duration_ms", "errors"}
@@ -77,10 +78,10 @@ def test_open_ended_categoricals_use_a_distinct_query_with_no_static_values():
         assert col.enum_values == ()
 
 
-def test_duration_aggregates_via_min_max_while_cost_and_tokens_sum():
-    """duration is max(end)-min(start), NOT a sum — the lowering must differ."""
-    assert reg.get_column("cost").aggregate_expr == "sum(cost)"
-    assert reg.get_column("total_tokens").aggregate_expr == "sum(total_tokens)"
+def test_duration_aggregates_via_min_max_while_cost_and_tokens_prefer_api_counts():
+    """duration is max(end)-min(start); token/cost filters prefer API-counted spans."""
+    assert reg.get_column("cost").aggregate_expr == authoritative_sum_expr("cost")
+    assert reg.get_column("total_tokens").aggregate_expr == authoritative_sum_expr("total_tokens")
     dur = reg.get_column("duration_ms").aggregate_expr
     assert "min(span_start_time)" in dur and "max(span_end_time)" in dur
     assert "sum(" not in dur
@@ -89,8 +90,8 @@ def test_duration_aggregates_via_min_max_while_cost_and_tokens_sum():
 def test_aggregate_source_columns_name_the_referenced_spans_columns():
     """Each aggregate field declares the spans columns its aggregate_expr references, so
     the semi-join's inner projection is registry-driven. Membership fields declare none."""
-    assert reg.get_column("cost").source_columns == ("cost",)
-    assert reg.get_column("total_tokens").source_columns == ("total_tokens",)
+    assert reg.get_column("cost").source_columns == ("cost", "usage_details")
+    assert reg.get_column("total_tokens").source_columns == ("total_tokens", "usage_details")
     assert reg.get_column("duration_ms").source_columns == ("span_start_time", "span_end_time")
     assert reg.get_column("errors").source_columns == ("status",)
     for name in MEMBERSHIP_FIELDS | TRACE_FIELDS:

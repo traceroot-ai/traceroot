@@ -17,6 +17,7 @@ from rest.services.filters.translate import (
     build_conditions,
     parse_filters_param,
 )
+from rest.services.token_rollup import authoritative_sum_expr
 
 # --- parsing ---------------------------------------------------------------
 
@@ -205,11 +206,11 @@ def test_membership_predicates_on_different_fields_emit_independent_semijoins():
 @pytest.mark.parametrize(
     "op,token",
     [
-        ("eq", "sum(cost) = {"),
-        ("gt", "sum(cost) > {"),
-        ("gte", "sum(cost) >= {"),
-        ("lt", "sum(cost) < {"),
-        ("lte", "sum(cost) <= {"),
+        ("eq", f"{authoritative_sum_expr('cost')} = {{"),
+        ("gt", f"{authoritative_sum_expr('cost')} > {{"),
+        ("gte", f"{authoritative_sum_expr('cost')} >= {{"),
+        ("lt", f"{authoritative_sum_expr('cost')} < {{"),
+        ("lte", f"{authoritative_sum_expr('cost')} <= {{"),
     ],
 )
 def test_numeric_operator_lowers_to_its_having_comparison(op, token):
@@ -251,10 +252,20 @@ def test_multiple_numeric_predicates_on_same_field_form_a_range():
     )
     assert len(conditions) == 1
     cond = conditions[0]
-    assert "sum(cost) > {" in cond
-    assert "sum(cost) <= {" in cond
+    cost_expr = authoritative_sum_expr("cost")
+    assert f"{cost_expr} > {{" in cond
+    assert f"{cost_expr} <= {{" in cond
     assert " AND " in cond
     assert 1 in params.values() and 10 in params.values()
+
+
+def test_cost_filter_projects_usage_details_for_authoritative_token_rollup():
+    params = {"project_id": "p1"}
+    cond = build_conditions([Predicate(field="cost", op="gt", value=1)], params)[0]
+
+    select_clause = cond.split("FROM spans", 1)[0]
+    assert "usage_details" in select_clause
+    assert authoritative_sum_expr("cost") in cond
 
 
 def test_duplicate_predicates_on_same_field_get_distinct_params():

@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from unittest.mock import MagicMock
 
 from rest.services.filters.translate import Predicate
+from rest.services.token_rollup import authoritative_sum_expr
 from rest.services.trace_reader import DEFAULT_SPAN_SCAN_LOOKBACK_HOURS, TraceReaderService
 
 _MODEL_FILTER = [Predicate(field="model_name", op="in", value=["gpt-4"])]
@@ -116,6 +117,79 @@ def test_no_filters_adds_no_semijoin():
 
     page_sql = svc._client.query.call_args_list[0].args[0]
     assert "t.trace_id IN (" not in page_sql
+
+
+def test_list_traces_token_totals_prefer_api_counted_spans():
+    svc = _service_with_mock_client()
+    _drive(svc)
+
+    svc.list_traces(project_id="p1")
+
+    page_sql = svc._client.query.call_args_list[0].args[0]
+    assert authoritative_sum_expr("input_tokens") in page_sql
+    assert authoritative_sum_expr("output_tokens") in page_sql
+    assert authoritative_sum_expr("cost") in page_sql
+    assert "usage_details" in page_sql
+
+
+def test_list_sessions_token_totals_prefer_api_counted_spans():
+    svc = _service_with_mock_client()
+    _drive(svc)
+
+    svc.list_sessions(project_id="p1")
+
+    page_sql = svc._client.query.call_args_list[0].args[0]
+    assert authoritative_sum_expr("input_tokens") in page_sql
+    assert authoritative_sum_expr("output_tokens") in page_sql
+    assert authoritative_sum_expr("cost") in page_sql
+    assert "usage_details" in page_sql
+
+
+def test_get_session_sums_trace_level_authoritative_token_totals():
+    svc = _service_with_mock_client()
+    traces_res, tokens_res = MagicMock(), MagicMock()
+    traces_res.result_rows = [
+        (
+            "trace-1",
+            "trace",
+            datetime(2026, 1, 1),
+            "user-1",
+            "input",
+            "output",
+            12,
+            "ok",
+        )
+    ]
+    tokens_res.result_rows = [(10, 20, 0.03)]
+    svc._client.query.side_effect = [traces_res, tokens_res]
+
+    svc.get_session(project_id="p1", session_id="s1")
+
+    token_sql = svc._client.query.call_args_list[1].args[0]
+    assert "GROUP BY trace_id" in token_sql
+    assert "sum(total_input_tokens) as total_input_tokens" in token_sql
+    assert "sum(total_output_tokens) as total_output_tokens" in token_sql
+    assert "sum(total_cost) as total_cost" in token_sql
+    assert authoritative_sum_expr("input_tokens") in token_sql
+    assert authoritative_sum_expr("output_tokens") in token_sql
+    assert authoritative_sum_expr("cost") in token_sql
+
+
+def test_list_users_sums_trace_level_authoritative_token_totals():
+    svc = _service_with_mock_client()
+    _drive(svc)
+
+    svc.list_users(project_id="p1")
+
+    page_sql = svc._client.query.call_args_list[0].args[0]
+    assert "span_trace_totals AS" in page_sql
+    assert "GROUP BY trace_id" in page_sql
+    assert "sum(stt.total_input_tokens) as total_input_tokens" in page_sql
+    assert "sum(stt.total_output_tokens) as total_output_tokens" in page_sql
+    assert "sum(stt.total_cost) as total_cost" in page_sql
+    assert authoritative_sum_expr("input_tokens") in page_sql
+    assert authoritative_sum_expr("output_tokens") in page_sql
+    assert authoritative_sum_expr("cost") in page_sql
 
 
 def test_filtered_list_without_window_gets_default_lookback_in_both_queries():
