@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import {
   prisma,
+  Prisma,
   RegisterRunRequestSchema,
   type RegisterRunResponse,
-  type Prisma,
 } from "@traceroot/core";
 import { requireApiKeyProject } from "@/lib/eval/auth";
 
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
   const req = parsed.data;
 
   try {
-    const result = await prisma.$transaction(async (tx) => {
+    const runRegistration = async (tx: Prisma.TransactionClient) => {
       // The SDK's dataset_id is the project-scoped client id, never the internal PK.
       const dataset = await tx.dataset.findUnique({
         where: { projectId_clientDatasetId: { projectId, clientDatasetId: req.dataset_id } },
@@ -132,7 +132,27 @@ export async function POST(request: Request) {
           dataset_version_id: run.datasetVersionId,
         } satisfies RegisterRunResponse,
       };
-    });
+    };
+
+    // Retry the registration on a unique-key collision: concurrent first registrations
+    // can read the same max run number (or race the client_run_id insert) and one loses
+    // uq_run_evaluation_run_number — a normal parallel SDK call, not a 500. Each attempt
+    // re-reads the max in a fresh transaction.
+    let result: Awaited<ReturnType<typeof runRegistration>> | undefined;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        result = await prisma.$transaction(runRegistration);
+        break;
+      } catch (e) {
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002" && attempt < 4) {
+          continue;
+        }
+        throw e;
+      }
+    }
+    if (!result) {
+      return NextResponse.json({ error: "Failed to register run" }, { status: 500 });
+    }
 
     if ("httpError" in result && result.httpError) {
       return NextResponse.json(
