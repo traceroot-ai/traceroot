@@ -11,19 +11,11 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
-import { ValueBlock } from "./code";
+import { EditableValueBlock } from "./code";
 import type { ReviewStatus } from "../types";
 
-/** JSON I/O is shown structured (so ValueBlock's format toggle works); plain text stays
- *  a string. Mirrors how the save-as-test-case drawer presents the same fields. */
-function parsedValue(raw: string | null): unknown {
-  if (raw === null) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return raw;
-  }
-}
+/** Read-only fields never edit, so onChange is a no-op. */
+const noop = () => {};
 
 /**
  * Review test case — the server-wired review drawer. Submitting persists
@@ -98,7 +90,16 @@ export function TestCaseReviewDrawer({
           </p>
 
           {target.input ? (
-            <ValueBlock label="Input" value={parsedValue(target.input)} />
+            <EditableValueBlock
+              label="Input"
+              text={target.input}
+              onChange={noop}
+              readOnly
+              boxed
+              copyable
+              autoDetectKind
+              minRows={2}
+            />
           ) : (
             <div>
               <p className="mb-1 text-[11px] text-muted-foreground">Input</p>
@@ -109,7 +110,16 @@ export function TestCaseReviewDrawer({
           )}
 
           {target.expected ? (
-            <ValueBlock label="Expected outcome" value={parsedValue(target.expected)} />
+            <EditableValueBlock
+              label="Expected outcome"
+              text={target.expected}
+              onChange={noop}
+              readOnly
+              boxed
+              copyable
+              autoDetectKind
+              minRows={2}
+            />
           ) : (
             <div>
               <p className="mb-1 text-[11px] text-muted-foreground">Expected outcome</p>

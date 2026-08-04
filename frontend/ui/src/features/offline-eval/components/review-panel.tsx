@@ -13,19 +13,11 @@ import {
 } from "@/components/ui/drawer";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
-import { ValueBlock } from "./code";
+import { EditableValueBlock } from "./code";
 import { HUMAN_VERDICT_LABEL, type HumanReview, type HumanVerdict } from "../types";
 
-/** JSON I/O is shown structured (so ValueBlock's format toggle works); plain text stays
- *  a string. Mirrors how the save-as-test-case drawer presents the same fields. */
-function parsedValue(raw: string | null): unknown {
-  if (raw === null) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return raw;
-  }
-}
+/** Read-only fields never edit, so onChange is a no-op. */
+const noop = () => {};
 
 /**
  * Human review — the essential human-scoring step, and the one thing a person
@@ -139,10 +131,37 @@ export function ReviewPanel({
         </DrawerHeader>
 
         <DrawerBody className="flex flex-col gap-4 text-[12px]">
-          <ValueBlock label="Input" value={parsedValue(target.input)} />
-          <ValueBlock label="Output" value={parsedValue(target.output)} />
+          <EditableValueBlock
+            label="Input"
+            text={target.input}
+            onChange={noop}
+            readOnly
+            boxed
+            copyable
+            autoDetectKind
+            minRows={2}
+          />
+          <EditableValueBlock
+            label="Output"
+            text={target.output}
+            onChange={noop}
+            readOnly
+            boxed
+            copyable
+            autoDetectKind
+            minRows={2}
+          />
           {target.expected ? (
-            <ValueBlock label="Expected" value={parsedValue(target.expected)} />
+            <EditableValueBlock
+              label="Expected"
+              text={target.expected}
+              onChange={noop}
+              readOnly
+              boxed
+              copyable
+              autoDetectKind
+              minRows={2}
+            />
           ) : (
             <Block label="Expected">
               <p className="text-muted-foreground">
