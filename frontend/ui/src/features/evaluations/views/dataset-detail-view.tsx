@@ -463,12 +463,8 @@ export function DatasetDetailView({
                           <Td className="whitespace-nowrap text-muted-foreground">
                             <Timestamp iso={tc.createTime} />
                           </Td>
-                          <Td className="max-w-[320px] truncate" title={tc.input || undefined}>
-                            {orDash(tc.input || null)}
-                          </Td>
-                          <Td className="max-w-[320px] truncate" title={tc.expected ?? undefined}>
-                            {orDash(tc.expected)}
-                          </Td>
+                          <Td className="max-w-[320px] truncate">{orDash(tc.input || null)}</Td>
+                          <Td className="max-w-[320px] truncate">{orDash(tc.expected)}</Td>
                           <Td className="max-w-[240px] truncate">{metadataPreview(tc.metadata)}</Td>
                         </TR>
                       );

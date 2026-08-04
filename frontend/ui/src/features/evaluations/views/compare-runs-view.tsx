@@ -647,9 +647,7 @@ function CaseRow({
     >
       {/* Input (primary) + expected + id secondary */}
       <Td>
-        <div className="max-w-[280px] truncate" title={r.input}>
-          {truncate(r.input, 120)}
-        </div>
+        <div className="max-w-[280px] truncate">{truncate(r.input, 120)}</div>
         <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
           <span className="font-mono">{r.testCaseId}</span>
           {r.provenance && <span title="Saved from a production trace">· from trace</span>}
@@ -661,10 +659,10 @@ function CaseRow({
           <span className="text-[11px] text-muted-foreground">No output change</span>
         ) : (
           <div className="text-[11px]">
-            <div className="truncate text-muted-foreground" title={r.baselineOutput ?? ""}>
+            <div className="truncate text-muted-foreground">
               {r.baselineOutput === null ? "—" : truncate(r.baselineOutput, 40)}
             </div>
-            <div className="truncate" title={r.candidateOutput ?? ""}>
+            <div className="truncate">
               {r.candidateOutput === null ? "—" : truncate(r.candidateOutput, 40)}
             </div>
           </div>
