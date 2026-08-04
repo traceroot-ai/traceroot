@@ -6,6 +6,24 @@ import type { RunComparison, ResultComparison } from "@/lib/eval/comparison";
 
 export type { RunComparison, ResultComparison, Classification } from "@/lib/eval/comparison";
 
+/**
+ * Typed execution provenance surfaced on a run — mirrors the SDK's
+ * `RunProvenance` contract. Every field is optional/nullable; unknowns are null
+ * and never inferred. Distinct from free-form `metadata`.
+ */
+export interface RunProvenance {
+  git_repository: string | null;
+  git_ref: string | null;
+  git_commit: string | null;
+  git_dirty: boolean | null;
+  ci_provider: string | null;
+  ci_build_id: string | null;
+  sdk_language: string | null;
+  sdk_version: string | null;
+  declared_model: string | null;
+  declared_prompt_version: string | null;
+}
+
 /** The per-result comparison block the run-detail route embeds on each result. */
 export type ResultRowComparison = Pick<
   ResultComparison,
@@ -164,8 +182,9 @@ export interface RunRow {
   erroredCount: number;
   notScoredCount: number;
   scorers: Array<{ name: string; version: string }> | null;
-  model: string | null;
-  /** Structured run provenance (model, prompt, config, git). Free-form; may be null. */
+  /** Typed execution provenance (git/CI/SDK identity, declared candidate model/prompt); null when the SDK reported none. */
+  provenance: RunProvenance | null;
+  /** Free-form user run metadata (arbitrary key/values); may be null. */
   metadata: Record<string, unknown> | null;
   startedAt: string;
   completedAt: string | null;
