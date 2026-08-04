@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
-import { prisma, ScoreInputSchema } from "@traceroot/core";
+import { prisma, Prisma, ScoreInputSchema } from "@traceroot/core";
 import { requireApiKeyProject } from "@/lib/eval/auth";
 
 type RouteParams = { params: Promise<{ runId: string; testCaseId: string }> };
+
+const isUniqueViolation = (e: unknown) =>
+  e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002";
 
 // POST /api/public/evaluation-runs/[runId]/results/[testCaseId]/scores (B3) —
 // report ONE scorer's outcome, MERGED on (scorer_name, scorer_version) instead of
@@ -44,27 +47,44 @@ export async function POST(request: Request, { params }: RouteParams) {
     error: s.error ?? null,
   };
 
-  // Atomic upsert on the compound unique — a find-then-create let two concurrent
-  // submissions for the same scorer both pass the read and then one lose the unique-key
-  // race with a 500. Postgres INSERT ... ON CONFLICT DO UPDATE serialises them.
-  const upserted = await prisma.score.upsert({
-    where: {
-      resultId_scorerName_scorerVersion: {
+  // One row per scorer per result, enforced by uq_score_result_scorer — the merge
+  // is a real upsert on that key, so a retried report updates the row it already
+  // wrote instead of inserting a second one that nothing would ever reconcile.
+  const upsertScore = () =>
+    prisma.score.upsert({
+      where: {
+        resultId_scorerName_scorerVersion: {
+          resultId: result.id,
+          scorerName: s.scorer_name,
+          scorerVersion: s.scorer_version,
+        },
+      },
+      create: {
         resultId: result.id,
+        projectId,
         scorerName: s.scorer_name,
         scorerVersion: s.scorer_version,
+        ...fields,
       },
-    },
-    create: {
-      resultId: result.id,
-      projectId,
-      scorerName: s.scorer_name,
-      scorerVersion: s.scorer_version,
-      ...fields,
-    },
-    update: fields,
-    select: { id: true },
-  });
+      update: fields,
+      select: { id: true },
+    });
 
-  return NextResponse.json({ score_id: upserted.id }, { status: 200 });
+  let scoreId: string;
+  try {
+    scoreId = (await upsertScore()).id;
+  } catch (e) {
+    // Concurrent reports of the same scorer: the loser retries onto the row the
+    // winner just inserted rather than surfacing Prisma internals as a 500.
+    if (!isUniqueViolation(e)) {
+      return NextResponse.json({ error: "Failed to record score" }, { status: 500 });
+    }
+    try {
+      scoreId = (await upsertScore()).id;
+    } catch {
+      return NextResponse.json({ error: "Failed to record score" }, { status: 500 });
+    }
+  }
+
+  return NextResponse.json({ score_id: scoreId }, { status: 200 });
 }

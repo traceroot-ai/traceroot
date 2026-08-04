@@ -238,6 +238,12 @@ export interface RegisterRunResponse {
  *   - non-empty → replace the result's scores with these
  * Handlers must branch on `undefined` vs `[]`; do not re-add a `.default([])`
  * here, which would collapse the first two cases into a silent delete.
+ *
+ * Every optional field is a *partial* update: a key the caller omits keeps its
+ * stored value, while an explicit `null` clears it. So the SDK can link a trace
+ * with `{test_case_id, input, status, trace_id}` without dropping the cost or the
+ * scores it reported earlier. Omitting a field and sending `null` must therefore
+ * stay distinguishable — no `.default()` on anything the server persists.
  */
 export const UpsertResultRequestSchema = z
   .object({
@@ -253,7 +259,23 @@ export const UpsertResultRequestSchema = z
     task_error: z.string().max(10000).nullable().optional(),
     duration_ms: z.number().int().nonnegative().nullable().optional(),
     cost: z.number().nonnegative().nullable().optional(),
-    scores: z.array(ScoreInputSchema).max(EVAL_SCORER_LIST_MAX).optional(),
+    /**
+     * Present = replace the result's scores with exactly this list (`[]` clears
+     * them). Absent = leave the stored scores alone, so a partial follow-up call
+     * never wipes scores merged in through the per-scorer endpoint. Rejects a
+     * repeated (`scorer_name`, `scorer_version`) — one row per scorer per result
+     * is a unique constraint, and a duplicate would fail the write instead.
+     */
+    scores: z
+      .array(ScoreInputSchema)
+      .max(EVAL_SCORER_LIST_MAX)
+      .refine(
+        (scores) =>
+          new Set(scores.map((s) => JSON.stringify([s.scorer_name, s.scorer_version]))).size ===
+          scores.length,
+        { message: "scores contains a duplicate (scorer_name, scorer_version)" },
+      )
+      .optional(),
   })
   .strict();
 export type UpsertResultRequest = z.infer<typeof UpsertResultRequestSchema>;
