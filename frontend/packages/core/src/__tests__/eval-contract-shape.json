@@ -41,13 +41,21 @@
         },
         "value_type": {
           "type": "enum",
-          "enum": ["numeric", "boolean", "categorical"],
+          "enum": [
+            "numeric",
+            "boolean",
+            "categorical"
+          ],
           "required": false,
           "nullable": true
         },
         "direction": {
           "type": "enum",
-          "enum": ["higher_is_better", "lower_is_better", "none"],
+          "enum": [
+            "higher_is_better",
+            "lower_is_better",
+            "none"
+          ],
           "required": false,
           "nullable": true
         },
@@ -58,13 +66,19 @@
         },
         "scorer_type": {
           "type": "enum",
-          "enum": ["llm_judge", "code"],
+          "enum": [
+            "llm_judge",
+            "code"
+          ],
           "required": false,
           "nullable": true
         },
         "output_type": {
           "type": "enum",
-          "enum": ["score", "classification"],
+          "enum": [
+            "score",
+            "classification"
+          ],
           "required": false,
           "nullable": true
         },
@@ -96,7 +110,10 @@
         },
         "language": {
           "type": "enum",
-          "enum": ["python", "typescript"],
+          "enum": [
+            "python",
+            "typescript"
+          ],
           "required": false,
           "nullable": true
         },
@@ -156,6 +173,71 @@
         "error": {
           "type": "string",
           "max_length": 5000,
+          "required": false,
+          "nullable": true
+        }
+      }
+    },
+    "RunProvenance": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "git_repository": {
+          "type": "string",
+          "max_length": 500,
+          "required": false,
+          "nullable": true
+        },
+        "git_ref": {
+          "type": "string",
+          "max_length": 500,
+          "required": false,
+          "nullable": true
+        },
+        "git_commit": {
+          "type": "string",
+          "max_length": 200,
+          "required": false,
+          "nullable": true
+        },
+        "git_dirty": {
+          "type": "boolean",
+          "required": false,
+          "nullable": true
+        },
+        "ci_provider": {
+          "type": "string",
+          "max_length": 100,
+          "required": false,
+          "nullable": true
+        },
+        "ci_build_id": {
+          "type": "string",
+          "max_length": 200,
+          "required": false,
+          "nullable": true
+        },
+        "sdk_language": {
+          "type": "string",
+          "max_length": 50,
+          "required": false,
+          "nullable": true
+        },
+        "sdk_version": {
+          "type": "string",
+          "max_length": 50,
+          "required": false,
+          "nullable": true
+        },
+        "declared_model": {
+          "type": "string",
+          "max_length": 200,
+          "required": false,
+          "nullable": true
+        },
+        "declared_prompt_version": {
+          "type": "string",
+          "max_length": 200,
           "required": false,
           "nullable": true
         }
@@ -235,6 +317,11 @@
         "case_count": {
           "type": "integer",
           "minimum": 0,
+          "required": false,
+          "nullable": true
+        },
+        "provenance": {
+          "type": "RunProvenance",
           "required": false,
           "nullable": true
         },
@@ -325,7 +412,12 @@
         },
         "status": {
           "type": "enum",
-          "enum": ["passed", "failed", "errored", "not_scored"],
+          "enum": [
+            "passed",
+            "failed",
+            "errored",
+            "not_scored"
+          ],
           "required": true,
           "nullable": false
         },
@@ -336,7 +428,11 @@
         },
         "change": {
           "type": "enum",
-          "enum": ["improved", "regressed", "unchanged"],
+          "enum": [
+            "improved",
+            "regressed",
+            "unchanged"
+          ],
           "required": false,
           "nullable": true
         },
@@ -399,6 +495,13 @@
         },
         "main_score": {
           "type": "number",
+          "required": false,
+          "nullable": true
+        },
+        "main_score_name": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 200,
           "required": false,
           "nullable": true
         },
@@ -522,14 +625,22 @@
         },
         "review": {
           "type": "enum",
-          "enum": ["needs_review", "ready"],
+          "enum": [
+            "needs_review",
+            "ready"
+          ],
           "required": false,
           "nullable": false,
           "default": "needs_review"
         },
         "capture_reason": {
           "type": "enum",
-          "enum": ["manual", "error", "failed_tool", "negative_feedback"],
+          "enum": [
+            "manual",
+            "error",
+            "failed_tool",
+            "negative_feedback"
+          ],
           "required": false,
           "nullable": false,
           "default": "manual"
@@ -583,7 +694,10 @@
         },
         "review": {
           "type": "enum",
-          "enum": ["needs_review", "ready"],
+          "enum": [
+            "needs_review",
+            "ready"
+          ],
           "required": false,
           "nullable": false
         }
@@ -593,9 +707,21 @@
       "kind": "object",
       "unknown_keys": "forbid",
       "fields": {
+        "dimension": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 100,
+          "required": false,
+          "nullable": false,
+          "default": "overall"
+        },
         "verdict": {
           "type": "enum",
-          "enum": ["pass", "fail", "unsure"],
+          "enum": [
+            "pass",
+            "fail",
+            "unsure"
+          ],
           "required": true,
           "nullable": false
         },
@@ -792,6 +918,58 @@
           "min_items": 1,
           "required": true,
           "nullable": false
+        },
+        "idempotency_key": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 128,
+          "required": false,
+          "nullable": true
+        }
+      }
+    },
+    "SaveResultToDatasetRequest": {
+      "kind": "object",
+      "unknown_keys": "forbid",
+      "fields": {
+        "action": {
+          "type": "enum",
+          "enum": [
+            "update_existing_case",
+            "save_new_case",
+            "duplicate_as_variant"
+          ],
+          "required": true,
+          "nullable": false
+        },
+        "dataset_id": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 64,
+          "required": false,
+          "nullable": true
+        },
+        "input": {
+          "type": "string",
+          "max_length": 1000000,
+          "required": false,
+          "nullable": true
+        },
+        "expected": {
+          "type": "string",
+          "max_length": 1000000,
+          "required": false,
+          "nullable": true
+        },
+        "use_candidate_as_expected": {
+          "type": "boolean",
+          "required": false,
+          "nullable": false
+        },
+        "metadata": {
+          "type": "json_object",
+          "required": false,
+          "nullable": true
         },
         "idempotency_key": {
           "type": "string",

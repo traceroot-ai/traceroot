@@ -34,15 +34,19 @@ export async function POST(request: Request, { params }: RouteParams) {
   }
   const h = parsed.data;
 
-  const created = await prisma.humanScore.create({
-    data: {
-      resultId: result.id,
-      projectId,
-      verdict: h.verdict,
-      quality: h.quality ?? null,
-      comment: h.comment ?? null,
-      reviewer: h.reviewer,
-    },
+  // One canonical review per (result, dimension): re-reviewing replaces in place,
+  // and this never rewrites the automated score, comparison, or run status.
+  const fields = {
+    verdict: h.verdict,
+    quality: h.quality ?? null,
+    comment: h.comment ?? null,
+    reviewer: h.reviewer,
+    status: "reviewed",
+  };
+  const created = await prisma.humanScore.upsert({
+    where: { resultId_dimension: { resultId: result.id, dimension: h.dimension } },
+    create: { resultId: result.id, projectId, dimension: h.dimension, ...fields },
+    update: fields,
     select: { id: true },
   });
 
