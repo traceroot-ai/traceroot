@@ -65,6 +65,7 @@ const STATUS_VARIANT: Record<EvalRunStatus, "success" | "danger" | "warning" | "
   completed_with_errors: "warning",
   failed: "danger",
   incomplete: "warning",
+  cancelled: "default",
 };
 
 export function RunStatusBadge({ status }: { status: EvalRunStatus }) {
