@@ -26,12 +26,41 @@ import type { DatasetRow } from "../types";
 
 type Lang = "python" | "typescript";
 
+/** Strip control characters (including newlines) before embedding free-form
+ * text in a source snippet — they have no legitimate reason to appear in a
+ * one-line string literal and would otherwise break the snippet across lines. */
+function stripControlChars(value: string): string {
+  // eslint-disable-next-line no-control-regex
+  return value.replace(/[\u0000-\u001f\u007f]/g, "");
+}
+
+/** Render as a double-quoted Python string literal. Dataset names are
+ * free-form (`z.string().min(1).max(200)`, no character restrictions), so a
+ * name containing `"` or `\` must be escaped or the generated snippet is
+ * either invalid Python or — worse — breaks out of the string literal. */
+function pyStringLiteral(value: string): string {
+  const escaped = stripControlChars(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return `"${escaped}"`;
+}
+
+/** Render as a double-quoted TS/JS string literal. `JSON.stringify` already
+ * produces a valid, fully-escaped double-quoted JS string literal. */
+function tsStringLiteral(value: string): string {
+  return JSON.stringify(stripControlChars(value));
+}
+
 function snippet(lang: Lang, dataset: DatasetRow | undefined): string {
   const name = dataset?.name ?? "My dataset";
   const datasetId = dataset?.id ?? "ds_...";
   const versionId = dataset?.currentVersionId ?? "dsv_...";
+  // Plain (comment-safe) values: control characters/newlines stripped so a
+  // free-form name can't break out of a `#`/`//` comment onto a new line.
+  const commentDatasetId = stripControlChars(datasetId);
+  const commentVersionId = stripControlChars(versionId);
 
   if (lang === "python") {
+    const pyName = pyStringLiteral(name);
+    const pyDatasetId = pyStringLiteral(datasetId);
     return `import traceroot
 from traceroot import evaluate, pull_dataset
 
@@ -45,16 +74,16 @@ from evals.scorers import routing_accuracy
 traceroot.initialize()
 
 # 3. Pull the dataset this run measures (its current published version).
-#    dataset_id:         ${datasetId}
-#    dataset_version_id: ${versionId}
-dataset = pull_dataset("${datasetId}")
+#    dataset_id:         ${commentDatasetId}
+#    dataset_version_id: ${commentVersionId}
+dataset = pull_dataset(${pyDatasetId})
 
 # 4. The task receives EvalCase.input and returns your application's output.
 def run_candidate(ticket):
     return handle_ticket(ticket)
 
 result = evaluate(
-    name="${name}",
+    name=${pyName},
     data=dataset,
     task=run_candidate,
     scorers=[routing_accuracy],
@@ -64,6 +93,7 @@ result = evaluate(
 print(result.to_dict())`;
   }
 
+  const tsName = tsStringLiteral(name);
   return `import * as traceroot from "traceroot";
 import { Dataset, evaluate } from "traceroot";
 
@@ -76,9 +106,9 @@ import { routingAccuracy } from "./evals/scorers";
 traceroot.initialize();
 
 // 3. The dataset this run measures.
-//    datasetId:        ${datasetId}
-//    datasetVersionId: ${versionId}
-const dataset = new Dataset("${name}");
+//    datasetId:        ${commentDatasetId}
+//    datasetVersionId: ${commentVersionId}
+const dataset = new Dataset(${tsName});
 
 // 4. The task receives EvalCase.input and returns your application's output.
 async function runCandidate(ticket) {
@@ -86,7 +116,7 @@ async function runCandidate(ticket) {
 }
 
 const result = await evaluate({
-  name: "${name}",
+  name: ${tsName},
   data: dataset,
   task: runCandidate,
   scorers: [routingAccuracy],
