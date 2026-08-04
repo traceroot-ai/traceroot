@@ -11,16 +11,17 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
-import { useToast } from "@/components/ui/toast";
 import type { ReviewStatus } from "../types";
 
 /**
- * Review test case — verifies that a dataset row is a good, reusable test case,
- * which is a different question from scoring one output. It deliberately does
- * NOT ask Pass / Fail / Quality (those belong to production annotation or
- * evaluation-result scoring). The reviewer confirms the case is rerunnable and
- * appropriate, may correct the expected outcome, and marks it Ready or Needs
- * work. Ready is advisory — it never blocks the case from an evaluation here.
+ * Review test case — the server-wired review drawer. Submitting persists
+ * through useUpdateTestCase; the caller owns the success/error toast.
+ * Reviewing verifies a row is a good, reusable test case, which is a different
+ * question from scoring one output. It deliberately does NOT ask Pass / Fail /
+ * Quality (those belong to production annotation or evaluation-result
+ * scoring). The reviewer confirms the case is rerunnable and appropriate, may
+ * correct the expected outcome, and marks it Ready or Needs work. Ready is
+ * advisory — it never blocks the case from an evaluation.
  */
 
 export interface TestCaseReviewTarget {
@@ -49,7 +50,6 @@ export function TestCaseReviewDrawer({
   onOpenChange: (open: boolean) => void;
   onSubmit: (result: { review: ReviewStatus; correctedExpected?: string }) => void | Promise<void>;
 }) {
-  const { toast } = useToast();
   const [checked, setChecked] = React.useState<boolean[]>(() => CHECKS.map(() => false));
   const [corrected, setCorrected] = React.useState("");
 
@@ -62,30 +62,13 @@ export function TestCaseReviewDrawer({
   if (!target) return null;
 
   const expectedChanged = corrected.trim() !== "" && corrected.trim() !== (target.expected ?? "");
+  const allChecked = checked.every(Boolean);
 
-  const submit = async (review: ReviewStatus) => {
-    try {
-      // Await the persist so a failed request is never shown as saved.
-      await onSubmit({
-        review,
-        correctedExpected: expectedChanged ? corrected.trim() : undefined,
-      });
-    } catch {
-      toast({
-        title: "Could not save review",
-        description: "It wasn't persisted — please try again.",
-        tone: "warning",
-      });
-      return; // keep the drawer open
-    }
-    toast({
-      title: review === "ready" ? "Marked Ready" : "Sent back for work",
-      description: expectedChanged
-        ? "Saved with a corrected expected outcome."
-        : "Saved in this page only.",
-      tone: "success",
-    });
-    onOpenChange(false);
+  // Closing is the caller's job: it happens once the save actually succeeds
+  // (see dataset-detail-view's submitReview), not synchronously here — the
+  // request may still be in flight, or may fail.
+  const submit = (review: ReviewStatus) => {
+    onSubmit({ review, correctedExpected: expectedChanged ? corrected.trim() : undefined });
   };
 
   return (
@@ -158,14 +141,15 @@ export function TestCaseReviewDrawer({
               className="h-7 text-[12px]"
             />
             <p className="mt-1.5 text-[11px] text-muted-foreground">
-              Changing this changes what future runs are evaluated against.
+              Changing this publishes a new dataset version — it changes what future runs are
+              evaluated against.
             </p>
           </div>
         </DrawerBody>
 
         <DrawerFooter>
           <span className="text-[11px] text-muted-foreground">
-            Ready is advisory — saved here only.
+            Ready is advisory — it never blocks the case from an evaluation.
           </span>
           <span className="flex gap-2">
             <Button
@@ -176,7 +160,13 @@ export function TestCaseReviewDrawer({
             >
               Needs work
             </Button>
-            <Button size="sm" className="h-7 text-[12px]" onClick={() => submit("ready")}>
+            <Button
+              size="sm"
+              className="h-7 text-[12px]"
+              onClick={() => submit("ready")}
+              disabled={!allChecked}
+              title={allChecked ? undefined : "Check every item above before marking ready"}
+            >
               Mark ready
             </Button>
           </span>
