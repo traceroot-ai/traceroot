@@ -30,7 +30,7 @@ const STARTER_PROMPTS = [
 export default function HomePage() {
   const params = useParams();
   const projectId = params.projectId as string;
-  const { registerAiHost } = useLayout();
+  const { registerAiHost, aiContext, setAiContext, aiInitialSessionId } = useLayout();
   const { messages, handleSend } = useAiChatContext();
 
   // Claim the AI slot for this page so AppLayout's project rail can never
@@ -40,6 +40,18 @@ export default function HomePage() {
   useEffect(() => {
     return registerAiHost();
   }, [registerAiHost]);
+
+  // Home is project-scoped but trace-agnostic: a trace context inherited from
+  // a trace/session viewer would silently attribute new chats here to that
+  // trace. AppLayout's navigation effect already clears the context (and any
+  // session handoff id) on every pathname change, so in the integrated app
+  // this mount-time clear is defense-in-depth for direct mounts and effect
+  // ordering — not the primary mechanism, and no handoff-into-Home flow
+  // exists today. Mount-only by design.
+  useEffect(() => {
+    if (!aiInitialSessionId && aiContext) setAiContext(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Starter prompts bypass the message input, so they resolve the model the
   // same way the input's selector would auto-pick it: from the settled model

@@ -8,6 +8,9 @@ const mocks = vi.hoisted(() => {
   return {
     registerAiHost,
     releaseAiHost,
+    setAiContext: vi.fn(),
+    aiContext: null as { traceId?: string } | null,
+    aiInitialSessionId: undefined as string | undefined,
     handleSend: vi.fn(),
     messages: [] as Array<{ id: string; role: string; content: string }>,
     projectData: undefined as { workspace_id: string } | undefined,
@@ -37,6 +40,9 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/components/layout/app-layout", () => ({
   useLayout: () => ({
     registerAiHost: mocks.registerAiHost,
+    aiContext: mocks.aiContext,
+    setAiContext: mocks.setAiContext,
+    aiInitialSessionId: mocks.aiInitialSessionId,
   }),
 }));
 
@@ -94,7 +100,10 @@ afterEach(() => {
   cleanup();
   mocks.registerAiHost.mockClear();
   mocks.releaseAiHost.mockClear();
+  mocks.setAiContext.mockClear();
   mocks.handleSend.mockClear();
+  mocks.aiContext = null;
+  mocks.aiInitialSessionId = undefined;
   mocks.messages = [];
   mocks.projectData = undefined;
   mocks.llmModels = undefined;
@@ -167,5 +176,23 @@ describe("Home page", () => {
     mocks.messages = [{ id: "m1", role: "user", content: "hi" }];
     render(<HomePage />);
     expect(screen.queryByRole("button", { name: "Summarize today's sessions" })).toBeNull();
+  });
+
+  it("clears a stale trace context on mount", () => {
+    mocks.aiContext = { traceId: "trace-1" };
+    render(<HomePage />);
+    expect(mocks.setAiContext).toHaveBeenCalledWith(null);
+  });
+
+  it("preserves the context while a session handoff is in flight", () => {
+    mocks.aiContext = { traceId: "trace-1" };
+    mocks.aiInitialSessionId = "sess-9";
+    render(<HomePage />);
+    expect(mocks.setAiContext).not.toHaveBeenCalled();
+  });
+
+  it("leaves the context alone when there is nothing to clear", () => {
+    render(<HomePage />);
+    expect(mocks.setAiContext).not.toHaveBeenCalled();
   });
 });
