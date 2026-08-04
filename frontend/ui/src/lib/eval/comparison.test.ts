@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   compareRuns,
+  deriveComparisonState,
   type ComparisonRun,
   type ComparisonResult,
   type ComparisonScore,
@@ -741,5 +742,30 @@ describe("duplicate scorer rows for the same scorer name (a version bump or a de
     expect(forward.results[0].scorerCells[0]).toEqual(reversed.results[0].scorerCells[0]);
     expect(forward.results[0].scorerCells[0].classification).toBe("unchanged");
     expect(forward.results[0].scorerCells[0].candidateValue).toBe(0.9);
+  });
+});
+
+describe("deriveComparisonState (four-state discriminant)", () => {
+  it("unavailable when there is no baseline", () => {
+    expect(deriveComparisonState(false, false, ["no_baseline"])).toBe("unavailable");
+    expect(deriveComparisonState(false, false, ["baseline_missing"])).toBe("unavailable");
+  });
+  it("trustworthy only when available with no reasons", () => {
+    expect(deriveComparisonState(true, true, [])).toBe("trustworthy");
+  });
+  it("pending when a run is not terminal", () => {
+    expect(deriveComparisonState(true, false, ["candidate_not_terminal"])).toBe("pending");
+    expect(deriveComparisonState(true, false, ["baseline_not_terminal"])).toBe("pending");
+  });
+  it("exploratory for a computed-but-incompatible comparison (different evaluation, etc.)", () => {
+    expect(deriveComparisonState(true, false, ["different_evaluation"])).toBe("exploratory");
+    expect(deriveComparisonState(true, false, ["different_dataset_version"])).toBe("exploratory");
+    expect(deriveComparisonState(true, false, ["case_set_mismatch"])).toBe("exploratory");
+    expect(deriveComparisonState(true, false, ["main_scorer_incompatible"])).toBe("exploratory");
+  });
+  it("pending wins when a run is both not-terminal and would be incompatible", () => {
+    expect(
+      deriveComparisonState(true, false, ["candidate_not_terminal", "different_evaluation"]),
+    ).toBe("pending");
   });
 });

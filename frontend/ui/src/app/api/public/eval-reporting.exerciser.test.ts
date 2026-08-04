@@ -283,3 +283,101 @@ describe("SDK reporting: full run lifecycle", () => {
     expect(run.completedAt).toBeInstanceOf(Date);
   });
 });
+
+describe("SDK reporting: concurrent registration", () => {
+  it("never assigns two runs the same run_number when two registrations race", async () => {
+    // Every fake-prisma method is async, so two registerRun calls driven with
+    // Promise.all genuinely interleave at the awaits between the run_number
+    // read and the insert — the same race a real database sees under READ
+    // COMMITTED. uq_run_evaluation_run_number must catch whichever one loses
+    // (the route's retry loop replays it), not let both insert run_number 1.
+    const register = () =>
+      registerRun(
+        req({
+          evaluation_name: "Concurrent eval",
+          dataset_id: "ds1",
+          candidate_version: "git:abc123",
+        }),
+      );
+    const [a, b] = await Promise.all([register(), register()]);
+    expect(a.status).toBe(201);
+    expect(b.status).toBe(201);
+    const [aBody, bBody] = await Promise.all([readJson(a), readJson(b)]);
+
+    // One evaluation lineage, two distinct runs, no run_number collision.
+    expect(fakePrisma.evaluation.rows).toHaveLength(1);
+    expect(fakePrisma.evaluationRun.rows).toHaveLength(2);
+    expect(aBody.evaluation_run_id).not.toBe(bBody.evaluation_run_id);
+    expect(new Set([aBody.run_number, bBody.run_number])).toEqual(new Set([1, 2]));
+  });
+});
+
+describe("SDK reporting: run provenance", () => {
+  const PROVENANCE = {
+    git_repository: "github.com/acme/agent",
+    git_ref: "refs/heads/main",
+    git_commit: "4a91c02",
+    git_dirty: false,
+    ci_provider: "github-actions",
+    ci_build_id: "run-9182",
+    sdk_language: "python",
+    sdk_version: "0.4.1",
+    declared_model: "gpt-4o-2024-08-06",
+    declared_prompt_version: "router-v7",
+  };
+
+  it("persists structured provenance, kept distinct from free-form metadata", async () => {
+    const reg = await registerRun(
+      req({
+        evaluation_name: "Provenance eval",
+        dataset_id: "ds1",
+        candidate_version: "git:abc123",
+        provenance: PROVENANCE,
+        metadata: { experiment: "temp-sweep", note: "arbitrary user data" },
+      }),
+    );
+    expect(reg.status).toBe(201);
+    const runId = (await readJson(reg)).evaluation_run_id as string;
+    const run = fakePrisma.evaluationRun.rows.find((r) => r.id === runId)!;
+    // Typed provenance rides its own column, verbatim...
+    expect(run.provenance).toEqual(PROVENANCE);
+    // ...and is never conflated with the free-form metadata blob.
+    expect(run.metadata).toEqual({ experiment: "temp-sweep", note: "arbitrary user data" });
+    // The declared model lives in provenance — not inferred from candidate_version.
+    expect((run.provenance as Record<string, unknown>).declared_model).toBe("gpt-4o-2024-08-06");
+  });
+
+  it("registers with no provenance — absence stores null and never rejects", async () => {
+    const reg = await registerRun(
+      req({
+        evaluation_name: "No-provenance eval",
+        dataset_id: "ds1",
+        candidate_version: "git:abc123",
+      }),
+    );
+    expect(reg.status).toBe(201);
+    const runId = (await readJson(reg)).evaluation_run_id as string;
+    const run = fakePrisma.evaluationRun.rows.find((r) => r.id === runId)!;
+    expect(run.provenance ?? null).toBeNull();
+  });
+
+  it("accepts a partial provenance block — unreported fields stay absent, never invented", async () => {
+    const reg = await registerRun(
+      req({
+        evaluation_name: "Partial provenance eval",
+        dataset_id: "ds1",
+        candidate_version: "git:abc123",
+        provenance: { git_commit: "deadbeef", sdk_language: "typescript" },
+      }),
+    );
+    expect(reg.status).toBe(201);
+    const runId = (await readJson(reg)).evaluation_run_id as string;
+    const run = fakePrisma.evaluationRun.rows.find((r) => r.id === runId)!;
+    const prov = run.provenance as Record<string, unknown>;
+    expect(prov.git_commit).toBe("deadbeef");
+    expect(prov.sdk_language).toBe("typescript");
+    // Fields the SDK didn't report are absent — not defaulted, not inferred.
+    expect(prov.declared_model ?? null).toBeNull();
+    expect(prov.ci_provider ?? null).toBeNull();
+  });
+});

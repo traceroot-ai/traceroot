@@ -19,6 +19,13 @@ import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { Table, TBody, THead, TR, TRHead, Td, Th } from "@/components/ui/table";
 import { ProjectBreadcrumb } from "@/features/projects/components";
@@ -44,6 +51,10 @@ import { useEvaluationRun, useEvaluationRuns, useCreateHumanScore, useCompareRun
 import { PullCodeDrawer } from "../components/pull-code-drawer";
 import { PassRate } from "../components/pass-rate";
 import { SaveTestCaseDrawer } from "../components/trace-integration";
+import {
+  SaveResultToDatasetDrawer,
+  type ResultDatasetAction,
+} from "../components/save-result-to-dataset-drawer";
 import { reproduceRunCode, reproduceRunCodeTs } from "@/features/offline-eval/utils";
 import { matchSpans } from "@/lib/eval/span-match";
 import {
@@ -61,7 +72,32 @@ import type {
   CompareResultRow,
   CompareRunsResponse,
   ResultRowComparison,
+  HumanScoreRow,
+  HumanReviewSummary,
 } from "../types";
+import { HUMAN_VERDICT_LABEL, type HumanReview, type HumanVerdict } from "@/features/offline-eval/types";
+
+/** The single canonical dimension reviewed in V1. */
+const REVIEW_DIMENSION = "overall";
+
+/**
+ * Map the read-model review row a result carries into the panel's `HumanReview`
+ * shape, so re-opening the review drawer pre-fills the saved verdict/quality/comment
+ * instead of a blank form (nulls → undefined; the review's `updateTime` is its `at`).
+ */
+function toExistingReview(humanScores: HumanScoreRow[]): HumanReview | undefined {
+  const saved =
+    humanScores.find((h) => h.dimension === REVIEW_DIMENSION) ?? humanScores[0];
+  return saved
+    ? {
+        verdict: saved.verdict as HumanVerdict,
+        quality: saved.quality ?? undefined,
+        comment: saved.comment ?? undefined,
+        reviewer: saved.reviewer,
+        at: saved.updateTime,
+      }
+    : undefined;
+}
 
 /** Case/run duration; "Unknown" when unmeasured (never 0s). */
 function fmtDurationMs(ms: number | null | undefined): string {
@@ -243,7 +279,10 @@ type ResultFilterId =
   | "failed"
   | "errors"
   | "unpaired"
-  | "not_scored";
+  | "not_scored"
+  | "needs_human_review"
+  | "human_reviewed"
+  | "judge_disagreement";
 
 const RESULT_FILTERS: Array<{ id: ResultFilterId; label: string }> = [
   { id: "all", label: "All" },
@@ -253,7 +292,67 @@ const RESULT_FILTERS: Array<{ id: ResultFilterId; label: string }> = [
   { id: "errors", label: "Errors" },
   { id: "unpaired", label: "Unpaired" },
   { id: "not_scored", label: "Not scored" },
+  { id: "needs_human_review", label: "Needs human review" },
+  { id: "human_reviewed", label: "Reviewed" },
+  { id: "judge_disagreement", label: "Judge disagreement" },
 ];
+
+/** The result's canonical human review (V1: the "overall" dimension), if any. */
+function resultReview(r: ResultRow): HumanScoreRow | undefined {
+  const reviews = r.humanScores ?? [];
+  return reviews.find((h) => h.dimension === REVIEW_DIMENSION) ?? reviews[0];
+}
+
+/**
+ * A human pass/fail verdict disagreeing with the automated pass/fail — both must be
+ * boolean, so "unsure" and a quality-only review never count (mirrors the backend
+ * `deriveHumanReviewSummary`). Read-only: this never alters the automated score.
+ */
+function isJudgeDisagreement(r: ResultRow): boolean {
+  const review = resultReview(r);
+  if (!review || (review.verdict !== "pass" && review.verdict !== "fail")) return false;
+  const automatedPass = r.status === "passed" ? true : r.status === "failed" ? false : null;
+  if (automatedPass === null) return false;
+  return (review.verdict === "pass") !== automatedPass;
+}
+
+/** Compact human-review chip for the result drawer — verdict/quality/reviewer, plus a
+ *  disagreement flag. Never renders the automated score; it sits beside it. */
+function ReviewTag({
+  review,
+  disagreement,
+}: {
+  review: HumanScoreRow | undefined;
+  disagreement: boolean;
+}) {
+  if (!review) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-md border bg-muted/40 px-2.5 py-1 text-xs">
+        <span className="text-muted-foreground">Human review:</span>
+        <span className="font-medium text-muted-foreground">Pending</span>
+      </span>
+    );
+  }
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs ${
+        disagreement
+          ? "border-amber-400/60 bg-amber-100/50 dark:border-amber-700/60 dark:bg-amber-950/30"
+          : "bg-muted/40"
+      }`}
+    >
+      <span className="text-muted-foreground">Human review:</span>
+      <span className="font-medium">{HUMAN_VERDICT_LABEL[review.verdict as HumanVerdict]}</span>
+      {review.quality != null && <span className="text-muted-foreground">· {review.quality}/5</span>}
+      <span className="text-muted-foreground">· {review.reviewer}</span>
+      {disagreement && (
+        <span className="font-medium text-amber-700 dark:text-amber-400">
+          · Disagrees with automated
+        </span>
+      )}
+    </span>
+  );
+}
 
 // Filters key on the DERIVED case verdict (comparison.caseChange), never the stored
 // change column. "Unpaired" folds in not_comparable (paired but un-trustable) cases.
@@ -266,6 +365,9 @@ const RESULT_FILTER_FN: Record<ResultFilterId, (r: ResultRow) => boolean> = {
   unpaired: (r) =>
     r.comparison?.caseChange === "unpaired" || r.comparison?.caseChange === "not_comparable",
   not_scored: (r) => r.status === "not_scored",
+  needs_human_review: (r) => !resultReview(r),
+  human_reviewed: (r) => !!resultReview(r),
+  judge_disagreement: isJudgeDisagreement,
 };
 
 /**
@@ -287,6 +389,10 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
   // "Save as test case" drawer (only for real ingested traces): which span it targets.
   const [saveTestCaseOpen, setSaveTestCaseOpen] = React.useState(false);
   const [saveTestCaseSpanId, setSaveTestCaseSpanId] = React.useState<string | undefined>(undefined);
+  // Result→dataset drawer: which action the "Add to dataset" menu picked (null = closed).
+  const [resultDatasetAction, setResultDatasetAction] = React.useState<ResultDatasetAction | null>(
+    null,
+  );
   // "Compare with" — another run of the SAME evaluation, chosen inline. The current run
   // is the candidate; the picked run is the baseline. Comparison is computed on demand
   // by the backend engine (the SDK no longer declares baselines).
@@ -484,7 +590,7 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
                 className="h-7 text-[12px]"
                 onClick={() => setReviewOpen(true)}
               >
-                Review output
+                {resultReview(openResult) ? "Edit review" : "Review output"}
               </Button>
               <Link
                 href={`/projects/${projectId}/datasets/${run.datasetId}?case=${openResult.testCaseId}`}
@@ -493,21 +599,66 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
                 <Database className="h-3.5 w-3.5" aria-hidden />
                 View source test case
               </Link>
-              {useRealTrace && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 text-[12px]"
-                  onClick={() => {
-                    setSaveTestCaseSpanId(
-                      selection.type === "span" ? selection.span.span_id : undefined,
-                    );
-                    setSaveTestCaseOpen(true);
-                  }}
-                >
-                  Save as test case
-                </Button>
-              )}
+              {/* Result → dataset: the three case-level actions live under one menu.
+                  Saving/duplicating/updating operates on the RESULT (its whole
+                  candidate output for this case), publishing a new immutable dataset
+                  version; the finer "save a specific span" capture stays available
+                  below for real ingested traces. */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-7 gap-1 text-[12px]">
+                    <Database className="h-3.5 w-3.5" aria-hidden />
+                    Add to dataset
+                    <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-64">
+                  <DropdownMenuItem onSelect={() => setResultDatasetAction("update_existing_case")}>
+                    <div>
+                      <div className="text-[12px] font-medium">Update source case</div>
+                      <div className="text-[11px] text-muted-foreground">
+                        Publish a new version of this case
+                      </div>
+                    </div>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setResultDatasetAction("save_new_case")}>
+                    <div>
+                      <div className="text-[12px] font-medium">Save as a new case</div>
+                      <div className="text-[11px] text-muted-foreground">
+                        Add a new case to a dataset
+                      </div>
+                    </div>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setResultDatasetAction("duplicate_as_variant")}>
+                    <div>
+                      <div className="text-[12px] font-medium">Duplicate as a variant</div>
+                      <div className="text-[11px] text-muted-foreground">
+                        Branch this case without touching the original
+                      </div>
+                    </div>
+                  </DropdownMenuItem>
+                  {useRealTrace && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onSelect={() => {
+                          setSaveTestCaseSpanId(
+                            selection.type === "span" ? selection.span.span_id : undefined,
+                          );
+                          setSaveTestCaseOpen(true);
+                        }}
+                      >
+                        <div>
+                          <div className="text-[12px] font-medium">Save a span as a case…</div>
+                          <div className="text-[11px] text-muted-foreground">
+                            Capture the selected span&rsquo;s input/output
+                          </div>
+                        </div>
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </>
           )}
           spanExtraTags={() => (
@@ -530,6 +681,9 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
                   {run.datasetName} · {run.datasetVersionLabel}
                 </span>
               </span>
+              {/* Human review — shown ALONGSIDE the automated score/status (never
+                  replacing it); a disagreement between the two is labelled, not hidden. */}
+              <ReviewTag review={resultReview(openResult)} disagreement={isJudgeDisagreement(openResult)} />
             </>
           )}
           /* Baseline run's trace + a per-span matcher. Powers the viewer's Diff
@@ -569,7 +723,7 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
                   display: s.error ? "Scorer error" : scoreValue(s),
                   explanation: s.error ?? s.explanation ?? undefined,
                 })),
-                existing: undefined,
+                existing: toExistingReview(openResult.humanScores),
               } satisfies ReviewTarget)
             : null
         }
@@ -601,6 +755,28 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
         open={saveTestCaseOpen}
         onOpenChange={setSaveTestCaseOpen}
       />
+
+      {/* Result → dataset: update the source case, save a new one, or duplicate as a
+          variant. Publishes a new immutable dataset version; never a scoring action. */}
+      {openResult && run && (
+        <SaveResultToDatasetDrawer
+          projectId={projectId}
+          open={resultDatasetAction !== null}
+          onOpenChange={(o) => {
+            if (!o) setResultDatasetAction(null);
+          }}
+          action={resultDatasetAction ?? "update_existing_case"}
+          result={{
+            id: openResult.id,
+            input: openResult.input,
+            expectedOutput: openResult.expectedOutput,
+            candidateOutput: openResult.candidateOutput,
+            testCaseId: openResult.testCaseId,
+          }}
+          sourceDatasetId={run.datasetId}
+          sourceDatasetName={run.datasetName ?? "this run's dataset"}
+        />
+      )}
     </>
   );
 }
@@ -721,10 +897,11 @@ function RunBody({
               onValueChange={(v) => onCompareChange(v === NO_COMPARE ? null : v)}
             >
               <SelectTrigger
-                // The trigger is justify-between by default, which pushes the value
-                // away from the icon whenever the box is wider than its text. Keep the
-                // pair together on the left and let the chevron take the slack.
-                className="h-7 w-fit max-w-[240px] justify-start gap-1.5 text-[12px] [&>span]:mr-auto"
+                // The trigger is justify-between by default, so any width beyond the
+                // text is dealt out BETWEEN the icon and the value — measured at 44px
+                // on a 240px trigger. Letting the value grow absorbs that space
+                // instead, which holds even if the width utilities don't apply.
+                className="h-7 w-fit max-w-[240px] justify-start gap-1.5 text-[12px] [&>span]:min-w-0 [&>span]:flex-1"
                 aria-label="Compare with"
               >
                 <GitCompare className="h-3.5 w-3.5 shrink-0" aria-hidden />
@@ -953,7 +1130,45 @@ function HeadlineMetrics({ run }: { run: RunDetail }) {
         )}
       </HeadlineStat>
       <HeadlineStat label="Duration">{fmtDurationMs(run.elapsedMs)}</HeadlineStat>
+      <HumanReviewHeadline hr={run.humanReview} />
     </div>
+  );
+}
+
+/**
+ * Run-level human-review summary. Sits alongside the automated headline stats and
+ * never replaces them — human review is a separate, co-equal signal.
+ */
+function HumanReviewHeadline({ hr }: { hr: HumanReviewSummary | undefined }) {
+  if (!hr || hr.dimensions.length === 0) {
+    return (
+      <HeadlineStat label="Human review">
+        <span className="text-muted-foreground">Not started</span>
+      </HeadlineStat>
+    );
+  }
+  const total = hr.reviewedCount + hr.pendingCount;
+  const judged = hr.passCount + hr.failCount;
+  return (
+    <>
+      <HeadlineStat label="Human review">
+        {hr.reviewedCount} / {total}
+      </HeadlineStat>
+      <HeadlineStat label="Human pass rate">
+        {judged === 0 ? (
+          <span className="text-muted-foreground">—</span>
+        ) : (
+          pctFraction(hr.passCount / judged)
+        )}
+      </HeadlineStat>
+      <HeadlineStat label="Disagreements">
+        {hr.disagreementCount === 0 ? (
+          <span className="text-muted-foreground">0</span>
+        ) : (
+          <span className="text-amber-600 dark:text-amber-500">{hr.disagreementCount}</span>
+        )}
+      </HeadlineStat>
+    </>
   );
 }
 
