@@ -36,6 +36,7 @@ import {
   TraceEvaluationChip,
   SpanDatasetChip,
 } from "@/features/evaluations/components/trace-integration";
+import { useTraceTestCases } from "@/features/evaluations/hooks";
 import { formatContentPreview } from "@/features/traces/utils";
 import { useSession as useAuthSession } from "@/lib/auth-client";
 
@@ -77,17 +78,28 @@ export default function TracesPage() {
   } = useListPageState({ retentionDays: retention.retentionDays });
 
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(traceIdFromUrl);
+  // Warm the span→dataset chip data as soon as a trace is selected, so the
+  // "Dataset:" chip is ready before the user opens a span (no per-span latency).
+  useTraceTestCases(projectId, selectedTraceId ?? "");
   // Save-as-test-case (offline eval): which span the drawer targets (undefined = root).
   const [saveOpen, setSaveOpen] = useState(false);
   const [saveSpanId, setSaveSpanId] = useState<string | undefined>(undefined);
+  // Close the drawer (and drop its target span) whenever the selected trace changes —
+  // including closing the viewer entirely. Without this, the drawer reopens on the
+  // NEXT trace still targeting a span from the previous one (which won't resolve
+  // there), stuck with no way out but closing and reopening it.
+  useEffect(() => {
+    setSaveOpen(false);
+    setSaveSpanId(undefined);
+  }, [selectedTraceId]);
   // Persisted per-project so a live view survives reloads, navigation, and re-login.
   // Default false: a project the user never toggled behaves exactly as before.
   const [autoRefresh, setAutoRefresh] = useLocalStorage(
     `traceroot:traces:live:v1:${projectId}`,
     false,
   );
-
-  // Fetch traces with combined query options + user filter from URL
+  // Fetch traces with combined query options + user filter from URL.
+  // Evaluation traces are excluded from this default list.
   const { data, isLoading, error } = useTraces(
     projectId,
     {
@@ -434,6 +446,13 @@ export default function TracesPage() {
               Save as test case
             </Button>
           )}
+          // Offline eval: while the "Save as test case" drawer is open, clicking a
+          // different span in the tree retargets the drawer to that span.
+          onSelectionChange={(selection: TraceSelection) => {
+            if (saveOpen) {
+              setSaveSpanId(selection.type === "span" ? selection.span.span_id : undefined);
+            }
+          }}
           // Offline eval: a trace-level chip when this trace came from a run, and
           // a per-span "Dataset:" chip marking a span already saved as a test case.
           spanExtraTags={(selection: TraceSelection) =>

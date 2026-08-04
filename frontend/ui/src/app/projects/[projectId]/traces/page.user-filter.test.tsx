@@ -16,6 +16,10 @@ vi.mock("@/features/traces/hooks", () => ({
   // The page gates the onboarding empty state on a separate "has this project
   // ever traced" probe; exists: true is required so the filter bar (and the
   // user_id badge inside it) isn't suppressed by showGettingStarted.
+  // The page now hosts the "Save as test case" drawer, which lazily fetches the
+  // selected span's I/O. Unmocked, the factory omits it and the page throws
+  // "useSpanIO is not a function" before any assertion runs.
+  useSpanIO: () => ({ data: undefined, isLoading: false, error: null }),
   useTracesExist: () => ({ data: { exists: true }, isPending: false, error: null }),
   usePrefetchTraces: () => vi.fn(),
 }));

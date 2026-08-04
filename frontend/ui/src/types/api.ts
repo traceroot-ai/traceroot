@@ -209,6 +209,9 @@ export interface TraceQueryOptions {
   search_query?: string;
   // Structured attribute filters, serialized as one URL-encoded JSON array.
   filters?: Predicate[];
+  // Include offline-evaluation traces (environment=evaluation), which the backend
+  // excludes from the default list.
+  include_evaluations?: boolean;
 }
 
 // Session types
