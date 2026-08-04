@@ -7,6 +7,17 @@ import {
 } from "@traceroot/core";
 import { requireApiKeyProject } from "@/lib/eval/auth";
 
+// The control plane's public app origin, used to make the run link absolute so it
+// resolves regardless of how the API and UI origins are split (the SDK's host_url is
+// the API origin, which need not serve the UI). Mirrors the auth/slack conventions.
+const APP_BASE_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
+/** The run's UI-relative path + the absolute clickable URL for the SDK to print. */
+function runLink(projectId: string, runId: string): { run_path: string; run_url: string } {
+  const run_path = `/projects/${projectId}/evaluations/${runId}`;
+  return { run_path, run_url: new URL(run_path, APP_BASE_URL).toString() };
+}
+
 // POST /api/public/evaluation-runs — SDK registers/starts a run (API-key auth).
 // Idempotent on client_run_id within an evaluation. The evaluation lineage is
 // resolved (create-if-absent) from evaluation_name + dataset_id; the server
@@ -60,13 +71,17 @@ export async function POST(request: Request) {
         }
       }
 
-      // Get-or-create by (projectId, name) — the Evaluation's actual unique key. Looking
-      // up with datasetId too would miss an eval of the same name first registered
-      // against another dataset, then fail the (projectId, name) constraint on create
-      // with a 500 instead of reusing it.
+      // An evaluation is identified by (project, name) — runs of the same-named
+      // evaluation are additive (run #N) and comparable, even when the dataset id
+      // churns (e.g. the SDK creates a fresh Dataset each run). The per-run dataset /
+      // version is recorded on the run, and comparison flags a dataset mismatch. Oldest
+      // same-named evaluation wins so grouping is stable. Looking up with datasetId too
+      // would miss an eval first registered against another dataset and then fail the
+      // (projectId, name) constraint on create with a 500 instead of reusing it.
       const evaluation =
         (await tx.evaluation.findFirst({
           where: { projectId, name: req.evaluation_name },
+          orderBy: { createTime: "asc" },
           select: { id: true },
         })) ??
         (await tx.evaluation.create({
@@ -92,6 +107,7 @@ export async function POST(request: Request) {
               evaluation_run_id: existing.id,
               run_number: existing.runNumber,
               dataset_version_id: existing.datasetVersionId,
+              ...runLink(projectId, existing.id),
             } satisfies RegisterRunResponse,
           };
         }
@@ -119,9 +135,12 @@ export async function POST(request: Request) {
           baselineRunId: req.baseline_run_id ?? null,
           mainScoreName: req.main_score_name ?? null,
           caseCount,
-          // Rich scorer metadata (value_type/direction/threshold) rides along in this
-          // JSON column when the SDK sends it; legacy {name, version} stays valid.
-          scorers: req.scorers,
+          // The full scorer manifest — identity ({name, version}), config
+          // (value_type/direction/threshold) and the read-only DEFINITION
+          // (scorer_type, prompt/source) — rides along in this JSON column when the
+          // SDK sends it; a legacy {name, version} scorer stays valid. Cast because
+          // the scorer metadata field is typed `unknown` (arbitrary JSON).
+          scorers: req.scorers as unknown as Prisma.InputJsonValue,
           metadata: (req.metadata ?? undefined) as Prisma.InputJsonValue | undefined,
           clientRunId: req.client_run_id ?? null,
         },
@@ -134,6 +153,7 @@ export async function POST(request: Request) {
           evaluation_run_id: run.id,
           run_number: run.runNumber,
           dataset_version_id: run.datasetVersionId,
+          ...runLink(projectId, run.id),
         } satisfies RegisterRunResponse,
       };
     };
@@ -148,7 +168,11 @@ export async function POST(request: Request) {
         result = await prisma.$transaction(runRegistration);
         break;
       } catch (e) {
-        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002" && attempt < 4) {
+        if (
+          e instanceof Prisma.PrismaClientKnownRequestError &&
+          e.code === "P2002" &&
+          attempt < 4
+        ) {
           continue;
         }
         throw e;

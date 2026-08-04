@@ -88,7 +88,13 @@ export async function POST(request: Request) {
   const key = { projectId, clientDatasetId: c.dataset_id };
   const existing = await prisma.dataset.findUnique({
     where: { projectId_clientDatasetId: key },
-    select: { id: true, clientDatasetId: true, name: true, description: true, currentVersionId: true },
+    select: {
+      id: true,
+      clientDatasetId: true,
+      name: true,
+      description: true,
+      currentVersionId: true,
+    },
   });
   if (existing) {
     return NextResponse.json(
@@ -114,7 +120,13 @@ export async function POST(request: Request) {
         description: c.description ?? null,
         metadata: (c.metadata ?? undefined) as Prisma.InputJsonValue | undefined,
       },
-      select: { id: true, clientDatasetId: true, name: true, description: true, currentVersionId: true },
+      select: {
+        id: true,
+        clientDatasetId: true,
+        name: true,
+        description: true,
+        currentVersionId: true,
+      },
     });
     return NextResponse.json(
       {
@@ -129,7 +141,13 @@ export async function POST(request: Request) {
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
       const won = await prisma.dataset.findUnique({
         where: { projectId_clientDatasetId: key },
-        select: { id: true, clientDatasetId: true, name: true, description: true, currentVersionId: true },
+        select: {
+          id: true,
+          clientDatasetId: true,
+          name: true,
+          description: true,
+          currentVersionId: true,
+        },
       });
       if (won) {
         return NextResponse.json(
