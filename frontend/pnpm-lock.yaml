@@ -47,7 +47,7 @@ importers:
         specifier: ^8.54.0
         version: 8.57.0(eslint@9.39.4(jiti@2.6.1))(typescript@5.9.3)
 
-  packages/agent:
+  ee/agent:
     dependencies:
       '@daytonaio/sdk':
         specifier: 0.148.0
@@ -63,7 +63,7 @@ importers:
         version: 1.19.13(hono@4.12.25)
       '@traceroot/core':
         specifier: workspace:*
-        version: link:../core
+        version: link:../../packages/core
       hono:
         specifier: ^4.12.25
         version: 4.12.25

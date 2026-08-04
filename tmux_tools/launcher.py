@@ -353,7 +353,7 @@ def make_driver(autoreload=False):
             ),
             schema.Service(
                 title="Agent",
-                command="cd frontend/packages/agent && pnpm dev",
+                command="cd frontend/ee/agent && pnpm dev",
                 web_urls=[
                     ("Agent API", f"http://localhost:{AGENT_PORT}"),
                 ],
