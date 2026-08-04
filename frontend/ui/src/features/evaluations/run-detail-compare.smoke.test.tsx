@@ -333,6 +333,19 @@ describe("run detail — compare with", () => {
     expect(screen.getByText("≠ baseline")).toBeDefined();
   });
 
+  it("filters by the PICKED baseline's case verdict, not the run's stored comparison", async () => {
+    mount();
+    await pickCompare();
+    await screen.findByText(withText(/Comparing vs #26/));
+    // The case improved vs the picked baseline; its own stored comparison is null, so the
+    // old filter (keyed on the stored comparison) hid it. Improvements must keep it.
+    fireEvent.click(screen.getByRole("button", { name: "Improvements" }));
+    expect(screen.getByText(/charged twice/)).toBeDefined();
+    // Nothing regressed vs the picked baseline, so Regressions empties the table.
+    fireEvent.click(screen.getByRole("button", { name: "Regressions" }));
+    expect(screen.queryByText(/charged twice/)).toBeNull();
+  });
+
   it("opens the case trace straight into diff mode against the picked run", async () => {
     mount();
     await pickCompare();

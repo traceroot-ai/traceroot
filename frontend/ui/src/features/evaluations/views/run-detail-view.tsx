@@ -358,16 +358,30 @@ function ReviewTag({
   );
 }
 
+// The comparison the case filters (and the table's Change cell) key on: the picked
+// baseline when one is selected, else the result's own stored-baseline comparison. The
+// two MUST agree — the run's stored `comparison` is null unless the run declared a
+// baseline, so keying Regressions/Improvements on it shows nothing while a baseline is
+// picked, even though the table renders the picked baseline's diff.
+function activeComparison(
+  r: ResultRow,
+  compareByCase: Map<string, CompareResultRow> | null,
+): ResultRow["comparison"] {
+  return compareByCase?.get(r.testCaseId)?.comparison ?? r.comparison ?? null;
+}
+
 // Filters key on the DERIVED case verdict (comparison.caseChange), never the stored
 // change column. "Unpaired" folds in not_comparable (paired but un-trustable) cases.
-const RESULT_FILTER_FN: Record<ResultFilterId, (r: ResultRow) => boolean> = {
+const RESULT_FILTER_FN: Record<
+  ResultFilterId,
+  (r: ResultRow, cmp: ResultRow["comparison"]) => boolean
+> = {
   all: () => true,
-  regressions: (r) => r.comparison?.caseChange === "regressed",
-  improvements: (r) => r.comparison?.caseChange === "improved",
+  regressions: (_r, cmp) => cmp?.caseChange === "regressed",
+  improvements: (_r, cmp) => cmp?.caseChange === "improved",
   failed: (r) => r.status === "failed",
   errors: (r) => r.status === "errored" || r.scores.some((s) => s.error),
-  unpaired: (r) =>
-    r.comparison?.caseChange === "unpaired" || r.comparison?.caseChange === "not_comparable",
+  unpaired: (_r, cmp) => cmp?.caseChange === "unpaired" || cmp?.caseChange === "not_comparable",
   not_scored: (r) => r.status === "not_scored",
   needs_human_review: (r) => !resultReview(r),
   human_reviewed: (r) => !!resultReview(r),
@@ -481,8 +495,11 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
   // The trace panel's up/down chevrons step between this run's results (in the same
   // order + filter as the table), so you can walk case-by-case without closing it.
   const visibleResults = React.useMemo(
-    () => results.filter(RESULT_FILTER_FN[resultFilter]),
-    [results, resultFilter],
+    () =>
+      results.filter((r) =>
+        RESULT_FILTER_FN[resultFilter](r, activeComparison(r, compareByCase)),
+      ),
+    [results, resultFilter, compareByCase],
   );
   const openIndex = openResult ? visibleResults.findIndex((r) => r.id === openResult.id) : -1;
   const navigateResult = (dir: "up" | "down") => {
@@ -1366,7 +1383,7 @@ function ResultsSection({
   const visible = React.useMemo(() => {
     const q = keyword.trim().toLowerCase();
     const filtered = results.filter((r) => {
-      if (!RESULT_FILTER_FN[filter](r)) return false;
+      if (!RESULT_FILTER_FN[filter](r, activeComparison(r, compareByCase))) return false;
       if (!q) return true;
       return (
         r.input.toLowerCase().includes(q) ||
@@ -1384,7 +1401,7 @@ function ResultsSection({
       if (db == null) return -1;
       return da - db;
     });
-  }, [results, keyword, filter, sortWorst, cmpFor]);
+  }, [results, keyword, filter, sortWorst, cmpFor, compareByCase]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
