@@ -392,11 +392,21 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
         otel_kind: OTEL span kind (int or string like "SPAN_KIND_INTERNAL")
 
     Returns:
-        One of: "LLM", "SPAN", "AGENT", "TOOL"
+        One of: "LLM", "SPAN", "AGENT", "TOOL", "EVALUATION", "TASK", "SCORER"
     """
-    # Check explicit type attribute (handle None values)
+    # Check explicit type attribute (handle None values). Includes the offline-eval
+    # kinds (EVALUATION/TASK/SCORER) so the SDK's evaluation spans are preserved
+    # rather than silently coerced to SPAN.
     explicit_type = (attrs.get("traceroot.span.type") or "").upper()
-    if explicit_type in (SpanKind.LLM, SpanKind.SPAN, SpanKind.AGENT, SpanKind.TOOL):
+    if explicit_type in (
+        SpanKind.LLM,
+        SpanKind.SPAN,
+        SpanKind.AGENT,
+        SpanKind.TOOL,
+        SpanKind.EVALUATION,
+        SpanKind.TASK,
+        SpanKind.SCORER,
+    ):
         return explicit_type
 
     # Check OpenInference semantic conventions (handle None values)
