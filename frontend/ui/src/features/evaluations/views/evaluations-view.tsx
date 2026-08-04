@@ -123,7 +123,7 @@ export function EvaluationsView({ projectId }: { projectId: string }) {
 const RUNS_COLUMN_COUNT = 9;
 
 /** Human elapsed duration; "—" when unknown (never 0). */
-function formatElapsed(ms: number | null | undefined): string {
+export function formatElapsed(ms: number | null | undefined): string {
   if (ms === null || ms === undefined) return "—";
   if (ms < 1000) return `${ms}ms`;
   const s = ms / 1000;
@@ -133,7 +133,7 @@ function formatElapsed(ms: number | null | undefined): string {
   return `${m}m ${rem}s`;
 }
 
-function ScoreValue({ value }: { value: number | null }) {
+export function ScoreValue({ value }: { value: number | null }) {
   return value === null ? (
     <span className="text-muted-foreground">—</span>
   ) : (
@@ -142,7 +142,7 @@ function ScoreValue({ value }: { value: number | null }) {
 }
 
 /** Total run cost; "—" when no case reported a cost (never a misleading $0). */
-function formatCost(cost: number | null | undefined): React.ReactNode {
+export function formatCost(cost: number | null | undefined): React.ReactNode {
   if (cost === null || cost === undefined) return <span className="text-muted-foreground">—</span>;
   return `$${cost < 1 ? cost.toFixed(4) : cost.toFixed(2)}`;
 }
@@ -730,7 +730,7 @@ function RunsTab({ projectId }: { projectId: string }) {
 
 // ---------------------------------------------------------------------------
 // Scorers — read-only registry, aggregated from reported runs. Master-detail,
-// echoing the prototype: a table on the left, a detail aside on the right.
+// a table on the left, a detail aside on the right.
 //
 // A scorer's definition — what it measures, its type, scope, and score format —
 // lives in the customer's SDK code and is never reported to the server, so the

@@ -1,5 +1,5 @@
 /**
- * Local SDK contract exerciser (Phase 8).
+ * Local SDK contract exerciser.
  *
  * Drives the real public reporting Route Handlers end to end against an in-memory
  * fake prisma — the smallest thing that simulates what the SDK will eventually

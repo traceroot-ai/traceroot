@@ -1,26 +1,25 @@
 import { NextResponse } from "next/server";
 import { prisma, Prisma, PublicUpdateDatasetRequestSchema } from "@traceroot/core";
 import { requireApiKeyProject } from "@/lib/eval/auth";
+import { resolvePublicDataset } from "@/lib/eval/versions";
 
 type RouteParams = { params: Promise<{ datasetId: string }> };
 
 // GET /api/public/datasets/[datasetId] — SDK fetches a dataset by stable id and
 // learns its current published version to pin (API-key auth, snake_case body).
+// `datasetId` is the SDK's own project-scoped id, so another tenant using the same
+// id reaches its own dataset and never this one.
 export async function GET(request: Request, { params }: RouteParams) {
   const auth = await requireApiKeyProject(request);
   if (auth.error) return auth.error;
   const { projectId } = auth;
   const { datasetId } = await params;
 
-  // The path value is the SDK's project-scoped client id, not the internal PK.
-  const dataset = await prisma.dataset.findUnique({
-    where: { projectId_clientDatasetId: { projectId, clientDatasetId: datasetId } },
-    select: { clientDatasetId: true, name: true, description: true, currentVersionId: true },
-  });
+  const dataset = await resolvePublicDataset(prisma, projectId, datasetId);
   if (!dataset) return NextResponse.json({ error: "Dataset not found" }, { status: 404 });
 
   return NextResponse.json({
-    dataset_id: dataset.clientDatasetId ?? datasetId,
+    dataset_id: datasetId,
     name: dataset.name,
     description: dataset.description,
     current_dataset_version_id: dataset.currentVersionId,
@@ -47,12 +46,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
   }
   const c = parsed.data;
 
-  // Resolve the client id to the internal row id, then update by the PK (the client
-  // id alone is not unique — it's only unique per project).
-  const existing = await prisma.dataset.findUnique({
-    where: { projectId_clientDatasetId: { projectId, clientDatasetId: datasetId } },
-    select: { id: true },
-  });
+  const existing = await resolvePublicDataset(prisma, projectId, datasetId);
   if (!existing) return NextResponse.json({ error: "Dataset not found" }, { status: 404 });
 
   const updated = await prisma.dataset.update({
@@ -65,10 +59,10 @@ export async function PATCH(request: Request, { params }: RouteParams) {
         ? { metadata: c.metadata === null ? Prisma.DbNull : (c.metadata as Prisma.InputJsonValue) }
         : {}),
     },
-    select: { clientDatasetId: true, name: true, description: true, currentVersionId: true },
+    select: { id: true, name: true, description: true, currentVersionId: true },
   });
   return NextResponse.json({
-    dataset_id: updated.clientDatasetId ?? datasetId,
+    dataset_id: datasetId,
     name: updated.name,
     description: updated.description,
     current_dataset_version_id: updated.currentVersionId,

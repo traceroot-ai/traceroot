@@ -1,0 +1,97 @@
+import { NextRequest } from "next/server";
+import { prisma, Role, CreateDatasetRequestSchema } from "@traceroot/core";
+import {
+  requireAuth,
+  requireProjectAccess,
+  errorResponse,
+  successResponse,
+} from "@/lib/auth-helpers";
+
+type RouteParams = { params: Promise<{ projectId: string }> };
+
+// GET /api/projects/[projectId]/datasets — list datasets with case/version counts.
+export async function GET(req: NextRequest, { params }: RouteParams) {
+  const authResult = await requireAuth();
+  if (authResult.error) return authResult.error;
+  const { projectId } = await params;
+  const accessResult = await requireProjectAccess(authResult.user.id, projectId);
+  if (accessResult.error) return accessResult.error;
+
+  const { searchParams } = req.nextUrl;
+  const rawLimit = parseInt(searchParams.get("limit") ?? "50", 10);
+  const rawPage = parseInt(searchParams.get("page") ?? "0", 10);
+  const limit = isNaN(rawLimit) ? 50 : Math.min(Math.max(rawLimit, 1), 200);
+  const page = isNaN(rawPage) ? 0 : Math.max(rawPage, 0);
+  const searchQuery = searchParams.get("search_query")?.trim() || null;
+
+  const where = searchQuery
+    ? {
+        projectId,
+        OR: [
+          { name: { contains: searchQuery, mode: "insensitive" as const } },
+          { description: { contains: searchQuery, mode: "insensitive" as const } },
+        ],
+      }
+    : { projectId };
+
+  const [datasets, total] = await prisma.$transaction([
+    prisma.dataset.findMany({
+      where,
+      orderBy: { updateTime: "desc" },
+      skip: page * limit,
+      take: limit,
+      include: { _count: { select: { versions: true } } },
+    }),
+    prisma.dataset.count({ where }),
+  ]);
+
+  // Test-case count comes from each dataset's current version (a version with no
+  // rows counts as 0). One groupBy instead of N per-dataset counts.
+  const currentVersionIds = datasets
+    .map((d) => d.currentVersionId)
+    .filter((id): id is string => Boolean(id));
+  const caseCounts =
+    currentVersionIds.length > 0
+      ? await prisma.testCase.groupBy({
+          by: ["datasetVersionId"],
+          where: { datasetVersionId: { in: currentVersionIds } },
+          _count: { _all: true },
+        })
+      : [];
+  const caseCountByVersion = new Map(caseCounts.map((c) => [c.datasetVersionId, c._count._all]));
+
+  const data = datasets.map((d) => ({
+    ...d,
+    caseCount: d.currentVersionId ? (caseCountByVersion.get(d.currentVersionId) ?? 0) : 0,
+    versionCount: d._count.versions,
+  }));
+
+  return successResponse({ data, meta: { page, limit, total } });
+}
+
+// POST /api/projects/[projectId]/datasets — create an (empty) dataset.
+export async function POST(req: NextRequest, { params }: RouteParams) {
+  const authResult = await requireAuth();
+  if (authResult.error) return authResult.error;
+  const { projectId } = await params;
+  const accessResult = await requireProjectAccess(authResult.user.id, projectId, Role.MEMBER);
+  if (accessResult.error) return accessResult.error;
+
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return errorResponse("Invalid JSON", 400);
+  }
+  const parsed = CreateDatasetRequestSchema.safeParse(body);
+  if (!parsed.success) return errorResponse(parsed.error.issues[0].message, 400);
+
+  const dataset = await prisma.dataset.create({
+    data: {
+      projectId,
+      name: parsed.data.name,
+      description: parsed.data.description ?? null,
+    },
+  });
+  return successResponse({ dataset }, 201);
+}

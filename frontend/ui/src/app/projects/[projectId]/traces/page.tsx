@@ -29,6 +29,13 @@ import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useLocalStorage } from "@/lib/hooks/use-local-storage";
 import { TraceViewerPanel, GettingStarted } from "@/features/traces/components";
 import { LoadingState } from "@/components/ui/loading-state";
+import type { TraceSelection } from "@/features/traces";
+import { Button } from "@/components/ui/button";
+import {
+  SaveTestCaseDrawer,
+  TraceEvaluationChip,
+  SpanDatasetChip,
+} from "@/features/evaluations/components/trace-integration";
 import { formatContentPreview } from "@/features/traces/utils";
 import { useSession as useAuthSession } from "@/lib/auth-client";
 
@@ -70,6 +77,9 @@ export default function TracesPage() {
   } = useListPageState({ retentionDays: retention.retentionDays });
 
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(traceIdFromUrl);
+  // Save-as-test-case (offline eval): which span the drawer targets (undefined = root).
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [saveSpanId, setSaveSpanId] = useState<string | undefined>(undefined);
   // Persisted per-project so a live view survives reloads, navigation, and re-login.
   // Default false: a project the user never toggled behaves exactly as before.
   const [autoRefresh, setAutoRefresh] = useLocalStorage(
@@ -410,6 +420,33 @@ export default function TracesPage() {
           customStartDate={state.customStartDate}
           customEndDate={state.customEndDate}
           initialFullscreen={startFullscreen}
+          // Offline eval: save any span (or the trace root) as a dataset test case.
+          spanHeaderAction={(selection: TraceSelection) => (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 shrink-0 text-[12px]"
+              onClick={() => {
+                setSaveSpanId(selection.type === "span" ? selection.span.span_id : undefined);
+                setSaveOpen(true);
+              }}
+            >
+              Save as test case
+            </Button>
+          )}
+          // Offline eval: a trace-level chip when this trace came from a run, and
+          // a per-span "Dataset:" chip marking a span already saved as a test case.
+          spanExtraTags={(selection: TraceSelection) =>
+            selection.type === "trace" ? (
+              <TraceEvaluationChip projectId={projectId} traceId={selectedTraceId} />
+            ) : (
+              <SpanDatasetChip
+                projectId={projectId}
+                traceId={selectedTraceId}
+                spanId={selection.span.span_id}
+              />
+            )
+          }
           // Customer surface, so state the scope explicitly rather than inheriting it:
           // the reader already defaults to customer traffic, so this is defense in depth,
           // and it also pins the trace-detail cache key this panel shares with the live
@@ -418,6 +455,14 @@ export default function TracesPage() {
           source="user"
         />
       )}
+
+      <SaveTestCaseDrawer
+        projectId={projectId}
+        traceId={selectedTraceId}
+        spanId={saveSpanId}
+        open={saveOpen}
+        onOpenChange={setSaveOpen}
+      />
 
       <PricingDialog
         open={retention.showPricing}
