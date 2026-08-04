@@ -237,8 +237,29 @@ describe("SDK reporting: full run lifecycle", () => {
     expect(fakePrisma.evaluationResult.rows.filter((r) => r.testCaseId === "case-1")).toHaveLength(
       1,
     );
-    const case1 = fakePrisma.evaluationResult.rows.find((r) => r.testCaseId === "case-1")!;
+    let case1 = fakePrisma.evaluationResult.rows.find((r) => r.testCaseId === "case-1")!;
     expect(fakePrisma.score.rows.filter((s) => s.resultId === case1.id)).toHaveLength(1);
+    // A caller omitting expected_output/change (both sent on the original report,
+    // 2a) must not wipe them: an unsent field keeps its stored value.
+    expect(case1.expectedOutput).toBe("billing");
+    expect(case1.change).toBe("improved");
+
+    // 3b. A follow-up that omits `scores` entirely (not even `[]`) must leave the
+    // previously-reported scores untouched — only a caller-sent `scores` array
+    // (including an explicit `[]`) may replace them.
+    await upsertResult(
+      req({
+        test_case_id: "case-1",
+        input: "double charge refund?",
+        status: "passed",
+      }),
+      params(runId),
+    );
+    case1 = fakePrisma.evaluationResult.rows.find((r) => r.testCaseId === "case-1")!;
+    expect(fakePrisma.score.rows.filter((s) => s.resultId === case1.id)).toHaveLength(1);
+    expect(case1.expectedOutput).toBe("billing");
+    expect(case1.change).toBe("improved");
+    expect(case1.traceId).toBe("trace-aaa");
 
     // 4. Out-of-order trace: a result reported without a trace, then linked later.
     await upsertResult(

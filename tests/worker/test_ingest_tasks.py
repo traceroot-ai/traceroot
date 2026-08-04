@@ -196,3 +196,111 @@ class TestTaskCostByTrace:
             "t1": pytest.approx(0.01),
             "t2": pytest.approx(0.02),
         }
+
+
+class FakeCursor:
+    """Records every `execute()` call and answers `fetchall()` from a canned
+    result, so a test can assert on exactly which statements were issued."""
+
+    def __init__(self, fetchall_result):
+        self._fetchall_result = fetchall_result
+        self.executed: list[tuple[str, tuple]] = []
+
+    def execute(self, sql, params=None):
+        self.executed.append((sql, params))
+
+    def fetchall(self):
+        return self._fetchall_result
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        return False
+
+
+class FakeConnection:
+    def __init__(self, cursor):
+        self._cursor = cursor
+        self.committed = False
+        self.closed = False
+
+    def cursor(self):
+        return self._cursor
+
+    def commit(self):
+        self.committed = True
+
+    def close(self):
+        self.closed = True
+
+
+class TestUpdateEvalResultCosts:
+    """`_update_eval_result_costs` denormalizes derived cost onto `evaluation_results`
+    for a costed trace, and per the module's own docstring — "never writes 0 (a
+    cost-less trace leaves `cost` NULL)" — must issue no UPDATE at all for a
+    cost-less trace. That second half had zero coverage: nothing under `tests/`
+    drove this function at all."""
+
+    def _patch_connect(self, monkeypatch, cursor):
+        conn = FakeConnection(cursor)
+        monkeypatch.setattr("psycopg2.connect", lambda *a, **kw: conn)
+        return conn
+
+    def test_writes_every_eval_trace_and_nullifs_the_costless_one(self, monkeypatch):
+        """The write is UNCONDITIONAL — a zero total is still written, as NULLIF.
+
+        Skipping the write when the recomputed total is 0 would freeze a transient
+        over-report permanently: under ``BatchSpanProcessor`` a scorer's LLM child can
+        land in an earlier batch than the SCORER span that excludes it, so the total is
+        briefly too high and only a later batch corrects it downward. See the rationale
+        on ``_update_eval_result_costs``. ``NULLIF(%s, 0)`` is what keeps a genuinely
+        cost-less trace's ``cost`` NULL rather than a misleading 0.
+        """
+        from worker.ingest_tasks import _update_eval_result_costs
+
+        # Both traces are eval results (the scoping query returns both); only
+        # "t-costed" has any non-scorer LLM cost, "t-zero" has none.
+        cursor = FakeCursor(fetchall_result=[("t-costed",), ("t-zero",)])
+        conn = self._patch_connect(monkeypatch, cursor)
+
+        mock_ch = MagicMock()
+        mock_ch.query.return_value = MagicMock(
+            result_rows=[
+                ("t-costed", "task", "root", "TASK", None),
+                ("t-costed", "llm", "task", "LLM", 0.02),
+                ("t-zero", "task", "root", "TASK", None),
+            ]
+        )
+
+        _update_eval_result_costs("proj-1", {"t-costed", "t-zero"}, mock_ch)
+
+        updates = [
+            (sql, params) for sql, params in cursor.executed if sql.strip().startswith("UPDATE")
+        ]
+        assert len(updates) == 2
+        by_trace = {params[2]: (sql, params) for sql, params in updates}
+        assert set(by_trace) == {"t-costed", "t-zero"}
+        for sql, _ in updates:
+            assert "evaluation_results" in sql
+            # NULLIF is what makes the unconditional write safe for a cost-less trace.
+            assert "NULLIF" in sql
+        assert by_trace["t-costed"][1] == (pytest.approx(0.02), "proj-1", "t-costed")
+        assert by_trace["t-zero"][1] == (pytest.approx(0.0), "proj-1", "t-zero")
+        assert conn.committed is True
+        assert conn.closed is True
+
+    def test_no_eval_trace_ids_skips_clickhouse_and_updates(self, monkeypatch):
+        """The scoping query (trace_id must belong to `evaluation_results`) returning
+        nothing means the batch had no eval traces at all — bail before ever calling
+        ClickHouse or issuing an UPDATE."""
+        from worker.ingest_tasks import _update_eval_result_costs
+
+        cursor = FakeCursor(fetchall_result=[])
+        self._patch_connect(monkeypatch, cursor)
+        mock_ch = MagicMock()
+
+        _update_eval_result_costs("proj-1", {"t-not-an-eval"}, mock_ch)
+
+        mock_ch.query.assert_not_called()
+        assert not any(sql.strip().startswith("UPDATE") for sql, _ in cursor.executed)
