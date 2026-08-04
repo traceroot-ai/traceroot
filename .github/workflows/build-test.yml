@@ -54,6 +54,9 @@ jobs:
       - name: Build @traceroot/agent
         run: cd frontend/packages/agent && pnpm build
 
+      - name: Build tools package
+        run: cd frontend/packages/tools && pnpm build
+
       - name: Build traceroot-worker (billing)
         run: cd frontend/worker && pnpm build
 
