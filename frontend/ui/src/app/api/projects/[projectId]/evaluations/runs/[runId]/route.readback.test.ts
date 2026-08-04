@@ -199,10 +199,10 @@ describe("run/result read-back", () => {
     expect(run.baselineRunId).toBe("run0");
     expect(run.baselineComparable).toBe(true);
     // NOT the raw run.mainScore subtraction (0.9 - 0.75 = 0.15): case-2's candidate
-    // task errored (no routing-accuracy score), so it is excluded from the paired
+    // task errored (no routing-accuracy score), so it's excluded from the paired
     // aggregate. The only actually-comparable case is case-1 (candidate 1 vs
-    // baseline 0.5), so the trustworthy headline delta is 0.5 — derived the same way
-    // as every per-scorer aggregate, never a subtraction of the two runs' raw
+    // baseline 0.5), so the trustworthy headline delta is 0.5, derived the same way
+    // as every per-scorer aggregate — never a subtraction of the two runs' raw
     // SDK-reported aggregates, which can silently cover different case sets.
     expect(run.changeFromBaseline).toBeCloseTo(0.5);
   });
@@ -282,9 +282,11 @@ describe("run/result read-back", () => {
     const run = (await read()).body.run as Record<string, unknown>;
     expect(run.baselineComparable).toBe(false);
     expect(run.changeFromBaseline).toBeNull();
-    expect((run.comparison as { reasons: string[] }).reasons).toContain(
-      "different_dataset_version",
-    );
+    const cmp = run.comparison as { reasons: string[]; state: string };
+    expect(cmp.reasons).toContain("different_dataset_version");
+    // Computed but non-authoritative → the explicit `exploratory` state, distinct on
+    // the wire from a still-running `pending` comparison.
+    expect(cmp.state).toBe("exploratory");
   });
 
   it("404s an unknown run", async () => {
