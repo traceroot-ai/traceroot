@@ -211,6 +211,8 @@ export function useEvaluationRuns(
     dataset_id?: string;
     status?: string;
     search_query?: string;
+    started_after?: string;
+    started_before?: string;
     page?: number;
     limit?: number;
   } = {},
@@ -220,6 +222,8 @@ export function useEvaluationRuns(
   if (query.dataset_id) params.set("dataset_id", query.dataset_id);
   if (query.status) params.set("status", query.status);
   if (query.search_query) params.set("search_query", query.search_query);
+  if (query.started_after) params.set("started_after", query.started_after);
+  if (query.started_before) params.set("started_before", query.started_before);
   if (query.page !== undefined) params.set("page", String(query.page));
   if (query.limit !== undefined) params.set("limit", String(query.limit));
   const qs = params.toString();
@@ -232,6 +236,8 @@ export function useEvaluationRuns(
       query.dataset_id ?? null,
       query.status ?? null,
       query.search_query ?? null,
+      query.started_after ?? null,
+      query.started_before ?? null,
       query.page ?? 0,
       query.limit ?? null,
     ],

@@ -470,10 +470,12 @@ function RunsTab({ projectId }: { projectId: string }) {
   const { data: datasetsData } = useDatasets(projectId, { limit: 200 });
   // Resolve the selected range to actual bounds and send them to the query — the date
   // control was previously read for display only, so it never narrowed the runs list.
-  const { startAfter, endBefore } = toTimestampBounds(
-    dateFilter.id,
-    customStart ?? undefined,
-    customEnd ?? undefined,
+  // Memoized on the filter/custom-range inputs: `toTimestampBounds` reads `new Date()`
+  // for preset windows, so recomputing every render would churn the query key (a fresh
+  // millisecond bound each time) and refetch forever.
+  const { startAfter, endBefore } = React.useMemo(
+    () => toTimestampBounds(dateFilter.id, customStart ?? undefined, customEnd ?? undefined),
+    [dateFilter.id, customStart, customEnd],
   );
   const { data, isLoading, error } = useEvaluationRuns(projectId, {
     evaluation_id: scopedEvalId ?? undefined,
