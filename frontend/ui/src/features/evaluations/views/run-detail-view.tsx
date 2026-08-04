@@ -859,6 +859,19 @@ function RunBody({
   const [reproduceOpen, setReproduceOpen] = React.useState(false);
   const comparing = !!compareByCase;
   const cmp = compareData?.comparison ?? null;
+  // Headline deltas vs the baseline, shown only when the comparison is usable. Main
+  // score is the trustworthy backend delta; duration is this run's wall-clock minus the
+  // baseline's (the same metric the Duration stat shows), not the mean-case delta.
+  const headlineComparison: HeadlineComparison | null =
+    comparing && cmp && cmp.state !== "unavailable"
+      ? {
+          mainScoreDelta: cmp.mainScore.delta,
+          elapsedDeltaMs:
+            run.elapsedMs !== null && compareData?.baseline.elapsedMs != null
+              ? run.elapsedMs - compareData.baseline.elapsedMs
+              : null,
+        }
+      : null;
 
   // This evaluation's other runs, to pick a comparison baseline from. `run` is always
   // loaded here (RunBody only mounts once the run-detail fetch resolves), so this never
@@ -1058,6 +1071,7 @@ function RunBody({
             run={run}
             results={results}
             comparing={comparing}
+            comparison={headlineComparison}
             compareByCase={compareByCase}
             filter={filter}
             onFilterChange={onFilterChange}
@@ -1182,7 +1196,49 @@ const NO_COMPARE = "__none__";
  * render "—", never a fabricated 0 — the run may simply not have reported a cost,
  * or may still be running (no `elapsedMs` yet).
  */
-function HeadlineMetrics({ run }: { run: RunDetail }) {
+/** Headline deltas vs the compared baseline. Only the metrics whose baseline the
+ *  compare response actually carries: the trustworthy main-score delta and the
+ *  wall-clock duration delta. Pass rate and cost have no baseline in that payload,
+ *  so they show absolutes even while comparing (an honest gap, not a fabricated 0). */
+interface HeadlineComparison {
+  mainScoreDelta: number | null;
+  elapsedDeltaMs: number | null;
+}
+
+/** Signed delta beside a headline stat when comparing. `goodWhenPositive` flips the
+ *  sentiment: a higher score is good, a longer duration is bad. */
+function HeadlineDelta({
+  positive,
+  goodWhenPositive,
+  children,
+}: {
+  positive: boolean;
+  goodWhenPositive: boolean;
+  children: React.ReactNode;
+}) {
+  const good = positive === goodWhenPositive;
+  return (
+    <span
+      className={cn(
+        "ml-1.5 text-[11px] font-normal",
+        good ? SENTIMENT_CLASS.good : SENTIMENT_CLASS.bad,
+      )}
+    >
+      {positive ? "+" : "−"}
+      {children}
+    </span>
+  );
+}
+
+function HeadlineMetrics({
+  run,
+  comparison,
+}: {
+  run: RunDetail;
+  comparison: HeadlineComparison | null;
+}) {
+  const scoreDelta = comparison?.mainScoreDelta ?? null;
+  const elapsedDelta = comparison?.elapsedDeltaMs ?? null;
   return (
     <div className="flex flex-wrap items-center gap-6 border-b border-border px-3 py-2">
       <HeadlineStat label={run.mainScoreName ?? "Main score"}>
@@ -1190,6 +1246,11 @@ function HeadlineMetrics({ run }: { run: RunDetail }) {
           <span className="text-muted-foreground">—</span>
         ) : (
           pctFraction(run.mainScore)
+        )}
+        {scoreDelta !== null && scoreDelta !== 0 && (
+          <HeadlineDelta positive={scoreDelta > 0} goodWhenPositive>
+            {Math.abs(scoreDelta * 100).toFixed(1)}pp
+          </HeadlineDelta>
         )}
       </HeadlineStat>
       <HeadlineStat label="Pass rate">
@@ -1205,7 +1266,14 @@ function HeadlineMetrics({ run }: { run: RunDetail }) {
           `$${run.cost.toFixed(4)}`
         )}
       </HeadlineStat>
-      <HeadlineStat label="Duration">{fmtDurationMs(run.elapsedMs)}</HeadlineStat>
+      <HeadlineStat label="Duration">
+        {fmtDurationMs(run.elapsedMs)}
+        {elapsedDelta !== null && elapsedDelta !== 0 && (
+          <HeadlineDelta positive={elapsedDelta > 0} goodWhenPositive={false}>
+            {fmtDurationMs(Math.abs(elapsedDelta))}
+          </HeadlineDelta>
+        )}
+      </HeadlineStat>
       <HumanReviewHeadline hr={run.humanReview} />
     </div>
   );
@@ -1269,6 +1337,7 @@ function ResultsSection({
   run,
   results,
   comparing,
+  comparison,
   compareByCase,
   filter,
   onFilterChange,
@@ -1278,6 +1347,7 @@ function ResultsSection({
   run: RunDetail;
   results: ResultRow[];
   comparing: boolean;
+  comparison: HeadlineComparison | null;
   compareByCase: Map<string, CompareResultRow> | null;
   filter: ResultFilterId;
   onFilterChange: (filter: ResultFilterId) => void;
@@ -1321,7 +1391,7 @@ function ResultsSection({
       {/* Headline metrics for the run — rendered from the run itself, never from
           `results`, so they still show for an empty or fully-failing run (no
           per-case rows) rather than leaving this a blank strip above the table. */}
-      <HeadlineMetrics run={run} />
+      <HeadlineMetrics run={run} comparison={comparison} />
       {/* No date-range control here: every result in this table belongs to one run,
           so there is no time range to narrow — a date filter would render but
           filter nothing. */}

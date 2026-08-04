@@ -317,6 +317,10 @@ describe("run detail — compare with", () => {
     await pickCompare();
     expect(await screen.findByText(withText(/Comparing vs #26/))).toBeDefined();
     expect(screen.getByText(/1 improved/)).toBeDefined();
+    // The headline main-score stat gains its delta vs the baseline (candidate 1,
+    // baseline 0 → +100.0pp); the space-free "pp" distinguishes it from the per-case
+    // cell's "+100.0 pp".
+    expect(screen.getByText(withText(/\+100\.0pp/))).toBeDefined();
   });
 
   it("drives the results table diff cells vs the picked run", async () => {
