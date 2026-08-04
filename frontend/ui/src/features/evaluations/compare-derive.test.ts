@@ -8,6 +8,7 @@ import {
   type CaseFilterId,
 } from "./compare-derive";
 import type { CompareResultRow, RunComparison } from "./types";
+import { deriveComparisonState } from "@/lib/eval/comparison";
 
 function counts(p: Partial<RunComparison["caseCounts"]> = {}) {
   return {
@@ -21,7 +22,7 @@ function counts(p: Partial<RunComparison["caseCounts"]> = {}) {
   };
 }
 function comparison(p: Partial<RunComparison> = {}): RunComparison {
-  return {
+  const merged = {
     available: true,
     trustworthy: true,
     reasons: [],
@@ -33,6 +34,12 @@ function comparison(p: Partial<RunComparison> = {}): RunComparison {
     scorers: [],
     duration: { candidateMeanMs: null, baselineMeanMs: null, deltaMs: null, pairedCount: 0 },
     ...p,
+  } satisfies Omit<RunComparison, "state"> & Partial<Pick<RunComparison, "state">>;
+  // Keep `state` consistent with whatever available/trustworthy/reasons the test set,
+  // unless the test pinned it explicitly.
+  return {
+    ...merged,
+    state: p.state ?? deriveComparisonState(merged.available, merged.trustworthy, merged.reasons),
   };
 }
 

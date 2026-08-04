@@ -333,3 +333,73 @@ describe("SDK reporting: concurrent registration", () => {
     expect(new Set([aBody.run_number, bBody.run_number])).toEqual(new Set([1, 2]));
   });
 });
+
+describe("SDK reporting: run provenance", () => {
+  const PROVENANCE = {
+    git_repository: "github.com/acme/agent",
+    git_ref: "refs/heads/main",
+    git_commit: "4a91c02",
+    git_dirty: false,
+    ci_provider: "github-actions",
+    ci_build_id: "run-9182",
+    sdk_language: "python",
+    sdk_version: "0.4.1",
+    declared_model: "gpt-4o-2024-08-06",
+    declared_prompt_version: "router-v7",
+  };
+
+  it("persists structured provenance, kept distinct from free-form metadata", async () => {
+    const reg = await registerRun(
+      req({
+        evaluation_name: "Provenance eval",
+        dataset_id: "ds1",
+        candidate_version: "git:abc123",
+        provenance: PROVENANCE,
+        metadata: { experiment: "temp-sweep", note: "arbitrary user data" },
+      }),
+    );
+    expect(reg.status).toBe(201);
+    const runId = (await readJson(reg)).evaluation_run_id as string;
+    const run = fakePrisma.evaluationRun.rows.find((r) => r.id === runId)!;
+    // Typed provenance rides its own column, verbatim...
+    expect(run.provenance).toEqual(PROVENANCE);
+    // ...and is never conflated with the free-form metadata blob.
+    expect(run.metadata).toEqual({ experiment: "temp-sweep", note: "arbitrary user data" });
+    // The declared model lives in provenance — not inferred from candidate_version.
+    expect((run.provenance as Record<string, unknown>).declared_model).toBe("gpt-4o-2024-08-06");
+  });
+
+  it("registers with no provenance — absence stores null and never rejects", async () => {
+    const reg = await registerRun(
+      req({
+        evaluation_name: "No-provenance eval",
+        dataset_id: "ds1",
+        candidate_version: "git:abc123",
+      }),
+    );
+    expect(reg.status).toBe(201);
+    const runId = (await readJson(reg)).evaluation_run_id as string;
+    const run = fakePrisma.evaluationRun.rows.find((r) => r.id === runId)!;
+    expect(run.provenance ?? null).toBeNull();
+  });
+
+  it("accepts a partial provenance block — unreported fields stay absent, never invented", async () => {
+    const reg = await registerRun(
+      req({
+        evaluation_name: "Partial provenance eval",
+        dataset_id: "ds1",
+        candidate_version: "git:abc123",
+        provenance: { git_commit: "deadbeef", sdk_language: "typescript" },
+      }),
+    );
+    expect(reg.status).toBe(201);
+    const runId = (await readJson(reg)).evaluation_run_id as string;
+    const run = fakePrisma.evaluationRun.rows.find((r) => r.id === runId)!;
+    const prov = run.provenance as Record<string, unknown>;
+    expect(prov.git_commit).toBe("deadbeef");
+    expect(prov.sdk_language).toBe("typescript");
+    // Fields the SDK didn't report are absent — not defaulted, not inferred.
+    expect(prov.declared_model ?? null).toBeNull();
+    expect(prov.ci_provider ?? null).toBeNull();
+  });
+});

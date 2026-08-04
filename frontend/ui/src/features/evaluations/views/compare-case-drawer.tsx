@@ -127,6 +127,30 @@ function tokenText(u: TraceUsage): string {
   return u.task.totalTokens.toLocaleString("en-US");
 }
 
+// Evaluation-judge (scorer subtree) tokens — the cost of GRADING, kept apart from the
+// candidate's task tokens so it never enters the candidate verdict. "None" is a proven
+// zero (a trace with no judge usage), distinct from pending/unknown.
+function overheadTokenText(u: TraceUsage): string {
+  if (u.state === "pending") return "Pending";
+  if (u.state === "unknown") return "Unknown";
+  if (u.scorer.spanCount === 0) return "None";
+  return u.scorer.totalTokens.toLocaleString("en-US");
+}
+
+/** Distinct OBSERVED models in a bucket — measured from the trace, never inferred from
+ *  a candidate label. Em dash when the trace reported none. */
+function modelsText(u: TraceUsage, bucket: "task" | "scorer"): string {
+  if (u.state === "pending") return "Pending";
+  const models = u[bucket].models;
+  return models.length > 0 ? models.join(", ") : "—";
+}
+
+/** True once either side's trace has real usage — gates the judge/model rows so they
+ *  don't render a wall of "Unknown" before any trace has loaded. */
+function anyUsagePresent(a: TraceUsage, b: TraceUsage): boolean {
+  return a.state === "present" || b.state === "present";
+}
+
 /**
  * Selected-case diagnosis drawer: context, Baseline|Candidate outputs, per-scorer
  * breakdown with explanations, operational metrics (duration server-derived; cost
@@ -304,13 +328,39 @@ export function CompareCaseDrawer({
             }
           />
           <OpMetric
-            label="Tokens (trace)"
+            label="Candidate tokens"
             value={
               <span>
                 {tokenText(baseUsage)} → {tokenText(candUsage)}
               </span>
             }
           />
+          {/* The judge's own token cost — reported, but explicitly separate from the
+              candidate above so it never colours the candidate verdict. */}
+          {anyUsagePresent(baseUsage, candUsage) &&
+            (baseUsage.scorer.spanCount > 0 || candUsage.scorer.spanCount > 0) && (
+              <OpMetric
+                label="Evaluation overhead"
+                value={
+                  <span className="text-muted-foreground">
+                    {overheadTokenText(baseUsage)} → {overheadTokenText(candUsage)}
+                    <span className="ml-1 text-[10px]">judge tokens</span>
+                  </span>
+                }
+              />
+            )}
+          {/* Observed candidate models — measured from each side's trace, kept distinct
+              from the run's declared model (which can differ). */}
+          {anyUsagePresent(baseUsage, candUsage) && (
+            <OpMetric
+              label="Observed model"
+              value={
+                <span>
+                  {modelsText(baseUsage, "task")} → {modelsText(candUsage, "task")}
+                </span>
+              }
+            />
+          )}
         </div>
 
         {/* Trace access (wired by the page) */}
