@@ -18,6 +18,9 @@ vi.mock("@/features/traces/hooks", () => ({
   }),
   usePrefetchTraces: () => prefetch,
   useTracesExist: () => ({ data: { exists: true }, isPending: false }),
+  // The page also mounts the offline-eval save drawer, which reads per-span I/O.
+  // Nothing here exercises it, so it stays unresolved.
+  useSpanIO: () => ({ data: undefined }),
 }));
 vi.mock("@/lib/hooks/use-list-page-state", () => ({
   useListPageState: () => ({
