@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { render, cleanup, screen } from "@testing-library/react";
+import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => ({
   projectData: undefined as { workspace_id: string } | undefined,
@@ -76,5 +76,15 @@ describe("AiAssistantPanel", () => {
 
     const link = screen.getByRole("link", { name: /Workspace Settings.*Model Providers/i });
     expect(link.getAttribute("href")).toBe("/workspaces/ws-abc/settings/model-providers");
+  });
+
+  it("renders the Close button in the default rail variant", () => {
+    const { container } = render(<AiAssistantPanel projectId="proj-1" onClose={mocks.onClose} />);
+
+    // The Close button is the only header control rendering an X icon.
+    const closeButton = container.querySelector("svg.lucide-x")?.closest("button");
+    expect(closeButton).not.toBeNull();
+    fireEvent.click(closeButton!);
+    expect(mocks.onClose).toHaveBeenCalledTimes(1);
   });
 });

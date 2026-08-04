@@ -20,6 +20,14 @@ interface AiAssistantPanelProps {
    * project-wide right rail used in AppLayout.
    */
   compact?: boolean;
+  /**
+   * Placement variant. `rail` (default) is the side-panel chrome used by the
+   * right rail and the viewer panels: left border, Close button. `page` is the
+   * full-page Home placement: a centered max-width column with no Close button
+   * (the page owns the panel; there is nothing to close). Everything else —
+   * header controls, model gate, messages, input — is identical.
+   */
+  variant?: "rail" | "page";
 }
 
 /**
@@ -32,7 +40,16 @@ interface AiAssistantPanelProps {
  * provider above survives all of these mount/unmount cycles, so chat history
  * and stream state persist across host transitions (#784 decoupling).
  */
-export function AiAssistantPanel({ projectId, onClose, compact = false }: AiAssistantPanelProps) {
+export function AiAssistantPanel({
+  projectId,
+  onClose,
+  compact = false,
+  variant = "rail",
+}: AiAssistantPanelProps) {
+  const rootCls =
+    variant === "page"
+      ? "mx-auto flex h-full w-full max-w-[900px] flex-col bg-background"
+      : "flex h-full flex-col border-l border-border bg-background";
   const headerCls = compact
     ? "flex h-10 items-center gap-1 border-b bg-muted/30 px-3"
     : "flex h-14 items-center gap-1 border-b px-3";
@@ -91,7 +108,7 @@ export function AiAssistantPanel({ projectId, onClose, compact = false }: AiAssi
   };
 
   return (
-    <div className="flex h-full flex-col border-l border-border bg-background">
+    <div className={rootCls}>
       {/* Header */}
       <div className={headerCls}>
         <Button
@@ -131,9 +148,11 @@ export function AiAssistantPanel({ projectId, onClose, compact = false }: AiAssi
           </PopoverContent>
         </Popover>
         <div className="flex-1" />
-        <Button variant="ghost" size="icon" className={btnCls} onClick={handleCloseClick}>
-          <X className={iconCls} />
-        </Button>
+        {variant === "rail" && (
+          <Button variant="ghost" size="icon" className={btnCls} onClick={handleCloseClick}>
+            <X className={iconCls} />
+          </Button>
+        )}
       </div>
 
       {/* Unsupported model warning */}
