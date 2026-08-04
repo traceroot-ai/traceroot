@@ -923,11 +923,12 @@ function RunBody({
               onValueChange={(v) => onCompareChange(v === NO_COMPARE ? null : v)}
             >
               <SelectTrigger
-                // Sized to its content and left-aligned so the icon and value stay
-                // adjacent (only the gap between them). The base trigger is
-                // justify-between, which would otherwise deal the trigger's spare width
-                // out between the icon and the value.
-                className="h-7 w-fit max-w-[240px] justify-start gap-1.5 text-[12px]"
+                // Left-aligned and content-sized so the icon and value stay adjacent.
+                // The value span must override the base `[&>span]:line-clamp-1` (which
+                // forces display:-webkit-box and mis-sizes as a flex item, leaving a gap
+                // when a long value truncates): make it a plain block that shrinks
+                // (`min-w-0`) and single-line-ellipsizes (`truncate`).
+                className="h-7 w-fit max-w-[240px] justify-start gap-1.5 text-[12px] [&>span]:min-w-0 [&>span]:!block [&>span]:truncate"
                 aria-label="Compare with"
               >
                 <GitCompare className="h-3.5 w-3.5 shrink-0" aria-hidden />
