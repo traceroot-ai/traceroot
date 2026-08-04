@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, cleanup, screen } from "@testing-library/react";
+import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => {
   const releaseAiHost = vi.fn();
@@ -127,5 +127,45 @@ describe("Home page", () => {
     const column = container.querySelector('[class*="max-w-[900px]"]');
     expect(column).not.toBeNull();
     expect(column!.className).toContain("mx-auto");
+  });
+
+  it("sends a starter prompt through the chat send path with the default model", () => {
+    mocks.projectData = { workspace_id: "ws-1" };
+    mocks.llmModels = {
+      systemModels: [
+        {
+          provider: "anthropic",
+          adapter: "anthropic",
+          source: "system",
+          models: [{ id: "model-a", label: "Model A" }],
+        },
+      ],
+      byokProviders: [],
+    };
+    render(<HomePage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Summarize today's sessions" }));
+    expect(mocks.handleSend).toHaveBeenCalledWith("Summarize today's sessions", {
+      model: "model-a",
+      provider: "anthropic",
+      source: "system",
+      adapter: "anthropic",
+    });
+  });
+
+  it("disables starter prompts until the model list has loaded", () => {
+    render(<HomePage />);
+    const chip = screen.getByRole("button", {
+      name: "Summarize today's sessions",
+    }) as HTMLButtonElement;
+    expect(chip.disabled).toBe(true);
+    fireEvent.click(chip);
+    expect(mocks.handleSend).not.toHaveBeenCalled();
+  });
+
+  it("hides the starter prompts once the conversation has messages", () => {
+    mocks.messages = [{ id: "m1", role: "user", content: "hi" }];
+    render(<HomePage />);
+    expect(screen.queryByRole("button", { name: "Summarize today's sessions" })).toBeNull();
   });
 });
