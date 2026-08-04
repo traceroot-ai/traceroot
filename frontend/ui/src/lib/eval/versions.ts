@@ -1,6 +1,12 @@
 import { prisma, type Prisma, type TestCase } from "@traceroot/core";
 import { randomUUID } from "crypto";
 
+/** Deterministic read order for a version's cases (see the ordering note where
+ *  it's used): every case a publish writes shares one `create_time` (Postgres'
+ *  `CURRENT_TIMESTAMP` default is the transaction start time), so `testCaseId`
+ *  breaks the tie and makes the order total instead of "whatever the plan does". */
+export const TEST_CASE_ORDER = [{ createTime: "asc" as const }, { testCaseId: "asc" as const }];
+
 /**
  * Dataset-version publishing — the immutability core.
  *
@@ -9,6 +15,9 @@ import { randomUUID } from "crypto";
  * cases (new row ids, same stable `testCaseId`) with the change applied, then
  * repoints `Dataset.currentVersionId`. Any run that pinned an older version
  * keeps reading exactly what it ran against.
+ *
+ * Concurrency: repointing the pointer is a compare-and-swap, not a read-then-write
+ * — see the `updateMany` at the end of `publishDatasetVersion`.
  */
 
 /** The persisted fields of a test case, minus row/version identity. */
@@ -71,7 +80,10 @@ export function newTestCaseId(): string {
  * pointer move together.
  */
 export async function publishDatasetVersion(opts: {
-  datasetId: string;
+  /** Server-side dataset id (session/UI routes). */
+  datasetId?: string;
+  /** SDK-chosen, project-scoped id (public routes) — resolved via resolvePublicDataset. */
+  clientDatasetId?: string;
   projectId: string;
   note?: string | null;
   createdBy?: string | null;
@@ -91,6 +103,7 @@ export async function publishDatasetVersion(opts: {
   idempotencyKey?: string | null;
   transform: (current: TestCaseSeed[]) => { cases: TestCaseSeed[]; focusTestCaseId: string };
 }): Promise<{
+  datasetId: string;
   versionId: string;
   versionNumber: number;
   focusTestCaseId: string;
@@ -98,21 +111,30 @@ export async function publishDatasetVersion(opts: {
   replayed: boolean;
 }> {
   return prisma.$transaction(async (tx) => {
-    const dataset = await tx.dataset.findFirst({
-      where: { id: opts.datasetId, projectId: opts.projectId },
-      select: { id: true, currentVersionId: true },
-    });
+    const dataset =
+      opts.clientDatasetId !== undefined
+        ? await resolvePublicDataset(tx, opts.projectId, opts.clientDatasetId)
+        : opts.datasetId
+          ? await tx.dataset.findFirst({
+              where: { id: opts.datasetId, projectId: opts.projectId },
+              select: { id: true, currentVersionId: true },
+            })
+          : (() => {
+              throw new Error("publishDatasetVersion needs a datasetId or a clientDatasetId");
+            })();
     if (!dataset) throw new DatasetNotFound();
+    const datasetId = dataset.id;
 
     // Idempotent replay: a publish already recorded for this key wins over the
     // conflict check below, so a network retry after success returns that version.
     if (opts.idempotencyKey) {
       const prior = await tx.datasetVersion.findFirst({
-        where: { datasetId: opts.datasetId, idempotencyKey: opts.idempotencyKey },
+        where: { datasetId, idempotencyKey: opts.idempotencyKey },
         select: { id: true, versionNumber: true },
       });
       if (prior) {
         return {
+          datasetId,
           versionId: prior.id,
           versionNumber: prior.versionNumber,
           focusTestCaseId: "",
@@ -133,14 +155,14 @@ export async function publishDatasetVersion(opts: {
     const current = dataset.currentVersionId
       ? await tx.testCase.findMany({
           where: { datasetVersionId: dataset.currentVersionId },
-          orderBy: { createTime: "asc" },
+          orderBy: TEST_CASE_ORDER,
         })
       : [];
 
     const { cases, focusTestCaseId } = opts.transform(current.map(toSeed));
 
     const last = await tx.datasetVersion.findFirst({
-      where: { datasetId: opts.datasetId },
+      where: { datasetId },
       orderBy: { versionNumber: "desc" },
       select: { versionNumber: true },
     });
@@ -148,7 +170,7 @@ export async function publishDatasetVersion(opts: {
 
     const version = await tx.datasetVersion.create({
       data: {
-        datasetId: opts.datasetId,
+        datasetId,
         projectId: opts.projectId,
         versionNumber,
         label: opts.label ?? `v${versionNumber}`,
@@ -167,27 +189,38 @@ export async function publishDatasetVersion(opts: {
           // brand-new case (no createTime on the seed) omits it and defaults to now.
           ...(createTime ? { createTime } : {}),
           datasetVersionId: version.id,
-          datasetId: opts.datasetId,
+          datasetId,
           projectId: opts.projectId,
         })),
       });
     }
 
-    // Conditional pointer move: repoint only if `currentVersionId` is still what we
-    // read at the top of this transaction. Under READ COMMITTED two concurrent
-    // publishes can both clear the `baseVersionId` check above and then both write
-    // here, silently dropping one update. Gating the write on the observed value makes
-    // the loser match zero rows, which we surface as a VersionConflict to retry —
-    // never a lost publish.
+    // Compare-and-swap, not a plain write: Postgres runs this transaction at READ
+    // COMMITTED with no lock on the dataset row, so two publishes that both read
+    // `currentVersionId = dataset.currentVersionId` above would otherwise both
+    // reach an unconditional update and race — the loser's version would be
+    // created and left the dataset's current pointer, with nothing to signal that
+    // its base was stale. Gating the write on the pointer still being what this
+    // publish read turns that race into a deliberate conflict instead.
     const moved = await tx.dataset.updateMany({
-      where: { id: opts.datasetId, currentVersionId: dataset.currentVersionId },
+      where: {
+        id: datasetId,
+        projectId: opts.projectId,
+        currentVersionId: dataset.currentVersionId,
+      },
       data: { currentVersionId: version.id },
     });
     if (moved.count === 0) {
-      throw new VersionConflict(dataset.currentVersionId ?? null);
+      const now = await tx.dataset.findFirst({
+        where: { id: datasetId },
+        select: { currentVersionId: true },
+      });
+      // Rolls the whole transaction back, so the losing version is never persisted.
+      throw new VersionConflict(now?.currentVersionId ?? null);
     }
 
     return {
+      datasetId,
       versionId: version.id,
       versionNumber,
       focusTestCaseId,
@@ -195,6 +228,24 @@ export async function publishDatasetVersion(opts: {
       replayed: false,
     };
   });
+}
+
+type DatasetReader = Pick<Prisma.TransactionClient, "dataset">;
+
+/**
+ * Resolve the id an SDK addresses a dataset by, always within the caller's project.
+ *
+ * Preference order is the project-scoped `clientDatasetId`, then the row id — the
+ * fallback keeps datasets created in the UI (which have no client id) addressable,
+ * without putting SDK-chosen ids back into a global keyspace where one tenant could
+ * squat another's names.
+ */
+export async function resolvePublicDataset(tx: DatasetReader, projectId: string, ref: string) {
+  const byClientId = await tx.dataset.findUnique({
+    where: { projectId_clientDatasetId: { projectId, clientDatasetId: ref } },
+  });
+  if (byClientId) return byClientId;
+  return tx.dataset.findFirst({ where: { id: ref, projectId } });
 }
 
 export class DatasetNotFound extends Error {
