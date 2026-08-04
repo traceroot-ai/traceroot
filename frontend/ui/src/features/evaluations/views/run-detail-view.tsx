@@ -924,15 +924,32 @@ function RunBody({
             >
               <SelectTrigger
                 // Left-aligned and content-sized so the icon and value stay adjacent.
-                // The value span must override the base `[&>span]:line-clamp-1` (which
-                // forces display:-webkit-box and mis-sizes as a flex item, leaving a gap
-                // when a long value truncates): make it a plain block that shrinks
-                // (`min-w-0`) and single-line-ellipsizes (`truncate`).
-                className="h-7 w-fit max-w-[240px] justify-start gap-1.5 text-[12px] [&>span]:min-w-0 [&>span]:!block [&>span]:truncate"
+                // The value is rendered here (not via SelectValue) as a flex row so the
+                // NAME truncates while the score stays pinned — SelectValue would clamp
+                // the whole string end-first and eat the score. `!flex` overrides the
+                // base `[&>span]:line-clamp-1` (display:-webkit-box), which would
+                // otherwise win on specificity and break the row.
+                className="h-7 w-fit max-w-[240px] justify-start gap-1.5 text-[12px] [&>span]:!flex [&>span]:min-w-0 [&>span]:items-center [&>span]:gap-1.5"
                 aria-label="Compare with"
               >
                 <GitCompare className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                <SelectValue placeholder="Compare with…" />
+                {(() => {
+                  const selected = compareId
+                    ? compareOptions.find((o) => o.id === compareId)
+                    : null;
+                  if (!selected)
+                    return <span className="text-muted-foreground">Compare with…</span>;
+                  return (
+                    <span>
+                      <span className="min-w-0 truncate">{selected.label}</span>
+                      {selected.score !== null && (
+                        <span className="shrink-0 tabular-nums text-muted-foreground">
+                          {pctFraction(selected.score)}
+                        </span>
+                      )}
+                    </span>
+                  );
+                })()}
               </SelectTrigger>
               <SelectContent>
                 {/* Clear option — only meaningful once a run is picked. */}
