@@ -48,6 +48,37 @@ export type RunComparabilityReason =
   | "baseline_not_terminal"
   | "main_scorer_incompatible";
 
+/**
+ * The four-state comparison discriminant, derived from `available`/`trustworthy`/
+ * `reasons` so a client never has to re-classify the reason vocabulary itself:
+ *  - `trustworthy`: paired, same evaluation, both terminal — an authoritative verdict.
+ *  - `exploratory`: computed but NON-authoritative (different evaluation / dataset
+ *    version, mismatched case set, incompatible main scorer). Shown for exploration,
+ *    never as an ordinary verdict.
+ *  - `pending`: a run is still running or was stopped early (not terminal).
+ *  - `unavailable`: there is no baseline to compare against.
+ */
+export type ComparisonState = "trustworthy" | "exploratory" | "pending" | "unavailable";
+
+const PENDING_REASONS: ReadonlySet<RunComparabilityReason> = new Set([
+  "candidate_not_terminal",
+  "baseline_not_terminal",
+]);
+
+/** Collapse available/trustworthy/reasons into the single non-overlapping state. */
+export function deriveComparisonState(
+  available: boolean,
+  trustworthy: boolean,
+  reasons: readonly RunComparabilityReason[],
+): ComparisonState {
+  if (!available) return "unavailable";
+  if (trustworthy) return "trustworthy";
+  // A non-terminal run is pending until it settles — even if it would also be
+  // incompatible once complete, "still running" is the more actionable state.
+  if (reasons.some((r) => PENDING_REASONS.has(r))) return "pending";
+  return "exploratory";
+}
+
 // ── Inputs (DB-shaped, decoupled from Prisma) ───────────────────────────
 
 export interface ComparisonScorerMeta {
@@ -165,6 +196,13 @@ export interface ResultComparison {
 export interface RunComparison {
   available: boolean;
   trustworthy: boolean;
+  /**
+   * Four-state discriminant derived from available/trustworthy/reasons. Clients
+   * should switch on this rather than re-deriving intent from `reasons`; in
+   * particular `exploratory` and `pending` are otherwise wire-identical
+   * (available:true, trustworthy:false).
+   */
+  state: ComparisonState;
   reasons: RunComparabilityReason[];
   baseline: { runId: string; runNumber: number; candidateVersion: string } | null;
   mainScore: { candidate: number | null; baseline: number | null; delta: number | null };
@@ -547,6 +585,7 @@ export function compareRuns(input: CompareRunsInput): CompareRunsOutput {
   const comparison: RunComparison = {
     available,
     trustworthy,
+    state: deriveComparisonState(available, trustworthy, reasons),
     reasons,
     baseline: baseline
       ? {
