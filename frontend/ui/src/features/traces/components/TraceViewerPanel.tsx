@@ -23,7 +23,6 @@ import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/componen
 import { getTrace } from "@/lib/api";
 import type { Span, TraceDetail } from "@/types/api";
 import { ApiError } from "@/lib/api/errors";
-import type { TraceDetail } from "@/types/api";
 import type { TraceSelection } from "../types";
 import { SpanTreeView, type SpanTreeViewHandle } from "./SpanTreeView";
 import { SpanInfoPanel } from "./SpanInfoPanel";
@@ -381,7 +380,7 @@ export function TraceViewerPanel({
         {/* ── MAIN HEADER ── */}
         <div className="flex h-12 items-center justify-between border-b border-border bg-muted/30 px-4">
           <div className="flex min-w-0 items-center gap-1.5">
-            <Workflow className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <DOMAIN_ICONS.trace className="h-4 w-4 shrink-0 text-muted-foreground" />
             <span className="shrink-0 text-sm font-medium">{headerIdentity?.label ?? "Trace"}</span>
             <span className="truncate font-mono text-xs text-muted-foreground">
               {headerIdentity?.value ?? traceId}

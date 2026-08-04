@@ -16,6 +16,9 @@ import {
   LayoutDashboard,
   LayoutGrid,
   Layers,
+  FlaskConical,
+  Play,
+  Ruler,
   Shapes,
   Sparkle,
   Users,
@@ -41,6 +44,10 @@ export const DOMAIN_ICONS = {
   agent: Bot,
   llm: Sparkle,
   tool: Wrench,
+  // Offline-eval span kinds, emitted by the SDK's eval engine.
+  evaluation: FlaskConical,
+  task: Play,
+  scorer: Ruler,
   // Default/generic span kind (anything that isn't trace/llm/agent/tool).
   span: ArrowRight,
   assistant: BotMessageSquare,

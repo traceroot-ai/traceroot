@@ -38,7 +38,6 @@ from datetime import UTC, datetime
 from typing import Any
 
 from shared.enums import EVALUATION_SPAN_KINDS, SpanKind, SpanStatus
-from shared.enums import SpanKind, SpanStatus
 from shared.span_attributes import SPAN_IDS_PATH, SPAN_PATH, SPAN_TREE_ATTRIBUTES
 
 logger = logging.getLogger(__name__)
