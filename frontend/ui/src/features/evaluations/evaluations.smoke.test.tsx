@@ -41,7 +41,7 @@ const RUN = {
   taskErrorCount: 1,
   scorerErrorCount: 1,
   scorers: [{ name: "routing-accuracy", version: "v3" }],
-  model: null,
+  provenance: null,
   startedAt: "2026-07-17T10:24:00Z",
   completedAt: "2026-07-17T10:30:00Z",
   evaluationName: "Billing routing",
@@ -54,6 +54,7 @@ const RUN = {
   comparison: {
     available: true,
     trustworthy: true,
+    state: "trustworthy",
     reasons: [],
     baseline: { runId: "run0", runNumber: 26, candidateVersion: "git:0000000" },
     mainScore: { candidate: 0.938, baseline: 0.714, delta: 0.224 },
@@ -87,7 +88,16 @@ const RUN = {
     ],
     duration: { candidateMeanMs: 1500, baselineMeanMs: 1400, deltaMs: 100, pairedCount: 22 },
   },
-};
+  humanReview: {
+    dimensions: [],
+    reviewedCount: 0,
+    pendingCount: 0,
+    passCount: 0,
+    failCount: 0,
+    disagreementCount: 0,
+  },
+  metadata: null,
+} satisfies RunDetail;
 
 const RESULT = {
   id: "res1",
