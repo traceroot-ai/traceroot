@@ -1411,12 +1411,10 @@ function ResultsSection({
                     selected={result.id === openResultId}
                     onClick={() => onOpen(result.id)}
                   >
-                    <Td className="max-w-[260px] truncate" title={result.input}>
-                      {result.input}
-                    </Td>
+                    <Td className="max-w-[260px] truncate">{result.input}</Td>
                     <Td className="max-w-[260px]">
                       <div className="flex min-w-0 items-center gap-1.5">
-                        <span className="truncate" title={result.candidateOutput ?? undefined}>
+                        <span className="truncate">
                           {result.candidateOutput ?? (
                             <span className="text-muted-foreground">No output</span>
                           )}
@@ -1431,10 +1429,7 @@ function ResultsSection({
                         )}
                       </div>
                     </Td>
-                    <Td
-                      className="max-w-[220px] truncate text-muted-foreground"
-                      title={result.expectedOutput ?? undefined}
-                    >
+                    <Td className="max-w-[220px] truncate text-muted-foreground">
                       {result.expectedOutput ?? "—"}
                     </Td>
                     <Td>
