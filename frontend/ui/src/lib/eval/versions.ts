@@ -33,6 +33,10 @@ export type TestCaseSeed = {
   sourceSpanId: string | null;
   sourceSpanName: string | null;
   sourceSpanKind: string | null;
+  /** Eval-result provenance (set when a case is saved from a result). Optional so
+   *  non-result cases omit it; `toSeed` carries it across version copies. */
+  sourceRunId?: string | null;
+  sourceResultId?: string | null;
   addedBy: string | null;
   /**
    * When this case was first created. Carried across version copies so an
@@ -56,6 +60,8 @@ function toSeed(c: TestCase): TestCaseSeed {
     sourceSpanId: c.sourceSpanId,
     sourceSpanName: c.sourceSpanName,
     sourceSpanKind: c.sourceSpanKind,
+    sourceRunId: c.sourceRunId,
+    sourceResultId: c.sourceResultId,
     addedBy: c.addedBy,
     createTime: c.createTime,
   };
