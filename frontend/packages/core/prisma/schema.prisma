@@ -523,6 +523,11 @@ model TestCase {
   sourceSpanId     String?  @map("source_span_id") @db.VarChar
   sourceSpanName   String?  @map("source_span_name") @db.VarChar
   sourceSpanKind   String?  @map("source_span_kind") @db.VarChar // "AGENT"|"LLM"|"TOOL"|"SPAN"|"trace"
+  // Provenance when a case is saved from an evaluation result: the run and result
+  // it was captured from. Distinct from trace/span provenance (a result also carries
+  // a trace id, but the run/result ids are the authoritative eval-side origin).
+  sourceRunId      String?  @map("source_run_id") @db.VarChar
+  sourceResultId   String?  @map("source_result_id") @db.VarChar
   addedBy          String?  @map("added_by") @db.VarChar
   createTime       DateTime @default(now()) @map("create_time") @db.Timestamp(6)
 
@@ -577,8 +582,8 @@ model EvaluationRun {
   taskErrorCount   Int       @default(0) @map("task_error_count")
   scorerErrorCount Int       @default(0) @map("scorer_error_count")
   scorers          Json?     @map("scorers") @db.JsonB // [{name, version, value_type?, direction?, threshold?}]
-  model            String?   @db.VarChar
-  metadata         Json?     @map("metadata") @db.JsonB // structured run provenance (model, prompt, config, git)
+  provenance       Json?     @map("provenance") @db.JsonB // typed execution provenance: git/ci/sdk identity + declared candidate model/prompt
+  metadata         Json?     @map("metadata") @db.JsonB // free-form user run metadata (arbitrary key/values, kept verbatim)
   clientRunId      String?   @map("client_run_id") @db.VarChar // SDK idempotency key
   startedAt        DateTime  @default(now()) @map("started_at") @db.Timestamp(6)
   completedAt      DateTime? @map("completed_at") @db.Timestamp(6)
