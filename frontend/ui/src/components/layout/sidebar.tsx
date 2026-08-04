@@ -9,6 +9,7 @@ import {
   LifeBuoy,
   ChevronRight,
   Github,
+  House,
   Sun,
   Moon,
   Monitor,
@@ -138,6 +139,26 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
           {projectId ? (
             // Project context navigation
             <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link
+                    href={`/projects/${projectId}/home`}
+                    className={cn(
+                      "flex items-center gap-2 py-2 text-[13px] transition-colors",
+                      collapsed ? "justify-center px-2" : "px-3",
+                      pathname.includes("/home") ? "bg-muted" : "hover:bg-muted/50",
+                    )}
+                  >
+                    <House className="h-3.5 w-3.5 shrink-0" />
+                    {!collapsed && "Home"}
+                  </Link>
+                </TooltipTrigger>
+                {collapsed && (
+                  <TooltipContent side="right" sideOffset={16}>
+                    Home
+                  </TooltipContent>
+                )}
+              </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Link
