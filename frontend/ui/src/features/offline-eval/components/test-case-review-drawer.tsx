@@ -11,7 +11,19 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import { ValueBlock } from "./code";
 import type { ReviewStatus } from "../types";
+
+/** JSON I/O is shown structured (so ValueBlock's format toggle works); plain text stays
+ *  a string. Mirrors how the save-as-test-case drawer presents the same fields. */
+function parsedValue(raw: string | null): unknown {
+  if (raw === null) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+}
 
 /**
  * Review test case — the server-wired review drawer. Submitting persists
@@ -85,25 +97,29 @@ export function TestCaseReviewDrawer({
             (Pass / Fail / quality) happens elsewhere.
           </p>
 
-          <div>
-            <p className="mb-1 text-[11px] text-muted-foreground">Input</p>
-            <div className="rounded border border-border bg-muted/20 px-2.5 py-2 leading-relaxed">
-              {target.input || <span className="text-muted-foreground">—</span>}
+          {target.input ? (
+            <ValueBlock label="Input" value={parsedValue(target.input)} />
+          ) : (
+            <div>
+              <p className="mb-1 text-[11px] text-muted-foreground">Input</p>
+              <div className="rounded border border-border bg-muted/20 px-2.5 py-2 leading-relaxed">
+                <span className="text-muted-foreground">—</span>
+              </div>
             </div>
-          </div>
+          )}
 
-          <div>
-            <p className="mb-1 text-[11px] text-muted-foreground">Expected outcome</p>
-            <div className="rounded border border-border bg-muted/20 px-2.5 py-2 leading-relaxed">
-              {target.expected ? (
-                target.expected
-              ) : (
+          {target.expected ? (
+            <ValueBlock label="Expected outcome" value={parsedValue(target.expected)} />
+          ) : (
+            <div>
+              <p className="mb-1 text-[11px] text-muted-foreground">Expected outcome</p>
+              <div className="rounded border border-border bg-muted/20 px-2.5 py-2 leading-relaxed">
                 <span className="text-muted-foreground">
                   Not required — a scorer judges the output directly.
                 </span>
-              )}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="h-px bg-border" />
 

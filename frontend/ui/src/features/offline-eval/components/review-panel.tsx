@@ -13,7 +13,19 @@ import {
 } from "@/components/ui/drawer";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
+import { ValueBlock } from "./code";
 import { HUMAN_VERDICT_LABEL, type HumanReview, type HumanVerdict } from "../types";
+
+/** JSON I/O is shown structured (so ValueBlock's format toggle works); plain text stays
+ *  a string. Mirrors how the save-as-test-case drawer presents the same fields. */
+function parsedValue(raw: string | null): unknown {
+  if (raw === null) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return raw;
+  }
+}
 
 /**
  * Human review — the essential human-scoring step, and the one thing a person
@@ -127,21 +139,17 @@ export function ReviewPanel({
         </DrawerHeader>
 
         <DrawerBody className="flex flex-col gap-4 text-[12px]">
-          <Block label="What was asked">
-            <p className="leading-relaxed">{target.input}</p>
-          </Block>
-          <Block label="What the app produced">
-            <p className="leading-relaxed">{target.output}</p>
-          </Block>
-          <Block label="Expected output">
-            {target.expected ? (
-              <p className="leading-relaxed">{target.expected}</p>
-            ) : (
+          <ValueBlock label="Input" value={parsedValue(target.input)} />
+          <ValueBlock label="Output" value={parsedValue(target.output)} />
+          {target.expected ? (
+            <ValueBlock label="Expected" value={parsedValue(target.expected)} />
+          ) : (
+            <Block label="Expected">
               <p className="text-muted-foreground">
                 Not required — a scorer judges the output directly.
               </p>
-            )}
-          </Block>
+            </Block>
+          )}
 
           {target.autoScores.length > 0 && (
             <Block label="Automatic scores">
