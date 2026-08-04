@@ -60,18 +60,54 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
             _avg: { mainScore: true },
             _count: { mainScore: true },
           }),
-          // Cost and duration live per case, so the lineage totals sum the results.
-          // `durationMs` is summed case time, matching how the runs list derives an
-          // in-flight run's elapsed — not wall clock, which would count idle gaps.
+          // Cost lives per case, so the lineage total sums the results.
           prisma.evaluationResult.groupBy({
             by: ["evaluationId"],
             where: { projectId, evaluationId: { in: evaluationIds } },
-            _sum: { cost: true, durationMs: true },
+            _sum: { cost: true },
           }),
         ])
       : [[], []];
   const runAggByEvaluation = new Map(runAggregates.map((a) => [a.evaluationId, a]));
   const resultAggByEvaluation = new Map(resultAggregates.map((a) => [a.evaluationId, a]));
+
+  // Duration total sums each run's wall-clock elapsed (completedAt − startedAt) — the
+  // same value the runs list shows per run — so the per-run durations in the run table
+  // add up to this lineage total. A run still in flight (or a rare clock-skewed
+  // completion) falls back to the span of its cases' durations, exactly as the list does.
+  const wallClockMs = (startedAt: Date, completedAt: Date | null): number | null => {
+    if (!completedAt) return null;
+    const ms = completedAt.getTime() - startedAt.getTime();
+    return ms >= 0 ? ms : null;
+  };
+  const runsForDuration =
+    evaluationIds.length > 0
+      ? await prisma.evaluationRun.findMany({
+          where: { projectId, evaluationId: { in: evaluationIds } },
+          select: { id: true, evaluationId: true, startedAt: true, completedAt: true },
+        })
+      : [];
+  const fallbackRunIds = runsForDuration
+    .filter((r) => wallClockMs(r.startedAt, r.completedAt) === null)
+    .map((r) => r.id);
+  const caseDurationByRun = new Map<string, number | null>();
+  if (fallbackRunIds.length > 0) {
+    const caseAgg = await prisma.evaluationResult.groupBy({
+      by: ["runId"],
+      where: { projectId, runId: { in: fallbackRunIds } },
+      _sum: { durationMs: true },
+    });
+    for (const c of caseAgg) caseDurationByRun.set(c.runId, c._sum.durationMs);
+  }
+  const durationByEvaluation = new Map<string, number>();
+  for (const r of runsForDuration) {
+    const elapsed = wallClockMs(r.startedAt, r.completedAt) ?? caseDurationByRun.get(r.id) ?? null;
+    if (elapsed === null) continue;
+    durationByEvaluation.set(
+      r.evaluationId,
+      (durationByEvaluation.get(r.evaluationId) ?? 0) + elapsed,
+    );
+  }
 
   const data = evaluations.map((e) => {
     const latestRun = e.runs[0] ?? null;
@@ -88,7 +124,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
         // Null rather than 0 when no run in the lineage was ever scored.
         averageMainScore: runAgg?._avg.mainScore ?? null,
         totalCost: resultAgg?._sum.cost ?? null,
-        totalDurationMs: resultAgg?._sum.durationMs ?? null,
+        totalDurationMs: durationByEvaluation.get(e.id) ?? null,
         // Latest by the same run ordering the list already uses (startedAt desc).
         latestStatus: latestRun?.status ?? null,
         latestStartedAt: latestRun?.startedAt ?? null,
