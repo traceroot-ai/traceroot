@@ -17,8 +17,8 @@ type RouteParams = { params: Promise<{ projectId: string; runId: string }> };
 // have thousands of cases, each carrying several @db.Text columns plus per-scorer rows.
 // Capping keeps a single request's query size and response payload bounded; `resultsTruncated`
 // tells the caller when they are looking at a partial view. This is a stopgap, not real
-// pagination — see the finding this addresses for the fuller fix (page `results`, keep the
-// aggregate `comparison` over the full set).
+// pagination; a fuller approach would page `results` while keeping the aggregate
+// `comparison` computed over the full set.
 const MAX_RUN_DETAIL_RESULTS = 1000;
 
 function elapsedMs(startedAt: Date, completedAt: Date | null): number | null {
