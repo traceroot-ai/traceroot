@@ -261,6 +261,27 @@ describe("lineage resolution", () => {
   });
 });
 
+describe("dataset resolution", () => {
+  it("resolves a dataset by its internal id, the same way GET /datasets/{id} does", async () => {
+    // pull_dataset resolves an internal id via resolvePublicDataset's PK fallback and
+    // stamps it back, so register must resolve identically — a strict client-id-only
+    // lookup would 404 an id that pull just accepted (e.g. an internal id from the UI).
+    db.rows.dataset.push({
+      id: "cmse_internal_pk",
+      clientDatasetId: "regression",
+      projectId: PROJECT_ID,
+      currentVersionId: "dv_reg",
+    });
+    db.rows.datasetVersion.push({ id: "dv_reg", datasetId: "cmse_internal_pk", projectId: PROJECT_ID });
+
+    const res = await POST(post(body({ dataset_id: "cmse_internal_pk" })));
+
+    expect(res.status).toBe(201);
+    expect(db.rows.evaluationRun[0].datasetId).toBe("cmse_internal_pk");
+    expect(db.rows.evaluationRun[0].datasetVersionId).toBe("dv_reg");
+  });
+});
+
 describe("run_number allocation", () => {
   it("reallocates instead of duplicating when a concurrent run takes the number", async () => {
     const seeded = await POST(post(body()));
