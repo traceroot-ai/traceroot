@@ -6,30 +6,26 @@ import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
- * Right-anchored drawer for multi-step flows.
+ * Right-anchored, NON-MODAL slide-in panel for multi-step flows.
  *
  * Built on @radix-ui/react-dialog (already a dependency) rather than adding
- * `vaul`: this reuses Radix's focus trap, scroll lock, and Escape handling.
- * It differs from ui/dialog.tsx only in placement and sizing, so it lives
- * beside it instead of overloading DialogContent with a side variant.
+ * `vaul`: this reuses Radix's Escape handling and a11y wiring. It is deliberately
+ * non-modal and backdrop-less so it reads as a side panel over a still-visible,
+ * still-interactive page — the same treatment as the hand-built "Save as test
+ * case" panel — rather than a dialog that greys the page out. It differs from
+ * ui/dialog.tsx only in placement, sizing, and modality, so it lives beside it
+ * instead of overloading DialogContent with a side variant.
  */
 
-const Drawer = DialogPrimitive.Root;
+const Drawer = ({
+  modal = false,
+  ...props
+}: React.ComponentProps<typeof DialogPrimitive.Root>) => (
+  <DialogPrimitive.Root modal={modal} {...props} />
+);
 const DrawerTrigger = DialogPrimitive.Trigger;
 const DrawerClose = DialogPrimitive.Close;
 const DrawerPortal = DialogPrimitive.Portal;
-
-const DrawerOverlay = React.forwardRef<
-  React.ElementRef<typeof DialogPrimitive.Overlay>,
-  React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>
->(({ className, ...props }, ref) => (
-  <DialogPrimitive.Overlay
-    ref={ref}
-    className={cn("fixed inset-0 z-50 bg-black/50", className)}
-    {...props}
-  />
-));
-DrawerOverlay.displayName = "DrawerOverlay";
 
 export interface DrawerContentProps extends React.ComponentPropsWithoutRef<
   typeof DialogPrimitive.Content
@@ -43,11 +39,14 @@ const DrawerContent = React.forwardRef<
   DrawerContentProps
 >(({ className, children, width = "w-[720px]", ...props }, ref) => (
   <DrawerPortal>
-    <DrawerOverlay />
     <DialogPrimitive.Content
       ref={ref}
+      // Non-modal: a click on the page behind interacts with it (and never closes
+      // this panel) — it closes only via Escape or the X, matching the "Save as test
+      // case" panel. No overlay is rendered, so the page is never greyed out.
+      onInteractOutside={(e) => e.preventDefault()}
       className={cn(
-        "fixed inset-y-0 right-0 z-50 flex max-w-[96vw] flex-col border-l bg-background shadow-lg",
+        "animate-slide-in-right fixed inset-y-0 right-0 z-50 flex max-w-[96vw] flex-col border-l border-border bg-background shadow-xl",
         "focus:outline-none",
         width,
         className,
@@ -116,7 +115,6 @@ export {
   DrawerTrigger,
   DrawerClose,
   DrawerPortal,
-  DrawerOverlay,
   DrawerContent,
   DrawerHeader,
   DrawerBody,

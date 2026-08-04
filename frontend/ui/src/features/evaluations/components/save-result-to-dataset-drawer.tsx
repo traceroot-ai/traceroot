@@ -179,7 +179,7 @@ export function SaveResultToDatasetDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent width="sm:max-w-lg">
+      <DrawerContent width="w-[560px]">
         <DrawerHeader>
           <DrawerTitle className="flex items-center gap-2">
             <Database className="h-4 w-4 text-muted-foreground" aria-hidden />
