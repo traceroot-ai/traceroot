@@ -33,15 +33,24 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   });
   if (!result) return errorResponse("Evaluation result not found", 404);
 
-  const humanScore = await prisma.humanScore.create({
-    data: {
-      resultId,
-      projectId,
-      verdict: parsed.data.verdict,
-      quality: parsed.data.quality ?? null,
-      comment: parsed.data.comment ?? null,
-      reviewer: parsed.data.reviewer,
-    },
+  // The authenticated session identity is authoritative, never the request body —
+  // otherwise any MEMBER could attribute a human score to someone else.
+  const reviewer = authResult.user.email ?? authResult.user.id;
+  const { dimension, verdict, quality, comment } = parsed.data;
+  // One canonical review per (result, dimension): re-reviewing replaces in place.
+  // This never touches the automated score, comparison, or run status — human
+  // review is a separate, co-equal signal.
+  const fields = {
+    verdict,
+    quality: quality ?? null,
+    comment: comment ?? null,
+    reviewer,
+    status: "reviewed",
+  };
+  const humanScore = await prisma.humanScore.upsert({
+    where: { resultId_dimension: { resultId, dimension } },
+    create: { resultId, projectId, dimension, ...fields },
+    update: fields,
   });
   return successResponse({ humanScore }, 201);
 }

@@ -440,6 +440,8 @@ export type SaveResultToDatasetRequest = z.infer<typeof SaveResultToDatasetReque
 
 export const CreateHumanScoreRequestSchema = z
   .object({
+    /** Named review dimension; defaults to the single "overall" dimension. */
+    dimension: z.string().min(1).max(100).default("overall"),
     verdict: HumanVerdictSchema,
     quality: z.number().int().min(1).max(5).nullable().optional(),
     comment: z.string().max(5000).nullable().optional(),
