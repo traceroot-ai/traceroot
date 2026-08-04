@@ -28,6 +28,19 @@
             ],
             "title": "Main Score"
           },
+          "main_score_name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Main Score Name"
+          },
           "scored_count": {
             "anyOf": [
               {
@@ -987,6 +1000,16 @@
             ],
             "title": "Metadata"
           },
+          "provenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunProvenance"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "scorers": {
             "items": {
               "$ref": "#/components/schemas/ScorerRef"
@@ -1040,6 +1063,132 @@
           "run_url"
         ],
         "title": "RegisterRunResponse",
+        "type": "object"
+      },
+      "RunProvenance": {
+        "description": "Typed execution provenance (git/CI/SDK identity + declared candidate\nmodel/prompt). Mirrors ``RunProvenanceSchema`` on the Zod side. Every field is\noptional and reported by the SDK from what it can actually observe; unknown\nvalues are absent/null and never inferred. Distinct from free-form ``metadata``\nand never a substitute for the user-facing ``candidate_version`` label.",
+        "properties": {
+          "ci_build_id": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ci Build Id"
+          },
+          "ci_provider": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ci Provider"
+          },
+          "declared_model": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Declared Model"
+          },
+          "declared_prompt_version": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Declared Prompt Version"
+          },
+          "git_commit": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Git Commit"
+          },
+          "git_dirty": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Git Dirty"
+          },
+          "git_ref": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Git Ref"
+          },
+          "git_repository": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Git Repository"
+          },
+          "sdk_language": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sdk Language"
+          },
+          "sdk_version": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sdk Version"
+          }
+        },
+        "title": "RunProvenance",
         "type": "object"
       },
       "ScoreInput": {
