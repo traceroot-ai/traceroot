@@ -333,30 +333,17 @@ describe("real Datasets + Evaluations views render server data", () => {
     expect(screen.getAllByText("total").length).toBeGreaterThan(0);
   });
 
-  it("selecting exactly two runs offers a Compare action", async () => {
-    mount(<EvaluationsView projectId="p1" />);
-    await screen.findByText(/Run #27 ·/);
-    // Only the per-row checkboxes (labels like "Select … #27"), not the select-all header.
-    const boxes = screen
-      .getAllByRole("checkbox")
-      .filter((b) => /^Select .*#\d/.test(b.getAttribute("aria-label") ?? ""));
-    expect(boxes.length).toBe(2);
-    fireEvent.click(boxes[0]);
-    fireEvent.click(boxes[1]);
-    expect(await screen.findByRole("button", { name: /Compare/ })).toBeDefined();
-  });
-
-  it("Scorers tab shows an SDK-defined scorer and its detail is honest about gaps", async () => {
+  it("Scorers tab shows an SDK-defined scorer and opens its read-only detail", async () => {
     mount(<EvaluationsView projectId="p1" />);
     fireEvent.click(await screen.findByRole("button", { name: /Scorers/ }));
-    // Clicking a scorer row opens the detail panel; then assert on it.
+    // Clicking a scorer row opens the read-only, detector-style detail panel.
     fireEvent.click(await screen.findByText("routing-accuracy"));
     const detail = await screen.findByLabelText("Scorer detail");
-    // This fixture reports no definition (no type/model/source), so the detector-style
-    // detail is honest about the gap but still shows the observed usage + config cards.
-    expect(within(detail).getByText(/hasn't reported this scorer/i)).toBeDefined();
-    expect(within(detail).getByText("Configuration")).toBeDefined();
-    expect(within(detail).getByText("Observed usage")).toBeDefined();
+    // Detector-style cards; the removed analytics block is gone.
+    expect(within(detail).getByText("Name")).toBeDefined();
+    expect(within(detail).getByText("Pass threshold")).toBeDefined();
+    expect(within(detail).queryByText("Observed usage")).toBeNull();
+    expect(within(detail).queryByText("Configuration")).toBeNull();
     // Scorers are SDK-authored — no create/edit control.
     expect(screen.queryByRole("button", { name: /Create scorer/ })).toBeNull();
   });

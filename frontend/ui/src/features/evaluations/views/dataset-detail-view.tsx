@@ -7,7 +7,6 @@ import {
   ArrowDown,
   ArrowUp,
   ChevronRight,
-  Copy,
   Database,
   Expand,
   FileCode,
@@ -16,8 +15,6 @@ import {
   Plus,
   Shrink,
   SquareArrowOutUpRight,
-  Trash2,
-  Upload,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -29,13 +26,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TBody, THead, TR, TRHead, Td, Th } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast";
 import { useLayout } from "@/components/layout/app-layout";
 import { SearchFilterBar } from "@/components/search-filter-bar";
-import { DATE_FILTER_OPTIONS, type DateFilterOption } from "@/lib/date-filter";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { SpanKindIcon } from "@/features/traces";
 import { cn } from "@/lib/utils";
@@ -45,11 +40,7 @@ import {
   EvalPageHeader,
   ReviewBadge,
   EditableValueBlock,
-  SelectAllHeaderCell,
-  SelectRowCell,
   Timestamp,
-  UploadControl,
-  useRowSelection,
   TestCaseReviewDrawer,
   type TestCaseReviewTarget,
 } from "@/features/offline-eval/components";
@@ -60,6 +51,8 @@ import {
   caseDisplayId,
   datasetPullCode,
   datasetPullCodeTs,
+  datasetPullVersionCode,
+  datasetPullVersionCodeTs,
   truncate,
 } from "@/features/offline-eval/utils";
 import {
@@ -71,10 +64,6 @@ import {
 } from "../hooks";
 import type { TestCaseRow } from "../types";
 import { PullCodeDrawer, type PullOption } from "../components/pull-code-drawer";
-
-/** "Last 14 days" default, matching the traces/datasets lists. */
-const DEFAULT_DATE_FILTER =
-  DATE_FILTER_OPTIONS.find((o) => o.id === "14d") ?? DATE_FILTER_OPTIONS[0];
 
 /** A dash for the list; empty reads as a placeholder, not a blank cell. */
 function orDash(value: string | null): React.ReactNode {
@@ -103,7 +92,7 @@ function metadataPreview(metadata: unknown): React.ReactNode {
  * the server.
  *
  * Columns are Created · Input · Expected · Metadata (empty reads as "-"). New
- * row adds an empty test case; Import is a centered dialog. Selecting rows
+ * row adds an empty test case.
  * offers Duplicate, Add to dataset, and Delete, with an X to cancel. Focusing a
  * row slides in a panel from the right (the way a trace opens) showing the
  * input, expected, and metadata as editable value blocks. Editing publishes a
@@ -122,7 +111,11 @@ export function DatasetDetailView({
   // null = the current version. Selecting an older version loads its snapshot
   // (read-only — editing always branches from the current version).
   const [selectedVersionId, setSelectedVersionId] = React.useState<string | null>(null);
-  const { data, isLoading, error } = useDataset(projectId, datasetId, selectedVersionId);
+  const { data, isLoading, error, refetch, isFetching } = useDataset(
+    projectId,
+    datasetId,
+    selectedVersionId,
+  );
   const save = useSaveTestCase(projectId, datasetId);
   const update = useUpdateTestCase(projectId, datasetId);
 
@@ -143,20 +136,20 @@ export function DatasetDetailView({
   }, [searchParams, data]);
   const [reviewCaseId, setReviewCaseId] = React.useState<string | null>(null);
   const [keyword, setKeyword] = React.useState("");
-  const [caseDate, setCaseDate] = React.useState<DateFilterOption>(DEFAULT_DATE_FILTER);
-  const [caseStart, setCaseStart] = React.useState<Date | null>(null);
-  const [caseEnd, setCaseEnd] = React.useState<Date | null>(null);
   const [historyKeyword, setHistoryKeyword] = React.useState("");
-  const [historyDate, setHistoryDate] = React.useState<DateFilterOption>(DEFAULT_DATE_FILTER);
-  const [historyStart, setHistoryStart] = React.useState<Date | null>(null);
-  const [historyEnd, setHistoryEnd] = React.useState<Date | null>(null);
-  const [importOpen, setImportOpen] = React.useState(false);
   const [codeOpen, setCodeOpen] = React.useState(false);
 
   const dataset = data?.dataset ?? null;
   const versions = React.useMemo(() => data?.versions ?? [], [data]);
   const selectedVersion = data?.selectedVersion ?? null;
-  const isCurrentVersion = data?.isCurrentVersion ?? true;
+  // A freshly created dataset has no versions yet: `isCurrentVersion` computes
+  // to `undefined === null` -> false on the server, which would otherwise lock
+  // the page read-only before the first row can ever be added.
+  const hasVersions = versions.length > 0;
+  // While a newly-selected version is still loading, `data` reflects the PREVIOUS
+  // snapshot, so treat the page as non-current (read-only) until the fetch settles —
+  // otherwise a click mid-fetch would edit/publish against the wrong version.
+  const isCurrentVersion = (!hasVersions || (data?.isCurrentVersion ?? true)) && !isFetching;
   const allCases = React.useMemo(() => data?.testCases ?? [], [data]);
 
   const cases = React.useMemo(() => {
@@ -166,9 +159,6 @@ export function DatasetDetailView({
       (c) => c.input.toLowerCase().includes(q) || (c.expected ?? "").toLowerCase().includes(q),
     );
   }, [allCases, keyword]);
-
-  const caseIds = React.useMemo(() => cases.map((c) => c.id), [cases]);
-  const sel = useRowSelection(caseIds);
 
   const evaluations = useEvaluationRuns(projectId, { dataset_id: datasetId });
   const runs = React.useMemo(() => evaluations.data?.data ?? [], [evaluations.data]);
@@ -212,49 +202,15 @@ export function DatasetDetailView({
   const addEmptyRow = () => {
     save.mutate(
       { input: "", review: "needs_review", capture_reason: "manual" },
-      { onSuccess: () => toast({ title: "Empty row added", tone: "success" }) },
+      {
+        onSuccess: () => toast({ title: "Empty row added", tone: "success" }),
+        onError: (e) =>
+          toast({ title: "Could not add row", description: String(e), tone: "warning" }),
+      },
     );
   };
 
-  const duplicateSelected = async () => {
-    const chosen = cases.filter((c) => sel.has(c.id));
-    if (chosen.length === 0) return;
-    try {
-      // Sequential, NOT Promise.all: each duplicate publishes a new version off the
-      // PREVIOUS one. Firing them concurrently makes every publish copy the same
-      // pre-duplication snapshot, so all but one duplicate is dropped from the live
-      // dataset (and, with the publish CAS, the losers now conflict outright).
-      for (const c of chosen) {
-        await save.mutateAsync({
-          input: c.input,
-          expected: c.expected,
-          metadata: asRecord(c.metadata),
-          capture_reason: "manual",
-        });
-      }
-      toast({ title: `Duplicated ${chosen.length}`, tone: "success" });
-    } catch (e) {
-      toast({ title: "Could not duplicate", description: String(e), tone: "warning" });
-    }
-    sel.clear();
-  };
-
-  const addSelectedToDataset = () => {
-    if (sel.count === 0) return;
-    // Cross-dataset copy needs a target picker that isn't wired yet.
-    toast({ title: "Add to another dataset — coming soon", tone: "success" });
-    sel.clear();
-  };
-
-  const deleteSelected = () => {
-    if (sel.count === 0) return;
-    // Removing a case republishes the version without it — not wired yet, so the
-    // action stays honest rather than pretending rows were removed.
-    toast({ title: "Deleting cases — coming soon", tone: "success" });
-    sel.clear();
-  };
-
-  if (isLoading) {
+  if (isLoading && !data) {
     return (
       <>
         <ProjectBreadcrumb projectId={projectId} />
@@ -264,24 +220,45 @@ export function DatasetDetailView({
       </>
     );
   }
-  if (error || !dataset || !data) {
+  // Only fall back to a whole-page state when there is genuinely no data to
+  // show — not merely on `error`, which `useDataset`'s placeholderData can
+  // leave set alongside the *previous* (still-valid) response, e.g. a
+  // transient failure while switching versions. That case falls through and
+  // renders the page with the last-good snapshot instead of losing it.
+  if (!dataset || !data) {
+    const notFound = error instanceof Error && /\b404\b/.test(error.message);
     return (
       <>
         <ProjectBreadcrumb projectId={projectId} />
         <div className="flex h-full flex-col text-[13px]">
           <EvalPageHeader
             parent={{ label: "Datasets", href: `/projects/${projectId}/datasets` }}
-            title="Dataset not found"
+            title={notFound ? "Dataset not found" : "Couldn't load dataset"}
           />
           <EvalBody>
             <EmptyState>
-              No dataset with the id {datasetId}.{" "}
-              <Link
-                href={`/projects/${projectId}/datasets`}
-                className="underline underline-offset-2"
-              >
-                Back to datasets
-              </Link>
+              {notFound ? (
+                <>
+                  No dataset with the id {datasetId}.{" "}
+                  <Link
+                    href={`/projects/${projectId}/datasets`}
+                    className="underline underline-offset-2"
+                  >
+                    Back to datasets
+                  </Link>
+                </>
+              ) : (
+                <>
+                  Something went wrong loading this dataset.{" "}
+                  <button
+                    type="button"
+                    onClick={() => refetch()}
+                    className="underline underline-offset-2"
+                  >
+                    Try again
+                  </button>
+                </>
+              )}
             </EmptyState>
           </EvalBody>
         </div>
@@ -301,46 +278,70 @@ export function DatasetDetailView({
               <span className="font-mono text-xs font-normal text-muted-foreground">
                 {dataset.id}
               </span>
+              <CopyButton
+                value={dataset.id}
+                className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                title="Copy dataset ID"
+              />
             </span>
           }
         />
 
         {/* Version bar — pick a snapshot to view (previous versions are read-only),
-            with its immutable version id + copy. */}
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-1.5 text-[12px]">
-          <span className="text-muted-foreground">Version</span>
-          <Select value={selectedVersion?.id ?? ""} onValueChange={(v) => setSelectedVersionId(v)}>
-            <SelectTrigger className="h-7 w-[240px] text-[12px]">
-              <SelectValue placeholder="Current version" />
-            </SelectTrigger>
-            <SelectContent>
-              {versions.map((v) => (
-                <SelectItem key={v.id} value={v.id} className="text-[12px]">
-                  v{v.versionNumber}
-                  {v.id === dataset.currentVersionId ? " (current)" : ""}
-                  {v.label ? ` · ${v.label}` : ""}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {selectedVersion && (
-            <>
-              <span className="font-mono text-[11px] text-muted-foreground">
-                {selectedVersion.id}
+            with its immutable version id + copy. Hidden entirely on a freshly
+            created dataset: there is nothing to select yet. */}
+        {hasVersions && (
+          <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-1.5 text-[12px]">
+            <span className="text-muted-foreground">Version</span>
+            <Select
+              value={selectedVersion?.id ?? ""}
+              onValueChange={(v) => setSelectedVersionId(v)}
+            >
+              <SelectTrigger className="h-7 w-[240px] text-[12px]">
+                <SelectValue placeholder="Current version" />
+              </SelectTrigger>
+              <SelectContent>
+                {versions.map((v) => (
+                  <SelectItem key={v.id} value={v.id} className="text-[12px]">
+                    v{v.versionNumber}
+                    {v.id === dataset.currentVersionId ? " (current)" : ""}
+                    {v.label ? ` · ${v.label}` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {selectedVersion && (
+              <>
+                <span className="font-mono text-[11px] text-muted-foreground">
+                  {selectedVersion.id}
+                </span>
+                <CopyButton
+                  value={selectedVersion.id}
+                  className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                  title="Copy version ID"
+                />
+              </>
+            )}
+            {!isCurrentVersion && (
+              <span
+                role="status"
+                className="ml-auto rounded border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-700 dark:text-amber-300"
+              >
+                Viewing v{selectedVersion?.versionNumber}
+                {selectedVersion?.label ? ` · ${selectedVersion.label}` : ""} — read only.{" "}
+                <button
+                  type="button"
+                  // null = follow the LIVE current pointer. Pinning the current version's
+                  // id would strand the page on a now-historical version after the next edit.
+                  onClick={() => setSelectedVersionId(null)}
+                  className="underline underline-offset-2"
+                >
+                  Back to current
+                </button>
               </span>
-              <CopyButton
-                value={selectedVersion.id}
-                className="h-6 w-6 text-muted-foreground hover:text-foreground"
-                title="Copy version ID"
-              />
-            </>
-          )}
-          {!isCurrentVersion && (
-            <span className="ml-auto rounded border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-700 dark:text-amber-300">
-              Viewing an older version — read only
-            </span>
-          )}
-        </div>
+            )}
+          </div>
+        )}
 
         <Tabs defaultValue="cases" className="flex min-h-0 flex-1 flex-col">
           <TabsList className="shrink-0 px-4 pt-2" aria-label="Dataset views">
@@ -353,32 +354,14 @@ export function DatasetDetailView({
           </TabsList>
 
           <TabsContent value="cases" className="flex min-h-0 flex-1 flex-col">
-            {/* Toolbar — the standard SearchFilterBar (search + actions + date). */}
+            {/* Toolbar — the standard SearchFilterBar (search + actions). No date
+                filter: nothing here reads it — a rendered-but-inert filter chip
+                falsely implies the table is scoped to it. */}
             <SearchFilterBar
               searchValue={keyword}
               onSearchChange={setKeyword}
               searchPlaceholder="Search cases..."
-              dateFilter={caseDate}
-              customStartDate={caseStart}
-              customEndDate={caseEnd}
-              onDateFilterChange={setCaseDate}
-              onCustomRangeChange={(s, e) => {
-                setCaseStart(s);
-                setCaseEnd(e);
-              }}
             >
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 gap-1.5 text-[12px]"
-                onClick={() => setImportOpen(true)}
-                // Editing branches from the current version, so it's disabled while
-                // viewing an older snapshot.
-                disabled={!isCurrentVersion}
-              >
-                <Upload className="h-3.5 w-3.5" aria-hidden />
-                Import
-              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -390,53 +373,7 @@ export function DatasetDetailView({
                 Row
               </Button>
 
-              {/* Selection actions appear beside the editing actions when rows are selected. */}
-              {sel.count > 0 && (
-                <span className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={sel.clear}
-                    aria-label="Cancel selection"
-                    className="rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  >
-                    <X className="h-3.5 w-3.5" aria-hidden />
-                  </button>
-                  <span className="text-[12px] font-medium tabular-nums">{sel.count} selected</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 gap-1 px-1.5 text-[12px] text-muted-foreground hover:text-foreground"
-                    // Duplicate publishes into the current version — disabled while
-                    // viewing a read-only older snapshot.
-                    disabled={!isCurrentVersion}
-                    onClick={duplicateSelected}
-                  >
-                    <Copy className="h-3.5 w-3.5" aria-hidden />
-                    Duplicate
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 gap-1 px-1.5 text-[12px] text-muted-foreground hover:text-foreground"
-                    onClick={addSelectedToDataset}
-                  >
-                    <Plus className="h-3.5 w-3.5" aria-hidden />
-                    Add to dataset
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 gap-1 px-1.5 text-[12px] text-destructive hover:bg-destructive/10 hover:text-destructive"
-                    onClick={deleteSelected}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" aria-hidden />
-                    Delete
-                  </Button>
-                  <span className="h-4 w-px bg-border" aria-hidden />
-                </span>
-              )}
-
-              {/* Spacer keeps the dataset-level actions flush against the date filter. */}
+              {/* Spacer keeps the dataset-level actions flush right. */}
               <span className="flex-1" aria-hidden />
 
               {/* Dataset-level actions (no dropdown). */}
@@ -465,11 +402,6 @@ export function DatasetDetailView({
                 <Table>
                   <THead>
                     <TRHead>
-                      <SelectAllHeaderCell
-                        checked={sel.allSelected}
-                        indeterminate={sel.someSelected}
-                        onToggle={sel.toggleAll}
-                      />
                       <Th className="w-[150px]">Created</Th>
                       <Th>Input</Th>
                       <Th>Expected</Th>
@@ -484,11 +416,6 @@ export function DatasetDetailView({
                         selected={tc.id === openCaseId}
                         onClick={() => setOpenCaseId(tc.id)}
                       >
-                        <SelectRowCell
-                          checked={sel.has(tc.id)}
-                          onToggle={() => sel.toggle(tc.id)}
-                          label={`Select ${tc.testCaseId}`}
-                        />
                         <Td className="whitespace-nowrap text-muted-foreground">
                           <Timestamp iso={tc.createTime} />
                         </Td>
@@ -512,14 +439,6 @@ export function DatasetDetailView({
               searchValue={historyKeyword}
               onSearchChange={setHistoryKeyword}
               searchPlaceholder="Search evaluations..."
-              dateFilter={historyDate}
-              customStartDate={historyStart}
-              customEndDate={historyEnd}
-              onDateFilterChange={setHistoryDate}
-              onCustomRangeChange={(s, e) => {
-                setHistoryStart(s);
-                setHistoryEnd(e);
-              }}
             />
             <EvalBody>
               {visibleRuns.length === 0 ? (
@@ -608,28 +527,6 @@ export function DatasetDetailView({
         />
       )}
 
-      {/* Import — centered island. */}
-      <Dialog open={importOpen} onOpenChange={setImportOpen}>
-        <DialogContent className="max-w-[520px]">
-          <DialogHeader>
-            <DialogTitle className="text-[13px] font-medium">Import test cases</DialogTitle>
-          </DialogHeader>
-          <UploadControl
-            onFile={(fileName) =>
-              toast({
-                title: "File selected — import coming soon",
-                description: `${fileName} would be imported.`,
-                tone: "success",
-              })
-            }
-          />
-          <p className="text-[11px] text-muted-foreground">
-            CSV or JSON. Bulk import isn&apos;t wired yet — add cases with Row, or save a span from
-            a trace.
-          </p>
-        </DialogContent>
-      </Dialog>
-
       {/* Pull code — the shared drawer: one snippet that fetches the dataset. */}
       <PullCodeDrawer
         title="Pull this dataset in code"
@@ -640,15 +537,30 @@ export function DatasetDetailView({
           </>
         }
         options={
-          [
-            {
-              id: "latest",
-              label: "Pull dataset",
-              note: "Fetches the dataset's current published version when the run starts.",
-              py: datasetPullCode(dataset.id),
-              ts: datasetPullCodeTs(dataset.id),
-            },
-          ] satisfies PullOption[]
+          // While pinned to an older, read-only snapshot, swap in the exact
+          // version so "pull code" reproduces what's actually on screen instead
+          // of the dataset's (different) current version. Swap, not add — the
+          // drawer's contract is a single option, resolved to whichever version
+          // is in view.
+          (selectedVersion && !isCurrentVersion
+            ? [
+                {
+                  id: "version",
+                  label: `Pull v${selectedVersion.versionNumber}`,
+                  note: "This exact immutable snapshot — never changes.",
+                  py: datasetPullVersionCode(selectedVersion.id),
+                  ts: datasetPullVersionCodeTs(selectedVersion.id),
+                },
+              ]
+            : [
+                {
+                  id: "latest",
+                  label: "Pull dataset",
+                  note: "Fetches the dataset's current published version when the run starts.",
+                  py: datasetPullCode(dataset.id),
+                  ts: datasetPullCodeTs(dataset.id),
+                },
+              ]) satisfies PullOption[]
         }
         open={codeOpen}
         onOpenChange={setCodeOpen}
