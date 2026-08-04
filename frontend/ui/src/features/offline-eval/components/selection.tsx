@@ -4,6 +4,14 @@ import * as React from "react";
 import { Trash2 } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 /**
@@ -90,16 +98,24 @@ export function SelectAllHeaderCell({
 /** Per-row checkbox cell. Stops propagation so it doesn't open the row. */
 export function SelectRowCell({
   checked,
+  indeterminate,
   onToggle,
   label,
 }: {
   checked: boolean;
+  /** Mixed state — used on a group row when only some of its member runs are selected. */
+  indeterminate?: boolean;
   onToggle: () => void;
   label: string;
 }) {
   return (
     <td className="w-8 border-r border-border/50 px-3 py-1.5" onClick={(e) => e.stopPropagation()}>
-      <Checkbox checked={checked} onCheckedChange={onToggle} aria-label={label} />
+      <Checkbox
+        checked={checked}
+        indeterminate={indeterminate}
+        onCheckedChange={onToggle}
+        aria-label={label}
+      />
     </td>
   );
 }
@@ -107,6 +123,11 @@ export function SelectRowCell({
 /**
  * The bar shown while rows are selected: "N selected", Delete, plus any extra
  * actions. Sits above the table, matching the reference bulk-action pattern.
+ *
+ * Stays mounted (visually collapsed) even at count 0 so the `aria-live` region
+ * is already in the accessibility tree the first time a row is checked —
+ * mounting the region and its content in the same tick is not reliably
+ * announced by screen readers.
  */
 export function BulkActionBar({
   count,
@@ -116,42 +137,101 @@ export function BulkActionBar({
   className,
 }: {
   count: number;
-  /** Omit on lists with no delete API (e.g. the derived scorer registry). */
-  onDelete?: () => void;
+  /**
+   * Omit on lists with no delete API (e.g. the derived scorer registry).
+   * Rejects (or throws) to report failure; the bar owns the confirmation
+   * dialog and the pending/disabled state around the call, so callers should
+   * not show their own "are you sure" step.
+   */
+  onDelete?: () => Promise<void>;
   onClear: () => void;
   extra?: React.ReactNode;
   className?: string;
 }) {
-  if (count === 0) return null;
+  const [confirmOpen, setConfirmOpen] = React.useState(false);
+  const [pending, setPending] = React.useState(false);
+
+  const handleConfirm = async () => {
+    if (!onDelete) return;
+    setPending(true);
+    try {
+      await onDelete();
+      setConfirmOpen(false);
+    } finally {
+      setPending(false);
+    }
+  };
+
   return (
     <div
+      role="status"
+      aria-live="polite"
       className={cn(
         "flex items-center gap-2 border-b border-border bg-muted/40 px-3 py-1.5",
+        count === 0 && "hidden",
         className,
       )}
     >
-      <span className="text-[12px] font-medium tabular-nums">{count} selected</span>
-      {(onDelete || extra) && <span className="h-4 w-px bg-border" aria-hidden />}
-      {onDelete && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 gap-1 px-1.5 text-[12px] text-destructive hover:bg-destructive/10 hover:text-destructive"
-          onClick={onDelete}
-        >
-          <Trash2 className="h-3.5 w-3.5" aria-hidden />
-          Delete
-        </Button>
+      {count > 0 && (
+        <>
+          <span className="text-[12px] font-medium tabular-nums">{count} selected</span>
+          {(onDelete || extra) && <span className="h-4 w-px bg-border" aria-hidden />}
+          {onDelete && (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 gap-1 px-1.5 text-[12px] text-destructive hover:bg-destructive/10 hover:text-destructive"
+                onClick={() => setConfirmOpen(true)}
+                disabled={pending}
+                aria-label={`Delete ${count} selected`}
+              >
+                <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                Delete
+              </Button>
+              <Dialog open={confirmOpen} onOpenChange={(open) => !pending && setConfirmOpen(open)}>
+                <DialogContent className="sm:max-w-md">
+                  <DialogHeader>
+                    <DialogTitle>
+                      Delete {count} run{count === 1 ? "" : "s"}?
+                    </DialogTitle>
+                    <DialogDescription>This cannot be undone.</DialogDescription>
+                  </DialogHeader>
+                  <DialogFooter>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setConfirmOpen(false)}
+                      disabled={pending}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="border-destructive text-destructive hover:bg-destructive/10"
+                      onClick={handleConfirm}
+                      disabled={pending}
+                    >
+                      {pending ? "Deleting…" : `Delete ${count} selected`}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+            </>
+          )}
+          {extra}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto h-6 px-1.5 text-[12px] text-muted-foreground hover:text-foreground"
+            onClick={onClear}
+            disabled={pending}
+          >
+            Clear
+          </Button>
+        </>
       )}
-      {extra}
-      <Button
-        variant="ghost"
-        size="sm"
-        className="ml-auto h-6 px-1.5 text-[12px] text-muted-foreground hover:text-foreground"
-        onClick={onClear}
-      >
-        Clear
-      </Button>
     </div>
   );
 }
