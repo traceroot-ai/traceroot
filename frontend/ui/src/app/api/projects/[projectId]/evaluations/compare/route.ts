@@ -37,6 +37,16 @@ type LoadedRun = NonNullable<Awaited<ReturnType<typeof loadRun>>>;
 type ResultRow = LoadedRun["results"][number];
 type ScoreRow = ResultRow["scores"][number];
 
+/** The candidate model the run DECLARED (provenance is opaque JSON on the row). This
+ *  is the declared identity, distinct from the models observed in a result's trace. */
+function declaredModel(provenance: unknown): string | null {
+  if (provenance && typeof provenance === "object" && !Array.isArray(provenance)) {
+    const m = (provenance as Record<string, unknown>).declared_model;
+    return typeof m === "string" ? m : null;
+  }
+  return null;
+}
+
 function runSummary(run: LoadedRun) {
   return {
     id: run.id,
@@ -44,6 +54,7 @@ function runSummary(run: LoadedRun) {
     evaluationId: run.evaluationId,
     evaluationName: run.evaluation.name,
     candidateVersion: run.candidateVersion,
+    declaredModel: declaredModel(run.provenance),
     datasetVersionId: run.datasetVersionId,
     datasetVersionLabel: run.datasetVersion.label,
     status: run.status,
