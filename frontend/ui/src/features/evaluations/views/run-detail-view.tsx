@@ -923,11 +923,11 @@ function RunBody({
               onValueChange={(v) => onCompareChange(v === NO_COMPARE ? null : v)}
             >
               <SelectTrigger
-                // The trigger is justify-between by default, so any width beyond the
-                // text is dealt out BETWEEN the icon and the value — measured at 44px
-                // on a 240px trigger. Letting the value grow absorbs that space
-                // instead, which holds even if the width utilities don't apply.
-                className="h-7 w-fit max-w-[240px] justify-start gap-1.5 text-[12px] [&>span]:min-w-0 [&>span]:flex-1"
+                // Sized to its content and left-aligned so the icon and value stay
+                // adjacent (only the gap between them). The base trigger is
+                // justify-between, which would otherwise deal the trigger's spare width
+                // out between the icon and the value.
+                className="h-7 w-fit max-w-[240px] justify-start gap-1.5 text-[12px]"
                 aria-label="Compare with"
               >
                 <GitCompare className="h-3.5 w-3.5 shrink-0" aria-hidden />
