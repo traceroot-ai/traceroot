@@ -82,6 +82,7 @@ function run(over: Record<string, unknown> = {}) {
     datasetVersionId: "dv2",
     runNumber: 2,
     candidateVersion: "sonnet",
+    provenance: { declared_model: "claude-sonnet-4", git_commit: "abc1234" },
     status: "completed",
     baselineRunId: null,
     mainScore: 0.5,
@@ -118,6 +119,7 @@ function baselineRun(over: Record<string, unknown> = {}) {
     id: "run_b",
     runNumber: 1,
     candidateVersion: "opus",
+    provenance: null,
     mainScore: 1,
     startedAt: new Date("2026-07-20T00:00:00Z"),
     completedAt: new Date("2026-07-20T00:00:04Z"),
@@ -187,6 +189,10 @@ describe("assembly", () => {
     const b = await body(res);
 
     expect(b.candidate).toMatchObject({ id: "run_c", runNumber: 2, elapsedMs: 6000 });
+    // The declared candidate model is derived from the run's opaque provenance JSON.
+    expect(b.candidate.declaredModel).toBe("claude-sonnet-4");
+    // The baseline declared no model → null, never guessed from its candidate version.
+    expect(b.baseline.declaredModel).toBeNull();
     expect(b.baseline).toMatchObject({ id: "run_b", runNumber: 1, elapsedMs: 4000 });
     expect(b.comparison.available).toBe(true);
 

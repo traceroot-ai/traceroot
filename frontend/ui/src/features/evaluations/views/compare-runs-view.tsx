@@ -161,6 +161,11 @@ function RunHeaderCard({
           {run.candidateVersion}
         </span>
       </div>
+      {run.declaredModel && (
+        <div className="mt-0.5 text-[11px] text-muted-foreground">
+          Declared model <span className="font-medium text-foreground">{run.declaredModel}</span>
+        </div>
+      )}
       <div className="mt-0.5 text-[11px] text-muted-foreground">
         {run.datasetVersionLabel} · <Timestamp iso={run.startedAt} />
       </div>
