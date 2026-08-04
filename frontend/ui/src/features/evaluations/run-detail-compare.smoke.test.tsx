@@ -312,14 +312,6 @@ const pickCompare = async () => {
 };
 
 describe("run detail — compare with", () => {
-  it("surfaces the candidate's declared model in the identity strip", async () => {
-    mount();
-    // The run's declared candidate model is shown up top — candidate identity, never
-    // attached to a test case.
-    expect(await screen.findByText("Declared model")).toBeDefined();
-    expect(screen.getByText("claude-opus-4")).toBeDefined();
-  });
-
   it("lists sibling runs and, on pick, shows the comparison banner", async () => {
     mount();
     await pickCompare();

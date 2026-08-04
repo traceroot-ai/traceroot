@@ -59,7 +59,6 @@ import { reproduceRunCode, reproduceRunCodeTs } from "@/features/offline-eval/ut
 import { matchSpans } from "@/lib/eval/span-match";
 import { attributeTraceUsage, type UsageSpan } from "@/lib/eval/trace-usage";
 import { ComparabilityBanner } from "@/features/evaluations/components/comparability-banner";
-import { CandidateIdentity } from "@/features/evaluations/components/candidate-identity";
 import { ResultUsageSummary } from "@/features/evaluations/components/result-usage-summary";
 import {
   Select,
@@ -988,10 +987,6 @@ function RunBody({
           </div>
         }
       />
-
-      {/* Candidate identity — the model/prompt/code this run exercised, from its
-          declared provenance. Describes the candidate under test, never the cases. */}
-      <CandidateIdentity provenance={run.provenance} />
 
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex min-h-0 flex-1 flex-col">
