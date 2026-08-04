@@ -76,6 +76,32 @@ describe("ReviewPanel", () => {
     expect(commentAfter.value).toBe("");
   });
 
+  it("pre-fills the form from an existing saved review (the reload path)", () => {
+    render(
+      <ToastProvider>
+        <ReviewPanel
+          target={baseTarget({
+            existing: {
+              verdict: "fail",
+              quality: 2,
+              comment: "missing the conclusion",
+              reviewer: "hao@example.com",
+              at: "2026-08-01T00:00:00Z",
+            },
+          })}
+          open
+          onOpenChange={vi.fn()}
+          onSave={vi.fn()}
+        />
+      </ToastProvider>,
+    );
+    // Re-opening a reviewed result seeds the saved comment instead of a blank form —
+    // the downstream of the run-detail-view reload fix (existing was hard-coded undefined).
+    expect((screen.getByLabelText(/comment/i) as HTMLInputElement).value).toBe(
+      "missing the conclusion",
+    );
+  });
+
   it("keeps the drawer open and does not toast success when onSave rejects", async () => {
     const onOpenChange = vi.fn();
     const onSave = vi.fn().mockRejectedValue(new Error("network error"));

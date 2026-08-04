@@ -220,6 +220,28 @@ class ScoreInput(BaseModel):
 # --- (a) Register / start a run ---------------------------------------------
 
 
+class RunProvenance(BaseModel):
+    """Typed execution provenance (git/CI/SDK identity + declared candidate
+    model/prompt). Mirrors ``RunProvenanceSchema`` on the Zod side. Every field is
+    optional and reported by the SDK from what it can actually observe; unknown
+    values are absent/null and never inferred. Distinct from free-form ``metadata``
+    and never a substitute for the user-facing ``candidate_version`` label.
+    """
+
+    git_repository: str | None = Field(default=None, max_length=500)
+    git_ref: str | None = Field(default=None, max_length=500)
+    git_commit: str | None = Field(default=None, max_length=200)
+    git_dirty: bool | None = None
+    ci_provider: str | None = Field(default=None, max_length=100)
+    ci_build_id: str | None = Field(default=None, max_length=200)
+    sdk_language: str | None = Field(default=None, max_length=50)
+    sdk_version: str | None = Field(default=None, max_length=50)
+    # Declared candidate identity — surfaced only if the SDK reports it, never
+    # inferred from candidate_version or any label.
+    declared_model: str | None = Field(default=None, max_length=200)
+    declared_prompt_version: str | None = Field(default=None, max_length=200)
+
+
 class RegisterRunRequest(BaseModel):
     """Register/start a run. Idempotent on ``client_run_id`` within an evaluation."""
 
@@ -235,7 +257,9 @@ class RegisterRunRequest(BaseModel):
     client_run_id: str | None = Field(default=None, min_length=1, max_length=128)
     baseline_run_id: str | None = Field(default=None, min_length=1, max_length=64)
     case_count: JsonNonNegativeInt | None = None
-    # Free-form run provenance (model, prompt, config, git repo/ref/commit, …).
+    # Typed execution provenance (git/CI/SDK identity, declared candidate model/prompt).
+    provenance: RunProvenance | None = None
+    # Free-form run metadata — arbitrary user key/values, kept verbatim.
     metadata: dict[str, Any] | None = None
 
     @field_validator("metadata", mode="before")
@@ -310,6 +334,10 @@ class CompleteRunRequest(BaseModel):
 
     status: EvalRunStatus
     main_score: JsonFloat | None = None
+    # The run-level main-score metric name, RESOLVED at completion — lets an SDK
+    # register before any scorer's emitted name is known and name it here. Additive:
+    # an older SDK omits it. Mirrors ``main_score_name`` on the Zod CompleteRunRequest.
+    main_score_name: str | None = Field(default=None, min_length=1, max_length=200)
     case_count: JsonNonNegativeInt | None = None
     scored_count: JsonNonNegativeInt | None = None
     task_error_count: JsonNonNegativeInt | None = None

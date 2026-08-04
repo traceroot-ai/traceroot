@@ -9,6 +9,7 @@ import {
 import { compareRuns } from "@/lib/eval/comparison";
 import { toComparisonRun, toComparisonResults, caseChangeToLegacy } from "@/lib/eval/comparison-db";
 import { countResultStatuses } from "@/lib/eval/pass-rate";
+import { deriveHumanReviewSummary, type HumanVerdict } from "@/lib/eval/human-review";
 
 type RouteParams = { params: Promise<{ projectId: string; runId: string }> };
 
@@ -127,6 +128,19 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     _count: { _all: true },
   });
 
+  // Derived human-review summary: reviewed/pending over active dimensions, human
+  // pass/fail, and human-vs-automated disagreement. Read-only — computing this never
+  // touches the automated score, comparison, or run status.
+  const humanReview = deriveHumanReviewSummary(
+    run.results.map((r) => ({
+      automatedPass: r.status === "passed" ? true : r.status === "failed" ? false : null,
+      reviews: r.humanScores.map((h) => ({
+        dimension: h.dimension,
+        verdict: h.verdict as HumanVerdict,
+      })),
+    })),
+  );
+
   const { results: _omit, ...runFields } = run;
   return successResponse({
     run: {
@@ -142,6 +156,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
       errorCount: run.taskErrorCount + run.scorerErrorCount,
       elapsedMs: elapsedMs(run.startedAt, run.completedAt),
       ...countResultStatuses(statusGroups.map((g) => ({ status: g.status, count: g._count._all }))),
+      humanReview,
       comparison,
       // True when `results` (and the comparison derived from it) is a partial view —
       // the run has more cases than the cap above.

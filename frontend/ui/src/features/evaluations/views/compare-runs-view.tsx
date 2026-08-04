@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useQueries } from "@tanstack/react-query";
-import { ArrowLeftRight, ArrowRight, ChevronDown, ChevronRight, Info } from "lucide-react";
+import { ArrowLeftRight, ArrowRight, ChevronDown, ChevronRight } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -30,11 +30,10 @@ import type {
 } from "../types";
 import { RunStatusBadge } from "./evaluations-view";
 import { CompareCaseDrawer } from "./compare-case-drawer";
+import { ComparabilityBanner } from "@/features/evaluations/components/comparability-banner";
 import {
   deriveVerdict,
   VERDICT_META,
-  BLOCKING_REASONS,
-  REASON_LABEL,
   CASE_FILTERS,
   CASE_SORTS,
   matchesFilter,
@@ -181,6 +180,11 @@ function RunHeaderCard({
           {run.candidateVersion}
         </span>
       </div>
+      {run.declaredModel && (
+        <div className="mt-0.5 text-[11px] text-muted-foreground">
+          Declared model <span className="font-medium text-foreground">{run.declaredModel}</span>
+        </div>
+      )}
       <div className="mt-0.5 text-[11px] text-muted-foreground">
         {run.datasetVersionLabel} · <Timestamp iso={run.startedAt} />
       </div>
@@ -758,7 +762,6 @@ export function CompareRunsView({
   const [traceView, setTraceView] = React.useState<{ traceId: string; label: string } | null>(null);
 
   const crossEval = !!data && data.candidate.evaluationId !== data.baseline.evaluationId;
-  const blocking = (data?.comparison.reasons ?? []).filter((r) => BLOCKING_REASONS.has(r));
 
   const rows = React.useMemo(() => data?.results ?? [], [data]);
   const durationWorsened = (data?.comparison.duration.deltaMs ?? 0) > 0;
@@ -833,19 +836,18 @@ export function CompareRunsView({
               <RunHeaderCard run={data.candidate} role="Candidate" crossEval={crossEval} />
             </div>
 
-            {crossEval && (
-              <div className="flex items-start gap-1.5 rounded border border-border bg-muted/30 px-2.5 py-1.5 text-[11px]">
-                <Info className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" aria-hidden />
-                <span>
-                  <span className="font-medium">Cross-evaluation comparison</span> —{" "}
-                  {data.baseline.evaluationName} → {data.candidate.evaluationName}. No baseline
-                  relationship is saved.
-                </span>
-              </div>
-            )}
+            {/* Comparability first, straight from the backend discriminant. A
+                non-trustworthy comparison (cross-evaluation, mismatched snapshot,
+                a still-running run) gets the strong banner and NO colored verdict —
+                its deltas still render below as neutral metrics, never as a
+                ship / no-ship result. */}
+            <ComparabilityBanner
+              state={data.comparison.state}
+              reasons={data.comparison.reasons}
+            />
 
-            {/* Layer 2 — verdict */}
-            {verdict && (
+            {/* Layer 2 — verdict (only when the comparison is authoritative) */}
+            {verdict && data.comparison.state === "trustworthy" && (
               <div
                 className={cn(
                   "rounded border px-3 py-2",
@@ -859,9 +861,6 @@ export function CompareRunsView({
                   {verdict.reasons.map((line, i) => (
                     <div key={i}>{line}</div>
                   ))}
-                  {verdict.verdict === "not_comparable" &&
-                    blocking.length === 0 &&
-                    data.comparison.reasons.map((r) => <div key={r}>{REASON_LABEL[r] ?? r}</div>)}
                 </div>
               </div>
             )}
