@@ -138,6 +138,29 @@ describe("Home page", () => {
     expect(column!.className).toContain("mx-auto");
   });
 
+  it("renders the greeting inside the panel, centered after the toolbar", () => {
+    render(<HomePage />);
+    const toolbarButton = screen.getByTitle("New session");
+    const heading = screen.getByText("How can I help?");
+    // The greeting follows the toolbar in DOM order (it lives in the message
+    // region, not above the panel) and sits in the margin-auto-centered child
+    // of the scrollable region, so short viewports scroll instead of clipping.
+    expect(
+      toolbarButton.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    const centered = heading.closest('[class*="m-auto"]');
+    expect(centered).not.toBeNull();
+    const scrollRegion = centered!.parentElement!;
+    expect(scrollRegion.className).toContain("flex-1");
+    expect(scrollRegion.className).toContain("overflow-y-auto");
+  });
+
+  it("suppresses the greeting during a session handoff", () => {
+    mocks.aiInitialSessionId = "sess-9";
+    render(<HomePage />);
+    expect(screen.queryByText("How can I help?")).toBeNull();
+  });
+
   it("sends a starter prompt through the chat send path with the default model", () => {
     mocks.projectData = { workspace_id: "ws-1" };
     mocks.llmModels = {
