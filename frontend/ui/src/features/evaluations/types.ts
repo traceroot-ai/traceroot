@@ -262,7 +262,10 @@ export interface CompareRunSummary {
   scorerErrorCount: number;
   startedAt: string;
   completedAt: string | null;
+  /** Summed per-case duration and cost over the run's results (matches the run detail
+   *  and runs list), so the headline can diff them against the baseline. */
   elapsedMs: number | null;
+  cost: number | null;
 }
 
 /** Raw per-scorer value on one side of a compared case (for the drawer's breakdown). */

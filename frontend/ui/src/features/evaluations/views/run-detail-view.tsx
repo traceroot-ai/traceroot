@@ -877,8 +877,8 @@ function RunBody({
   const comparing = !!compareByCase;
   const cmp = compareData?.comparison ?? null;
   // Headline deltas vs the baseline, shown only when the comparison is usable. Main
-  // score is the trustworthy backend delta; duration is this run's wall-clock minus the
-  // baseline's (the same metric the Duration stat shows), not the mean-case delta.
+  // score is the trustworthy backend delta; duration and cost are this run's summed
+  // per-case totals minus the baseline's (the same metrics the stats show).
   const headlineComparison: HeadlineComparison | null =
     comparing && cmp && cmp.state !== "unavailable"
       ? {
@@ -886,6 +886,10 @@ function RunBody({
           elapsedDeltaMs:
             run.elapsedMs !== null && compareData?.baseline.elapsedMs != null
               ? run.elapsedMs - compareData.baseline.elapsedMs
+              : null,
+          costDelta:
+            run.cost != null && compareData?.baseline.cost != null
+              ? run.cost - compareData.baseline.cost
               : null,
         }
       : null;
@@ -1220,6 +1224,7 @@ const NO_COMPARE = "__none__";
 interface HeadlineComparison {
   mainScoreDelta: number | null;
   elapsedDeltaMs: number | null;
+  costDelta: number | null;
 }
 
 /** Signed delta beside a headline stat when comparing. `goodWhenPositive` flips the
@@ -1256,6 +1261,7 @@ function HeadlineMetrics({
 }) {
   const scoreDelta = comparison?.mainScoreDelta ?? null;
   const elapsedDelta = comparison?.elapsedDeltaMs ?? null;
+  const costDelta = comparison?.costDelta ?? null;
   return (
     <div className="flex flex-wrap items-center gap-6 border-b border-border px-3 py-2">
       <HeadlineStat label={run.mainScoreName ?? "Main score"}>
@@ -1281,6 +1287,11 @@ function HeadlineMetrics({
           <span className="text-muted-foreground">—</span>
         ) : (
           `$${run.cost.toFixed(4)}`
+        )}
+        {costDelta !== null && costDelta !== 0 && (
+          <HeadlineDelta positive={costDelta > 0} goodWhenPositive={false}>
+            {`$${Math.abs(costDelta).toFixed(4)}`}
+          </HeadlineDelta>
         )}
       </HeadlineStat>
       <HeadlineStat label="Duration">

@@ -11,6 +11,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const prismaMock = vi.hoisted(() => ({
   evaluationRun: { findFirst: vi.fn() },
   testCase: { findMany: vi.fn() },
+  // Per-run summed cost + duration for the two runs' summaries.
+  evaluationResult: { groupBy: vi.fn() },
 }));
 const auth = vi.hoisted(() => ({ requireAuth: vi.fn(), requireProjectAccess: vi.fn() }));
 
@@ -168,6 +170,12 @@ beforeEach(() => {
   vi.clearAllMocks();
   auth.requireAuth.mockResolvedValue({ user: { id: "u1" } });
   auth.requireProjectAccess.mockResolvedValue({ project: { id: "p1" } });
+  // Summed per-case cost + duration per run (the summaries read these). Default keeps
+  // the runs' totals; individual tests override for a run with no reported durations.
+  prismaMock.evaluationResult.groupBy.mockResolvedValue([
+    { runId: "run_c", _sum: { durationMs: 6000, cost: 0.05 } },
+    { runId: "run_b", _sum: { durationMs: 4000, cost: 0.02 } },
+  ]);
   prismaMock.testCase.findMany.mockResolvedValue([
     canonicalRow(),
     canonicalRow({
@@ -308,8 +316,12 @@ describe("assembly", () => {
     expect(t0.candidateStatus).toBe("errored");
   });
 
-  it("reports a null elapsed time for a run that has not completed", async () => {
+  it("reports a null duration for a run whose cases reported none", async () => {
     loadRuns(run({ status: "running", completedAt: null }), baselineRun());
+    // The still-running candidate has no summed case duration yet; the baseline does.
+    prismaMock.evaluationResult.groupBy.mockResolvedValue([
+      { runId: "run_b", _sum: { durationMs: 4000, cost: 0.02 } },
+    ]);
     const b = await body(await GET(req(BOTH), params));
     expect(b.candidate.elapsedMs).toBeNull();
     expect(b.baseline.elapsedMs).toBe(4000);
