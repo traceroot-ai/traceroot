@@ -1,0 +1,26 @@
+---
+title: AWS Bedrock
+description: Configure AWS Bedrock as a BYOK model provider
+---
+
+AWS Bedrock is supported as a bring-your-own-key (BYOK) model provider — configure it in **Workspace Settings → Model Providers** using your AWS credentials (access key, secret key, and region).
+
+<Note>
+  Bedrock is accessed through the AWS SDK (`boto3` / `@aws-sdk/client-bedrock-runtime`) rather
+  than the OpenAI-compatible pattern used by the other model providers on this page, so its
+  auto-instrumentation setup is different from a simple `base_url` override. This page
+  intentionally does not show a specific `traceroot.initialize(integrations=[...])` snippet —
+  check the [Python SDK](/tracing/python-sdk) or [TypeScript SDK](/tracing/typescript-sdk) docs,
+  or the SDK's own changelog, for the current Bedrock instrumentation entry point before wiring
+  this up.
+</Note>
+
+## BYOK Setup
+
+1. Go to **Workspace Settings → Model Providers**.
+2. Select **AWS Bedrock** and enter your AWS access key, secret key, and region.
+3. Once configured, Bedrock becomes available as a model source for TraceRoot's AI features (trace analysis, root cause analysis, and automated fix PR generation).
+
+## Tracing Your Own Bedrock Calls
+
+If you want TraceRoot to trace calls your own application makes to Bedrock (separate from the BYOK configuration above), consult the SDK documentation directly for the current instrumentation approach — the auto-instrumentation code path for the AWS SDK is not yet documented on this page.

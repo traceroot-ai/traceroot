@@ -9,8 +9,13 @@ import { ExternalIntegrations } from "./ExternalIntegrations";
 import { IntegrationPickerCard } from "./IntegrationPickerCard";
 import { ALL_LANGS, INTEGRATIONS, type IntegrationCategory, type Lang } from "./integrations";
 
+// "Model providers" here means auto-traced direct API calls, not the
+// separate BYOK model providers configured in Workspace Settings — the two
+// are independent lists (a provider can be traceable, BYOK-supported,
+// neither, or both). Spelled out in the label since the bare word
+// "providers" alone reads as implying BYOK support (#1796).
 const INTEGRATION_GROUPS: { category: IntegrationCategory; label: string }[] = [
-  { category: "provider", label: "Model providers" },
+  { category: "provider", label: "Model providers (traced automatically)" },
   { category: "framework", label: "Frameworks" },
 ];
 
