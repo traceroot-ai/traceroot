@@ -97,6 +97,12 @@ jobs:
       - name: Generate Prisma client
         run: cd frontend/packages/core && pnpm db:generate
 
+      # The agent package resolves @traceroot-ai/tools through its compiled
+      # dist (exports map), so the tools package must be built before any
+      # dependent package's tests run.
+      - name: Build tools package
+        run: cd frontend/packages/tools && pnpm build
+
       - name: Run frontend tests with coverage
         timeout-minutes: 15
         run: |
