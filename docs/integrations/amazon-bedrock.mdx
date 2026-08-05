@@ -7,9 +7,11 @@ AWS Bedrock is supported as a bring-your-own-key (BYOK) model provider — confi
 
 <Note>
   Bedrock is accessed through the AWS SDK (`boto3` / `@aws-sdk/client-bedrock-runtime`) rather
-  than the OpenAI-compatible pattern used by the other model providers listed in the
-  [integrations overview](/integrations/overview), so its auto-instrumentation setup is
-  different from a simple `base_url` override. This page
+  than the OpenAI-compatible pattern used by [Azure OpenAI](/integrations/azure),
+  [DeepSeek](/integrations/deepseek), [Moonshot](/integrations/moonshot),
+  [OpenRouter](/integrations/openrouter), [xAI](/integrations/xai), and
+  [Z.AI](/integrations/zai), so its auto-instrumentation setup is different from a simple
+  `base_url` override. This page
   intentionally does not show a specific `traceroot.initialize(integrations=[...])` snippet —
   check the [Python SDK](/tracing/python-sdk) or [TypeScript SDK](/tracing/typescript-sdk) docs,
   or the SDK's own changelog, for the current Bedrock instrumentation entry point before wiring
