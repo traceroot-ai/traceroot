@@ -157,8 +157,10 @@ beforeEach(() => {
   // Status counts now come from a grouped aggregate over ALL of a run's results, not the
   // (capped) results page. Default to none; the per-status-counts test supplies its own.
   prismaMock.evaluationResult.groupBy.mockResolvedValue([]);
-  // Run duration is the sum of every case's duration (over all results, not the page).
-  prismaMock.evaluationResult.aggregate.mockResolvedValue({ _sum: { durationMs: 1900 } });
+  // Run duration AND cost are the sum of every case's over all results (not the page).
+  prismaMock.evaluationResult.aggregate.mockResolvedValue({
+    _sum: { durationMs: 1900, cost: 0.0345 },
+  });
 });
 
 it("derives change/baselineOutput + a comparison block from raw scores; ignores stored columns", async () => {
@@ -177,8 +179,10 @@ it("derives change/baselineOutput + a comparison block from raw scores; ignores 
   expect(cmp.caseCounts).toMatchObject({ regressed: 1, unchanged: 1 });
   expect(body.run.changeFromBaseline).toBeCloseTo(-0.5);
   expect(body.run.baselineComparable).toBe(true);
-  // Duration is the summed per-case duration (the mocked aggregate), not wall-clock.
+  // Duration and cost are the summed per-case totals (the mocked aggregate), not a
+  // stored run-level column.
   expect(body.run.elapsedMs).toBe(1900);
+  expect(body.run.cost).toBe(0.0345);
 
   const t0 = body.results.find((r) => r.testCaseId === "t0")!;
   expect(t0.change).toBe("unchanged");

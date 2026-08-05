@@ -122,12 +122,13 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     _count: { _all: true },
   });
 
-  // Run duration = the sum of every case's duration (so it adds up to the per-case
-  // rows and matches the runs list + lineage totals, which sum the same values).
-  // Aggregated over ALL results, never the capped `results` page above.
-  const durationAgg = await prisma.evaluationResult.aggregate({
+  // Run totals derived from ALL results (never the capped `results` page above): the
+  // summed per-case duration AND cost. The runs list sums the same way, so the detail
+  // and the list agree; there is no trustworthy stored run-level cost/duration to read
+  // instead — cost lives per case, so the headline stat must sum it here.
+  const resultAgg = await prisma.evaluationResult.aggregate({
     where: { runId, projectId },
-    _sum: { durationMs: true },
+    _sum: { durationMs: true, cost: true },
   });
 
   // Derived human-review summary: reviewed/pending over active dimensions, human
@@ -156,7 +157,10 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
       changeFromBaseline: comparison.trustworthy ? comparison.mainScore.delta : null,
       baselineComparable: comparison.trustworthy,
       errorCount: run.taskErrorCount + run.scorerErrorCount,
-      elapsedMs: durationAgg._sum.durationMs,
+      elapsedMs: resultAgg._sum.durationMs,
+      // Summed per-case cost — the runs list computes it the same way. Overrides any
+      // stored run.cost (there is none), so the headline stat matches the case rows.
+      cost: resultAgg._sum.cost,
       ...countResultStatuses(statusGroups.map((g) => ({ status: g.status, count: g._count._all }))),
       humanReview,
       comparison,
