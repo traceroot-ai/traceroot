@@ -23,7 +23,7 @@ export function createDownloadSessionTool(
     name: "download_session",
     label: "Download session",
     description:
-      "Download all traces in a session to the workspace for deep analysis. Fetches all traces in parallel. Writes session.json (overview) and one directory per trace under /workspace/sessions/{sessionId}/traces/. Use query_sessions first to see what's in the session before committing to a full download.",
+      "Download all traces in a session to the workspace for deep analysis. Fetches all traces in parallel. Writes session.json (overview) and one directory per trace under /workspace/sessions/{sessionId}/traces/. Use get_session first to see what's in the session before committing to a full download.",
     parameters: downloadSessionSchema,
     execute: async (
       _toolCallId: string,
