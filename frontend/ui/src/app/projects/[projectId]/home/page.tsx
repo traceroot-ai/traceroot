@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
+import { MessagesSquare, Radar, TriangleAlert } from "lucide-react";
 import { useLayout } from "@/components/layout/app-layout";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
@@ -16,9 +17,9 @@ import { getProject, getAvailableLLMModels } from "@/lib/api";
 // Starter prompts shown while the current session has no messages. Clicking
 // one sends it immediately through the same send path as the message input.
 const STARTER_PROMPTS = [
-  "Investigate the most recent errored trace",
-  "Summarize today's sessions",
-  "What did detector findings flag this week?",
+  { icon: TriangleAlert, text: "Investigate the most recent errored trace" },
+  { icon: MessagesSquare, text: "Summarize today's sessions" },
+  { icon: Radar, text: "What did detector findings flag this week?" },
 ];
 
 /**
@@ -31,7 +32,7 @@ export default function HomePage() {
   const params = useParams();
   const projectId = params.projectId as string;
   const { registerAiHost, aiContext, setAiContext, aiInitialSessionId } = useLayout();
-  const { messages, handleSend } = useAiChatContext();
+  const { handleSend } = useAiChatContext();
 
   // Claim the AI slot for this page so AppLayout's project rail can never
   // double-render the assistant alongside it. `registerAiHost()` returns its
@@ -73,42 +74,51 @@ export default function HomePage() {
   });
   const defaultModel = pickDefaultModel(flattenAvailableModels(llmModels, false));
 
+  // Rendered by the panel, vertically centered in the empty message region
+  // (between the toolbar and the input). Suppressed during a session handoff
+  // so the greeting can't flash while the handed-off session's messages load;
+  // the panel itself hides it as soon as the conversation has messages.
+  const greeting = aiInitialSessionId ? undefined : (
+    <div className="text-center">
+      <h1 className="text-[15px] font-medium">How can I help?</h1>
+      <p className="mt-1 text-[12px] text-muted-foreground">
+        Ask about this project&apos;s traces, sessions, errors, and detector findings.
+      </p>
+      <div className="mt-4 flex flex-wrap justify-center gap-2">
+        {STARTER_PROMPTS.map(({ icon: Icon, text }) => (
+          <button
+            key={text}
+            type="button"
+            disabled={!defaultModel}
+            onClick={() => {
+              if (!defaultModel) return;
+              void handleSend(text, {
+                model: defaultModel.id,
+                provider: defaultModel.provider,
+                source: defaultModel.source,
+                adapter: defaultModel.adapter,
+              });
+            }}
+            className="flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-[12px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Icon className="h-3.5 w-3.5 shrink-0" />
+            {text}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
   return (
     <div className="flex h-full flex-col text-[13px]">
       <ProjectBreadcrumb projectId={projectId} />
-      {/* Suppressed during a session handoff so the greeting can't flash while
-          the handed-off session's messages load. */}
-      {messages.length === 0 && !aiInitialSessionId && (
-        <div className="mx-auto w-full max-w-[900px] px-6 pb-2 pt-10 text-center">
-          <h1 className="text-[15px] font-medium">How can I help?</h1>
-          <p className="mt-1 text-[12px] text-muted-foreground">
-            Ask about this project&apos;s traces, sessions, errors, and detector findings.
-          </p>
-          <div className="mt-4 flex flex-wrap justify-center gap-2">
-            {STARTER_PROMPTS.map((prompt) => (
-              <button
-                key={prompt}
-                type="button"
-                disabled={!defaultModel}
-                onClick={() => {
-                  if (!defaultModel) return;
-                  void handleSend(prompt, {
-                    model: defaultModel.id,
-                    provider: defaultModel.provider,
-                    source: defaultModel.source,
-                    adapter: defaultModel.adapter,
-                  });
-                }}
-                className="rounded-md border border-border px-3 py-1.5 text-[12px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {prompt}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
       <div className="min-h-0 flex-1">
-        <AiAssistantPanel projectId={projectId} variant="page" onClose={() => {}} />
+        <AiAssistantPanel
+          projectId={projectId}
+          variant="page"
+          onClose={() => {}}
+          emptyState={greeting}
+        />
       </div>
     </div>
   );
