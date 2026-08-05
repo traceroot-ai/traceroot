@@ -136,45 +136,24 @@ it("403s a caller without project access", async () => {
   expect(prismaMock.evaluation.findMany).not.toHaveBeenCalled();
 });
 
-it("sums each run's wall-clock elapsed for the lineage duration total, not the case-time sum", async () => {
+it("sums each case's duration for the lineage duration total", async () => {
   prismaMock.evaluation.findMany.mockResolvedValue([evaluation()]);
-  // Two finished runs, 30s and 90s of wall-clock: the lineage total is their sum (120s) —
-  // the same per-run durations the runs list shows, never the per-case duration sum.
-  prismaMock.evaluationRun.findMany.mockResolvedValue([
-    {
-      id: "run_a",
-      evaluationId: "eval_1",
-      startedAt: new Date("2026-07-21T00:00:00Z"),
-      completedAt: new Date("2026-07-21T00:00:30Z"),
-    },
-    {
-      id: "run_b",
-      evaluationId: "eval_1",
-      startedAt: new Date("2026-07-21T01:00:00Z"),
-      completedAt: new Date("2026-07-21T01:01:30Z"),
-    },
+  // Duration is the sum of every case's duration across the lineage's runs (120s here),
+  // so the lineage total adds up to the per-case rows — never run wall-clock.
+  prismaMock.evaluationResult.groupBy.mockResolvedValue([
+    { evaluationId: "eval_1", _sum: { durationMs: 120_000, cost: null } },
   ]);
 
   const [row] = await rows(await GET({} as never, params));
   expect((row.aggregate as { totalDurationMs: number | null }).totalDurationMs).toBe(120_000);
 });
 
-it("falls back to summed case durations for an in-flight run, like the runs list", async () => {
+it("reports a null lineage duration when no case reported one", async () => {
   prismaMock.evaluation.findMany.mockResolvedValue([evaluation()]);
-  prismaMock.evaluationRun.findMany.mockResolvedValue([
-    {
-      id: "run_live",
-      evaluationId: "eval_1",
-      startedAt: new Date("2026-07-21T00:00:00Z"),
-      completedAt: null,
-    },
+  prismaMock.evaluationResult.groupBy.mockResolvedValue([
+    { evaluationId: "eval_1", _sum: { durationMs: null, cost: null } },
   ]);
-  // First result groupBy is the cost sum (by evaluationId); the second is the in-flight
-  // duration fallback (by runId).
-  prismaMock.evaluationResult.groupBy
-    .mockResolvedValueOnce([])
-    .mockResolvedValueOnce([{ runId: "run_live", _sum: { durationMs: 4200 } }]);
 
   const [row] = await rows(await GET({} as never, params));
-  expect((row.aggregate as { totalDurationMs: number | null }).totalDurationMs).toBe(4200);
+  expect((row.aggregate as { totalDurationMs: number | null }).totalDurationMs).toBeNull();
 });

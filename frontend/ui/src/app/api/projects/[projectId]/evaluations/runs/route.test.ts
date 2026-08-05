@@ -148,6 +148,11 @@ it("derives regressedCaseCount + trustworthy delta + elapsedMs for a listed run"
       scores: [score("acc", 1)],
     },
   ]);
+  // Duration is the sum of the run's per-case durations (900 + 950), from the grouped
+  // aggregate — not wall-clock.
+  prismaMock.evaluationResult.groupBy.mockResolvedValue([
+    group("run_c", "passed", 2, { durationMs: 1850 }),
+  ]);
 
   const body = (await (await GET(nextUrl() as never, params)).json()) as {
     data: Record<string, unknown>[];
@@ -156,7 +161,7 @@ it("derives regressedCaseCount + trustworthy delta + elapsedMs for a listed run"
   expect(row.regressedCaseCount).toBe(1);
   expect(row.changeFromBaseline).toBeCloseTo(-0.5);
   expect(row.baselineComparable).toBe(true);
-  expect(row.elapsedMs).toBe(5000);
+  expect(row.elapsedMs).toBe(1850);
   // Bounded: one page-runs query + one baselines query + one grouped aggregate + one
   // comparison-results query (+ datasets).
   expect(prismaMock.evaluationRun.findMany).toHaveBeenCalledTimes(2);
@@ -556,6 +561,12 @@ it("sorts by elapsedMs, treating a still-running run (no completedAt) as sorting
   });
   prismaMock.evaluationRun.findMany.mockResolvedValueOnce([slow, fast, running]);
   prismaMock.evaluationResult.findMany.mockResolvedValue([]);
+  // Duration now sorts on the per-run case-duration sum. The still-running run reported
+  // no case durations, so it has no row here → sorts last (null), as before.
+  prismaMock.evaluationResult.groupBy.mockResolvedValue([
+    group("run_slow", "passed", 1, { durationMs: 600_000 }),
+    group("run_fast", "passed", 1, { durationMs: 1_000 }),
+  ]);
 
   const body = (await (await GET(nextUrl("sort=elapsedMs&order=asc") as never, params)).json()) as {
     data: Record<string, unknown>[];

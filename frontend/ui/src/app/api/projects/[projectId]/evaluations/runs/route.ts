@@ -8,22 +8,10 @@ import { countResultStatuses, passRate, excludedSummary } from "@/lib/eval/pass-
 type RouteParams = { params: Promise<{ projectId: string }> };
 
 /**
- * Run duration, derived rather than stored. A finished run is wall-clock
- * started → completed. A run still in flight has no completion time, so it falls
- * back to the span of its cases' durations — returning null there would blank the
- * duration column on exactly the rows someone is watching tick upward.
+ * Run duration, derived rather than stored: the sum of the run's per-case durations
+ * (so the run table adds up to the per-case rows and to the lineage total, which sum
+ * the same values). Null when no case reported a duration — never a misleading 0.
  */
-function elapsedMs(
-  startedAt: Date,
-  completedAt: Date | null,
-  caseDurationMs: number | null,
-): number | null {
-  if (completedAt) {
-    const ms = completedAt.getTime() - startedAt.getTime();
-    if (ms >= 0) return ms;
-  }
-  return caseDurationMs;
-}
 
 /** Sum the non-null members, or null when there are none — never a misleading 0. */
 function sumOrNull(values: Array<number | null>): number | null {
@@ -158,11 +146,20 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
     let sortValue: (r: (typeof all)[number]) => number | null;
     if (sort === "elapsedMs") {
-      // No case-duration fallback here: that sum comes from a per-run aggregate
-      // fetched only for the page being returned, so it is not available while
-      // ordering the full filtered set. A run still in flight therefore sorts as
-      // null (last); a completed one sorts on its real wall-clock span.
-      sortValue = (r) => elapsedMs(r.startedAt, r.completedAt, null);
+      // Duration now sorts on the same per-case sum the rows show, so the aggregate
+      // is fetched here over the full filtered set (as cost already is). A run whose
+      // cases reported no duration sorts as null (last).
+      const ids = all.map((r) => r.id);
+      const durationSums =
+        ids.length > 0
+          ? await prisma.evaluationResult.groupBy({
+              by: ["runId"],
+              where: { runId: { in: ids }, projectId },
+              _sum: { durationMs: true },
+            })
+          : [];
+      const durationByRun = new Map(durationSums.map((d) => [d.runId, d._sum.durationMs]));
+      sortValue = (r) => durationByRun.get(r.id) ?? null;
     } else {
       const ids = all.map((r) => r.id);
       const costSums =
@@ -317,7 +314,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       regressedCaseCount: comparison.trustworthy ? comparison.caseCounts.regressed : null,
       baselineComparable: comparison.trustworthy,
       errorCount: r.taskErrorCount + r.scorerErrorCount,
-      elapsedMs: elapsedMs(r.startedAt, r.completedAt, caseDurationMs),
+      elapsedMs: caseDurationMs,
       ...statusCounts,
       // Served, not left to each consumer: passed / (passed + failed), null when
       // nothing was judged. A client recomputing it would divide by zero and render

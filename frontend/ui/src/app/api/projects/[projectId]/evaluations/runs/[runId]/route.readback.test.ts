@@ -48,6 +48,19 @@ vi.mock("@traceroot/core", async (importOriginal) => {
           for (const r of results) counts.set(r.status, (counts.get(r.status) ?? 0) + 1);
           return [...counts].map(([status, n]) => ({ status, _count: { _all: n } }));
         }),
+        // Run duration = the sum of every case's duration (over all results).
+        aggregate: vi.fn(async (args: { where: { runId: string } }) => {
+          const src =
+            args.where.runId === "run0" ? db.baseline : args.where.runId === "run1" ? db.run : null;
+          const results =
+            (src as { results?: Array<{ durationMs?: number | null }> } | null)?.results ?? [];
+          const present = results
+            .map((r) => r.durationMs)
+            .filter((d): d is number => d != null);
+          return {
+            _sum: { durationMs: present.length > 0 ? present.reduce((a, b) => a + b, 0) : null },
+          };
+        }),
       },
       dataset: { findFirst: vi.fn(async () => db.dataset) },
     },

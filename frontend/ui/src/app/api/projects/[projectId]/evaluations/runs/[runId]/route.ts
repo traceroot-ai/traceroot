@@ -21,12 +21,6 @@ type RouteParams = { params: Promise<{ projectId: string; runId: string }> };
 // `comparison` computed over the full set.
 const MAX_RUN_DETAIL_RESULTS = 1000;
 
-function elapsedMs(startedAt: Date, completedAt: Date | null): number | null {
-  if (!completedAt) return null;
-  const ms = completedAt.getTime() - startedAt.getTime();
-  return ms >= 0 ? ms : null;
-}
-
 // GET — a single evaluation run with its results, scores, human scores, and the
 // backend-derived candidate-vs-baseline comparison (the single source of truth).
 export async function GET(_req: NextRequest, { params }: RouteParams) {
@@ -128,6 +122,14 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     _count: { _all: true },
   });
 
+  // Run duration = the sum of every case's duration (so it adds up to the per-case
+  // rows and matches the runs list + lineage totals, which sum the same values).
+  // Aggregated over ALL results, never the capped `results` page above.
+  const durationAgg = await prisma.evaluationResult.aggregate({
+    where: { runId, projectId },
+    _sum: { durationMs: true },
+  });
+
   // Derived human-review summary: reviewed/pending over active dimensions, human
   // pass/fail, and human-vs-automated disagreement. Read-only — computing this never
   // touches the automated score, comparison, or run status.
@@ -154,7 +156,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
       changeFromBaseline: comparison.trustworthy ? comparison.mainScore.delta : null,
       baselineComparable: comparison.trustworthy,
       errorCount: run.taskErrorCount + run.scorerErrorCount,
-      elapsedMs: elapsedMs(run.startedAt, run.completedAt),
+      elapsedMs: durationAgg._sum.durationMs,
       ...countResultStatuses(statusGroups.map((g) => ({ status: g.status, count: g._count._all }))),
       humanReview,
       comparison,
