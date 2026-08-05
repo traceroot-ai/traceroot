@@ -28,6 +28,7 @@ const PICKER_EXCEPTIONS = new Set(["amazon-bedrock"]);
 const DOCS_ROOT = path.resolve(process.cwd(), "../../docs");
 const INTEGRATIONS_DIR = path.join(DOCS_ROOT, "integrations");
 const OVERVIEW_MDX_PATH = path.join(INTEGRATIONS_DIR, "overview.mdx");
+const BYOK_MDX_PATH = path.join(DOCS_ROOT, "ai-agent", "byok.mdx");
 const DOCS_JSON_PATH = path.join(DOCS_ROOT, "docs.json");
 
 function readText(filePath: string): string {
@@ -113,5 +114,18 @@ describe("Docs stay in 1:1 correspondence: overview.mdx cards, docs.json nav, *.
   it("every docs/integrations/*.mdx file except overview.mdx itself is linked from overview.mdx", () => {
     const expected = mdxFileIds.filter((id) => id !== "overview");
     expect([...overviewLinkedIds].sort()).toEqual([...expected].sort());
+  });
+});
+
+describe("Instrumentation and BYOK model providers are labeled as distinct concepts (#1796)", () => {
+  it("overview.mdx's Model Providers section cross-references the BYOK docs", () => {
+    const overview = readText(OVERVIEW_MDX_PATH);
+    expect(overview).toContain("## Model Providers (Traced Automatically)");
+    expect(overview).toContain("/ai-agent/byok");
+  });
+
+  it("byok.mdx's Supported Providers section cross-references the instrumentation docs", () => {
+    const byok = readText(BYOK_MDX_PATH);
+    expect(byok).toContain("/integrations/overview");
   });
 });
