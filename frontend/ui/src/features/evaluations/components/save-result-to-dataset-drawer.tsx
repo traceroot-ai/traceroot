@@ -185,7 +185,7 @@ export function SaveResultToDatasetDrawer({
             <Database className="h-4 w-4 text-muted-foreground" aria-hidden />
             {meta.title}
           </DrawerTitle>
-          <DrawerDescription>{meta.blurb}</DrawerDescription>
+          <DrawerDescription className="mt-2">{meta.blurb}</DrawerDescription>
         </DrawerHeader>
 
         <DrawerBody className="space-y-4">
@@ -224,7 +224,7 @@ export function SaveResultToDatasetDrawer({
             ariaLabel="Input"
             boxed
             copyable
-            autoDetectKind
+            seedJson="expanded"
             minRows={2}
           />
 
@@ -254,7 +254,7 @@ export function SaveResultToDatasetDrawer({
                 readOnly
                 boxed
                 copyable
-                autoDetectKind
+                seedJson="expanded"
                 minRows={2}
               />
             ) : (
@@ -265,7 +265,7 @@ export function SaveResultToDatasetDrawer({
                 ariaLabel="Expected answer"
                 boxed
                 copyable
-                autoDetectKind
+                seedJson="expanded"
                 minRows={2}
               />
             )}
