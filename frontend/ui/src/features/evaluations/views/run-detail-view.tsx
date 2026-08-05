@@ -1164,7 +1164,7 @@ function RunSwitcher({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-sm font-normal text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-xs font-normal text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
           Run #{run.runNumber}
           <ChevronDown className="h-3 w-3" aria-hidden />
