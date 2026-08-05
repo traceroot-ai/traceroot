@@ -967,7 +967,7 @@ function RunBody({
                     ? compareOptions.find((o) => o.id === compareId)
                     : null;
                   if (!selected)
-                    return <span className="text-muted-foreground">Compare with…</span>;
+                    return <span className="text-foreground">Compare with…</span>;
                   return (
                     <span>
                       <span className="min-w-0 truncate">{selected.label}</span>
