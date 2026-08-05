@@ -61,6 +61,9 @@ importers:
       '@hono/node-server':
         specifier: ^1.19.13
         version: 1.19.13(hono@4.12.25)
+      '@traceroot-ai/tools':
+        specifier: workspace:*
+        version: link:../tools
       '@traceroot/core':
         specifier: workspace:*
         version: link:../core
