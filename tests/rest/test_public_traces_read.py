@@ -187,6 +187,21 @@ class TestPublicListTraces:
         assert kwargs["start_after"] == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
         assert kwargs["end_before"] == datetime(2024, 1, 31, 23, 59, 59, tzinfo=UTC)
 
+    def test_forwards_name_user_id_and_search_query(self, client, mock_reader):
+        mock_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        resp = client.get(
+            "/api/v1/public/traces?name=checkout&user_id=user-1&search_query=abc",
+            headers=AUTH_HEADER,
+        )
+        assert resp.status_code == 200
+        kwargs = mock_reader.list_traces.call_args.kwargs
+        assert kwargs["name"] == "checkout"
+        assert kwargs["user_id"] == "user-1"
+        assert kwargs["search_query"] == "abc"
+
     def test_time_range_defaults_to_none_when_absent(self, client, mock_reader):
         mock_reader.list_traces.return_value = {
             "data": [],
