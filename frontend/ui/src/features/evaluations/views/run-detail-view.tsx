@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowDown,
   ArrowUp,
@@ -419,6 +419,25 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
   const results = React.useMemo(() => data?.results ?? [], [data]);
   const run = data?.run;
 
+  // Deep link: TraceViewerPanel's "Open in new tab" lands here with ?traceId=…&fullscreen=1
+  // (the panel's trace id is a result's real trace or its synthetic `eval-<id>` self-trace).
+  // Open that result's trace on arrival — one-shot, so closing the panel doesn't reopen it.
+  const searchParams = useSearchParams();
+  const deepLinkTraceId = searchParams.get("traceId");
+  const [pendingFullscreen, setPendingFullscreen] = React.useState(
+    searchParams.get("fullscreen") === "1",
+  );
+  const deepLinkApplied = React.useRef(false);
+  React.useEffect(() => {
+    if (deepLinkApplied.current || !deepLinkTraceId || results.length === 0) return;
+    deepLinkApplied.current = true;
+    const match = results.find(
+      (r) => r.traceId === deepLinkTraceId || `eval-${r.id}` === deepLinkTraceId,
+    );
+    if (match) setOpenResultId(match.id);
+    else setPendingFullscreen(false); // nothing to expand into
+  }, [deepLinkTraceId, results]);
+
   // On-demand comparison of this run (candidate) vs the picked run (baseline), from the
   // same backend engine + route the compare page uses — no second implementation.
   const compare = useCompareRuns(projectId, runId, compareId);
@@ -490,7 +509,10 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
     return matchSpans(openTraceSpans, baseSpans);
   }, [openTraceSpans, baselineTrace.data]);
 
-  const closeResult = () => setOpenResultId(null);
+  const closeResult = () => {
+    setOpenResultId(null);
+    setPendingFullscreen(false); // a later manual open must not inherit the deep link's fullscreen
+  };
 
   // The trace panel's up/down chevrons step between this run's results (in the same
   // order + filter as the table), so you can walk case-by-case without closing it.
@@ -566,6 +588,7 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
           traceId={panelTraceId}
           traceOverride={panelOverride}
           newTabPath={`/projects/${projectId}/evaluations/${runId}`}
+          initialFullscreen={pendingFullscreen}
           onClose={closeResult}
           onNavigate={navigateResult}
           canNavigateUp={openIndex > 0}
