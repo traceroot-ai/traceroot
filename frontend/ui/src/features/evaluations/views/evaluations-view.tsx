@@ -45,8 +45,9 @@ import { EVAL_RUN_STATUS_LABEL, type EvalRunStatus, type RunRow } from "../types
 
 // Run-centric: the Evaluations page is one table of immutable runs. Scorers is the
 // SDK-authored catalog. There is no separate "unique evaluations", "all runs", or
-// "compare" tab — lineage is reached by grouping/filtering, and comparison is an
-// action that opens a shareable /evaluations/compare route.
+// "compare" tab — lineage is reached by grouping/filtering, and comparison is the inline
+// "Compare with…" strip on a run's detail page (a run picks a baseline and the diff
+// appears in place).
 type Tab = "evaluations" | "scorers";
 
 const TABS: Array<{ id: Tab; label: string; icon: typeof ListChecks }> = [
