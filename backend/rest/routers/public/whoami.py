@@ -21,7 +21,7 @@ from shared.config import settings
 router = APIRouter(prefix="/public/whoami", tags=["Whoami (Public)"])
 
 
-@router.get("", response_model=WhoamiResponse)
+@router.get("", response_model=WhoamiResponse, operation_id="whoami")
 @limiter.shared_limit(
     resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
 )

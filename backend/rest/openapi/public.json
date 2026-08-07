@@ -1110,7 +1110,7 @@
     "/api/v1/public/detectors": {
       "get": {
         "description": "List the detectors in the API key's project (newest first).",
-        "operationId": "list_detectors_api_v1_public_detectors_get",
+        "operationId": "list_detectors",
         "parameters": [
           {
             "description": "Items per page",
@@ -1246,7 +1246,7 @@
     "/api/v1/public/detectors/findings": {
       "get": {
         "description": "List recent detector findings for the API key's project (newest first).",
-        "operationId": "list_findings_api_v1_public_detectors_findings_get",
+        "operationId": "list_findings",
         "parameters": [
           {
             "description": "Items per page",
@@ -1418,7 +1418,7 @@
     "/api/v1/public/detectors/findings/{finding_id}": {
       "get": {
         "description": "Get a single finding by id for the key's project.",
-        "operationId": "get_finding_api_v1_public_detectors_findings__finding_id__get",
+        "operationId": "get_finding",
         "parameters": [
           {
             "in": "path",
@@ -1526,7 +1526,7 @@
     "/api/v1/public/detectors/traces/{trace_id}/finding": {
       "get": {
         "description": "Get the finding for a single trace (findings are 1-per-trace).",
-        "operationId": "get_finding_by_trace_api_v1_public_detectors_traces__trace_id__finding_get",
+        "operationId": "get_finding_by_trace",
         "parameters": [
           {
             "in": "path",
@@ -1634,7 +1634,7 @@
     "/api/v1/public/traces": {
       "get": {
         "description": "List recent traces for the API key's project (newest first).",
-        "operationId": "list_traces_api_v1_public_traces_get",
+        "operationId": "list_traces",
         "parameters": [
           {
             "description": "Items per page",
@@ -1768,7 +1768,7 @@
       },
       "post": {
         "description": "Ingest OTLP trace data.\n\nAccepts OTLP protobuf format only (optionally gzip compressed).\nProtobuf is converted to camelCase JSON before storage in S3.\n\nS3 path: events/otel/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.json\n\nHeaders:\n    Authorization: Bearer <api_key>\n    Content-Encoding: gzip (optional)\n    Content-Type: application/x-protobuf\n\nBody:\n    OTLP trace data in protobuf format",
-        "operationId": "ingest_traces_api_v1_public_traces_post",
+        "operationId": "ingest_traces",
         "requestBody": {
           "content": {
             "application/x-protobuf": {
@@ -1906,7 +1906,7 @@
     "/api/v1/public/traces/{trace_id}": {
       "get": {
         "description": "Get a single trace for the key's project.\n\nDefaults to the lightweight `skeleton` projection (no per-span I/O); pass\n`fields=full` (or `fields=io,metadata`) for per-span input/output/metadata.\n\nArgs:\n    auth (StampedAuth): Resolved API-key context; scopes the read to its\n        project and stamps the rate-limit identity.\n    trace_id (str): Trace to fetch.\n    fields (str | None): Comma-separated projection groups (e.g. ``io``,\n        ``metadata``) or an alias (``skeleton``/``full``). ``None`` selects\n        the default `skeleton` projection.\n\nReturns:\n    PublicTraceDetailResponse: The trace with span skeletons, plus per-span\n        I/O when the projection requests it.\n\nRaises:\n    HTTPException: 400 if `fields` is invalid, 404 if the trace is missing\n        or outside the key's project, 500 on a reader failure.",
-        "operationId": "get_trace_api_v1_public_traces__trace_id__get",
+        "operationId": "get_trace",
         "parameters": [
           {
             "in": "path",
@@ -2047,7 +2047,7 @@
     "/api/v1/public/traces/{trace_id}/export": {
       "get": {
         "description": "Export the V1 bundle (trace + spans + git_context + manifest) for the key's project.\n\nDefaults to the `full` projection \u2014 an export is explicit intent to take the\ncomplete trace, so per-span input/output/metadata are included unless the\ncaller narrows `fields`. `bundle.trace` equals the `traces get` payload at the\nsame projection.\n\nRate limited on its own `export` bucket because it builds and serializes the\nfull bundle.\n\nArgs:\n    auth (StampedAuth): Resolved API-key context; scopes the read to its\n        project and stamps the rate-limit identity.\n    trace_id (str): Trace to export.\n    fields (str | None): Comma-separated projection groups or an alias\n        (``skeleton``/``full``). ``None`` selects the default `full`\n        projection.\n\nReturns:\n    PublicTraceExportResponse: The V1 export bundle (manifest, trace, spans,\n        git_context) at the requested projection.\n\nRaises:\n    HTTPException: 400 if `fields` is invalid, 404 if the trace is missing\n        or outside the key's project, 500 on a reader failure.",
-        "operationId": "export_trace_api_v1_public_traces__trace_id__export_get",
+        "operationId": "export_trace",
         "parameters": [
           {
             "in": "path",
@@ -2188,7 +2188,7 @@
     "/api/v1/public/whoami": {
       "get": {
         "description": "Return the identity the authenticated API key maps to.",
-        "operationId": "whoami_api_v1_public_whoami_get",
+        "operationId": "whoami",
         "responses": {
           "200": {
             "content": {
