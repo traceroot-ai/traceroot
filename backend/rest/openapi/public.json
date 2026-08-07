@@ -119,6 +119,47 @@
         "title": "ExportManifest",
         "type": "object"
       },
+      "FilterValueCount": {
+        "description": "A distinct categorical value and how often it occurs.",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "count"
+        ],
+        "title": "FilterValueCount",
+        "type": "object"
+      },
+      "FilterValuesResponse": {
+        "description": "Distinct values for one categorical filter field, by frequency.",
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/FilterValueCount"
+            },
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "field",
+          "values"
+        ],
+        "title": "FilterValuesResponse",
+        "type": "object"
+      },
       "FindingDetail": {
         "description": "A finding plus its per-detector results and optional free-text RCA.",
         "properties": {
@@ -2402,6 +2443,218 @@
               "description": "Search across trace_id, name, session_id, user_id",
               "title": "Search Query"
             }
+          },
+          {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "const": "trace_id",
+                            "title": "Trace ID"
+                          },
+                          "op": {
+                            "enum": [
+                              "eq",
+                              "contains"
+                            ]
+                          },
+                          "value": {
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "const": "model_name",
+                            "title": "Model"
+                          },
+                          "op": {
+                            "enum": [
+                              "in"
+                            ]
+                          },
+                          "value": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "minItems": 1,
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "const": "environment",
+                            "title": "Environment"
+                          },
+                          "op": {
+                            "enum": [
+                              "in"
+                            ]
+                          },
+                          "value": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "minItems": 1,
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "const": "cost",
+                            "title": "Cost"
+                          },
+                          "op": {
+                            "enum": [
+                              "eq",
+                              "gt",
+                              "gte",
+                              "lt",
+                              "lte"
+                            ]
+                          },
+                          "value": {
+                            "maximum": 999999999,
+                            "minimum": 0,
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "const": "total_tokens",
+                            "title": "Tokens"
+                          },
+                          "op": {
+                            "enum": [
+                              "eq",
+                              "gt",
+                              "gte",
+                              "lt",
+                              "lte"
+                            ]
+                          },
+                          "value": {
+                            "maximum": 9223372036854775807,
+                            "minimum": 0,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "const": "duration_ms",
+                            "title": "Latency"
+                          },
+                          "op": {
+                            "enum": [
+                              "eq",
+                              "gt",
+                              "gte",
+                              "lt",
+                              "lte"
+                            ]
+                          },
+                          "value": {
+                            "maximum": 9223372036854775807,
+                            "minimum": 0,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "const": "errors",
+                            "title": "Errors"
+                          },
+                          "op": {
+                            "enum": [
+                              "eq",
+                              "gt",
+                              "gte",
+                              "lt",
+                              "lte"
+                            ]
+                          },
+                          "value": {
+                            "maximum": 18446744073709551615,
+                            "minimum": 0,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "JSON array of typed filter predicates ({field, op, value}); the field catalog and per-field operators are defined in the schema",
+            "in": "query",
+            "name": "filters",
+            "required": false
           }
         ],
         "responses": {
@@ -2414,6 +2667,21 @@
               }
             },
             "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Invalid filters parameter"
           },
           "401": {
             "content": {
@@ -2481,7 +2749,7 @@
           "Traces (Public)"
         ],
         "x-tool": {
-          "description": "List recent traces for the project (newest first). Filter by time range, trace name, user id, or a free-text search across trace/session/user ids and names. Use this for discovery before fetching a specific trace.",
+          "description": "List recent traces for the project (newest first). Filter by time range, trace name, user id, or a free-text search across trace/session/user ids and names. Use this for discovery before fetching a specific trace. Structured filters (model, environment, cost, tokens, latency, error count) are available via the typed filters parameter.",
           "enabled": true,
           "name": "list_traces"
         }
@@ -2623,6 +2891,157 @@
         ],
         "x-tool": {
           "enabled": false
+        }
+      }
+    },
+    "/api/v1/public/traces/filter-values/{field}": {
+      "get": {
+        "description": "Distinct values for an open-ended categorical filter field.\n\nThe values-discovery companion to the typed ``filters`` parameter on the\ntrace list: the filterable field catalog lives in the generated schema,\nwhile a field's current values are dynamic per project. Only fields the\nregistry marks as distinct-query (model_name, environment) are listable;\nthe field is resolved through the registry before it reaches SQL, so it can\nnever be a raw client-supplied column name.\n\nArgs:\n    auth (StampedAuth): Resolved API-key context; scopes the read to its\n        project and stamps the rate-limit identity.\n    field (str): The categorical field to enumerate.\n    start_after (datetime | None): Lower bound on span start time (active\n        window).\n    end_before (datetime | None): Upper bound on span start time (active\n        window), symmetric with ``start_after`` so options match the list's\n        window.\n\nReturns:\n    FilterValuesResponse: Distinct values ordered by descending frequency.\n\nRaises:\n    HTTPException: 400 if the field is unknown or not a distinct-query\n        categorical, 500 on a reader failure.",
+        "operationId": "list_trace_filter_values",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "field",
+            "required": true,
+            "schema": {
+              "title": "Field",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only consider spans starting at or after this timestamp",
+            "in": "query",
+            "name": "start_after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only consider spans starting at or after this timestamp",
+              "title": "Start After"
+            }
+          },
+          {
+            "description": "Only consider spans starting before this timestamp",
+            "in": "query",
+            "name": "end_before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only consider spans starting before this timestamp",
+              "title": "End Before"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilterValuesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Field is not filterable by distinct values"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Failed to list filter values"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List Trace Filter Values",
+        "tags": [
+          "Traces (Public)"
+        ],
+        "x-tool": {
+          "description": "Discover the current values of a categorical trace filter field (e.g. model_name, environment) for the project \u2014 use before filtering the trace list by that field.",
+          "enabled": true,
+          "name": "list_trace_filter_values"
         }
       }
     },
