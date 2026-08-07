@@ -4,8 +4,10 @@ import json
 from copy import deepcopy
 from pathlib import Path
 
+import pytest
+
 from rest.main import app
-from rest.openapi_public import PUBLIC_PREFIX, build_public_schema, render
+from rest.openapi_public import PUBLIC_PREFIX, _apply_tool_curation, build_public_schema, render
 
 ARTIFACT = Path(__file__).resolve().parents[2] / "backend" / "rest" / "openapi" / "public.json"
 
@@ -183,3 +185,53 @@ def test_operation_ids_are_clean_tool_names():
         for path, item in schema["paths"].items()
     }
     assert actual == EXPECTED_OPERATION_IDS
+
+
+def test_every_public_op_has_x_tool():
+    schema = _schema()
+    for path, item in schema["paths"].items():
+        for method, op in item.items():
+            if method not in _METHODS:
+                continue
+            assert "x-tool" in op, f"{method.upper()} {path} missing x-tool"
+
+
+def test_x_tool_enabled_set_and_shape():
+    schema = _schema()
+    enabled, disabled = {}, set()
+    for item in schema["paths"].values():
+        for method, op in item.items():
+            if method not in _METHODS:
+                continue
+            tool = op["x-tool"]
+            if tool["enabled"]:
+                enabled[tool["name"]] = tool
+            else:
+                disabled.add(op["operationId"])
+    assert disabled == {"ingest_traces"}
+    assert set(enabled) == {
+        "whoami",
+        "list_traces",
+        "get_trace",
+        "export_trace",
+        "list_detectors",
+        "list_findings",
+        "get_finding",
+        "get_finding_by_trace",
+    }
+    for name, tool in enabled.items():
+        assert tool["description"], f"{name} needs an agent-facing description"
+
+
+def test_uncurated_public_op_fails_build():
+    fake = {"paths": {"/api/v1/public/new": {"get": {"operationId": "brand_new_op"}}}}
+    with pytest.raises(ValueError, match="brand_new_op"):
+        _apply_tool_curation(fake)
+
+
+def test_stale_curation_entry_fails_build():
+    # A curation entry whose operation was renamed/removed must fail the build,
+    # so the map stays exactly the public operation set.
+    fake = {"paths": {"/api/v1/public/whoami": {"get": {"operationId": "whoami"}}}}
+    with pytest.raises(ValueError, match=r"stale _TOOL_CURATION.*list_traces"):
+        _apply_tool_curation(fake)

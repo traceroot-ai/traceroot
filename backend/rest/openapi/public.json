@@ -1240,7 +1240,12 @@
         "summary": "List Detectors",
         "tags": [
           "Detectors (Public)"
-        ]
+        ],
+        "x-tool": {
+          "description": "List the project's detectors (id, name, template, enabled flag, creation time).",
+          "enabled": true,
+          "name": "list_detectors"
+        }
       }
     },
     "/api/v1/public/detectors/findings": {
@@ -1412,7 +1417,12 @@
         "summary": "List Findings",
         "tags": [
           "Detectors (Public)"
-        ]
+        ],
+        "x-tool": {
+          "description": "List detector findings for the project, optionally filtered by detector (id, name, or template), trace id, or time range.",
+          "enabled": true,
+          "name": "list_findings"
+        }
       }
     },
     "/api/v1/public/detectors/findings/{finding_id}": {
@@ -1520,7 +1530,12 @@
         "summary": "Get Finding",
         "tags": [
           "Detectors (Public)"
-        ]
+        ],
+        "x-tool": {
+          "description": "Fetch one detector finding by id, with its full analysis detail.",
+          "enabled": true,
+          "name": "get_finding"
+        }
       }
     },
     "/api/v1/public/detectors/traces/{trace_id}/finding": {
@@ -1628,7 +1643,12 @@
         "summary": "Get Finding By Trace",
         "tags": [
           "Detectors (Public)"
-        ]
+        ],
+        "x-tool": {
+          "description": "Fetch the detector finding attached to a specific trace, if any.",
+          "enabled": true,
+          "name": "get_finding_by_trace"
+        }
       }
     },
     "/api/v1/public/traces": {
@@ -1764,7 +1784,12 @@
         "summary": "List Traces",
         "tags": [
           "Traces (Public)"
-        ]
+        ],
+        "x-tool": {
+          "description": "List recent traces for the project (newest first), optionally bounded to a time range. Use this for discovery before fetching a specific trace.",
+          "enabled": true,
+          "name": "list_traces"
+        }
       },
       "post": {
         "description": "Ingest OTLP trace data.\n\nAccepts OTLP protobuf format only (optionally gzip compressed).\nProtobuf is converted to camelCase JSON before storage in S3.\n\nS3 path: events/otel/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.json\n\nHeaders:\n    Authorization: Bearer <api_key>\n    Content-Encoding: gzip (optional)\n    Content-Type: application/x-protobuf\n\nBody:\n    OTLP trace data in protobuf format",
@@ -1900,7 +1925,10 @@
         "summary": "Ingest Traces",
         "tags": [
           "Traces (Public)"
-        ]
+        ],
+        "x-tool": {
+          "enabled": false
+        }
       }
     },
     "/api/v1/public/traces/{trace_id}": {
@@ -2041,7 +2069,12 @@
         "summary": "Get Trace",
         "tags": [
           "Traces (Public)"
-        ]
+        ],
+        "x-tool": {
+          "description": "Fetch one trace with its span tree. Defaults to the lightweight skeleton projection; pass fields=full for per-span input/output/metadata.",
+          "enabled": true,
+          "name": "get_trace"
+        }
       }
     },
     "/api/v1/public/traces/{trace_id}/export": {
@@ -2182,7 +2215,12 @@
         "summary": "Export Trace",
         "tags": [
           "Traces (Public)"
-        ]
+        ],
+        "x-tool": {
+          "description": "Export the complete bundle (trace, spans, git context, manifest) for one trace.",
+          "enabled": true,
+          "name": "export_trace"
+        }
       }
     },
     "/api/v1/public/whoami": {
@@ -2249,7 +2287,12 @@
         "summary": "Whoami",
         "tags": [
           "Whoami (Public)"
-        ]
+        ],
+        "x-tool": {
+          "description": "Identify the project and workspace the current credential belongs to.",
+          "enabled": true,
+          "name": "whoami"
+        }
       }
     }
   }
