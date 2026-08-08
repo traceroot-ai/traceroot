@@ -417,6 +417,11 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
   // case's trace detail into the candidate-vs-baseline I/O diff AND show the per-row
   // comparison detail; off → plain trace + plain rows (only the top stats compare).
   const [diffOn, setDiffOn] = React.useState(false);
+  // Diff direction (the from→to dropdown): which side of the trace-detail I/O diff is the
+  // removed (red) vs added (green) one. Default Baseline → Output.
+  const [diffDirection, setDiffDirection] = React.useState<"base_to_cand" | "cand_to_base">(
+    "base_to_cand",
+  );
 
   const results = React.useMemo(() => data?.results ?? [], [data]);
   const run = data?.run;
@@ -566,6 +571,8 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
             compareByCase={comparing ? compareByCase : null}
             diffOn={diffOn}
             onDiffToggle={() => setDiffOn((v) => !v)}
+            diffDirection={diffDirection}
+            onDiffDirectionChange={setDiffDirection}
           />
         )}
       </div>
@@ -606,6 +613,7 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
           // With a compare run picked, open straight into diff mode against its matching
           // case (the user chose to compare — don't make them toggle it on per trace).
           defaultDiffOn={diffOn}
+          diffFlip={diffDirection === "cand_to_base"}
           // While the "Save as test case" drawer is open, clicking a different span
           // retargets it to that span.
           onSelectionChange={(selection) => {
@@ -887,6 +895,8 @@ function RunBody({
   compareByCase,
   diffOn,
   onDiffToggle,
+  diffDirection,
+  onDiffDirectionChange,
 }: {
   projectId: string;
   run: RunDetail;
@@ -904,6 +914,9 @@ function RunBody({
    *  show per-row comparison; off → plain. Only shown while comparing (no baseline else). */
   diffOn: boolean;
   onDiffToggle: () => void;
+  /** The from→to dropdown: which direction the trace-detail I/O diff reads. */
+  diffDirection: "base_to_cand" | "cand_to_base";
+  onDiffDirectionChange: (d: "base_to_cand" | "cand_to_base") => void;
 }) {
   const router = useRouter();
   const comparing = !!compareByCase;
@@ -1046,16 +1059,35 @@ function RunBody({
                 comparison; off → plain. Only shown while comparing — no baseline to diff
                 against otherwise; the top stats compare regardless. */}
             {comparing && (
-              <Button
-                variant={diffOn ? "default" : "outline"}
-                size="sm"
-                className="h-7 gap-1.5 text-[12px]"
-                onClick={onDiffToggle}
-                title="Show the candidate-vs-baseline diff on the rows and in the trace detail"
-              >
-                <GitCompare className="h-3.5 w-3.5" aria-hidden />
-                Diff
-              </Button>
+              <>
+                {/* from→to: which side of the trace-detail I/O diff is removed vs added. */}
+                <Select
+                  value={diffDirection}
+                  onValueChange={(v) => onDiffDirectionChange(v as "base_to_cand" | "cand_to_base")}
+                >
+                  <SelectTrigger className="h-7 w-[168px] text-[12px]" aria-label="Diff direction">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="base_to_cand" className="text-[12px]">
+                      Baseline → Output
+                    </SelectItem>
+                    <SelectItem value="cand_to_base" className="text-[12px]">
+                      Output → Baseline
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant={diffOn ? "default" : "outline"}
+                  size="sm"
+                  className="h-7 gap-1.5 text-[12px]"
+                  onClick={onDiffToggle}
+                  title="Show the candidate-vs-baseline diff on the rows and in the trace detail"
+                >
+                  <GitCompare className="h-3.5 w-3.5" aria-hidden />
+                  Diff
+                </Button>
+              </>
             )}
           </div>
         }

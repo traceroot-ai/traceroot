@@ -22,6 +22,7 @@ export function TraceIODiffSection({
   baseline,
   candidate,
   loading = false,
+  flip = false,
 }: {
   title: string;
   baseline: string | null;
@@ -30,13 +31,18 @@ export function TraceIODiffSection({
    *  empty baseline/candidate would render a bogus all-added/all-removed diff
    *  before the real value lands, so we show a spinner and skip diffLines entirely. */
   loading?: boolean;
+  /** Reverse the diff direction: candidate is the removed (red) side, baseline the added
+   *  (green) side — the "Output → Baseline" choice in the run-detail Diff dropdown. */
+  flip?: boolean;
 }) {
+  // `from` is the removed (red) side, `to` the added (green) side.
+  const from = flip ? candidate : baseline;
+  const to = flip ? baseline : candidate;
+  const fromLabel = flip ? "candidate" : "baseline";
+  const toLabel = flip ? "baseline" : "candidate";
   const { lines, truncated } = useMemo(
-    () =>
-      loading
-        ? { lines: [], truncated: false }
-        : diffLinesDetailed(baseline ?? "", candidate ?? ""),
-    [baseline, candidate, loading],
+    () => (loading ? { lines: [], truncated: false } : diffLinesDetailed(from ?? "", to ?? "")),
+    [from, to, loading],
   );
   const empty = !loading && !(baseline ?? "") && !(candidate ?? "");
   const changed = lines.some((l) => l.type !== "context");
@@ -48,8 +54,8 @@ export function TraceIODiffSection({
       headerAction={
         loading || empty ? undefined : changed ? (
           <span className="text-[10px]">
-            <span className="text-red-600 dark:text-red-400">− baseline</span>{" "}
-            <span className="text-emerald-600 dark:text-emerald-400">+ candidate</span>
+            <span className="text-red-600 dark:text-red-400">− {fromLabel}</span>{" "}
+            <span className="text-emerald-600 dark:text-emerald-400">+ {toLabel}</span>
           </span>
         ) : (
           <span className="text-[10px] text-muted-foreground">unchanged</span>
@@ -67,8 +73,8 @@ export function TraceIODiffSection({
         <>
           {truncated && (
             <p className="mb-1 text-[11px] italic text-muted-foreground">
-              Too large to diff line-by-line — showing full baseline as removed and full candidate
-              as added.
+              Too large to diff line-by-line — showing full {fromLabel} as removed and full{" "}
+              {toLabel} as added.
             </p>
           )}
           <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed">

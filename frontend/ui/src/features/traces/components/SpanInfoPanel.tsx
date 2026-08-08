@@ -66,6 +66,8 @@ interface SpanInfoPanelProps {
   diffMode?: boolean;
   baselineSpan?: Span | null;
   baselineTrace?: TraceDetail | null;
+  /** Reverse the diff direction (Output → Baseline in the run-detail Diff dropdown). */
+  diffFlip?: boolean;
 }
 
 /** Drop internal `traceroot.span.*` keys so the Metadata panel shows only user metadata. */
@@ -100,6 +102,7 @@ export function SpanInfoPanel({
   diffMode = false,
   baselineSpan,
   baselineTrace,
+  diffFlip = false,
 }: SpanInfoPanelProps) {
   const router = useRouter();
 
@@ -495,6 +498,7 @@ export function SpanInfoPanel({
               baseline={baselineInput}
               candidate={input}
               loading={diffIoLoading}
+              flip={diffFlip}
             />
             <TraceIODiffSection
               key={`${selectionId}:output`}
@@ -502,6 +506,7 @@ export function SpanInfoPanel({
               baseline={baselineOutput}
               candidate={output}
               loading={diffIoLoading}
+              flip={diffFlip}
             />
             <TraceIODiffSection
               key={`${selectionId}:metadata`}
@@ -509,6 +514,7 @@ export function SpanInfoPanel({
               baseline={baselineMetadata}
               candidate={metadata}
               loading={diffIoLoading}
+              flip={diffFlip}
             />
           </>
         ) : (

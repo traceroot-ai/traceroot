@@ -116,6 +116,8 @@ interface TraceViewerPanelProps {
    * effect once `diffBaseline` is supplied — the toggle stays user-controllable after.
    */
   defaultDiffOn?: boolean;
+  /** Reverse the diff direction (Output → Baseline in the run-detail Diff dropdown). */
+  diffFlip?: boolean;
   /**
    * Scope the trace fetch: "detector" opens a detector self-trace (excluded
    * from normal reads), "user" excludes self-traces. Omit for no scoping.
@@ -187,6 +189,7 @@ export function TraceViewerPanel({
   headerIdentity,
   headerStatus,
   defaultDiffOn,
+  diffFlip = false,
   source,
   runTimestamp,
 }: TraceViewerPanelProps) {
@@ -666,6 +669,7 @@ export function TraceViewerPanel({
                       headerAction={spanHeaderAction?.(selection)}
                       extraTags={spanExtraTags?.(selection)}
                       diffMode={!!diffBaseline && diffMode}
+                      diffFlip={diffFlip}
                       baselineSpan={diffBaseline?.matchSpan(selection) ?? null}
                       baselineTrace={diffBaseline?.trace ?? null}
                       isEvalShaped={!!traceOverride}

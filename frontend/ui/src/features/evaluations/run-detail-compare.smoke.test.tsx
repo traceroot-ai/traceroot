@@ -10,6 +10,7 @@
  * Radix Select is mocked to a native <select> (portal/pointer events don't work in
  * jsdom); TraceViewerPanel is a prop recorder.
  */
+import * as React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, screen, fireEvent, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -53,24 +54,29 @@ vi.mock("@/features/traces/hooks", async (importOriginal) => {
 let lastPanel: {
   traceId?: string;
   defaultDiffOn?: boolean;
+  diffFlip?: boolean;
   diffBaseline?: { trace?: { trace_id?: string } };
 } = {};
 vi.mock("@/features/traces/components", () => ({
   TraceViewerPanel: (props: {
     traceId: string;
     defaultDiffOn?: boolean;
+    diffFlip?: boolean;
     diffBaseline?: { trace?: { trace_id?: string } };
   }) => {
     lastPanel = {
       traceId: props.traceId,
       defaultDiffOn: props.defaultDiffOn,
+      diffFlip: props.diffFlip,
       diffBaseline: props.diffBaseline,
     };
     return <div data-testid="trace-panel" />;
   },
 }));
 
-// Native-select stand-in for the Radix Select (jsdom can't drive the real one).
+// Native-select stand-in for the Radix Select (jsdom can't drive the real one). Run detail
+// renders two Selects — the compare picker and the diff-direction picker; disambiguate them
+// by their trigger's aria-label so each keeps a stable testid.
 vi.mock("@/components/ui/select", () => ({
   Select: ({
     value,
@@ -80,15 +86,22 @@ vi.mock("@/components/ui/select", () => ({
     value: string;
     onValueChange: (v: string) => void;
     children: React.ReactNode;
-  }) => (
-    <select
-      data-testid="compare-select"
-      value={value}
-      onChange={(e) => onValueChange(e.target.value)}
-    >
-      {children}
-    </select>
-  ),
+  }) => {
+    const trigger = React.Children.toArray(children).find(
+      (c): c is React.ReactElement<{ "aria-label"?: string }> =>
+        React.isValidElement(c) && !!(c.props as { "aria-label"?: string })["aria-label"],
+    );
+    const label = trigger?.props["aria-label"];
+    return (
+      <select
+        data-testid={label === "Diff direction" ? "diff-direction-select" : "compare-select"}
+        value={value}
+        onChange={(e) => onValueChange(e.target.value)}
+      >
+        {children}
+      </select>
+    );
+  },
   SelectItem: ({ value, children }: { value: string; children: React.ReactNode }) => (
     <option value={value}>{children}</option>
   ),
@@ -371,6 +384,22 @@ describe("run detail — compare with", () => {
     // against the PICKED run's matching case trace (tr_base from the fixture), not another.
     expect(lastPanel.traceId).toBe("tr_cand");
     expect(lastPanel.diffBaseline?.trace?.trace_id).toBe("tr_base");
+  });
+
+  it("the from→to dropdown flips the trace-detail diff direction", async () => {
+    mount();
+    await pickCompare();
+    await screen.findByText(withText(/Comparing vs #26/));
+    fireEvent.click(await screen.findByText(/charged twice/));
+    await screen.findByTestId("trace-panel");
+    enableDiff();
+    // Default direction Baseline → Output (not flipped).
+    expect(lastPanel.diffFlip).toBe(false);
+    // Switch to Output → Baseline → the panel's diff reverses.
+    fireEvent.change(screen.getByTestId("diff-direction-select"), {
+      target: { value: "cand_to_base" },
+    });
+    expect(lastPanel.diffFlip).toBe(true);
   });
 
   it("shows no diff/change column until a run is picked", async () => {
