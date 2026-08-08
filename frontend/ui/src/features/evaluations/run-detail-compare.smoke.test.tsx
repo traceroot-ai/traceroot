@@ -311,6 +311,11 @@ const pickCompare = async () => {
   fireEvent.change(select, { target: { value: "run2" } });
 };
 
+// Per-row comparison detail (vs-baseline column, deltas, ≠ marker) and the trace-detail
+// diff show only when the header Diff toggle is on; the top stats compare regardless. The
+// toggle appears once a baseline is picked.
+const enableDiff = () => fireEvent.click(screen.getByRole("button", { name: "Diff" }));
+
 describe("run detail — compare with", () => {
   it("lists sibling runs and, on pick, shows the comparison banner", async () => {
     mount();
@@ -323,11 +328,15 @@ describe("run detail — compare with", () => {
     expect(screen.getByText(withText(/\+100\.0pp/))).toBeDefined();
   });
 
-  it("drives the results table diff cells vs the picked run", async () => {
+  it("drives the results table diff cells vs the picked run when Diff is on", async () => {
     mount();
     await pickCompare();
-    // Header switches to the diff label, the main-score cell shows the +100 pp delta,
-    // and the output is flagged as differing from the baseline.
+    await screen.findByText(withText(/Comparing vs #26/));
+    // Diff off: the rows stay plain — no vs-baseline column, no per-case delta/marker.
+    expect(screen.queryByText("vs baseline")).toBeNull();
+    expect(screen.queryByText("≠ baseline")).toBeNull();
+    // Turn Diff on → the per-row comparison appears (delta cell + ≠ marker).
+    enableDiff();
     expect(await screen.findByText("vs baseline")).toBeDefined();
     expect(screen.getByText(/\+100\.0 pp/)).toBeDefined();
     expect(screen.getByText("≠ baseline")).toBeDefined();
@@ -346,16 +355,20 @@ describe("run detail — compare with", () => {
     expect(screen.queryByText(/charged twice/)).toBeNull();
   });
 
-  it("opens the case trace straight into diff mode against the picked run", async () => {
+  it("opens the case trace in diff mode only when the header Diff toggle is on", async () => {
     mount();
     await pickCompare();
     await screen.findByText(withText(/Comparing vs #26/));
     fireEvent.click(await screen.findByText(/charged twice/));
     expect(await screen.findByTestId("trace-panel")).toBeDefined();
+    // Diff off by default — comparing alone shows the plain trace (the top stats compare).
+    expect(lastPanel.defaultDiffOn).toBe(false);
+
+    // Flip the header Diff toggle → the open trace detail follows into diff mode.
+    enableDiff();
     expect(lastPanel.defaultDiffOn).toBe(true);
-    // Asserts identity, not just truthiness: the candidate's own trace (tr_cand)
-    // is open, and the diff baseline resolved is the PICKED run's matching case
-    // trace (tr_base, from the fixture's baselineTraceId), not some other trace.
+    // Identity, not just truthiness: the candidate's own trace (tr_cand) is open, diffed
+    // against the PICKED run's matching case trace (tr_base from the fixture), not another.
     expect(lastPanel.traceId).toBe("tr_cand");
     expect(lastPanel.diffBaseline?.trace?.trace_id).toBe("tr_base");
   });

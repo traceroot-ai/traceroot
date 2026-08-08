@@ -48,14 +48,12 @@ import {
   signedPoints,
 } from "@/features/offline-eval/utils";
 import { useEvaluationRun, useEvaluationRuns, useCreateHumanScore, useCompareRuns } from "../hooks";
-import { PullCodeDrawer } from "../components/pull-code-drawer";
 import { PassRate } from "../components/pass-rate";
 import { SaveTestCaseDrawer } from "../components/trace-integration";
 import {
   SaveResultToDatasetDrawer,
   type ResultDatasetAction,
 } from "../components/save-result-to-dataset-drawer";
-import { reproduceRunCode, reproduceRunCodeTs } from "@/features/offline-eval/utils";
 import { matchSpans } from "@/lib/eval/span-match";
 import { attributeTraceUsage, type UsageSpan } from "@/lib/eval/trace-usage";
 import { ComparabilityBanner } from "@/features/evaluations/components/comparability-banner";
@@ -415,6 +413,10 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
   // is the candidate; the picked run is the baseline. Comparison is computed on demand
   // by the backend engine (the SDK no longer declares baselines).
   const [compareId, setCompareId] = React.useState<string | null>(null);
+  // The Diff switch (rendered in the header by RunBody, only while comparing). On → open a
+  // case's trace detail into the candidate-vs-baseline I/O diff AND show the per-row
+  // comparison detail; off → plain trace + plain rows (only the top stats compare).
+  const [diffOn, setDiffOn] = React.useState(false);
 
   const results = React.useMemo(() => data?.results ?? [], [data]);
   const run = data?.run;
@@ -562,6 +564,8 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
             compareData={compare.data ?? null}
             compareLoading={!!compareId && compare.isLoading}
             compareByCase={comparing ? compareByCase : null}
+            diffOn={diffOn}
+            onDiffToggle={() => setDiffOn((v) => !v)}
           />
         )}
       </div>
@@ -601,7 +605,7 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
           headerStatus={<EvalResultBadge status={openResult.status} />}
           // With a compare run picked, open straight into diff mode against its matching
           // case (the user chose to compare — don't make them toggle it on per trace).
-          defaultDiffOn={comparing}
+          defaultDiffOn={diffOn}
           // While the "Save as test case" drawer is open, clicking a different span
           // retargets it to that span.
           onSelectionChange={(selection) => {
@@ -881,6 +885,8 @@ function RunBody({
   compareData,
   compareLoading,
   compareByCase,
+  diffOn,
+  onDiffToggle,
 }: {
   projectId: string;
   run: RunDetail;
@@ -894,9 +900,12 @@ function RunBody({
   compareData: CompareRunsResponse | null;
   compareLoading: boolean;
   compareByCase: Map<string, CompareResultRow> | null;
+  /** The Diff switch (header): on → open case traces into the candidate-vs-baseline diff +
+   *  show per-row comparison; off → plain. Only shown while comparing (no baseline else). */
+  diffOn: boolean;
+  onDiffToggle: () => void;
 }) {
   const router = useRouter();
-  const [reproduceOpen, setReproduceOpen] = React.useState(false);
   const comparing = !!compareByCase;
   const cmp = compareData?.comparison ?? null;
   // Headline deltas vs the baseline, shown only when the comparison is usable. Main
@@ -1032,15 +1041,22 @@ function RunBody({
                 )}
               </SelectContent>
             </Select>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 gap-1.5 text-[12px]"
-              onClick={() => setReproduceOpen(true)}
-            >
-              <Database className="h-3.5 w-3.5" aria-hidden />
-              Reproduce locally
-            </Button>
+            {/* The Diff toggle sits where "Reproduce locally" used to. On → open a case's
+                trace detail into the candidate-vs-baseline I/O diff and show the per-row
+                comparison; off → plain. Only shown while comparing — no baseline to diff
+                against otherwise; the top stats compare regardless. */}
+            {comparing && (
+              <Button
+                variant={diffOn ? "default" : "outline"}
+                size="sm"
+                className="h-7 gap-1.5 text-[12px]"
+                onClick={onDiffToggle}
+                title="Show the candidate-vs-baseline diff on the rows and in the trace detail"
+              >
+                <GitCompare className="h-3.5 w-3.5" aria-hidden />
+                Diff
+              </Button>
+            )}
           </div>
         }
       />
@@ -1121,46 +1137,11 @@ function RunBody({
             onFilterChange={onFilterChange}
             onOpen={onOpenResult}
             openResultId={openResultId}
+            diffOn={diffOn}
           />
         </div>
       </div>
 
-      {/* Reproduce this run locally = pull the EXACT dataset version it scored (not
-          the run/evaluation id, which pulls nothing). Shared pull-code drawer. */}
-      <PullCodeDrawer
-        title="Reproduce this run locally"
-        subtitle={
-          <>
-            Re-run a new candidate against the exact cases{" "}
-            <span className="font-medium text-foreground">
-              {run.evaluationName} #{run.runNumber}
-            </span>{" "}
-            scored — the same dataset snapshot, so the results line up against this run.
-          </>
-        }
-        options={[
-          {
-            id: "reproduce",
-            label: "Reproduce this run",
-            note: (
-              <>
-                Pins{" "}
-                <span className="font-medium text-foreground">
-                  {run.datasetName ?? "this dataset"}
-                </span>{" "}
-                at version <span className="font-mono">{run.datasetVersionLabel}</span> (snapshot{" "}
-                <span className="font-mono">{run.datasetVersionId}</span>), and passes this run
-                (candidate <span className="font-mono">{run.candidateVersion}</span>) as the
-                baseline to compare the new run against.
-              </>
-            ),
-            py: reproduceRunCode(run.datasetVersionId, run.evaluationName, run.id),
-            ts: reproduceRunCodeTs(run.datasetVersionId, run.evaluationName, run.id),
-          },
-        ]}
-        open={reproduceOpen}
-        onOpenChange={setReproduceOpen}
-      />
     </>
   );
 }
@@ -1394,6 +1375,7 @@ function ResultsSection({
   onFilterChange,
   onOpen,
   openResultId,
+  diffOn,
 }: {
   run: RunDetail;
   results: ResultRow[];
@@ -1404,9 +1386,15 @@ function ResultsSection({
   onFilterChange: (filter: ResultFilterId) => void;
   onOpen: (id: string) => void;
   openResultId: string | null;
+  /** The header Diff toggle. Off → rows stay plain (only the top stats compare); on → rows
+   *  also show the per-case comparison (vs-baseline column, deltas, ≠ marker). */
+  diffOn: boolean;
 }) {
   const [keyword, setKeyword] = React.useState("");
   const [sortWorst, setSortWorst] = React.useState(false);
+  // Rows show comparison detail only when comparing AND Diff is on; the top HeadlineMetrics
+  // still compare whenever a baseline is picked.
+  const showRowCompare = comparing && diffOn;
 
   // Per-result comparison vs the picked run (null when not comparing).
   const cmpFor = React.useCallback(
@@ -1498,8 +1486,8 @@ function ResultsSection({
               <Th>Output</Th>
               <Th>Expected</Th>
               <Th className="w-[170px]">Main score</Th>
-              {/* Change is only meaningful against a picked run; hidden otherwise. */}
-              {comparing && <Th className="w-[110px] text-right">vs baseline</Th>}
+              {/* Per-case comparison detail — shown only when Diff is on. */}
+              {showRowCompare && <Th className="w-[110px] text-right">vs baseline</Th>}
               <Th className="w-[90px] text-right">Duration</Th>
               <Th className="w-[90px] text-right">Cost</Th>
               <Th className="w-[110px]">Status</Th>
@@ -1508,7 +1496,7 @@ function ResultsSection({
           <TBody>
             {visible.length === 0 ? (
               <tr>
-                <td colSpan={comparing ? RESULT_COLUMN_COUNT : RESULT_COLUMN_COUNT - 1}>
+                <td colSpan={showRowCompare ? RESULT_COLUMN_COUNT : RESULT_COLUMN_COUNT - 1}>
                   <p className="px-4 py-12 text-center text-[12px] text-muted-foreground">
                     {results.length === 0
                       ? "No per-case results reported for this run yet."
@@ -1535,7 +1523,7 @@ function ResultsSection({
                             <span className="text-muted-foreground">No output</span>
                           )}
                         </span>
-                        {row?.outputChanged === true && rowCmp?.pairing === "paired" && (
+                        {showRowCompare && row?.outputChanged === true && rowCmp?.pairing === "paired" && (
                           <span
                             className="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground"
                             title="Output differs from the baseline run"
@@ -1549,22 +1537,25 @@ function ResultsSection({
                       {result.expectedOutput ?? "—"}
                     </Td>
                     <Td>
-                      <MainScoreCell result={result} comparison={rowCmp} />
+                      <MainScoreCell
+                        result={result}
+                        comparison={showRowCompare ? rowCmp : null}
+                      />
                     </Td>
-                    {comparing && (
+                    {showRowCompare && (
                       <Td className="text-right">
                         <ChangeCell change={rowCmp?.caseChange ?? null} />
                       </Td>
                     )}
                     <Td className="whitespace-nowrap text-right text-[11px] tabular-nums text-muted-foreground">
                       {fmtDurationMs(result.durationMs)}
-                      {comparing && (
+                      {showRowCompare && (
                         <CellDelta delta={rowCmp?.durationDeltaMs ?? null} format={fmtDurationMs} />
                       )}
                     </Td>
                     <Td className="whitespace-nowrap text-right text-[11px] tabular-nums text-muted-foreground">
                       {result.cost === null ? "—" : `$${result.cost.toFixed(4)}`}
-                      {comparing && result.cost !== null && row?.baselineCost != null && (
+                      {showRowCompare && result.cost !== null && row?.baselineCost != null && (
                         <CellDelta
                           delta={result.cost - row.baselineCost}
                           format={(n) => `$${n.toFixed(4)}`}

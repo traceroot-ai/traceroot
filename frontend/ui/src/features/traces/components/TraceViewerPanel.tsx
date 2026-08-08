@@ -195,10 +195,11 @@ export function TraceViewerPanel({
   // when a baseline matcher is supplied. Persists across ↑/↓ navigation like
   // fullscreen, since the panel instance stays mounted.
   const [diffMode, setDiffMode] = useState(defaultDiffOn ?? false);
-  // When a compare run is picked (offline-eval), auto-open diff mode so opening a case
-  // trace lands in the diff directly. The user can still toggle it off afterward.
+  // `defaultDiffOn` is the caller's diff switch (offline-eval's header Diff toggle). Follow
+  // it both ways so flipping the toggle live-updates an already-open panel; the in-panel
+  // toggle still overrides until the caller's switch next changes.
   useEffect(() => {
-    if (defaultDiffOn) setDiffMode(true);
+    setDiffMode(defaultDiffOn ?? false);
   }, [defaultDiffOn]);
   // Emit selection changes to the parent (kept in a ref so an inline callback
   // doesn't retrigger the effect — it fires only when `selection` actually changes).
