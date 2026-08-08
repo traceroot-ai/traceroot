@@ -10,6 +10,7 @@
  * Radix Select is mocked to a native <select> (portal/pointer events don't work in
  * jsdom); TraceViewerPanel is a prop recorder.
  */
+import * as React from "react";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, screen, fireEvent, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -23,34 +24,59 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
 
-const traceState = {
-  data: { trace_id: "tr", spans: [] },
+// Per-id trace stubs: candidate ("tr_cand") and baseline ("tr_base") are
+// DISTINCT objects, so an assertion on the resolved trace's own identity can
+// catch a wrong id being wired up (a single shared stub — as this used to be —
+// makes `!!props.diffBaseline` unconditionally true regardless of which id, if
+// any, was actually requested).
+const candTraceState = {
+  data: { trace_id: "tr_cand", spans: [] },
   isFetching: false,
   isError: false,
   refetch: vi.fn(),
 };
+const baseTraceState = {
+  data: { trace_id: "tr_base", spans: [] },
+  isFetching: false,
+  isError: false,
+  refetch: vi.fn(),
+};
+const noTraceState = { data: undefined, isFetching: false, isError: false, refetch: vi.fn() };
 vi.mock("@/features/traces/hooks", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/features/traces/hooks")>();
-  return { ...actual, useTrace: () => traceState };
+  return {
+    ...actual,
+    useTrace: (_projectId: string, id: string) =>
+      id === "tr_cand" ? candTraceState : id === "tr_base" ? baseTraceState : noTraceState,
+  };
 });
 
-let lastPanel: { traceId?: string; defaultDiffOn?: boolean; hasDiffBaseline?: boolean } = {};
+let lastPanel: {
+  traceId?: string;
+  defaultDiffOn?: boolean;
+  diffFlip?: boolean;
+  diffBaseline?: { trace?: { trace_id?: string } };
+} = {};
 vi.mock("@/features/traces/components", () => ({
   TraceViewerPanel: (props: {
     traceId: string;
     defaultDiffOn?: boolean;
-    diffBaseline?: unknown;
+    diffFlip?: boolean;
+    diffBaseline?: { trace?: { trace_id?: string } };
   }) => {
     lastPanel = {
       traceId: props.traceId,
       defaultDiffOn: props.defaultDiffOn,
-      hasDiffBaseline: !!props.diffBaseline,
+      diffFlip: props.diffFlip,
+      diffBaseline: props.diffBaseline,
     };
     return <div data-testid="trace-panel" />;
   },
 }));
 
-// Native-select stand-in for the Radix Select (jsdom can't drive the real one).
+// Native-select stand-in for the Radix Select (jsdom can't drive the real one). Run detail
+// renders two Selects — the compare picker and the diff-direction picker; disambiguate them
+// by their trigger's aria-label so each keeps a stable testid.
 vi.mock("@/components/ui/select", () => ({
   Select: ({
     value,
@@ -60,15 +86,22 @@ vi.mock("@/components/ui/select", () => ({
     value: string;
     onValueChange: (v: string) => void;
     children: React.ReactNode;
-  }) => (
-    <select
-      data-testid="compare-select"
-      value={value}
-      onChange={(e) => onValueChange(e.target.value)}
-    >
-      {children}
-    </select>
-  ),
+  }) => {
+    const trigger = React.Children.toArray(children).find(
+      (c): c is React.ReactElement<{ "aria-label"?: string }> =>
+        React.isValidElement(c) && !!(c.props as { "aria-label"?: string })["aria-label"],
+    );
+    const label = trigger?.props["aria-label"];
+    return (
+      <select
+        data-testid={label === "Diff direction" ? "diff-direction-select" : "compare-select"}
+        value={value}
+        onChange={(e) => onValueChange(e.target.value)}
+      >
+        {children}
+      </select>
+    );
+  },
   SelectItem: ({ value, children }: { value: string; children: React.ReactNode }) => (
     <option value={value}>{children}</option>
   ),
@@ -78,6 +111,17 @@ vi.mock("@/components/ui/select", () => ({
 }));
 
 import { RunDetailView } from "./views/run-detail-view";
+
+/**
+ * Matches the innermost element whose *combined* text matches `re`. The run
+ * number is interpolated (`Run #{n}`, `Comparing vs #{n} ·`), so it lands in its
+ * own text node and a plain regex matcher never sees the whole string.
+ */
+const withText = (re: RegExp) => (_content: string, el: Element | null) =>
+  !!el &&
+  re.test(el.textContent ?? "") &&
+  !Array.from(el.children).some((c) => re.test(c.textContent ?? ""));
+
 
 const runRow = (id: string, runNumber: number, version: string, mainScore: number) => ({
   id,
@@ -273,51 +317,96 @@ function mount() {
 
 const pickCompare = async () => {
   const select = (await screen.findByTestId("compare-select")) as HTMLSelectElement;
-  // The earlier run (#26) is offered as a baseline option.
-  expect(within(select).getByText(/#26/)).toBeDefined();
+  // The earlier run (#26) is offered as a baseline option. Awaited, not sync:
+  // the sibling-runs query lives in RunBody, which only mounts once the run has
+  // loaded, so the options arrive a tick after the select does.
+  expect(await within(select).findByText(withText(/#26/))).toBeDefined();
   fireEvent.change(select, { target: { value: "run2" } });
 };
 
-describe("run detail — compare with", () => {
-  it("surfaces the candidate's declared model in the identity strip", async () => {
-    mount();
-    // The run's declared candidate model is shown up top — candidate identity, never
-    // attached to a test case.
-    expect(await screen.findByText("Declared model")).toBeDefined();
-    expect(screen.getByText("claude-opus-4")).toBeDefined();
-  });
+// Per-row comparison detail (vs-baseline column, deltas, ≠ marker) and the trace-detail
+// diff show only when the header Diff toggle is on; the top stats compare regardless. The
+// toggle appears once a baseline is picked.
+const enableDiff = () => fireEvent.click(screen.getByRole("button", { name: "Diff" }));
 
+describe("run detail — compare with", () => {
   it("lists sibling runs and, on pick, shows the comparison banner", async () => {
     mount();
     await pickCompare();
-    expect(await screen.findByText(/Comparing vs #26/)).toBeDefined();
+    expect(await screen.findByText(withText(/Comparing vs #26/))).toBeDefined();
     expect(screen.getByText(/1 improved/)).toBeDefined();
+    // The headline main-score stat gains its delta vs the baseline (candidate 1,
+    // baseline 0 → +100.0pp); the space-free "pp" distinguishes it from the per-case
+    // cell's "+100.0 pp".
+    expect(screen.getByText(withText(/\+100\.0pp/))).toBeDefined();
   });
 
-  it("drives the results table diff cells vs the picked run", async () => {
+  it("drives the results table diff cells vs the picked run when Diff is on", async () => {
     mount();
     await pickCompare();
-    // Header switches to the diff label, the main-score cell shows the +100 pp delta,
-    // and the output is flagged as differing from the baseline.
+    await screen.findByText(withText(/Comparing vs #26/));
+    // Diff off: the rows stay plain — no vs-baseline column, no per-case delta/marker.
+    expect(screen.queryByText("vs baseline")).toBeNull();
+    expect(screen.queryByText("≠ baseline")).toBeNull();
+    // Turn Diff on → the per-row comparison appears (delta cell + ≠ marker).
+    enableDiff();
     expect(await screen.findByText("vs baseline")).toBeDefined();
     expect(screen.getByText(/\+100\.0 pp/)).toBeDefined();
     expect(screen.getByText("≠ baseline")).toBeDefined();
   });
 
-  it("opens the case trace straight into diff mode against the picked run", async () => {
+  it("filters by the PICKED baseline's case verdict, not the run's stored comparison", async () => {
     mount();
     await pickCompare();
-    await screen.findByText(/Comparing vs #26/);
-    fireEvent.click(await screen.findByText(/charged twice/));
-    expect(await screen.findByTestId("trace-panel")).toBeDefined();
-    expect(lastPanel.defaultDiffOn).toBe(true);
-    expect(lastPanel.hasDiffBaseline).toBe(true);
+    await screen.findByText(withText(/Comparing vs #26/));
+    // The case improved vs the picked baseline; its own stored comparison is null, so the
+    // old filter (keyed on the stored comparison) hid it. Improvements must keep it.
+    fireEvent.click(screen.getByRole("button", { name: "Improvements" }));
+    expect(screen.getByText(/charged twice/)).toBeDefined();
+    // Nothing regressed vs the picked baseline, so Regressions empties the table.
+    fireEvent.click(screen.getByRole("button", { name: "Regressions" }));
+    expect(screen.queryByText(/charged twice/)).toBeNull();
   });
 
-  it("shows no diff column until a run is picked", async () => {
+  it("opens the case trace in diff mode only when the header Diff toggle is on", async () => {
+    mount();
+    await pickCompare();
+    await screen.findByText(withText(/Comparing vs #26/));
+    fireEvent.click(await screen.findByText(/charged twice/));
+    expect(await screen.findByTestId("trace-panel")).toBeDefined();
+    // Diff off by default — comparing alone shows the plain trace (the top stats compare).
+    expect(lastPanel.defaultDiffOn).toBe(false);
+
+    // Flip the header Diff toggle → the open trace detail follows into diff mode.
+    enableDiff();
+    expect(lastPanel.defaultDiffOn).toBe(true);
+    // Identity, not just truthiness: the candidate's own trace (tr_cand) is open, diffed
+    // against the PICKED run's matching case trace (tr_base from the fixture), not another.
+    expect(lastPanel.traceId).toBe("tr_cand");
+    expect(lastPanel.diffBaseline?.trace?.trace_id).toBe("tr_base");
+  });
+
+  it("the from→to dropdown flips the trace-detail diff direction", async () => {
+    mount();
+    await pickCompare();
+    await screen.findByText(withText(/Comparing vs #26/));
+    fireEvent.click(await screen.findByText(/charged twice/));
+    await screen.findByTestId("trace-panel");
+    enableDiff();
+    // Default direction Baseline → Output (not flipped).
+    expect(lastPanel.diffFlip).toBe(false);
+    // Switch to Output → Baseline → the panel's diff reverses.
+    fireEvent.change(screen.getByTestId("diff-direction-select"), {
+      target: { value: "cand_to_base" },
+    });
+    expect(lastPanel.diffFlip).toBe(true);
+  });
+
+  it("shows no diff/change column until a run is picked", async () => {
     mount();
     await screen.findByText(/charged twice/);
+    // The change column is redundant with no baseline — hidden entirely until compared.
     expect(screen.queryByText("vs baseline")).toBeNull();
-    expect(screen.getByText("Change")).toBeDefined();
+    expect(screen.queryByText("Change")).toBeNull();
   });
 });

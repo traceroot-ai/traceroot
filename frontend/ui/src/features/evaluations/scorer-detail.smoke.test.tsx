@@ -6,6 +6,7 @@
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, cleanup, screen, within } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -37,6 +38,7 @@ function row(p: Partial<ScorerRegistryRow>): ScorerRegistryRow {
     scorerType: null,
     outputType: null,
     description: null,
+    requiredInputs: null,
     metadata: null,
     model: null,
     messages: null,
@@ -47,7 +49,11 @@ function row(p: Partial<ScorerRegistryRow>): ScorerRegistryRow {
 }
 
 const mount = (scorer: ScorerRegistryRow) =>
-  render(<ScorerDetailPanel scorer={scorer} onClose={() => {}} />);
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <ScorerDetailPanel scorer={scorer} onClose={() => {}} />
+    </QueryClientProvider>,
+  );
 
 afterEach(() => cleanup());
 
@@ -71,10 +77,9 @@ describe("ScorerDetailPanel", () => {
     expect(within(detail).getByText("Model")).toBeDefined();
     expect(within(detail).getByText("Prompt")).toBeDefined();
     expect(within(detail).getByText("Pass threshold")).toBeDefined();
-    // Their values.
+    // Their values — model in the read-only dropdown, only the system prompt shown.
     expect(within(detail).getByText("claude-sonnet-5")).toBeDefined();
-    expect(within(detail).getByText("system")).toBeDefined();
-    expect(within(detail).getByText(/Rate the answer conciseness/)).toBeDefined();
+    expect(detail.textContent).toContain("Rate the answer conciseness");
     expect(detail.textContent).toContain("0.8");
     // Removed sections are gone.
     expect(within(detail).queryByText("Configuration")).toBeNull();
@@ -111,5 +116,30 @@ describe("ScorerDetailPanel", () => {
     expect(detail.textContent).toContain("—");
     // No observed-usage/analytics block on the read-only detail.
     expect(within(detail).queryByText("Observed usage")).toBeNull();
+  });
+
+  it("Requires — reference answer USED when the scorer reads `expected`", () => {
+    mount(row({ name: "exact_match", requiredInputs: ["input", "output", "expected"] }));
+    const detail = screen.getByLabelText("Scorer detail");
+    expect(within(detail).getByText("Requires")).toBeDefined();
+    // The declared inputs are shown, and the reference-answer line reads "used".
+    expect(within(detail).getByText("expected")).toBeDefined();
+    expect(detail.textContent).toContain("used by this scorer");
+    expect(detail.textContent).not.toContain("not required by this scorer");
+  });
+
+  it("Requires — reference answer NOT required (a reference-free judge)", () => {
+    mount(row({ name: "conciseness", requiredInputs: ["input", "output"] }));
+    const detail = screen.getByLabelText("Scorer detail");
+    // A case with no expected output can tell this is deliberate, not a gap.
+    expect(detail.textContent).toContain("not required by this scorer");
+  });
+
+  it("Requires — em dash when the SDK never declared the inputs (unknown, not 'nothing')", () => {
+    mount(row({ name: "routing_accuracy", requiredInputs: null }));
+    const detail = screen.getByLabelText("Scorer detail");
+    const requires = within(detail).getByText("Requires").parentElement;
+    expect(requires?.textContent).toContain("—");
+    expect(requires?.textContent).not.toContain("Reference answer");
   });
 });

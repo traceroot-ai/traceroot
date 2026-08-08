@@ -60,9 +60,9 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
             _avg: { mainScore: true },
             _count: { mainScore: true },
           }),
-          // Cost and duration live per case, so the lineage totals sum the results.
-          // `durationMs` is summed case time, matching how the runs list derives an
-          // in-flight run's elapsed — not wall clock, which would count idle gaps.
+          // Cost and duration both live per case, so the lineage totals sum the
+          // results: totalDurationMs is the sum of every case's duration across the
+          // lineage's runs (so it adds up to the per-case rows), not run wall-clock.
           prisma.evaluationResult.groupBy({
             by: ["evaluationId"],
             where: { projectId, evaluationId: { in: evaluationIds } },

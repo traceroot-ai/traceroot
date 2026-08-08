@@ -7,6 +7,7 @@ import {
   type RegisterRunRequest,
 } from "@traceroot/core";
 import { requireApiKeyProject } from "@/lib/eval/auth";
+import { resolvePublicDataset } from "@/lib/eval/versions";
 
 const DEFAULT_APP_BASE_URL = "http://localhost:3000";
 
@@ -63,14 +64,13 @@ async function registerRun(
   projectId: string,
   req: RegisterRunRequest,
 ): Promise<RegisterOutcome> {
-  // The SDK's `dataset_id` is the project-scoped client id, never the internal PK
-  // (which is an auto-generated cuid the caller never sees) — resolve it here and
-  // thread the internal `dataset.id` through the version, evaluation and run below.
-  // Looking up by the internal id would 404 every SDK-registered run.
-  const dataset = await tx.dataset.findUnique({
-    where: { projectId_clientDatasetId: { projectId, clientDatasetId: req.dataset_id } },
-    select: { id: true, currentVersionId: true },
-  });
+  // Resolve `dataset_id` the same lenient way the public GET path does
+  // (`resolvePublicDataset`): the project-scoped client id first, then the internal PK
+  // as a fallback. A strict client-id-only lookup 404s on an id that `pull_dataset`
+  // just accepted (e.g. an internal id copied from the UI), so the two public endpoints
+  // must resolve identically. The internal `dataset.id` is threaded through the version,
+  // evaluation and run below.
+  const dataset = await resolvePublicDataset(tx, projectId, req.dataset_id);
   if (!dataset) return { httpError: { message: "Dataset not found", status: 404 } };
 
   const versionId = req.dataset_version_id ?? dataset.currentVersionId;

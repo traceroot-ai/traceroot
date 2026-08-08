@@ -10,6 +10,7 @@ import { it, expect, vi, beforeEach } from "vitest";
 const prismaMock = vi.hoisted(() => ({
   evaluationRun: { findFirst: vi.fn() },
   dataset: { findFirst: vi.fn() },
+  evaluationResult: { groupBy: vi.fn(), aggregate: vi.fn() },
 }));
 const auth = vi.hoisted(() => ({ requireAuth: vi.fn(), requireProjectAccess: vi.fn() }));
 
@@ -148,9 +149,18 @@ function baseline(over: Record<string, unknown> = {}) {
 beforeEach(() => {
   prismaMock.evaluationRun.findFirst.mockReset();
   prismaMock.dataset.findFirst.mockReset();
+  prismaMock.evaluationResult.groupBy.mockReset();
+  prismaMock.evaluationResult.aggregate.mockReset();
   auth.requireAuth.mockResolvedValue({ user: { id: "u1" } });
   auth.requireProjectAccess.mockResolvedValue({ project: { id: "p1" } });
   prismaMock.dataset.findFirst.mockResolvedValue({ id: "ds1", name: "Billing routing" });
+  // Status counts now come from a grouped aggregate over ALL of a run's results, not the
+  // (capped) results page. Default to none; the per-status-counts test supplies its own.
+  prismaMock.evaluationResult.groupBy.mockResolvedValue([]);
+  // Run duration AND cost are the sum of every case's over all results (not the page).
+  prismaMock.evaluationResult.aggregate.mockResolvedValue({
+    _sum: { durationMs: 1900, cost: 0.0345 },
+  });
 });
 
 it("derives change/baselineOutput + a comparison block from raw scores; ignores stored columns", async () => {
@@ -169,7 +179,10 @@ it("derives change/baselineOutput + a comparison block from raw scores; ignores 
   expect(cmp.caseCounts).toMatchObject({ regressed: 1, unchanged: 1 });
   expect(body.run.changeFromBaseline).toBeCloseTo(-0.5);
   expect(body.run.baselineComparable).toBe(true);
-  expect(body.run.elapsedMs).toBe(4000);
+  // Duration and cost are the summed per-case totals (the mocked aggregate), not a
+  // stored run-level column.
+  expect(body.run.elapsedMs).toBe(1900);
+  expect(body.run.cost).toBe(0.0345);
 
   const t0 = body.results.find((r) => r.testCaseId === "t0")!;
   expect(t0.change).toBe("unchanged");
@@ -226,6 +239,12 @@ it("derives per-status counts from the run's own results", async () => {
       ],
     }),
   );
+  // Counts are aggregated over the whole run in the DB (one passed, failed, errored each).
+  prismaMock.evaluationResult.groupBy.mockResolvedValueOnce([
+    { status: "passed", _count: { _all: 1 } },
+    { status: "failed", _count: { _all: 1 } },
+    { status: "errored", _count: { _all: 1 } },
+  ]);
 
   const body = (await (await GET({} as never, params)).json()) as {
     run: Record<string, unknown>;

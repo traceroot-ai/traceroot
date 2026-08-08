@@ -13,7 +13,11 @@ import {
 } from "@/components/ui/drawer";
 import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
+import { EditableValueBlock } from "./code";
 import { HUMAN_VERDICT_LABEL, type HumanReview, type HumanVerdict } from "../types";
+
+/** Read-only fields never edit, so onChange is a no-op. */
+const noop = () => {};
 
 /**
  * Human review — the essential human-scoring step, and the one thing a person
@@ -127,21 +131,44 @@ export function ReviewPanel({
         </DrawerHeader>
 
         <DrawerBody className="flex flex-col gap-4 text-[12px]">
-          <Block label="What was asked">
-            <p className="leading-relaxed">{target.input}</p>
-          </Block>
-          <Block label="What the app produced">
-            <p className="leading-relaxed">{target.output}</p>
-          </Block>
-          <Block label="Expected output">
-            {target.expected ? (
-              <p className="leading-relaxed">{target.expected}</p>
-            ) : (
+          <EditableValueBlock
+            label="Input"
+            text={target.input}
+            onChange={noop}
+            readOnly
+            boxed
+            copyable
+            autoDetectKind
+            minRows={2}
+          />
+          <EditableValueBlock
+            label="Output"
+            text={target.output}
+            onChange={noop}
+            readOnly
+            boxed
+            copyable
+            autoDetectKind
+            minRows={2}
+          />
+          {target.expected ? (
+            <EditableValueBlock
+              label="Expected"
+              text={target.expected}
+              onChange={noop}
+              readOnly
+              boxed
+              copyable
+              autoDetectKind
+              minRows={2}
+            />
+          ) : (
+            <Block label="Expected">
               <p className="text-muted-foreground">
                 Not required — a scorer judges the output directly.
               </p>
-            )}
-          </Block>
+            </Block>
+          )}
 
           {target.autoScores.length > 0 && (
             <Block label="Automatic scores">

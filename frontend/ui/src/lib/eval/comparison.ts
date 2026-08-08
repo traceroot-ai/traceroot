@@ -37,7 +37,8 @@ export type CellReason =
   | "candidate_error"
   | "baseline_error"
   | "not_scored"
-  | "version_mismatch";
+  | "version_mismatch"
+  | "type_mismatch";
 
 /** Why a run comparison is unavailable or untrustworthy. */
 export type RunComparabilityReason =
@@ -46,6 +47,8 @@ export type RunComparabilityReason =
   | "different_evaluation"
   | "different_dataset_version"
   | "baseline_not_terminal"
+  | "candidate_not_terminal"
+  | "case_set_mismatch"
   | "main_scorer_incompatible";
 
 /**
@@ -206,6 +209,10 @@ export interface RunComparison {
   reasons: RunComparabilityReason[];
   baseline: { runId: string; runNumber: number; candidateVersion: string } | null;
   mainScore: { candidate: number | null; baseline: number | null; delta: number | null };
+  /** The two runs' SDK-reported main score, verbatim — not paired, not gated by
+   *  trustworthiness. `mainScore` above is the trustworthy headline; this is the raw
+   *  input it derives from, kept for callers that want it anyway. */
+  reportedMainScore: { candidate: number | null; baseline: number | null };
   caseCounts: CountBlock;
   scoreCellCounts: CountBlock;
   scorers: ScorerAggregate[];
@@ -229,13 +236,10 @@ export interface CompareRunsOutput {
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
-const TERMINAL_STATUSES = new Set([
-  "completed",
-  "completed_with_errors",
-  "failed",
-  "incomplete",
-  "cancelled",
-]);
+// Deliberately excludes "incomplete" and "cancelled": those statuses mean the run
+// stopped before scoring every case it was going to, so a run in either state must
+// never pass the comparability check as if it were a full, trustworthy result set.
+const TERMINAL_STATUSES = new Set(["completed", "completed_with_errors", "failed"]);
 
 function emptyCounts(): CountBlock {
   return { improved: 0, regressed: 0, unchanged: 0, changed: 0, unpaired: 0, not_comparable: 0 };
@@ -307,6 +311,9 @@ export function compareRuns(input: CompareRunsInput): CompareRunsOutput {
       reasons.push("different_dataset_version");
     }
     if (!TERMINAL_STATUSES.has(baseline.status)) reasons.push("baseline_not_terminal");
+    // The candidate can be watched live (`running`) or stopped early — either way its
+    // own numbers aren't final, so it's just as disqualifying as a non-terminal baseline.
+    if (!TERMINAL_STATUSES.has(candidate.status)) reasons.push("candidate_not_terminal");
   }
 
   // Main scorer + scorer metadata (candidate's declaration wins; baseline fills gaps).
@@ -345,7 +352,17 @@ export function compareRuns(input: CompareRunsInput): CompareRunsOutput {
 
   const scoreByName = (r: ComparisonResult | undefined) => {
     const m = new Map<string, ComparisonScore>();
-    if (r) for (const s of r.scores) m.set(s.scorerName, s);
+    if (r) {
+      for (const s of r.scores) {
+        // A result can legitimately carry more than one row for the same scorer name
+        // (a scorer version bump, or a delayed re-score) — pick a winner that doesn't
+        // depend on the order the caller's rows arrived in (that order is undefined
+        // for a bare Prisma `include`, and differs between callers), so the same data
+        // classifies the same way everywhere. Highest scorerVersion wins.
+        const existing = m.get(s.scorerName);
+        if (!existing || s.scorerVersion > existing.scorerVersion) m.set(s.scorerName, s);
+      }
+    }
     return m;
   };
 
@@ -391,10 +408,15 @@ export function compareRuns(input: CompareRunsInput): CompareRunsOutput {
         classification: "not_comparable",
       };
 
-      if (pairing !== "paired" || candV.kind === "missing" || baseV.kind === "missing") {
-        // A scorer present on one side only (or a case present on one side only) is unpaired.
+      if (pairing !== "paired") {
+        // The case itself doesn't exist on both sides.
         cell.classification = "unpaired";
-        cell.reason = !cand || candV.kind === "missing" ? "candidate_missing" : "baseline_missing";
+        cell.reason = !cand ? "candidate_missing" : "baseline_missing";
+      } else if (candV.kind === "missing" || baseV.kind === "missing") {
+        // The case ran on both sides, but this scorer produced no value on one of
+        // them — un-trustable, not "not in both runs" (that's what `unpaired` means).
+        cell.classification = "not_comparable";
+        cell.reason = candV.kind === "missing" ? "candidate_missing" : "baseline_missing";
       } else if (candV.kind === "error" || baseV.kind === "error") {
         cell.classification = "not_comparable";
         cell.reason = candV.kind === "error" ? "candidate_error" : "baseline_error";
@@ -402,14 +424,28 @@ export function compareRuns(input: CompareRunsInput): CompareRunsOutput {
         // Never compare across scorer versions — the measuring instrument changed.
         cell.classification = "not_comparable";
         cell.reason = "version_mismatch";
+      } else if (candV.valueType !== baseV.valueType) {
+        // The two sides hold different kinds of value for the same scorer (e.g. a
+        // numeric candidate value against a categorical baseline value) — the same
+        // "the measuring instrument changed" case the version guard exists for, just
+        // reached without a version bump.
+        cell.classification = "not_comparable";
+        cell.reason = "type_mismatch";
       } else {
-        // Both sides have a value, versions match → typed comparison.
-        if (valueType === "categorical" || direction === "none") {
+        // Both sides have a value of the same OBSERVED kind, versions match → typed
+        // comparison. Dispatch on the observed kind, never declared metadata, so a
+        // scorer whose declaration disagrees with what it actually stored (e.g. a
+        // scorer declared "boolean" that actually stores 0.3) can't be coerced into
+        // the wrong arithmetic. Declared metadata still drives `direction` — that
+        // can't be observed from the data.
+        const observedValueType = candV.valueType;
+        let comparable = true;
+        if (observedValueType === "categorical" || direction === "none") {
           const c = String(candV.value);
           const b = String(baseV.value);
           cell.transition = { from: b, to: c };
           cell.classification = c === b ? "unchanged" : "changed";
-        } else if (valueType === "boolean") {
+        } else if (observedValueType === "boolean") {
           const c = candV.value ? 1 : 0;
           const b = baseV.value ? 1 : 0;
           cell.delta = c - b;
@@ -417,33 +453,45 @@ export function compareRuns(input: CompareRunsInput): CompareRunsOutput {
         } else {
           const c = candV.value as number;
           const b = baseV.value as number;
-          cell.delta = c - b;
-          cell.classification = directionalVerdict(c, b, direction);
+          if (Number.isFinite(c) && Number.isFinite(b)) {
+            cell.delta = c - b;
+            cell.classification = directionalVerdict(c, b, direction);
+          } else {
+            // A non-finite stored value can never yield a directional verdict or
+            // poison a mean.
+            comparable = false;
+            cell.classification = "not_comparable";
+            cell.reason = "not_scored";
+          }
         }
 
-        // Accumulate the per-scorer aggregate (paired, successfully-scored only).
-        const agg =
-          aggByScorer.get(scorerName) ??
-          ({
-            valueType,
-            direction,
-            candSum: 0,
-            baseSum: 0,
-            n: 0,
-            changed: 0,
-            unchanged: 0,
-          } as Agg);
-        if (valueType === "categorical" || direction === "none") {
-          if (cell.classification === "changed") agg.changed += 1;
-          else agg.unchanged += 1;
-        } else {
-          agg.candSum += valueType === "boolean" ? (candV.value ? 1 : 0) : (candV.value as number);
-          agg.baseSum += valueType === "boolean" ? (baseV.value ? 1 : 0) : (baseV.value as number);
-        }
-        agg.n += 1;
-        aggByScorer.set(scorerName, agg);
+        if (comparable) {
+          // Accumulate the per-scorer aggregate (paired, successfully-scored only).
+          const agg =
+            aggByScorer.get(scorerName) ??
+            ({
+              valueType: observedValueType,
+              direction,
+              candSum: 0,
+              baseSum: 0,
+              n: 0,
+              changed: 0,
+              unchanged: 0,
+            } as Agg);
+          if (observedValueType === "categorical" || direction === "none") {
+            if (cell.classification === "changed") agg.changed += 1;
+            else agg.unchanged += 1;
+          } else {
+            agg.candSum +=
+              observedValueType === "boolean" ? (candV.value ? 1 : 0) : (candV.value as number);
+            agg.baseSum +=
+              observedValueType === "boolean" ? (baseV.value ? 1 : 0) : (baseV.value as number);
+          }
+          agg.n += 1;
+          aggByScorer.set(scorerName, agg);
 
-        if (scorerName === mainScoreName) mainScorerComparablePairs += 1;
+          if (scorerName === mainScoreName) mainScorerComparablePairs += 1;
+        }
       }
 
       scorerCells.push(cell);
@@ -515,8 +563,29 @@ export function compareRuns(input: CompareRunsInput): CompareRunsOutput {
 
   // main_scorer_incompatible: available + no paired case had a comparable main-scorer cell.
   if (available && mainScorerComparablePairs === 0) reasons.push("main_scorer_incompatible");
+  // case_set_mismatch: the two runs didn't score the same set of cases (a subset run,
+  // a `--filter`, a retried run, a partially-ingested candidate) — the headline numbers
+  // are then over different denominators and can't be presented as authoritative.
+  if (available && caseCounts.unpaired > 0) reasons.push("case_set_mismatch");
 
   const trustworthy = available && reasons.length === 0;
+
+  // The headline main-score delta: derived from the SAME paired, successfully-scored
+  // cells as every other number here (never a raw subtraction of the two runs'
+  // reported aggregates, which can measure different scorers or different case sets).
+  const mainScorerAgg = mainScoreName ? aggByScorer.get(mainScoreName) : undefined;
+  const pairedMainScore: {
+    candidate: number | null;
+    baseline: number | null;
+    delta: number | null;
+  } =
+    mainScorerAgg && mainScorerAgg.n > 0 && mainScorerAgg.direction !== "none"
+      ? {
+          candidate: mainScorerAgg.candSum / mainScorerAgg.n,
+          baseline: mainScorerAgg.baseSum / mainScorerAgg.n,
+          delta: (mainScorerAgg.candSum - mainScorerAgg.baseSum) / mainScorerAgg.n,
+        }
+      : { candidate: null, baseline: null, delta: null };
 
   // Per-scorer aggregate projection (declared scorers first, then any others seen).
   const scorerOrder: string[] = [];
@@ -594,13 +663,10 @@ export function compareRuns(input: CompareRunsInput): CompareRunsOutput {
           candidateVersion: baseline.candidateVersion,
         }
       : null,
-    mainScore: {
+    mainScore: pairedMainScore,
+    reportedMainScore: {
       candidate: candidate.mainScore,
       baseline: baseline?.mainScore ?? null,
-      delta:
-        candidate.mainScore !== null && baseline?.mainScore != null
-          ? candidate.mainScore - baseline.mainScore
-          : null,
     },
     caseCounts,
     scoreCellCounts,

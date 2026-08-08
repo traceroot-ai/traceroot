@@ -22,8 +22,11 @@ import {
   DrawerDescription,
 } from "@/components/ui/drawer";
 import { useToast } from "@/components/ui/toast";
-import { cn } from "@/lib/utils";
+import { EditableValueBlock } from "@/features/offline-eval/components";
 import { useDatasets } from "../hooks";
+
+/** Read-only fields never edit, so onChange is a no-op. */
+const noop = () => {};
 
 /** The three result→dataset actions the backend `dataset-case` route accepts. */
 export type ResultDatasetAction =
@@ -65,9 +68,6 @@ const ACTION_META: Record<
     picksDataset: true,
   },
 };
-
-const FIELD_CLASS =
-  "w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-[12px] font-mono leading-relaxed shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";
 
 function newIdempotencyKey(): string {
   try {
@@ -179,13 +179,13 @@ export function SaveResultToDatasetDrawer({
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
-      <DrawerContent width="sm:max-w-lg">
+      <DrawerContent width="w-[560px]">
         <DrawerHeader>
           <DrawerTitle className="flex items-center gap-2">
             <Database className="h-4 w-4 text-muted-foreground" aria-hidden />
             {meta.title}
           </DrawerTitle>
-          <DrawerDescription>{meta.blurb}</DrawerDescription>
+          <DrawerDescription className="mt-2">{meta.blurb}</DrawerDescription>
         </DrawerHeader>
 
         <DrawerBody className="space-y-4">
@@ -217,15 +217,16 @@ export function SaveResultToDatasetDrawer({
           </div>
 
           {/* Input — the stable scenario this case tests. */}
-          <label className="block space-y-1.5">
-            <span className="text-[11px] font-medium text-muted-foreground">Input</span>
-            <textarea
-              className={cn(FIELD_CLASS, "min-h-[72px] resize-y")}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              aria-label="Input"
-            />
-          </label>
+          <EditableValueBlock
+            label="Input"
+            text={input}
+            onChange={setInput}
+            ariaLabel="Input"
+            boxed
+            copyable
+            seedJson="expanded"
+            minRows={2}
+          />
 
           {/* Expected — the reference answer, kept SEPARATE from the candidate output. */}
           <div className="space-y-2 rounded-md border border-border p-2.5">
@@ -246,27 +247,27 @@ export function SaveResultToDatasetDrawer({
             </label>
 
             {useCandidateAsExpected ? (
-              <div className="space-y-1">
-                <div className="text-[11px] font-medium text-muted-foreground">
-                  Expected (from candidate output)
-                </div>
-                <pre className={cn(FIELD_CLASS, "max-h-40 overflow-auto whitespace-pre-wrap")}>
-                  {result.candidateOutput ?? "(this result produced no output)"}
-                </pre>
-              </div>
+              <EditableValueBlock
+                label="Expected (from candidate output)"
+                text={result.candidateOutput ?? "(this result produced no output)"}
+                onChange={noop}
+                readOnly
+                boxed
+                copyable
+                seedJson="expanded"
+                minRows={2}
+              />
             ) : (
-              <label className="block space-y-1">
-                <span className="text-[11px] font-medium text-muted-foreground">
-                  Expected answer <span className="font-normal">(optional)</span>
-                </span>
-                <textarea
-                  className={cn(FIELD_CLASS, "min-h-[72px] resize-y")}
-                  value={expected}
-                  onChange={(e) => setExpected(e.target.value)}
-                  placeholder="Leave blank if this scorer needs no reference answer"
-                  aria-label="Expected answer"
-                />
-              </label>
+              <EditableValueBlock
+                label="Expected answer (optional)"
+                text={expected}
+                onChange={setExpected}
+                ariaLabel="Expected answer"
+                boxed
+                copyable
+                seedJson="expanded"
+                minRows={2}
+              />
             )}
           </div>
 

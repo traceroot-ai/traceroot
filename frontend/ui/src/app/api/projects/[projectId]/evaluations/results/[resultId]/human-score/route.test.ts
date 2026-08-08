@@ -39,7 +39,7 @@ const badJsonReq = () =>
     },
   }) as unknown as Parameters<typeof POST>[0];
 
-const valid = { verdict: "pass", quality: 4, comment: "reads well", reviewer: "hao" };
+const valid = { verdict: "pass", quality: 4, comment: "reads well", reviewer: "alex" };
 
 async function body(res: { json: () => Promise<unknown> }) {
   return (await res.json()) as Record<string, unknown>;
@@ -97,13 +97,13 @@ it("keys the canonical review on an explicit dimension", async () => {
 });
 
 it("attributes the score to the signed-in reviewer, not a body-supplied one", async () => {
-  auth.requireAuth.mockResolvedValue({ user: { id: "u1", email: "hao@example.com" } });
+  auth.requireAuth.mockResolvedValue({ user: { id: "u1", email: "reviewer@example.com" } });
   await POST(req({ ...valid, reviewer: "someone-else" }), params);
-  expect(prismaMock.humanScore.upsert.mock.calls[0][0].create.reviewer).toBe("hao@example.com");
+  expect(prismaMock.humanScore.upsert.mock.calls[0][0].create.reviewer).toBe("reviewer@example.com");
 });
 
 it("stores null for an omitted quality and comment", async () => {
-  await POST(req({ verdict: "unsure", reviewer: "hao" }), params);
+  await POST(req({ verdict: "unsure", reviewer: "alex" }), params);
   expect(prismaMock.humanScore.upsert.mock.calls[0][0].create).toMatchObject({
     quality: null,
     comment: null,
@@ -118,7 +118,7 @@ it("400s an unparseable body", async () => {
 });
 
 it("400s an unknown verdict", async () => {
-  const res = await POST(req({ verdict: "maybe", reviewer: "hao" }), params);
+  const res = await POST(req({ verdict: "maybe", reviewer: "alex" }), params);
   expect(res.status).toBe(400);
   expect(prismaMock.humanScore.upsert).not.toHaveBeenCalled();
 });
