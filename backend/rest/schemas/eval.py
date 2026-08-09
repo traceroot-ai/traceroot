@@ -180,6 +180,11 @@ class ScorerRef(BaseModel):
 
     name: str = Field(min_length=1, max_length=200)
     version: str = Field(min_length=1, max_length=50)
+    # Stable SEMANTIC scorer identity, independent of function spelling and SDK language
+    # (e.g. `grade` for both `covers_both_cities` (py) and `coversBothCities` (ts)). Additive:
+    # defaults to `name` when omitted. name/language/source/version are provenance, NOT
+    # identity. Declared (not an unknown key) so it survives into the persisted manifest.
+    key: str | None = Field(default=None, min_length=1, max_length=200)
     value_type: ScorerValueType | None = None
     direction: ScorerDirection | None = None
     threshold: JsonFloat | None = None

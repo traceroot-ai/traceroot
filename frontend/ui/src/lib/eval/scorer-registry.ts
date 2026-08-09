@@ -64,6 +64,11 @@ function emptyDefinition(): ScorerDefinition {
 export interface ScorerRow extends ScorerDefinition {
   name: string;
   version: string;
+  /** Stable SEMANTIC identity across SDK languages — the manifest's `key`, or the `name`
+   *  when the SDK didn't send one. Lets the UI group a Python `covers_both_cities` and a
+   *  TypeScript `coversBothCities` (same `key`) as one logical scorer while each row keeps
+   *  its own `name`/`language` provenance. Never derived from `source`/code hash. */
+  key: string;
   /** Rows that actually produced a value (excludes errored attempts). */
   scoreCount: number;
   errorCount: number;
@@ -303,6 +308,23 @@ export function aggregateScorers(
 ): ScorerRow[] {
   const declared = declaredByKey(runManifests);
   const { map: definitions, hashesByKey } = definitionByKey(runManifests);
+  // The manifest's stable semantic key per (name, version), defaulting to the name when the
+  // SDK omitted it. Exposed on every row so the UI can group cross-language implementations
+  // (same key) without the platform merging away their distinct name/language provenance.
+  const semanticKeyByRow = new Map<string, string>();
+  for (const run of runManifests) {
+    if (!Array.isArray(run.scorers)) continue;
+    for (const raw of run.scorers) {
+      if (!raw || typeof raw !== "object") continue;
+      const o = raw as Record<string, unknown>;
+      if (typeof o.name !== "string") continue;
+      const version = typeof o.version === "string" ? o.version : "";
+      semanticKeyByRow.set(
+        `${o.name}@${version}`,
+        typeof o.key === "string" && o.key ? o.key : o.name,
+      );
+    }
+  }
   const byKey = new Map<string, Agg>();
 
   for (const s of scores) {
@@ -374,6 +396,9 @@ export function aggregateScorers(
         ...(definition ?? emptyDefinition()),
         name: a.name,
         version: a.version,
+        // Semantic identity from the manifest (key ?? name); a score-only metric row that
+        // no manifest declared keeps its own name as the key.
+        key: semanticKeyByRow.get(key) ?? a.name,
         // Rows that actually produced a value — an all-errored scorer reports 0,
         // never `total`, so it doesn't read as having "scored" anything.
         scoreCount: a.total - a.errored,

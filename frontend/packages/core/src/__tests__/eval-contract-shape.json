@@ -39,23 +39,22 @@
           "required": true,
           "nullable": false
         },
+        "key": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 200,
+          "required": false,
+          "nullable": true
+        },
         "value_type": {
           "type": "enum",
-          "enum": [
-            "numeric",
-            "boolean",
-            "categorical"
-          ],
+          "enum": ["numeric", "boolean", "categorical"],
           "required": false,
           "nullable": true
         },
         "direction": {
           "type": "enum",
-          "enum": [
-            "higher_is_better",
-            "lower_is_better",
-            "none"
-          ],
+          "enum": ["higher_is_better", "lower_is_better", "none"],
           "required": false,
           "nullable": true
         },
@@ -66,19 +65,13 @@
         },
         "scorer_type": {
           "type": "enum",
-          "enum": [
-            "llm_judge",
-            "code"
-          ],
+          "enum": ["llm_judge", "code"],
           "required": false,
           "nullable": true
         },
         "output_type": {
           "type": "enum",
-          "enum": [
-            "score",
-            "classification"
-          ],
+          "enum": ["score", "classification"],
           "required": false,
           "nullable": true
         },
@@ -121,10 +114,7 @@
         },
         "language": {
           "type": "enum",
-          "enum": [
-            "python",
-            "typescript"
-          ],
+          "enum": ["python", "typescript"],
           "required": false,
           "nullable": true
         },
@@ -430,12 +420,7 @@
         },
         "status": {
           "type": "enum",
-          "enum": [
-            "passed",
-            "failed",
-            "errored",
-            "not_scored"
-          ],
+          "enum": ["passed", "failed", "errored", "not_scored"],
           "required": true,
           "nullable": false
         },
@@ -446,11 +431,7 @@
         },
         "change": {
           "type": "enum",
-          "enum": [
-            "improved",
-            "regressed",
-            "unchanged"
-          ],
+          "enum": ["improved", "regressed", "unchanged"],
           "required": false,
           "nullable": true
         },
@@ -637,22 +618,14 @@
         },
         "review": {
           "type": "enum",
-          "enum": [
-            "needs_review",
-            "ready"
-          ],
+          "enum": ["needs_review", "ready"],
           "required": false,
           "nullable": false,
           "default": "needs_review"
         },
         "capture_reason": {
           "type": "enum",
-          "enum": [
-            "manual",
-            "error",
-            "failed_tool",
-            "negative_feedback"
-          ],
+          "enum": ["manual", "error", "failed_tool", "negative_feedback"],
           "required": false,
           "nullable": false,
           "default": "manual"
@@ -706,10 +679,7 @@
         },
         "review": {
           "type": "enum",
-          "enum": [
-            "needs_review",
-            "ready"
-          ],
+          "enum": ["needs_review", "ready"],
           "required": false,
           "nullable": false
         }
@@ -729,11 +699,7 @@
         },
         "verdict": {
           "type": "enum",
-          "enum": [
-            "pass",
-            "fail",
-            "unsure"
-          ],
+          "enum": ["pass", "fail", "unsure"],
           "required": true,
           "nullable": false
         },
@@ -946,11 +912,7 @@
       "fields": {
         "action": {
           "type": "enum",
-          "enum": [
-            "update_existing_case",
-            "save_new_case",
-            "duplicate_as_variant"
-          ],
+          "enum": ["update_existing_case", "save_new_case", "duplicate_as_variant"],
           "required": true,
           "nullable": false
         },

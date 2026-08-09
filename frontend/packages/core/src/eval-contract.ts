@@ -142,6 +142,16 @@ export const ScorerMessageSchema = z.object({
 export const ScorerRefSchema = z.object({
   name: z.string().min(1).max(200),
   version: z.string().min(1).max(50),
+  /**
+   * Stable SEMANTIC scorer identity, independent of function spelling and SDK language
+   * (e.g. `grade` for both `covers_both_cities` in Python and `coversBothCities` in
+   * TypeScript). Additive + back-compatible: defaults to `name` when the SDK omits it, so a
+   * single-language user is unaffected. `name`/`language`/`source`/`version` are
+   * provenance/display, NEVER identity — semantic equality is never derived from them.
+   * Must be DECLARED (not an unknown key) to survive into the persisted per-run manifest,
+   * for the same reason `emitted_metrics` is declared.
+   */
+  key: z.string().min(1).max(200).nullable().optional(),
   value_type: ScorerValueTypeSchema.nullable().optional(),
   direction: ScorerDirectionSchema.nullable().optional(),
   threshold: z.number().nullable().optional(),
@@ -196,23 +206,22 @@ export type ScoreInput = z.infer<typeof ScoreInputSchema>;
  * user-facing label — provenance is not a substitute for it and is never
  * treated as a verified identity beyond what the SDK reported.
  */
-export const RunProvenanceSchema = z
-  .object({
-    git_repository: z.string().max(500).nullable().optional(),
-    git_ref: z.string().max(500).nullable().optional(),
-    git_commit: z.string().max(200).nullable().optional(),
-    git_dirty: z.boolean().nullable().optional(),
-    ci_provider: z.string().max(100).nullable().optional(),
-    ci_build_id: z.string().max(200).nullable().optional(),
-    sdk_language: z.string().max(50).nullable().optional(),
-    sdk_version: z.string().max(50).nullable().optional(),
-    /**
-     * Declared candidate identity — surfaced only if the SDK reports it, never
-     * inferred from `candidate_version` or any label.
-     */
-    declared_model: z.string().max(200).nullable().optional(),
-    declared_prompt_version: z.string().max(200).nullable().optional(),
-  });
+export const RunProvenanceSchema = z.object({
+  git_repository: z.string().max(500).nullable().optional(),
+  git_ref: z.string().max(500).nullable().optional(),
+  git_commit: z.string().max(200).nullable().optional(),
+  git_dirty: z.boolean().nullable().optional(),
+  ci_provider: z.string().max(100).nullable().optional(),
+  ci_build_id: z.string().max(200).nullable().optional(),
+  sdk_language: z.string().max(50).nullable().optional(),
+  sdk_version: z.string().max(50).nullable().optional(),
+  /**
+   * Declared candidate identity — surfaced only if the SDK reports it, never
+   * inferred from `candidate_version` or any label.
+   */
+  declared_model: z.string().max(200).nullable().optional(),
+  declared_prompt_version: z.string().max(200).nullable().optional(),
+});
 // Non-strict (strips unknown keys), mirroring ScorerRef and the permissive
 // gateway: a newer SDK adding a provenance field must not 422 the whole run.
 export type RunProvenance = z.infer<typeof RunProvenanceSchema>;

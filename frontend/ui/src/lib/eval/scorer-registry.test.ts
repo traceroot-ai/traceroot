@@ -103,6 +103,39 @@ describe("aggregateScorers", () => {
     expect(r.threshold).toBe(0.5);
   });
 
+  it("exposes the manifest's semantic key across SDK languages, falling back to name", () => {
+    const rows = aggregateScorers(
+      [
+        score({ scorerName: "covers_both_cities", scorerVersion: "v2", numericValue: 0.9 }),
+        score({ scorerName: "coversBothCities", scorerVersion: "v2", numericValue: 0.8 }),
+        score({ scorerName: "unkeyed", scorerVersion: "v1", numericValue: 0.5 }),
+      ],
+      [
+        {
+          scorers: [
+            { key: "grade", name: "covers_both_cities", version: "v2", language: "python" },
+          ],
+        },
+        {
+          scorers: [
+            { key: "grade", name: "coversBothCities", version: "v2", language: "typescript" },
+          ],
+        },
+        { scorers: [{ name: "unkeyed", version: "v1" }] }, // no key → falls back to name
+      ],
+    );
+    const byName = Object.fromEntries(rows.map((r) => [r.name, r]));
+    // Same semantic key for the Python and TypeScript spellings — the UI groups on this,
+    // never on the function name or the source.
+    expect(byName["covers_both_cities"].key).toBe("grade");
+    expect(byName["coversBothCities"].key).toBe("grade");
+    // …while each row keeps its own name + language provenance.
+    expect(byName["covers_both_cities"].language).toBe("python");
+    expect(byName["coversBothCities"].language).toBe("typescript");
+    // No key from the SDK → the name is the key (older SDK / single language).
+    expect(byName["unkeyed"].key).toBe("unkeyed");
+  });
+
   it("builds boolean and categorical distributions and pass rate", () => {
     const boolRows = aggregateScorers(
       [
