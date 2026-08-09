@@ -225,6 +225,14 @@ export type RunProvenance = z.infer<typeof RunProvenanceSchema>;
 export const RegisterRunRequestSchema = z
   .object({
     evaluation_name: z.string().min(1).max(200),
+    /**
+     * Stable semantic identity of the evaluation, DECOUPLED from the display
+     * `evaluation_name`. Runs sharing `(project, evaluation_key)` group under one
+     * evaluation definition regardless of SDK language (Python + TypeScript), while two
+     * evaluations may share a display name under different keys. Additive + back-compatible:
+     * an older SDK omits it and the platform falls back to grouping by `evaluation_name`.
+     */
+    evaluation_key: z.string().min(1).max(200).nullable().optional(),
     dataset_id: z.string().min(1).max(64),
     /** Omit to pin the dataset's current published version. */
     dataset_version_id: z.string().min(1).max(64).nullable().optional(),

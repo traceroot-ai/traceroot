@@ -265,6 +265,13 @@
           "required": true,
           "nullable": false
         },
+        "evaluation_key": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 200,
+          "required": false,
+          "nullable": true
+        },
         "dataset_id": {
           "type": "string",
           "min_length": 1,

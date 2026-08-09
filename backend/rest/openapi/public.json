@@ -969,6 +969,19 @@
             "title": "Environment",
             "type": "string"
           },
+          "evaluation_key": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluation Key"
+          },
           "evaluation_name": {
             "maxLength": 200,
             "minLength": 1,

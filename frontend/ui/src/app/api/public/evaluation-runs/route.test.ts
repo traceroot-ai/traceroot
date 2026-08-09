@@ -91,14 +91,16 @@ function makeDb() {
 
     evaluation: {
       findUnique: async ({ where }: Args) => {
-        const key = where.projectId_name;
+        const key = where.projectId_evaluationKey;
         return (
-          rows.evaluation.find((e) => e.projectId === key.projectId && e.name === key.name) ?? null
+          rows.evaluation.find(
+            (e) => e.projectId === key.projectId && e.evaluationKey === key.evaluationKey,
+          ) ?? null
         );
       },
       findFirst: async ({ where, orderBy }: Args) => {
         let matches = rows.evaluation.filter(
-          (e) => e.projectId === where.projectId && e.name === where.name,
+          (e) => e.projectId === where.projectId && e.evaluationKey === where.evaluationKey,
         );
         if (orderBy?.createTime === "asc") {
           matches = [...matches].sort((a, b) => a.createTime - b.createTime);
@@ -107,8 +109,12 @@ function makeDb() {
       },
       create: async ({ data }: Args) => {
         hooks.beforeEvaluationCreate.shift()?.();
-        if (rows.evaluation.some((e) => e.projectId === data.projectId && e.name === data.name)) {
-          throw uniqueViolation("uq_evaluation_project_name");
+        if (
+          rows.evaluation.some(
+            (e) => e.projectId === data.projectId && e.evaluationKey === data.evaluationKey,
+          )
+        ) {
+          throw uniqueViolation("uq_evaluation_project_key");
         }
         const row = { id: nextId("eval"), createTime: new Date(), ...data };
         rows.evaluation.push(row);
@@ -219,6 +225,61 @@ function post(payload: unknown, headers: Record<string, string> = {}) {
   });
 }
 
+describe("cross-language evaluation identity (evaluation_key)", () => {
+  const py = { sdk_language: "python" };
+  const ts = { sdk_language: "typescript" };
+
+  it("groups equivalent Python and TypeScript runs under one evaluation by shared key", async () => {
+    const pyRun = await POST(
+      post(body({ evaluation_key: "billing-routing", provenance: py })),
+    );
+    const tsRun = await POST(
+      post(body({ evaluation_key: "billing-routing", provenance: ts })),
+    );
+
+    expect(pyRun.status).toBe(201);
+    expect(tsRun.status).toBe(201);
+    const a = await pyRun.json();
+    const b = await tsRun.json();
+    // One evaluation definition, two distinct runs — the SDK language is provenance,
+    // not identity.
+    expect(db.rows.evaluation).toHaveLength(1);
+    expect(b.evaluation_id).toBe(a.evaluation_id);
+    expect(a.run_number).toBe(1);
+    expect(b.run_number).toBe(2);
+    expect(a.evaluation_run_id).not.toBe(b.evaluation_run_id);
+  });
+
+  it("keeps different evaluation keys as separate evaluations", async () => {
+    await POST(post(body({ evaluation_key: "billing-routing" })));
+    await POST(post(body({ evaluation_key: "refund-routing" })));
+    expect(db.rows.evaluation).toHaveLength(2);
+  });
+
+  it("keeps the same display name under different explicit keys separate", async () => {
+    // Same evaluation_name, different keys → two evaluations (name is a label, not identity).
+    await POST(post(body({ evaluation_name: "Routing", evaluation_key: "routing-v1" })));
+    await POST(post(body({ evaluation_name: "Routing", evaluation_key: "routing-v2" })));
+    expect(db.rows.evaluation).toHaveLength(2);
+    expect(db.rows.evaluation.map((e) => e.evaluationKey).sort()).toEqual([
+      "routing-v1",
+      "routing-v2",
+    ]);
+  });
+
+  it("falls back to grouping by name for an older SDK that omits the key", async () => {
+    // No evaluation_key on either → both key off the name and group (pre-key behavior).
+    const first = await POST(post(body()));
+    const second = await POST(post(body()));
+    const a = await first.json();
+    const b = await second.json();
+    expect(db.rows.evaluation).toHaveLength(1);
+    expect(b.evaluation_id).toBe(a.evaluation_id);
+    // The backfilled key equals the display name.
+    expect(db.rows.evaluation[0].evaluationKey).toBe("nightly");
+  });
+});
+
 describe("lineage resolution", () => {
   it("groups same-named registrations into one evaluation with incrementing run numbers", async () => {
     const first = await POST(post(body()));
@@ -244,6 +305,7 @@ describe("lineage resolution", () => {
         projectId: PROJECT_ID,
         datasetId: "ds1",
         name: "nightly",
+        evaluationKey: "nightly",
         mainScoreName: "Score",
         createTime: new Date(),
       });
@@ -332,6 +394,7 @@ describe("client_run_id idempotency", () => {
       projectId: PROJECT_ID,
       datasetId: "ds1",
       name: "nightly",
+      evaluationKey: "nightly",
       mainScoreName: "Score",
       createTime: new Date(),
     };

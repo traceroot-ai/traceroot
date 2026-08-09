@@ -545,6 +545,11 @@ model Evaluation {
   projectId     String   @map("project_id") @db.VarChar
   datasetId     String   @map("dataset_id") @db.VarChar
   name          String   @db.VarChar
+  // Stable semantic identity, decoupled from the display `name`: the grouping key that
+  // lets equivalent Python + TypeScript runs share one definition, and lets two evals
+  // share a display name under different keys. Backfilled from `name` for pre-key rows;
+  // the register route sets it to `evaluation_key ?? evaluation_name`.
+  evaluationKey String   @map("evaluation_key") @db.VarChar
   mainScoreName String   @map("main_score_name") @db.VarChar
   createTime    DateTime @default(now()) @map("create_time") @db.Timestamp(6)
   updateTime    DateTime @updatedAt @map("update_time") @db.Timestamp(6)
@@ -552,12 +557,13 @@ model Evaluation {
   project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   runs    EvaluationRun[]
 
-  // The lineage identity. Runs are grouped by it, so a duplicate would split an
-  // evaluation's history in two (run numbers restarting at 1, baselines no
-  // longer lining up). Concurrent registrations of the same name now collide
-  // with P2002 instead of both inserting. Leads with project_id, so it also
-  // serves the project-scoped list query.
-  @@unique([projectId, name], map: "uq_evaluation_project_name")
+  // The lineage identity is now the stable `evaluationKey` (not the display `name`), so
+  // equivalent Python + TypeScript runs sharing a key group under one definition and two
+  // evals may share a name under different keys. A duplicate would split an evaluation's
+  // history (run numbers restarting at 1, baselines not lining up), so concurrent
+  // registrations of the same key collide with P2002 instead of both inserting. Leads
+  // with project_id, so it also serves the project-scoped list query.
+  @@unique([projectId, evaluationKey], map: "uq_evaluation_project_key")
   @@index([datasetId], map: "ix_evaluation_dataset_id")
   @@map("evaluations")
 }

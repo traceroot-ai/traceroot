@@ -259,6 +259,11 @@ class RegisterRunRequest(BaseModel):
     """Register/start a run. Idempotent on ``client_run_id`` within an evaluation."""
 
     evaluation_name: str = Field(min_length=1, max_length=200)
+    # Stable semantic identity of the evaluation, decoupled from the display name. Runs
+    # sharing (project, evaluation_key) group under one evaluation definition regardless of
+    # SDK language; two evaluations may share a display name under different keys. Additive:
+    # an older SDK omits it and the platform falls back to grouping by evaluation_name.
+    evaluation_key: str | None = Field(default=None, min_length=1, max_length=200)
     dataset_id: str = Field(min_length=1, max_length=64)
     # Omit to pin the dataset's current published version.
     dataset_version_id: str | None = Field(default=None, min_length=1, max_length=64)
