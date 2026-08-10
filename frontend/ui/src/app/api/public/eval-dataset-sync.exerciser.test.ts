@@ -165,21 +165,52 @@ describe("A4: publish an immutable version from changes", () => {
     );
   });
 
-  it("rejects a stale base_version_id with 409 and the current version", async () => {
+  it("rejects a stale EXPLICIT base_version_id with 409 and the current version", async () => {
     const first = await publishVersion(
       req({ base_version_id: null, changes: [{ op: "upsert", test_case_id: "tc_1", input: "x" }] }),
       dsParams("ds1"),
     );
     const current = (await readJson(first)).dataset_version_id;
 
+    // A caller that NAMES a base (optimistic concurrency) still conflicts when that base is no
+    // longer current. Only an explicit (string) base is concurrency-checked; a null base is the
+    // SDK's content-addressed upsert (covered below).
     const conflict = await publishVersion(
-      req({ base_version_id: null, changes: [{ op: "upsert", test_case_id: "tc_2", input: "y" }] }),
+      req({
+        base_version_id: "dsv_stale",
+        changes: [{ op: "upsert", test_case_id: "tc_2", input: "y" }],
+      }),
       dsParams("ds1"),
     );
     expect(conflict.status).toBe(409);
     const body = await readJson(conflict);
     expect(body.error).toBe("conflict");
     expect(body.current_version_id).toBe(current);
+  });
+
+  it("content-addressed (base=null): identical content reuses the version, changed content appends", async () => {
+    const first = await publishVersion(
+      req({ base_version_id: null, changes: [{ op: "upsert", test_case_id: "tc_1", input: "x" }] }),
+      dsParams("ds1"),
+    );
+    expect(first.status).toBe(201);
+    const v1 = (await readJson(first)).dataset_version_id;
+
+    // Same content again (e.g. a second run of the same dataset) → the SAME version, no fork.
+    const same = await publishVersion(
+      req({ base_version_id: null, changes: [{ op: "upsert", test_case_id: "tc_1", input: "x" }] }),
+      dsParams("ds1"),
+    );
+    expect(same.status).toBe(200);
+    expect((await readJson(same)).dataset_version_id).toBe(v1);
+
+    // Changed content → a NEW version; versioning is how a changed dataset under one id is handled.
+    const changed = await publishVersion(
+      req({ base_version_id: null, changes: [{ op: "upsert", test_case_id: "tc_1", input: "y" }] }),
+      dsParams("ds1"),
+    );
+    expect(changed.status).toBe(201);
+    expect((await readJson(changed)).dataset_version_id).not.toBe(v1);
   });
 
   it("returns the same version for a retried idempotency_key", async () => {

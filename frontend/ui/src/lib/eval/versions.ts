@@ -69,6 +69,28 @@ export function newTestCaseId(): string {
   return `tc_${randomUUID().replace(/-/g, "").slice(0, 20)}`;
 }
 
+/** Deterministic JSON with recursively sorted object keys — so two structurally equal
+ *  values compare equal regardless of key order (JSONB round-trips don't preserve it). */
+function canonicalJson(v: unknown): string {
+  if (v === null || typeof v !== "object") return JSON.stringify(v) ?? "null";
+  if (Array.isArray(v)) return `[${v.map(canonicalJson).join(",")}]`;
+  const o = v as Record<string, unknown>;
+  return `{${Object.keys(o)
+    .sort()
+    .map((k) => `${JSON.stringify(k)}:${canonicalJson(o[k])}`)
+    .join(",")}}`;
+}
+
+/** A stable signature of a version's semantic CONTENT — the per-case (id, input, expected,
+ *  metadata), order-independent. Capture provenance (source fields, review, addedBy,
+ *  createTime) is NOT content, so it never forks a version. Identical content shares one. */
+function contentSignature(seeds: TestCaseSeed[]): string {
+  const rows = seeds
+    .map((s) => ({ id: s.testCaseId, input: s.input, expected: s.expected, metadata: s.metadata ?? null }))
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return canonicalJson(rows);
+}
+
 /**
  * Publish a new version by transforming the current version's cases. `transform`
  * receives the current seeds and returns the full set for the new version, plus
@@ -142,10 +164,12 @@ export async function publishDatasetVersion(opts: {
       }
     }
 
-    // Optimistic concurrency: reject when the caller's base is not the live version.
-    if (opts.baseVersionId !== undefined) {
+    // Optimistic concurrency applies only to an EXPLICIT base — a UI edit naming the version
+    // it was based on. A `null` base is the SDK's "content-addressed upsert" (handled after
+    // the transform below); an omitted base is the session UI editing the live current version.
+    if (typeof opts.baseVersionId === "string") {
       const currentId = dataset.currentVersionId ?? null;
-      if (currentId !== (opts.baseVersionId ?? null)) {
+      if (currentId !== opts.baseVersionId) {
         throw new VersionConflict(currentId);
       }
     }
@@ -157,7 +181,32 @@ export async function publishDatasetVersion(opts: {
         })
       : [];
 
-    const { cases, focusTestCaseId } = opts.transform(current.map(toSeed));
+    const currentSeeds = current.map(toSeed);
+    const { cases, focusTestCaseId } = opts.transform(currentSeeds);
+
+    // Content-addressed upsert (SDK, base === null): a re-publish with byte-identical content
+    // resolves to the SAME version instead of forking one — so repeated runs of a dataset stay
+    // on one version and compare cleanly — while a genuine content change appends a new version
+    // (versioning IS how changed content is handled). Only a null base opts in; an explicit base
+    // already passed its concurrency check, and an omitted base is a live session edit.
+    if (
+      opts.baseVersionId === null &&
+      dataset.currentVersionId &&
+      contentSignature(currentSeeds) === contentSignature(cases)
+    ) {
+      const cur = await tx.datasetVersion.findUnique({
+        where: { id: dataset.currentVersionId },
+        select: { versionNumber: true },
+      });
+      return {
+        datasetId,
+        versionId: dataset.currentVersionId,
+        versionNumber: cur?.versionNumber ?? 0,
+        focusTestCaseId,
+        caseCount: current.length,
+        replayed: true,
+      };
+    }
 
     const last = await tx.datasetVersion.findFirst({
       where: { datasetId },
