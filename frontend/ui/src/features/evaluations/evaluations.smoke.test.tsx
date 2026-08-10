@@ -65,7 +65,6 @@ const RUN = {
   notScoredCount: 1,
   cost: 0.264,
   scorers: [{ name: "routing-accuracy", version: "v3" }],
-  provenance: null,
   startedAt: "2026-07-17T10:24:00Z",
   completedAt: "2026-07-17T10:30:00Z",
   evaluationName: "Billing routing",

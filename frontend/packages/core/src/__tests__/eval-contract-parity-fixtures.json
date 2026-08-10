@@ -150,10 +150,7 @@
           "evaluation_name": "Billing routing",
           "evaluation_key": "billing-routing-v2",
           "dataset_id": "ds1",
-          "candidate_version": "git:abc123",
-          "provenance": {
-            "sdk_language": "typescript"
-          }
+          "candidate_version": "git:abc123"
         }
       },
       {

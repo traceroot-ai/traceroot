@@ -179,9 +179,6 @@ async function registerRun(
       // SDK sends it; a legacy {name, version} scorer stays valid. Cast because
       // the scorer metadata field is typed `unknown` (arbitrary JSON).
       scorers: req.scorers as unknown as Prisma.InputJsonValue,
-      // Typed execution provenance (git/CI/SDK + declared candidate model/prompt),
-      // kept distinct from free-form `metadata`. Absent when the SDK reports none.
-      provenance: (req.provenance ?? undefined) as Prisma.InputJsonValue | undefined,
       metadata: (req.metadata ?? undefined) as Prisma.InputJsonValue | undefined,
       clientRunId: req.client_run_id ?? null,
     },

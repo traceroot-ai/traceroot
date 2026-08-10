@@ -226,23 +226,17 @@ function post(payload: unknown, headers: Record<string, string> = {}) {
 }
 
 describe("cross-language evaluation identity (evaluation_key)", () => {
-  const py = { sdk_language: "python" };
-  const ts = { sdk_language: "typescript" };
-
   it("groups equivalent Python and TypeScript runs under one evaluation by shared key", async () => {
-    const pyRun = await POST(
-      post(body({ evaluation_key: "billing-routing", provenance: py })),
-    );
-    const tsRun = await POST(
-      post(body({ evaluation_key: "billing-routing", provenance: ts })),
-    );
+    // Same evaluation_key from two different SDKs → one evaluation, two runs. Identity is
+    // SDK-agnostic: the run carries nothing that says which SDK produced it.
+    const pyRun = await POST(post(body({ evaluation_key: "billing-routing" })));
+    const tsRun = await POST(post(body({ evaluation_key: "billing-routing" })));
 
     expect(pyRun.status).toBe(201);
     expect(tsRun.status).toBe(201);
     const a = await pyRun.json();
     const b = await tsRun.json();
-    // One evaluation definition, two distinct runs — the SDK language is provenance,
-    // not identity.
+    // One evaluation definition, two distinct runs.
     expect(db.rows.evaluation).toHaveLength(1);
     expect(b.evaluation_id).toBe(a.evaluation_id);
     expect(a.run_number).toBe(1);
@@ -334,7 +328,11 @@ describe("dataset resolution", () => {
       projectId: PROJECT_ID,
       currentVersionId: "dv_reg",
     });
-    db.rows.datasetVersion.push({ id: "dv_reg", datasetId: "cmse_internal_pk", projectId: PROJECT_ID });
+    db.rows.datasetVersion.push({
+      id: "dv_reg",
+      datasetId: "cmse_internal_pk",
+      projectId: PROJECT_ID,
+    });
 
     const res = await POST(post(body({ dataset_id: "cmse_internal_pk" })));
 

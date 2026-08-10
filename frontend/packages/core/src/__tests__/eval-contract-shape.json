@@ -179,71 +179,6 @@
         }
       }
     },
-    "RunProvenance": {
-      "kind": "object",
-      "unknown_keys": "strip",
-      "fields": {
-        "git_repository": {
-          "type": "string",
-          "max_length": 500,
-          "required": false,
-          "nullable": true
-        },
-        "git_ref": {
-          "type": "string",
-          "max_length": 500,
-          "required": false,
-          "nullable": true
-        },
-        "git_commit": {
-          "type": "string",
-          "max_length": 200,
-          "required": false,
-          "nullable": true
-        },
-        "git_dirty": {
-          "type": "boolean",
-          "required": false,
-          "nullable": true
-        },
-        "ci_provider": {
-          "type": "string",
-          "max_length": 100,
-          "required": false,
-          "nullable": true
-        },
-        "ci_build_id": {
-          "type": "string",
-          "max_length": 200,
-          "required": false,
-          "nullable": true
-        },
-        "sdk_language": {
-          "type": "string",
-          "max_length": 50,
-          "required": false,
-          "nullable": true
-        },
-        "sdk_version": {
-          "type": "string",
-          "max_length": 50,
-          "required": false,
-          "nullable": true
-        },
-        "declared_model": {
-          "type": "string",
-          "max_length": 200,
-          "required": false,
-          "nullable": true
-        },
-        "declared_prompt_version": {
-          "type": "string",
-          "max_length": 200,
-          "required": false,
-          "nullable": true
-        }
-      }
-    },
     "RegisterRunRequest": {
       "kind": "object",
       "unknown_keys": "forbid",
@@ -325,11 +260,6 @@
         "case_count": {
           "type": "integer",
           "minimum": 0,
-          "required": false,
-          "nullable": true
-        },
-        "provenance": {
-          "type": "RunProvenance",
           "required": false,
           "nullable": true
         },
