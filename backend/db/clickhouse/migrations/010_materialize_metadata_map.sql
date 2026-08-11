@@ -14,12 +14,23 @@
 -- there, a part missing the rebuilt projection is still READ correctly (the query falls back
 -- to the base table, same rows, only slower) and parts pick it up as they merge, so skipping
 -- costs only time. Here, skipping is a wrong ANSWER and nothing arrives on its own. A part
--- written before 009's ALTER does not store the column, and ClickHouse computes it on read
--- ONLY when the query also reads `metadata` -- which ours never do, since reading the blob is
--- the cost this column exists to avoid. So the map reads back EMPTY rather than computed: no
--- error, just a trace that answers every metadata filter as though it carried no metadata.
--- Verified on ClickHouse 25.2 against a pre-ALTER row, where selecting the map alone returns
--- length 0 and selecting it alongside `metadata` returns length 1.
+-- written before 009's ALTER does not store the column, and what decides whether ClickHouse
+-- computes it on read is not whether the query also reads `metadata` -- it is whether the
+-- read is a WHOLE-column read or a subcolumn one. Several of our reads DO take the blob --
+-- trace detail, the per-span and bulk I/O fetches, and `SELECT *` in the internal router --
+-- and that is not what settles the answer either way. `SELECT metadata_map` on a pre-ALTER
+-- part returns the correctly computed map with no `metadata` in the query at all. But
+-- length(metadata_map), metadata_map[key], mapContains() and mapKeys() all read back EMPTY:
+-- optimize_functions_to_subcolumns rewrites them into subcolumn reads, and a subcolumn read
+-- never evaluates the default expression. Naming `metadata` in the same SELECT list does
+-- restore correct values for those expressions -- but it does not rescue the read shape we
+-- actually ship. `mapContains(metadata_map, key) AND metadata_map[key] = value` in a WHERE
+-- matches ZERO rows even when the query also selects `metadata`, because the filter stage
+-- reads the subcolumns before the blob column enters the block. That predicate is exactly
+-- what #1833 ships, so a pre-009 part answers a metadata filter with no error and no rows:
+-- a trace that behaves as though it carried no metadata. Reproduced on ClickHouse 26.3.3
+-- against a pre-ALTER row; optimize_functions_to_subcolumns has defaulted on since 24.8, so
+-- the 25.2 server we pin behaves the same way.
 --
 -- The deploy-time hazard: the mutation is asynchronous (mutations_sync=0 by default), so the
 -- statements return as soon as it is QUEUED. History becomes filterable gradually in the

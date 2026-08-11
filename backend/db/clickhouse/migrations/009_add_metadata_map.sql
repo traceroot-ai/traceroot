@@ -26,12 +26,29 @@
 -- and rewritten on every merge, on the largest table we have. The price paid for leaving it
 -- out is that a span-scope metadata predicate cannot use spans_no_io_by_start_time and drops
 -- to the base table; metadata_map is the only column that scan reads which the projection
--- lacks. The follow-up, if that fallback hurts, is shaped like 008: DROP + ADD the projection
--- with metadata_map in the column list and out of its ORDER BY.
+-- lacks. That fallback loses more than the projection: base spans is ORDER BY (project_id,
+-- trace_id, span_start_time, span_id), with time third, behind a near-unique trace_id, so
+-- primary-index time pruning is effectively nil and only the monthly partition prunes. The
+-- projection's (project_id, span_start_time, trace_id, span_id) is what gives every other
+-- span filter its time pruning, so a metadata predicate reads the whole partition rather
+-- than the time window inside it. The follow-up, if that fallback hurts, is shaped like 008:
+-- DROP + ADD the projection with metadata_map in the column list and out of its ORDER BY.
 
 -- The rule the expression below implements, in the order it is applied:
 --   1. Missing, empty, non-JSON, or non-object metadata yields an empty map --
---      JSONExtractKeysAndValuesRaw returns an empty array for all four.
+--      JSONExtractKeysAndValuesRaw returns an empty array for all four. So does a VALID
+--      JSON object holding a number ClickHouse cannot represent: a single value outside
+--      Int64/UInt64 range, or one that overflows Float64, empties the WHOLE document rather
+--      than that one key, and nesting it inside an object or an array does not spare the
+--      rest. The boundary is exact -- 18446744073709551615 parses, 18446744073709551616
+--      does not, nor do -9223372036854775809 or 1e309, while 1.5e308 is fine. A nanosecond
+--      epoch, a Snowflake id, or a large account number sent as an unquoted JSON number all
+--      land there. Because the column is MATERIALIZED, that empty map is computed at insert
+--      and baked into the part, and 010's MATERIALIZE COLUMN cannot repair it, since the
+--      expression itself is what returns []. The row's `metadata` blob still renders
+--      normally, so such a trace looks healthy while answering every metadata filter as
+--      though it carried no metadata: silent, per row, and permanent. A documented and
+--      accepted limitation -- nothing guards against it today.
 --   2. Keys prefixed `traceroot.` are dropped: the namespace is ours, not the user's. Span
 --      routing attributes and SDK identity land in the blob at ingest and sit on nearly
 --      every span, so left in they outrank every real user key in the frequency-ordered
@@ -83,9 +100,9 @@ ALTER TABLE traces
 
 -- No skip index on metadata_map -- DEFERRED pending measurement, not ruled out. A bloom
 -- filter over mapKeys(metadata_map) is the obvious fit, and the predicate FORM is already
--- right for one: `_keyed_map_match` emits `mapContains(metadata_map, key) AND
--- metadata_map[key] OP value`, and that explicit key-membership conjunct is exactly what
--- makes such an index actionable.
+-- right for one: `_keyed_map_match` (arriving with PR #1833) emits
+-- `mapContains(metadata_map, key) AND metadata_map[key] OP value`, and that explicit
+-- key-membership conjunct is exactly what makes such an index actionable.
 --
 -- What blocks it is POSITION, not form. The conjunct sits in the OUTER WHERE, above the
 -- `LIMIT 1 BY project_id, trace_id, span_id` that dedups the ReplacingMergeTree. That order
