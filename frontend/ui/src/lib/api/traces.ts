@@ -2,7 +2,13 @@
  * Trace API functions (Python backend - ClickHouse)
  */
 import { fetchTraceApi, type TraceApiUser } from "./client";
-import type { SpanIO, TraceDetail, TraceListResponse, TraceQueryOptions } from "@/types/api";
+import type {
+  MetadataKeysResponse,
+  SpanIO,
+  TraceDetail,
+  TraceListResponse,
+  TraceQueryOptions,
+} from "@/types/api";
 import { serializeFiltersParam } from "@/features/filters/predicate";
 import type { FilterFieldsResponse, FilterValuesResponse } from "@/features/filters/registry";
 
@@ -74,6 +80,32 @@ export async function getFilterValues(
   const query = params.toString() ? `?${params.toString()}` : "";
   return fetchTraceApi<FilterValuesResponse>(
     `/projects/${projectId}/traces/filter-values/${encodeURIComponent(field)}${query}`,
+    {},
+    user,
+  );
+}
+
+/**
+ * Metadata keys observed in the active window, frequency-ordered — the discovery answer
+ * behind the metadata filter's key combobox, its one consumer.
+ *
+ * The window is passed exactly as the distinct-values fetcher passes it, and for the same
+ * reason: a key list gathered outside the window the user is looking at would suggest keys
+ * that return zero rows the moment they are picked. The response carries the keys and
+ * nothing else — it does not echo the bounds back.
+ */
+export async function getMetadataKeys(
+  projectId: string,
+  startAfter: string | undefined,
+  endBefore: string | undefined,
+  user?: TraceApiUser,
+): Promise<MetadataKeysResponse> {
+  const params = new URLSearchParams();
+  if (startAfter) params.set("start_after", startAfter);
+  if (endBefore) params.set("end_before", endBefore);
+  const query = params.toString() ? `?${params.toString()}` : "";
+  return fetchTraceApi<MetadataKeysResponse>(
+    `/projects/${projectId}/traces/metadata-keys${query}`,
     {},
     user,
   );

@@ -9,10 +9,11 @@
 import { createContext, useContext, useState } from "react";
 import { ChevronDown, type LucideIcon } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
-import { MAX_VALUE_LENGTH } from "./predicate";
+import { useMetadataKeys } from "./hooks";
+import { MAX_KEY_LENGTH, MAX_VALUE_LENGTH } from "./predicate";
 
 // Icons mirror the trace detail / list UI for consistency; the model and environment
 // fields, which have no trace-detail icon, use a generic one. The dashboard widget
@@ -36,6 +37,12 @@ export type FilterControlSize = "sm" | "md";
 const TEXT_SIZE: Record<FilterControlSize, string> = { sm: "text-[12px]", md: "text-[13px]" };
 const SizeContext = createContext<FilterControlSize>("md");
 const useTextSize = () => TEXT_SIZE[useContext(SizeContext)];
+
+// The dropped-down list panel and its empty line, shared by every control here so the
+// field / value dropdowns and the metadata key combobox drop the same surface. Callers
+// add only what differs (a width, the size-dependent text class).
+const DROPDOWN_CONTENT_CLASS = "max-h-64 overflow-y-auto p-1";
+const NO_OPTIONS_CLASS = "px-2 py-1.5 text-muted-foreground";
 
 export function FilterControlSizeProvider({
   size,
@@ -197,7 +204,7 @@ export function ValueDropdown({
     >
       {(close) =>
         options.length === 0 ? (
-          <div className={cn("px-2 py-1.5 text-muted-foreground", textSize)}>No options</div>
+          <div className={cn(NO_OPTIONS_CLASS, textSize)}>No options</div>
         ) : (
           options.map((opt) => (
             <DropdownItem
@@ -217,6 +224,113 @@ export function ValueDropdown({
         )
       }
     </Dropdown>
+  );
+}
+
+/**
+ * The metadata key control: a combobox that SUGGESTS the keys discovered in the active
+ * window and ACCEPTS ANY KEY TYPED. The two are different things — the suggestion list
+ * exists to save typing, never to restrict it, so there is no "custom key" mode, no
+ * validation that rejects an unsuggested key, and nothing here can disable "Add filter".
+ *
+ * The text box IS the key: typing edits the predicate's key directly and doubles as the
+ * suggestion search, so a key typed and never confirmed against the list is still the key
+ * that gets filtered on. A separate search box would silently discard it.
+ *
+ * Suggestions come from the active window only, exactly like the Model and Environment
+ * value dropdowns, so that picking one can never return zero rows for the sole reason
+ * that it was observed outside the range the user is looking at.
+ */
+export function MetadataKeyCombobox({
+  projectId,
+  startAfter,
+  endBefore,
+  value,
+  onValue,
+  onEnter,
+}: {
+  projectId: string;
+  startAfter?: string;
+  endBefore?: string;
+  value: string;
+  onValue: (v: string) => void;
+  onEnter: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const textSize = useTextSize();
+  const { keys } = useMetadataKeys(projectId, startAfter, endBefore, true);
+
+  const query = value.trim().toLowerCase();
+  // A key already chosen is not a search term: reopening the list after picking
+  // `session_id` should still offer the other keys rather than narrowing to the one that
+  // is already in the box. `keys` arrives frequency-ordered from discovery and filtering
+  // preserves that order, so there is no second ranking model here.
+  const isExactKey = keys.some((k) => k.value.toLowerCase() === query);
+  const suggestions =
+    query === "" || isExactKey ? keys : keys.filter((k) => k.value.toLowerCase().includes(query));
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverAnchor asChild>
+        <div className="flex h-7 min-w-0 flex-1 items-center rounded-md border border-input bg-transparent px-2 focus-within:ring-1 focus-within:ring-ring">
+          <input
+            aria-label="metadata key"
+            placeholder="Key"
+            maxLength={MAX_KEY_LENGTH}
+            value={value}
+            onChange={(e) => {
+              onValue(e.target.value);
+              setOpen(true);
+            }}
+            onFocus={() => setOpen(true)}
+            onClick={() => setOpen(true)}
+            onKeyDown={(e) => {
+              // Enter dismisses the suggestion list and applies the filter if the row is
+              // complete; the typed key needs no confirmation, it is already the key.
+              if (e.key === "Enter") {
+                setOpen(false);
+                onEnter();
+              }
+            }}
+            className={cn(
+              "min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground",
+              textSize,
+            )}
+          />
+        </div>
+      </PopoverAnchor>
+      <PopoverContent
+        align="start"
+        className={cn(DROPDOWN_CONTENT_CLASS, "w-[14rem]")}
+        // Focus stays in the box while the list is open, and is not pulled back on close —
+        // otherwise returning focus would refire onFocus and reopen the list immediately.
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        onCloseAutoFocus={(e) => e.preventDefault()}
+      >
+        {suggestions.length > 0 ? (
+          suggestions.map((k) => (
+            <DropdownItem
+              key={k.value}
+              active={k.value === value}
+              onClick={() => {
+                onValue(k.value);
+                setOpen(false);
+              }}
+            >
+              <span className="flex-1 truncate">{k.value}</span>
+              <span className="text-[11px] text-muted-foreground">{k.count}</span>
+            </DropdownItem>
+          ))
+        ) : (
+          // Same empty state the categorical value dropdown has always shown, deliberately:
+          // a key list that is still loading and one that came back empty look alike there
+          // too, and the metadata control should not read as a louder or more alarming
+          // surface than the filter beside it. An empty list blocks nothing — suggestions
+          // only save typing, and any key typed still filters.
+          <div className={cn(NO_OPTIONS_CLASS, textSize)}>No options</div>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -302,10 +416,7 @@ export function Dropdown({
           <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         </button>
       </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className={cn("max-h-64 overflow-y-auto p-1", contentClassName)}
-      >
+      <PopoverContent align="start" className={cn(DROPDOWN_CONTENT_CLASS, contentClassName)}>
         {children(() => setOpen(false))}
       </PopoverContent>
     </Popover>
