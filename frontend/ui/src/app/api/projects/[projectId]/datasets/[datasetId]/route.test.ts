@@ -169,7 +169,12 @@ describe("GET", () => {
 
 describe("PATCH", () => {
   it("updates only the fields present in the body", async () => {
-    prismaMock.dataset.findFirst.mockResolvedValue({ id: "ds1" });
+    // Two findFirst calls when a name is sent: the existence check (by id) finds the
+    // dataset; the name-collision check (by name) finds nothing → the rename proceeds.
+    prismaMock.dataset.findFirst.mockImplementation(
+      async ({ where }: { where: Record<string, unknown> }) =>
+        "name" in where ? null : { id: "ds1" },
+    );
     prismaMock.dataset.update.mockResolvedValue({ id: "ds1", name: "renamed" });
 
     const res = await PATCH(jsonReq({ name: "renamed" }), params);
@@ -178,6 +183,26 @@ describe("PATCH", () => {
     expect(prismaMock.dataset.update).toHaveBeenCalledWith({
       where: { id: "ds1" },
       data: { name: "renamed" }, // description untouched, not nulled
+    });
+  });
+
+  it("409s a rename onto a name another dataset in the project already uses", async () => {
+    prismaMock.dataset.findFirst.mockImplementation(
+      async ({ where }: { where: Record<string, unknown> }) =>
+        "name" in where ? { name: "Support" } : { id: "ds1" }, // clash on a different-cased name
+    );
+    const res = await PATCH(jsonReq({ name: "support" }), params);
+    expect(res.status).toBe(409);
+    expect((await body(res)).error).toContain("already exists");
+    expect(prismaMock.dataset.update).not.toHaveBeenCalled();
+    // The collision lookup excludes this dataset itself and is case-insensitive.
+    const clashCall = prismaMock.dataset.findFirst.mock.calls
+      .map((c) => c[0] as { where: Record<string, unknown> })
+      .find((a) => "name" in a.where)!;
+    expect(clashCall.where).toEqual({
+      projectId: "p1",
+      id: { not: "ds1" },
+      name: { equals: "support", mode: "insensitive" },
     });
   });
 

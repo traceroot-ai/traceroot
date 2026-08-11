@@ -88,6 +88,26 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   });
   if (!existing) return errorResponse("Dataset not found", 404);
 
+  // A dataset's name is its human identity: renaming onto a name another dataset in the
+  // project already uses would deduplicate them, so deny it (case-insensitive). Excludes
+  // this dataset itself, so keeping (or re-casing) its own name is allowed.
+  if (parsed.data.name !== undefined) {
+    const clash = await prisma.dataset.findFirst({
+      where: {
+        projectId,
+        id: { not: datasetId },
+        name: { equals: parsed.data.name, mode: "insensitive" as const },
+      },
+      select: { name: true },
+    });
+    if (clash) {
+      return errorResponse(
+        `A dataset named "${clash.name}" already exists in this project. Pick a different name.`,
+        409,
+      );
+    }
+  }
+
   const dataset = await prisma.dataset.update({
     where: { id: datasetId },
     data: {
