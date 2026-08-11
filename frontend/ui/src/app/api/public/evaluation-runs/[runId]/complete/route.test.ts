@@ -49,9 +49,6 @@ beforeEach(() => {
     completedAt: null,
     caseCount: 10,
     scoredCount: 0,
-    // Registered without a resolved main-score name (the B1 flow); tests that need a
-    // name fixed at registration override this.
-    mainScoreName: null,
   });
   requireApiKeyProjectMock.mockReset();
   requireApiKeyProjectMock.mockResolvedValue({ projectId: "proj-1" });

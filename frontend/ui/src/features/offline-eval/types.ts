@@ -112,8 +112,6 @@ export interface ProtoTrace {
   /** Short plain summary of the outcome, for the list. */
   resultSummary: string;
   status: ResultStatus;
-  mainScore: number | null;
-  mainScoreName: string;
   humanReview?: HumanReview;
 }
 
@@ -271,8 +269,6 @@ export interface Evaluation {
   /** Where the run executed — the SDK reports this. */
   environment: string;
   status: EvaluationStatus;
-  mainScore: number | null;
-  mainScoreName: string;
   /** Percentage-point change vs the baseline. Null when there is no baseline. */
   changeFromBaseline: number | null;
   baselineId: string | null;
@@ -320,7 +316,7 @@ export interface EvaluationResult {
   currentOutput: string | null;
   /** Null when this run has no baseline. */
   baselineOutput: string | null;
-  /** Main score. Null when not scored (errored, or no scorer produced a value). */
+  /** The case's score. Null when not scored (errored, or no scorer produced a value). */
   score: number | null;
   baselineScore: number | null;
   status: EvalResultStatus;

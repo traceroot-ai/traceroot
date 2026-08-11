@@ -550,9 +550,6 @@ model Evaluation {
   // share a display name under different keys. Backfilled from `name` for pre-key rows;
   // the register route sets it to `evaluation_key ?? evaluation_name`.
   evaluationKey String   @map("evaluation_key") @db.VarChar
-  // Metric-first: a run has no single headline score, so an evaluation no longer names one.
-  // Kept nullable (dormant) — the register route stops setting it; the column drop follows later.
-  mainScoreName String?  @map("main_score_name") @db.VarChar
   createTime    DateTime @default(now()) @map("create_time") @db.Timestamp(6)
   updateTime    DateTime @updatedAt @map("update_time") @db.Timestamp(6)
 
@@ -582,8 +579,6 @@ model EvaluationRun {
   environment      String    @default("evaluation") @db.VarChar
   status           String    @default("running") @db.VarChar // running|completed|completed_with_errors|failed|incomplete
   baselineRunId    String?   @map("baseline_run_id") @db.VarChar
-  mainScore        Float?    @map("main_score")
-  mainScoreName    String?   @map("main_score_name") @db.VarChar
   caseCount        Int       @default(0) @map("case_count")
   scoredCount      Int       @default(0) @map("scored_count")
   taskErrorCount   Int       @default(0) @map("task_error_count")
@@ -646,7 +641,6 @@ model EvaluationResult {
   candidateOutput String?  @map("candidate_output") @db.Text // null when the task errored
   baselineOutput  String?  @map("baseline_output") @db.Text
   status          String   @db.VarChar // passed|failed|errored|not_scored
-  mainScore       Float?   @map("main_score")
   change          String?  @db.VarChar // improved|regressed|unchanged
   taskError       String?  @map("task_error") @db.Text // application/task failure
   durationMs      Int?     @map("duration_ms")

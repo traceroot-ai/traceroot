@@ -318,7 +318,6 @@ export interface TraceEvaluationResultRow {
   testCaseId: string;
   traceId: string | null;
   status: EvalResultStatus;
-  mainScore: number | null;
   scores: ScoreRow[];
   run: {
     id: string;

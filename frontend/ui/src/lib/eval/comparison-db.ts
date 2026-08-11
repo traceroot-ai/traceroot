@@ -23,7 +23,6 @@ interface DbScore {
 interface DbResult {
   testCaseId: string;
   status: string;
-  mainScore: number | null;
   candidateOutput: string | null;
   durationMs: number | null;
   scores: DbScore[];
@@ -36,8 +35,6 @@ interface DbRun {
   datasetVersionId: string;
   candidateVersion: string;
   status: string;
-  mainScore: number | null;
-  mainScoreName: string | null;
   baselineRunId: string | null;
   scorers: unknown; // Json: [{ name, version, value_type?, direction?, threshold? }]
 }
@@ -77,8 +74,6 @@ export function toComparisonRun(r: DbRun): ComparisonRun {
     datasetVersionId: r.datasetVersionId,
     candidateVersion: r.candidateVersion,
     status: r.status,
-    mainScore: r.mainScore,
-    mainScoreName: r.mainScoreName,
     baselineRunId: r.baselineRunId,
     scorers: parseScorers(r.scorers),
   };
@@ -88,7 +83,6 @@ export function toComparisonResults(rows: DbResult[]): ComparisonResult[] {
   return rows.map((r) => ({
     testCaseId: r.testCaseId,
     status: r.status,
-    mainScore: r.mainScore,
     candidateOutput: r.candidateOutput,
     durationMs: r.durationMs,
     scores: r.scores.map(
@@ -102,9 +96,4 @@ export function toComparisonResults(rows: DbResult[]): ComparisonResult[] {
       }),
     ),
   }));
-}
-
-/** Map a derived case verdict back onto the legacy `change` enum (best effort). */
-export function caseChangeToLegacy(c: string): "improved" | "regressed" | "unchanged" | null {
-  return c === "improved" || c === "regressed" || c === "unchanged" ? c : null;
 }

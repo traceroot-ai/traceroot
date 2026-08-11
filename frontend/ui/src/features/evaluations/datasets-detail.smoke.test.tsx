@@ -129,8 +129,6 @@ const RUN = {
   environment: "ci",
   status: "completed",
   baselineRunId: null,
-  mainScore: 0.938,
-  mainScoreName: "Routing accuracy",
   caseCount: 3,
   scoredCount: 3,
   taskErrorCount: 0,
@@ -377,9 +375,9 @@ describe("Dataset detail — filtering and adding rows", () => {
     expect(requests.some((r) => r.method === "DELETE")).toBe(false);
     fireEvent.click(screen.getAllByRole("button", { name: "Delete" }).at(-1)!);
     expect(await screen.findByText("Row deleted")).toBeDefined();
-    expect(
-      requests.some((r) => r.method === "DELETE" && r.url.includes("/test-cases/tc_1")),
-    ).toBe(true);
+    expect(requests.some((r) => r.method === "DELETE" && r.url.includes("/test-cases/tc_1"))).toBe(
+      true,
+    );
   });
 });
 
@@ -479,7 +477,6 @@ describe("Dataset detail — deep link", () => {
     expect(await screen.findByTitle("Copy ID")).toBeDefined();
     expect(await screen.findByText(caseDisplayId("tc_2"))).toBeDefined();
   });
-
   it("ignores a ?case that no row matches", async () => {
     searchParams = new URLSearchParams("case=tc_missing");
     mountDetail();
@@ -487,4 +484,3 @@ describe("Dataset detail — deep link", () => {
     expect(screen.queryByTitle("Copy ID")).toBeNull();
   });
 });
-

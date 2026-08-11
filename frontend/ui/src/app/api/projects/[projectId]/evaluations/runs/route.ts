@@ -22,7 +22,7 @@ function sumOrNull(values: Array<number | null>): number | null {
 // Whitelist for `sort` — never let a raw query-string value reach `orderBy` or
 // an object-key lookup. Anything outside this set (or absent) falls back to
 // the default, it never errors.
-const SORT_FIELDS = ["startedAt", "mainScore", "cost", "elapsedMs", "status"] as const;
+const SORT_FIELDS = ["startedAt", "cost", "elapsedMs", "status"] as const;
 type SortField = (typeof SORT_FIELDS)[number];
 const DEFAULT_SORT: SortField = "startedAt";
 
@@ -44,13 +44,13 @@ function parseDateParam(value: string | null): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
-// startedAt/mainScore/status are real columns — sort + paginate in the DB.
+// startedAt/status are real columns — sort + paginate in the DB.
 // cost/elapsedMs are derived (a per-run cost aggregate and a completedAt -
 // startedAt difference), so they're computed and sorted over the FULL
 // filtered set here on the server, then sliced to the requested page. That
 // keeps ordering correct across pages — never just a reorder of the page
 // that would already have been fetched.
-const DB_SORTABLE = new Set<SortField>(["startedAt", "mainScore", "status"]);
+const DB_SORTABLE = new Set<SortField>(["startedAt", "status"]);
 
 // cost/elapsed can't be ordered in the DB (cost is a sum over related results; elapsed
 // is derived), so they're sorted in Node. Bound how many runs that pulls so a large
@@ -60,7 +60,7 @@ const MAX_INMEMORY_SORT = 500;
 
 // GET — evaluation runs (executions) for the project. Filters: evaluation_id,
 // dataset_id, status, search_query, started_after, started_before. Sort:
-// sort/order over startedAt|mainScore|cost|elapsedMs|status.
+// sort/order over startedAt|cost|elapsedMs|status.
 export async function GET(req: NextRequest, { params }: RouteParams) {
   const authResult = await requireAuth();
   if (authResult.error) return authResult.error;
@@ -117,7 +117,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     [runs, total] = await prisma.$transaction([
       prisma.evaluationRun.findMany({
         where,
-        // Secondary sort on the unique id so ties (equal mainScore/status) have a
+        // Secondary sort on the unique id so ties (equal status) have a
         // stable total order — otherwise skip/take pagination can duplicate or drop
         // runs across pages.
         orderBy: [{ [sort]: order }, { id: order }],
@@ -244,8 +244,6 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
             datasetVersionId: true,
             candidateVersion: true,
             status: true,
-            mainScore: true,
-            mainScoreName: true,
             baselineRunId: true,
             scorers: true,
           },
@@ -263,7 +261,6 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
             runId: true,
             testCaseId: true,
             status: true,
-            mainScore: true,
             candidateOutput: true,
             durationMs: true,
             scores: {
@@ -312,10 +309,10 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       datasetVersionCreatedAt: r.datasetVersion.createTime.toISOString(),
       datasetVersionNumber: r.datasetVersion.versionNumber,
       cost,
-      // Delta + regressed-case count only when trustworthy; otherwise null (UI shows —),
-      // never a misleading number beside an incompatible baseline.
-      changeFromBaseline: comparison.trustworthy ? comparison.mainScore.delta : null,
-      regressedCaseCount: comparison.trustworthy ? comparison.caseCounts.regressed : null,
+      // Metric-first: no single headline delta or per-case improved/regressed count from a
+      // baseline (per-metric deltas live in the comparison block); kept null for back-compat.
+      changeFromBaseline: null,
+      regressedCaseCount: null,
       baselineComparable: comparison.trustworthy,
       errorCount: r.taskErrorCount + r.scorerErrorCount,
       elapsedMs: caseDurationMs,

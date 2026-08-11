@@ -46,7 +46,6 @@ function evaluation(over: Record<string, unknown> = {}) {
         runNumber: 4,
         candidateVersion: "sonnet",
         status: "completed",
-        mainScore: 0.75,
         startedAt: new Date("2026-07-21T00:00:00Z"),
         datasetVersionId: "dv2",
       },

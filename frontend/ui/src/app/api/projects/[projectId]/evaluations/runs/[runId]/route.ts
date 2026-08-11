@@ -7,7 +7,7 @@ import {
   successResponse,
 } from "@/lib/auth-helpers";
 import { compareRuns } from "@/lib/eval/comparison";
-import { toComparisonRun, toComparisonResults, caseChangeToLegacy } from "@/lib/eval/comparison-db";
+import { toComparisonRun, toComparisonResults } from "@/lib/eval/comparison-db";
 import { countResultStatuses } from "@/lib/eval/pass-rate";
 import { deriveHumanReviewSummary, type HumanVerdict } from "@/lib/eval/human-review";
 
@@ -40,7 +40,6 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
           id: true,
           runNumber: true,
           candidateVersion: true,
-          mainScore: true,
           evaluationId: true,
           datasetVersionId: true,
           datasetVersion: { select: { label: true } },
@@ -89,8 +88,8 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     const cmp = cmpByCase.get(r.testCaseId);
     return {
       ...r,
-      // Derived values win over the stored columns.
-      change: cmp ? caseChangeToLegacy(cmp.caseChange) : null,
+      // Metric-first: no single per-case improved/regressed verdict.
+      change: null,
       baselineOutput: cmp ? cmp.baselineOutput : null,
       // Without a baseline, every case's comparison would be the same "candidate_only,
       // all cells unpaired" object — zero information, so omit it rather than inflate
@@ -98,9 +97,7 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
       comparison:
         cmp && baselineRun
           ? {
-              caseChange: cmp.caseChange,
               pairing: cmp.pairing,
-              mainScore: cmp.mainScore,
               baselineDurationMs: cmp.baselineDurationMs,
               durationDeltaMs: cmp.durationDeltaMs,
               baselineTraceId: baselineTraceByCase.get(r.testCaseId) ?? null,
@@ -151,10 +148,9 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
       evaluationName: run.evaluation.name,
       datasetName: dataset?.name ?? null,
       datasetVersionLabel: run.datasetVersion.label,
-      // Back-compat run-level fields, now sourced from the derived comparison. The scalar
-      // delta stays null unless the comparison is trustworthy, so the UI never subtracts
-      // incompatible numbers; the richer `comparison` block carries the raw delta + trust.
-      changeFromBaseline: comparison.trustworthy ? comparison.mainScore.delta : null,
+      // Metric-first: no single headline delta from a baseline (per-metric deltas live in
+      // the comparison block); kept null for back-compat with the run read model.
+      changeFromBaseline: null,
       baselineComparable: comparison.trustworthy,
       errorCount: run.taskErrorCount + run.scorerErrorCount,
       elapsedMs: resultAgg._sum.durationMs,

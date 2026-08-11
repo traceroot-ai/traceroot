@@ -32,7 +32,6 @@ const result = {
   testCaseId: "case-1",
   traceId: "tr_1",
   status: "passed",
-  mainScore: 1,
   scores: [{ scorerName: "accuracy", numericValue: 1 }],
   run: {
     id: "run_2",

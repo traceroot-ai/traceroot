@@ -48,16 +48,14 @@ export type RunComparabilityReason =
   | "different_dataset_version"
   | "baseline_not_terminal"
   | "candidate_not_terminal"
-  | "case_set_mismatch"
-  | "main_scorer_incompatible";
+  | "case_set_mismatch";
 
 /**
  * The four-state comparison discriminant, derived from `available`/`trustworthy`/
  * `reasons` so a client never has to re-classify the reason vocabulary itself:
  *  - `trustworthy`: paired, same evaluation, both terminal — an authoritative verdict.
  *  - `exploratory`: computed but NON-authoritative (different evaluation / dataset
- *    version, mismatched case set, incompatible main scorer). Shown for exploration,
- *    never as an ordinary verdict.
+ *    version, or a mismatched case set). Shown for exploration, never as an ordinary verdict.
  *  - `pending`: a run is still running or was stopped early (not terminal).
  *  - `unavailable`: there is no baseline to compare against.
  */
@@ -105,7 +103,6 @@ export interface ComparisonScore {
 export interface ComparisonResult {
   testCaseId: string;
   status: string; // passed | failed | errored | not_scored
-  mainScore: number | null;
   candidateOutput: string | null;
   durationMs: number | null;
   scores: ComparisonScore[];
@@ -118,8 +115,6 @@ export interface ComparisonRun {
   datasetVersionId: string;
   candidateVersion: string;
   status: string; // running | completed | completed_with_errors | failed | incomplete | cancelled
-  mainScore: number | null;
-  mainScoreName: string | null;
   baselineRunId: string | null;
   /** Declared scorers (`[{name, version}]` from the run, optionally enriched). */
   scorers: ComparisonScorerMeta[];
@@ -181,8 +176,6 @@ export interface ResultComparison {
   candidateOutput: string | null;
   /** Derived from the baseline result (never the stored candidate column). */
   baselineOutput: string | null;
-  mainScore: { candidate: number | null; baseline: number | null; delta: number | null };
-  caseChange: Classification;
   pairing: "paired" | "candidate_only" | "baseline_only";
   /** SDK-measured candidate case duration (task + scorers); null → Unknown, never 0. */
   durationMs: number | null;
@@ -208,12 +201,6 @@ export interface RunComparison {
   state: ComparisonState;
   reasons: RunComparabilityReason[];
   baseline: { runId: string; runNumber: number; candidateVersion: string } | null;
-  mainScore: { candidate: number | null; baseline: number | null; delta: number | null };
-  /** The two runs' SDK-reported main score, verbatim — not paired, not gated by
-   *  trustworthiness. `mainScore` above is the trustworthy headline; this is the raw
-   *  input it derives from, kept for callers that want it anyway. */
-  reportedMainScore: { candidate: number | null; baseline: number | null };
-  caseCounts: CountBlock;
   scoreCellCounts: CountBlock;
   scorers: ScorerAggregate[];
   /**
@@ -316,9 +303,9 @@ export function compareRuns(input: CompareRunsInput): CompareRunsOutput {
     if (!TERMINAL_STATUSES.has(candidate.status)) reasons.push("candidate_not_terminal");
   }
 
-  // Main scorer + scorer metadata (candidate's declaration wins; baseline fills gaps).
-  const mainScoreName =
-    candidate.mainScoreName ?? baseline?.mainScoreName ?? candidate.scorers[0]?.name ?? null;
+  // Per-metric metadata keyed on the EMITTED-METRIC name (what a Score row reports), so a
+  // definition whose name differs from its metric still resolves. Metric-first: there is no
+  // single "main" metric, so every scorer is compared on equal footing.
   const metaByName = new Map<string, ComparisonScorerMeta>();
   for (const s of [...(baseline?.scorers ?? []), ...candidate.scorers]) {
     metaByName.set(s.name, s); // candidate last → candidate wins
@@ -330,9 +317,10 @@ export function compareRuns(input: CompareRunsInput): CompareRunsOutput {
   const candidateByCase = new Map<string, ComparisonResult>();
   for (const r of candidateResults) candidateByCase.set(r.testCaseId, r);
 
-  const caseCounts = emptyCounts();
   const scoreCellCounts = emptyCounts();
   const results: ResultComparison[] = [];
+  // Cases scored on one side only — drives the `case_set_mismatch` comparability reason.
+  let unpairedCases = 0;
 
   // Per-scorer aggregate accumulators over paired, successfully-scored cells.
   interface Agg {
@@ -345,7 +333,6 @@ export function compareRuns(input: CompareRunsInput): CompareRunsOutput {
     unchanged: number;
   }
   const aggByScorer = new Map<string, Agg>();
-  let mainScorerComparablePairs = 0;
   let durCandSum = 0;
   let durBaseSum = 0;
   let durPairs = 0;
@@ -489,8 +476,6 @@ export function compareRuns(input: CompareRunsInput): CompareRunsOutput {
           }
           agg.n += 1;
           aggByScorer.set(scorerName, agg);
-
-          if (scorerName === mainScoreName) mainScorerComparablePairs += 1;
         }
       }
 
@@ -498,20 +483,7 @@ export function compareRuns(input: CompareRunsInput): CompareRunsOutput {
       scoreCellCounts[cell.classification] += 1;
     }
 
-    // Case rollup: the main scorer's cell decides (never a secondary scorer).
-    const mainCell = mainScoreName
-      ? scorerCells.find((c) => c.scorerName === mainScoreName)
-      : undefined;
-    let caseChange: Classification;
-    if (pairing !== "paired") {
-      caseChange = "unpaired";
-    } else if (mainCell) {
-      caseChange = mainCell.classification;
-    } else {
-      // Paired case but the main scorer produced no comparable cell either side.
-      caseChange = "not_comparable";
-    }
-    caseCounts[caseChange] += 1;
+    if (pairing !== "paired") unpairedCases += 1;
 
     // Case-duration comparison (paired, both known) — never sum, never zero-fill.
     const baselineDurationMs = base?.durationMs ?? null;
@@ -539,18 +511,6 @@ export function compareRuns(input: CompareRunsInput): CompareRunsOutput {
       status: cand?.status ?? base?.status ?? "not_scored",
       candidateOutput: cand?.candidateOutput ?? null,
       baselineOutput: base?.candidateOutput ?? null, // the baseline run's output for this case
-      mainScore: {
-        candidate: cand?.mainScore ?? null,
-        baseline: base?.mainScore ?? null,
-        delta:
-          cand?.mainScore !== null &&
-          cand?.mainScore !== undefined &&
-          base?.mainScore !== null &&
-          base?.mainScore !== undefined
-            ? cand.mainScore - base.mainScore
-            : null,
-      },
-      caseChange,
       pairing,
       durationMs: cand?.durationMs ?? null,
       baselineDurationMs,
@@ -561,31 +521,12 @@ export function compareRuns(input: CompareRunsInput): CompareRunsOutput {
     });
   }
 
-  // main_scorer_incompatible: available + no paired case had a comparable main-scorer cell.
-  if (available && mainScorerComparablePairs === 0) reasons.push("main_scorer_incompatible");
   // case_set_mismatch: the two runs didn't score the same set of cases (a subset run,
-  // a `--filter`, a retried run, a partially-ingested candidate) — the headline numbers
+  // a `--filter`, a retried run, a partially-ingested candidate) — the aggregate numbers
   // are then over different denominators and can't be presented as authoritative.
-  if (available && caseCounts.unpaired > 0) reasons.push("case_set_mismatch");
+  if (available && unpairedCases > 0) reasons.push("case_set_mismatch");
 
   const trustworthy = available && reasons.length === 0;
-
-  // The headline main-score delta: derived from the SAME paired, successfully-scored
-  // cells as every other number here (never a raw subtraction of the two runs'
-  // reported aggregates, which can measure different scorers or different case sets).
-  const mainScorerAgg = mainScoreName ? aggByScorer.get(mainScoreName) : undefined;
-  const pairedMainScore: {
-    candidate: number | null;
-    baseline: number | null;
-    delta: number | null;
-  } =
-    mainScorerAgg && mainScorerAgg.n > 0 && mainScorerAgg.direction !== "none"
-      ? {
-          candidate: mainScorerAgg.candSum / mainScorerAgg.n,
-          baseline: mainScorerAgg.baseSum / mainScorerAgg.n,
-          delta: (mainScorerAgg.candSum - mainScorerAgg.baseSum) / mainScorerAgg.n,
-        }
-      : { candidate: null, baseline: null, delta: null };
 
   // Per-scorer aggregate projection (declared scorers first, then any others seen).
   const scorerOrder: string[] = [];
@@ -663,12 +604,6 @@ export function compareRuns(input: CompareRunsInput): CompareRunsOutput {
           candidateVersion: baseline.candidateVersion,
         }
       : null,
-    mainScore: pairedMainScore,
-    reportedMainScore: {
-      candidate: candidate.mainScore,
-      baseline: baseline?.mainScore ?? null,
-    },
-    caseCounts,
     scoreCellCounts,
     scorers,
     duration: {

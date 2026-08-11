@@ -7,8 +7,8 @@ type RouteParams = { params: Promise<{ runId: string }> };
 // POST /api/public/evaluation-runs/[runId]/complete — SDK marks a run
 // completed/completed_with_errors/failed/incomplete with final counts.
 //
-// Metric-first: a run has no single headline "main score" and no run-level pass/fail, so
-// completion neither resolves a main-score name nor reconciles per-case pass/fail. Each
+// Metric-first: a run has no single headline score and no run-level pass/fail, so
+// completion neither resolves a headline-metric name nor reconciles per-case pass/fail. Each
 // case's terminal status is what the SDK reported through the results endpoint; completion
 // only fixes the run's status + counts.
 //

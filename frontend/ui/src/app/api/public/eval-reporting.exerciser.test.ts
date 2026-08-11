@@ -171,7 +171,7 @@ describe("SDK reporting: full run lifecycle", () => {
       params(runId),
     );
 
-    // 2d. A not-scored result — every scorer failed, no main score.
+    // 2d. A not-scored result — every scorer failed, no value produced.
     await upsertResult(
       req({
         test_case_id: "case-4",
@@ -207,14 +207,11 @@ describe("SDK reporting: full run lifecycle", () => {
 
     const scorerErrRow = fakePrisma.evaluationResult.rows.find((r) => r.testCaseId === "case-3")!;
     expect(scorerErrRow.status).toBe("passed");
-    // Metric-first: no per-case main score is written any more (the column is dormant).
-    expect(scorerErrRow.mainScore ?? null).toBeNull();
     const scorerErrScores = fakePrisma.score.rows.filter((s) => s.resultId === scorerErrRow.id);
     expect(scorerErrScores.find((s) => s.scorerName === "helpfulness")!.error).toContain("JSON");
 
     const notScored = fakePrisma.evaluationResult.rows.find((r) => r.testCaseId === "case-4")!;
     expect(notScored.status).toBe("not_scored");
-    expect(notScored.mainScore ?? null).toBeNull();
     expect(
       fakePrisma.score.rows.filter((s) => s.resultId === notScored.id).every((s) => s.error),
     ).toBe(true);

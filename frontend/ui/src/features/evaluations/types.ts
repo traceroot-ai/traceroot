@@ -9,9 +9,7 @@ export type { RunComparison, ResultComparison } from "@/lib/eval/comparison";
 /** The per-result comparison block the run-detail route embeds on each result. */
 export type ResultRowComparison = Pick<
   ResultComparison,
-  | "caseChange"
   | "pairing"
-  | "mainScore"
   | "baselineDurationMs"
   | "durationDeltaMs"
   | "scorerCells"
@@ -143,7 +141,6 @@ export interface ResultRow {
   candidateOutput: string | null;
   baselineOutput: string | null;
   status: EvalResultStatus;
-  mainScore: number | null;
   change: "improved" | "regressed" | "unchanged" | null;
   taskError: string | null;
   durationMs: number | null;
@@ -165,8 +162,6 @@ export interface RunRow {
   environment: string;
   status: EvalRunStatus;
   baselineRunId: string | null;
-  mainScore: number | null;
-  mainScoreName: string | null;
   caseCount: number;
   scoredCount: number;
   taskErrorCount: number;
@@ -223,7 +218,6 @@ export interface EvaluationRow {
   id: string;
   name: string;
   datasetId: string;
-  mainScoreName: string;
   datasetName: string | null;
   runCount: number;
   latestRun: {
@@ -231,7 +225,6 @@ export interface EvaluationRow {
     runNumber: number;
     candidateVersion: string;
     status: EvalRunStatus;
-    mainScore: number | null;
     startedAt: string;
     datasetVersionId: string;
   } | null;

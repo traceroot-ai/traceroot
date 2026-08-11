@@ -25,7 +25,6 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     orderBy: { createTime: "desc" },
     select: {
       id: true,
-      mainScore: true,
       status: true,
       change: true,
       createTime: true,
@@ -68,7 +67,6 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
       evaluationName: r.run.evaluation.name,
       datasetVersionId: r.run.datasetVersionId,
       ranAt: r.run.startedAt.toISOString(),
-      score: r.mainScore,
       status: r.status,
       change: r.change,
       caseCount: r.run.caseCount,

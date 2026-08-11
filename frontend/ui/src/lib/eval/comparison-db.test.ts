@@ -1,10 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  parseScorers,
-  toComparisonRun,
-  toComparisonResults,
-  caseChangeToLegacy,
-} from "./comparison-db";
+import { parseScorers, toComparisonRun, toComparisonResults } from "./comparison-db";
 
 describe("parseScorers", () => {
   it("tolerates the legacy {name, version} shape (no metadata)", () => {
@@ -53,12 +48,9 @@ describe("toComparisonRun", () => {
       datasetVersionId: "dsv1",
       candidateVersion: "sonnet",
       status: "completed",
-      mainScore: 0.8,
-      mainScoreName: "acc",
       baselineRunId: "r0",
       scorers: [{ name: "acc", version: "unversioned" }],
     });
-    expect(run.mainScoreName).toBe("acc");
     expect(run.scorers).toEqual([
       { name: "acc", version: "unversioned", valueType: null, direction: null, threshold: null },
     ]);
@@ -71,7 +63,6 @@ describe("toComparisonResults", () => {
       {
         testCaseId: "t1",
         status: "passed",
-        mainScore: 1,
         candidateOutput: "out",
         durationMs: 123,
         scores: [
@@ -89,16 +80,5 @@ describe("toComparisonResults", () => {
     expect(r.testCaseId).toBe("t1");
     expect(r.durationMs).toBe(123);
     expect(r.scores[0]).toMatchObject({ scorerName: "acc", numericValue: 1 });
-  });
-});
-
-describe("caseChangeToLegacy", () => {
-  it("passes through directional verdicts and nulls the rest", () => {
-    expect(caseChangeToLegacy("improved")).toBe("improved");
-    expect(caseChangeToLegacy("regressed")).toBe("regressed");
-    expect(caseChangeToLegacy("unchanged")).toBe("unchanged");
-    expect(caseChangeToLegacy("changed")).toBeNull();
-    expect(caseChangeToLegacy("unpaired")).toBeNull();
-    expect(caseChangeToLegacy("not_comparable")).toBeNull();
   });
 });

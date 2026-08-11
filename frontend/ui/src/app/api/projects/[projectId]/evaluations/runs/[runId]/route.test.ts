@@ -40,7 +40,7 @@ function score(name: string, numericValue: number | null, error: string | null =
   };
 }
 
-/** A candidate run with two cases, main scorer `acc`; one case regresses vs baseline. */
+/** A candidate run with two cases scored by `acc`; one case regresses vs baseline. */
 function candidate(over: Record<string, unknown> = {}) {
   return {
     id: "run-1",
@@ -52,8 +52,7 @@ function candidate(over: Record<string, unknown> = {}) {
     candidateVersion: "sonnet",
     status: "completed",
     baselineRunId: "run-0",
-    mainScore: 0.5,
-    mainScoreName: "acc",
+
     taskErrorCount: 0,
     scorerErrorCount: 0,
     scorers: [{ name: "acc", version: "unversioned" }],
@@ -65,7 +64,7 @@ function candidate(over: Record<string, unknown> = {}) {
       id: "run-0",
       runNumber: 1,
       candidateVersion: "opus",
-      mainScore: 1,
+
       evaluationId: "eval-1",
       datasetVersionId: "dv2",
       datasetVersion: { label: "v2" },
@@ -79,7 +78,7 @@ function candidate(over: Record<string, unknown> = {}) {
         expectedOutput: "billing",
         candidateOutput: "billing",
         status: "passed",
-        mainScore: 1,
+
         change: "improved",
         baselineOutput: "STORED-IGNORED",
         taskError: null,
@@ -96,7 +95,7 @@ function candidate(over: Record<string, unknown> = {}) {
         expectedOutput: "technical",
         candidateOutput: "general",
         status: "passed",
-        mainScore: 0,
+
         change: "unchanged",
         baselineOutput: null,
         taskError: null,
@@ -121,14 +120,13 @@ function baseline(over: Record<string, unknown> = {}) {
     candidateVersion: "opus",
     status: "completed",
     baselineRunId: null,
-    mainScore: 1,
-    mainScoreName: "acc",
+
     scorers: [{ name: "acc", version: "unversioned" }],
     results: [
       {
         testCaseId: "t0",
         status: "passed",
-        mainScore: 1,
+
         candidateOutput: "billing",
         durationMs: 800,
         scores: [score("acc", 1)],
@@ -136,7 +134,7 @@ function baseline(over: Record<string, unknown> = {}) {
       {
         testCaseId: "t5",
         status: "passed",
-        mainScore: 1,
+
         candidateOutput: "technical",
         durationMs: 850,
         scores: [score("acc", 1)],
@@ -175,9 +173,11 @@ it("derives change/baselineOutput + a comparison block from raw scores; ignores 
   const cmp = body.run.comparison as Record<string, unknown>;
   expect(cmp.available).toBe(true);
   expect(cmp.trustworthy).toBe(true);
-  expect((cmp.mainScore as { delta: number }).delta).toBeCloseTo(-0.5);
-  expect(cmp.caseCounts).toMatchObject({ regressed: 1, unchanged: 1 });
-  expect(body.run.changeFromBaseline).toBeCloseTo(-0.5);
+  // Metric-first: the per-metric aggregate carries the delta; per-cell counts, not a
+  // single per-case verdict count.
+  expect((cmp.scorers as { delta: number }[])[0].delta).toBeCloseTo(-0.5);
+  expect(cmp.scoreCellCounts).toMatchObject({ regressed: 1, unchanged: 1 });
+  expect(body.run.changeFromBaseline).toBeNull();
   expect(body.run.baselineComparable).toBe(true);
   // Duration and cost are the summed per-case totals (the mocked aggregate), not a
   // stored run-level column.
@@ -185,10 +185,10 @@ it("derives change/baselineOutput + a comparison block from raw scores; ignores 
   expect(body.run.cost).toBe(0.0345);
 
   const t0 = body.results.find((r) => r.testCaseId === "t0")!;
-  expect(t0.change).toBe("unchanged");
+  expect(t0.change).toBeNull(); // metric-first: no per-case verdict
   expect(t0.baselineOutput).toBe("billing"); // derived, NOT the stored "STORED-IGNORED"
   const t5 = body.results.find((r) => r.testCaseId === "t5")!;
-  expect(t5.change).toBe("regressed"); // stored said "unchanged"
+  expect(t5.change).toBeNull();
   expect((t5.comparison as { regressedCellCount: number }).regressedCellCount).toBe(1);
 });
 
@@ -226,13 +226,13 @@ it("derives per-status counts from the run's own results", async () => {
     candidate({
       baselineRunId: null,
       results: [
-        { id: "r1", testCaseId: "t0", status: "passed", mainScore: 1, scores: [], humanScores: [] },
-        { id: "r2", testCaseId: "t1", status: "failed", mainScore: 0, scores: [], humanScores: [] },
+        { id: "r1", testCaseId: "t0", status: "passed", scores: [], humanScores: [] },
+        { id: "r2", testCaseId: "t1", status: "failed", scores: [], humanScores: [] },
         {
           id: "r3",
           testCaseId: "t2",
           status: "errored",
-          mainScore: null,
+
           scores: [],
           humanScores: [],
         },
