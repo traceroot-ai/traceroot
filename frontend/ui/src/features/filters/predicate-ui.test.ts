@@ -37,6 +37,26 @@ describe("predicateLabel", () => {
     );
   });
 
+  it("names the key of a keyed predicate, since the field alone does not say what was filtered", () => {
+    expect(
+      predicateLabel({ field: "metadata", key: "session_id", op: "eq", value: "s-1" }, "metadata"),
+    ).toBe("metadata.session_id = s-1");
+    expect(
+      predicateLabel(
+        { field: "metadata", key: "tenant", op: "contains", value: "acme" },
+        "metadata",
+      ),
+    ).toBe("metadata.tenant contains acme");
+  });
+
+  it("appends the key itself, so the display name it is given is the bare field name", () => {
+    // The label owns the dotting. A caller that pre-dots the key into the name it passes
+    // gets the key spelled twice, which is what this pins against.
+    expect(
+      predicateLabel({ field: "metadata", key: "session_id", op: "eq", value: "s-1" }, "metadata"),
+    ).not.toContain("session_id.session_id");
+  });
+
   it("uses the supplied display name in place of the raw field key", () => {
     expect(predicateLabel({ field: "duration_ms", op: "gte", value: 5 }, "latency")).toBe(
       "latency ≥ 5",
@@ -70,6 +90,21 @@ describe("predicate builders", () => {
       op: "contains",
       value: "abc",
     });
+  });
+
+  it("buildTextPredicate carries a key for a keyed field", () => {
+    expect(buildTextPredicate("metadata", "eq", "s-1", "session_id")).toEqual({
+      field: "metadata",
+      key: "session_id",
+      op: "eq",
+      value: "s-1",
+    });
+  });
+
+  it("buildTextPredicate omits the key member entirely for an unkeyed field", () => {
+    // A stray key on an unkeyed field fails validation, so it must be absent rather
+    // than present-and-undefined.
+    expect("key" in buildTextPredicate("trace_id", "eq", "abc")).toBe(false);
   });
 });
 
@@ -140,6 +175,18 @@ describe("upsertPredicate", () => {
     expect(upsertPredicate(start, buildTextPredicate("trace_id", "eq", "xyz"))).toEqual([
       buildTextPredicate("trace_id", "eq", "xyz"),
     ]);
+  });
+
+  it("keeps two metadata keys as independent filters rather than replacing one with the other", () => {
+    const session = buildTextPredicate("metadata", "eq", "s-1", "session_id");
+    const tenant = buildTextPredicate("metadata", "eq", "acme", "tenant");
+    expect(upsertPredicate([session], tenant)).toEqual([session, tenant]);
+  });
+
+  it("replaces the existing filter on the SAME metadata key", () => {
+    const first = buildTextPredicate("metadata", "eq", "s-1", "session_id");
+    const second = buildTextPredicate("metadata", "contains", "s-", "session_id");
+    expect(upsertPredicate([first], second)).toEqual([second]);
   });
 
   it("never touches predicates on other fields", () => {

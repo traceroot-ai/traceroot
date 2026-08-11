@@ -184,17 +184,22 @@ export interface TraceListResponse {
 }
 
 /**
- * A single trace-list filter predicate `{field, op, value}` — the frontend mirror of the
- * backend predicate IR, serialized into the `?filters=` JSON array. Explicit scalar
+ * A single trace-list filter predicate `{field, key?, op, value}` — the frontend mirror of
+ * the backend predicate IR, serialized into the `?filters=` JSON array. Explicit scalar
  * operators: categorical `in` (a list of strings; the UI selects one),
  * numeric `eq`/`gt`/`gte`/`lt`/`lte` (a single number), and text `eq`/`contains` (a string).
  * A numeric range is two one-sided predicates the backend AND-combines.
+ *
+ * `key` is the metadata key slot: required on a field the registry marks `requires_key`
+ * (`metadata` is the only one), absent on every other field. It reaches ClickHouse as a
+ * bound parameter rather than an identifier, which is why any key the user types is safe
+ * to query and an unrecognized one simply matches nothing.
  */
 export type Predicate =
-  | { field: string; op: "in"; value: string[] }
-  | { field: string; op: "gt" | "gte" | "lt" | "lte"; value: number }
-  | { field: string; op: "eq"; value: number | string }
-  | { field: string; op: "contains"; value: string };
+  | { field: string; key?: string; op: "in"; value: string[] }
+  | { field: string; key?: string; op: "gt" | "gte" | "lt" | "lte"; value: number }
+  | { field: string; key?: string; op: "eq"; value: number | string }
+  | { field: string; key?: string; op: "contains"; value: string };
 
 export interface TraceQueryOptions {
   page?: number;

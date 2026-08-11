@@ -24,6 +24,7 @@ export const FIELD_ICONS: Record<string, LucideIcon> = {
   errors: DOMAIN_ICONS.error,
   model_name: DOMAIN_ICONS.model,
   environment: DOMAIN_ICONS.environment,
+  metadata: DOMAIN_ICONS.metadata,
 };
 
 // Text sizing depends on where the filter lives: the trace-list search bar uses

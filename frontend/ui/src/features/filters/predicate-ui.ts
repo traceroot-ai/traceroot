@@ -11,10 +11,14 @@ import type { Predicate } from "@/types/api";
  * `in [...]`; numeric `eq/gt/gte/lt/lte` show as `= / > / ≥ / < / ≤`; text `contains`
  * shows as `contains`.
  *
- * `name` is the field's display name (its registry label, lowercased — e.g. `latency`
- * for `duration_ms`); it defaults to the raw field key when a label isn't available.
+ * `displayName` is the field's BARE display name (its registry label, lowercased — e.g.
+ * `latency` for `duration_ms`); it defaults to the raw field key when a label isn't
+ * available. A keyed predicate has its key appended HERE (`metadata.session_id = ...`),
+ * because the field alone does not say what was filtered and two keys can be active at
+ * once — so a caller that pre-dots the key into the name would spell it twice.
  */
-export function predicateLabel(p: Predicate, name: string = p.field): string {
+export function predicateLabel(p: Predicate, displayName: string = p.field): string {
+  const name = p.key === undefined ? displayName : `${displayName}.${p.key}`;
   switch (p.op) {
     case "in":
       return p.value.length === 1
@@ -49,9 +53,18 @@ export function buildNumericPredicate(
   return { field, op, value };
 }
 
-/** Construct a text predicate: exact `eq` or case-insensitive `contains`. */
-export function buildTextPredicate(field: string, op: "eq" | "contains", value: string): Predicate {
-  return { field, op, value };
+/**
+ * Construct a text predicate: exact `eq` or case-insensitive `contains`. `key` is supplied
+ * only for a keyed field (metadata) and is omitted entirely otherwise, since a stray key on
+ * an unkeyed field fails validation.
+ */
+export function buildTextPredicate(
+  field: string,
+  op: "eq" | "contains",
+  value: string,
+  key?: string,
+): Predicate {
+  return key === undefined ? { field, op, value } : { field, key, op, value };
 }
 
 // Which "slot" a predicate occupies on its field, so we know what a new predicate
@@ -81,11 +94,15 @@ function slotOf(p: Predicate): Slot {
  * same field coexist (e.g. `latency > 5` AND `latency ≤ 10`, which the backend
  * AND-combines). A categorical value, an exact `=`, a text match, a same-direction bound,
  * or a contradictory opposite bound replaces the matching predicate rather than stacking.
+ *
+ * Slots belong to a field AND its key, so two metadata keys are two independent filters
+ * (`metadata.session_id = a` AND `metadata.user_id = b`) rather than one replacing the other.
+ * That matches the backend, which lowers each metadata predicate as its own semi-join.
  */
 export function upsertPredicate(filters: Predicate[], next: Predicate): Predicate[] {
   const ns = slotOf(next);
   const keep = (e: Predicate): boolean => {
-    if (e.field !== next.field) return true;
+    if (e.field !== next.field || e.key !== next.key) return true;
     // A categorical value, an exact `=`, or a text match supersedes everything on the field.
     if (ns === "in" || ns === "exact" || ns === "text") return false;
     // A new one-sided bound keeps the opposite existing bound ONLY if the two form a

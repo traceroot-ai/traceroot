@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import type { Predicate } from "@/types/api";
 import { useFilterValues } from "./hooks";
 import type { FilterFieldDef } from "./registry";
+import { MAX_KEY_LENGTH } from "./predicate";
 import { buildInPredicate, buildNumericPredicate, buildTextPredicate } from "./predicate-ui";
 import {
   Dropdown,
@@ -57,6 +58,11 @@ const REGISTRY_OP_TO_UI: Record<string, UiOp> = {
 const opsFor = (f: FilterFieldDef): UiOp[] =>
   f.operators.map((op) => REGISTRY_OP_TO_UI[op]).filter((o): o is UiOp => o !== undefined);
 
+// Text-valued fields (`trace_id` and metadata) take a typed value rather than a picked
+// one, so the builder emits a string predicate for them. Read off the registry type
+// alone, exactly as the value control dispatches.
+const isTextValued = (f: FilterFieldDef): boolean => f.type === "text";
+
 interface FilterBuilderProps {
   projectId: string;
   fields: FilterFieldDef[];
@@ -75,23 +81,27 @@ export function FilterBuilder({
   const [field, setField] = useState<FilterFieldDef | null>(null);
   const [op, setOp] = useState<UiOp>("is");
   const [value, setValue] = useState("");
+  const [metadataKey, setMetadataKey] = useState("");
 
   const reset = () => {
     setField(null);
     setOp("is");
     setValue("");
+    setMetadataKey("");
   };
   const pickField = (f: FilterFieldDef) => {
     setField(f);
     setOp(opsFor(f)[0]);
     setValue("");
+    setMetadataKey("");
   };
 
   const num = (s: string) => (s.trim() === "" ? null : Number(s));
-  const predicate = (): Predicate | null => {
+  const basePredicate = (): Predicate | null => {
     if (!field) return null;
-    if (field.type === "text") {
-      // trace_id: a `contains` substring or an exact `=` — a string value, not a number.
+    if (isTextValued(field)) {
+      // trace_id / metadata: a `contains` substring or an exact `=` — a string value,
+      // not a number.
       if (value === "") return null;
       return buildTextPredicate(field.field, op === "contains" ? "contains" : "eq", value);
     }
@@ -107,6 +117,18 @@ export function FilterBuilder({
     // No recognized operator (e.g. a field whose registry `operators` map to none) — build
     // nothing rather than silently falling through to a comparison.
     return null;
+  };
+  const predicate = (): Predicate | null => {
+    const base = basePredicate();
+    if (!base || !field) return null;
+    if (!field.requires_key) return base;
+    // Metadata is the one keyed field: its predicate carries a key alongside
+    // field/op/value. The ONLY requirement on the key is that it is non-empty — never
+    // that it was one of the suggestions. A key reaches SQL as a bound parameter rather
+    // than an identifier, so an unsuggested key is safe to query and simply matches
+    // nothing, which is a correct empty result and not a reason to refuse the filter.
+    const trimmed = metadataKey.trim();
+    return trimmed === "" ? null : { ...base, key: trimmed };
   };
   const built = predicate();
   // Immediate apply, then clear the row so another filter can be added without the
@@ -127,6 +149,24 @@ export function FilterBuilder({
           if (f) pickField(f);
         }}
       />
+      {field?.requires_key && (
+        // Typed by hand for now; feat/metadata-key-suggestions replaces this with a
+        // combobox that suggests the keys discovery found. Nothing here restricts the
+        // key to a known one either way — it reaches ClickHouse as a bound parameter.
+        <div className="flex h-7 min-w-0 flex-1 items-center rounded-md border border-input bg-transparent px-2 focus-within:ring-1 focus-within:ring-ring">
+          <input
+            aria-label="metadata key"
+            placeholder="Key"
+            maxLength={MAX_KEY_LENGTH}
+            value={metadataKey}
+            onChange={(e) => setMetadataKey(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") submit();
+            }}
+            className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
+          />
+        </div>
+      )}
       <Dropdown
         disabled={!field}
         trigger={<span className="whitespace-nowrap">{field ? OP_LABEL[op] : "is"}</span>}

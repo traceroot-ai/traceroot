@@ -139,6 +139,10 @@ class FilterField(BaseModel):
     # True for integer-typed numeric fields (tokens/latency/errors), so the UI can
     # restrict their inputs to whole numbers.
     integer: bool = False
+    # True for the one parameterized field (metadata), whose predicate carries a key as
+    # well as an operator and a value. The builder renders a key control only for these,
+    # so the one-row filter shape holds for every other field.
+    requires_key: bool = False
 
 
 class FilterFieldsResponse(BaseModel):
