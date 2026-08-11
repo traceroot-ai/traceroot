@@ -22,6 +22,14 @@ const KEY_REQUIRED_FIELDS = new Set(
 // to storage and then 422 every list request until the user found and removed it by hand.
 export const MAX_KEY_LENGTH = 256;
 
+// Mirrors MAX_VALUE_LENGTH in the same backend module, and rejected here for the same reason
+// as the key cap: admitted, an over-long value persists to the URL and 422s every list request
+// until the user removes the chip by hand. Larger than the key cap because a value is compared
+// rather than looked up, so a legitimate one can be a prompt fragment or a URL. Both numbers
+// are duplicated rather than served from the backend because a hand-edited `?filters=` is
+// validated before any fetch resolves; if either moves, the two files move together.
+export const MAX_VALUE_LENGTH = 1024;
+
 /** Shape-guard for a single predicate parsed from untrusted input (e.g. a URL). */
 export function isValidPredicate(p: unknown): p is Predicate {
   if (typeof p !== "object" || p === null) return false;
@@ -39,16 +47,21 @@ export function isValidPredicate(p: unknown): p is Predicate {
   if (op === "in") {
     // Non-empty list of strings: an empty `in` matches nothing and the backend 422s it,
     // so a hand-edited/degenerate empty-`in` is dropped here rather than sinking the fetch.
-    return Array.isArray(value) && value.length > 0 && value.every((v) => typeof v === "string");
+    // Every element is capped, not just the list: the backend caps them individually too.
+    return (
+      Array.isArray(value) &&
+      value.length > 0 &&
+      value.every((v) => typeof v === "string" && v.length <= MAX_VALUE_LENGTH)
+    );
   }
   if (op === "contains") {
-    return typeof value === "string" && value.length > 0;
+    return typeof value === "string" && value.length > 0 && value.length <= MAX_VALUE_LENGTH;
   }
   if (op === "eq") {
     // Numeric equality OR a text exact match — a finite number or a non-empty string.
     return (
       (typeof value === "number" && Number.isFinite(value)) ||
-      (typeof value === "string" && value.length > 0)
+      (typeof value === "string" && value.length > 0 && value.length <= MAX_VALUE_LENGTH)
     );
   }
   // gt/gte/lt/lte: a single FINITE number. Number.isFinite rejects Infinity/NaN — e.g. a
