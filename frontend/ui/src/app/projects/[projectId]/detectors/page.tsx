@@ -87,11 +87,7 @@ export default function DetectorsPage() {
     search_query: queryOptions.search_query,
   });
 
-  const {
-    data: counts,
-    isLoading: countsLoading,
-    error: countsError,
-  } = useDetectorCounts(projectId, {
+  const { data: counts, isLoading: countsLoading } = useDetectorCounts(projectId, {
     start_after: queryOptions.start_after,
     end_before: queryOptions.end_before,
   });
@@ -126,7 +122,7 @@ export default function DetectorsPage() {
 
   return (
     <div className="relative flex h-full text-[13px]">
-      <ProjectBreadcrumb projectId={projectId} />
+      <ProjectBreadcrumb projectId={projectId} current="Detectors" />
 
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Page header */}

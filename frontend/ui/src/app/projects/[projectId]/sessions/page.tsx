@@ -91,9 +91,13 @@ export default function SessionsPage() {
 
   return (
     <div className="relative flex h-full text-[13px]">
-      <ProjectBreadcrumb projectId={projectId} />
+      <ProjectBreadcrumb projectId={projectId} current="Tracing" />
 
       <div className="flex flex-1 flex-col">
+        {/* Page title — consistent with Datasets / Detectors / Evaluations. */}
+        <div className="flex items-center justify-between border-b border-border px-4 py-2">
+          <h1 className="text-[13px] font-medium">Tracing</h1>
+        </div>
         {/* Tab navigation */}
         <div className="border-b border-border bg-background">
           <div className="flex">

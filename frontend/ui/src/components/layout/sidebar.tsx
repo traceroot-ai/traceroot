@@ -233,12 +233,12 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                     )}
                   >
                     <FlaskConical className="h-3.5 w-3.5 shrink-0" />
-                    {!collapsed && "Evaluations"}
+                    {!collapsed && "Experiments"}
                   </Link>
                 </TooltipTrigger>
                 {collapsed && (
                   <TooltipContent side="right" sideOffset={16}>
-                    Evaluations
+                    Experiments
                   </TooltipContent>
                 )}
               </Tooltip>

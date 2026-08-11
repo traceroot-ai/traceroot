@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
-import { X, Inbox, AlertTriangle } from "lucide-react";
+import { X, Inbox, AlertTriangle, Plus } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { TraceSearchFilterInput } from "@/features/filters/trace-search-filter-input";
@@ -158,10 +158,14 @@ export default function TracesPage() {
 
   return (
     <div className="relative flex h-full text-[13px]">
-      <ProjectBreadcrumb projectId={projectId} />
+      <ProjectBreadcrumb projectId={projectId} current="Tracing" />
 
       {/* Main content */}
       <div className="flex min-w-0 flex-1 flex-col">
+        {/* Page title — consistent with Datasets / Detectors / Evaluations. */}
+        <div className="flex items-center justify-between border-b border-border px-4 py-2">
+          <h1 className="text-[13px] font-medium">Tracing</h1>
+        </div>
         {/* Tab navigation — hidden during onboarding or while checking */}
         {!checking && !showGettingStarted && (
           <div className="border-b border-border bg-background">
@@ -437,13 +441,14 @@ export default function TracesPage() {
             <Button
               variant="outline"
               size="sm"
-              className="h-7 shrink-0 text-[12px]"
+              className="h-7 shrink-0 gap-1.5 text-[12px]"
               onClick={() => {
                 setSaveSpanId(selection.type === "span" ? selection.span.span_id : undefined);
                 setSaveOpen(true);
               }}
             >
-              Save as test case
+              <Plus className="h-3.5 w-3.5" aria-hidden />
+              Add to datasets
             </Button>
           )}
           // Offline eval: while the "Save as test case" drawer is open, clicking a
