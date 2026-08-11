@@ -28,6 +28,7 @@ const ALL_COLUMN_LABELS = [
   "Spans",
   "Input",
   "Output",
+  "Metadata",
   "User ID",
   "Session ID",
   "Input usage",
@@ -39,7 +40,14 @@ const ALL_COLUMN_LABELS = [
 ];
 
 /** The ones that are off for a user who has never opened the picker. */
-const DEFAULT_OFF_LABELS = ["User ID", "Session ID", "Input usage", "Output usage", "Total usage"];
+const DEFAULT_OFF_LABELS = [
+  "Metadata",
+  "User ID",
+  "Session ID",
+  "Input usage",
+  "Output usage",
+  "Total usage",
+];
 
 /** The badge reads shown out of available. Both sides come from the registry so that adding a
  * column moves these expectations with it instead of leaving them quietly wrong. */
@@ -161,6 +169,18 @@ describe("ColumnPicker contents", () => {
     openPicker();
     expect(columnToggle("Input").getAttribute("aria-pressed")).toBe("false");
     expect(columnToggle("User ID").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("lists the Metadata column but never enumerates metadata keys", () => {
+    // A per-key column is a consequence of filtering on that key, so the picker offers no
+    // second way in: no search box, no key list, and the fixed Metadata column is one toggle
+    // for the whole payload rather than a per-key one.
+    renderPicker();
+    openPicker();
+    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(columnLabels()).toEqual(ALL_COLUMN_LABELS);
+    expect(columnLabels()).toContain("Metadata");
   });
 });
 

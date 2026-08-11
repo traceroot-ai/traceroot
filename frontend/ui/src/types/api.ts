@@ -110,6 +110,14 @@ export interface TraceListItem {
   total_input_tokens?: number;
   total_output_tokens?: number;
   total_cost?: number;
+  /**
+   * Trace-level metadata as an already-parsed map, the source for the list's single
+   * Metadata cell.
+   * Named for the ClickHouse column the backend selects (`metadata_map`), not the legacy
+   * JSON blob (`metadata`) it is derived from. Optional so a payload from an older server
+   * reads as "no metadata to show" rather than breaking the row.
+   */
+  metadata_map?: Record<string, string>;
 }
 
 export interface Span {

@@ -91,6 +91,13 @@ class TraceListItem(BaseModel):
     total_input_tokens: int | None = 0
     total_output_tokens: int | None = 0
     total_cost: float | None = 0.0
+    # Trace-level metadata, one entry per key — what the list's single Metadata cell
+    # renders from, and its only source: ``TraceListItem`` carries no ``metadata`` string
+    # sibling to fall back to, so dropping this field would empty that cell rather than
+    # degrade it. Empty for traces that carry no metadata. Filters match any span, so a
+    # row's cell can differ from what its filter matched — see the comment on the list
+    # query in ``trace_reader.list_traces``.
+    metadata_map: dict[str, str] = {}
 
 
 class TraceListResponse(BaseModel):

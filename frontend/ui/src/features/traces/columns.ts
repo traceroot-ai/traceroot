@@ -7,6 +7,7 @@ export type FixedColumnId =
   | "spans"
   | "input"
   | "output"
+  | "metadata"
   | "user_id"
   | "session_id"
   | "input_usage"
@@ -30,6 +31,7 @@ export const FIXED_COLUMNS: readonly FixedColumn[] = [
   { id: "spans", label: "Spans", isDefaultOn: true },
   { id: "input", label: "Input", isDefaultOn: true },
   { id: "output", label: "Output", isDefaultOn: true },
+  { id: "metadata", label: "Metadata", isDefaultOn: false },
   { id: "user_id", label: "User ID", isDefaultOn: false },
   { id: "session_id", label: "Session ID", isDefaultOn: false },
   { id: "input_usage", label: "Input usage", isDefaultOn: false },
