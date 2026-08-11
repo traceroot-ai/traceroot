@@ -11,6 +11,9 @@ import {
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -55,6 +58,8 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
   const { data: sessionData } = authClient.useSession();
   const isImpersonating = !!sessionData?.session?.impersonatedBy;
   const { theme, setTheme } = useTheme();
+  // Shown on the submenu trigger so the active theme stays glanceable without opening it.
+  const ThemeIcon = theme === "light" ? Sun : theme === "dark" ? Moon : Monitor;
   const params = useParams<{ projectId?: string; workspaceId?: string }>();
 
   // Don't show sidebar on auth pages
@@ -363,21 +368,30 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
               <div className="h-px bg-border" />
 
               <div className="p-1">
-                {/* Theme selector — inline, keyboard-navigable radio items */}
-                <DropdownMenuRadioGroup value={theme ?? "system"} onValueChange={setTheme}>
-                  <DropdownMenuRadioItem value="light" onSelect={(e) => e.preventDefault()}>
-                    <Sun className="h-4 w-4 text-muted-foreground" />
-                    Light
-                  </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="dark" onSelect={(e) => e.preventDefault()}>
-                    <Moon className="h-4 w-4 text-muted-foreground" />
-                    Dark
-                  </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="system" onSelect={(e) => e.preventDefault()}>
-                    <Monitor className="h-4 w-4 text-muted-foreground" />
-                    System
-                  </DropdownMenuRadioItem>
-                </DropdownMenuRadioGroup>
+                {/* Theme selector — own submenu; trigger shows the active theme's icon
+                    so it stays glanceable without opening it. */}
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <ThemeIcon className="h-4 w-4 text-muted-foreground" />
+                    Theme
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="w-32">
+                    <DropdownMenuRadioGroup value={theme ?? "system"} onValueChange={setTheme}>
+                      <DropdownMenuRadioItem value="light" onSelect={(e) => e.preventDefault()}>
+                        <Sun className="h-4 w-4 text-muted-foreground" />
+                        Light
+                      </DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="dark" onSelect={(e) => e.preventDefault()}>
+                        <Moon className="h-4 w-4 text-muted-foreground" />
+                        Dark
+                      </DropdownMenuRadioItem>
+                      <DropdownMenuRadioItem value="system" onSelect={(e) => e.preventDefault()}>
+                        <Monitor className="h-4 w-4 text-muted-foreground" />
+                        System
+                      </DropdownMenuRadioItem>
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
 
                 <DropdownMenuSeparator />
 

@@ -135,9 +135,34 @@ describe("Sidebar", () => {
       await screen.findByRole("menu");
     }
 
+    async function openThemeSubmenu() {
+      fireEvent.click(screen.getByRole("menuitem", { name: /^Theme/ }));
+      await screen.findAllByRole("menuitemradio");
+    }
+
+    it("keeps the theme picker behind its own submenu, closed by default", async () => {
+      render();
+      await openAccountMenu();
+
+      const trigger = screen.getByRole("menuitem", { name: /^Theme/ });
+      expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
+      expect(trigger.getAttribute("aria-expanded")).toBe("false");
+      expect(screen.queryByRole("menuitemradio")).toBeNull();
+    });
+
+    it("shows the active theme's icon on the submenu trigger without opening it", async () => {
+      mocks.theme = "dark";
+      render();
+      await openAccountMenu();
+
+      const trigger = screen.getByRole("menuitem", { name: /^Theme/ });
+      expect(trigger.querySelector("svg.lucide-moon")).toBeTruthy();
+    });
+
     it("shows left-aligned Light/Dark/System items with the active theme checked", async () => {
       render();
       await openAccountMenu();
+      await openThemeSubmenu();
 
       const items = screen.getAllByRole("menuitemradio");
       expect(items.map((el) => el.textContent)).toEqual(["Light", "Dark", "System"]);
@@ -151,17 +176,20 @@ describe("Sidebar", () => {
     it("calls setTheme when picking a different theme, without closing the menu", async () => {
       render();
       await openAccountMenu();
+      await openThemeSubmenu();
 
       fireEvent.click(screen.getByRole("menuitemradio", { name: "Dark" }));
 
       expect(mocks.setTheme).toHaveBeenCalledWith("dark");
-      expect(screen.getByRole("menu")).toBeTruthy();
+      // Both the root menu and the theme submenu should still be open.
+      expect(screen.getAllByRole("menu")).toHaveLength(2);
     });
 
     it("defaults to System checked when no theme is set yet", async () => {
       mocks.theme = undefined;
       render();
       await openAccountMenu();
+      await openThemeSubmenu();
 
       expect(
         screen.getByRole("menuitemradio", { name: "System" }).getAttribute("aria-checked"),
