@@ -3,9 +3,8 @@
 import * as React from "react";
 import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, ArrowUpRight, Database, Info, Plus, X } from "lucide-react";
+import { ArrowUpRight, Database, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -13,30 +12,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CopyButton } from "@/components/ui/copy-button";
 import { cn } from "@/lib/utils";
 import { getTrace } from "@/lib/api/traces";
-import { SpanKindIcon, useSpanIO } from "@/features/traces";
+import { useSpanIO } from "@/features/traces";
 import { FormCard, EditableValueBlock, Timestamp } from "@/features/offline-eval/components";
 import { tokenizeCode } from "@/features/offline-eval/components/syntax";
 import { useProject } from "@/features/projects/hooks";
-import {
-  CAPTURE_REASON_LABEL,
-  SPAN_KIND_LABEL,
-  type CaptureReason,
-} from "@/features/offline-eval/types";
 import type { Span } from "@/types/api";
-import {
-  useDatasets,
-  useCreateDataset,
-  useTraceEvaluationResults,
-  useTraceTestCases,
-} from "../hooks";
-
-/** Sentinel dataset-select value for "create a new dataset". */
-const NEW_DATASET = "__new__";
+import { useDatasets, useTraceEvaluationResults, useTraceTestCases } from "../hooks";
 
 /** Root = the span with no parent (the application / evaluation-item root). */
 function rootSpan(spans: Span[]): Span | undefined {
@@ -55,19 +40,6 @@ function prettyJson(raw: string | null | undefined): string {
   } catch {
     return raw;
   }
-}
-
-/** One short line explaining what a case sourced from this span actually tests. */
-function boundaryHint(displayKind: string, spanName: string): string {
-  const name = spanName.toLowerCase();
-  if (displayKind === "trace" || displayKind === "AGENT")
-    return "This tests the application from this input.";
-  if (displayKind === "LLM") return "This tests this model or prompt step.";
-  if (displayKind === "TOOL")
-    return "This tests the tool using these arguments. To test whether the agent selected the correct tool, choose its parent agent or LLM span.";
-  if (/retriev|search|recall|policy|vector|embed/.test(name))
-    return "This tests retrieval from this query.";
-  return "This tests this step from its input.";
 }
 
 /**
@@ -103,18 +75,14 @@ export function SaveTestCaseDrawer({
   });
 
   const [datasetId, setDatasetId] = React.useState("");
-  const [newDatasetName, setNewDatasetName] = React.useState("");
   const [selectedSpanId, setSelectedSpanId] = React.useState<string | undefined>(spanId);
   const [input, setInput] = React.useState("");
   const [metadata, setMetadata] = React.useState("");
-  const [attachSource, setAttachSource] = React.useState(true);
-  // The single editable Output field. It seeds from the recorded output; editing it
-  // makes the edit the EXPECTED outcome future runs are graded against, while the
-  // untouched recorded output is still stored separately. Left as-is, expected ==
-  // recorded — but all three fields (input, expected, recorded_output) are persisted.
-  // Whether it's been edited is DERIVED (see `outputEdited` below), not a flag set by
-  // the field's `onChange` — the field normalises JSON on seed (see EditableValueBlock),
-  // and that normalisation must never itself read as an edit.
+  // The single editable Output field. It seeds from the span's production output;
+  // whatever it holds at Save becomes the EXPECTED outcome future runs are graded
+  // against (the field normalises JSON on seed — see EditableValueBlock). The raw
+  // production output isn't stored separately: to see what actually happened, follow
+  // the case's source trace/span link (matching the dataset-item model).
   const [output, setOutput] = React.useState("");
   const [duplicate, setDuplicate] = React.useState<{ datasetId: string } | null>(null);
   const [feedback, setFeedback] = React.useState<{
@@ -127,8 +95,6 @@ export function SaveTestCaseDrawer({
   React.useEffect(() => {
     if (open) {
       setDatasetId("");
-      setNewDatasetName("");
-      setAttachSource(true);
       setDuplicate(null);
       setFeedback(null);
     }
@@ -148,7 +114,6 @@ export function SaveTestCaseDrawer({
     if (!trace) return undefined;
     return selectedSpanId ? spans.find((s) => s.span_id === selectedSpanId) : root;
   }, [trace, selectedSpanId, spans, root]);
-  const isRoot = !!span && !span.parent_span_id;
 
   // The trace-detail response OMITS span input/output/metadata — they are fetched
   // per span on demand (getSpanIO), so read them from that hook, not the span.
@@ -233,7 +198,6 @@ export function SaveTestCaseDrawer({
     return () => root.removeEventListener("keydown", onKey);
   }, [open, onOpenChange]);
 
-  const createDataset = useCreateDataset(projectId);
   const save = useMutation({
     mutationFn: async (vars: { datasetId: string; body: Record<string, unknown> }) => {
       const res = await fetch(`/api/projects/${projectId}/datasets/${vars.datasetId}/test-cases`, {
@@ -256,22 +220,6 @@ export function SaveTestCaseDrawer({
 
   if (!open || !traceId) return null;
 
-  const creatingNew = datasetId === NEW_DATASET;
-  const dataset = datasets.find((item) => item.id === datasetId);
-  const displayKind = isRoot ? "trace" : (span?.span_kind ?? "SPAN");
-  // Normalised the same way the Output field's seed is (see the effect above), so
-  // this is byte-for-byte what an untouched Output field holds.
-  const recordedOutput = spanIOReady ? prettyJson(spanIO?.output) : "";
-  // Derived, not a flag `onChange` sets — a same-content reformat (the field's own
-  // JSON pretty-print on seed) must never itself read as an edit.
-  const outputEdited = output !== recordedOutput;
-  const currentIndex = span ? spans.findIndex((s) => s.span_id === span.span_id) : -1;
-  const canNavigateUp = currentIndex > 0;
-  const canNavigateDown = currentIndex >= 0 && currentIndex < spans.length - 1;
-
-  const inferredReason: CaptureReason =
-    span?.status === "ERROR" ? (displayKind === "TOOL" ? "failed_tool" : "error") : "manual";
-
   // Metadata must parse to a JSON object (or be empty) to be persisted at all — see
   // CreateTestCaseRequestSchema.metadata. Validated here (surfaced below) rather than
   // only at submit time, so an array/scalar/invalid value blocks Save instead of
@@ -288,53 +236,28 @@ export function SaveTestCaseDrawer({
     }
   })();
 
-  const canSave =
-    !!span &&
-    spanIOReady &&
-    !metadataError &&
-    (creatingNew ? newDatasetName.trim() !== "" : datasetId !== "") &&
-    !save.isPending;
-
-  const navigate = (dir: "up" | "down") => {
-    if (currentIndex < 0) return;
-    const next = dir === "up" ? currentIndex - 1 : currentIndex + 1;
-    if (next >= 0 && next < spans.length) setSelectedSpanId(spans[next].span_id);
-  };
+  const canSave = !!span && spanIOReady && !metadataError && datasetId !== "" && !save.isPending;
 
   const handleSave = async () => {
     if (!span || !canSave) return;
     setFeedback(null);
     try {
-      let dsId = datasetId;
-      if (creatingNew) {
-        const created = await createDataset.mutateAsync({ name: newDatasetName.trim() });
-        dsId = created.dataset.id;
-        setDatasetId(dsId);
-      }
       // canSave already required metadataError === null, so this is either empty or a
       // valid JSON object — never silently dropped.
       const metadataObj: Record<string, unknown> | null = metadata.trim()
         ? (JSON.parse(metadata) as Record<string, unknown>)
         : null;
-      // The Output field IS the expected outcome (edited or not); the recorded output
-      // is always stored separately. Unedited → expected == recorded output.
+      // The Output field IS the expected outcome (edited or not).
       const res = await save.mutateAsync({
-        datasetId: dsId,
+        datasetId,
         body: {
           input,
           expected: output.trim() || null,
-          recorded_output: recordedOutput || null,
           metadata: metadataObj,
-          review: "needs_review",
-          capture_reason: inferredReason,
-          source_trace_id: attachSource ? traceId : null,
-          source_span_id: attachSource ? span.span_id : null,
-          source_span_name: attachSource ? span.name : null,
-          source_span_kind: attachSource ? displayKind : null,
         },
       });
       if (res.duplicate) {
-        setDuplicate({ datasetId: dsId });
+        setDuplicate({ datasetId });
         return;
       }
       setFeedback({ tone: "success", text: "Saved — published as a new dataset version." });
@@ -345,247 +268,154 @@ export function SaveTestCaseDrawer({
   };
 
   return (
-    <div
-      ref={rootRef}
-      role="dialog"
-      aria-labelledby="save-test-case-title"
-      className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-[560px] max-w-[96vw] flex-col border-l border-border bg-background shadow-xl"
-    >
-      <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
-        <h2
-          id="save-test-case-title"
-          ref={headingRef}
-          tabIndex={-1}
-          className="text-[13px] font-semibold focus:outline-none"
-        >
-          Save as test case
-        </h2>
-        <button
-          type="button"
-          onClick={() => onOpenChange(false)}
-          aria-label="Close"
-          className="rounded-sm text-muted-foreground opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-1 focus:ring-ring"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto px-4 py-3">
-        <FormCard label="Dataset">
-          <Select
-            value={datasetId}
-            onValueChange={(value) => {
-              setDatasetId(value);
-              setDuplicate(null);
-            }}
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+      {/* Dimmed backdrop; clicking it closes the modal. */}
+      <div
+        className="absolute inset-0 bg-black/40"
+        onClick={() => onOpenChange(false)}
+        aria-hidden
+      />
+      {/* Centered modal panel: a wide sheet with Input/Output
+          side by side, rather than a narrow right-side drawer. */}
+      <div
+        ref={rootRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="save-test-case-title"
+        className="relative z-10 flex max-h-[90vh] w-[min(1080px,94vw)] flex-col rounded-lg border border-border bg-background shadow-xl"
+      >
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-3">
+          <h2
+            id="save-test-case-title"
+            ref={headingRef}
+            tabIndex={-1}
+            className="text-[13px] font-semibold focus:outline-none"
           >
-            <SelectTrigger className="h-7 text-[13px]">
-              <SelectValue placeholder="Select dataset" />
-            </SelectTrigger>
-            <SelectContent>
-              {datasets.map((item) => (
-                <SelectItem key={item.id} value={item.id} className="text-[12px]">
-                  {item.name}
-                </SelectItem>
-              ))}
-              <SelectItem
-                value={NEW_DATASET}
-                icon={<Plus className="h-4 w-4" />}
-                className="mt-1 border-t border-border text-[12px]"
-              >
-                New dataset
-              </SelectItem>
-            </SelectContent>
-          </Select>
-          {creatingNew && (
-            <Input
-              value={newDatasetName}
-              onChange={(event) => setNewDatasetName(event.target.value)}
-              placeholder="New dataset name"
-              autoFocus
-              className="mt-2 h-7 text-[13px]"
-            />
-          )}
-          {duplicate && (
-            <p className="mt-1.5 text-[11px] text-muted-foreground">
-              This span is already a test case in this dataset. Open it instead of adding another
-              row.
-            </p>
-          )}
-        </FormCard>
+            Add to datasets
+          </h2>
+          <button
+            type="button"
+            onClick={() => onOpenChange(false)}
+            aria-label="Close"
+            className="rounded-sm text-muted-foreground opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-1 focus:ring-ring"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
 
-        <FormCard label="Selected span">
-          <div className="flex items-center gap-2">
-            <SpanKindIcon kind={displayKind} inTree />
-            <span className="text-[13px] font-medium">{span?.name ?? "Loading trace…"}</span>
-            <span className="text-[11px] text-muted-foreground">
-              {SPAN_KIND_LABEL[displayKind as keyof typeof SPAN_KIND_LABEL] ?? displayKind}
-            </span>
-            <span className="ml-auto flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => navigate("up")}
-                disabled={!canNavigateUp}
-                aria-label="Previous span"
-                className="rounded border border-border p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
-              >
-                <ArrowUp className="h-3.5 w-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={() => navigate("down")}
-                disabled={!canNavigateDown}
-                aria-label="Next span"
-                className="rounded border border-border p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
-              >
-                <ArrowDown className="h-3.5 w-3.5" />
-              </button>
-            </span>
-          </div>
-          <p className="mt-2 flex items-start gap-1.5 text-[11px] text-muted-foreground">
-            <Info className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
-            {boundaryHint(displayKind, span?.name ?? "")}
-          </p>
-          <p className="mt-1.5 text-[11px] text-muted-foreground">
-            Capture reason:{" "}
-            <span className="font-medium text-foreground">
-              {CAPTURE_REASON_LABEL[inferredReason]}
-            </span>
-          </p>
-        </FormCard>
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto px-5 py-4">
+          <FormCard label="Dataset">
+            <Select
+              value={datasetId}
+              onValueChange={(value) => {
+                setDatasetId(value);
+                setDuplicate(null);
+              }}
+            >
+              <SelectTrigger className="h-7 text-[13px]">
+                <SelectValue placeholder="Select dataset" />
+              </SelectTrigger>
+              <SelectContent>
+                {datasets.map((item) => (
+                  <SelectItem key={item.id} value={item.id} className="text-[12px]">
+                    {item.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {duplicate && (
+              <p className="mt-1.5 text-[11px] text-muted-foreground">
+                This span is already a test case in this dataset. Open it instead of adding another
+                row.
+              </p>
+            )}
+          </FormCard>
 
-        <EditableValueBlock
-          label="Input"
-          text={input}
-          onChange={setInput}
-          copyable
-          // Read + hand-edited most, and usually the most nested → expand it.
-          seedJson="expanded"
-          boxed
-          minRows={2}
-          collapsible
-          collapseResetKey={String(seedGeneration)}
-        />
+          {/* Stacked Dataset → Input → Output → Metadata (mirrors the trace detail
+              panel this modal is launched from); each field is only as tall as its
+              content, so a short input never leaves a tall empty box. */}
+          <EditableValueBlock
+            label="Input"
+            text={input}
+            onChange={setInput}
+            copyable
+            formatSwitcher={false}
+            // Read + hand-edited most, and usually the most nested → expand it.
+            seedJson="expanded"
+            boxed
+            minRows={3}
+            maxRows={16}
+            collapseResetKey={String(seedGeneration)}
+          />
 
-        <div>
           <EditableValueBlock
             label="Output"
             text={output}
             onChange={setOutput}
             copyable
+            formatSwitcher={false}
             // Read and possibly hand-corrected — expand it like Input.
             seedJson="expanded"
             boxed
-            minRows={2}
-            collapsible
+            minRows={3}
+            maxRows={16}
             collapseResetKey={String(seedGeneration)}
           />
-          <p className="mt-1 flex items-start gap-1.5 text-[11px] text-muted-foreground">
-            <Info className="mt-0.5 h-3 w-3 shrink-0" aria-hidden />
-            {outputEdited ? (
-              <span>
-                Edited — your version becomes the{" "}
-                <span className="font-medium text-foreground">expected outcome</span>; the original
-                recorded output is still stored.
-              </span>
-            ) : (
-              <span>
-                The recorded production output. Leave it to grade against it, or edit to set a
-                corrected <span className="font-medium text-foreground">expected outcome</span> —
-                the recorded output is kept either way.
-              </span>
-            )}
-          </p>
-        </div>
 
-        <div>
-          <EditableValueBlock
-            label="Metadata"
-            text={metadata}
-            onChange={setMetadata}
-            copyable
-            // Incidental context, usually one or two short keys → keep it inline
-            // (seedFormat expands it anyway once it stops fitting on one line).
-            seedJson="compact"
-            boxed
-            minRows={2}
-            collapsible
-            collapseResetKey={String(seedGeneration)}
-          />
-          {metadataError && <p className="mt-1 text-[11px] text-destructive">{metadataError}</p>}
-        </div>
-
-        <div className="border border-border">
-          <div className="flex items-center justify-between border-b border-border bg-muted/50 px-3 py-1.5">
-            <span className="text-[12px] font-medium text-muted-foreground">Source</span>
-            <Switch checked={attachSource} onCheckedChange={setAttachSource} />
+          <div>
+            <EditableValueBlock
+              label="Metadata"
+              text={metadata}
+              onChange={setMetadata}
+              copyable
+              formatSwitcher={false}
+              // Incidental context, usually one or two short keys → keep it inline
+              // (seedFormat expands it anyway once it stops fitting on one line).
+              seedJson="compact"
+              boxed
+              minRows={3}
+              maxRows={12}
+              collapseResetKey={String(seedGeneration)}
+            />
+            {metadataError && <p className="mt-1 text-[11px] text-destructive">{metadataError}</p>}
           </div>
-          {attachSource ? (
-            <div className="p-3">
-              <dl className="flex flex-col gap-1 text-[11px]">
-                <div className="flex justify-between gap-3">
-                  <dt className="text-muted-foreground">Source trace</dt>
-                  <dd className="font-mono text-muted-foreground">{traceId}</dd>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <dt className="text-muted-foreground">Source span</dt>
-                  <dd className="font-mono text-muted-foreground">{span?.span_id ?? "—"}</dd>
-                </div>
-              </dl>
-            </div>
+        </div>
+
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-5 py-3">
+          {feedback && (
+            <span
+              className={cn(
+                "mr-auto text-[11px]",
+                feedback.tone === "error"
+                  ? "text-destructive"
+                  : "text-emerald-600 dark:text-emerald-400",
+              )}
+            >
+              {feedback.text}
+            </span>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-[12px]"
+            onClick={() => onOpenChange(false)}
+          >
+            Cancel
+          </Button>
+          {duplicate ? (
+            <Link
+              href={`/projects/${projectId}/datasets/${duplicate.datasetId}`}
+              className="inline-flex h-7 items-center gap-1.5 rounded-md bg-primary px-3 text-[12px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
+              Open existing test case
+            </Link>
           ) : (
-            <div className="p-3">
-              <p className="text-[11px] text-muted-foreground">
-                Added as a manual case — no source trace or span is linked.
-              </p>
-            </div>
+            <Button size="sm" className="h-7 text-[12px]" onClick={handleSave} disabled={!canSave}>
+              Save
+            </Button>
           )}
         </div>
-
-        <p className="text-[11px] text-muted-foreground">
-          This case will start as <span className="font-medium text-foreground">Needs review</span>.
-          Review it from the dataset row.
-        </p>
-      </div>
-
-      <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-4 py-3">
-        {feedback && (
-          <span
-            className={cn(
-              "mr-auto text-[11px]",
-              feedback.tone === "error"
-                ? "text-destructive"
-                : "text-emerald-600 dark:text-emerald-400",
-            )}
-          >
-            {feedback.text}
-          </span>
-        )}
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 text-[12px]"
-          onClick={() => onOpenChange(false)}
-        >
-          Cancel
-        </Button>
-        {duplicate ? (
-          <Link
-            href={`/projects/${projectId}/datasets/${duplicate.datasetId}`}
-            className="inline-flex h-7 items-center gap-1.5 rounded-md bg-primary px-3 text-[12px] font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            <ArrowUpRight className="h-3.5 w-3.5" aria-hidden />
-            Open existing test case
-          </Link>
-        ) : (
-          <Button size="sm" className="h-7 text-[12px]" onClick={handleSave} disabled={!canSave}>
-            {creatingNew
-              ? "Create dataset & save"
-              : datasetId
-                ? `Save to ${dataset?.name ?? "dataset"}`
-                : "Save"}
-          </Button>
-        )}
       </div>
     </div>
   );

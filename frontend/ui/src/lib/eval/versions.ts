@@ -25,7 +25,6 @@ export type TestCaseSeed = {
   testCaseId: string;
   input: string;
   expected: string | null;
-  recordedOutput: string | null;
   metadata: unknown;
   review: string;
   captureReason: string;
@@ -52,7 +51,6 @@ function toSeed(c: TestCase): TestCaseSeed {
     testCaseId: c.testCaseId,
     input: c.input,
     expected: c.expected,
-    recordedOutput: c.recordedOutput,
     metadata: c.metadata ?? null,
     review: c.review,
     captureReason: c.captureReason,

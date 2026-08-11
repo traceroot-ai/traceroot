@@ -35,7 +35,6 @@ CREATE TABLE "test_cases" (
     "project_id" VARCHAR NOT NULL,
     "input" TEXT NOT NULL,
     "expected" TEXT,
-    "recorded_output" TEXT,
     "metadata" JSONB,
     "review" VARCHAR NOT NULL DEFAULT 'needs_review',
     "capture_reason" VARCHAR NOT NULL DEFAULT 'manual',

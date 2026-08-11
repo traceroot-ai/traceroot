@@ -191,6 +191,7 @@ export function LineNumberedTextarea({
   value,
   onChange,
   minRows = 1,
+  maxRows,
   placeholder,
   highlightJson = false,
   readOnly = false,
@@ -203,6 +204,10 @@ export function LineNumberedTextarea({
   value: string;
   onChange: (value: string) => void;
   minRows?: number;
+  /** Cap the box at this many lines and scroll internally past it — the full value
+   *  is always shown (no "…expand" clip), it just fits in a bounded, scrollable box.
+   *  Assumes the default 18px line-height. */
+  maxRows?: number;
   placeholder?: string;
   /** When true, JSON content is syntax-highlighted (trace-panel colors). */
   highlightJson?: boolean;
@@ -246,10 +251,19 @@ export function LineNumberedTextarea({
     // drift apart as lines accumulate and the textarea's last line gets clipped.
     <div
       className={cn(
-        "relative overflow-hidden rounded border border-input bg-background font-mono focus-within:ring-1 focus-within:ring-ring",
+        "overflow-hidden rounded border border-input bg-background font-mono focus-within:ring-1 focus-within:ring-ring",
         fontClassName,
+        // With maxRows the box is bounded and scrolls internally; the full value is
+        // still rendered (no clip), so a long input/output stays editable without
+        // an "…expand" step and never balloons the surrounding page.
+        maxRows != null && "overflow-y-auto",
       )}
+      style={maxRows != null ? { maxHeight: maxRows * 18 + 14 } : undefined}
     >
+      {/* `relative` moves here (off the scroll container) so the absolute textarea
+          layer sizes to the FULL content height and scrolls together with the
+          display layer, staying aligned. */}
+      <div className="relative">
       {/* Display layer — line numbers + (highlighted) content, wraps per line.
           Collapsed has no textarea overlay, so it must take pointer events (the
           inline expand control lives here). */}
@@ -323,6 +337,7 @@ export function LineNumberedTextarea({
           style={{ paddingLeft: `calc(${gutterWidth} + 0.5rem)` }}
         />
       )}
+      </div>
     </div>
   );
 }
@@ -491,10 +506,12 @@ export function EditableValueBlock({
   autoDetectKind = false,
   seedJson,
   minRows = 1,
+  maxRows,
   boxed = false,
   readOnly = false,
   collapsible = false,
   collapseResetKey,
+  formatSwitcher = false,
 }: {
   label: string;
   text: string;
@@ -503,6 +520,10 @@ export function EditableValueBlock({
   ariaLabel?: string;
   copyable?: boolean;
   autoDetectKind?: boolean;
+  /** Show the YAML/Text/JSON/Pretty switcher. Off by default so editable fields match
+   *  the production trace panel (no format menu); the value is still seeded/normalised
+   *  via `seedJson`. Opt in only where a format menu is genuinely wanted. */
+  formatSwitcher?: boolean;
   /**
    * Present (and normalise) a seeded JSON value per this field's role rather
    * than following however it was serialised upstream. Supersedes
@@ -510,6 +531,9 @@ export function EditableValueBlock({
    */
   seedJson?: SeedJsonPreference;
   minRows?: number;
+  /** Cap the field at this many lines and scroll internally past it (full value
+   *  always shown, no "…expand"). Pairs with leaving `collapsible` off. */
+  maxRows?: number;
   /** Wrap the block in a bordered card with a muted header strip (like FormCard). */
   boxed?: boolean;
   /** Display only — same look and format switcher, but the text can't be edited. */
@@ -590,32 +614,34 @@ export function EditableValueBlock({
 
   const controls = (
     <div className="flex items-center gap-1">
-      <Popover open={menuOpen} onOpenChange={setMenuOpen}>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          >
-            {KIND_LABEL[kind]}
-            <ChevronDown className="h-3 w-3" aria-hidden />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent align="end" className="w-28 p-1">
-          {KINDS.map((k) => (
+      {formatSwitcher && (
+        <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+          <PopoverTrigger asChild>
             <button
-              key={k}
               type="button"
-              onClick={() => changeKind(k)}
-              className={cn(
-                "flex w-full items-center rounded px-2 py-1 text-left text-[12px] transition-colors",
-                k === kind ? "bg-muted/70" : "hover:bg-muted/50",
-              )}
+              className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
-              {KIND_LABEL[k]}
+              {KIND_LABEL[kind]}
+              <ChevronDown className="h-3 w-3" aria-hidden />
             </button>
-          ))}
-        </PopoverContent>
-      </Popover>
+          </PopoverTrigger>
+          <PopoverContent align="end" className="w-28 p-1">
+            {KINDS.map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => changeKind(k)}
+                className={cn(
+                  "flex w-full items-center rounded px-2 py-1 text-left text-[12px] transition-colors",
+                  k === kind ? "bg-muted/70" : "hover:bg-muted/50",
+                )}
+              >
+                {KIND_LABEL[k]}
+              </button>
+            ))}
+          </PopoverContent>
+        </Popover>
+      )}
       {copyable && (
         // Sized to the read-only I/O section's copy affordance (16px box, 12px
         // icon) so the header strip is the same height as ExpandableSection's.
@@ -669,6 +695,7 @@ export function EditableValueBlock({
         value={readOnly ? display : text}
         onChange={onChange}
         minRows={minRows}
+        maxRows={maxRows}
         highlightJson={kind === "json" || kind === "pretty"}
         readOnly={readOnly}
         collapsed={isCollapsed}

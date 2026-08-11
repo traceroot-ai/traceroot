@@ -194,33 +194,28 @@ function savePayload() {
 describe("SaveTestCaseDrawer — save round trip", () => {
   it("renders nothing without a trace id", () => {
     mount(<SaveTestCaseDrawer projectId="p1" traceId={null} open onOpenChange={vi.fn()} />);
-    expect(screen.queryByText("Save as test case")).toBeNull();
+    expect(screen.queryByText("Add to datasets")).toBeNull();
   });
 
   it("cannot save until a dataset is picked, then posts the captured case", async () => {
     const onOpenChange = mountDrawer();
-    await screen.findByText("support-ticket-triage");
+    await screen.findByDisplayValue("I was charged twice for my July invoice");
 
     // No dataset yet: the button is generic and disabled.
     const before = screen.getByRole("button", { name: "Save" });
     expect(before.hasAttribute("disabled")).toBe(true);
 
     await pickDataset("Billing routing");
-    fireEvent.click(await screen.findByRole("button", { name: "Save to Billing routing" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(savePayload()).toBeDefined());
+    // Only the three fields the drawer captures — no recorded output, review,
+    // capture-reason, or source.
     expect(savePayload()).toMatchObject({
       input: "I was charged twice for my July invoice",
       // Untouched, the Output field is still the expected outcome.
       expected: "billing",
-      recorded_output: "billing",
       metadata: null,
-      review: "needs_review",
-      capture_reason: "manual",
-      source_trace_id: "t1",
-      source_span_id: "root",
-      source_span_name: "support-ticket-triage",
-      source_span_kind: "trace",
     });
 
     expect(await screen.findByText(/Saved — published as a new dataset version/)).toBeDefined();
@@ -230,83 +225,20 @@ describe("SaveTestCaseDrawer — save round trip", () => {
 
   it("an edited Output is what future runs are graded against", async () => {
     mountDrawer();
-    await screen.findByText("support-ticket-triage");
+    await screen.findByDisplayValue("I was charged twice for my July invoice");
     fireEvent.change(screen.getByLabelText("Output"), { target: { value: "refunds" } });
     await pickDataset("Billing routing");
-    fireEvent.click(await screen.findByRole("button", { name: "Save to Billing routing" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save" }));
     await waitFor(() => expect(savePayload()).toBeDefined());
-    expect(savePayload()).toMatchObject({ expected: "refunds", recorded_output: "billing" });
-  });
-
-  it("walking to a failed tool span changes the span, kind, and capture reason", async () => {
-    mountDrawer();
-    await screen.findByText("support-ticket-triage");
-    expect(screen.getByLabelText("Previous span").hasAttribute("disabled")).toBe(true);
-
-    fireEvent.click(screen.getByLabelText("Next span"));
-    expect(await screen.findByText("lookup_invoice")).toBeDefined();
-    expect(screen.getByLabelText("Next span").hasAttribute("disabled")).toBe(true);
-
-    await pickDataset("Billing routing");
-    fireEvent.click(await screen.findByRole("button", { name: "Save to Billing routing" }));
-    await waitFor(() => expect(savePayload()).toBeDefined());
-    expect(savePayload()).toMatchObject({
-      capture_reason: "failed_tool",
-      source_span_id: "child",
-      source_span_kind: "TOOL",
-    });
-
-    // And back up to the root.
-    fireEvent.click(screen.getByLabelText("Previous span"));
-    expect(await screen.findByText("support-ticket-triage")).toBeDefined();
-  });
-
-  it("turning Source off saves the case with no trace or span linked", async () => {
-    mountDrawer();
-    await screen.findByText("support-ticket-triage");
-    // The source block lists the trace and span it would attach.
-    expect(screen.getByText("Source trace")).toBeDefined();
-
-    fireEvent.click(screen.getByRole("switch"));
-    expect(await screen.findByText(/Added as a manual case/)).toBeDefined();
-
-    await pickDataset("Billing routing");
-    fireEvent.click(await screen.findByRole("button", { name: "Save to Billing routing" }));
-    await waitFor(() => expect(savePayload()).toBeDefined());
-    expect(savePayload()).toMatchObject({
-      source_trace_id: null,
-      source_span_id: null,
-      source_span_name: null,
-      source_span_kind: null,
-    });
-  });
-
-  it("creating a dataset inline creates it first, then saves into it", async () => {
-    mountDrawer();
-    await screen.findByText("support-ticket-triage");
-
-    await pickDataset("New dataset");
-    fireEvent.change(await screen.findByPlaceholderText("New dataset name"), {
-      target: { value: "  Refund routing  " },
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Create dataset & save" }));
-    await waitFor(() => expect(savePayload()).toBeDefined());
-
-    const create = requests.find((r) => r.method === "POST" && r.url.endsWith("/datasets"));
-    expect(create?.body).toEqual({ name: "Refund routing" });
-    // The case lands in the dataset that was just created.
-    expect(
-      requests.find((r) => r.method === "POST" && r.url.endsWith("/test-cases"))?.url,
-    ).toContain("/datasets/ds_new/test-cases");
+    expect(savePayload()).toMatchObject({ expected: "refunds" });
   });
 
   it("a duplicate span offers the existing case instead of adding another row", async () => {
     saveResponse = { duplicate: true };
     mountDrawer();
-    await screen.findByText("support-ticket-triage");
+    await screen.findByDisplayValue("I was charged twice for my July invoice");
     await pickDataset("Billing routing");
-    fireEvent.click(await screen.findByRole("button", { name: "Save to Billing routing" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save" }));
 
     expect(await screen.findByText(/already a test case in this dataset/)).toBeDefined();
     const link = screen.getByText("Open existing test case").closest("a") as HTMLAnchorElement;
@@ -318,9 +250,9 @@ describe("SaveTestCaseDrawer — save round trip", () => {
   it("surfaces a failed save without closing", async () => {
     saveFails = true;
     const onOpenChange = mountDrawer();
-    await screen.findByText("support-ticket-triage");
+    await screen.findByDisplayValue("I was charged twice for my July invoice");
     await pickDataset("Billing routing");
-    fireEvent.click(await screen.findByRole("button", { name: "Save to Billing routing" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save" }));
 
     expect(await screen.findByText("Could not save test case.")).toBeDefined();
     expect(onOpenChange).not.toHaveBeenCalled();
@@ -330,10 +262,10 @@ describe("SaveTestCaseDrawer — save round trip", () => {
     spanIO.data.metadata = "not json at all";
     try {
       mountDrawer();
-      await screen.findByText("support-ticket-triage");
+      await screen.findByDisplayValue("I was charged twice for my July invoice");
       await pickDataset("Billing routing");
       expect(
-        screen.getByRole("button", { name: "Save to Billing routing" }).hasAttribute("disabled"),
+        screen.getByRole("button", { name: "Save" }).hasAttribute("disabled"),
       ).toBe(true);
       expect(
         screen.getByText(/Metadata isn't valid JSON|Metadata must be a JSON object/),
@@ -345,7 +277,7 @@ describe("SaveTestCaseDrawer — save round trip", () => {
 
   it("closes from the X, from Cancel, and from Escape", async () => {
     const onOpenChange = mountDrawer();
-    await screen.findByText("support-ticket-triage");
+    await screen.findByDisplayValue("I was charged twice for my July invoice");
 
     fireEvent.click(screen.getByLabelText("Close"));
     expect(onOpenChange).toHaveBeenCalledWith(false);

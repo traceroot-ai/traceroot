@@ -164,8 +164,6 @@ export interface TestCase {
    * than comparing it to one exact answer.
    */
   expected: string | null;
-  /** What the span actually produced in production. Read-only, never = expected. */
-  recordedOutput: string | null;
   /** Why this span was captured — read-only context for the reviewer. */
   captureReason: CaptureReason;
   source: CaseSource;

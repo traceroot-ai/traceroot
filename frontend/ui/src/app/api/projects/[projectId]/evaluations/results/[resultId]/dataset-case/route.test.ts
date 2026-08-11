@@ -60,7 +60,6 @@ beforeEach(() => {
     projectId: PROJECT_ID,
     input: "orig input",
     expected: "orig expected",
-    recordedOutput: null,
     metadata: null,
     review: "ready",
     captureReason: "manual",
@@ -123,14 +122,14 @@ describe("result → dataset: update_existing_case", () => {
 });
 
 describe("result → dataset: save_new_case", () => {
-  it("saves a new case into another dataset with result provenance; candidate stays separate", async () => {
+  it("saves a new case into another dataset with result provenance; candidate never becomes expected", async () => {
     const res = await POST(req({ action: "save_new_case", dataset_id: "ds2" }), params("res1"));
     expect(res.status).toBe(201);
     const cases = casesIn(currentVersionId("ds2"));
     expect(cases).toHaveLength(1);
     const c = cases[0];
-    // Candidate output is recorded separately and is NEVER the expected output.
-    expect(c.recordedOutput).toBe("the CANDIDATE answer");
+    // Candidate output is NEVER the expected output; it isn't stored on the case
+    // either — the source run/result links preserve what actually happened.
     expect(c.expected).toBeNull();
     // Result provenance is captured.
     expect(c.sourceRunId).toBe("run1");
@@ -154,7 +153,6 @@ describe("result → dataset: save_new_case", () => {
     expect(res.status).toBe(201);
     const c = casesIn(currentVersionId("ds2"))[0];
     expect(c.expected).toBe("the CANDIDATE answer");
-    expect(c.recordedOutput).toBe("the CANDIDATE answer");
   });
 });
 

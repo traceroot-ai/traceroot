@@ -7,8 +7,9 @@ import { publishDatasetVersion, newTestCaseId, type TestCaseSeed } from "./versi
  *
  * Invariants enforced here:
  *  - Candidate output is NEVER used as expected implicitly. `expected` is set only
- *    from an explicit value or an explicit "use candidate as expected" opt-in; the
- *    candidate always rides along separately as `recordedOutput`.
+ *    from an explicit value or an explicit "use candidate as expected" opt-in. The
+ *    candidate output isn't stored on the case; the source run/result links preserve
+ *    what actually happened (matching the dataset-item model).
  *  - Updating an existing case publishes a new immutable version and preserves the
  *    stable logical `testCaseId`.
  *  - Re-saving a result into its ORIGINATING dataset as a *new* case is refused with
@@ -150,8 +151,6 @@ export async function saveResultToDataset(opts: {
     input: inputProvided ? (opts.input ?? "") : result.input,
     // A brand-new case: expected defaults to null (never the candidate) unless set.
     expected: resolveExpected(null),
-    // The candidate output is recorded separately, never as expected.
-    recordedOutput: result.candidateOutput ?? null,
     metadata: metadataProvided ? opts.metadata : null,
     review: "needs_review",
     captureReason: "manual",

@@ -271,6 +271,7 @@ describe("EditableValueBlock", () => {
     return (
       <EditableValueBlock
         label="Input"
+        formatSwitcher
         {...props}
         text={text}
         onChange={(t) => {
@@ -345,6 +346,7 @@ describe("EditableValueBlock", () => {
         text={'{"a":1}'}
         onChange={onChange}
         seedJson="expanded"
+        formatSwitcher
         readOnly
       />,
     );
@@ -371,7 +373,15 @@ describe("EditableValueBlock", () => {
 
   it("reformats a read-only field locally", async () => {
     const onChange = vi.fn();
-    render(<EditableValueBlock label="Input" text={'{"a":1}'} onChange={onChange} readOnly />);
+    render(
+      <EditableValueBlock
+        label="Input"
+        text={'{"a":1}'}
+        onChange={onChange}
+        formatSwitcher
+        readOnly
+      />,
+    );
     fireEvent.click(screen.getByText("YAML"));
     fireEvent.click(await screen.findByRole("button", { name: "Pretty" }));
     expect(onChange).not.toHaveBeenCalled();

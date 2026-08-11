@@ -33,17 +33,26 @@ vi.mock("@/lib/api/traces", () => ({
   })),
 }));
 
-// Distinct I/O per span, so the "Selected span" swap is observable.
+// Distinct I/O per span, so the retarget is observable via the seeded Input.
+// Cached per span (a fresh object each render would refire the drawer's seed
+// effect — which bumps seedGeneration — into an infinite loop).
+const spanIOCache = new Map<string, { data: unknown }>();
 vi.mock("@/features/traces", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/features/traces")>();
   return {
     ...actual,
-    useSpanIO: (_p: string, _t: string, spanId: string | null) => ({
-      data:
-        spanId === "llm"
-          ? { input: "llm-input", metadata: null }
-          : { input: "root-input", metadata: null },
-    }),
+    useSpanIO: (_p: string, _t: string, spanId: string | null) => {
+      if (!spanId) return { data: undefined };
+      if (!spanIOCache.has(spanId)) {
+        spanIOCache.set(spanId, {
+          data:
+            spanId === "llm"
+              ? { span_id: "llm", input: "llm-input", metadata: null }
+              : { span_id: "root", input: "root-input", metadata: null },
+        });
+      }
+      return spanIOCache.get(spanId)!;
+    },
   };
 });
 
@@ -78,8 +87,11 @@ function renderDrawer(spanId: string | undefined) {
 
 describe("drawer follows the tree selection", () => {
   it("retargets the selected span when the spanId prop changes while open", async () => {
+    // The drawer no longer shows a "Selected span" card, so the retarget is observed
+    // through the seeded Input (each span has distinct I/O), not a span-name label.
     const { rerender } = renderDrawer("root");
-    expect(await screen.findByText("triage-agent")).toBeDefined();
+    // Regex, not an exact string: LineNumberedTextarea keeps a trailing newline.
+    expect(await screen.findByDisplayValue(/root-input/)).toBeDefined();
 
     // Simulate a click on the LLM span in the tree (page pushes the new spanId).
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -88,7 +100,7 @@ describe("drawer follows the tree selection", () => {
         <SaveTestCaseDrawer projectId="p1" traceId="t1" spanId="llm" open onOpenChange={() => {}} />
       </QueryClientProvider>,
     );
-    expect(await screen.findByText("anthropic.messages")).toBeDefined();
-    expect(screen.queryByText("triage-agent")).toBeNull();
+    expect(await screen.findByDisplayValue(/llm-input/)).toBeDefined();
+    expect(screen.queryByDisplayValue(/root-input/)).toBeNull();
   });
 });

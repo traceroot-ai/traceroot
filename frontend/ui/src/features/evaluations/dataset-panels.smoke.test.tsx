@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 /**
- * View-mount smoke for the New-dataset and Edit-dataset slide-in panels, driven
- * from the real Datasets list (the only place they open from) against a stubbed
- * fetch. Covers the shared DatasetFormFields — including the schema toggles that
- * only appear once switched on — and the create/update round trips.
+ * View-mount smoke for the New-dataset (centered modal) and Edit-dataset panels,
+ * driven from the real Datasets list (the only place they open from) against a
+ * stubbed fetch. Covers the shared DatasetFormFields (Name + Description) and the
+ * create/update round trips.
  */
 import { describe, it, expect, vi, afterEach, beforeAll, beforeEach } from "vitest";
 import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -38,11 +38,14 @@ let requests: Array<{ url: string; method: string; body: unknown }> = [];
 /** Flipped by a test to make every write fail, exercising the error toasts. */
 let writesFail = false;
 
-function payloadFor(url: string): unknown {
+function payloadFor(url: string, method: string): unknown {
   if (url.includes("/evaluations")) {
     return { data: [{ id: "eval1", name: "Billing routing", datasetId: "ds1" }] };
   }
   if (url.includes("/datasets")) {
+    // Creating a dataset returns the created row (the panel navigates into it);
+    // the list GET returns the paged collection.
+    if (method === "POST") return { dataset: DATASET };
     return { data: [DATASET], meta: { page: 0, limit: 50, total: 1 } };
   }
   return {};
@@ -69,7 +72,7 @@ beforeEach(() => {
     if (writesFail && method !== "GET") {
       return { ok: false, status: 500, json: async () => ({ error: "server exploded" }) };
     }
-    return { ok: true, status: 200, json: async () => payloadFor(String(url)) };
+    return { ok: true, status: 200, json: async () => payloadFor(String(url), method) };
   }) as unknown as typeof fetch;
 });
 afterEach(() => cleanup());
@@ -96,17 +99,17 @@ describe("New dataset panel", () => {
     mount();
     fireEvent.click(await screen.findByRole("button", { name: "New Dataset" }));
 
-    const create = screen.getByRole("button", { name: "Create dataset" });
+    const create = screen.getByRole("button", { name: "Create" });
     expect(create.hasAttribute("disabled")).toBe(true);
 
-    fireEvent.change(screen.getByPlaceholderText("e.g. Billing routing"), {
+    fireEvent.change(screen.getByLabelText("Name"), {
       target: { value: "  Refund routing  " },
     });
-    fireEvent.change(screen.getByPlaceholderText("What this collection of test cases is for"), {
+    fireEvent.change(screen.getByLabelText("Description"), {
       target: { value: "Refund tickets" },
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Create dataset" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
     expect(await screen.findByText("Dataset created")).toBeDefined();
 
     const post = requests.find((r) => r.method === "POST");
@@ -119,48 +122,15 @@ describe("New dataset panel", () => {
   it("an empty description persists as null, never as an empty string", async () => {
     mount();
     fireEvent.click(await screen.findByRole("button", { name: "New Dataset" }));
-    fireEvent.change(screen.getByPlaceholderText("e.g. Billing routing"), {
+    fireEvent.change(screen.getByLabelText("Name"), {
       target: { value: "Refund routing" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Create dataset" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
     await waitFor(() => expect(requests.some((r) => r.method === "POST")).toBe(true));
     expect(requests.find((r) => r.method === "POST")?.body).toEqual({
       name: "Refund routing",
       description: null,
     });
-  });
-
-  it("the schema cards reveal an editable JSON block only once switched on", async () => {
-    mount();
-    fireEvent.click(await screen.findByRole("button", { name: "New Dataset" }));
-
-    expect(screen.queryByLabelText("Input schema JSON")).toBeNull();
-    const [inputSwitch, expectedSwitch] = screen.getAllByRole("switch");
-
-    fireEvent.click(inputSwitch);
-    const inputSchema = (await screen.findByLabelText("Input schema JSON")) as HTMLTextAreaElement;
-    expect(inputSchema.value).toContain('"required": ["input"]');
-    fireEvent.change(inputSchema, { target: { value: '{"type":"string"}' } });
-    expect((screen.getByLabelText("Input schema JSON") as HTMLTextAreaElement).value).toContain(
-      '{"type":"string"}',
-    );
-
-    fireEvent.click(expectedSwitch);
-    expect(
-      ((await screen.findByLabelText("Expected output schema JSON")) as HTMLTextAreaElement).value,
-    ).toContain('"required": ["expected"]');
-
-    // Toggling back off hides the block again.
-    fireEvent.click(inputSwitch);
-    await waitFor(() => expect(screen.queryByLabelText("Input schema JSON")).toBeNull());
-  });
-
-  it("accepts free-form metadata", async () => {
-    mount();
-    fireEvent.click(await screen.findByRole("button", { name: "New Dataset" }));
-    const metadata = screen.getByLabelText("Metadata") as HTMLTextAreaElement;
-    fireEvent.change(metadata, { target: { value: '{"team":"support"}' } });
-    expect((screen.getByLabelText("Metadata") as HTMLTextAreaElement).value).toContain("support");
   });
 
   it("closes on Cancel, on the X, and on Escape", async () => {
@@ -177,8 +147,8 @@ describe("New dataset panel", () => {
 
     fireEvent.click(open);
     await screen.findByText("New dataset");
-    // The panel is a Radix drawer, which listens for Escape on the document via its
-    // dismissable layer — an event dispatched straight at `window` never reaches it.
+    // The modal listens for Escape via a window capture-phase keydown listener; a
+    // keydown dispatched at `document` reaches it during the capture phase.
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByText("New dataset")).toBeNull());
   });
@@ -187,10 +157,10 @@ describe("New dataset panel", () => {
     writesFail = true;
     mount();
     fireEvent.click(await screen.findByRole("button", { name: "New Dataset" }));
-    fireEvent.change(screen.getByPlaceholderText("e.g. Billing routing"), {
+    fireEvent.change(screen.getByLabelText("Name"), {
       target: { value: "Refund routing" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Create dataset" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
     expect(await screen.findByText("Could not create dataset")).toBeDefined();
     expect(screen.getByText("New dataset")).toBeDefined();
   });
@@ -202,10 +172,10 @@ describe("Edit dataset panel", () => {
     await rowAction("Edit");
 
     // Seeded from the dataset row.
-    const name = (await screen.findByPlaceholderText("e.g. Billing routing")) as HTMLInputElement;
+    const name = (await screen.findByLabelText("Name")) as HTMLInputElement;
     expect(name.value).toBe("Billing routing");
     expect(
-      (screen.getByPlaceholderText("What this collection of test cases is for") as HTMLInputElement)
+      (screen.getByLabelText("Description") as HTMLInputElement)
         .value,
     ).toBe("Routing tickets");
 

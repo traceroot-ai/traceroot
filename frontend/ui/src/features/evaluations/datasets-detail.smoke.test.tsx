@@ -10,10 +10,12 @@
  * slide-in case panel (details / runs / edit + save), the review drawer, the
  * pull-code drawer, and the Evaluation history tab.
  */
+import type { ReactNode } from "react";
 import { describe, it, expect, vi, afterEach, beforeAll, beforeEach } from "vitest";
 import { render, cleanup, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@/components/ui/toast";
+import { versionSnowflake } from "@/lib/eval/snowflake";
 
 /** Mutable so a test can exercise the ?case=<id> deep link. */
 let searchParams = new URLSearchParams();
@@ -27,6 +29,16 @@ vi.mock("next/navigation", () => ({
 }));
 // ProjectBreadcrumb pulls layout/workspace context we don't mount here.
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
+// react-resizable-panels needs a real ResizeObserver (absent in jsdom); the panel
+// split is pure layout, so stub it to plain divs like the trace-viewer tests do.
+vi.mock("@/components/ui/resizable", () => ({
+  ResizablePanelGroup: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  ResizablePanel: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  ResizableHandle: () => null,
+}));
+vi.mock("@/features/ai-assistant/components/ai-assistant-panel", () => ({
+  AiAssistantPanel: () => <div data-testid="ai-assistant" />,
+}));
 
 import { DatasetDetailView } from "./views/dataset-detail-view";
 import { caseDisplayId } from "@/features/offline-eval/utils";
@@ -68,7 +80,6 @@ function testCase(over: Partial<Record<string, unknown>> = {}) {
     projectId: "p1",
     input: "I was charged twice for my July invoice",
     expected: "billing",
-    recordedOutput: null,
     metadata: null,
     review: "needs_review",
     captureReason: "manual",
@@ -89,9 +100,8 @@ const CASES = [
     testCaseId: "tc_2",
     input: "Reset my password please",
     expected: "account-management",
-    // Exercises the metadata preview + the recorded-output block + a real source span.
+    // Exercises the metadata preview + a real source span.
     metadata: { channel: "email", priority: "high" },
-    recordedOutput: "escalation",
     review: "ready",
     captureReason: "detector",
     sourceTraceId: "tr_9",
@@ -151,10 +161,14 @@ const CASE_RUNS = [
     runNumber: 27,
     candidateVersion: "git:4a91c02",
     evaluationName: "Billing routing nightly",
+    datasetVersionId: "dv2",
     ranAt: "2026-07-17T10:24:00Z",
     score: 1,
     status: "passed",
     change: "improved",
+    caseCount: 3,
+    cost: 0.42,
+    elapsedMs: 360000,
   },
 ];
 
@@ -242,16 +256,14 @@ async function openCase(text: string | RegExp) {
 }
 
 describe("Dataset detail view renders server data", () => {
-  it("shows the dataset name, its id, and every test case of the current version", async () => {
+  it("shows every test case of the current version", async () => {
+    // The dataset name + id live in the top breadcrumb bar (ProjectBreadcrumb),
+    // which this harness mocks out; here we assert the rows themselves.
     mountDetail();
-    expect(await screen.findByText("Billing routing")).toBeDefined();
-    expect(screen.getAllByText("ds1").length).toBeGreaterThan(0);
-    expect(screen.getByText(/charged twice/)).toBeDefined();
+    expect(await screen.findByText(/charged twice/)).toBeDefined();
     expect(screen.getByText("Reset my password please")).toBeDefined();
     // The metadata preview renders the flat key: value join.
     expect(screen.getByText(/channel: email/)).toBeDefined();
-    // Tab counts come from the loaded data.
-    expect(screen.getByRole("tab", { name: /Test cases/ }).textContent).toContain("3");
   });
 
   it("renders a loading state before the dataset resolves", () => {
@@ -276,34 +288,26 @@ describe("Dataset detail — versions", () => {
   it("switching to an older version loads its snapshot read-only", async () => {
     mountDetail();
     await screen.findByText(/charged twice/);
-    // The current version is preselected and its immutable id is shown.
-    expect(screen.getAllByText("dv2").length).toBeGreaterThan(0);
-    expect(screen.queryByText(/— read only/)).toBeNull();
 
     fireEvent.click(screen.getByRole("combobox"));
-    fireEvent.click(await screen.findByRole("option", { name: /v1/ }));
+    // Options now read "<number> <snowflake>" (no "v" prefix); pick v1 by its
+    // derived snowflake, which also asserts the snowflake id is rendered.
+    const v1Snow = versionSnowflake(V1.createTime, V1.versionNumber);
+    fireEvent.click(await screen.findByRole("option", { name: new RegExp(v1Snow) }));
 
-    // The banner names the version being viewed, not just "an older version".
-    expect(await screen.findByText(/Viewing v1.*— read only/)).toBeDefined();
+    // The older snapshot's content loads (no read-only banner — that was removed).
     expect(await screen.findByText("seeded ticket")).toBeDefined();
     // Editing branches from the current version, so adding a row is disabled here.
     expect(screen.getByRole("button", { name: /Row/ }).hasAttribute("disabled")).toBe(true);
     // The request carried the requested snapshot.
     expect(requests.some((r) => r.url.includes("version_id=dv1"))).toBe(true);
   });
-
-  it("copies the selected version id", async () => {
-    mountDetail();
-    await screen.findByText(/charged twice/);
-    fireEvent.click(screen.getByTitle("Copy version ID"));
-    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("dv2"));
-  });
 });
 
 describe("Dataset detail — filtering and adding rows", () => {
   it("the keyword filter matches input and expected, and shows a no-match empty state", async () => {
     mountDetail();
-    const search = await screen.findByPlaceholderText("Search cases...");
+    const search = await screen.findByPlaceholderText("Search...");
 
     fireEvent.change(search, { target: { value: "password" } });
     expect(screen.queryByText(/charged twice/)).toBeNull();
@@ -330,44 +334,71 @@ describe("Dataset detail — filtering and adding rows", () => {
       },
     })) as unknown as typeof fetch;
     mountDetail();
-    expect(await screen.findByText(/No test cases yet/)).toBeDefined();
+    expect(await screen.findByText(/To populate this dataset/)).toBeDefined();
   });
 
-  it("Row posts an empty, needs-review test case and toasts", async () => {
+  it("Row opens the editor and POSTs the authored row", async () => {
     mountDetail();
     await screen.findByText(/charged twice/);
-    fireEvent.click(screen.getByRole("button", { name: /Row/ }));
-    expect(await screen.findByText("Empty row added")).toBeDefined();
-    const post = requests.find((r) => r.method === "POST");
-    expect(post?.body).toEqual({ input: "", review: "needs_review", capture_reason: "manual" });
+    fireEvent.click(screen.getByRole("button", { name: "Row" }));
+    // Opens the editor rather than inserting a blank row.
+    expect(await screen.findByText("New Row")).toBeDefined();
+    fireEvent.change(screen.getByLabelText("Input"), { target: { value: "a new question" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(await screen.findByText("Row added")).toBeDefined();
+    const post = requests.find((r) => r.method === "POST" && r.url.includes("/test-cases"));
+    expect(post?.body).toMatchObject({ input: "a new question", expected: null, metadata: null });
+  });
+
+  it("the row action menu edits a row (PATCH)", async () => {
+    mountDetail();
+    await screen.findByText(/charged twice/);
+    fireEvent.click((await screen.findAllByLabelText("Row actions"))[0]);
+    fireEvent.click(await screen.findByText("Edit"));
+    // Seeded from the row.
+    expect(await screen.findByText("Edit Row")).toBeDefined();
+    const input = screen.getByLabelText("Input") as HTMLTextAreaElement;
+    expect(input.value).toContain("charged twice");
+    fireEvent.change(input, { target: { value: "edited question" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(await screen.findByText(/Row saved/)).toBeDefined();
+    const patch = requests.find((r) => r.method === "PATCH");
+    expect(patch?.url).toContain("/datasets/ds1/test-cases/tc_1");
+    expect(patch?.body).toMatchObject({ input: "edited question" });
+  });
+
+  it("the row action menu deletes a row (DELETE) after confirming", async () => {
+    mountDetail();
+    await screen.findByText(/charged twice/);
+    fireEvent.click((await screen.findAllByLabelText("Row actions"))[0]);
+    fireEvent.click(await screen.findByText("Delete"));
+    // Confirmation first — nothing is deleted until the dialog's Delete is clicked.
+    await screen.findByText("Delete row");
+    expect(requests.some((r) => r.method === "DELETE")).toBe(false);
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete" }).at(-1)!);
+    expect(await screen.findByText("Row deleted")).toBeDefined();
+    expect(
+      requests.some((r) => r.method === "DELETE" && r.url.includes("/test-cases/tc_1")),
+    ).toBe(true);
   });
 });
 
 describe("Dataset detail — the slide-in case panel", () => {
-  it("opens a case, shows its identity, source, and capture reason", async () => {
+  it("opens a case read-only, rendering its content like the trace-detail panel", async () => {
     mountDetail();
     await openCase("Reset my password please");
-    // The opened row carries a real source span and a detector capture reason.
-    expect(screen.getByText("handle_ticket")).toBeDefined();
-    expect(screen.getByText("Captured:")).toBeDefined();
-    // Editable value blocks are seeded from the case, each addressed by its label.
-    expect((screen.getByLabelText("Input") as HTMLTextAreaElement).value).toContain(
-      "Reset my password please",
-    );
-    expect((screen.getByLabelText("Expected") as HTMLTextAreaElement).value).toContain(
-      "account-management",
-    );
-    // The recorded production output is a separate, read-only block.
-    const recorded = screen.getByLabelText("What happened in production") as HTMLTextAreaElement;
-    expect(recorded.value).toContain("escalation");
-    expect(recorded.readOnly).toBe(true);
-    expect((screen.getByLabelText("Metadata") as HTMLTextAreaElement).value).toContain("channel");
-  });
-
-  it("a manually added case shows the manual source chip", async () => {
-    mountDetail();
-    await openCase(/charged twice/);
-    expect(screen.getByText("Added manually")).toBeDefined();
+    const dialog = screen.getByRole("dialog");
+    // Read-only view (in-panel editing is deferred): no editable textareas, and
+    // the Input/Expected/Metadata sections render the case's content directly.
+    expect(screen.queryByLabelText("Input")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(within(dialog).getAllByText(/Reset my password please/).length).toBeGreaterThan(0);
+    expect(within(dialog).getAllByText(/account-management/).length).toBeGreaterThan(0);
+    // The Metadata section shows the case's metadata.
+    expect(within(dialog).getAllByText(/channel/).length).toBeGreaterThan(0);
+    // No separate "what happened in production" block — the source span link
+    // preserves the actual output (the dataset-item model).
+    expect(screen.queryByLabelText("What happened in production")).toBeNull();
   });
 
   it("navigates between cases with the up/down controls", async () => {
@@ -390,21 +421,25 @@ describe("Dataset detail — the slide-in case panel", () => {
     expect(window.open).toHaveBeenCalledWith("/projects/p1/datasets/ds1", "_blank");
   });
 
-  it("the Runs view lists every evaluation run that measured the case", async () => {
+  it("the Experiments view lists every evaluation run that measured the case", async () => {
     mountDetail();
     await openCase(/charged twice/);
-    fireEvent.click(screen.getByRole("button", { name: /Runs/ }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(screen.getByRole("button", { name: /Experiments/ }));
     expect(await screen.findByText("Billing routing nightly")).toBeDefined();
-    expect(screen.getByText(/Run #27 ·/)).toBeDefined();
+    // Run Name column: candidate version + run number.
+    expect(screen.getByText("git:4a91c02")).toBeDefined();
+    expect(screen.getByText("#27")).toBeDefined();
     // Clicking a run navigates to its detail.
     fireEvent.click(screen.getByText("Billing routing nightly"));
     expect(mockPush).toHaveBeenCalledWith("/projects/p1/evaluations/run1");
-    // Back to Details.
-    fireEvent.click(screen.getByRole("button", { name: /Details/ }));
-    expect(await screen.findByLabelText("Input")).toBeDefined();
+    // Back to the Row tab — the read-only view shows the Input section. Scoped to
+    // the dialog since "Row" also names the toolbar's "+ Row" button.
+    fireEvent.click(within(dialog).getByRole("button", { name: "Row" }));
+    expect(await within(dialog).findByText("Input")).toBeDefined();
   });
 
-  it("shows an empty Runs state when nothing has measured the case", async () => {
+  it("shows an empty Experiments state when nothing has measured the case", async () => {
     global.fetch = vi.fn(async (url: RequestInfo | URL) => ({
       ok: true,
       status: 200,
@@ -419,166 +454,20 @@ describe("Dataset detail — the slide-in case panel", () => {
     })) as unknown as typeof fetch;
     mountDetail();
     await openCase(/charged twice/);
-    fireEvent.click(screen.getByRole("button", { name: /Runs/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Experiments/ }));
     expect(
-      await screen.findByText(/No evaluation run has measured this test case yet/),
+      await screen.findByText(/No run has measured this row on the dataset version/),
     ).toBeDefined();
   });
 
-  it("editing a field reveals Save, which PATCHes and publishes a new version", async () => {
-    mountDetail();
-    await openCase(/charged twice/);
-    // Nothing is dirty yet.
-    expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull();
-
-    fireEvent.change(screen.getByLabelText("Input"), { target: { value: "edited input" } });
-    fireEvent.change(screen.getByLabelText("Expected"), { target: { value: "" } });
-
-    fireEvent.click(await screen.findByRole("button", { name: "Save changes" }));
-    expect(await screen.findByText(/Saved — new dataset version published/)).toBeDefined();
-
-    const patch = requests.find((r) => r.method === "PATCH");
-    expect(patch?.url).toContain("/datasets/ds1/test-cases/tc_1");
-    // A cleared Expected persists as null, never as "".
-    expect(patch?.body).toEqual({ input: "edited input", expected: null });
-  });
-
-  it("only persists metadata once it parses back to an object", async () => {
-    mountDetail();
-    await openCase("Reset my password please");
-    const metadataBox = screen.getByLabelText("Metadata");
-
-    // Half-typed JSON leaves the stored metadata untouched — the patch is empty,
-    // so nothing is sent at all rather than blowing the value away.
-    fireEvent.change(metadataBox, { target: { value: "{ not json" } });
-    fireEvent.click(await screen.findByRole("button", { name: "Save changes" }));
-    expect(requests.some((r) => r.method === "PATCH")).toBe(false);
-
-    // ...and valid JSON is sent through.
-    fireEvent.change(metadataBox, { target: { value: '{"channel":"chat"}' } });
-    fireEvent.click(await screen.findByRole("button", { name: "Save changes" }));
-    await waitFor(() =>
-      expect(
-        requests
-          .filter((r) => r.method === "PATCH")
-          .some((r) => {
-            const body = r.body as { metadata?: Record<string, unknown> };
-            return body.metadata?.channel === "chat";
-          }),
-      ).toBe(true),
-    );
-  });
+  // In-panel editing (Edit → line-numbered fields → Save/PATCH) is deferred;
+  // its tests will return with the feature.
 
   it("closes the panel", async () => {
     mountDetail();
     await openCase(/charged twice/);
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByTitle("Copy ID")).toBeNull());
-  });
-});
-
-describe("Dataset detail — review drawer", () => {
-  it("Mark ready PATCHes the review and toasts", async () => {
-    mountDetail();
-    await openCase(/charged twice/);
-    fireEvent.click(screen.getByRole("button", { name: "Review" }));
-
-    const drawer = await screen.findByText("Review test case");
-    expect(drawer).toBeDefined();
-    // The drawer names the case it is reviewing.
-    expect(screen.getByText(`${caseDisplayId("tc_1")} · Billing routing`)).toBeDefined();
-
-    // "Mark ready" is gated on every verification check.
-    screen.getAllByRole("checkbox").forEach((b) => fireEvent.click(b));
-
-    fireEvent.click(screen.getByRole("button", { name: "Mark ready" }));
-    await waitFor(() => expect(requests.some((r) => r.method === "PATCH")).toBe(true));
-    expect(requests.find((r) => r.method === "PATCH")?.body).toEqual({ review: "ready" });
-    expect(await screen.findByText(/Review saved — new dataset version published/)).toBeDefined();
-  });
-
-  it("a corrected expected outcome is sent alongside the review", async () => {
-    mountDetail();
-    await openCase(/charged twice/);
-    fireEvent.click(screen.getByRole("button", { name: "Review" }));
-    fireEvent.change(await screen.findByLabelText(/Correct the expected outcome/), {
-      target: { value: "  refunds  " },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Needs work" }));
-    await waitFor(() => expect(requests.some((r) => r.method === "PATCH")).toBe(true));
-    expect(requests.find((r) => r.method === "PATCH")?.body).toEqual({
-      review: "needs_review",
-      expected: "refunds",
-    });
-  });
-
-  it("a case with no expected outcome says a scorer judges the output", async () => {
-    mountDetail();
-    // Row 3 has a null expected; its Input cell renders as "-", so open by created time.
-    await openCase(/charged twice/);
-    fireEvent.click(screen.getByTitle("Next row"));
-    fireEvent.click(screen.getByTitle("Next row"));
-    fireEvent.click(await screen.findByRole("button", { name: "Review" }));
-    expect(
-      await screen.findByText(/Not required — a scorer judges the output directly/),
-    ).toBeDefined();
-  });
-});
-
-describe("Dataset detail — pull code", () => {
-  it("opens the drawer with the dataset's real id in both languages", async () => {
-    mountDetail();
-    await screen.findByText(/charged twice/);
-    fireEvent.click(screen.getByRole("button", { name: /Pull code/ }));
-
-    const drawer = await screen.findByText("Pull this dataset in code");
-    const panel = drawer.closest("div.fixed") as HTMLElement;
-    // The Python snippet pulls this dataset by its real id.
-    expect(panel.textContent).toContain('pull_dataset("ds1")');
-
-    fireEvent.click(screen.getByRole("button", { name: "TypeScript" }));
-    await waitFor(() => expect(panel.textContent).toContain('await pullDataset("ds1")'));
-    expect(panel.textContent).not.toContain("pull_dataset");
-  });
-});
-
-describe("Dataset detail — evaluation history tab", () => {
-  it("lists the runs against this dataset and opens one", async () => {
-    mountDetail();
-    fireEvent.click(await screen.findByRole("tab", { name: /Evaluation history/ }));
-    expect(await screen.findByText("Billing routing nightly")).toBeDefined();
-    expect(screen.getByText(/Run #27 ·/)).toBeDefined();
-    fireEvent.click(screen.getByText("Billing routing nightly"));
-    expect(mockPush).toHaveBeenCalledWith("/projects/p1/evaluations/run1");
-  });
-
-  it("filters the history and falls back to a search-specific empty state", async () => {
-    mountDetail();
-    fireEvent.click(await screen.findByRole("tab", { name: /Evaluation history/ }));
-    const search = await screen.findByPlaceholderText("Search evaluations...");
-    fireEvent.change(search, { target: { value: "nightly" } });
-    expect(screen.getByText("Billing routing nightly")).toBeDefined();
-    fireEvent.change(search, { target: { value: "zzz" } });
-    expect(await screen.findByText("No evaluations match your search.")).toBeDefined();
-  });
-
-  it("names the dataset when nothing has been run against it", async () => {
-    global.fetch = vi.fn(async (url: RequestInfo | URL) => ({
-      ok: true,
-      status: 200,
-      json: async () => {
-        const s = String(url);
-        if (s.includes("/evaluations/runs")) {
-          return { data: [], meta: { page: 0, limit: 50, total: 0 } };
-        }
-        return detail(null);
-      },
-    })) as unknown as typeof fetch;
-    mountDetail();
-    fireEvent.click(await screen.findByRole("tab", { name: /Evaluation history/ }));
-    expect(
-      await screen.findByText(/Nothing has been run against Billing routing yet/),
-    ).toBeDefined();
   });
 });
 
@@ -589,7 +478,6 @@ describe("Dataset detail — deep link", () => {
     // The panel opens on the matching stable testCaseId, not the per-version row id.
     expect(await screen.findByTitle("Copy ID")).toBeDefined();
     expect(await screen.findByText(caseDisplayId("tc_2"))).toBeDefined();
-    expect(screen.getByText("handle_ticket")).toBeDefined();
   });
 
   it("ignores a ?case that no row matches", async () => {
@@ -600,23 +488,3 @@ describe("Dataset detail — deep link", () => {
   });
 });
 
-describe("Dataset detail — tabs behave as an ARIA tablist", () => {
-  it("arrow keys move between the two tabs", async () => {
-    mountDetail();
-    const cases = await screen.findByRole("tab", { name: /Test cases/ });
-    const list = screen.getByRole("tablist");
-    cases.focus();
-    fireEvent.keyDown(list, { key: "ArrowRight" });
-    expect(
-      screen.getByRole("tab", { name: /Evaluation history/ }).getAttribute("aria-selected"),
-    ).toBe("true");
-    fireEvent.keyDown(list, { key: "End" });
-    fireEvent.keyDown(list, { key: "Home" });
-    expect(screen.getByRole("tab", { name: /Test cases/ }).getAttribute("aria-selected")).toBe(
-      "true",
-    );
-    // A key the tablist doesn't own is ignored.
-    fireEvent.keyDown(list, { key: "a" });
-    expect(within(list).getAllByRole("tab").length).toBe(2);
-  });
-});
