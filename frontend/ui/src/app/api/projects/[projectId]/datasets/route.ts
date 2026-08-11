@@ -86,6 +86,21 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   const parsed = CreateDatasetRequestSchema.safeParse(body);
   if (!parsed.success) return errorResponse(parsed.error.issues[0].message, 400);
 
+  // A dataset's name is its human identity in the project: creating a second one with the
+  // same name deduplicates against the first from the user's point of view, so deny it here
+  // (case-insensitive) rather than silently making a confusing duplicate. This guards the UI
+  // create flow only — the SDK converges by its stable client id, a separate mechanism.
+  const existing = await prisma.dataset.findFirst({
+    where: { projectId, name: { equals: parsed.data.name, mode: "insensitive" as const } },
+    select: { name: true },
+  });
+  if (existing) {
+    return errorResponse(
+      `A dataset named "${existing.name}" already exists in this project. Pick a different name.`,
+      409,
+    );
+  }
+
   const dataset = await prisma.dataset.create({
     data: {
       projectId,

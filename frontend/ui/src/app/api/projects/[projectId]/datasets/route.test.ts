@@ -6,7 +6,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const prismaMock = vi.hoisted(() => ({
-  dataset: { findMany: vi.fn(), count: vi.fn(), create: vi.fn() },
+  dataset: { findMany: vi.fn(), findFirst: vi.fn(), count: vi.fn(), create: vi.fn() },
   testCase: { groupBy: vi.fn() },
   $transaction: vi.fn(async (arr: Promise<unknown>[]) => Promise.all(arr)),
 }));
@@ -65,6 +65,7 @@ beforeEach(() => {
   auth.requireProjectAccess.mockResolvedValue({ project: { id: "p1" } });
   prismaMock.$transaction.mockImplementation(async (arr: Promise<unknown>[]) => Promise.all(arr));
   prismaMock.dataset.findMany.mockResolvedValue([]);
+  prismaMock.dataset.findFirst.mockResolvedValue(null); // default: name is free to use
   prismaMock.dataset.count.mockResolvedValue(0);
   prismaMock.testCase.groupBy.mockResolvedValue([]);
 });
@@ -184,6 +185,19 @@ describe("POST", () => {
     prismaMock.dataset.create.mockResolvedValue({ id: "ds_new" });
     await POST(jsonReq({ name: "support" }), params);
     expect(prismaMock.dataset.create.mock.calls[0][0].data.description).toBeNull();
+  });
+
+  it("409s a name that already exists in the project (case-insensitive), without creating", async () => {
+    prismaMock.dataset.findFirst.mockResolvedValue({ name: "Support" }); // existing, different case
+    const res = await POST(jsonReq({ name: "support" }), params);
+    expect(res.status).toBe(409);
+    expect((await body(res)).error).toContain("already exists");
+    expect(prismaMock.dataset.create).not.toHaveBeenCalled();
+    // The uniqueness check is scoped to the project and case-insensitive.
+    expect(prismaMock.dataset.findFirst).toHaveBeenCalledWith({
+      where: { projectId: "p1", name: { equals: "support", mode: "insensitive" } },
+      select: { name: true },
+    });
   });
 
   it("400s an unparseable body", async () => {
