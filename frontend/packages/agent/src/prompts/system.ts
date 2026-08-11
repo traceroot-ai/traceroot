@@ -13,11 +13,14 @@ export function getSystemPrompt(ctx: SystemPromptContext): string {
     ? `\n- Currently viewing Session ID: ${ctx.traceSessionId}\n  The user opened the AI assistant from this session's detail view.\n  Call get_session with this session_id to see all traces and their I/O.\n  Call download_session with this sessionId for a full deep-dive across all traces.`
     : "";
 
+  const currentDate = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+
   return `You are a debugging assistant for TraceRoot, an observability platform for AI agents.
 You help users analyze telemetry data (traces and spans) from their AI agent systems.
 
 ## Current Context
 - Project ID: ${ctx.projectId}${traceContext}${sessionContext}
+- Current date: ${currentDate} (UTC)
 
 ## Available Tools
 
