@@ -4,6 +4,7 @@
  * and unit-tested; kept separate from `predicate.ts` (serialization/canonicalization).
  */
 import type { Predicate } from "@/types/api";
+import { MAX_FILTERS } from "./predicate";
 
 /**
  * Human-readable label for an active-filter chip. Mirrors how the predicate reads and
@@ -113,7 +114,13 @@ export function upsertPredicate(filters: Predicate[], next: Predicate): Predicat
     if (ns === "upper" && es === "lower") return boundsFormRange(e, next);
     return false;
   };
-  return [...filters.filter(keep), next];
+  const kept = filters.filter(keep);
+  // Refuse a chip that would push the array past what the backend accepts. Only an addition
+  // can trip this — an upsert that supersedes an existing chip leaves the count unchanged, and
+  // editing the 20th filter still works. Dropping the new chip loses one filter the user has
+  // not seen results for yet; admitting it would 422 the list and lose all twenty.
+  if (kept.length >= MAX_FILTERS) return filters;
+  return [...kept, next];
 }
 
 // Whether a lower bound (`>`/`≥`) and an upper bound (`<`/`≤`) describe a non-empty range.

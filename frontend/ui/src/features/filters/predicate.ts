@@ -30,6 +30,12 @@ export const MAX_KEY_LENGTH = 256;
 // validated before any fetch resolves; if either moves, the two files move together.
 export const MAX_VALUE_LENGTH = 1024;
 
+// Mirrors MAX_FILTERS in the same backend module, which 422s an array longer than this. Unlike
+// the two length caps, this one is reachable by clicking alone -- adding one more chip than the
+// backend accepts wedges the list with no paste and no hand-edited URL -- so the ceiling is
+// enforced where the array grows as well as where it is parsed.
+export const MAX_FILTERS = 20;
+
 /** Shape-guard for a single predicate parsed from untrusted input (e.g. a URL). */
 export function isValidPredicate(p: unknown): p is Predicate {
   if (typeof p !== "object" || p === null) return false;
@@ -97,7 +103,7 @@ export function canonicalizeFilters(filters?: Predicate[]): string {
  * in), so a malformed shape — e.g. an empty `in` — can't reach the URL/backend and 422.
  */
 export function serializeFiltersParam(filters?: Predicate[]): string | null {
-  const valid = (filters ?? []).filter(isValidPredicate);
+  const valid = (filters ?? []).filter(isValidPredicate).slice(0, MAX_FILTERS);
   return valid.length === 0 ? null : JSON.stringify(valid);
 }
 
@@ -115,5 +121,9 @@ export function parseFiltersParam(raw: string | null): Predicate[] {
     return [];
   }
   if (!Array.isArray(parsed)) return [];
-  return parsed.filter(isValidPredicate);
+  // Truncating past the cap rather than discarding the whole array keeps a hand-edited URL
+  // showing most of what it asked for instead of nothing, which is the same trade the
+  // per-predicate drops above already make: a filter the backend would reject is dropped,
+  // and the list comes back broader than the URL described rather than not at all.
+  return parsed.filter(isValidPredicate).slice(0, MAX_FILTERS);
 }
