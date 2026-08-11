@@ -48,7 +48,10 @@ export function useUrlDateFilter(
   const urlStartDate = searchParams.get("start");
   const urlEndDate = searchParams.get("end");
 
-  // Parse URL values into state
+  // Parse URL values into state. State holds the selection as picked (URL,
+  // default, restore, or user action); clamping to the retention window is a
+  // derived read below, so it re-evaluates when retention resolves instead of
+  // being baked in here while it's still unknown.
   const initialDateFilter = urlDateFilterId
     ? findDateFilterOption(urlDateFilterId)
     : defaultId
@@ -57,14 +60,10 @@ export function useUrlDateFilter(
   const initialCustomStart = urlStartDate ? new Date(urlStartDate) : null;
   const initialCustomEnd = urlEndDate ? new Date(urlEndDate) : null;
 
-  const [dateFilter, setDateFilterState] = useState<DateFilterOption>(initialDateFilter);
+  const [rawDateFilter, setRawDateFilter] = useState<DateFilterOption>(initialDateFilter);
   const [customStartDate, setCustomStartDateState] = useState<Date | null>(initialCustomStart);
   const [customEndDate, setCustomEndDateState] = useState<Date | null>(initialCustomEnd);
   const [filterVersion, setFilterVersion] = useState(0);
-  const effectiveDateFilter = useMemo(
-    () => clampDateFilter(dateFilter, retentionDays),
-    [dateFilter, retentionDays],
-  );
 
   // Use ref for callback to avoid dependency issues
   const onFilterChangeRef = useRef(onFilterChange);
@@ -95,16 +94,16 @@ export function useUrlDateFilter(
       if (!start || !end || isNaN(start.getTime()) || isNaN(end.getTime()) || end < start) return;
       setCustomStartDateState(start);
       setCustomEndDateState(end);
-    } else if (option.id === dateFilter.id) {
+    } else if (option.id === rawDateFilter.id) {
       // Stored matches what's already showing — nothing to adopt.
       return;
     }
-    setDateFilterState(option);
+    setRawDateFilter(option);
     setFilterVersion((v) => v + 1);
     // The effective window changed under the page: consumers that paginate
     // must reset (a stale ?page_index can point past the restored window).
     onFilterChangeRef.current?.();
-    // dateFilter.id is deliberately not a dependency: it's read only on the
+    // rawDateFilter.id is deliberately not a dependency: it's read only on the
     // once-guarded first run, and restoredRef prevents any re-run. (The lint
     // rule doesn't check custom-named hooks, so this documents what it can't.)
   }, [projectId, searchParams]);
@@ -132,8 +131,8 @@ export function useUrlDateFilter(
 
     if (newDateFilterId) {
       const newFilter = findDateFilterOption(newDateFilterId);
-      if (newFilter.id !== dateFilter.id) {
-        setDateFilterState(newFilter);
+      if (newFilter.id !== rawDateFilter.id) {
+        setRawDateFilter(newFilter);
         setFilterVersion((v) => v + 1);
       }
     }
@@ -151,7 +150,7 @@ export function useUrlDateFilter(
         setCustomEndDateState(parsed);
       }
     }
-  }, [searchParams, dateFilter, customStartDate, customEndDate, retentionDays]);
+  }, [searchParams, rawDateFilter, customStartDate, customEndDate]);
 
   // Update URL when state changes
   const updateUrl = useCallback(
@@ -178,7 +177,7 @@ export function useUrlDateFilter(
 
   const setDateFilter = useCallback(
     (option: DateFilterOption) => {
-      setDateFilterState(option);
+      setRawDateFilter(option);
       setFilterVersion((v) => v + 1);
 
       if (!option.isCustom) {
@@ -197,7 +196,7 @@ export function useUrlDateFilter(
       setCustomEndDateState(end);
 
       const customOption = DATE_FILTER_OPTIONS.find((o) => o.isCustom)!;
-      setDateFilterState(customOption);
+      setRawDateFilter(customOption);
       updateUrl("custom", start, end);
       persistSelection("custom", start, end);
 
@@ -206,17 +205,41 @@ export function useUrlDateFilter(
     [updateUrl, persistSelection],
   );
 
+  // Clamp to the retention window at read time. Retention is unknown while
+  // the workspace lookup is in flight (a hard reload), so clamping when state
+  // is written would bake the fail-closed fallback into the restored
+  // selection; deriving keeps the raw pick and re-clamps once retention
+  // resolves.
+  const dateFilter = useMemo(
+    () => clampDateFilter(rawDateFilter, retentionDays),
+    [rawDateFilter, retentionDays],
+  );
+
+  // Retention resolving after mount can change the effective window with no
+  // user action, and consumers that paginate must reset like on any other
+  // window change (a stale ?page_index can point past the clamped window).
+  // Explicit picks and the restore path fire the callback themselves, so only
+  // a clamp-driven change — same raw selection, different effective filter —
+  // fires here.
+  const prevFilterIdsRef = useRef({ rawId: rawDateFilter.id, effectiveId: dateFilter.id });
+  useEffect(() => {
+    const prev = prevFilterIdsRef.current;
+    const clampChanged = prev.effectiveId !== dateFilter.id && prev.rawId === rawDateFilter.id;
+    prevFilterIdsRef.current = { rawId: rawDateFilter.id, effectiveId: dateFilter.id };
+    if (clampChanged) onFilterChangeRef.current?.();
+  }, [rawDateFilter.id, dateFilter.id]);
+
   // Calculate timestamps
   const timestamps = useMemo(() => {
     return toTimestampBounds(
-      effectiveDateFilter.id,
+      dateFilter.id,
       customStartDate ?? undefined,
       customEndDate ?? undefined,
     );
-  }, [effectiveDateFilter.id, customStartDate, customEndDate, filterVersion]);
+  }, [dateFilter.id, customStartDate, customEndDate, filterVersion]);
 
   return {
-    dateFilter: effectiveDateFilter,
+    dateFilter,
     customStartDate,
     customEndDate,
     setDateFilter,
