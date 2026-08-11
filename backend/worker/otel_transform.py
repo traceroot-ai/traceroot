@@ -38,7 +38,12 @@ from datetime import UTC, datetime
 from typing import Any
 
 from shared.enums import SpanKind, SpanStatus
-from shared.span_attributes import SPAN_IDS_PATH, SPAN_PATH, SPAN_TREE_ATTRIBUTES
+from shared.span_attributes import (
+    SPAN_IDS_PATH,
+    SPAN_PATH,
+    SPAN_TAGS,
+    SPAN_TREE_ATTRIBUTES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +100,11 @@ _KNOWN_ATTRIBUTE_PREFIXES = {
     "traceroot.span.output",
     "traceroot.span.type",
     "traceroot.span.metadata",
-    "traceroot.span.tags",
+    # traceroot.span.tags is deliberately absent. The SDK ships it as a typed
+    # option, but nothing extracts it and no column holds it, so listing it here
+    # stripped customer-sent labels and wrote them nowhere. It now falls into the
+    # metadata blob like any unextracted attribute, which keeps the values
+    # recoverable until tags get a dedicated field.
     "traceroot.trace.",
     "traceroot.environment",
     # Nothing extracts this any more; it is listed purely to keep a
@@ -978,9 +987,13 @@ def transform_otel_to_clickhouse(
                 # its parent was still open. That hit exactly the spans users
                 # annotate — usually leaves, whose long-lived parents are the ones
                 # still in flight — so the paths ride along with user metadata.
-                span_path_attrs = {
+                # Tags ride along for the same reason: they have no column, and a
+                # span that sets explicit metadata is exactly a span whose author
+                # is labelling things, so the explicit branch would drop them from
+                # the spans most likely to carry them.
+                carried_attrs = {
                     key: span_attrs[key]
-                    for key in SPAN_TREE_ATTRIBUTES
+                    for key in (*SPAN_TREE_ATTRIBUTES, SPAN_TAGS)
                     if span_attrs.get(key) is not None
                 }
                 explicit_metadata = span_attrs.get("traceroot.span.metadata")
@@ -992,7 +1005,7 @@ def transform_otel_to_clickhouse(
                         except (TypeError, ValueError):
                             parsed_explicit = None
                     if isinstance(parsed_explicit, dict):
-                        span_record["metadata"] = json.dumps({**parsed_explicit, **span_path_attrs})
+                        span_record["metadata"] = json.dumps({**parsed_explicit, **carried_attrs})
                     elif isinstance(explicit_metadata, str):
                         # Not a JSON object (free-text or a scalar): store it as
                         # given. Nothing to merge into, so this span has no paths.
