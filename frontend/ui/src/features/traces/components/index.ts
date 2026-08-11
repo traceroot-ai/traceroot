@@ -8,6 +8,7 @@ export { SpanTreeView } from "./SpanTreeView";
 export { JsonRenderer } from "./JsonRenderer";
 export { ContentRenderer } from "./ContentRenderer";
 export { SpanInfoPanel } from "./SpanInfoPanel";
+export { ColumnPicker } from "./ColumnPicker";
 export { TraceListTable } from "./TraceListTable";
 export { TraceViewerPanel } from "./TraceViewerPanel";
 export { SessionDetailPanel } from "./SessionDetailPanel";
