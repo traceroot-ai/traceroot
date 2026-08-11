@@ -2,7 +2,7 @@
 /**
  * Interaction coverage for the trace viewer shell: header actions (fullscreen,
  * new tab, AI, RCA alert), the offline-eval extension points (header identity /
- * status, diff toggle, selection callbacks) and the tree/timeline scroll sync.
+ * status, selection callbacks) and the tree/timeline scroll sync.
  *
  * Complements TraceViewerPanel.test.tsx, which covers layout and content states.
  */
@@ -101,10 +101,8 @@ vi.mock("@/components/ui/resizable", () => ({
 // The detail panel is exercised by SpanInfoPanel.test.tsx; here it only needs to
 // report the props the viewer computes for it.
 vi.mock("./SpanInfoPanel", () => ({
-  SpanInfoPanel: (props: { diffMode?: boolean; spanActions?: React.ReactNode }) => (
-    <div data-testid="span-info" data-diff={String(!!props.diffMode)}>
-      {props.spanActions}
-    </div>
+  SpanInfoPanel: (props: { spanActions?: React.ReactNode }) => (
+    <div data-testid="span-info">{props.spanActions}</div>
   ),
 }));
 
@@ -289,29 +287,6 @@ describe("TraceViewerPanel offline-eval extensions", () => {
   it("renders a header status badge", () => {
     renderPanel({ headerStatus: <span>Passed</span> });
     expect(screen.getByText("Passed")).toBeTruthy();
-  });
-
-  it("hides the diff toggle without a baseline", () => {
-    renderPanel();
-    expect(screen.queryByText("Diff")).toBeNull();
-  });
-
-  it("toggles diff mode and forwards it to the detail panel", () => {
-    const matchSpan = vi.fn(() => SPAN);
-    renderPanel({ diffBaseline: { trace: TRACE, matchSpan } });
-    expect(screen.getByTestId("span-info").dataset.diff).toBe("false");
-    fireEvent.click(screen.getByText("Diff"));
-    expect(screen.getByTestId("span-info").dataset.diff).toBe("true");
-    fireEvent.click(screen.getByText("Diff"));
-    expect(screen.getByTestId("span-info").dataset.diff).toBe("false");
-  });
-
-  it("starts in diff mode when defaultDiffOn is set", () => {
-    renderPanel({
-      diffBaseline: { trace: TRACE, matchSpan: () => SPAN },
-      defaultDiffOn: true,
-    });
-    expect(screen.getByTestId("span-info").dataset.diff).toBe("true");
   });
 
   it("renders per-selection span actions", () => {

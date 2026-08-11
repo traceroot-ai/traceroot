@@ -2,7 +2,7 @@
 /**
  * Render coverage for the span detail panel and the metric chips it composes
  * (TokenChip / CostChip / MetricDelta), across the trace selection, a span
- * selection, the error state and diff mode.
+ * selection, and the error state.
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, cleanup, screen, fireEvent } from "@testing-library/react";
@@ -248,88 +248,6 @@ describe("SpanInfoPanel — span selection", () => {
     const span = makeSpan({ total_tokens: null, model_name: null });
     renderPanel({ selection: { type: "span", span } });
     expect(screen.queryByText("claude-opus-5")).toBeNull();
-  });
-});
-
-describe("SpanInfoPanel — diff mode", () => {
-  const baselineSpan = makeSpan({
-    span_id: "span-0",
-    trace_id: "trace-0",
-    span_end_time: "2026-07-17T10:24:01.000Z",
-    cost: 0.01,
-    total_tokens: 1000,
-    input_tokens: 800,
-    output_tokens: 200,
-    input: '{"prompt":"hi there"}',
-    output: '{"reply":"hey"}',
-    metadata: '{"user":"grace"}',
-    cost_details: { input_uncached_cost: 0.006, output_cost: 0.004 },
-  });
-
-  it("renders line diffs and ± deltas for a span selection", () => {
-    const { container } = renderPanel({
-      selection: { type: "span", span: makeSpan() },
-      diffMode: true,
-      baselineSpan,
-    });
-    // The diff header markers replace the plain format switcher.
-    expect(screen.getAllByText("− baseline").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("+ candidate").length).toBeGreaterThan(0);
-    // Positive (worse) deltas render in red with a leading "+".
-    expect(container.querySelector(".text-red-600")).toBeTruthy();
-  });
-
-  it("renders trace-level diffs against a baseline trace", () => {
-    const baselineTrace = makeTrace({
-      trace_id: "trace-0",
-      input: '{"question":"why the charge"}',
-      output: '{"answer":"support"}',
-      metadata: '{"tier":"free"}',
-      spans: [baselineSpan],
-    });
-    const { container } = renderPanel({
-      diffMode: true,
-      baselineTrace,
-    });
-    expect(screen.getAllByText("− baseline").length).toBeGreaterThan(0);
-    expect(container.textContent).toContain("Metadata");
-  });
-
-  it("stays in the plain (non-diff) view when no baseline is supplied", () => {
-    renderPanel({ diffMode: true, baselineSpan: null, baselineTrace: null });
-    expect(screen.queryByText("− baseline")).toBeNull();
-  });
-
-  it("renders an unchanged marker when candidate and baseline match", () => {
-    const same = makeSpan({ span_id: "span-0", trace_id: "trace-0" });
-    renderPanel({
-      selection: { type: "span", span: makeSpan() },
-      diffMode: true,
-      baselineSpan: same,
-    });
-    expect(screen.getAllByText("unchanged").length).toBeGreaterThan(0);
-  });
-
-  it("skips the token/cost deltas when the candidate span has no counts", () => {
-    renderPanel({
-      selection: {
-        type: "span",
-        span: makeSpan({ total_tokens: null, cost: null }),
-      },
-      diffMode: true,
-      baselineSpan,
-    });
-    expect(screen.getAllByText("− baseline").length).toBeGreaterThan(0);
-  });
-
-  it("reads baseline span I/O from the lazy fetch when present", () => {
-    ioMocks.byId.set("span-0", { input: "baseline fetched", output: null, metadata: null });
-    const { container } = renderPanel({
-      selection: { type: "span", span: makeSpan() },
-      diffMode: true,
-      baselineSpan,
-    });
-    expect(container.textContent).toContain("baseline fetched");
   });
 });
 
