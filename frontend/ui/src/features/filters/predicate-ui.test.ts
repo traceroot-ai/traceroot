@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { MAX_FILTERS } from "./predicate";
 import {
   predicateLabel,
   buildInPredicate,
@@ -196,5 +197,41 @@ describe("upsertPredicate", () => {
       gte("cost", 1),
       lte("duration_ms", 10),
     ]);
+  });
+
+  describe("at the filter-count cap", () => {
+    // Distinct predicates: metadata keys are independent filters, so `n` of them are `n` chips.
+    const atCap = Array.from({ length: MAX_FILTERS }, (_, i) =>
+      buildTextPredicate("metadata", "eq", `v${i}`, `key_${i}`),
+    );
+
+    it("refuses a genuinely new predicate that would push the array past the cap", () => {
+      // Admitting it would 422 the list and lose the results for all twenty; dropping it
+      // loses only the one filter the user has not seen results for yet.
+      const newField = buildInPredicate("model_name", ["gpt-4o"]);
+      expect(upsertPredicate(atCap, newField)).toEqual(atCap);
+    });
+
+    it("still applies an upsert that supersedes an existing filter, since the count cannot grow", () => {
+      // Editing the twentieth chip must keep working: replacing one filter with another
+      // leaves the array at the cap rather than past it.
+      const edited = buildTextPredicate("metadata", "contains", "edited", "key_0");
+      const result = upsertPredicate(atCap, edited);
+      expect(result).toHaveLength(MAX_FILTERS);
+      expect(result).toContainEqual(edited);
+      expect(result).not.toContainEqual(atCap[0]);
+    });
+
+    it("still applies an upsert that supersedes a filter one below the cap", () => {
+      const belowCap = atCap.slice(0, MAX_FILTERS - 1);
+      const edited = buildTextPredicate("metadata", "contains", "edited", "key_0");
+      expect(upsertPredicate(belowCap, edited)).toHaveLength(MAX_FILTERS - 1);
+    });
+
+    it("admits a new predicate while the array is still one below the cap", () => {
+      const belowCap = atCap.slice(0, MAX_FILTERS - 1);
+      const newField = buildInPredicate("model_name", ["gpt-4o"]);
+      expect(upsertPredicate(belowCap, newField)).toEqual([...belowCap, newField]);
+    });
   });
 });

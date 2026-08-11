@@ -9,6 +9,7 @@ import {
   TextField,
   ValueDropdown,
 } from "./filter-controls";
+import { MAX_VALUE_LENGTH } from "./predicate";
 
 afterEach(cleanup);
 
@@ -91,6 +92,13 @@ describe("TextField", () => {
     fireEvent.change(input, { target: { value: "abc" } });
     expect(onChange).toHaveBeenCalledWith("abc");
     fireEvent.keyDown(input, { key: "Enter" });
+  });
+
+  it("clamps typed and pasted text at the backend's value cap", () => {
+    // The affordance rather than the guard: it keeps the common path from ever building a
+    // predicate the list would 422, which isValidPredicate then covers for pasted URLs.
+    render(<TextField ariaLabel="value" placeholder="Enter value" value="" onChange={vi.fn()} />);
+    expect(screen.getByLabelText("value").getAttribute("maxLength")).toBe(String(MAX_VALUE_LENGTH));
   });
 });
 
