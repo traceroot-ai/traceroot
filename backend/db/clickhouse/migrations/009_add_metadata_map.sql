@@ -13,11 +13,13 @@
 -- `SELECT *` is unchanged, since materialized columns are excluded from it.
 --
 -- This file only ADDs the columns, which is metadata-only and rewrites no part. Making
--- EXISTING history answer metadata questions is the heavier step in 010, which is REQUIRED,
--- not an optimization: through the read shape we ship, a pre-ALTER part returns an EMPTY map
--- rather than a computed one, silently. Applying 009 alone is still a complete, safe deploy
--- -- ingestion is unchanged and everything answers correctly for data ingested from here on.
--- Only history stays blank until 010 runs.
+-- EXISTING history STORE the map is the heavier step in 010. On the ClickHouse we pin (25.2)
+-- the read shapes we ship still answer correctly on pre-ALTER parts, computing the map per
+-- read; 010 is what makes those answers survive a server upgrade -- 26.x rewrites the shipped
+-- inline filter into subcolumn reads that return an EMPTY map on unmaterialized parts,
+-- silently -- and what spares old parts a per-row JSON parse. The full account is in 010.
+-- Applying 009 alone is still a complete, safe deploy -- ingestion is unchanged and
+-- everything answers correctly for data ingested from here on.
 --
 -- The no-I/O projection is deliberately untouched, and the tempting justification for that
 -- is wrong: including metadata_map would NOT put user metadata on the unfiltered list
