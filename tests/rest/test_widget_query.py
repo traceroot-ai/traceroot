@@ -8,6 +8,11 @@ import pytest
 from fastapi.encoders import jsonable_encoder
 from pydantic import ValidationError
 
+from db.clickhouse.query_settings import (
+    GROUP_BY_SPILL_BYTES,
+    QUERY_TIMEOUT_S,
+    READ_QUERY_SETTINGS,
+)
 from rest.schemas.dashboards import (
     AggName,
     WidgetFilter,
@@ -466,8 +471,14 @@ def test_compile_cache_tokens_traces():
 
 
 def test_run_widget_query_sets_execution_guards(monkeypatch):
-    """Every widget query runs read-only, time-capped, and with a GROUP BY
-    memory ceiling that spills to disk instead of OOMing the server."""
+    """Every widget query runs under the SHARED read bounds, not a private copy.
+
+    What matters is that this read is bound to the same mapping as every other read
+    surface — read-only, time-capped, and with a GROUP BY memory ceiling that spills to
+    disk instead of OOMing the server. Asserting the mapping the call received is the
+    shared one, rather than re-deriving its three fields here, is what makes a future
+    edit to the shared bounds carry to this query instead of silently drifting from it.
+    """
     fake_result = MagicMock(column_names=["value"], result_rows=[(1,)])
     fake_client = MagicMock()
     fake_client.query.return_value = fake_result
@@ -481,6 +492,8 @@ def test_run_widget_query_sets_execution_guards(monkeypatch):
     )
 
     settings = fake_client.query.call_args.kwargs["settings"]
+    assert settings is READ_QUERY_SETTINGS
+    # Spelled out once so the shared mapping cannot be emptied without a failure here.
     assert settings["readonly"] == 1
-    assert settings["max_execution_time"] == wq.QUERY_TIMEOUT_S
-    assert settings["max_bytes_before_external_group_by"] == wq.GROUP_BY_SPILL_BYTES
+    assert settings["max_execution_time"] == QUERY_TIMEOUT_S
+    assert settings["max_bytes_before_external_group_by"] == GROUP_BY_SPILL_BYTES

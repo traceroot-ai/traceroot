@@ -23,14 +23,6 @@ from worker.tokens.pricing import cost_breakdown_from_buckets, get_model_price
 # the same old monthly partitions.
 TRACE_SPAN_LOOKBACK_HOURS = 1
 
-# Distinct-values endpoint: cap the option list and cache briefly. The dropdown only
-# needs the frequent values, and the GROUP BY over spans is the heavy part — a short
-# TTL absorbs repeated opens of the same filter without staleness mattering.
-DISTINCT_VALUES_LIMIT = 100
-DISTINCT_VALUES_CACHE_TTL_SECONDS = 30
-# Bound the in-process cache so it can't grow without limit across projects/windows.
-DISTINCT_VALUES_CACHE_MAX = 256
-
 # Default lookback for a span scan that arrives with no lower time bound (the filtered
 # trace list AND the categorical distinct-values dropdown). Those scan spans, so an
 # unbounded window is a full-project span scan — the OOM-prone class. The dashboard
@@ -68,17 +60,13 @@ def customer_traffic_only(alias: str = "") -> str:
     return f"{column} = '{USER_SOURCE}'"
 
 
-def _floor_minute(dt: datetime | None) -> datetime | None:
-    """Truncate a datetime to the whole minute (for the distinct-values cache key)."""
-    return dt.replace(second=0, microsecond=0) if dt is not None else None
-
-
-def _default_lookback_start(normalized_end: datetime | None) -> datetime:
+def default_lookback_start(normalized_end: datetime | None) -> datetime:
     """Default lower bound for an otherwise-unbounded span scan.
 
     A fixed lookback before the window's end (``normalized_end``) — or before now when
-    the window is open-ended — so the filtered list and the distinct-values query share
-    one symmetric default and neither ever scans spans all-time.
+    the window is open-ended — so the filtered list and the discovery scans share one
+    symmetric default and neither ever scans spans all-time. Public for the discovery
+    module, which defaults its own window to the same bound.
 
     Args:
         normalized_end (datetime | None): Naive-UTC upper bound of the active window,
@@ -144,8 +132,6 @@ class TraceReaderService:
 
     def __init__(self):
         self._client = get_clickhouse_client()
-        # Per-(project, column, window) cache of distinct values: key -> (expiry, rows).
-        self._distinct_cache: dict[tuple, tuple[float, list[dict]]] = {}
         # has_traces cache: project_id -> (expiry, result). True results use a
         # long TTL (1 hour); False results expire after 10s so the onboarding
         # poll doesn't scan all partitions every 3s. Bounded to 1024 entries.
@@ -153,172 +139,6 @@ class TraceReaderService:
         # Trace start time cache: "project:trace" -> (expiry, datetime|None).
         # Immutable once written, so 1-hour TTL is safe. Bounded to 1024 entries.
         self._trace_start_cache: dict[str, tuple[float, datetime | None]] = {}
-
-    def get_distinct_span_values(
-        self,
-        project_id: str,
-        column: str,
-        start_after: datetime | None = None,
-        end_before: datetime | None = None,
-    ) -> list[dict]:
-        """Distinct values of a span column within the active window, by frequency.
-
-        Powers the filter dropdown's categorical options (model, environment) and
-        the widget builder's spans-view value dropdowns. Time-bounded and briefly
-        cached so repeatedly opening the same filter does not re-scan spans.
-
-        Args:
-            project_id (str): Project that scopes the span scan (tenant isolation).
-            column (str): A spans column name. MUST be a registry-resolved identifier,
-                never raw user input — it is interpolated into the SQL because column
-                names cannot be bound as query parameters.
-            start_after (datetime | None): Lower bound on ``span_start_time``; prunes
-                monthly partitions. ``None`` scans all time.
-            end_before (datetime | None): Upper bound on ``span_start_time`` (exclusive),
-                symmetric with the trace list's window so the dropdown never offers
-                values from traces newer than the active window's end.
-
-        Returns:
-            list[dict]: ``[{"value": str, "count": int}]`` ordered by descending
-            frequency, capped at ``DISTINCT_VALUES_LIMIT``.
-        """
-        return self._distinct_values(
-            table="spans",
-            time_column="span_start_time",
-            dedup_keys="project_id, trace_id, span_id",
-            project_id=project_id,
-            column=column,
-            start_after=start_after,
-            end_before=end_before,
-        )
-
-    def get_distinct_trace_values(
-        self,
-        project_id: str,
-        column: str,
-        start_after: datetime | None = None,
-        end_before: datetime | None = None,
-    ) -> list[dict]:
-        """Distinct values of a traces column within the active window, by frequency.
-
-        The traces-table sibling of ``get_distinct_span_values`` — powers the widget
-        builder's traces-view value dropdowns (trace name, user, session, environment).
-
-        Args:
-            project_id (str): Project that scopes the trace scan (tenant isolation).
-            column (str): A traces column name. MUST be a registry-resolved identifier,
-                never raw user input — it is interpolated into the SQL because column
-                names cannot be bound as query parameters.
-            start_after (datetime | None): Lower bound on ``trace_start_time``; prunes
-                monthly partitions. ``None`` defaults a lookback (never all-time).
-            end_before (datetime | None): Upper bound on ``trace_start_time``
-                (exclusive), symmetric with the widget query window.
-
-        Returns:
-            list[dict]: ``[{"value": str, "count": int}]`` ordered by descending
-            frequency, capped at ``DISTINCT_VALUES_LIMIT``.
-        """
-        return self._distinct_values(
-            table="traces",
-            time_column="trace_start_time",
-            dedup_keys="project_id, trace_id",
-            project_id=project_id,
-            column=column,
-            start_after=start_after,
-            end_before=end_before,
-        )
-
-    def _distinct_values(
-        self,
-        table: str,
-        time_column: str,
-        dedup_keys: str,
-        project_id: str,
-        column: str,
-        start_after: datetime | None,
-        end_before: datetime | None,
-    ) -> list[dict]:
-        """Shared distinct-values scan: dedup, group, count, cache.
-
-        Args:
-            table (str): Source table (``spans`` or ``traces``) — a literal chosen by
-                the public wrappers, never user input.
-            time_column (str): The table's partition/time column the window bounds.
-            dedup_keys (str): ``LIMIT 1 BY`` key list that identifies one logical row
-                in the table's ReplacingMergeTree.
-            project_id (str): Project that scopes the scan (tenant isolation).
-            column (str): Registry-resolved column to enumerate (interpolated; column
-                names cannot be bound as query parameters).
-            start_after (datetime | None): Lower window bound on ``time_column``.
-            end_before (datetime | None): Upper window bound on ``time_column``.
-
-        Returns:
-            list[dict]: ``[{"value": str, "count": int}]`` by descending frequency.
-        """
-        normalized_start = to_utc_naive(start_after) if start_after is not None else None
-        normalized_end = to_utc_naive(end_before) if end_before is not None else None
-        # Never scan unbounded (the OOM class the filtered list guards against): if no
-        # lower bound was given, default one — symmetric with the filtered trace list. The UI
-        # always sends a window; this bounds a direct API caller that omits one.
-        if normalized_start is None:
-            normalized_start = _default_lookback_start(normalized_end)
-        # Quantize the cache key to whole minutes so per-render jitter in the window
-        # bounds (the UI recomputes "now - duration" every render) can't trivially
-        # bypass the cache and force a fresh full-project GROUP BY on every open. The
-        # 30s TTL already accepts this much staleness in the returned option list.
-        cache_key = (
-            table,
-            project_id,
-            column,
-            _floor_minute(normalized_start),
-            _floor_minute(normalized_end),
-        )
-        now = time.time()
-        cached = self._distinct_cache.get(cache_key)
-        if cached is not None and cached[0] > now:
-            return cached[1]
-
-        params: dict = {"project_id": project_id}
-        # Detector self-traces carry their own model/environment/name values; excluding
-        # them keeps internal telemetry out of the customer's filter dropdown options.
-        inner_conditions = ["project_id = {project_id:String}", customer_traffic_only()]
-        if normalized_start is not None:
-            # Exact bound, no lookback back-off: this is a self-contained window scan with
-            # no trace-level semi-join, so the boundary-drift false-negative reasoning that
-            # SPAN_TIME_BOUND_LOOKBACK_HOURS guards against in the filtered list doesn't apply.
-            inner_conditions.append(f"{time_column} >= {{start_after:DateTime64(3)}}")
-            params["start_after"] = normalized_start
-        if normalized_end is not None:
-            inner_conditions.append(f"{time_column} < {{end_before:DateTime64(3)}}")
-            params["end_before"] = normalized_end
-        inner_where = " AND ".join(inner_conditions)
-
-        # Dedup ReplacingMergeTree rows to the latest version per logical row BEFORE
-        # counting, so a since-updated row can't inflate a value's count or surface a stale
-        # value. The column non-empty filter runs on the deduped (latest) value in the
-        # outer query.
-        query = f"""
-            SELECT value, count() AS n
-            FROM (
-                SELECT {column} AS value
-                FROM {table}
-                WHERE {inner_where}
-                ORDER BY ch_update_time DESC
-                LIMIT 1 BY {dedup_keys}
-            )
-            WHERE value IS NOT NULL AND value != ''
-            GROUP BY value
-            ORDER BY n DESC
-            LIMIT {DISTINCT_VALUES_LIMIT}
-        """
-        result = self._client.query(query, parameters=params)
-        rows = [{"value": str(row[0]), "count": int(row[1])} for row in result.result_rows]
-        # Bound the cache: drop expired entries, then evict oldest if still at capacity.
-        self._distinct_cache = {k: v for k, v in self._distinct_cache.items() if v[0] > now}
-        if len(self._distinct_cache) >= DISTINCT_VALUES_CACHE_MAX:
-            self._distinct_cache.pop(next(iter(self._distinct_cache)))
-        self._distinct_cache[cache_key] = (now + DISTINCT_VALUES_CACHE_TTL_SECONDS, rows)
-        return rows
 
     _HAS_TRACES_CACHE_MAX = 1024
 
@@ -435,7 +255,7 @@ class TraceReaderService:
         # Default a lookback window so those sub-queries prune monthly partitions, and bound
         # the trace query to the same window so the page, count, and span scans stay consistent.
         if filters and start_after is None:
-            params["start_after"] = _default_lookback_start(normalized_end)
+            params["start_after"] = default_lookback_start(normalized_end)
             conditions.append("t.trace_start_time >= {start_after:DateTime64(3)}")
 
         # Registry-driven attribute filters (model/cost/errors/...). Appended to the
