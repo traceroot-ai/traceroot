@@ -217,7 +217,6 @@ export const RegisterRunRequestSchema = z
     /** Omit to pin the dataset's current published version. */
     dataset_version_id: z.string().min(1).max(64).nullable().optional(),
     candidate_version: z.string().min(1).max(200),
-    main_score_name: z.string().min(1).max(200).nullable().optional(),
     environment: z.string().min(1).max(64).default("evaluation"),
     scorers: z.array(ScorerRefSchema).max(EVAL_SCORER_LIST_MAX).default([]),
     /** SDK-supplied idempotency key. */
@@ -291,7 +290,6 @@ export const UpsertResultRequestSchema = z
     candidate_output: z.string().max(EVAL_PAYLOAD_TEXT_MAX).nullable().optional(),
     baseline_output: z.string().max(EVAL_PAYLOAD_TEXT_MAX).nullable().optional(),
     status: EvalResultStatusSchema,
-    main_score: z.number().nullable().optional(),
     change: ResultChangeSchema.nullable().optional(),
     task_error: z.string().max(10000).nullable().optional(),
     duration_ms: z.number().int().nonnegative().nullable().optional(),
@@ -326,16 +324,6 @@ export type UpsertResultResponse = z.infer<typeof UpsertResultResponseSchema>;
 export const CompleteRunRequestSchema = z
   .object({
     status: EvalRunStatusSchema,
-    main_score: z.number().nullable().optional(),
-    /**
-     * The run-level main-score metric name, RESOLVED at completion. Lets an SDK
-     * register a run before any scorer's emitted metric name is known and name it
-     * here once it is. Optional and additive — an older SDK omits it and keeps the
-     * name it chose at registration (or none). When registration already fixed a
-     * name, this must match it (a mismatch is a conflict); for a successfully scored
-     * run the resolved name must exist among the run's emitted scores.
-     */
-    main_score_name: z.string().min(1).max(200).nullable().optional(),
     case_count: z.number().int().nonnegative().nullable().optional(),
     scored_count: z.number().int().nonnegative().nullable().optional(),
     task_error_count: z.number().int().nonnegative().nullable().optional(),

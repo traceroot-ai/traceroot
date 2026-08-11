@@ -117,7 +117,6 @@ async function registerRun(
         datasetId: dataset.id,
         name: req.evaluation_name,
         evaluationKey,
-        mainScoreName: req.main_score_name ?? "Score",
       },
       select: { id: true },
     }));
@@ -171,7 +170,6 @@ async function registerRun(
       environment: req.environment,
       status: "running",
       baselineRunId: req.baseline_run_id ?? null,
-      mainScoreName: req.main_score_name ?? null,
       caseCount,
       // The full scorer manifest — identity ({name, version}), config
       // (value_type/direction/threshold) and the read-only DEFINITION

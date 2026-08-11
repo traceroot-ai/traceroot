@@ -41,7 +41,6 @@ function firstReport() {
     candidate_output: "4",
     duration_ms: 900,
     change: "improved",
-    main_score: 1,
     scores: [{ scorer_name: "exact_match", scorer_version: "1", numeric_value: 1 }],
   };
 }
@@ -189,7 +188,6 @@ describe("POST … /results — a follow-up report only writes what it sent", ()
       candidateOutput: "4",
       change: "improved",
       durationMs: 900,
-      mainScore: 1,
     });
   });
 

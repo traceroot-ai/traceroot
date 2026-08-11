@@ -251,7 +251,6 @@ class RegisterRunRequest(BaseModel):
     # Omit to pin the dataset's current published version.
     dataset_version_id: str | None = Field(default=None, min_length=1, max_length=64)
     candidate_version: str = Field(min_length=1, max_length=200)
-    main_score_name: str | None = Field(default=None, min_length=1, max_length=200)
     environment: str = Field(default="evaluation", min_length=1, max_length=64)
     scorers: list[ScorerRef] = Field(default_factory=list, max_length=EVAL_SCORER_LIST_MAX)
     # SDK-supplied idempotency key.
@@ -307,7 +306,6 @@ class UpsertResultRequest(BaseModel):
     candidate_output: str | None = Field(default=None, max_length=EVAL_PAYLOAD_TEXT_MAX)
     baseline_output: str | None = Field(default=None, max_length=EVAL_PAYLOAD_TEXT_MAX)
     status: EvalResultStatus
-    main_score: JsonFloat | None = None
     change: ResultChange | None = None
     task_error: str | None = Field(default=None, max_length=10000)
     duration_ms: JsonNonNegativeInt | None = None
@@ -332,11 +330,6 @@ class CompleteRunRequest(BaseModel):
     """Complete/fail a run, reporting final completeness counts."""
 
     status: EvalRunStatus
-    main_score: JsonFloat | None = None
-    # The run-level main-score metric name, RESOLVED at completion — lets an SDK
-    # register before any scorer's emitted name is known and name it here. Additive:
-    # an older SDK omits it. Mirrors ``main_score_name`` on the Zod CompleteRunRequest.
-    main_score_name: str | None = Field(default=None, min_length=1, max_length=200)
     case_count: JsonNonNegativeInt | None = None
     scored_count: JsonNonNegativeInt | None = None
     task_error_count: JsonNonNegativeInt | None = None

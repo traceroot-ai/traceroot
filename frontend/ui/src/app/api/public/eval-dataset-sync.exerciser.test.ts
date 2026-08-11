@@ -473,7 +473,7 @@ describe("B2: /complete is replay-safe and terminal", () => {
     const complete = (body: unknown) =>
       completeRun(req(body), { params: Promise.resolve({ runId: "run1" }) });
 
-    const first = await complete({ status: "completed", main_score: 93.8 });
+    const first = await complete({ status: "completed" });
     expect(first.status).toBe(200);
     const afterFirst = fakePrisma.evaluationRun.rows.find((r) => r.id === "run1")!;
     expect(afterFirst.completedAt).toBeInstanceOf(Date);
@@ -482,11 +482,10 @@ describe("B2: /complete is replay-safe and terminal", () => {
     // A retried/corrected completion is accepted — the SDK completing with final
     // counts a second time is the normal retry shape — but must not re-stamp the
     // finish time.
-    const replay = await complete({ status: "failed", main_score: 0 });
+    const replay = await complete({ status: "failed" });
     expect(replay.status).toBe(200);
     const afterReplay = fakePrisma.evaluationRun.rows.find((r) => r.id === "run1")!;
     expect(afterReplay.status).toBe("failed");
-    expect(afterReplay.mainScore).toBe(0);
     expect(afterReplay.completedAt).toEqual(firstCompletedAt);
 
     // A finished run can never be walked back to "running".

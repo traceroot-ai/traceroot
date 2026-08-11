@@ -10,7 +10,6 @@
           "dataset_id": "ds1",
           "dataset_version_id": "dv1",
           "candidate_version": "git:abc123",
-          "main_score_name": "Routing accuracy",
           "environment": "staging",
           "scorers": [
             {
@@ -51,7 +50,6 @@
           "dataset_id": "ds1",
           "candidate_version": "git:abc123",
           "dataset_version_id": null,
-          "main_score_name": null,
           "client_run_id": null,
           "baseline_run_id": null,
           "case_count": null,
@@ -366,7 +364,6 @@
           "candidate_output": "billing",
           "expected_output": "billing",
           "status": "passed",
-          "main_score": 1,
           "change": "improved",
           "scores": [
             {
@@ -400,7 +397,6 @@
           "input": "explain the tax line",
           "candidate_output": "billing",
           "status": "passed",
-          "main_score": 1,
           "scores": [
             {
               "scorer_name": "helpfulness",
@@ -418,7 +414,6 @@
           "input": "cancel and refund",
           "candidate_output": "billing",
           "status": "not_scored",
-          "main_score": null,
           "scores": [
             {
               "scorer_name": "routing-accuracy",
@@ -551,15 +546,6 @@
         }
       },
       {
-        "name": "main_score_as_string",
-        "payload": {
-          "test_case_id": "case-1",
-          "input": "x",
-          "status": "passed",
-          "main_score": "0.5"
-        }
-      },
-      {
         "name": "cost_as_string",
         "payload": {
           "test_case_id": "case-1",
@@ -640,7 +626,6 @@
         "name": "full",
         "payload": {
           "status": "completed_with_errors",
-          "main_score": 93.8,
           "case_count": 24,
           "scored_count": 22,
           "task_error_count": 1,
@@ -665,7 +650,6 @@
         "name": "explicit_nulls",
         "payload": {
           "status": "failed",
-          "main_score": null,
           "case_count": null,
           "scored_count": null,
           "task_error_count": null,
@@ -676,9 +660,7 @@
     "invalid": [
       {
         "name": "missing_status",
-        "payload": {
-          "main_score": 90
-        }
+        "payload": {}
       },
       {
         "name": "bad_status_enum",
@@ -705,13 +687,6 @@
         "payload": {
           "status": "completed",
           "scored_count": 1.5
-        }
-      },
-      {
-        "name": "main_score_as_string",
-        "payload": {
-          "status": "completed",
-          "main_score": "0.5"
         }
       },
       {
