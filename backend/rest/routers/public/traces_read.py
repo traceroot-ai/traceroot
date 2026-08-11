@@ -62,8 +62,21 @@ async def list_traces(
         None,
         description="Only traces that started before this time (exclusive, ISO 8601)",
     ),
+    end_before_id: str | None = Query(
+        None,
+        description=(
+            "Trace id cursor for keyset pagination. Use the last item's trace_start_time "
+            "as end_before and its trace_id as end_before_id to walk through traces that "
+            "share the same start time without dropping rows."
+        ),
+    ),
 ):
     """List recent traces for the API key's project (newest first)."""
+    if end_before_id is not None and end_before is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="end_before_id requires end_before",
+        )
     start_after, end_before = clamp_retention_window(auth.billing_plan, start_after, end_before)
     try:
         service = get_trace_reader_service()
@@ -72,6 +85,7 @@ async def list_traces(
             limit=limit,
             start_after=start_after,
             end_before=end_before,
+            end_before_id=end_before_id,
         )
     except Exception as e:
         logger.exception(f"Error listing traces: {e}")

@@ -389,6 +389,7 @@ class TraceReaderService:
         user_id: str | None = None,
         start_after: datetime | None = None,
         end_before: datetime | None = None,
+        end_before_id: str | None = None,
         search_query: str | None = None,
         filters: list[Predicate] | None = None,
     ) -> dict:
@@ -417,8 +418,21 @@ class TraceReaderService:
 
         normalized_end = to_utc_naive(end_before) if end_before is not None else None
         if normalized_end is not None:
-            conditions.append("t.trace_start_time < {end_before:DateTime64(3)}")
-            params["end_before"] = normalized_end
+            if end_before_id is not None:
+                # Keyset pagination on (trace_start_time DESC, trace_id DESC): the
+                # exclusive time bound alone cannot advance past a millisecond tie
+                # group (excluding the timestamp skips never-returned rows, #1747).
+                # With end_before_id the bound becomes the full ordering pair.
+                conditions.append(
+                    "(t.trace_start_time < {end_before:DateTime64(3)} "
+                    "OR (t.trace_start_time = {end_before:DateTime64(3)} "
+                    "AND t.trace_id < {end_before_id:String}))"
+                )
+                params["end_before"] = normalized_end
+                params["end_before_id"] = end_before_id
+            else:
+                conditions.append("t.trace_start_time < {end_before:DateTime64(3)}")
+                params["end_before"] = normalized_end
 
         # Multi-field keyword search (trace_id, name, session_id, user_id)
         if search_query:
@@ -465,7 +479,7 @@ class TraceReaderService:
                     ORDER BY t.ch_update_time DESC
                     LIMIT 1 BY t.project_id, t.trace_id
                 )
-                ORDER BY trace_start_time DESC
+                ORDER BY trace_start_time DESC, trace_id DESC
                 LIMIT {{limit:UInt32}} OFFSET {{offset:UInt32}}
             ),
             span_agg AS (
@@ -509,7 +523,7 @@ class TraceReaderService:
                 sa.total_cost
             FROM page AS p
             LEFT JOIN span_agg AS sa ON p.trace_id = sa.trace_id
-            ORDER BY p.trace_start_time DESC
+            ORDER BY p.trace_start_time DESC, p.trace_id DESC
         """
 
         result = self._client.query(query, parameters=params)

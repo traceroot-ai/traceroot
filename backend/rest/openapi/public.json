@@ -1687,6 +1687,24 @@
               "description": "Only traces that started before this time (exclusive, ISO 8601)",
               "title": "End Before"
             }
+          },
+          {
+            "description": "Trace id cursor for keyset pagination. Use the last item's trace_start_time as end_before and its trace_id as end_before_id to walk through traces that share the same start time without dropping rows.",
+            "in": "query",
+            "name": "end_before_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Trace id cursor for keyset pagination. Use the last item's trace_start_time as end_before and its trace_id as end_before_id to walk through traces that share the same start time without dropping rows.",
+              "title": "End Before Id"
+            }
           }
         ],
         "responses": {
