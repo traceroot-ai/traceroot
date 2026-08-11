@@ -131,7 +131,9 @@ export function TraceViewerPanel({
     aiPanelOpen,
     setAiPanelOpen,
     setAiContext,
+    aiInitialSessionId,
     setAiInitialSessionId,
+    setAiInitialSessionPending,
     registerAiHost,
     sidebarCollapsed,
   } = useLayout();
@@ -167,6 +169,14 @@ export function TraceViewerPanel({
   const { data: rcaData } = useRca(projectId, traceFinding?.finding_id ?? "");
   const hasRca = !!traceFinding && !!rcaData?.rca;
   const rcaSessionId = rcaData?.rca?.sessionId ?? undefined;
+  // A worker is still writing this session's answer.
+  const rcaStatus = rcaData?.rca?.status;
+  const rcaPending = rcaStatus === "pending" || rcaStatus === "running";
+  // A ref so the open effect can report the status alongside the session id
+  // without depending on it: the chat re-reads the session on every change of
+  // the flag, and re-running the effect would re-open a closed panel.
+  const rcaPendingRef = useRef(rcaPending);
+  rcaPendingRef.current = rcaPending;
 
   // Auto-open chat with RCA session loaded when arriving from /detectors.
   // Waits for rcaSessionId so the chat opens already pointing at the session,
@@ -175,8 +185,24 @@ export function TraceViewerPanel({
     if (!autoOpenRca || !rcaSessionId) return;
     setAiContext({ traceId });
     setAiInitialSessionId(rcaSessionId);
+    setAiInitialSessionPending(rcaPendingRef.current);
     setAiPanelOpen(true);
-  }, [autoOpenRca, rcaSessionId, traceId, setAiContext, setAiInitialSessionId, setAiPanelOpen]);
+  }, [
+    autoOpenRca,
+    rcaSessionId,
+    traceId,
+    setAiContext,
+    setAiInitialSessionId,
+    setAiInitialSessionPending,
+    setAiPanelOpen,
+  ]);
+
+  // Keep the flag current while this trace's RCA session is the open one, so the
+  // chat clears its indicator and reloads the answer when the run finishes.
+  // useRca already polls the status, and setting an unchanged value is a no-op.
+  useEffect(() => {
+    setAiInitialSessionPending(!!rcaSessionId && aiInitialSessionId === rcaSessionId && rcaPending);
+  }, [aiInitialSessionId, rcaSessionId, rcaPending, setAiInitialSessionPending]);
 
   const {
     data: trace,
@@ -291,6 +317,8 @@ export function TraceViewerPanel({
                 onClick={() => {
                   setAiContext({ traceId });
                   setAiInitialSessionId(rcaSessionId);
+                  // Same update as the session id — see rcaPendingRef above.
+                  setAiInitialSessionPending(rcaPending);
                   setAiPanelOpen(true);
                 }}
                 className="rounded-md border border-red-300 bg-red-50 px-2 py-1 text-[11px] font-medium text-red-700 transition-colors hover:bg-red-100 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400 dark:hover:bg-red-950/60"

@@ -67,6 +67,7 @@ export function AiAssistantPanel({ projectId, onClose, compact = false }: AiAssi
   const {
     messages,
     isStreaming,
+    isLoadingSession,
     sessions,
     historyOpen,
     currentSessionId,
@@ -180,7 +181,12 @@ export function AiAssistantPanel({ projectId, onClose, compact = false }: AiAssi
           </div>
         </div>
       ) : (
-        <MessageList messages={messages} sessionStreaming={isStreaming} />
+        <MessageList
+          messages={messages}
+          sessionStreaming={isStreaming || isLoadingSession}
+          // Only this wait gets a label; a live stream is its own feedback.
+          waitingLabel={isLoadingSession ? "Analyzing the trace…" : undefined}
+        />
       )}
 
       {/* Input */}
