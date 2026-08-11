@@ -44,9 +44,11 @@ export function TraceMetadataCell({ entries, borderClassName }: TraceMetadataCel
 
   const openByPointer = useCallback(() => {
     cancelScheduledClose();
-    isOpenedByPointerRef.current = true;
+    // Only an open that starts here belongs to the pointer; brushing the trigger of an
+    // already-open surface must not relabel a keyboard open that holds the focus.
+    if (!isOpen) isOpenedByPointerRef.current = true;
     setIsOpen(true);
-  }, [cancelScheduledClose]);
+  }, [cancelScheduledClose, isOpen]);
 
   // A row can unmount mid-hover when the list refetches; a pending close must not outlive it.
   useEffect(() => cancelScheduledClose, [cancelScheduledClose]);
@@ -69,7 +71,12 @@ export function TraceMetadataCell({ entries, borderClassName }: TraceMetadataCel
       // Radix toggles the trigger, so a click on a hover-opened surface would close it.
       if (isOpen) {
         event.preventDefault();
-        if (isKeyboardActivation) contentRef.current?.focus();
+        // Focus moves into the surface here, so the close owes it back to the trigger even
+        // though the pointer opened this one.
+        if (isKeyboardActivation) {
+          isOpenedByPointerRef.current = false;
+          contentRef.current?.focus();
+        }
         return;
       }
       isOpenedByPointerRef.current = !isKeyboardActivation;
@@ -116,6 +123,12 @@ export function TraceMetadataCell({ entries, borderClassName }: TraceMetadataCel
           collisionPadding={8}
           className="w-[22rem] max-w-[calc(100vw-2rem)] p-0"
           onOpenAutoFocus={(event) => {
+            if (isOpenedByPointerRef.current) event.preventDefault();
+          }}
+          // Radix hands focus to the trigger on every close. A hover-opened surface never
+          // took focus, so that would pull it out of whatever the user was typing in; the
+          // keyboard open, which did take it, still needs the way back.
+          onCloseAutoFocus={(event) => {
             if (isOpenedByPointerRef.current) event.preventDefault();
           }}
           onPointerEnter={cancelScheduledClose}
