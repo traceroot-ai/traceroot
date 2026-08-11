@@ -57,7 +57,11 @@ class TestFilterFields:
         resp = client.get("/api/v1/projects/p1/traces/filter-fields")
         assert resp.status_code == 200
         fields = resp.json()["fields"]
-        assert {f["field"] for f in fields} == {c.name for c in reg.FILTER_COLUMNS}
+        # ... except the ones held back by the temporary keyed-field gate in
+        # get_filter_fields, which feat/metadata-filter-ui removes along with this clause.
+        assert {f["field"] for f in fields} == {
+            c.name for c in reg.FILTER_COLUMNS if not c.requires_key
+        }
 
     def test_serializes_field_shape_from_registry(self, client):
         fields = {
