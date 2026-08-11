@@ -6,7 +6,7 @@
  * else — a filter included — puts a column on screen.
  */
 import { useCallback, useMemo } from "react";
-import { useLocalStorage } from "@/lib/hooks/use-local-storage";
+import { readStored, useLocalStorage } from "@/lib/hooks/use-local-storage";
 import { visibleFixedColumns, type FixedColumnId } from "@/features/traces/columns";
 import {
   columnsStorageKey,
@@ -33,16 +33,26 @@ export function useTraceColumns(projectId: string): UseTraceColumnsReturn {
 
   const toggleField = useCallback(
     (id: FixedColumnId) => {
-      // Normalizes the previous entry rather than the rendered selection: the entry is live in
-      // every tab on the project, so the value being flipped has to be the one on disk now.
-      setStored((previous) => {
-        const flipped = normalizeColumns(previous);
-        return toStoredColumns(
-          flipped.includes(id) ? flipped.filter((existing) => existing !== id) : [...flipped, id],
-        );
-      });
+      // Flips the entry on disk rather than the rendered selection. The entry is live in every
+      // tab on the project, and `useLocalStorage` only catches up on a `storage` event, which
+      // the writing tab queues rather than delivering with the write — so between another tab's
+      // toggle and that event this tab's state is a version behind, and flipping it would write
+      // back a selection missing that tab's column.
+      //
+      // Read here rather than inside the setter's updater: StrictMode invokes an updater twice
+      // and the setter persists on every call, so a read inside it would see its own first write
+      // and flip the value straight back. `stored` is the fallback so that a browser where
+      // storage is unavailable keeps toggling against the in-session value.
+      const current = normalizeColumns(
+        readStored<StoredColumns>(columnsStorageKey(projectId), stored),
+      );
+      setStored(
+        toStoredColumns(
+          current.includes(id) ? current.filter((existing) => existing !== id) : [...current, id],
+        ),
+      );
     },
-    [setStored],
+    [projectId, setStored, stored],
   );
 
   const reset = useCallback(() => setStored(NO_COLUMNS), [setStored]);

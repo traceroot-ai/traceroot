@@ -273,5 +273,25 @@ describe("useTraceColumns", () => {
         ...COLUMNS_AFTER_OPT_INS,
       ]);
     });
+
+    it("keeps a column another tab added when the storage event has not arrived yet", () => {
+      // A tab writes localStorage synchronously and its `storage` event reaches the other tabs
+      // afterwards, so there is a window where this tab's state is a version behind the entry.
+      // Toggling in that window has to flip what is on disk: flipping the stale state instead
+      // would write back a selection with the other tab's column silently dropped.
+      const { result } = renderColumns();
+
+      window.localStorage.setItem(
+        columnsKey("p-1"),
+        JSON.stringify({ version: 1, fields: ["user_id"] }),
+      );
+
+      act(() => result.current.toggleField("session_id"));
+
+      expect(JSON.parse(window.localStorage.getItem(columnsKey("p-1")) ?? "null")).toEqual({
+        version: 1,
+        fields: ["user_id", "session_id"],
+      });
+    });
   });
 });
