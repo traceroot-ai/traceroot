@@ -135,6 +135,90 @@ describe("useUrlDateFilter persistence", () => {
     expect(result.current.customStartDate).toBeNull();
   });
 
+  it("adopts the stored selection once the real retention replaces the transient fallback", async () => {
+    localStorage.setItem(KEY, JSON.stringify({ id: "30d" }));
+
+    // Mirror a hard reload: retention reads as the free plan's 15 days while
+    // the workspace lookup is in flight, then resolves to the real plan.
+    const { result, rerender } = renderHook(
+      ({ retention }: { retention: number | null | undefined }) =>
+        useUrlDateFilter(undefined, undefined, retention),
+      { initialProps: { retention: 15 as number | null | undefined } },
+    );
+
+    await waitFor(() => expect(result.current.dateFilter.id).toBe("14d"));
+
+    rerender({ retention: 90 });
+    expect(result.current.dateFilter.id).toBe("30d");
+  });
+
+  it("shows the stored selection unclamped while retention is still unknown", async () => {
+    localStorage.setItem(KEY, JSON.stringify({ id: "30d" }));
+
+    const { result, rerender } = renderHook(
+      ({ retention }: { retention: number | null | undefined }) =>
+        useUrlDateFilter(undefined, undefined, retention),
+      { initialProps: { retention: undefined as number | null | undefined } },
+    );
+
+    await waitFor(() => expect(result.current.dateFilter.id).toBe("30d"));
+
+    rerender({ retention: 90 });
+    expect(result.current.dateFilter.id).toBe("30d");
+  });
+
+  it("re-clamps display and timestamps when retention narrows below the selection", async () => {
+    localStorage.setItem(KEY, JSON.stringify({ id: "30d" }));
+
+    const { result, rerender } = renderHook(
+      ({ retention }: { retention: number | null | undefined }) =>
+        useUrlDateFilter(undefined, undefined, retention),
+      { initialProps: { retention: undefined as number | null | undefined } },
+    );
+    await waitFor(() => expect(result.current.dateFilter.id).toBe("30d"));
+
+    rerender({ retention: 15 });
+    expect(result.current.dateFilter.id).toBe("14d");
+    const windowMs = Date.now() - new Date(result.current.timestamps.startAfter!).getTime();
+    expect(Math.round(windowMs / 86_400_000)).toBe(14);
+    // The raw preference survives the clamp — only the effective value narrows.
+    expect(readStoredDateFilter("p1")?.id).toBe("30d");
+  });
+
+  it("resets pagination when a retention clamp narrows the window after mount", async () => {
+    localStorage.setItem(KEY, JSON.stringify({ id: "30d" }));
+    const onFilterChange = vi.fn();
+
+    const { result, rerender } = renderHook(
+      ({ retention }: { retention: number | null | undefined }) =>
+        useUrlDateFilter(onFilterChange, undefined, retention),
+      { initialProps: { retention: undefined as number | null | undefined } },
+    );
+    await waitFor(() => expect(result.current.dateFilter.id).toBe("30d"));
+    expect(onFilterChange).toHaveBeenCalledTimes(1); // restore adopted 30d
+
+    rerender({ retention: 15 });
+    await waitFor(() => expect(result.current.dateFilter.id).toBe("14d"));
+    expect(onFilterChange).toHaveBeenCalledTimes(2); // clamp narrowed the window
+  });
+
+  it("does not double-fire the change callback on an explicit pick", () => {
+    const onFilterChange = vi.fn();
+
+    const { result } = renderHook(() => useUrlDateFilter(onFilterChange, undefined, 90));
+
+    act(() => result.current.setDateFilter(findDateFilterOption("7d")));
+    expect(onFilterChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("clamps an explicit URL filter against the resolved retention", () => {
+    search = "date_filter=90d";
+
+    const { result } = renderHook(() => useUrlDateFilter(undefined, undefined, 30));
+
+    expect(result.current.dateFilter.id).toBe("30d");
+  });
+
   it("settles data queries on the restored window, not the default", async () => {
     localStorage.setItem(KEY, JSON.stringify({ id: "7d" }));
     const fetchSpy = vi.fn(async (bounds: unknown) => ({ bounds }));
