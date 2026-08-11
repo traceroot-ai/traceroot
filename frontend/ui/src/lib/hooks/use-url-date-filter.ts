@@ -49,14 +49,11 @@ export function useUrlDateFilter(
   const urlEndDate = searchParams.get("end");
 
   // Parse URL values into state
-  const initialDateFilter = clampDateFilter(
-    urlDateFilterId
-      ? findDateFilterOption(urlDateFilterId)
-      : defaultId
-        ? findDateFilterOption(defaultId)
-        : DEFAULT_DATE_FILTER,
-    retentionDays,
-  );
+  const initialDateFilter = urlDateFilterId
+    ? findDateFilterOption(urlDateFilterId)
+    : defaultId
+      ? findDateFilterOption(defaultId)
+      : DEFAULT_DATE_FILTER;
   const initialCustomStart = urlStartDate ? new Date(urlStartDate) : null;
   const initialCustomEnd = urlEndDate ? new Date(urlEndDate) : null;
 
@@ -64,6 +61,10 @@ export function useUrlDateFilter(
   const [customStartDate, setCustomStartDateState] = useState<Date | null>(initialCustomStart);
   const [customEndDate, setCustomEndDateState] = useState<Date | null>(initialCustomEnd);
   const [filterVersion, setFilterVersion] = useState(0);
+  const effectiveDateFilter = useMemo(
+    () => clampDateFilter(dateFilter, retentionDays),
+    [dateFilter, retentionDays],
+  );
 
   // Use ref for callback to avoid dependency issues
   const onFilterChangeRef = useRef(onFilterChange);
@@ -85,7 +86,7 @@ export function useUrlDateFilter(
     if (!projectId || searchParams.get("date_filter")) return;
     const stored = readStoredDateFilter(projectId);
     if (!stored) return;
-    const option = clampDateFilter(findDateFilterOption(stored.id), retentionDays);
+    const option = findDateFilterOption(stored.id);
     if (option.isCustom) {
       const start = stored.start ? new Date(stored.start) : null;
       const end = stored.end ? new Date(stored.end) : null;
@@ -130,7 +131,7 @@ export function useUrlDateFilter(
     const newEndDate = searchParams.get("end");
 
     if (newDateFilterId) {
-      const newFilter = clampDateFilter(findDateFilterOption(newDateFilterId), retentionDays);
+      const newFilter = findDateFilterOption(newDateFilterId);
       if (newFilter.id !== dateFilter.id) {
         setDateFilterState(newFilter);
         setFilterVersion((v) => v + 1);
@@ -208,14 +209,14 @@ export function useUrlDateFilter(
   // Calculate timestamps
   const timestamps = useMemo(() => {
     return toTimestampBounds(
-      dateFilter.id,
+      effectiveDateFilter.id,
       customStartDate ?? undefined,
       customEndDate ?? undefined,
     );
-  }, [dateFilter.id, customStartDate, customEndDate, filterVersion]);
+  }, [effectiveDateFilter.id, customStartDate, customEndDate, filterVersion]);
 
   return {
-    dateFilter,
+    dateFilter: effectiveDateFilter,
     customStartDate,
     customEndDate,
     setDateFilter,

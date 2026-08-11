@@ -35,6 +35,22 @@ describe("useUrlDateFilter persistence", () => {
     await waitFor(() => expect(result.current.dateFilter.id).toBe("7d"));
   });
 
+  it("re-evaluates a restored preset when retention becomes available", async () => {
+    localStorage.setItem(KEY, JSON.stringify({ id: "30d" }));
+    let retentionDays = 15;
+
+    const { result, rerender } = renderHook(() =>
+      useUrlDateFilter(undefined, undefined, retentionDays),
+    );
+
+    await waitFor(() => expect(result.current.dateFilter.id).toBe("14d"));
+
+    retentionDays = 90;
+    rerender();
+
+    await waitFor(() => expect(result.current.dateFilter.id).toBe("30d"));
+  });
+
   it("lets an explicit URL filter win over the stored preference", async () => {
     localStorage.setItem(KEY, JSON.stringify({ id: "7d" }));
     search = "date_filter=30m";
