@@ -5,11 +5,16 @@ physically separate queries — the paginated page and the ``count(DISTINCT ...)
 — off one shared ``where_clause``. If a filter reached only the page, ``meta.total``
 would exceed the visible rows. These tests assert the filter condition is interpolated
 into both, using a mocked ClickHouse client (no live DB), mirroring the repo's pattern.
+
+The same page/count split is why the execution bounds are asserted here too: settings
+are per-query, so bounding the page leaves the count free to run until the client gives
+up.
 """
 
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock
 
+from db.clickhouse.query_settings import QUERY_TIMEOUT_S, READ_QUERY_SETTINGS
 from rest.services.filters.translate import Predicate
 from rest.services.trace_reader import DEFAULT_SPAN_SCAN_LOOKBACK_HOURS, TraceReaderService
 
@@ -292,3 +297,53 @@ def test_unfiltered_list_without_window_stays_unbounded():
     params = svc._client.query.call_args_list[0].kwargs["parameters"]
     assert "start_after" not in params
     assert "t.trace_start_time >=" not in page_sql
+
+
+# ── Execution bounds: both queries, not just the page ────────────────────────────
+#
+# Same shape as the filter-wiring invariant above and the same failure mode: the count
+# query is physically separate from the page query, so a bound applied to one is not
+# applied to the other. The count is the easier of the two to forget precisely because
+# nothing in the response reveals it ran — and it scans the same filtered predicate.
+
+
+def test_page_query_runs_under_the_shared_read_bounds():
+    svc = _service_with_mock_client()
+    _drive(svc)
+
+    svc.list_traces(project_id="p1")
+
+    page_settings = svc._client.query.call_args_list[0].kwargs.get("settings")
+    assert page_settings is READ_QUERY_SETTINGS
+
+
+def test_count_query_runs_under_the_shared_read_bounds():
+    """The count is a second unbounded scan if it is left out — it re-evaluates the same
+    ``where_clause`` the page did, keyed-metadata semi-joins and all."""
+    svc = _service_with_mock_client()
+    _drive(svc)
+
+    svc.list_traces(project_id="p1")
+
+    assert svc._client.query.call_count == 2
+    count_settings = svc._client.query.call_args_list[1].kwargs.get("settings")
+    assert count_settings is READ_QUERY_SETTINGS
+
+
+def test_both_queries_carry_an_execution_ceiling_and_the_readonly_flag():
+    """The properties the bounds exist for, asserted on what the queries actually got.
+
+    Identity with the shared mapping is the primary guard (above); this pins the two
+    properties that make it a bound at all, so emptying or renaming a field in the shared
+    module fails here rather than silently unbinding the widest scan the dashboard runs.
+    A filtered list is used because that is the path that reaches the base table.
+    """
+    svc = _service_with_mock_client()
+    _drive(svc)
+
+    svc.list_traces(project_id="p1", filters=_METADATA_FILTER)
+
+    for call in svc._client.query.call_args_list:
+        settings = call.kwargs["settings"]
+        assert settings["max_execution_time"] == QUERY_TIMEOUT_S
+        assert settings["readonly"] == 1

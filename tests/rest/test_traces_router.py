@@ -3,6 +3,7 @@
 Uses FastAPI TestClient with mocked dependencies — no ClickHouse needed.
 """
 
+import asyncio
 import copy
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
@@ -606,3 +607,81 @@ class TestRetentionGateEnterprise:
         mock_trace_reader.get_trace.return_value = old_trace
         response = client.get("/api/v1/projects/test-project/traces/old")
         assert response.status_code == 200
+
+
+class TestBlockingReadsRunOffTheEventLoop:
+    """The synchronous ClickHouse reads must be handed to a worker thread.
+
+    Nothing observable changes when this regresses. The endpoint returns the same body
+    with the same status; the only difference is that the whole process's event loop is
+    parked for the duration of the query, so every other in-flight request stalls behind
+    it (one uvicorn worker, one replica — there is no second process to absorb it). That
+    makes it exactly the kind of change a later refactor drops without noticing.
+
+    What IS observable is where the blocking call runs. Work handed to
+    ``asyncio.to_thread`` executes on a worker thread, which has no running event loop,
+    while a call awaited inline executes on the loop thread itself — so asking for the
+    running loop from inside the mocked service call distinguishes the two directly.
+    """
+
+    @staticmethod
+    def _loop_visible_to(recorder: list[bool], result):
+        """Service stub recording whether it ran somewhere an event loop was running."""
+
+        def _call(*_args, **_kwargs):
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                recorder.append(False)
+            else:
+                recorder.append(True)
+            return result
+
+        return _call
+
+    def test_the_sentinel_would_catch_a_call_left_on_the_loop(self):
+        """Guard on the guard: the two tests below only mean something if this stub
+        reports True when it really does run on the event loop."""
+        ran_on_loop: list[bool] = []
+        stub = self._loop_visible_to(ran_on_loop, None)
+
+        async def call_inline():
+            stub()
+
+        asyncio.run(call_inline())
+
+        assert ran_on_loop == [True]
+
+    def test_list_traces_reads_off_the_loop(self, client, mock_trace_reader):
+        ran_on_loop: list[bool] = []
+        mock_trace_reader.list_traces.side_effect = self._loop_visible_to(
+            ran_on_loop,
+            {"data": [], "meta": {"page": 0, "limit": 50, "total": 0}},
+        )
+
+        response = client.get("/api/v1/projects/test-project/traces")
+
+        assert response.status_code == 200
+        assert ran_on_loop == [False]
+
+    def test_a_read_that_raises_in_the_worker_thread_still_maps_to_500(
+        self, client, mock_trace_reader
+    ):
+        """The thread hop must not swallow or reshape the failure: the exception has to
+        propagate back out of the await and into the handler's own except block."""
+        mock_trace_reader.list_traces.side_effect = Exception("ClickHouse down")
+
+        response = client.get("/api/v1/projects/test-project/traces")
+
+        assert response.status_code == 500
+        assert response.json()["detail"] == "Failed to list traces"
+
+    def test_a_bad_predicate_is_rejected_before_any_thread_is_taken(
+        self, client, mock_trace_reader
+    ):
+        """Filter parsing stays in front of the hop, so a malformed predicate is a 422
+        and never costs a worker thread or a query."""
+        response = client.get("/api/v1/projects/test-project/traces?filters=not-json")
+
+        assert response.status_code == 422
+        mock_trace_reader.list_traces.assert_not_called()
