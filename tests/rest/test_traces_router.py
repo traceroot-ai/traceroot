@@ -664,6 +664,17 @@ class TestBlockingReadsRunOffTheEventLoop:
         assert response.status_code == 200
         assert ran_on_loop == [False]
 
+    def test_metadata_keys_reads_off_the_loop(self, client, mock_trace_discovery):
+        ran_on_loop: list[bool] = []
+        mock_trace_discovery.get_distinct_metadata_keys.side_effect = self._loop_visible_to(
+            ran_on_loop, []
+        )
+
+        response = client.get("/api/v1/projects/test-project/traces/metadata-keys")
+
+        assert response.status_code == 200
+        assert ran_on_loop == [False]
+
     def test_a_read_that_raises_in_the_worker_thread_still_maps_to_500(
         self, client, mock_trace_reader
     ):

@@ -163,3 +163,16 @@ class FilterValuesResponse(BaseModel):
 
     field: str
     values: list[FilterValueCount]
+
+
+class MetadataKeysResponse(BaseModel):
+    """Metadata keys observed in a window, by frequency — the discovery answer.
+
+    Feeds one surface: the metadata filter's key combobox. The trace list's column picker
+    is not a consumer — it offers fixed fields only, and metadata reaches the list as a
+    single blob cell rather than a column per key. Rows reuse ``FilterValueCount``
+    (``value``/``count``) because a key with an occurrence count is the same shape as a
+    categorical value with one, and both are rendered by the same suggestion list.
+    """
+
+    keys: list[FilterValueCount]

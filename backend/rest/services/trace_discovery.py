@@ -1,7 +1,7 @@
-"""Option discovery for the filter UI: the distinct values a column takes.
+"""Option discovery for the filter UI: distinct column values and metadata keys.
 
 Every read here answers "what could the user pick?", never "what matches?". Suggestion is
-not permission — a value that falls outside an answer here stays filterable.
+not permission — a value or key that falls outside an answer here stays filterable.
 """
 
 import time
@@ -13,9 +13,9 @@ from rest.services.trace_reader import customer_traffic_only, default_lookback_s
 from rest.sql_utils import to_utc_naive
 
 # Every discovery answer: cap the option list and cache briefly. A picker only needs the
-# frequent entries, and the GROUP BY over spans is the heavy part. The cap bounds each
-# option list; the cache bounds all of them together, since they share one dict keyed by
-# namespace.
+# frequent entries, and the GROUP BY over spans is the heavy part. The cap bounds the
+# distinct-value lists and the metadata key list alike; the cache bounds all of them
+# together, since they share one dict keyed by namespace.
 DISCOVERY_LIMIT = 100
 DISCOVERY_CACHE_TTL_SECONDS = 30
 DISCOVERY_CACHE_MAX = 256
@@ -26,6 +26,11 @@ DISCOVERY_CACHE_MAX = 256
 # to expire or spill at different points. The rationale for each setting lives in that
 # module. Note for this module in particular: the 30s discovery cache does not protect the
 # FIRST caller, which is the one max_execution_time bounds.
+
+# Cache namespace for metadata key discovery. Every cache key leads with a namespace — the
+# scanned table for a column enumeration, this constant for key discovery — which is what
+# keeps the two answer spaces apart.
+_METADATA_KEYS_NAMESPACE = "metadata_keys"
 
 
 def _floor_minute(dt: datetime | None) -> datetime | None:
@@ -48,11 +53,11 @@ def _discovery_cache_key(
 
     Args:
         namespace (str): Which discovery answer space the key belongs to — the scanned
-            table for a column enumeration. Two answers can only collide if they share
-            this.
+            table for a column enumeration, ``_METADATA_KEYS_NAMESPACE`` for key
+            discovery. Two answers can only collide if they share this.
         project_id (str): Project the answer is scoped to.
         subject (str): What was enumerated within the namespace — a registry-resolved
-            column name.
+            column name, or the map column key discovery reads.
         normalized_start (datetime): Naive-UTC lower window bound.
         normalized_end (datetime | None): Naive-UTC upper window bound, or ``None``.
 
@@ -260,7 +265,7 @@ class TraceDiscoveryService:
         """Shared distinct-values scan: dedup, group, count, cache.
 
         Window resolution and the scan's WHERE clause come from ``_resolve_scan_window``
-        and ``_window_scan``, shared by every discovery query.
+        and ``_window_scan``, the same pair metadata key discovery uses.
 
         Args:
             table (str): Source table (``spans`` or ``traces``) — a literal chosen by
@@ -302,6 +307,101 @@ class TraceDiscoveryService:
                 LIMIT 1 BY {dedup_keys}
             )
             WHERE value IS NOT NULL AND value != ''
+            GROUP BY value
+            ORDER BY n DESC
+            LIMIT {DISCOVERY_LIMIT}
+        """
+        result = self._client.query(query, parameters=params, settings=READ_QUERY_SETTINGS)
+        rows = [{"value": str(row[0]), "count": int(row[1])} for row in result.result_rows]
+        self._cache_put(cache_key, rows)
+        return rows
+
+    def get_distinct_metadata_keys(
+        self,
+        project_id: str,
+        start_after: datetime | None = None,
+        end_before: datetime | None = None,
+    ) -> list[dict]:
+        """Distinct metadata keys on traces and spans in the active window, by frequency.
+
+        The discovery answer behind the metadata filter's key combobox, its one consumer.
+        It covers BOTH key spaces, which are disjoint by construction — a trace-level key
+        arrives on the ``traceroot.trace.`` attribute prefix and can never reach a span —
+        so scanning one table would leave the other's keys unsuggestable, and either half's
+        keys are equally filterable. The two halves' counts are summed per key before the
+        frequency order and the cap are applied. Otherwise the same machinery as
+        ``get_distinct_span_values``.
+
+        Args:
+            project_id (str): Project that scopes both scans (tenant isolation).
+            start_after (datetime | None): Lower bound on ``span_start_time`` and
+                ``trace_start_time``; prunes monthly partitions. ``None`` defaults to a
+                fixed lookback rather than scanning all time.
+            end_before (datetime | None): Upper bound on the same two columns (exclusive),
+                symmetric with the trace list's window so the suggestions never include
+                keys seen only on traces newer than the active window's end.
+
+        Returns:
+            list[dict]: ``[{"value": str, "count": int}]`` — the key and the number of
+            trace and span rows carrying it — ordered by descending frequency and capped
+            at ``DISCOVERY_LIMIT``. Same row shape as ``get_distinct_span_values`` so
+            both discovery surfaces render one list type.
+        """
+        normalized_start, normalized_end = _resolve_scan_window(start_after, end_before)
+        cache_key = _discovery_cache_key(
+            _METADATA_KEYS_NAMESPACE,
+            project_id,
+            "metadata_map",
+            normalized_start,
+            normalized_end,
+        )
+        cached = self._cache_get(cache_key)
+        if cached is not None:
+            return cached
+
+        span_where, span_params = _window_scan(
+            "span_start_time", project_id, normalized_start, normalized_end
+        )
+        trace_where, trace_params = _window_scan(
+            "trace_start_time", project_id, normalized_start, normalized_end
+        )
+        # Both halves scan the same project over the same window, so they bind the same
+        # parameter names to the same values.
+        params = {**span_params, **trace_params}
+
+        # In each half the key fan-out sits in its OWN layer ABOVE the dedup: LIMIT 1 BY is
+        # applied after the SELECT expressions are evaluated, so an arrayJoin inside the
+        # deduped sub-query would collapse back to one surviving row per source row and every
+        # row would contribute exactly one of its keys.
+        #
+        # The two halves are UNION ALLed BELOW the aggregation so one GROUP BY sums a key's
+        # trace and span occurrences and the ordering and LIMIT apply to the merged answer.
+        # Capping each half first would drop a key that is frequent overall but top of
+        # neither list.
+        query = f"""
+            SELECT value, count() AS n
+            FROM (
+                SELECT arrayJoin(mapKeys(metadata_map)) AS value
+                FROM (
+                    SELECT project_id, trace_id, span_id, metadata_map
+                    FROM spans
+                    WHERE {span_where}
+                    ORDER BY ch_update_time DESC
+                    LIMIT 1 BY project_id, trace_id, span_id
+                )
+
+                UNION ALL
+
+                SELECT arrayJoin(mapKeys(metadata_map)) AS value
+                FROM (
+                    SELECT project_id, trace_id, metadata_map
+                    FROM traces
+                    WHERE {trace_where}
+                    ORDER BY ch_update_time DESC
+                    LIMIT 1 BY project_id, trace_id
+                )
+            )
+            WHERE value != ''
             GROUP BY value
             ORDER BY n DESC
             LIMIT {DISCOVERY_LIMIT}
