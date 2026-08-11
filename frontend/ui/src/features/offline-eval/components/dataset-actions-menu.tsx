@@ -14,7 +14,8 @@ export function DatasetActionsMenu({
   onEdit,
   onDelete,
 }: {
-  onEdit: () => void;
+  /** Omit to render a delete-only menu (e.g. experiment runs, which aren't edited). */
+  onEdit?: () => void;
   onDelete: () => void;
 }) {
   const [open, setOpen] = React.useState(false);
@@ -32,17 +33,19 @@ export function DatasetActionsMenu({
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-36 p-1">
-        <button
-          className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-[12px] hover:bg-muted/60"
-          onClick={(e) => {
-            e.stopPropagation();
-            onEdit();
-            setOpen(false);
-          }}
-        >
-          <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
-          Edit
-        </button>
+        {onEdit && (
+          <button
+            className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-[12px] hover:bg-muted/60"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit();
+              setOpen(false);
+            }}
+          >
+            <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+            Edit
+          </button>
+        )}
         <button
           className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-[12px] text-destructive hover:bg-destructive/10"
           onClick={(e) => {

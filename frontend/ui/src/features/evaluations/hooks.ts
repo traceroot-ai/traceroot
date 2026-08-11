@@ -3,14 +3,13 @@
  * detectors hooks: queryKey arrays, fetch() against the committed Route Handlers,
  * throw on !res.ok, enabled on projectId, mutations invalidate the caches.
  */
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   DatasetRow,
   DatasetDetailResponse,
   EvaluationRow,
   RunRow,
   RunDetailResponse,
-  CompareRunsResponse,
   EvalResultStatus,
   ScoreRow,
 } from "./types";
@@ -120,7 +119,6 @@ export function useDeleteDataset(projectId: string) {
 export interface SaveTestCaseInput {
   input: string;
   expected?: string | null;
-  recorded_output?: string | null;
   metadata?: Record<string, unknown> | null;
   review?: "needs_review" | "ready";
   capture_reason?: string;
@@ -168,16 +166,37 @@ export function useUpdateTestCase(projectId: string, datasetId: string) {
   });
 }
 
+/** Delete a test case → publishes a new version without it (older snapshots keep it). */
+export function useDeleteTestCase(projectId: string, datasetId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (testCaseId: string) =>
+      sendJson<{ versionId: string; versionNumber: number }>(
+        `/api/projects/${projectId}/datasets/${datasetId}/test-cases/${encodeURIComponent(testCaseId)}`,
+        "DELETE",
+        undefined,
+      ),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["datasets"] }),
+  });
+}
+
 export interface TestCaseRunRow {
   resultId: string;
   runId: string;
   runNumber: number;
   candidateVersion: string;
   evaluationName: string;
+  /** The dataset version this run measured — used to hide runs that measured a
+   *  DIFFERENT version of this row (a different input/expected association). */
+  datasetVersionId: string;
   ranAt: string;
   score: number | null;
   status: string;
   change: "improved" | "regressed" | "unchanged" | null;
+  /** Run-level totals (summed over the run's cases), à la the Experiments list. */
+  caseCount: number;
+  cost: number | null;
+  elapsedMs: number | null;
 }
 
 /** Every evaluation run that measured a given test case (newest first). */
@@ -259,21 +278,19 @@ export function useEvaluationRun(projectId: string, runId: string) {
   });
 }
 
-/** Compare two arbitrary runs (candidate vs baseline) of the same evaluation. */
-export function useCompareRuns(
-  projectId: string,
-  candidateId: string | null,
-  baselineId: string | null,
-) {
-  return useQuery({
-    queryKey: ["evaluations", "compare", projectId, candidateId, baselineId],
-    queryFn: () =>
-      getJson<CompareRunsResponse>(
-        `/api/projects/${projectId}/evaluations/compare?candidate=${encodeURIComponent(
-          candidateId!,
-        )}&baseline=${encodeURIComponent(baselineId!)}`,
-      ),
-    enabled: !!projectId && !!candidateId && !!baselineId && candidateId !== baselineId,
+/**
+ * Fetch the full detail (run + per-case results) for several runs at once — the
+ * data behind the N-run comparison page. Shares the exact per-run queryKey with
+ * `useEvaluationRun`, so a run already loaded elsewhere is served from cache.
+ */
+export function useEvaluationRunDetails(projectId: string, runIds: string[]) {
+  return useQueries({
+    queries: runIds.map((runId) => ({
+      queryKey: ["evaluations", "run", projectId, runId],
+      queryFn: () =>
+        getJson<RunDetailResponse>(`/api/projects/${projectId}/evaluations/runs/${runId}`),
+      enabled: !!projectId && !!runId,
+    })),
   });
 }
 

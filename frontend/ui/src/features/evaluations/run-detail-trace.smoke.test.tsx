@@ -215,10 +215,4 @@ describe("result → real trace", () => {
     expect(lastPanel.override).toBe(true); // synthetic override
     expect(screen.getByText(/Reconstructed/)).toBeDefined();
   });
-
-  it("shows the pass rate in the results filter bar", async () => {
-    stubFetch(makeResult("trace-1"));
-    mount();
-    expect(await screen.findByText(/1\/1 passed/)).toBeDefined();
-  });
 });

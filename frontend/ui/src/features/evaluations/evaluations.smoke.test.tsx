@@ -7,7 +7,7 @@
  * checked, exactly like offline-eval.smoke.test.tsx.
  */
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
-import { render, cleanup, screen, fireEvent, within } from "@testing-library/react";
+import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@/components/ui/toast";
 
@@ -23,7 +23,6 @@ vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null
 import { DatasetsView } from "./views/datasets-view";
 import { EvaluationsView } from "./views/evaluations-view";
 import { RunDetailView } from "./views/run-detail-view";
-import { DatasetDetailView } from "./views/dataset-detail-view";
 import type { RunDetail } from "./types";
 
 /**
@@ -333,101 +332,50 @@ describe("real Datasets + Evaluations views render server data", () => {
       json: async () => ({ data: [], meta: { page: 0, limit: 50, total: 0 } }),
     })) as unknown as typeof fetch;
     mount(<EvaluationsView projectId="p1" />);
-    expect(await screen.findByText(/No evaluation runs yet/)).toBeDefined();
+    expect(await screen.findByText(/No experiment runs yet/)).toBeDefined();
     expect(screen.queryByRole("button", { name: /Run evaluation/ })).toBeNull();
   });
 
-  it("run-centric table shows immutable-run identity (Run # + candidate) for both runs", async () => {
+  it("run-centric table shows both runs by run number + candidate version", async () => {
     mount(<EvaluationsView projectId="p1" />);
-    expect(await screen.findByText(withText(/Run #27 ·/))).toBeDefined();
-    expect(await screen.findByText(withText(/Run #26 ·/))).toBeDefined();
+    // Run Name is "<number> <candidate version>"; candidate versions uniquely
+    // identify the two runs (#27 → git:4a91c02, #26 → git:0000000).
+    expect(await screen.findByText("git:4a91c02")).toBeDefined();
+    expect(screen.getByText("git:0000000")).toBeDefined();
   });
 
-  it("Passed column renders a real fraction from result-status counts, not undefined/NaN", async () => {
+  it("the run action menu deletes a run after confirming", async () => {
+    const requests: Array<{ url: string; method: string }> = [];
+    global.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({ url: String(url), method: init?.method ?? "GET" });
+      return { ok: true, status: 200, json: async () => payloadFor(String(url)) };
+    }) as unknown as typeof fetch;
     mount(<EvaluationsView projectId="p1" />);
-    await screen.findByText(withText(/Run #27 ·/));
-    // Both runs carry passedCount:22/failedCount:0 (of caseCount 24; 1 errored,
-    // 1 not-scored excluded from the fraction) — one "22/22" per flat run row.
-    // Before the fixture had these counts, this cell silently rendered
-    // "undefined/NaN" / "NaN%" instead (lib/eval/pass-rate.ts: passRate(undefined,
-    // undefined) => NaN, which is not `=== 0` so the null/"—" guard never fires).
-    expect(screen.getAllByText("22/22").length).toBe(2);
-    expect(screen.getAllByText("100.0%").length).toBe(2);
+    fireEvent.click((await screen.findAllByLabelText("Row actions"))[0]);
+    fireEvent.click(await screen.findByText("Delete"));
+    // Confirmation first — nothing is deleted until the dialog's Delete is clicked.
+    await screen.findByText("Delete run");
+    expect(requests.some((r) => r.method === "DELETE")).toBe(false);
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete" }).at(-1)!);
+    await waitFor(() =>
+      expect(
+        requests.some((r) => r.method === "DELETE" && r.url.includes("/evaluations/runs/")),
+      ).toBe(true),
+    );
+    expect(await screen.findByText("Run deleted")).toBeDefined();
   });
 
-  it("Latest only keeps just the newest run of each lineage", async () => {
-    mount(<EvaluationsView projectId="p1" />);
-    // Both runs visible first.
-    expect(await screen.findByText("git:0000000")).toBeDefined();
-    fireEvent.click(screen.getByRole("button", { name: /Latest only/ }));
-    // The older run (#26) drops out; the newest (#27) stays.
-    expect(screen.queryByText("git:0000000")).toBeNull();
-    expect(screen.getByText("git:4a91c02")).toBeDefined();
-  });
-
-  it("Group by evaluation collapses runs under a lineage header", async () => {
-    mount(<EvaluationsView projectId="p1" />);
-    await screen.findByText(withText(/Run #27 ·/));
-    fireEvent.click(screen.getByRole("button", { name: /Group by evaluation/ }));
-    // Group header shows per-column aggregate totals across the lineage (not the latest
-    // run's values): run count, the averaged main score, and total captions.
-    expect(await screen.findByText(/2 runs/)).toBeDefined();
-    expect(screen.getByText(/93\.8%/)).toBeDefined(); // avg main score across the lineage
-    // Two "total" captions: pooled cost (both runs report a cost) and pooled
-    // duration — not just duration alone, which is what a zero-cost fixture
-    // silently degraded to.
-    expect(screen.getAllByText("total").length).toBe(2);
-    // Pooled pass rate across both runs' counts (44 passed / 44 judged), not the
-    // zero-denominator "—" fallback aggregateGroup produces when the fixture
-    // carries no passedCount/failedCount at all.
-    expect(screen.getByText("44/44")).toBeDefined();
-  });
-
-  it("renders a non-empty status badge even for a run status the UI's own type omits", async () => {
-    // The backend accepts "cancelled" (backend/rest/schemas/eval.py) and the list
-    // route spreads a run's status through untouched, but EvalRunStatus /
-    // STATUS_VARIANT / EVAL_RUN_STATUS_LABEL (types.ts, evaluations-view.tsx) don't
-    // have a "cancelled" key — so, unlike compare-runs.smoke.test.tsx (which stubs
-    // RunStatusBadge to echo the raw string and never exercises this), the REAL
-    // badge here renders <Badge variant={undefined}>{undefined}</Badge>: visually
-    // empty. `as never` bypasses the type system the same way a value the backend
-    // actually sends would arrive at runtime — TypeScript can't stop it.
-    const RUN_CANCELLED = { ...RUN, id: "run-cancelled", status: "cancelled" as never };
-    global.fetch = vi.fn(async () => ({
-      ok: true,
-      status: 200,
-      json: async () => ({ data: [RUN_CANCELLED], meta: { page: 0, limit: 50, total: 1 } }),
-    })) as unknown as typeof fetch;
-    mount(<EvaluationsView projectId="p1" />);
-    const row = (await screen.findByText(withText(/Run #27 ·/))).closest(
-      "tr",
-    ) as HTMLTableRowElement;
-    const statusCell = within(row).getAllByRole("cell")[6];
-    expect(statusCell.textContent?.trim()).not.toBe("");
-  });
-
-  it("Scorers tab shows an SDK-defined scorer and opens its read-only detail", async () => {
-    mount(<EvaluationsView projectId="p1" />);
-    fireEvent.click(await screen.findByRole("button", { name: /Scorers/ }));
-    // Clicking a scorer row opens the read-only, detector-style detail panel.
-    fireEvent.click(await screen.findByText("routing-accuracy"));
-    const detail = await screen.findByLabelText("Scorer detail");
-    // Detector-style cards; the removed analytics block is gone.
-    expect(within(detail).getByText("Name")).toBeDefined();
-    expect(within(detail).getByText("Pass threshold")).toBeDefined();
-    expect(within(detail).queryByText("Observed usage")).toBeNull();
-    expect(within(detail).queryByText("Configuration")).toBeNull();
-    // Scorers are SDK-authored — no create/edit control.
-    expect(screen.queryByRole("button", { name: /Create scorer/ })).toBeNull();
-  });
-
-  it("Run detail renders the run header and the result row (results-forward)", async () => {
+  it("Run detail renders the per-case results table (no run-identity header)", async () => {
     mount(<RunDetailView projectId="p1" runId="run1" />);
-    // The run's identity (evaluation name + candidate version) in the header.
-    expect((await screen.findAllByText("Billing routing")).length).toBeGreaterThan(0);
-    expect((await screen.findAllByText("git:4a91c02")).length).toBeGreaterThan(0);
-    // The result row is present (the hero results table shows the case input).
+    // The result row is present (the results table shows the case input).
     expect((await screen.findAllByText(/charged twice/)).length).toBeGreaterThan(0);
+    // Run identity + switching + comparison all moved to the Experiments list, so
+    // this page carries no header of its own: no candidate badge, no run id, no
+    // "Run #" switcher, no inline "Compare with".
+    expect(screen.queryByText("git:4a91c02")).toBeNull();
+    expect(screen.queryByText("run1")).toBeNull();
+    expect(screen.queryByText(/^Run #/)).toBeNull();
+    expect(screen.queryByLabelText("Compare with")).toBeNull();
   });
 });
 
@@ -486,25 +434,6 @@ describe("loading / error / empty states", () => {
     expect(await screen.findByText("Error loading runs")).toBeDefined();
   });
 
-  it("Scorers tab shows loading, error, and empty states", async () => {
-    global.fetch = pendingFetch();
-    mount(<EvaluationsView projectId="p1" />);
-    fireEvent.click(await screen.findByRole("button", { name: /Scorers/ }));
-    expect(screen.getByText("Loading scorers...")).toBeDefined();
-    cleanup();
-
-    global.fetch = failingFetch();
-    mount(<EvaluationsView projectId="p1" />);
-    fireEvent.click(await screen.findByRole("button", { name: /Scorers/ }));
-    expect(await screen.findByText("Error loading scorers")).toBeDefined();
-    cleanup();
-
-    global.fetch = emptyListFetch();
-    mount(<EvaluationsView projectId="p1" />);
-    fireEvent.click(await screen.findByRole("button", { name: /Scorers/ }));
-    expect(await screen.findByText(/No scorers yet/)).toBeDefined();
-  });
-
   it("Run detail shows a loading state, then a not-found state on error", async () => {
     global.fetch = pendingFetch();
     mount(<RunDetailView projectId="p1" runId="run1" />);
@@ -518,39 +447,4 @@ describe("loading / error / empty states", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Dataset detail — of the five routed evaluation surfaces (datasets,
-// datasets/[datasetId], evaluations, evaluations/[runId], evaluations/compare),
-// this was the only one with zero mount coverage: `payloadFor`'s
-// `/datasets/ds1$` branch above was built and never used by any test, so this
-// suite's own claim to "Mount smoke tests for Datasets, Evaluations, Run
-// detail, Comparison, and Scorers" was false for Datasets' detail route.
-// ---------------------------------------------------------------------------
-describe("real Dataset detail view renders server data", () => {
-  it("shows the dataset identity and its (empty) test-case table", async () => {
-    mount(<DatasetDetailView projectId="p1" datasetId="ds1" />);
-    expect((await screen.findAllByText("Billing routing")).length).toBeGreaterThan(0);
-    expect(await screen.findByText(/No test cases yet/)).toBeDefined();
-  });
-
-  it("shows a loading state while the fetch is in flight", () => {
-    global.fetch = vi.fn(() => new Promise<Response>(() => {})) as unknown as typeof fetch;
-    mount(<DatasetDetailView projectId="p1" datasetId="ds1" />);
-    expect(screen.getByText("Loading dataset...")).toBeDefined();
-  });
-
-  it("shows a not-found state for an unknown dataset", async () => {
-    // A real 404 — the view distinguishes "this dataset does not exist" from
-    // "the request failed", and only the former gets the not-found copy. A 200
-    // with an empty body is a malformed response, not a missing dataset, so it
-    // correctly renders the generic "Couldn't load dataset" state instead.
-    global.fetch = vi.fn(async () => ({
-      ok: false,
-      status: 404,
-      json: async () => ({}),
-    })) as unknown as typeof fetch;
-    mount(<DatasetDetailView projectId="p1" datasetId="missing-ds" />);
-    expect(await screen.findByText(withText(/No dataset with the id missing-ds/))).toBeDefined();
-    expect(screen.getByText("Back to datasets")).toBeDefined();
-  });
-});
+// DatasetDetailView is covered in depth by datasets-detail.smoke.test.tsx.
