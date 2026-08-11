@@ -26,4 +26,12 @@ describe("getSystemPrompt", () => {
     expect(prompt).toContain("observations table");
     expect(prompt).toContain("GENERATION|SPAN|EVENT");
   });
+
+  it("includes current date in UTC", () => {
+    const prompt = getSystemPrompt({ projectId: "proj-123" });
+    const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+    expect(prompt).toContain("Current date:");
+    expect(prompt).toContain(today);
+    expect(prompt).toContain("UTC");
+  });
 });
