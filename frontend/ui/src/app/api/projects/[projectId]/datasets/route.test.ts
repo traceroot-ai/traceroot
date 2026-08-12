@@ -203,7 +203,11 @@ describe("POST", () => {
     expect(prismaMock.dataset.create).not.toHaveBeenCalled();
     // The uniqueness check is scoped to the project and case-insensitive.
     expect(prismaMock.dataset.findFirst).toHaveBeenCalledWith({
-      where: { projectId: "p1", name: { equals: "support", mode: "insensitive" } },
+      where: {
+        projectId: "p1",
+        clientDatasetId: null,
+        name: { equals: "support", mode: "insensitive" },
+      },
       select: { name: true },
     });
   });

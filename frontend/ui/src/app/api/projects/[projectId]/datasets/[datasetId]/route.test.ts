@@ -201,6 +201,7 @@ describe("PATCH", () => {
       .find((a) => "name" in a.where)!;
     expect(clashCall.where).toEqual({
       projectId: "p1",
+      clientDatasetId: null,
       id: { not: "ds1" },
       name: { equals: "support", mode: "insensitive" },
     });

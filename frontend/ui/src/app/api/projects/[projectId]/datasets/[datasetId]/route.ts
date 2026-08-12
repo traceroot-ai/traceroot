@@ -95,6 +95,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     const clash = await prisma.dataset.findFirst({
       where: {
         projectId,
+        clientDatasetId: null, // UI-scoped, matching the partial unique index
         id: { not: datasetId },
         name: { equals: parsed.data.name, mode: "insensitive" as const },
       },

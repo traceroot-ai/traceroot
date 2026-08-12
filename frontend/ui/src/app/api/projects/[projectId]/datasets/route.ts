@@ -89,10 +89,16 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
   // A dataset's name is its human identity in the project: creating a second one with the
   // same name deduplicates against the first from the user's point of view, so deny it here
-  // (case-insensitive) rather than silently making a confusing duplicate. This guards the UI
-  // create flow only — the SDK converges by its stable client id, a separate mechanism.
+  // (case-insensitive) rather than silently making a confusing duplicate. Scoped to UI-authored
+  // datasets (`clientDatasetId: null`) to match the partial unique index that backs it — an SDK
+  // dataset may legitimately share a display name (it converges by its stable client id), so it
+  // must not make this pre-check falsely 409 a valid UI create.
   const existing = await prisma.dataset.findFirst({
-    where: { projectId, name: { equals: parsed.data.name, mode: "insensitive" as const } },
+    where: {
+      projectId,
+      clientDatasetId: null,
+      name: { equals: parsed.data.name, mode: "insensitive" as const },
+    },
     select: { name: true },
   });
   if (existing) {
