@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from rest.main import app
+from rest.retention import get_retention_cutoff
 from rest.routers.deps import ProjectAccessInfo, get_project_access
 from rest.schemas.public import (
     DetectorItem,
@@ -175,7 +176,10 @@ class TestListFindings:
     def test_free_plan_clamps_start_after_to_retention_cutoff(self, free_plan_client, reader):
         resp = free_plan_client.get("/api/v1/projects/proj-A/detectors/findings")
         assert resp.status_code == 200
-        assert reader.list_args["start_after"] is not None
+        clamped = reader.list_args["start_after"]
+        expected_cutoff = get_retention_cutoff("free")
+        assert expected_cutoff is not None
+        assert abs((clamped - expected_cutoff).total_seconds()) < 60
 
     def test_reader_error_maps_to_500(self, client, reader):
         reader.raise_on_list = True
