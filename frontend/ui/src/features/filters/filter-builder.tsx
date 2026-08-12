@@ -17,7 +17,6 @@ import { Button } from "@/components/ui/button";
 import type { Predicate } from "@/types/api";
 import { useFilterValues } from "./hooks";
 import type { FilterFieldDef } from "./registry";
-import { MAX_KEY_LENGTH } from "./predicate";
 import { buildInPredicate, buildNumericPredicate, buildTextPredicate } from "./predicate-ui";
 import {
   Dropdown,
@@ -25,6 +24,7 @@ import {
   FIELD_ICONS,
   FIELD_UNIT,
   FieldDropdown,
+  MetadataKeyCombobox,
   NumberField,
   ParkedValueField,
   TextField,
@@ -150,22 +150,14 @@ export function FilterBuilder({
         }}
       />
       {field?.requires_key && (
-        // Typed by hand for now; feat/metadata-key-suggestions replaces this with a
-        // combobox that suggests the keys discovery found. Nothing here restricts the
-        // key to a known one either way — it reaches ClickHouse as a bound parameter.
-        <div className="flex h-7 min-w-0 flex-1 items-center rounded-md border border-input bg-transparent px-2 focus-within:ring-1 focus-within:ring-ring">
-          <input
-            aria-label="metadata key"
-            placeholder="Key"
-            maxLength={MAX_KEY_LENGTH}
-            value={metadataKey}
-            onChange={(e) => setMetadataKey(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") submit();
-            }}
-            className="min-w-0 flex-1 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground"
-          />
-        </div>
+        <MetadataKeyCombobox
+          projectId={projectId}
+          startAfter={startAfter}
+          endBefore={endBefore}
+          value={metadataKey}
+          onValue={setMetadataKey}
+          onEnter={submit}
+        />
       )}
       <Dropdown
         disabled={!field}

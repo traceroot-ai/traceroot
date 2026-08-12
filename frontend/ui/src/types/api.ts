@@ -3,6 +3,7 @@
  */
 
 import type { Role, SpanKind, SpanStatus } from "@traceroot/core";
+import type { FilterValue } from "@/features/filters/registry";
 
 export type { Role };
 
@@ -214,6 +215,22 @@ export interface TraceQueryOptions {
   search_query?: string;
   // Structured attribute filters, serialized as one URL-encoded JSON array.
   filters?: Predicate[];
+}
+
+/**
+ * One discovered metadata key with how many spans carried it inside the window.
+ *
+ * It IS the categorical distinct-value row — the backend serves both from one model, so
+ * this is an alias rather than a copy that could silently drift out of step with it.
+ */
+export type MetadataKey = FilterValue;
+
+/**
+ * GET /traces/metadata-keys response — the discovery answer behind the metadata filter's
+ * key combobox, its one consumer, frequency-ordered and capped.
+ */
+export interface MetadataKeysResponse {
+  keys: MetadataKey[];
 }
 
 // Session types
