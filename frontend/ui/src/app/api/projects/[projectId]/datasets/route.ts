@@ -6,6 +6,7 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 
 type RouteParams = { params: Promise<{ projectId: string }> };
 
@@ -101,12 +102,25 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     );
   }
 
-  const dataset = await prisma.dataset.create({
-    data: {
-      projectId,
-      name: parsed.data.name,
-      description: parsed.data.description ?? null,
-    },
-  });
-  return successResponse({ dataset }, 201);
+  try {
+    const dataset = await prisma.dataset.create({
+      data: {
+        projectId,
+        name: parsed.data.name,
+        description: parsed.data.description ?? null,
+      },
+    });
+    return successResponse({ dataset }, 201);
+  } catch (e) {
+    // Two concurrent creates can both clear the pre-check above; the partial unique index
+    // (uq_dataset_project_lower_name_ui) is the race-safe backstop, so translate its
+    // violation into the same 409 rather than letting it surface as a 500.
+    if (isPrismaKnownError(e, "P2002")) {
+      return errorResponse(
+        `A dataset named "${parsed.data.name}" already exists in this project. Pick a different name.`,
+        409,
+      );
+    }
+    throw e;
+  }
 }

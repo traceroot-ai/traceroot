@@ -206,6 +206,18 @@ describe("PATCH", () => {
     });
   });
 
+  it("409s when a concurrent write wins the rename race (P2002 from the unique index)", async () => {
+    // Both pre-checks clear (name-clash lookup → null), but the update loses to the DB index.
+    prismaMock.dataset.findFirst.mockImplementation(
+      async ({ where }: { where: Record<string, unknown> }) =>
+        "name" in where ? null : { id: "ds1" },
+    );
+    prismaMock.dataset.update.mockRejectedValue({ code: "P2002" });
+    const res = await PATCH(jsonReq({ name: "renamed" }), params);
+    expect(res.status).toBe(409);
+    expect((await body(res)).error).toContain("already exists");
+  });
+
   it("clears the description when it is explicitly null", async () => {
     prismaMock.dataset.findFirst.mockResolvedValue({ id: "ds1" });
     prismaMock.dataset.update.mockResolvedValue({ id: "ds1" });

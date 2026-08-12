@@ -200,6 +200,15 @@ describe("POST", () => {
     });
   });
 
+  it("409s when a concurrent create wins the race (P2002 from the partial unique index)", async () => {
+    // The pre-check clears (findFirst → null), but the create loses to the DB index —
+    // the race-safe backstop must surface the same 409, not an unhandled 500.
+    prismaMock.dataset.create.mockRejectedValue({ code: "P2002" });
+    const res = await POST(jsonReq({ name: "support" }), params);
+    expect(res.status).toBe(409);
+    expect((await body(res)).error).toContain("already exists");
+  });
+
   it("400s an unparseable body", async () => {
     const res = await POST(badJsonReq(), params);
     expect(res.status).toBe(400);

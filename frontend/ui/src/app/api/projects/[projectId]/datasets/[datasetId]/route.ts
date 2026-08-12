@@ -108,14 +108,26 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     }
   }
 
-  const dataset = await prisma.dataset.update({
-    where: { id: datasetId },
-    data: {
-      ...(parsed.data.name !== undefined ? { name: parsed.data.name } : {}),
-      ...(parsed.data.description !== undefined ? { description: parsed.data.description } : {}),
-    },
-  });
-  return successResponse({ dataset });
+  try {
+    const dataset = await prisma.dataset.update({
+      where: { id: datasetId },
+      data: {
+        ...(parsed.data.name !== undefined ? { name: parsed.data.name } : {}),
+        ...(parsed.data.description !== undefined ? { description: parsed.data.description } : {}),
+      },
+    });
+    return successResponse({ dataset });
+  } catch (e) {
+    // A rename racing a concurrent create/rename to the same name loses to the partial
+    // unique index (uq_dataset_project_lower_name_ui); surface the same 409 as the pre-check.
+    if (parsed.data.name !== undefined && isPrismaKnownError(e, "P2002")) {
+      return errorResponse(
+        `A dataset named "${parsed.data.name}" already exists in this project. Pick a different name.`,
+        409,
+      );
+    }
+    throw e;
+  }
 }
 
 // DELETE — remove the dataset and cascade its versions/test cases.
