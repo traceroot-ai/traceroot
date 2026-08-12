@@ -163,6 +163,13 @@ def test_detectors_list_route_documents_error_responses():
     assert set(responses) >= {"200", "401", "500"}
 
 
+def test_detector_detail_route_documents_error_responses():
+    responses = _schema()["paths"]["/api/v1/public/detectors/{detector_id}"]["get"]["responses"]
+    assert set(responses) >= {"200", "401", "404", "500"}
+    assert responses["404"]["description"] == "Detector not found"
+    assert responses["500"]["description"] == "Failed to read detector"
+
+
 # --- Phase-4 evaluation reporting routes ------------------------------------
 
 

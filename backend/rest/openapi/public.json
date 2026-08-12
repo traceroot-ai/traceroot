@@ -3018,6 +3018,21 @@
             },
             "description": "Authentication failed"
           },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Detector not found"
+          },
           "422": {
             "content": {
               "application/json": {
@@ -3027,6 +3042,21 @@
               }
             },
             "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Failed to read detector"
           },
           "503": {
             "content": {
