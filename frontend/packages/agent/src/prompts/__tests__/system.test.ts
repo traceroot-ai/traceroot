@@ -23,6 +23,15 @@ describe("getSystemPrompt", () => {
     expect(prompt).toContain("spans.jsonl");
   });
 
+  it("describes the detector read tools", () => {
+    const prompt = getSystemPrompt({ projectId: "proj-123" });
+    expect(prompt).toContain("list_detectors");
+    expect(prompt).toContain("list_findings");
+    expect(prompt).toContain("get_finding");
+    expect(prompt).toContain("get_finding_by_trace");
+    expect(prompt).toContain("root-cause analysis");
+  });
+
   it("points a session context at get_session and download_session", () => {
     const prompt = getSystemPrompt({ projectId: "proj-123", traceSessionId: "sess-9" });
     expect(prompt).toContain("Currently viewing Session ID: sess-9");

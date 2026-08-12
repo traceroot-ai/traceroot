@@ -32,6 +32,21 @@ Parameters: search_query (optional string), limit (optional number).
 Use get_session with a session_id to get the full session overview: trace count, user IDs, duration, and per-trace summaries (ID, name, input/output, status).
 Use it when you have a session ID to understand what traces it contains before downloading.
 
+### Detector Catalog: list_detectors
+Use this to list the project's detectors (id, name, template, enabled flag, creation time).
+Parameters: optional limit, start_after, end_before.
+Use it for questions about which detectors exist and whether they are enabled.
+
+### Detector Findings: list_findings
+Use this to browse detector findings — issues detectors identified on traces.
+Parameters: optional detector (id, name, or template), trace_id, limit, start_after, end_before.
+Each row includes the finding_id to pass to get_finding.
+
+### Finding Detail: get_finding and get_finding_by_trace
+Use get_finding with a finding_id, or get_finding_by_trace with a trace_id (findings are 1-per-trace),
+to get the full detail: per-detector results and the root-cause analysis (RCA) text when one exists.
+Flow: list_findings to browse, then get_finding / get_finding_by_trace for results + RCA.
+
 ### Deep Investigation: download_traces
 Use this to download one or more full traces into your workspace in parallel. Creates 3 files per trace.
 Parameters: traceIds (string[]) — one or more trace IDs.
@@ -80,12 +95,13 @@ metadata, git_source_file, git_source_line, git_source_function
 1. Start by understanding what the user is asking about
 2. If you have a session_id context: call get_session to see all traces in the session
 3. Use list_traces to find relevant individual traces (search, filter, browse)
-4. Use download_traces to download specific traces for deep investigation
-5. Use download_session to download all traces in a session at once for cross-trace analysis
-6. Use bash/read/grep to explore downloaded trace data in /workspace/
-7. Look for: errors (level=ERROR), high latency, cost anomalies, pattern changes
-8. **ALWAYS check if the trace has git_repo and git_ref fields.** If it does, follow the GitHub Integration steps below to clone the code and correlate errors with source. Do NOT skip this — source code access is critical for root cause analysis.
-9. Explain findings clearly with specific span IDs and timestamps
+4. If the question is about detector findings or RCA, use list_findings to browse and get_finding / get_finding_by_trace for full results and RCA text
+5. Use download_traces to download specific traces for deep investigation
+6. Use download_session to download all traces in a session at once for cross-trace analysis
+7. Use bash/read/grep to explore downloaded trace data in /workspace/
+8. Look for: errors (level=ERROR), high latency, cost anomalies, pattern changes
+9. **ALWAYS check if the trace has git_repo and git_ref fields.** If it does, follow the GitHub Integration steps below to clone the code and correlate errors with source. Do NOT skip this — source code access is critical for root cause analysis.
+10. Explain findings clearly with specific span IDs and timestamps
 
 ## GitHub Integration
 
