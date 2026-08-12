@@ -37,6 +37,23 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/public", tags=["Account (Public)"])
 
 
+def _account_service_error() -> HTTPException:
+    """Build the controlled 503 used whenever the account service is ambiguous.
+
+    A shared fail-closed error so any upstream ambiguity — non-200, malformed
+    JSON, a missing ``workspaces`` array, or a membership item missing a
+    required field — surfaces as a 503, never an uncaught 500 (parity with the
+    auth-dependency siblings).
+
+    Returns:
+        HTTPException: A 503 with a generic ``Account service error`` detail.
+    """
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="Account service error",
+    )
+
+
 def _bearer_token(authorization: str | None) -> str:
     """Extract the bearer token from an ``Authorization`` header.
 
@@ -99,26 +116,17 @@ async def _fetch_memberships(token: str) -> list[dict[str, Any]]:
 
     if response.status_code != 200:
         logger.error(f"Unexpected response from account service: {response.status_code}")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Account service error",
-        )
+        raise _account_service_error()
 
     try:
         data = response.json()
     except ValueError as e:
         logger.error(f"Malformed JSON from account service: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Account service error",
-        ) from e
+        raise _account_service_error() from e
 
     if not isinstance(data, dict) or not isinstance(data.get("workspaces"), list):
         logger.error("Account service returned a malformed memberships body")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Account service error",
-        )
+        raise _account_service_error()
 
     return data["workspaces"]
 
@@ -153,9 +161,16 @@ async def list_workspaces(
     """
     token = _bearer_token(authorization)
     workspaces = await _fetch_memberships(token)
-    return PublicWorkspaceListResponse(
-        data=[WorkspaceListItem(id=ws["id"], name=ws["name"], role=ws["role"]) for ws in workspaces]
-    )
+    try:
+        items = [
+            WorkspaceListItem(id=ws["id"], name=ws["name"], role=ws["role"]) for ws in workspaces
+        ]
+    except (KeyError, TypeError) as e:
+        # A membership item missing a required field is a malformed upstream
+        # response → fail closed with a controlled 503 (parity with the auth
+        # siblings), never an uncaught 500.
+        raise _account_service_error() from e
+    return PublicWorkspaceListResponse(data=items)
 
 
 @router.get("/projects", response_model=PublicProjectListResponse, operation_id="list_projects")
@@ -195,16 +210,22 @@ async def list_projects(
     token = _bearer_token(authorization)
     workspaces = await _fetch_memberships(token)
     items: list[ProjectListItem] = []
-    for ws in workspaces:
-        if workspace_id is not None and ws["id"] != workspace_id:
-            continue
-        for project in ws.get("projects", []):
-            items.append(
-                ProjectListItem(
-                    id=project["id"],
-                    name=project["name"],
-                    workspace_id=ws["id"],
-                    workspace_name=ws["name"],
+    try:
+        for ws in workspaces:
+            if workspace_id is not None and ws["id"] != workspace_id:
+                continue
+            for project in ws.get("projects", []):
+                items.append(
+                    ProjectListItem(
+                        id=project["id"],
+                        name=project["name"],
+                        workspace_id=ws["id"],
+                        workspace_name=ws["name"],
+                    )
                 )
-            )
+    except (KeyError, TypeError) as e:
+        # A membership/project item missing a required field is a malformed
+        # upstream response → fail closed with a controlled 503 (parity with the
+        # auth siblings), never an uncaught 500.
+        raise _account_service_error() from e
     return PublicProjectListResponse(data=items)
