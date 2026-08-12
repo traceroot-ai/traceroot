@@ -28,7 +28,7 @@ function fmtDurationMs(ms: number | null | undefined): string {
 function scoreValue(s: ScoreRow): string {
   if (s.error) return "error";
   if (s.numericValue !== null) return String(s.numericValue);
-  if (s.boolValue !== null) return s.boolValue ? "pass" : "fail";
+  if (s.boolValue !== null) return s.boolValue ? "true" : "false";
   if (s.stringValue !== null) return s.stringValue;
   if (s.passed !== null) return s.passed ? "pass" : "fail";
   return "—";

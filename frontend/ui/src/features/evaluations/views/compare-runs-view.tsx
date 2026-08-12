@@ -53,7 +53,7 @@ function scoreText(s: ScoreRow | undefined): string {
   if (s.error) return "error";
   if (s.stringValue !== null) return s.stringValue;
   if (s.numericValue !== null) return fmtScoreNumber(s.numericValue);
-  if (s.boolValue !== null) return s.boolValue ? "pass" : "fail";
+  if (s.boolValue !== null) return s.boolValue ? "true" : "false";
   if (s.passed !== null) return s.passed ? "pass" : "fail";
   return "—";
 }
