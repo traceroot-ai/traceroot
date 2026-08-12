@@ -376,7 +376,6 @@ export function DatasetDetailView({
           testCase={openCase}
           projectId={projectId}
           datasetId={datasetId}
-          versionId={selectedVersion?.id ?? null}
           dirtyRef={dirtyRef}
           onClose={() => setOpenCaseId(null)}
           onNavigate={(dir) => {
@@ -428,7 +427,6 @@ function CasePanel({
   testCase,
   projectId,
   datasetId,
-  versionId,
   dirtyRef,
   onClose,
   onNavigate,
@@ -438,9 +436,6 @@ function CasePanel({
   testCase: TestCaseRow;
   projectId: string;
   datasetId: string;
-  /** The dataset version being viewed; runs that measured a different version of
-   *  this row are hidden (their input/expected association differs). */
-  versionId: string | null;
   /** Reset to false by this (read-only) panel; kept so the parent can reintroduce
    * an unsaved-changes guard when in-panel editing returns. */
   dirtyRef: React.MutableRefObject<boolean>;
@@ -459,13 +454,11 @@ function CasePanel({
     registerAiHost,
   } = useLayout();
   const caseRuns = useTestCaseRuns(projectId, datasetId, testCase.testCaseId);
-  // Only runs that measured THIS version of the row — a run on a different dataset
-  // version scored a different input/expected, so lumping it in would mislead. When
-  // the viewed version is unknown, don't filter.
-  const runs = React.useMemo(() => {
-    const all = caseRuns.data?.data ?? [];
-    return versionId ? all.filter((r) => r.datasetVersionId === versionId) : all;
-  }, [caseRuns.data, versionId]);
+  // Every run that measured this row (matched by its stable testCaseId), newest first, across
+  // all dataset versions — the row's full experiment history. Scoping this to the viewed version
+  // left the list confusingly empty after any dataset edit; per-version labelling is deferred to
+  // the dataset-id/version cleanup.
+  const runs = React.useMemo(() => caseRuns.data?.data ?? [], [caseRuns.data]);
   const [fullscreen, setFullscreen] = React.useState(false);
   const [view, setView] = React.useState<"details" | "runs">("details");
 
@@ -682,8 +675,7 @@ function CasePanel({
             ) : runs.length === 0 ? (
               <div className="h-full overflow-auto p-4">
                 <EmptyState>
-                  No run has measured this row on the dataset version you’re viewing. Runs that
-                  measured a different version aren’t shown here.
+                  No experiment has measured this test case yet.
                 </EmptyState>
               </div>
             ) : (

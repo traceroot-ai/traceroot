@@ -454,7 +454,7 @@ describe("Dataset detail — the slide-in case panel", () => {
     await openCase(/charged twice/);
     fireEvent.click(screen.getByRole("button", { name: /Experiments/ }));
     expect(
-      await screen.findByText(/No run has measured this row on the dataset version/),
+      await screen.findByText(/No experiment has measured this test case yet/),
     ).toBeDefined();
   });
 
