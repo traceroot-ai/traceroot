@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma, Prisma, CompleteRunRequestSchema } from "@traceroot/core";
 import { requireApiKeyProject } from "@/lib/eval/auth";
-import { mergeScorerManifests } from "@/lib/eval/metrics";
+import { mergeScorerManifests, scorerManifestsEqual } from "@/lib/eval/metrics";
 
 type RouteParams = { params: Promise<{ runId: string }> };
 
@@ -45,8 +45,10 @@ export async function POST(request: Request, { params }: RouteParams) {
   // manifest carries each emitted metric's policy for read-back. Additive + idempotent —
   // a replay carrying the same manifest merges to an equal value and writes nothing.
   const mergedScorers = mergeScorerManifests(run.scorers, c.scorers ?? null);
+  // Canonical (key-order-independent) compare: the stored manifest reads back with jsonb's own
+  // key ordering, so a raw JSON.stringify would report "changed" on every idempotent replay.
   const scorersChanged =
-    c.scorers != null && JSON.stringify(mergedScorers) !== JSON.stringify(run.scorers ?? null);
+    c.scorers != null && !scorerManifestsEqual(mergedScorers, run.scorers ?? null);
 
   const terminal = c.status !== "running";
   // A finished run stays finished. Accepting "running" here would leave status

@@ -28,3 +28,25 @@ export function mergeScorerManifests(stored: unknown, incoming: unknown): unknow
   add(incoming); // incoming wins on name collision — it carries the resolved metrics
   return [...byName.values()];
 }
+
+/** Order-independent structural equality for two scorer manifests. Compares a canonical
+ *  (recursively key-sorted) serialization, so the key order the manifest is READ BACK in — jsonb
+ *  canonicalizes object keys length-then-bytewise, which differs from the schema's declaration
+ *  order — does not read as a change. Lets the completion route skip a redundant column write on
+ *  an idempotent replay (array element order is preserved: `mergeScorerManifests` keeps stored
+ *  order, so a replay's merged manifest matches the stored one element-for-element). */
+export function scorerManifestsEqual(a: unknown, b: unknown): boolean {
+  return canonicalJson(a) === canonicalJson(b);
+}
+
+function canonicalJson(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(canonicalJson).join(",")}]`;
+  if (v && typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    return `{${Object.keys(o)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${canonicalJson(o[k])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(v) ?? "null";
+}
