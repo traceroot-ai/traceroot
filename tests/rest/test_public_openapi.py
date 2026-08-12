@@ -262,6 +262,8 @@ def test_session_read_routes_document_error_responses():
 _METHODS = {"get", "post", "put", "patch", "delete"}
 
 EXPECTED_OPERATION_IDS = {
+    "/api/v1/public/projects": {"get": "list_projects"},
+    "/api/v1/public/workspaces": {"get": "list_workspaces"},
     "/api/v1/public/detectors": {"get": "list_detectors"},
     "/api/v1/public/detectors/findings": {"get": "list_findings"},
     "/api/v1/public/detectors/findings/{finding_id}": {"get": "get_finding"},
@@ -336,6 +338,8 @@ def test_x_tool_enabled_set_and_shape():
         "list_findings",
         "get_finding",
         "get_finding_by_trace",
+        "list_workspaces",
+        "list_projects",
     }
     for name, tool in enabled.items():
         assert tool["description"], f"{name} needs an agent-facing description"

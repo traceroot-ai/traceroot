@@ -155,3 +155,42 @@ class PublicDetectorListResponse(BaseModel):
 
     data: list[DetectorItem]
     meta: PaginationMeta
+
+
+class WorkspaceListItem(BaseModel):
+    """A workspace the authenticated user belongs to, with their role in it."""
+
+    id: str
+    name: str
+    role: str
+
+
+class PublicWorkspaceListResponse(BaseModel):
+    """Account-scope discovery: the workspaces the user can access.
+
+    Returned by ``list_workspaces`` — a user-credential-only op that needs no
+    ``project_id``. Not paginated: a user's workspace membership is small and
+    bounded.
+    """
+
+    data: list[WorkspaceListItem]
+
+
+class ProjectListItem(BaseModel):
+    """A project the user can access, tagged with its owning workspace."""
+
+    id: str
+    name: str
+    workspace_id: str
+    workspace_name: str
+
+
+class PublicProjectListResponse(BaseModel):
+    """Account-scope discovery: the projects the user can access.
+
+    Returned by ``list_projects`` — a user-credential-only op. Projects are
+    flattened across the user's workspaces; an optional ``workspace_id`` query
+    narrows the result to one workspace.
+    """
+
+    data: list[ProjectListItem]
