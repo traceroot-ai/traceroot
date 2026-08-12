@@ -27,14 +27,13 @@ const relativeImportPatterns = [
 // Only glyphs with a single meaning in this app are listed. Eye (password
 // visibility), Hash (Slack channel), Clock (durations), ArrowRight (CTA),
 // Sparkle ("magic") and CircleAlert (generic warnings) each have an unrelated
-// second use, so they stay free. CheckCircle2 — the deprecated alias of the
-// status glyph — is also free for now: two surfaces use it for a success state
-// the registry has no entry for yet, and banning it would force a migration
-// that belongs in its own change.
+// second use, so they stay free. Loader2 (generic spinner) is likewise free.
+// CheckCircle2 is the deprecated alias of CircleCheck (DOMAIN_ICONS.success)
+// and is included so the alias can't sneak past the ban.
 const registryGlyphPattern =
-  "^(Lucide)?(Bot|BotMessageSquare|Box|CircleCheck|CircleDollarSign|CircleStop|StopCircle|" +
+  "^(Lucide)?(Bot|BotMessageSquare|Box|CheckCircle2|CircleCheck|CircleDollarSign|CircleStop|StopCircle|" +
   "FolderKanban|Globe|Layers|Layers3|LayoutDashboard|LayoutGrid|Shapes|Users|" +
-  "Workflow|Wrench)(Icon)?$";
+  "Workflow|Wrench|XCircle)(Icon)?$";
 
 export default [
   js.configs.recommended,

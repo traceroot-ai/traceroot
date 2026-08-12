@@ -16,11 +16,13 @@ import {
   LayoutDashboard,
   LayoutGrid,
   Layers,
+  Loader2,
   Shapes,
   Sparkle,
   Users,
   Workflow,
   Wrench,
+  XCircle,
 } from "lucide-react";
 
 /**
@@ -62,6 +64,9 @@ export const DOMAIN_ICONS = {
   detector: Eye,
   environment: Globe,
   dashboard: LayoutDashboard,
+  success: CircleCheck,
+  failure: XCircle,
+  pending: Loader2,
   // Neutral "unknown field" fallback for filter/widget dropdowns. Kept
   // decoupled from `model` even though both currently render as Box — if the
   // model glyph ever changes, unmapped fields shouldn't silently change with
