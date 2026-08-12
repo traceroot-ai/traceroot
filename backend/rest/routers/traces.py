@@ -26,6 +26,7 @@ from rest.routers.deps import RateLimitedProjectAccess
 from rest.schemas.traces import (
     FilterFieldsResponse,
     FilterValuesResponse,
+    MetadataKeysResponse,
     SpanIOResponse,
     TraceDetailResponse,
     TraceListResponse,
@@ -215,6 +216,60 @@ async def get_filter_values(
         project_id=project_id, column=column.name, start_after=start_after, end_before=end_before
     )
     return {"field": field, "values": values}
+
+
+@router.get("/metadata-keys", response_model=MetadataKeysResponse)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def get_metadata_keys(
+    request: Request,
+    response: Response,
+    project_id: str,
+    _access: RateLimitedProjectAccess,  # Validates access + sets rate-limit identity
+    start_after: datetime | None = Query(
+        None,
+        description="Only consider traces and spans starting at or after this timestamp",
+    ),
+    end_before: datetime | None = Query(
+        None, description="Only consider traces and spans starting before this timestamp"
+    ),
+):
+    """Metadata keys seen on the window's traces and spans, by descending frequency.
+
+    The discovery answer behind the metadata filter's key combobox, its one consumer. It
+    covers both scopes the SDK can attach metadata at: a key set on the trace and a key
+    set on a span are disjoint key spaces, so answering from one table alone would leave
+    the other's keys unsuggestable, while a filter on either is equally valid. Unlike
+    ``/filter-values/{field}`` there is no field to resolve and nothing to reject: a key
+    binds as a parameter, so this list only suggests, and an unlisted key stays filterable
+    by typing it.
+
+    Args:
+        project_id (str): Project that owns the traces and spans; server-bound for
+            isolation.
+        _access (RateLimitedProjectAccess): Validates access and sets rate-limit identity.
+        start_after (datetime | None): Lower bound on trace and span start time (active
+            window). An omitted bound is defaulted to a fixed lookback, never scanned
+            all-time.
+        end_before (datetime | None): Upper bound on trace and span start time (active
+            window), symmetric with ``start_after`` so keys match the list's window.
+
+    Returns:
+        MetadataKeysResponse: Keys with occurrence counts, by descending frequency.
+    """
+    start_after, end_before = clamp_retention_window(_access.billing_plan, start_after, end_before)
+    service = get_trace_discovery_service()
+    # Off the event loop, same reasoning as the trace list: the key scan arrayJoins over
+    # mapKeys on both tables' base rows, so it is the heaviest of the discovery reads, and
+    # the 30s cache does not protect the first caller.
+    keys = await asyncio.to_thread(
+        service.get_distinct_metadata_keys,
+        project_id=project_id,
+        start_after=start_after,
+        end_before=end_before,
+    )
+    return {"keys": keys}
 
 
 @router.get("/{trace_id}", response_model=TraceDetailResponse)
