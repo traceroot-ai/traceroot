@@ -250,6 +250,28 @@ model Verification {
   @@map("verifications")
 }
 
+// Device Codes - better-auth device-authorization plugin (CLI login).
+// deviceCode and userCode are looked up on every poll/approval, so both get
+// indexes beyond the upstream plugin's unindexed defaults.
+model DeviceCode {
+  id              String    @id @default(cuid()) @db.VarChar
+  deviceCode      String    @map("device_code") @db.VarChar
+  userCode        String    @map("user_code") @db.VarChar
+  userId          String?   @map("user_id") @db.VarChar
+  expiresAt       DateTime  @map("expires_at") @db.Timestamp(6)
+  status          String    @db.VarChar
+  lastPolledAt    DateTime? @map("last_polled_at") @db.Timestamp(6)
+  pollingInterval Int?      @map("polling_interval")
+  clientId        String?   @map("client_id") @db.VarChar
+  scope           String?   @db.VarChar
+  createdAt       DateTime  @default(now()) @db.Timestamp(6)
+  updatedAt       DateTime  @updatedAt @db.Timestamp(6)
+
+  @@index([deviceCode], map: "ix_device_code_device_code")
+  @@index([userCode], map: "ix_device_code_user_code")
+  @@map("device_codes")
+}
+
 // Workspace-level GitHub App installations.
 // One row per (workspace, GitHub installation). Multiple rows per workspace
 // supports the multi-org case (e.g. workspace has projects under github.com/acme
