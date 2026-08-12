@@ -30,7 +30,11 @@ vi.mock("@/lib/hooks/use-list-page-state", () => ({
     queryOptions: { page: 1, limit: 50 },
   }),
 }));
-vi.mock("@/lib/hooks/use-local-storage", () => ({ useLocalStorage: () => [false, vi.fn()] }));
+// The page's live-view toggle and the trace list's column entry both persist through this
+// hook, so the stub pins the toggle for the test and leaves the columns at their defaults.
+vi.mock("@/lib/hooks/use-local-storage", () => ({
+  useLocalStorage: () => [false, vi.fn()],
+}));
 vi.mock("@/lib/auth-client", () => ({
   useSession: () => ({ data: { user: { id: "u1", email: "e" } }, isPending: false }),
 }));

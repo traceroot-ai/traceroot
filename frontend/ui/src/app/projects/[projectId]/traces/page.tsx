@@ -11,15 +11,7 @@ import { SearchFilterBar } from "@/components/search-filter-bar";
 import { TraceSearchFilterInput } from "@/features/filters/trace-search-filter-input";
 import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
-import {
-  formatDuration,
-  formatDate,
-  formatCost,
-  formatTokenFlow,
-  formatExactTokens,
-  cn,
-  buildUrlWithFilters,
-} from "@/lib/utils";
+import { cn, buildUrlWithFilters } from "@/lib/utils";
 import type { TraceListItem } from "@/types/api";
 import { useTraces, usePrefetchTraces, useTracesExist } from "@/features/traces/hooks";
 import { useRetention } from "@/lib/hooks/use-retention";
@@ -29,7 +21,10 @@ import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useLocalStorage } from "@/lib/hooks/use-local-storage";
 import { TraceViewerPanel, GettingStarted } from "@/features/traces/components";
 import { LoadingState } from "@/components/ui/loading-state";
-import { formatContentPreview } from "@/features/traces/utils";
+import { TraceListTable } from "@/features/traces/components/TraceListTable";
+// Imported from the hook's own module, not the feature barrel: the page tests replace that
+// barrel wholesale with a factory mock, and a barrel import here would go missing under it.
+import { useTraceColumns } from "@/features/traces/hooks/use-trace-columns";
 import { useSession as useAuthSession } from "@/lib/auth-client";
 
 // Tab definitions
@@ -88,6 +83,8 @@ export default function TracesPage() {
   );
 
   const prefetchTraces = usePrefetchTraces(projectId);
+
+  const { visibleColumns } = useTraceColumns(projectId);
 
   // Check if project has EVER sent traces — controls onboarding visibility.
   // Uses a dedicated endpoint that bypasses retention gating (returns a
@@ -258,110 +255,12 @@ export default function TracesPage() {
           ) : (
             <div className="flex h-full flex-col">
               <div className="flex-1 overflow-auto">
-                <table className="w-full">
-                  <thead className="sticky top-0 bg-background">
-                    <tr className="border-b border-border bg-muted/50">
-                      <th className="w-[140px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Timestamp
-                      </th>
-                      <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Name
-                      </th>
-                      <th className="min-w-[280px] max-w-[400px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Trace ID
-                      </th>
-                      <th className="w-[60px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Errors
-                      </th>
-                      <th className="w-[60px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Spans
-                      </th>
-                      <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Input
-                      </th>
-                      <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Output
-                      </th>
-                      <th className="w-[100px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Tokens
-                      </th>
-                      <th className="w-[80px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Cost
-                      </th>
-                      <th className="px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Latency
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {traces.map((trace: TraceListItem) => (
-                      <tr
-                        key={trace.trace_id}
-                        onClick={() => {
-                          setSelectedTraceId(trace.trace_id);
-                        }}
-                        className={cn(
-                          "cursor-pointer border-b border-border/50 transition-colors last:border-0",
-                          selectedTraceId === trace.trace_id ? "bg-muted" : "hover:bg-muted/50",
-                        )}
-                      >
-                        <td className="whitespace-nowrap border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
-                          {formatDate(trace.trace_start_time)}
-                        </td>
-                        <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-foreground">
-                          {trace.name}
-                        </td>
-                        <td className="min-w-[280px] max-w-[400px] whitespace-nowrap border-r border-border/50 px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
-                          <span className="block truncate" title={trace.trace_id}>
-                            {trace.trace_id}
-                          </span>
-                        </td>
-                        <td className="border-r border-border/50 px-3 py-1.5 text-center">
-                          {trace.error_count > 0 ? (
-                            <span className="inline-flex min-w-5 justify-center rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
-                              {trace.error_count}
-                            </span>
-                          ) : (
-                            <span className="text-[12px] text-muted-foreground">0</span>
-                          )}
-                        </td>
-                        <td className="border-r border-border/50 px-3 py-1.5 text-center text-[12px] text-muted-foreground">
-                          {trace.span_count}
-                        </td>
-                        <td className="max-w-[180px] border-r border-border/50 px-3 py-1.5">
-                          <span className="block truncate font-mono text-[11px] text-muted-foreground">
-                            {formatContentPreview(trace.input)}
-                          </span>
-                        </td>
-                        <td className="max-w-[180px] border-r border-border/50 px-3 py-1.5">
-                          <span className="block truncate font-mono text-[11px] text-muted-foreground">
-                            {formatContentPreview(trace.output)}
-                          </span>
-                        </td>
-                        <td className="whitespace-nowrap border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
-                          {(trace.total_input_tokens ?? 0) + (trace.total_output_tokens ?? 0) >
-                          0 ? (
-                            <span
-                              title={`${formatExactTokens(trace.total_input_tokens)} → ${formatExactTokens(trace.total_output_tokens)} (${formatExactTokens((trace.total_input_tokens ?? 0) + (trace.total_output_tokens ?? 0))})`}
-                            >
-                              {formatTokenFlow(trace.total_input_tokens, trace.total_output_tokens)}
-                            </span>
-                          ) : (
-                            "-"
-                          )}
-                        </td>
-                        <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-foreground">
-                          {trace.total_cost && trace.total_cost > 0
-                            ? formatCost(trace.total_cost)
-                            : "-"}
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-1.5 text-[12px] text-foreground">
-                          {formatDuration(trace.duration_ms)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <TraceListTable
+                  traces={traces}
+                  selectedTraceId={selectedTraceId}
+                  onSelectTrace={setSelectedTraceId}
+                  visibleColumns={visibleColumns}
+                />
               </div>
 
               <ListPagination
