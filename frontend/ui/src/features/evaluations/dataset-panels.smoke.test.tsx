@@ -188,13 +188,6 @@ describe("Edit dataset panel", () => {
     expect(patch?.body).toEqual({ name: "Billing routing v2", description: "Routing tickets" });
   });
 
-  it("copies the dataset id from the header chip", async () => {
-    mount();
-    await rowAction("Edit");
-    fireEvent.click(await screen.findByTitle("Copy dataset ID"));
-    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("ds1"));
-  });
-
   it("surfaces a save failure and closes on Cancel", async () => {
     writesFail = true;
     mount();
