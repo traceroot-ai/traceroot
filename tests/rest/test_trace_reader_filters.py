@@ -14,6 +14,7 @@ from rest.services.filters.translate import Predicate
 from rest.services.trace_reader import DEFAULT_SPAN_SCAN_LOOKBACK_HOURS, TraceReaderService
 
 _MODEL_FILTER = [Predicate(field="model_name", op="in", value=["gpt-4"])]
+_METADATA_FILTER = [Predicate(field="metadata", op="eq", value="acme-corp", key="tenant_id")]
 
 
 def _service_with_mock_client():
@@ -73,6 +74,129 @@ def test_independent_membership_predicates_emit_two_semijoins_in_both_queries():
     params = svc._client.query.call_args_list[0].kwargs["parameters"]
     assert params["f_model_name_0"] == ["gpt-4"]
     assert params["f_environment_1"] == ["prod"]
+
+
+def test_metadata_filter_lands_in_both_page_and_count_queries():
+    """A keyed predicate joins the SAME shared condition list as every other filter, so
+    the metadata-filtered page and its total can never disagree."""
+    svc = _service_with_mock_client()
+    _drive(svc)
+
+    svc.list_traces(project_id="p1", filters=_METADATA_FILTER)
+
+    assert svc._client.query.call_count == 2
+    page_sql = svc._client.query.call_args_list[0].args[0]
+    count_sql = svc._client.query.call_args_list[1].args[0]
+    for sql in (page_sql, count_sql):
+        assert "mapContains(metadata_map, {f_metadata_0_key:String})" in sql
+        assert "metadata_map[{f_metadata_0_key:String}] = {f_metadata_0:String}" in sql
+    # One parameter map feeds both queries, so the bound key/value are shared too.
+    params = svc._client.query.call_args_list[0].kwargs["parameters"]
+    assert params["f_metadata_0_key"] == "tenant_id"
+    assert params["f_metadata_0"] == "acme-corp"
+    assert svc._client.query.call_args_list[1].kwargs["parameters"] is params
+
+
+def _outer_where_clause(sql: str) -> str:
+    """The trace-level WHERE clause of an assembled list query.
+
+    The one line where every condition the translator produced is AND-joined together —
+    the place where a loosely-bound operator in one condition would reach the others.
+    """
+    return next(line.strip() for line in sql.splitlines() if line.strip().startswith("WHERE t."))
+
+
+def _or_operators_outside_parentheses(clause: str) -> int:
+    """Count ``OR`` operators in ``clause`` that sit outside every parenthesis group.
+
+    The conditions are AND-joined and OR binds looser than AND, so an OR left outside the
+    parentheses is an OR that takes the conditions beside it as its arms.
+    """
+    count = 0
+    depth = 0
+    for i, ch in enumerate(clause):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif depth == 0 and clause.startswith(" OR ", i):
+            count += 1
+    return count
+
+
+def test_metadata_filter_matches_either_scope_in_both_queries():
+    """Both halves of the predicate reach the page and the count. A trace-level tag can
+    never appear on a span, so a span-only match would drop exactly the traces whose cell
+    the user clicked."""
+    svc = _service_with_mock_client()
+    _drive(svc)
+
+    svc.list_traces(project_id="p1", filters=_METADATA_FILTER)
+
+    page_sql = svc._client.query.call_args_list[0].args[0]
+    count_sql = svc._client.query.call_args_list[1].args[0]
+    for sql in (page_sql, count_sql):
+        assert "mapContains(t.metadata_map, {f_metadata_0_key:String})" in sql  # trace row
+        assert "mapContains(metadata_map, {f_metadata_0_key:String})" in sql  # its spans
+
+
+def test_a_metadata_filter_does_not_widen_the_filters_beside_it():
+    """The assembled WHERE clause stays a conjunction: the window and the model_name
+    filter still constrain the result even though the metadata condition contains an OR.
+    Left unparenthesised, a row matching only the metadata span half would satisfy the
+    whole clause and the date range would stop applying."""
+    svc = _service_with_mock_client()
+    _drive(svc)
+
+    svc.list_traces(
+        project_id="p1",
+        start_after=datetime(2026, 6, 1),
+        end_before=datetime(2026, 6, 2),
+        filters=_MODEL_FILTER + _METADATA_FILTER,
+    )
+
+    for call in svc._client.query.call_args_list:
+        clause = _outer_where_clause(call.args[0])
+        assert " OR " in clause  # the metadata predicate is present
+        assert _or_operators_outside_parentheses(clause) == 0
+        # ... and the conditions it sits beside are still conjuncts.
+        assert "t.trace_start_time >= {start_after:DateTime64(3)} AND" in clause
+        assert "t.trace_start_time < {end_before:DateTime64(3)} AND" in clause
+        assert "model_name IN {f_model_name_0:Array(String)}" in clause
+
+
+def test_metadata_filter_inherits_the_list_window_in_both_queries():
+    """The picked date range is the outer bound: the trace query is bounded at both ends
+    and the metadata span scan inherits the same lower bound (backed off for drift)."""
+    svc = _service_with_mock_client()
+    _drive(svc)
+    start, end = datetime(2026, 6, 1), datetime(2026, 6, 2)
+
+    svc.list_traces(project_id="p1", start_after=start, end_before=end, filters=_METADATA_FILTER)
+
+    page_sql = svc._client.query.call_args_list[0].args[0]
+    count_sql = svc._client.query.call_args_list[1].args[0]
+    for sql in (page_sql, count_sql):
+        assert "t.trace_start_time >= {start_after:DateTime64(3)}" in sql
+        assert "t.trace_start_time < {end_before:DateTime64(3)}" in sql
+        assert "span_start_time >= {start_after:DateTime64(3)} - INTERVAL" in sql
+    params = svc._client.query.call_args_list[0].kwargs["parameters"]
+    assert params["start_after"] == start
+    assert params["end_before"] == end
+
+
+def test_metadata_filter_without_a_window_gets_the_default_lookback():
+    """A metadata-filtered list with no lower bound must not emit an all-time span scan;
+    it is defaulted exactly like the categorical membership path."""
+    svc = _service_with_mock_client()
+    _drive(svc)
+
+    svc.list_traces(project_id="p1", filters=_METADATA_FILTER)
+
+    page_sql = svc._client.query.call_args_list[0].args[0]
+    assert "t.trace_start_time >= {start_after:DateTime64(3)}" in page_sql
+    assert "span_start_time >= {start_after:DateTime64(3)} - INTERVAL" in page_sql
+    assert "start_after" in svc._client.query.call_args_list[0].kwargs["parameters"]
 
 
 def test_aggregate_filter_lands_in_both_page_and_count_queries():
