@@ -158,8 +158,8 @@ describe("createRegistryReadTools", () => {
     expect(String(url)).toBe("http://fastapi.test/api/v1/projects/p1/detectors/traces/t1/finding");
   });
 
-  it("get_finding formats the finding detail with RCA", async () => {
-    stubFetch({
+  it("get_finding hits the internal finding route and formats the detail with RCA", async () => {
+    const impl = stubFetch({
       finding_id: "f1",
       trace_id: "t1",
       timestamp: "2026-08-11T09:00:00Z",
@@ -170,30 +170,25 @@ describe("createRegistryReadTools", () => {
     });
     const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_finding")!;
     const result = await tool.execute("id", { label: "x", finding_id: "f1" });
+    const [url] = impl.mock.calls[0]!;
+    expect(String(url)).toBe("http://fastapi.test/api/v1/projects/p1/detectors/findings/f1");
     expect(result.content[0]!.text).toContain("Finding: f1");
     expect(result.content[0]!.text).toContain("RCA (completed):");
     expect(result.content[0]!.text).toContain("Root cause: bad deploy");
   });
 
-  it("list_detectors formats the detector catalog", async () => {
-    stubFetch({
-      data: [
-        {
-          detector_id: "det-1",
-          name: "Error spike",
-          template: "error-rate",
-          enabled: true,
-          created_at: "2026-08-01T12:00:00Z",
-        },
-      ],
+  it("list_detectors hits the internal detectors route and runs the catalog formatter", async () => {
+    const impl = stubFetch({
+      data: [{ detector_id: "det-1", name: "Error spike", template: "error-rate", enabled: true }],
       meta: { total: 1 },
     });
     const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "list_detectors")!;
     const result = await tool.execute("id", { label: "x" });
-    expect(result.content[0]!.text).toBe(
-      "Found 1 detectors (1 total, showing 1):\n" +
-        "- det-1 | Error spike | template: error-rate | enabled | created 2026-08-01T12:00:00Z",
-    );
+    const [url] = impl.mock.calls[0]!;
+    expect(String(url)).toBe("http://fastapi.test/api/v1/projects/p1/detectors");
+    // Exact rendering is owned by the formatter tests; this proves dispatch + formatter wiring.
+    expect(result.content[0]!.text).toContain("Found 1 detectors");
+    expect(result.content[0]!.text).toContain("det-1");
   });
 
   it("returns HTTP failures as tool text instead of throwing", async () => {
@@ -402,5 +397,20 @@ describe("formatters", () => {
     });
     expect(text).toContain("RCA (pending):");
     expect(text).toContain("(no RCA text yet)");
+  });
+
+  it("formatFindingDetail does not say 'yet' for a failed RCA with empty text", () => {
+    const text = formatFindingDetail({
+      finding_id: "f-4",
+      trace_id: "t-4",
+      timestamp: "2026-08-11T09:00:00Z",
+      detectors: ["Error spike"],
+      summary: "s",
+      results: [],
+      rca: { status: "failed", result: null },
+    });
+    expect(text).toContain("RCA (failed):");
+    expect(text).toContain("(no RCA text)");
+    expect(text).not.toContain("(no RCA text yet)");
   });
 });

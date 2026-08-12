@@ -154,9 +154,11 @@ export function formatFindingDetail(data: unknown): string {
       ? ["", "Per-detector results:", resultBlocks.join("\n")]
       : ["", "Per-detector results: (none)"];
 
-  // A pending/failed RCA is stated explicitly so the model doesn't invent one.
+  // A pending/failed RCA is stated explicitly so the model doesn't invent one;
+  // "yet" only fits a pending RCA, not a failed one.
+  const rcaPlaceholder = f.rca?.status === "pending" ? "(no RCA text yet)" : "(no RCA text)";
   const rcaSection = f.rca
-    ? ["", `RCA (${f.rca.status}):`, f.rca.result || "(no RCA text yet)"]
+    ? ["", `RCA (${f.rca.status}):`, f.rca.result || rcaPlaceholder]
     : ["", "RCA: none recorded for this finding."];
 
   return [...header, ...resultsSection, ...rcaSection].join("\n");
