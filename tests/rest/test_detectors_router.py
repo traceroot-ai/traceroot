@@ -9,6 +9,7 @@ from rest.main import app
 from rest.retention import get_retention_cutoff
 from rest.routers.deps import ProjectAccessInfo, get_project_access
 from rest.schemas.public import (
+    DetectorDetail,
     DetectorItem,
     DetectorResultItem,
     FindingDetail,
@@ -34,6 +35,8 @@ class FakeReader:
         self.by_trace: FindingDetail | None = None
         self.last_get: tuple | None = None
         self.last_by_trace: tuple | None = None
+        self.detector: object | None = None
+        self.last_get_detector: tuple | None = None
 
     def list_detectors(self, **kwargs):
         self.detectors_args = kwargs
@@ -56,6 +59,10 @@ class FakeReader:
         if self.raise_on_get_finding_by_trace:
             raise RuntimeError("boom")
         return self.by_trace
+
+    def get_detector(self, project_id, detector_id):
+        self.last_get_detector = (project_id, detector_id)
+        return self.detector
 
 
 def _detector(i: int = 1) -> DetectorItem:
@@ -231,3 +238,49 @@ class TestGetFindingByTrace:
         resp = client.get("/api/v1/projects/proj-A/detectors/traces/t-1/finding")
         assert resp.status_code == 500
         assert resp.json()["detail"] == "Failed to read finding"
+
+def _detector_detail() -> DetectorDetail:
+    return DetectorDetail(
+        detector_id="det-1",
+        name="Error spike",
+        template="failure",
+        enabled=True,
+        created_at=datetime(2026, 8, 1, 12, 0, 0),
+        prompt="Flag traces with elevated error rates",
+        output_schema={"type": "object"},
+        sample_rate=25,
+        enable_rca=True,
+        detection_model="claude-haiku-4-5",
+        detection_provider="anthropic",
+        detection_source="system",
+        updated_at=datetime(2026, 8, 2, 9, 0, 0),
+        trigger_conditions=[{"field": "root_span_finished", "op": "=", "value": True}],
+    )
+
+
+class TestGetDetector:
+    def test_200_returns_full_config(self, client, reader):
+        reader.detector = _detector_detail()
+        resp = client.get("/api/v1/projects/proj-A/detectors/det-1")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["detector_id"] == "det-1"
+        assert body["prompt"] == "Flag traces with elevated error rates"
+        assert body["sample_rate"] == 25
+        assert body["trigger_conditions"] == [
+            {"field": "root_span_finished", "op": "=", "value": True}
+        ]
+        assert reader.last_get_detector == ("proj-A", "det-1")
+
+    def test_missing_detector_is_404(self, client, reader):
+        reader.detector = None
+        resp = client.get("/api/v1/projects/proj-A/detectors/nope")
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Detector not found"
+
+    def test_findings_path_is_not_shadowed_by_detector_id(self, client, reader):
+        reader.list_return = ([], 0)
+        resp = client.get("/api/v1/projects/proj-A/detectors/findings")
+        assert resp.status_code == 200
+        assert reader.list_args is not None
+        assert reader.last_get_detector is None

@@ -21,6 +21,9 @@ BINDINGS = {
     "/api/v1/public/detectors/traces/{trace_id}/finding": (
         "/api/v1/projects/{project_id}/detectors/traces/{trace_id}/finding"
     ),
+    "/api/v1/public/detectors/{detector_id}": (
+        "/api/v1/projects/{project_id}/detectors/{detector_id}"
+    ),
 }
 
 

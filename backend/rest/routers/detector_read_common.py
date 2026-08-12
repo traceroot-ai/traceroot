@@ -18,6 +18,7 @@ from fastapi import HTTPException, status
 from rest.retention import clamp_retention_window, enforce_retention_by_time
 from rest.schemas.common import PaginationMeta
 from rest.schemas.public import (
+    DetectorDetail,
     FindingDetail,
     PublicDetectorListResponse,
     PublicFindingListResponse,
@@ -141,3 +142,27 @@ async def require_finding(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Finding not found")
     enforce_retention_by_time(billing_plan, finding.timestamp)
     return finding
+
+
+def require_detector(fetch: Callable[[], DetectorDetail | None]) -> DetectorDetail:
+    """Run a detector fetch, mapping None -> 404 and reader errors -> a clean 500.
+
+    No retention check: the detector catalog is configuration, not telemetry.
+
+    Args:
+        fetch (Callable[[], DetectorDetail | None]): Zero-arg reader call.
+
+    Returns:
+        DetectorDetail: The detector, when it exists in the caller's project.
+    """
+    try:
+        detector = fetch()
+    except Exception as e:
+        logger.exception(f"Error reading detector: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to read detector",
+        ) from e
+    if detector is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Detector not found")
+    return detector

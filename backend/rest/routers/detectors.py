@@ -24,9 +24,11 @@ from rest.routers.deps import RateLimitedProjectAccess
 from rest.routers.detector_read_common import (
     list_detectors_page,
     list_findings_page,
+    require_detector,
     require_finding,
 )
 from rest.schemas.public import (
+    DetectorDetail,
     FindingDetail,
     PublicDetectorListResponse,
     PublicFindingListResponse,
@@ -125,3 +127,21 @@ async def get_finding_by_trace(
     return await require_finding(
         lambda: service.get_finding_by_trace(project_id, trace_id), _access.billing_plan
     )
+
+
+# Registered last so the static /findings and /traces segments above always
+# match before this single-segment path parameter.
+@router.get("/{detector_id}", response_model=DetectorDetail)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def get_detector(
+    request: Request,
+    response: Response,
+    project_id: str,
+    detector_id: str,
+    _access: RateLimitedProjectAccess,
+    service: DetectorReaderService = Depends(get_detector_reader_service),
+):
+    """Get one detector's full configuration for the project."""
+    return require_detector(lambda: service.get_detector(project_id, detector_id))
