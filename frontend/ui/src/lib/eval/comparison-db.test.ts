@@ -32,6 +32,38 @@ describe("parseScorers", () => {
     ]);
   });
 
+  it("surfaces each emitted metric under its own name with its own policy", () => {
+    // A `grade` definition emits `quality`/`relevance`; a Score reports the metric name as
+    // scorer_name, so each metric's policy must resolve by that name, not the definition's.
+    expect(
+      parseScorers([
+        {
+          name: "grade",
+          version: "v2",
+          emitted_metrics: [
+            {
+              name: "quality",
+              value_type: "numeric",
+              direction: "higher_is_better",
+              threshold: 0.8,
+            },
+            { name: "relevance", value_type: "boolean" },
+          ],
+        },
+      ]),
+    ).toEqual([
+      { name: "grade", version: "v2", valueType: null, direction: null, threshold: null },
+      {
+        name: "quality",
+        version: "v2",
+        valueType: "numeric",
+        direction: "higher_is_better",
+        threshold: 0.8,
+      },
+      { name: "relevance", version: "v2", valueType: "boolean", direction: null, threshold: null },
+    ]);
+  });
+
   it("returns [] for null / non-array / malformed entries", () => {
     expect(parseScorers(null)).toEqual([]);
     expect(parseScorers("nope")).toEqual([]);

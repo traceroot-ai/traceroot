@@ -39,7 +39,34 @@ interface DbRun {
   scorers: unknown; // Json: [{ name, version, value_type?, direction?, threshold? }]
 }
 
-/** Parse the run's `scorers` JSON into typed metadata, tolerating old `{name,version}`. */
+/** A metric's typed policy (value type, direction, threshold) read off a scorer ref or one
+ *  of its emitted-metric objects, tolerating absent/unrecognised values. */
+function metaOf(name: string, version: string, o: Record<string, unknown>): ComparisonScorerMeta {
+  return {
+    name,
+    version,
+    valueType:
+      o.value_type === "numeric" || o.value_type === "boolean" || o.value_type === "categorical"
+        ? o.value_type
+        : null,
+    direction:
+      o.direction === "higher_is_better" ||
+      o.direction === "lower_is_better" ||
+      o.direction === "none"
+        ? o.direction
+        : null,
+    threshold: typeof o.threshold === "number" ? o.threshold : null,
+  };
+}
+
+/** Parse the run's `scorers` JSON into typed metadata, tolerating old `{name,version}`.
+ *
+ * A scorer DEFINITION owns the METRICS it emits, and a Score reports the emitted-metric
+ * name as `scorer_name` — never the definition name. So each `emitted_metrics[]` entry is
+ * surfaced under its OWN name, carrying its own policy, alongside the definition; otherwise a
+ * `grade`-emits-`quality` metric would resolve no threshold/direction in the comparison view.
+ * The definition's top-level policy stays as the back-compat single implicit metric (older
+ * SDK, or a scorer whose one metric is named after it). */
 export function parseScorers(json: unknown): ComparisonScorerMeta[] {
   if (!Array.isArray(json)) return [];
   const out: ComparisonScorerMeta[] = [];
@@ -47,21 +74,16 @@ export function parseScorers(json: unknown): ComparisonScorerMeta[] {
     if (!raw || typeof raw !== "object") continue;
     const o = raw as Record<string, unknown>;
     if (typeof o.name !== "string") continue;
-    out.push({
-      name: o.name,
-      version: typeof o.version === "string" ? o.version : "",
-      valueType:
-        o.value_type === "numeric" || o.value_type === "boolean" || o.value_type === "categorical"
-          ? o.value_type
-          : null,
-      direction:
-        o.direction === "higher_is_better" ||
-        o.direction === "lower_is_better" ||
-        o.direction === "none"
-          ? o.direction
-          : null,
-      threshold: typeof o.threshold === "number" ? o.threshold : null,
-    });
+    const version = typeof o.version === "string" ? o.version : "";
+    out.push(metaOf(o.name, version, o));
+    if (Array.isArray(o.emitted_metrics)) {
+      for (const m of o.emitted_metrics) {
+        if (m && typeof m === "object") {
+          const em = m as Record<string, unknown>;
+          if (typeof em.name === "string") out.push(metaOf(em.name, version, em));
+        }
+      }
+    }
   }
   return out;
 }
