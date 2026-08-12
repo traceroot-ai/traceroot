@@ -6,6 +6,7 @@ never supplies a project id. Kept separate from the ingestion route so read and
 write concerns stay decoupled; both reuse the shared API-key auth dependency.
 """
 
+import asyncio
 import logging
 from datetime import datetime
 
@@ -36,9 +37,10 @@ from rest.schemas.public import (
     PublicTraceExportResponse,
     PublicTraceListResponse,
 )
-from rest.schemas.traces import FilterValuesResponse
+from rest.schemas.traces import FilterValuesResponse, MetadataKeysResponse
 from rest.services.filters import columns as filter_columns
 from rest.services.filters.translate import parse_filters_param
+from rest.services.trace_discovery import get_trace_discovery_service
 from rest.services.trace_reader import get_trace_reader_service
 from rest.url_utils import build_trace_url
 from shared.config import settings
@@ -187,6 +189,71 @@ async def list_trace_filter_values(
             detail="Failed to list filter values",
         ) from e
     return {"field": field, "values": values}
+
+
+# Also declared above the /{trace_id} route, for the same segment-capture reason.
+@router.get(
+    "/metadata-keys",
+    response_model=MetadataKeysResponse,
+    operation_id="list_trace_metadata_keys",
+)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def list_trace_metadata_keys(
+    request: Request,
+    response: Response,
+    auth: StampedAuth,
+    start_after: datetime | None = Query(
+        None,
+        description="Only consider traces and spans starting at or after this timestamp",
+    ),
+    end_before: datetime | None = Query(
+        None, description="Only consider traces and spans starting before this timestamp"
+    ),
+):
+    """Metadata keys seen on the window's traces and spans, by descending frequency.
+
+    The key-discovery companion to the typed ``filters`` parameter's keyed
+    ``metadata`` field: the key catalog is dynamic per project, so callers
+    (agents, generated CLIs) list it here instead of guessing key names. Both
+    scopes are covered — a key set on the trace and a key set on a span are
+    disjoint key spaces, and a metadata filter matches either. The list only
+    suggests: an unlisted key stays filterable by naming it.
+
+    Args:
+        auth (StampedAuth): Resolved API-key context; scopes the read to its
+            project and stamps the rate-limit identity.
+        start_after (datetime | None): Lower bound on trace and span start time
+            (active window). An omitted bound is defaulted to a fixed lookback,
+            never scanned all-time.
+        end_before (datetime | None): Upper bound on trace and span start time
+            (active window), symmetric with ``start_after``.
+
+    Returns:
+        MetadataKeysResponse: Keys with occurrence counts, by descending frequency.
+
+    Raises:
+        HTTPException: 500 on a reader failure.
+    """
+    start_after, end_before = clamp_retention_window(auth.billing_plan, start_after, end_before)
+    try:
+        service = get_trace_discovery_service()
+        # Off the event loop, mirroring the internal twin: the key scan arrayJoins
+        # over mapKeys on both tables' base rows — the heaviest discovery read.
+        keys = await asyncio.to_thread(
+            service.get_distinct_metadata_keys,
+            project_id=auth.project_id,
+            start_after=start_after,
+            end_before=end_before,
+        )
+    except Exception as e:
+        logger.exception(f"Error listing metadata keys: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to list metadata keys",
+        ) from e
+    return {"keys": keys}
 
 
 @router.get("/{trace_id}", response_model=PublicTraceDetailResponse, operation_id="get_trace")

@@ -175,7 +175,8 @@ class FilterValuesResponse(BaseModel):
 class MetadataKeysResponse(BaseModel):
     """Metadata keys observed in a window, by frequency — the discovery answer.
 
-    Feeds one surface: the metadata filter's key combobox. The trace list's column picker
+    Feeds the metadata filter's key combobox and the public metadata-keys
+    route (the agent's key-discovery tool). The trace list's column picker
     is not a consumer — it offers fixed fields only, and metadata reaches the list as a
     single blob cell rather than a column per key. Rows reuse ``FilterValueCount``
     (``value``/``count``) because a key with an occurrence count is the same shape as a

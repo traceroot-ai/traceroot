@@ -324,7 +324,8 @@ class TraceDiscoveryService:
     ) -> list[dict]:
         """Distinct metadata keys on traces and spans in the active window, by frequency.
 
-        The discovery answer behind the metadata filter's key combobox, its one consumer.
+        The discovery answer behind the metadata filter's key combobox and the
+        public metadata-keys route (and, through it, the agent's key-discovery tool).
         It covers BOTH key spaces, which are disjoint by construction — a trace-level key
         arrives on the ``traceroot.trace.`` attribute prefix and can never reach a span —
         so scanning one table would leave the other's keys unsuggestable, and either half's
