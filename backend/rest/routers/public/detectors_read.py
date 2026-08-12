@@ -1,6 +1,6 @@
 """Public, API-key-authenticated read API for detector findings.
 
-Mirrors the public traces read stack (StampedAuth, READ-bucket rate limiting,
+Mirrors the public traces read stack (DualStampedAuth, READ-bucket rate limiting,
 project-scoped reads). All access is scoped to the project resolved from the API
 key; a finding outside that project simply isn't found (404).
 """
