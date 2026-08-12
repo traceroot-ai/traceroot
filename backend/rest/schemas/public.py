@@ -150,6 +150,25 @@ class DetectorItem(BaseModel):
     created_at: datetime
 
 
+class DetectorDetail(DetectorItem):
+    """A detector's full configuration (Postgres ``detectors`` + optional trigger).
+
+    ``trigger_conditions`` comes from ``detector_triggers.conditions`` and is
+    None when the detector has no trigger row (it then runs on every sampled
+    trace).
+    """
+
+    prompt: str
+    output_schema: Any | None
+    sample_rate: int
+    enable_rca: bool
+    detection_model: str | None
+    detection_provider: str | None
+    detection_source: str | None
+    updated_at: datetime
+    trigger_conditions: Any | None
+
+
 class PublicDetectorListResponse(BaseModel):
     """Paginated list of the project's detectors for the public API."""
 

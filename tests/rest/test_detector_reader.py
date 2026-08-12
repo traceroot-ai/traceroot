@@ -305,3 +305,73 @@ def test_get_detector_reader_service_is_singleton(monkeypatch):
     monkeypatch.setattr(mod, "get_clickhouse_client", lambda: MagicMock())
     mod._service = None
     assert mod.get_detector_reader_service() is mod.get_detector_reader_service()
+
+
+def test_get_detector_returns_full_config_with_trigger(reader, monkeypatch):
+    row = (
+        "det-1",
+        "Error spike",
+        "failure",
+        True,
+        datetime(2026, 8, 1, 12, 0, 0),
+        "Flag traces with elevated error rates",
+        {"type": "object"},
+        25,
+        True,
+        "claude-haiku-4-5",
+        "anthropic",
+        "system",
+        datetime(2026, 8, 2, 9, 0, 0),
+        [{"field": "root_span_finished", "op": "=", "value": True}],
+    )
+    captured = {}
+
+    def fake_pg_rows(sql, params):
+        captured["sql"] = sql
+        captured["params"] = params
+        return [row]
+
+    monkeypatch.setattr(reader, "_pg_rows", fake_pg_rows)
+    detail = reader.get_detector("proj-A", "det-1")
+
+    assert captured["params"] == ("proj-A", "det-1")
+    assert "LEFT JOIN detector_triggers" in captured["sql"]
+    assert detail.detector_id == "det-1"
+    assert detail.prompt == "Flag traces with elevated error rates"
+    assert detail.output_schema == {"type": "object"}
+    assert detail.sample_rate == 25
+    assert detail.enable_rca is True
+    assert detail.detection_model == "claude-haiku-4-5"
+    assert detail.detection_provider == "anthropic"
+    assert detail.detection_source == "system"
+    assert detail.updated_at == datetime(2026, 8, 2, 9, 0, 0)
+    assert detail.trigger_conditions == [{"field": "root_span_finished", "op": "=", "value": True}]
+
+
+def test_get_detector_returns_none_when_missing(reader, monkeypatch):
+    monkeypatch.setattr(reader, "_pg_rows", lambda sql, params: [])
+    assert reader.get_detector("proj-A", "nope") is None
+
+
+def test_get_detector_without_trigger_has_none_conditions(reader, monkeypatch):
+    row = (
+        "det-2",
+        "Latency",
+        "blank",
+        False,
+        datetime(2026, 8, 1, 12, 0, 0),
+        "p",
+        None,
+        100,
+        False,
+        None,
+        None,
+        None,
+        datetime(2026, 8, 1, 12, 0, 0),
+        None,
+    )
+    monkeypatch.setattr(reader, "_pg_rows", lambda sql, params: [row])
+    detail = reader.get_detector("proj-A", "det-2")
+    assert detail.trigger_conditions is None
+    assert detail.enabled is False
+    assert detail.detection_model is None
