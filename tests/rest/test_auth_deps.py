@@ -13,9 +13,46 @@ from fastapi import HTTPException
 from httpx import Response
 
 from rest.routers.deps import get_project_access
+from rest.routers.public.deps import (
+    authenticate_public_caller,
+    authenticate_user_token,
+)
 from rest.routers.public.traces import AuthResult, authenticate_api_key
 
 BASE_URL = "http://localhost:3000"
+
+
+def _mock_valid_key(project_id: str = "proj-123"):
+    """Mock validate-api-key returning a valid member key for ``project_id``."""
+    return respx.post(f"{BASE_URL}/api/internal/validate-api-key").mock(
+        return_value=Response(
+            200,
+            json={
+                "valid": True,
+                "projectId": project_id,
+                "workspaceId": "ws-456",
+                "billingPlan": "pro",
+                "ingestionBlocked": False,
+            },
+        )
+    )
+
+
+def _mock_valid_user_token(project_id: str = "proj-123"):
+    """Mock validate-user-token returning the project-member 200 shape."""
+    return respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+        return_value=Response(
+            200,
+            json={
+                "valid": True,
+                "userId": "user-789",
+                "role": "ADMIN",
+                "workspaceId": "ws-456",
+                "billingPlan": "pro",
+                "projectId": project_id,
+            },
+        )
+    )
 
 
 # ── authenticate_api_key ────────────────────────────────────────────────
@@ -302,3 +339,214 @@ class TestGetProjectAccess:
             await get_project_access("proj-123", "user-456")
         assert exc_info.value.status_code == 503
         assert exc_info.value.detail == "Authentication service error"
+
+
+# ── authenticate_user_token ─────────────────────────────────────────────
+
+
+class TestAuthenticateUserToken:
+    @respx.mock
+    async def test_valid_member_token(self):
+        _mock_valid_user_token()
+        result = await authenticate_user_token("sess-token-abc", "proj-123")
+        assert result.kind == "user"
+        assert result.project_id == "proj-123"
+        assert result.workspace_id == "ws-456"
+        assert result.billing_plan == "pro"
+        assert result.role == "ADMIN"
+        assert result.user_id == "user-789"
+        # A user session token must never be usable to ingest.
+        assert result.ingestion_blocked is True
+
+    @respx.mock
+    async def test_401_returns_401(self):
+        respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+            return_value=Response(401, json={"valid": False, "error": "invalid or expired token"})
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_user_token("bad-token", "proj-123")
+        assert exc_info.value.status_code == 401
+
+    @respx.mock
+    async def test_403_no_access_returns_403(self):
+        respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+            return_value=Response(403, json={"valid": True, "hasAccess": False})
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_user_token("sess-token", "proj-999")
+        assert exc_info.value.status_code == 403
+        assert "proj-999" in exc_info.value.detail
+
+    @respx.mock
+    async def test_service_down_returns_503(self):
+        respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+            side_effect=httpx.ConnectError("Connection refused")
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_user_token("sess-token", "proj-123")
+        assert exc_info.value.status_code == 503
+
+    @respx.mock
+    async def test_unexpected_status_returns_503(self):
+        respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(return_value=Response(500))
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_user_token("sess-token", "proj-123")
+        assert exc_info.value.status_code == 503
+
+    @respx.mock
+    async def test_malformed_json_returns_503(self):
+        respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+            return_value=Response(200, content=b"<html>not json</html>")
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_user_token("sess-token", "proj-123")
+        assert exc_info.value.status_code == 503
+        assert exc_info.value.detail == "Authentication service error"
+
+    @respx.mock
+    async def test_200_missing_required_fields_returns_503(self):
+        respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+            return_value=Response(200, json={"valid": True, "userId": "user-789"})
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_user_token("sess-token", "proj-123")
+        assert exc_info.value.status_code == 503
+        assert exc_info.value.detail == "Authentication service error"
+
+    @respx.mock
+    async def test_200_valid_false_returns_401(self):
+        respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+            return_value=Response(200, json={"valid": False, "error": "nope"})
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_user_token("sess-token", "proj-123")
+        assert exc_info.value.status_code == 401
+
+    @respx.mock
+    async def test_200_empty_workspace_id_returns_503(self):
+        respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+            return_value=Response(
+                200,
+                json={
+                    "valid": True,
+                    "userId": "user-789",
+                    "role": "ADMIN",
+                    "workspaceId": "",
+                    "billingPlan": "pro",
+                    "projectId": "proj-123",
+                },
+            )
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_user_token("sess-token", "proj-123")
+        assert exc_info.value.status_code == 503
+        assert exc_info.value.detail == "Authentication service error"
+
+    @respx.mock
+    async def test_token_not_logged_on_malformed_response(self, caplog):
+        """The raw session token must never appear in logs, even on the error path."""
+        respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+            return_value=Response(200, content=b"oops")
+        )
+        with caplog.at_level(logging.DEBUG), pytest.raises(HTTPException):
+            await authenticate_user_token("supersecretsessiontoken", "proj-123")
+        assert "supersecretsessiontoken" not in caplog.text
+
+
+# ── authenticate_public_caller (unified dependency) ──────────────────────
+
+
+class TestAuthenticatePublicCaller:
+    @respx.mock
+    async def test_tr_token_routes_to_key_validator(self):
+        """A tr- token hits validate-api-key and never validate-user-token."""
+        _mock_valid_key()
+        user_route = respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+            return_value=Response(200, json={"valid": True})
+        )
+        result = await authenticate_public_caller("Bearer tr-abc123", project_id=None)
+        assert result.kind == "api_key"
+        assert result.project_id == "proj-123"
+        assert user_route.call_count == 0
+
+    @respx.mock
+    async def test_non_tr_token_with_project_routes_to_user_validator(self):
+        _mock_valid_user_token()
+        result = await authenticate_public_caller("Bearer sess-token-abc", project_id="proj-123")
+        assert result.kind == "user"
+        assert result.role == "ADMIN"
+        assert result.workspace_id == "ws-456"
+        assert result.billing_plan == "pro"
+        assert result.user_id == "user-789"
+        assert result.ingestion_blocked is True
+
+    async def test_non_tr_token_without_project_returns_400(self):
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_public_caller("Bearer sess-token-abc", project_id=None)
+        assert exc_info.value.status_code == 400
+        assert "list_projects" in exc_info.value.detail
+
+    @respx.mock
+    async def test_key_with_matching_project_ok(self):
+        _mock_valid_key("proj-123")
+        result = await authenticate_public_caller("Bearer tr-abc123", project_id="proj-123")
+        assert result.kind == "api_key"
+        assert result.project_id == "proj-123"
+
+    @respx.mock
+    async def test_key_with_mismatched_project_returns_400(self):
+        _mock_valid_key("proj-123")
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_public_caller("Bearer tr-abc123", project_id="proj-999")
+        assert exc_info.value.status_code == 400
+        assert "does not match" in exc_info.value.detail
+
+    @respx.mock
+    async def test_user_token_403_hasaccess_false(self):
+        respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+            return_value=Response(403, json={"valid": True, "hasAccess": False})
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_public_caller("Bearer sess-token", project_id="proj-123")
+        assert exc_info.value.status_code == 403
+
+    @respx.mock
+    async def test_user_token_401(self):
+        respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+            return_value=Response(401, json={"valid": False, "error": "invalid"})
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_public_caller("Bearer sess-token", project_id="proj-123")
+        assert exc_info.value.status_code == 401
+
+    @respx.mock
+    async def test_user_path_network_error_returns_503(self):
+        respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+            side_effect=httpx.ConnectError("Connection refused")
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_public_caller("Bearer sess-token", project_id="proj-123")
+        assert exc_info.value.status_code == 503
+
+    @respx.mock
+    async def test_tr_token_never_reaches_user_validator_even_with_project(self):
+        """Discrimination safety: a tr- value routes to the key validator even
+        when a project_id is passed — it must never hit validate-user-token.
+        """
+        _mock_valid_key("proj-123")
+        user_route = respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+            return_value=Response(200, json={"valid": True})
+        )
+        result = await authenticate_public_caller("Bearer tr-abc123", project_id="proj-123")
+        assert result.kind == "api_key"
+        assert user_route.call_count == 0
+
+    async def test_missing_header_returns_401(self):
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_public_caller(None)
+        assert exc_info.value.status_code == 401
+
+    async def test_bad_format_returns_401(self):
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_public_caller("BadFormat token123")
+        assert exc_info.value.status_code == 401
