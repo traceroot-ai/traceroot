@@ -1,5 +1,6 @@
 """Trace query endpoints (user-authenticated, not public API)."""
 
+import asyncio
 import logging
 from datetime import datetime
 from typing import Literal
@@ -90,7 +91,13 @@ async def list_traces(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e)) from e
     try:
         service = get_trace_reader_service()
-        result = service.list_traces(
+        # Off the event loop: clickhouse-connect is synchronous, and this is the widest
+        # scan the dashboard issues (a filtered list runs a page query and a count query
+        # back to back, both capped at the shared execution timeout). Awaiting it inline
+        # would stall every other request in the process — the REST service runs a single
+        # uvicorn worker, single replica, so there is no second process to absorb it.
+        result = await asyncio.to_thread(
+            service.list_traces,
             project_id=project_id,
             page=page,
             limit=limit,

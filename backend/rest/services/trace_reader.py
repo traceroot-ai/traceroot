@@ -4,6 +4,7 @@ import time
 from datetime import UTC, datetime, timedelta
 
 from db.clickhouse import get_clickhouse_client
+from db.clickhouse.query_settings import READ_QUERY_SETTINGS
 from rest.services.filters.translate import Predicate, build_conditions
 from rest.sql_utils import escape_ilike, to_utc_naive
 from shared.span_attributes import (
@@ -332,7 +333,14 @@ class TraceReaderService:
             ORDER BY p.trace_start_time DESC
         """
 
-        result = self._client.query(query, parameters=params)
+        # Bounded by the shared read settings, page and count alike. Most span-level
+        # filters project cleanly through the spans no-I/O projection, but a keyed
+        # metadata predicate cannot: metadata_map is deliberately absent from that
+        # projection (see migrations/009_add_metadata_map.sql), so the predicate falls
+        # back to the base table, whose ordering prunes by time only weakly — and it runs
+        # twice per request, here and in the count below. A scan that wide must hit an
+        # execution cap rather than run until the client gives up.
+        result = self._client.query(query, parameters=params, settings=READ_QUERY_SETTINGS)
         rows = result.result_rows
 
         # Get total count (count(DISTINCT) dedupes ReplacingMergeTree rows; no FINAL)
@@ -341,7 +349,9 @@ class TraceReaderService:
             FROM traces AS t
             WHERE {where_clause}
         """
-        count_result = self._client.query(count_query, parameters=params)
+        count_result = self._client.query(
+            count_query, parameters=params, settings=READ_QUERY_SETTINGS
+        )
         total = count_result.result_rows[0][0] if count_result.result_rows else 0
 
         # Convert rows to dicts
