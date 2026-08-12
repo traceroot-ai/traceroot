@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Executor } from "../../executors/interface.js";
-import { formatSessionDetail, formatSessionList, formatTraceList } from "../formatters.js";
+import {
+  formatDetectorList,
+  formatFindingDetail,
+  formatFindingList,
+  formatSessionDetail,
+  formatSessionList,
+  formatTraceList,
+} from "../formatters.js";
 import { createTools } from "../index.js";
 import { createRegistryReadTools } from "../registry-tools.js";
 
@@ -205,5 +212,113 @@ describe("formatters", () => {
     const line = text.split("\n").find((l) => l.startsWith("   Input:"))!;
     expect(line).toBe(`   Input:  ${"x".repeat(199)}`);
     expect(text).not.toContain("\ud83d");
+  });
+
+  it("formatDetectorList renders rows and reports the empty state", () => {
+    expect(formatDetectorList({})).toBe("No detectors found.");
+    expect(
+      formatDetectorList({
+        data: [
+          {
+            detector_id: "det-1",
+            name: "Error spike",
+            template: "error-rate",
+            enabled: true,
+            created_at: "2026-08-01T12:00:00Z",
+          },
+          { detector_id: "det-2", name: "Latency", template: "latency", enabled: false },
+        ],
+        meta: { total: 9 },
+      }),
+    ).toBe(
+      "Found 2 detectors (9 total, showing 2):\n" +
+        "- det-1 | Error spike | template: error-rate | enabled | created 2026-08-01T12:00:00Z\n" +
+        "- det-2 | Latency | template: latency | disabled | created unknown",
+    );
+  });
+
+  it("formatFindingList renders rows with truncated summaries and the empty state", () => {
+    expect(formatFindingList({})).toBe("No detector findings found matching the given filters.");
+    const text = formatFindingList({
+      data: [
+        {
+          finding_id: "f-1",
+          trace_id: "t-1",
+          timestamp: "2026-08-11T09:00:00Z",
+          detectors: ["Error spike", "Latency"],
+          summary: "y".repeat(250),
+        },
+      ],
+      meta: { total: 3 },
+    });
+    expect(text).toContain("Found 1 findings (3 total, showing 1):");
+    expect(text).toContain(
+      "- f-1 | trace t-1 | 2026-08-11T09:00:00Z | detectors: Error spike, Latency",
+    );
+    expect(text).toContain("y".repeat(200));
+    expect(text).not.toContain("y".repeat(201));
+  });
+
+  it("formatFindingDetail renders header, per-detector results, and RCA text", () => {
+    expect(
+      formatFindingDetail({
+        finding_id: "f-1",
+        trace_id: "t-1",
+        timestamp: "2026-08-11T09:00:00Z",
+        detectors: ["Error spike"],
+        summary: "Elevated error rate",
+        results: [
+          {
+            detector_id: "det-1",
+            detector_name: "Error spike",
+            template: "error-rate",
+            summary: "errors spiked",
+            identified: true,
+            data: { count: 3 },
+          },
+        ],
+        rca: { status: "completed", result: "Root cause: bad deploy" },
+      }),
+    ).toBe(
+      "Finding: f-1\n" +
+        "Trace: t-1 | Time: 2026-08-11T09:00:00Z | Detectors: Error spike\n" +
+        "Summary: Elevated error rate\n" +
+        "\n" +
+        "Per-detector results:\n" +
+        "#1 Error spike (template: error-rate)\n" +
+        "   errors spiked\n" +
+        '   Data: {"count":3}\n' +
+        "\n" +
+        "RCA (completed):\n" +
+        "Root cause: bad deploy",
+    );
+  });
+
+  it("formatFindingDetail states missing results and RCA explicitly", () => {
+    const text = formatFindingDetail({
+      finding_id: "f-2",
+      trace_id: "t-2",
+      timestamp: "2026-08-11T09:00:00Z",
+      detectors: [],
+      summary: "",
+    });
+    expect(text).toContain("Detectors: unknown");
+    expect(text).toContain("Summary: (no summary)");
+    expect(text).toContain("Per-detector results: (none)");
+    expect(text).toContain("RCA: none recorded for this finding.");
+  });
+
+  it("formatFindingDetail marks a pending RCA with empty text", () => {
+    const text = formatFindingDetail({
+      finding_id: "f-3",
+      trace_id: "t-3",
+      timestamp: "2026-08-11T09:00:00Z",
+      detectors: ["Error spike"],
+      summary: "s",
+      results: [],
+      rca: { status: "pending", result: null },
+    });
+    expect(text).toContain("RCA (pending):");
+    expect(text).toContain("(no RCA text yet)");
   });
 });

@@ -85,3 +85,79 @@ export function formatSessionList(data: unknown): string {
 
   return `Found ${sessions.length} sessions:\n${lines.join("\n")}`;
 }
+
+/** Render a detector list response as per-detector summary lines. */
+export function formatDetectorList(data: unknown): string {
+  const body = (data ?? {}) as { data?: unknown; meta?: unknown };
+  const detectors = (body.data || []) as any[];
+  const meta = (body.meta || {}) as { total?: number };
+
+  if (!Array.isArray(detectors) || detectors.length === 0) {
+    return "No detectors found.";
+  }
+
+  const lines = detectors.map((d: any) => {
+    const state = d.enabled ? "enabled" : "disabled";
+    return `- ${d.detector_id} | ${d.name || "(unnamed)"} | template: ${d.template || "none"} | ${state} | created ${d.created_at || "unknown"}`;
+  });
+
+  const totalInfo = meta.total ? ` (${meta.total} total, showing ${detectors.length})` : "";
+
+  return `Found ${detectors.length} detectors${totalInfo}:\n${lines.join("\n")}`;
+}
+
+/** Render a finding list response as per-finding summary lines. */
+export function formatFindingList(data: unknown): string {
+  const body = (data ?? {}) as { data?: unknown; meta?: unknown };
+  const findings = (body.data || []) as any[];
+  const meta = (body.meta || {}) as { total?: number };
+
+  if (!Array.isArray(findings) || findings.length === 0) {
+    return "No detector findings found matching the given filters.";
+  }
+
+  const lines = findings.map((f: any) => {
+    const detectors = (f.detectors || []).join(", ") || "unknown";
+    return [
+      `- ${f.finding_id} | trace ${f.trace_id} | ${f.timestamp} | detectors: ${detectors}`,
+      `  ${truncate(f.summary || "(no summary)", 200)}`,
+    ].join("\n");
+  });
+
+  const totalInfo = meta.total ? ` (${meta.total} total, showing ${findings.length})` : "";
+
+  return `Found ${findings.length} findings${totalInfo}:\n${lines.join("\n")}`;
+}
+
+/** Render a finding detail: header, per-detector results, then the RCA text. */
+export function formatFindingDetail(data: unknown): string {
+  const f = (data ?? {}) as any;
+  const detectors = (f.detectors || []).join(", ") || "unknown";
+
+  const header = [
+    `Finding: ${f.finding_id}`,
+    `Trace: ${f.trace_id} | Time: ${f.timestamp} | Detectors: ${detectors}`,
+    `Summary: ${f.summary || "(no summary)"}`,
+  ];
+
+  const results: any[] = f.results || [];
+  const resultBlocks = results.map((r: any, i: number) => {
+    const detail = r.data != null ? truncate(JSON.stringify(r.data), 400) : "(none)";
+    return [
+      `#${i + 1} ${r.detector_name || r.detector_id} (template: ${r.template || "none"})`,
+      `   ${r.summary || "(no summary)"}`,
+      `   Data: ${detail}`,
+    ].join("\n");
+  });
+  const resultsSection =
+    resultBlocks.length > 0
+      ? ["", "Per-detector results:", resultBlocks.join("\n")]
+      : ["", "Per-detector results: (none)"];
+
+  // A pending/failed RCA is stated explicitly so the model doesn't invent one.
+  const rcaSection = f.rca
+    ? ["", `RCA (${f.rca.status}):`, f.rca.result || "(no RCA text yet)"]
+    : ["", "RCA: none recorded for this finding."];
+
+  return [...header, ...resultsSection, ...rcaSection].join("\n");
+}
