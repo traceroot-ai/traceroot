@@ -22,6 +22,7 @@ import { useLocalStorage } from "@/lib/hooks/use-local-storage";
 import { TraceViewerPanel, GettingStarted } from "@/features/traces/components";
 import { LoadingState } from "@/components/ui/loading-state";
 import { TraceListTable } from "@/features/traces/components/TraceListTable";
+import { ColumnPicker } from "@/features/traces/components/ColumnPicker";
 // Imported from the hook's own module, not the feature barrel: the page tests replace that
 // barrel wholesale with a factory mock, and a barrel import here would go missing under it.
 import { useTraceColumns } from "@/features/traces/hooks/use-trace-columns";
@@ -84,7 +85,7 @@ export default function TracesPage() {
 
   const prefetchTraces = usePrefetchTraces(projectId);
 
-  const { visibleColumns } = useTraceColumns(projectId);
+  const { visibleColumns, toggleField, reset: resetColumns } = useTraceColumns(projectId);
 
   // Check if project has EVER sent traces — controls onboarding visibility.
   // Uses a dedicated endpoint that bypasses retention gating (returns a
@@ -140,7 +141,7 @@ export default function TracesPage() {
         {/* Tab navigation — hidden during onboarding or while checking */}
         {!checking && !showGettingStarted && (
           <div className="border-b border-border bg-background">
-            <div className="flex">
+            <div className="flex items-center">
               {tabs.map((tab) => {
                 const Icon = tab.icon;
                 const isActive = tab.id === "traces";
@@ -183,6 +184,13 @@ export default function TracesPage() {
             onCustomRangeChange={updateCustomRange}
             retentionDays={retention.retentionDays}
             onUpgradeClick={retention.onUpgradeClick}
+            beforeDateFilter={
+              <ColumnPicker
+                visibleColumns={visibleColumns}
+                onToggleField={toggleField}
+                onReset={resetColumns}
+              />
+            }
           >
             <button
               type="button"

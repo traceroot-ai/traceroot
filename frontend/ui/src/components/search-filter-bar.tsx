@@ -24,6 +24,9 @@ interface SearchFilterBarProps {
   onUpgradeClick?: () => void;
   // Optional additional content (e.g., filter badges)
   children?: React.ReactNode;
+  // Optional control rendered immediately left of the date filter, grouped with it on the
+  // right of the bar rather than with `children` on the left.
+  beforeDateFilter?: React.ReactNode;
 }
 
 export function SearchFilterBar({
@@ -39,6 +42,7 @@ export function SearchFilterBar({
   retentionDays,
   onUpgradeClick,
   children,
+  beforeDateFilter,
 }: SearchFilterBarProps) {
   return (
     <div className="border-b border-border bg-background px-3 py-1.5">
@@ -55,16 +59,20 @@ export function SearchFilterBar({
           </div>
         )}
         {children}
-        <DateFilterSelect
-          className="ml-auto"
-          dateFilter={dateFilter}
-          customStartDate={customStartDate}
-          customEndDate={customEndDate}
-          onDateFilterChange={onDateFilterChange}
-          onCustomRangeChange={onCustomRangeChange}
-          retentionDays={retentionDays}
-          onUpgradeClick={onUpgradeClick}
-        />
+        {/* The auto margin moves to the group so an adjacent control travels with the date
+            filter and wraps with it instead of drifting to the other end of the bar. */}
+        <div className="ml-auto flex items-center gap-2">
+          {beforeDateFilter}
+          <DateFilterSelect
+            dateFilter={dateFilter}
+            customStartDate={customStartDate}
+            customEndDate={customEndDate}
+            onDateFilterChange={onDateFilterChange}
+            onCustomRangeChange={onCustomRangeChange}
+            retentionDays={retentionDays}
+            onUpgradeClick={onUpgradeClick}
+          />
+        </div>
       </div>
     </div>
   );
