@@ -25,7 +25,7 @@ export interface ExecOptions {
  *
  * Mom's base interface: exec() + getWorkspacePath()
  * Our extensions: init(), destroy(), writeFile(), readFile(), isReady()
- * Reason: host-side tools (query_traces, download_trace) run on the host
+ * Reason: host-side tools (list_traces, download_traces) run on the host
  * and need to write files into the sandbox via writeFile(), while the
  * sandbox itself has no network access.
  */

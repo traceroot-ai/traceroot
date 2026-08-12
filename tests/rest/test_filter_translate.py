@@ -12,6 +12,7 @@ separately throughout, its span half through the one shared span-scan builder.
 """
 
 import json
+from unittest import mock
 
 import pytest
 
@@ -49,6 +50,21 @@ def test_parse_valid_json_array_yields_predicates():
 def test_parse_rejects_non_json():
     with pytest.raises(ValueError):
         parse_filters_param("not json")
+
+
+def test_parse_rejects_pathological_nesting():
+    # json.loads raises RecursionError (not JSONDecodeError) past the
+    # interpreter's parser depth; it must surface as ValueError so endpoints
+    # keep their 400-on-malformed-input contract. The trigger depth varies by
+    # platform, so simulate the parser overflow instead of provoking it.
+    with (
+        mock.patch(
+            "rest.services.filters.translate.json.loads",
+            side_effect=RecursionError("maximum recursion depth exceeded"),
+        ),
+        pytest.raises(ValueError, match="nested too deeply"),
+    ):
+        parse_filters_param("[[[]]]")
 
 
 def test_parse_rejects_non_array():

@@ -187,6 +187,21 @@ class TestPublicListTraces:
         assert kwargs["start_after"] == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
         assert kwargs["end_before"] == datetime(2024, 1, 31, 23, 59, 59, tzinfo=UTC)
 
+    def test_forwards_name_user_id_and_search_query(self, client, mock_reader):
+        mock_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        resp = client.get(
+            "/api/v1/public/traces?name=checkout&user_id=user-1&search_query=abc",
+            headers=AUTH_HEADER,
+        )
+        assert resp.status_code == 200
+        kwargs = mock_reader.list_traces.call_args.kwargs
+        assert kwargs["name"] == "checkout"
+        assert kwargs["user_id"] == "user-1"
+        assert kwargs["search_query"] == "abc"
+
     def test_time_range_defaults_to_none_when_absent(self, client, mock_reader):
         mock_reader.list_traces.return_value = {
             "data": [],
@@ -208,6 +223,86 @@ class TestPublicListTraces:
         resp = client.get("/api/v1/public/traces", headers=AUTH_HEADER)
         assert resp.status_code == 500
         assert resp.json()["detail"] == "Failed to list traces"
+
+
+class TestPublicListTracesFilters:
+    def test_forwards_parsed_predicates(self, client, mock_reader):
+        mock_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        filters = '[{"field":"model_name","op":"in","value":["gpt-4o"]}]'
+        resp = client.get(f"/api/v1/public/traces?filters={filters}", headers=AUTH_HEADER)
+        assert resp.status_code == 200
+        sent = mock_reader.list_traces.call_args.kwargs["filters"]
+        assert len(sent) == 1
+        assert sent[0].field == "model_name"
+        assert sent[0].op == "in"
+        assert sent[0].value == ["gpt-4o"]
+
+    def test_no_filters_forwards_empty(self, client, mock_reader):
+        mock_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        resp = client.get("/api/v1/public/traces", headers=AUTH_HEADER)
+        assert resp.status_code == 200
+        assert mock_reader.list_traces.call_args.kwargs["filters"] == []
+
+    def test_unknown_field_is_400_naming_the_field(self, client, mock_reader):
+        filters = '[{"field":"nope","op":"eq","value":1}]'
+        resp = client.get(f"/api/v1/public/traces?filters={filters}", headers=AUTH_HEADER)
+        assert resp.status_code == 400
+        assert "nope" in resp.json()["detail"]
+        mock_reader.list_traces.assert_not_called()
+
+    def test_bad_operator_is_400(self, client, mock_reader):
+        filters = '[{"field":"model_name","op":"contains","value":["x"]}]'
+        resp = client.get(f"/api/v1/public/traces?filters={filters}", headers=AUTH_HEADER)
+        assert resp.status_code == 400
+        mock_reader.list_traces.assert_not_called()
+
+    def test_malformed_json_is_400(self, client, mock_reader):
+        resp = client.get("/api/v1/public/traces?filters=not-json", headers=AUTH_HEADER)
+        assert resp.status_code == 400
+        mock_reader.list_traces.assert_not_called()
+
+
+class TestPublicListTraceFilterValues:
+    def test_returns_distinct_values_scoped_to_project(self, client, mock_reader):
+        mock_reader.get_distinct_span_values.return_value = [
+            {"value": "gpt-4o", "count": 3},
+            {"value": "claude", "count": 1},
+        ]
+        resp = client.get("/api/v1/public/traces/filter-values/model_name", headers=AUTH_HEADER)
+        assert resp.status_code == 200
+        assert resp.json()["values"] == [
+            {"value": "gpt-4o", "count": 3},
+            {"value": "claude", "count": 1},
+        ]
+        assert mock_reader.get_distinct_span_values.call_args.kwargs["project_id"] == "proj-A"
+
+    def test_non_enumerable_field_is_400(self, client, mock_reader):
+        resp = client.get("/api/v1/public/traces/filter-values/duration_ms", headers=AUTH_HEADER)
+        assert resp.status_code == 400
+
+    def test_unknown_field_is_400(self, client, mock_reader):
+        resp = client.get("/api/v1/public/traces/filter-values/nope", headers=AUTH_HEADER)
+        assert resp.status_code == 400
+
+    def test_literal_segment_not_captured_as_trace_id(self, client, mock_reader):
+        # Guards the route-declaration order: /filter-values/{field} must win
+        # over /{trace_id}. If ordering regresses, this 404s via get_trace.
+        mock_reader.get_distinct_span_values.return_value = []
+        resp = client.get("/api/v1/public/traces/filter-values/model_name", headers=AUTH_HEADER)
+        assert resp.status_code == 200
+        mock_reader.get_trace.assert_not_called()
+
+    def test_500_on_reader_failure(self, client, mock_reader):
+        mock_reader.get_distinct_span_values.side_effect = RuntimeError("boom")
+        resp = client.get("/api/v1/public/traces/filter-values/model_name", headers=AUTH_HEADER)
+        assert resp.status_code == 500
+        assert resp.json()["detail"] == "Failed to list filter values"
 
 
 class TestPublicGetTrace:

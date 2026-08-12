@@ -23,6 +23,7 @@ from rest.routers.dashboards import router as dashboards_router
 from rest.routers.internal import router as internal_router
 from rest.routers.live import router as live_router
 from rest.routers.public.detectors_read import router as public_detectors_read_router
+from rest.routers.public.sessions_read import router as public_sessions_read_router
 from rest.routers.public.traces import router as public_traces_router
 from rest.routers.public.traces_read import router as public_traces_read_router
 from rest.routers.public.whoami import router as public_whoami_router
@@ -74,6 +75,7 @@ app.include_router(public_traces_router, prefix="/api/v1")
 # Public read API for API-key clients (e.g. the CLI)
 app.include_router(public_whoami_router, prefix="/api/v1")
 app.include_router(public_traces_read_router, prefix="/api/v1")
+app.include_router(public_sessions_read_router, prefix="/api/v1")
 app.include_router(public_detectors_read_router, prefix="/api/v1")
 
 # Internal API for worker/service communication (protected by secret)
