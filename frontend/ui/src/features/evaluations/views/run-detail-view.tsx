@@ -277,6 +277,7 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
           projectId={projectId}
           traceId={panelTraceId}
           traceOverride={panelOverride}
+          hideDetectors
           newTabPath={`/projects/${projectId}/evaluations/${runId}`}
           onClose={closeResult}
           onNavigate={navigateResult}
