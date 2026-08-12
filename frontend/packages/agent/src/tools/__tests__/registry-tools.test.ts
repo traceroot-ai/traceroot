@@ -24,9 +24,17 @@ describe("createRegistryReadTools", () => {
     return impl;
   }
 
-  it("exposes exactly the three internally-bound read tools", () => {
+  it("exposes exactly the seven internally-bound read tools", () => {
     const names = createRegistryReadTools("p1", "u1").map((t) => t.name);
-    expect(names).toEqual(["list_traces", "list_sessions", "get_session"]);
+    expect(names).toEqual([
+      "list_traces",
+      "list_sessions",
+      "get_session",
+      "list_detectors",
+      "list_findings",
+      "get_finding",
+      "get_finding_by_trace",
+    ]);
   });
 
   it("hides the fixed project_id from every tool's model-facing schema", () => {
@@ -118,6 +126,76 @@ describe("createRegistryReadTools", () => {
     );
   });
 
+  it("list_findings hits the internal detectors route with query filters", async () => {
+    const impl = stubFetch({ data: [], meta: {} });
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "list_findings")!;
+    await tool.execute("id", { label: "x", detector: "error-rate", trace_id: "t1" });
+    const [url, init] = impl.mock.calls[0]!;
+    expect(String(url)).toBe(
+      "http://fastapi.test/api/v1/projects/p1/detectors/findings?detector=error-rate&trace_id=t1",
+    );
+    expect((init as RequestInit).headers).toMatchObject({
+      "X-Internal-Secret": "s3cret",
+      "x-user-id": "u1",
+    });
+  });
+
+  it("get_finding_by_trace hits the internal trace-finding route", async () => {
+    const impl = stubFetch({
+      finding_id: "f1",
+      trace_id: "t1",
+      timestamp: "2026-08-11T09:00:00Z",
+      detectors: [],
+      summary: "s",
+      results: [],
+      rca: null,
+    });
+    const tool = createRegistryReadTools("p1", "u1").find(
+      (t) => t.name === "get_finding_by_trace",
+    )!;
+    await tool.execute("id", { label: "x", trace_id: "t1" });
+    const [url] = impl.mock.calls[0]!;
+    expect(String(url)).toBe("http://fastapi.test/api/v1/projects/p1/detectors/traces/t1/finding");
+  });
+
+  it("get_finding formats the finding detail with RCA", async () => {
+    stubFetch({
+      finding_id: "f1",
+      trace_id: "t1",
+      timestamp: "2026-08-11T09:00:00Z",
+      detectors: ["Error spike"],
+      summary: "Elevated error rate",
+      results: [],
+      rca: { status: "completed", result: "Root cause: bad deploy" },
+    });
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_finding")!;
+    const result = await tool.execute("id", { label: "x", finding_id: "f1" });
+    expect(result.content[0]!.text).toContain("Finding: f1");
+    expect(result.content[0]!.text).toContain("RCA (completed):");
+    expect(result.content[0]!.text).toContain("Root cause: bad deploy");
+  });
+
+  it("list_detectors formats the detector catalog", async () => {
+    stubFetch({
+      data: [
+        {
+          detector_id: "det-1",
+          name: "Error spike",
+          template: "error-rate",
+          enabled: true,
+          created_at: "2026-08-01T12:00:00Z",
+        },
+      ],
+      meta: { total: 1 },
+    });
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "list_detectors")!;
+    const result = await tool.execute("id", { label: "x" });
+    expect(result.content[0]!.text).toBe(
+      "Found 1 detectors (1 total, showing 1):\n" +
+        "- det-1 | Error spike | template: error-rate | enabled | created 2026-08-01T12:00:00Z",
+    );
+  });
+
   it("returns HTTP failures as tool text instead of throwing", async () => {
     vi.stubGlobal(
       "fetch",
@@ -142,6 +220,10 @@ describe("createTools", () => {
       "list_traces",
       "list_sessions",
       "get_session",
+      "list_detectors",
+      "list_findings",
+      "get_finding",
+      "get_finding_by_trace",
       "download_traces",
       "download_session",
       "check_github_access",
