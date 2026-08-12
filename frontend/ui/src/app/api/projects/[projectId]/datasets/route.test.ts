@@ -187,6 +187,14 @@ describe("POST", () => {
     expect(prismaMock.dataset.create.mock.calls[0][0].data.description).toBeNull();
   });
 
+  it("trims surrounding whitespace from the name before the guard and store", async () => {
+    prismaMock.dataset.create.mockResolvedValue({ id: "ds_new", name: "support" });
+    await POST(jsonReq({ name: "  support  " }), params);
+    // Both the uniqueness pre-check and the stored value see the normalized name.
+    expect(prismaMock.dataset.findFirst.mock.calls[0][0].where.name.equals).toBe("support");
+    expect(prismaMock.dataset.create.mock.calls[0][0].data.name).toBe("support");
+  });
+
   it("409s a name that already exists in the project (case-insensitive), without creating", async () => {
     prismaMock.dataset.findFirst.mockResolvedValue({ name: "Support" }); // existing, different case
     const res = await POST(jsonReq({ name: "support" }), params);
