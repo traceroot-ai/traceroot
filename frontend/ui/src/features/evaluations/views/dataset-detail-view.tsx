@@ -35,14 +35,11 @@ import {
   Timestamp,
 } from "@/features/offline-eval/components";
 import { TraceIOSection } from "@/features/traces/components/TraceIOValue";
-import { ScoreValue, formatCost, formatElapsed } from "./evaluations-view";
+import { formatCost, formatElapsed } from "./evaluations-view";
 import { caseDisplayId, truncate } from "@/features/offline-eval/utils";
 import { versionSnowflake } from "@/lib/eval/snowflake";
 import { useDataset, useTestCaseRuns, useDeleteTestCase } from "../hooks";
-import {
-  TestCaseEditorModal,
-  type TestCaseEditorMode,
-} from "../components/test-case-editor-modal";
+import { TestCaseEditorModal, type TestCaseEditorMode } from "../components/test-case-editor-modal";
 import { DeleteTestCaseDialog } from "../components/delete-test-case-dialog";
 import type { TestCaseRow } from "../types";
 
@@ -233,146 +230,143 @@ export function DatasetDetailView({
       />
       <div className="flex h-full flex-col text-[13px]">
         <div className="flex min-h-0 flex-1 flex-col">
-            {/* Single toolbar row: search on the left; the Row action and the
+          {/* Single toolbar row: search on the left; the Row action and the
                 version selector pushed to the right (version farthest). The version
                 id lives inside the dropdown, not spelled out in the bar. No date
                 filter: nothing here reads one. */}
-            <SearchFilterBar
-              searchValue={keyword}
-              onSearchChange={setKeyword}
-              searchPlaceholder="Search..."
-            >
-              <div className="ml-auto flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 gap-1.5 text-[12px]"
-                  onClick={() => setEditorMode({ kind: "create" })}
-                  disabled={!isCurrentVersion}
-                >
-                  <Plus className="h-3.5 w-3.5" aria-hidden />
-                  Row
-                </Button>
-                {hasVersions && (
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[12px] text-muted-foreground">Version</span>
-                    <Select
-                      value={selectedVersion?.id ?? ""}
-                      onValueChange={(v) => setSelectedVersionId(v)}
-                    >
-                      {/* Trigger shows the time-sortable snowflake id;
+          <SearchFilterBar
+            searchValue={keyword}
+            onSearchChange={setKeyword}
+            searchPlaceholder="Search..."
+          >
+            <div className="ml-auto flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 gap-1.5 text-[12px]"
+                onClick={() => setEditorMode({ kind: "create" })}
+                disabled={!isCurrentVersion}
+              >
+                <Plus className="h-3.5 w-3.5" aria-hidden />
+                Row
+              </Button>
+              {hasVersions && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[12px] text-muted-foreground">Version</span>
+                  <Select
+                    value={selectedVersion?.id ?? ""}
+                    onValueChange={(v) => setSelectedVersionId(v)}
+                  >
+                    {/* Trigger shows the time-sortable snowflake id;
                           the dropdown pairs each version NUMBER with its snowflake so
                           both the ordering and the exact version id are visible. w-auto
                           hugs the id (no dead gap before the chevron); the dropdown grows
                           to fit its wider "<n>  <snowflake>" rows on its own. */}
-                      <SelectTrigger
-                        className="h-7 w-auto gap-2 text-[12px]"
-                        title="Dataset version"
-                      >
-                        <span className="whitespace-nowrap font-mono text-[12px]">
-                          {selectedVersion
-                            ? versionSnowflake(
-                                selectedVersion.createTime,
-                                selectedVersion.versionNumber,
-                              )
-                            : "Current version"}
-                        </span>
-                      </SelectTrigger>
-                      <SelectContent align="end">
-                        {versions.map((v) => (
-                          <SelectItem key={v.id} value={v.id} className="text-[12px]">
-                            <span className="flex items-center gap-2">
-                              <span className="tabular-nums text-muted-foreground">
-                                {v.versionNumber}
-                              </span>
-                              <span className="font-mono">
-                                {versionSnowflake(v.createTime, v.versionNumber)}
-                              </span>
+                    <SelectTrigger className="h-7 w-auto gap-2 text-[12px]" title="Dataset version">
+                      <span className="whitespace-nowrap font-mono text-[12px]">
+                        {selectedVersion
+                          ? versionSnowflake(
+                              selectedVersion.createTime,
+                              selectedVersion.versionNumber,
+                            )
+                          : "Current version"}
+                      </span>
+                    </SelectTrigger>
+                    <SelectContent align="end">
+                      {versions.map((v) => (
+                        <SelectItem key={v.id} value={v.id} className="text-[12px]">
+                          <span className="flex items-center gap-2">
+                            <span className="tabular-nums text-muted-foreground">
+                              {v.versionNumber}
                             </span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
-              </div>
-            </SearchFilterBar>
-
-            {/* Table + focused-case slide-in panel */}
-            <div className="min-h-0 flex-1 overflow-auto">
-              {cases.length === 0 ? (
-                <EmptyState>
-                  {keyword
-                    ? "No cases match your search."
-                    : "To populate this dataset, manually create a row or insert data programmatically."}
-                </EmptyState>
-              ) : (
-                <Table>
-                  <THead>
-                    <TRHead>
-                      <Th className="w-[150px]">Created</Th>
-                      <Th>Input</Th>
-                      <Th>Expected</Th>
-                      <Th>Metadata</Th>
-                      <Th className="w-[70px] text-right">Actions</Th>
-                    </TRHead>
-                  </THead>
-                  <TBody>
-                    {cases.map((tc) => {
-                      const openThisCase = () => {
-                        if (
-                          dirtyRef.current &&
-                          !window.confirm("Discard unsaved changes to this case?")
-                        ) {
-                          return;
-                        }
-                        setOpenCaseId(tc.testCaseId);
-                      };
-                      return (
-                        <TR
-                          key={tc.id}
-                          interactive
-                          selected={tc.testCaseId === openCaseId}
-                          tabIndex={0}
-                          role="button"
-                          aria-expanded={tc.testCaseId === openCaseId}
-                          onClick={openThisCase}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              openThisCase();
-                            }
-                          }}
-                        >
-                          <Td className="whitespace-nowrap text-muted-foreground">
-                            <Timestamp iso={tc.createTime} />
-                          </Td>
-                          <Td className="max-w-[320px] truncate">{orDash(tc.input || null)}</Td>
-                          <Td className="max-w-[320px] truncate">{orDash(tc.expected)}</Td>
-                          <Td className="max-w-[240px] truncate">{metadataPreview(tc.metadata)}</Td>
-                          <Td className="text-right">
-                            {isCurrentVersion && (
-                              <DatasetActionsMenu
-                                onEdit={() =>
-                                  setEditorMode({
-                                    kind: "edit",
-                                    testCaseId: tc.testCaseId,
-                                    input: tc.input,
-                                    expected: tc.expected,
-                                    metadata: tc.metadata,
-                                  })
-                                }
-                                onDelete={() => setDeleteRow(tc)}
-                              />
-                            )}
-                          </Td>
-                        </TR>
-                      );
-                    })}
-                  </TBody>
-                </Table>
+                            <span className="font-mono">
+                              {versionSnowflake(v.createTime, v.versionNumber)}
+                            </span>
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               )}
             </div>
+          </SearchFilterBar>
+
+          {/* Table + focused-case slide-in panel */}
+          <div className="min-h-0 flex-1 overflow-auto">
+            {cases.length === 0 ? (
+              <EmptyState>
+                {keyword
+                  ? "No cases match your search."
+                  : "To populate this dataset, manually create a row or insert data programmatically."}
+              </EmptyState>
+            ) : (
+              <Table>
+                <THead>
+                  <TRHead>
+                    <Th className="w-[150px]">Created</Th>
+                    <Th>Input</Th>
+                    <Th>Expected</Th>
+                    <Th>Metadata</Th>
+                    <Th className="w-[70px] text-right">Actions</Th>
+                  </TRHead>
+                </THead>
+                <TBody>
+                  {cases.map((tc) => {
+                    const openThisCase = () => {
+                      if (
+                        dirtyRef.current &&
+                        !window.confirm("Discard unsaved changes to this case?")
+                      ) {
+                        return;
+                      }
+                      setOpenCaseId(tc.testCaseId);
+                    };
+                    return (
+                      <TR
+                        key={tc.id}
+                        interactive
+                        selected={tc.testCaseId === openCaseId}
+                        tabIndex={0}
+                        role="button"
+                        aria-expanded={tc.testCaseId === openCaseId}
+                        onClick={openThisCase}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            openThisCase();
+                          }
+                        }}
+                      >
+                        <Td className="whitespace-nowrap text-muted-foreground">
+                          <Timestamp iso={tc.createTime} />
+                        </Td>
+                        <Td className="max-w-[320px] truncate">{orDash(tc.input || null)}</Td>
+                        <Td className="max-w-[320px] truncate">{orDash(tc.expected)}</Td>
+                        <Td className="max-w-[240px] truncate">{metadataPreview(tc.metadata)}</Td>
+                        <Td className="text-right">
+                          {isCurrentVersion && (
+                            <DatasetActionsMenu
+                              onEdit={() =>
+                                setEditorMode({
+                                  kind: "edit",
+                                  testCaseId: tc.testCaseId,
+                                  input: tc.input,
+                                  expected: tc.expected,
+                                  metadata: tc.metadata,
+                                })
+                              }
+                              onDelete={() => setDeleteRow(tc)}
+                            />
+                          )}
+                        </Td>
+                      </TR>
+                    );
+                  })}
+                </TBody>
+              </Table>
+            )}
+          </div>
         </div>
       </div>
 
@@ -543,83 +537,83 @@ function CasePanel({
     >
       {/* Header — same h-12 chrome as the trace/span detail panel. */}
       <div className="flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border bg-muted/30 px-4">
-          <div className="flex min-w-0 items-center gap-2">
-            <Database className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <span className="text-sm font-medium">Row</span>
-            <span className="truncate font-mono text-xs text-muted-foreground">
-              {caseDisplayId(testCase.testCaseId)}
-            </span>
-            <CopyButton
-              value={testCase.testCaseId}
-              className="h-6 w-6 text-muted-foreground hover:text-foreground"
-              title="Copy ID"
-            />
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onNavigate("up")}
-              disabled={!canNavigateUp}
-              className="h-7 w-7 p-0"
-              title="Previous row"
-            >
-              <ArrowUp className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => onNavigate("down")}
-              disabled={!canNavigateDown}
-              className="h-7 w-7 p-0"
-              title="Next row"
-            >
-              <ArrowDown className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setFullscreen((v) => !v)}
-              className="h-7 w-7 p-0"
-              title={fullscreen ? "Restore default size" : "Expand to full screen"}
-            >
-              {fullscreen ? <Shrink className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => window.open(`/projects/${projectId}/datasets/${datasetId}`, "_blank")}
-              className="h-7 w-7 p-0"
-              title="Open in new tab"
-            >
-              <SquareArrowOutUpRight className="h-4 w-4" />
-            </Button>
-            <div className="w-2" />
-            {/* AI Assistant — mirrors the trace-detail panel. Seeds the case's source
+        <div className="flex min-w-0 items-center gap-2">
+          <Database className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="text-sm font-medium">Row</span>
+          <span className="truncate font-mono text-xs text-muted-foreground">
+            {caseDisplayId(testCase.testCaseId)}
+          </span>
+          <CopyButton
+            value={testCase.testCaseId}
+            className="h-6 w-6 text-muted-foreground hover:text-foreground"
+            title="Copy ID"
+          />
+        </div>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onNavigate("up")}
+            disabled={!canNavigateUp}
+            className="h-7 w-7 p-0"
+            title="Previous row"
+          >
+            <ArrowUp className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onNavigate("down")}
+            disabled={!canNavigateDown}
+            className="h-7 w-7 p-0"
+            title="Next row"
+          >
+            <ArrowDown className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setFullscreen((v) => !v)}
+            className="h-7 w-7 p-0"
+            title={fullscreen ? "Restore default size" : "Expand to full screen"}
+          >
+            {fullscreen ? <Shrink className="h-4 w-4" /> : <Expand className="h-4 w-4" />}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => window.open(`/projects/${projectId}/datasets/${datasetId}`, "_blank")}
+            className="h-7 w-7 p-0"
+            title="Open in new tab"
+          >
+            <SquareArrowOutUpRight className="h-4 w-4" />
+          </Button>
+          <div className="w-2" />
+          {/* AI Assistant — mirrors the trace-detail panel. Seeds the case's source
                 trace as context when it has one; otherwise a plain project-scoped chat. */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setAiContext(testCase.sourceTraceId ? { traceId: testCase.sourceTraceId } : null);
-                setAiInitialSessionId(undefined);
-                setAiPanelOpen(!aiPanelOpen);
-              }}
-              className="h-7 w-7 p-0"
-              title="AI Assistant"
-            >
-              <DOMAIN_ICONS.assistant className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0"
-              onClick={onClose}
-              aria-label="Close"
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setAiContext(testCase.sourceTraceId ? { traceId: testCase.sourceTraceId } : null);
+              setAiInitialSessionId(undefined);
+              setAiPanelOpen(!aiPanelOpen);
+            }}
+            className="h-7 w-7 p-0"
+            title="AI Assistant"
+          >
+            <DOMAIN_ICONS.assistant className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0"
+            onClick={onClose}
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       {/* View toggle — Row / Experiments, where a trace shows Tree / Timeline. The
@@ -702,7 +696,6 @@ function CasePanel({
                       <Th className="w-[150px]">Timestamp</Th>
                       <Th>Experiment Name</Th>
                       <Th>Run Name</Th>
-                      <Th className="w-[90px] text-right">Score</Th>
                       <Th className="w-[90px] text-right">Cost</Th>
                       <Th className="w-[90px] text-right">Avg Cost</Th>
                       <Th className="w-[90px] text-right">Duration</Th>
@@ -712,7 +705,8 @@ function CasePanel({
                   <TBody>
                     {runs.map((r) => {
                       // Run-level averages, same math as the Experiments list.
-                      const avgCost = r.cost != null && r.caseCount > 0 ? r.cost / r.caseCount : null;
+                      const avgCost =
+                        r.cost != null && r.caseCount > 0 ? r.cost / r.caseCount : null;
                       const avgDurationMs =
                         r.elapsedMs != null && r.caseCount > 0
                           ? Math.round(r.elapsedMs / r.caseCount)
@@ -734,9 +728,6 @@ function CasePanel({
                             <span className="tabular-nums text-muted-foreground">
                               #{r.runNumber}
                             </span>
-                          </Td>
-                          <Td className="text-right tabular-nums">
-                            <ScoreValue value={r.score} />
                           </Td>
                           <Td className="text-right tabular-nums text-muted-foreground">
                             {formatCost(r.cost)}

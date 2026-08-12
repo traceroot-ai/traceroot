@@ -45,15 +45,6 @@ export function RunStatusBadge({ status }: { status: EvalRunStatus }) {
   return <Badge variant={STATUS_VARIANT[status]}>{EVAL_RUN_STATUS_LABEL[status]}</Badge>;
 }
 
-// Kept for the dataset-detail Runs tab, which still shows a per-run score value.
-export function ScoreValue({ value }: { value: number | null }) {
-  return value === null ? (
-    <span className="text-muted-foreground">—</span>
-  ) : (
-    <>{pctFraction(value)}</>
-  );
-}
-
 const RUNS_COLUMN_COUNT = 10;
 // Matches the route's default `limit` (runs/route.ts) so the page-count math lines
 // up with what the server actually returns per page.

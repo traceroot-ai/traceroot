@@ -190,7 +190,6 @@ export interface TestCaseRunRow {
    *  DIFFERENT version of this row (a different input/expected association). */
   datasetVersionId: string;
   ranAt: string;
-  score: number | null;
   status: string;
   change: "improved" | "regressed" | "unchanged" | null;
   /** Run-level totals (summed over the run's cases), à la the Experiments list. */
