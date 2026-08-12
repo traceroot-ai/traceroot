@@ -16,6 +16,19 @@ vi.mock("react-markdown", () => ({
   default: ({ children }: { children: string }) => <>{children}</>,
 }));
 vi.mock("remark-gfm", () => ({ default: () => {} }));
+vi.mock("@/components/icons/domain-icons", () => ({
+  DOMAIN_ICONS: {
+    success: (props: React.SVGProps<SVGSVGElement>) => (
+      <svg data-testid="icon-success" {...props} />
+    ),
+    failure: (props: React.SVGProps<SVGSVGElement>) => (
+      <svg data-testid="icon-failure" {...props} />
+    ),
+    pending: (props: React.SVGProps<SVGSVGElement>) => (
+      <svg data-testid="icon-pending" {...props} />
+    ),
+  },
+}));
 
 import { MessageList } from "./message-list";
 
@@ -37,15 +50,21 @@ function makeToolStep(status: "done" | "error" | "running"): AIMessage {
 }
 
 describe("MessageList — ToolStepItem status icons", () => {
-  it("renders a done tool step", () => {
+  it("shows the success icon for a done step, not the failure icon", () => {
     render(<MessageList messages={[makeToolStep("done")]} />);
-    expect(screen.getByRole("button")).toBeTruthy();
-    expect(screen.getByText("Get weather")).toBeTruthy();
+    expect(screen.getByTestId("icon-success")).toBeTruthy();
+    expect(screen.queryByTestId("icon-failure")).toBeNull();
   });
 
-  it("renders an errored tool step", () => {
+  it("shows the failure icon for an errored step, not the success icon", () => {
     render(<MessageList messages={[makeToolStep("error")]} />);
-    expect(screen.getByRole("button")).toBeTruthy();
-    expect(screen.getByText("Get weather")).toBeTruthy();
+    expect(screen.getByTestId("icon-failure")).toBeTruthy();
+    expect(screen.queryByTestId("icon-success")).toBeNull();
+  });
+
+  it("shows neither success nor failure icon for a running step", () => {
+    render(<MessageList messages={[makeToolStep("running")]} />);
+    expect(screen.queryByTestId("icon-success")).toBeNull();
+    expect(screen.queryByTestId("icon-failure")).toBeNull();
   });
 });
