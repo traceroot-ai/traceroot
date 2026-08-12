@@ -57,11 +57,7 @@ class TestFilterFields:
         resp = client.get("/api/v1/projects/p1/traces/filter-fields")
         assert resp.status_code == 200
         fields = resp.json()["fields"]
-        # ... except the ones held back by the temporary keyed-field gate in
-        # get_filter_fields, which feat/metadata-filter-ui removes along with this clause.
-        assert {f["field"] for f in fields} == {
-            c.name for c in reg.FILTER_COLUMNS if not c.requires_key
-        }
+        assert {f["field"] for f in fields} == {c.name for c in reg.FILTER_COLUMNS}
 
     def test_serializes_field_shape_from_registry(self, client):
         fields = {
@@ -87,6 +83,27 @@ class TestFilterFields:
         assert fields["errors"]["integer"] is True
         assert cost["integer"] is False
         assert model["integer"] is False
+
+    def test_serializes_requires_key_so_the_builder_renders_a_key_control(self, client):
+        """The client learns which field takes a key from the registry response rather
+        than hard-coding the field name.
+
+        The bit survives on the wire even though the backend derives it from the level,
+        because the level is serialized as an opaque string the client never interprets:
+        without the boolean, deciding whether to render the key control would mean
+        branching on a backend enum's spelling in the UI.
+        """
+        fields = {
+            f["field"]: f
+            for f in client.get("/api/v1/projects/p1/traces/filter-fields").json()["fields"]
+        }
+
+        assert fields["metadata"]["requires_key"] is True
+        assert fields["metadata"]["level"] == "KEYED_MAP"
+        assert fields["metadata"]["operators"] == ["eq", "contains"]
+        assert fields["metadata"]["value_source"] == "free_text"
+        for name in ("model_name", "environment", "cost", "trace_id", "errors"):
+            assert fields[name]["requires_key"] is False
 
 
 class TestFilterValues:

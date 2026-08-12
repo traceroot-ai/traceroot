@@ -50,6 +50,19 @@ const MODEL: FilterFieldDef = {
   enum_values: [],
 };
 
+const METADATA: FilterFieldDef = {
+  field: "metadata",
+  label: "Metadata",
+  type: "text",
+  // Keyed-map tier, matching the backend registry — metadata is the one field whose
+  // predicate carries a key, and SPAN_MEMBERSHIP here contradicted columns.py.
+  level: "KEYED_MAP",
+  operators: ["eq", "contains"],
+  value_source: "free_text",
+  enum_values: [],
+  requires_key: true,
+};
+
 const TRACE_ID: FilterFieldDef = {
   field: "trace_id",
   label: "Trace ID",
@@ -258,6 +271,12 @@ describe("FilterBuilder (Basic row)", () => {
     expect(screen.getByRole("button", { name: "Add filter" })).toHaveProperty("disabled", true);
   });
 
+  it("shows no metadata key control for an unkeyed field", () => {
+    renderBuilder([TRACE_ID]);
+    pickField(/Trace ID/);
+    expect(screen.queryByLabelText("metadata key")).toBeNull();
+  });
+
   it("threads both window bounds into the distinct-values query for a categorical field", () => {
     mockUseFilterValues.mockClear();
     render(
@@ -278,5 +297,102 @@ describe("FilterBuilder (Basic row)", () => {
       "2026-06-02T00:00:00Z",
       true,
     );
+  });
+});
+
+describe("FilterBuilder (Metadata key)", () => {
+  const fillKeyAndValue = (key: string, value: string) => {
+    fireEvent.change(screen.getByLabelText("metadata key"), { target: { value: key } });
+    fireEvent.change(screen.getByLabelText("value"), { target: { value } });
+  };
+
+  it("reveals the key control when Metadata is selected", () => {
+    renderBuilder([METADATA, TRACE_ID]);
+    expect(screen.queryByLabelText("metadata key")).toBeNull();
+    pickField(/Metadata/);
+    expect(screen.getByLabelText("metadata key")).toBeTruthy();
+  });
+
+  it("keeps Add filter disabled until the key is filled", () => {
+    renderBuilder([METADATA]);
+    pickField(/Metadata/);
+    fireEvent.change(screen.getByLabelText("value"), { target: { value: "v1" } });
+    expect(screen.getByRole("button", { name: "Add filter" })).toHaveProperty("disabled", true);
+    fireEvent.change(screen.getByLabelText("metadata key"), { target: { value: "k" } });
+    expect(screen.getByRole("button", { name: "Add filter" })).toHaveProperty("disabled", false);
+  });
+
+  it("treats a whitespace-only key as no key at all", () => {
+    renderBuilder([METADATA]);
+    pickField(/Metadata/);
+    fillKeyAndValue("   ", "v1");
+    expect(screen.getByRole("button", { name: "Add filter" })).toHaveProperty("disabled", true);
+  });
+
+  it("trims surrounding whitespace off a typed key", () => {
+    const onSubmit = renderBuilder([METADATA]);
+    pickField(/Metadata/);
+    fillKeyAndValue("  session_id  ", "s-1");
+    fireEvent.click(screen.getByRole("button", { name: "Add filter" }));
+    expect(onSubmit).toHaveBeenCalledWith({
+      field: "metadata",
+      key: "session_id",
+      op: "eq",
+      value: "s-1",
+    });
+  });
+
+  it("offers `=` and `contains` for metadata, and emits `contains` when chosen", () => {
+    const onSubmit = renderBuilder([METADATA]);
+    pickField(/Metadata/);
+    fireEvent.click(screen.getByRole("button", { name: "=" })); // operator dropdown
+    expect(screen.queryByRole("option", { name: "is" })).toBeNull();
+    fireEvent.click(screen.getByRole("option", { name: "contains" }));
+    fillKeyAndValue("session_id", "s-");
+    fireEvent.click(screen.getByRole("button", { name: "Add filter" }));
+    expect(onSubmit).toHaveBeenCalledWith({
+      field: "metadata",
+      key: "session_id",
+      op: "contains",
+      value: "s-",
+    });
+  });
+
+  it("applies the filter when Enter is pressed in the key field", () => {
+    const onSubmit = renderBuilder([METADATA]);
+    pickField(/Metadata/);
+    fillKeyAndValue("session_id", "s-1");
+    fireEvent.keyDown(screen.getByLabelText("metadata key"), { key: "Enter" });
+    expect(onSubmit).toHaveBeenCalledWith({
+      field: "metadata",
+      key: "session_id",
+      op: "eq",
+      value: "s-1",
+    });
+  });
+
+  it("clears the key along with the rest of the row after adding", () => {
+    const onSubmit = renderBuilder([METADATA]);
+    pickField(/Metadata/);
+    fillKeyAndValue("session_id", "s-1");
+    fireEvent.click(screen.getByRole("button", { name: "Add filter" }));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    // Field is unset again, so the key control is gone with it rather than retaining a
+    // key that would silently attach to the next filter.
+    expect(screen.getByRole("button", { name: "Field" })).toBeTruthy();
+    expect(screen.queryByLabelText("metadata key")).toBeNull();
+  });
+
+  it("takes a free-text value rather than the distinct-values dropdown", () => {
+    mockUseFilterValues.mockClear();
+    renderBuilder([METADATA]);
+    pickField(/Metadata/);
+    // The value is free text because the field's registry TYPE is text — discovery
+    // answers which KEYS exist, not which values a key takes, so there is no per-key
+    // value list to open.
+    expect(screen.getByLabelText("value").tagName).toBe("INPUT");
+    for (const call of mockUseFilterValues.mock.calls) {
+      expect(call).not.toContain("metadata");
+    }
   });
 });

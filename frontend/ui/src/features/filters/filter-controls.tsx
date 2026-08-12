@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
+import { MAX_VALUE_LENGTH } from "./predicate";
 
 // Icons mirror the trace detail / list UI for consistency; the model and environment
 // fields, which have no trace-detail icon, use a generic one. The dashboard widget
@@ -24,6 +25,7 @@ export const FIELD_ICONS: Record<string, LucideIcon> = {
   errors: DOMAIN_ICONS.error,
   model_name: DOMAIN_ICONS.model,
   environment: DOMAIN_ICONS.environment,
+  metadata: DOMAIN_ICONS.metadata,
 };
 
 // Text sizing depends on where the filter lives: the trace-list search bar uses
@@ -94,6 +96,10 @@ export function TextField({
       aria-label={ariaLabel}
       placeholder={placeholder}
       value={value}
+      // Clamps a typed or pasted value at the backend's cap, so the common path never builds
+      // a predicate the list would 422. It is the affordance, not the guard: a programmatic
+      // set or a hand-edited `?filters=` bypasses it, which is what isValidPredicate covers.
+      maxLength={MAX_VALUE_LENGTH}
       onChange={(e) => onChange(e.target.value)}
       onKeyDown={(e) => {
         if (e.key === "Enter") onEnter?.();

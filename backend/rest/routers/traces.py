@@ -151,14 +151,9 @@ async def get_filter_fields(
                 "value_source": c.value_source,
                 "enum_values": list(c.enum_values),
                 "integer": c.is_integer,
+                "requires_key": c.requires_key,
             }
             for c in filter_columns.FILTER_COLUMNS
-            # Temporary: a keyed field needs a key control the filter builder does not
-            # have yet. Advertising it now would let a deployed builder render it as a
-            # plain text field and emit a keyless predicate, which the translator rejects
-            # with a 422 — and a 422 on the filter parameter sinks the whole trace list.
-            # Removed by feat/metadata-filter-ui, which ships the key control.
-            if not c.requires_key
         ]
     }
 

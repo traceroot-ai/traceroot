@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   ArrowRight,
   Bot,
+  Braces,
   BotMessageSquare,
   Box,
   CircleAlert,
@@ -61,6 +62,8 @@ export const DOMAIN_ICONS = {
   workspace: LayoutGrid,
   detector: Eye,
   environment: Globe,
+  // Free-form key/value data the user attached to a trace, not a traceroot field.
+  metadata: Braces,
   dashboard: LayoutDashboard,
   // Neutral "unknown field" fallback for filter/widget dropdowns. Kept
   // decoupled from `model` even though both currently render as Box — if the
