@@ -308,7 +308,7 @@ export function DatasetDetailView({
                     <Th>Input</Th>
                     <Th>Expected</Th>
                     <Th>Metadata</Th>
-                    <Th className="w-[70px] text-right">Actions</Th>
+                    {isCurrentVersion && <Th className="w-[70px] text-right">Actions</Th>}
                   </TRHead>
                 </THead>
                 <TBody>
@@ -344,8 +344,8 @@ export function DatasetDetailView({
                         <Td className="max-w-[320px] truncate">{orDash(tc.input || null)}</Td>
                         <Td className="max-w-[320px] truncate">{orDash(tc.expected)}</Td>
                         <Td className="max-w-[240px] truncate">{metadataPreview(tc.metadata)}</Td>
-                        <Td className="text-right">
-                          {isCurrentVersion && (
+                        {isCurrentVersion && (
+                          <Td className="text-right">
                             <DatasetActionsMenu
                               onEdit={() =>
                                 setEditorMode({
@@ -358,8 +358,8 @@ export function DatasetDetailView({
                               }
                               onDelete={() => setDeleteRow(tc)}
                             />
-                          )}
-                        </Td>
+                          </Td>
+                        )}
                       </TR>
                     );
                   })}
