@@ -25,6 +25,23 @@ export const REGISTRY: readonly RegistryEntry[] = [
     },
   },
   {
+    name: "get_detector",
+    description:
+      "Fetch one detector's full configuration by id: prompt, output schema, sample rate, RCA and detection settings, and trigger conditions.",
+    method: "get",
+    path: "/api/v1/public/detectors/{detector_id}",
+    inputSchema: {
+      type: "object",
+      properties: {
+        detector_id: {
+          type: "string",
+        },
+      },
+      required: ["detector_id"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "get_finding",
     description: "Fetch one detector finding by id, with its full analysis detail.",
     method: "get",

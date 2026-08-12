@@ -131,6 +131,7 @@ describe("INTERNAL_BINDINGS", () => {
       list_sessions: "/api/v1/projects/{project_id}/sessions",
       get_session: "/api/v1/projects/{project_id}/sessions/{session_id}",
       list_detectors: "/api/v1/projects/{project_id}/detectors",
+      get_detector: "/api/v1/projects/{project_id}/detectors/{detector_id}",
       list_findings: "/api/v1/projects/{project_id}/detectors/findings",
       get_finding: "/api/v1/projects/{project_id}/detectors/findings/{finding_id}",
       get_finding_by_trace: "/api/v1/projects/{project_id}/detectors/traces/{trace_id}/finding",
