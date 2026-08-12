@@ -59,33 +59,58 @@ function metaOf(name: string, version: string, o: Record<string, unknown>): Comp
   };
 }
 
-/** Parse the run's `scorers` JSON into typed metadata, tolerating old `{name,version}`.
+/** Parse the run's `scorers` JSON into per-metric policy, keyed by the name a Score reports as
+ * `scorer_name`, tolerating the old `{name,version}` shape.
  *
- * A scorer DEFINITION owns the METRICS it emits, and a Score reports the emitted-metric
- * name as `scorer_name` — never the definition name. So each `emitted_metrics[]` entry is
- * surfaced under its OWN name, carrying its own policy, alongside the definition; otherwise a
- * `grade`-emits-`quality` metric would resolve no threshold/direction in the comparison view.
- * The definition's top-level policy stays as the back-compat single implicit metric (older
- * SDK, or a scorer whose one metric is named after it). */
+ * A scorer DEFINITION owns the METRICS it emits; a Score reports the emitted-metric name, never
+ * the definition name. So:
+ *  - when a scorer declares `emitted_metrics`, only those are surfaced (each under its own name);
+ *    the definition name is NOT surfaced — it matches no Score, so it would be a phantom metric.
+ *  - a scorer with no `emitted_metrics` IS its own single implicit metric (older SDK, or a metric
+ *    named after the definition) — surface the definition's top-level policy.
+ * Two scorers emitting the SAME metric name with a CONFLICTING policy can't be disambiguated from
+ * a Score alone, so that metric drops to non-directional (null policy) rather than letting array
+ * order silently pick a direction (which would flip improved↔regressed). */
 export function parseScorers(json: unknown): ComparisonScorerMeta[] {
   if (!Array.isArray(json)) return [];
-  const out: ComparisonScorerMeta[] = [];
+  const byName = new Map<string, ComparisonScorerMeta>();
+  const add = (meta: ComparisonScorerMeta) => {
+    const prev = byName.get(meta.name);
+    if (!prev) {
+      byName.set(meta.name, meta);
+    } else if (
+      prev.valueType !== meta.valueType ||
+      prev.direction !== meta.direction ||
+      prev.threshold !== meta.threshold
+    ) {
+      // Conflicting policy for one metric name → ambiguous; compare it non-directionally.
+      byName.set(meta.name, {
+        name: meta.name,
+        version: prev.version,
+        valueType: null,
+        direction: null,
+        threshold: null,
+      });
+    }
+  };
   for (const raw of json) {
     if (!raw || typeof raw !== "object") continue;
     const o = raw as Record<string, unknown>;
     if (typeof o.name !== "string") continue;
     const version = typeof o.version === "string" ? o.version : "";
-    out.push(metaOf(o.name, version, o));
-    if (Array.isArray(o.emitted_metrics)) {
-      for (const m of o.emitted_metrics) {
+    const emitted = Array.isArray(o.emitted_metrics) ? o.emitted_metrics : [];
+    if (emitted.length === 0) {
+      add(metaOf(o.name, version, o));
+    } else {
+      for (const m of emitted) {
         if (m && typeof m === "object") {
           const em = m as Record<string, unknown>;
-          if (typeof em.name === "string") out.push(metaOf(em.name, version, em));
+          if (typeof em.name === "string") add(metaOf(em.name, version, em));
         }
       }
     }
   }
-  return out;
+  return [...byName.values()];
 }
 
 export function toComparisonRun(r: DbRun): ComparisonRun {

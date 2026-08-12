@@ -21,7 +21,6 @@ import { useKeywordSearch } from "@/lib/hooks/use-keyword-search";
 import { Table, TBody, Td, Th, THead, TR, TRHead } from "@/components/ui/table";
 import { DatasetActionsMenu, EmptyState, Timestamp } from "@/features/offline-eval/components";
 import { ProjectBreadcrumb } from "@/features/projects/components";
-import { pctFraction } from "@/features/offline-eval/utils";
 import { versionSnowflake } from "@/lib/eval/snowflake";
 import { useEvaluationRuns, useDeleteRuns } from "../hooks";
 import { DeleteRunDialog } from "../components/delete-run-dialog";
