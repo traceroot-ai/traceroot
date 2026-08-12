@@ -49,7 +49,6 @@ const result = (
   candidateOutput: output,
   baselineOutput: null,
   status: "passed",
-  mainScore: scores.routing_accuracy,
   change: null,
   taskError: null,
   durationMs: 2100,
