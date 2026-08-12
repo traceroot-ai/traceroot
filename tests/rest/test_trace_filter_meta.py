@@ -1,9 +1,9 @@
-"""Unit tests for the trace-filter meta endpoints and the distinct-values query.
+"""Unit tests for the trace-filter meta endpoints and the discovery queries.
 
 Covers ``GET /traces/filter-fields`` (registry serialization) and
 ``GET /traces/filter-values/{field}`` (distinct categorical values), plus the
-``TraceReaderService.get_distinct_span_values`` query + cache. Uses TestClient with
-mocked dependencies — no ClickHouse needed.
+``TraceDiscoveryService`` queries + cache behind them. Uses TestClient with mocked
+dependencies — no ClickHouse needed.
 """
 
 from datetime import datetime
@@ -17,30 +17,38 @@ from rest.routers.deps import ProjectAccessInfo, get_project_access
 from rest.services.filters import columns as reg
 
 
-@pytest.fixture()
-def mock_trace_reader():
-    return MagicMock()
+def _client_for_plan(mock_discovery, billing_plan: str) -> TestClient:
+    """TestClient whose project access reports ``billing_plan``, with discovery mocked."""
 
-
-@pytest.fixture()
-def client(mock_trace_reader):
     async def mock_get_access(project_id: str, x_user_id=None):
         return ProjectAccessInfo(
             project_id=project_id,
             user_id="test-user",
             role="ADMIN",
             workspace_id="ws-test",
-            billing_plan="enterprise",
+            billing_plan=billing_plan,
         )
 
     app.dependency_overrides[get_project_access] = mock_get_access
 
     import rest.routers.traces as traces_mod
 
-    original = traces_mod.get_trace_reader_service
-    traces_mod.get_trace_reader_service = lambda: mock_trace_reader
-    yield TestClient(app)
-    traces_mod.get_trace_reader_service = original
+    traces_mod.get_trace_discovery_service = lambda: mock_discovery
+    return TestClient(app)
+
+
+@pytest.fixture()
+def mock_discovery():
+    return MagicMock()
+
+
+@pytest.fixture()
+def client(mock_discovery):
+    import rest.routers.traces as traces_mod
+
+    original = traces_mod.get_trace_discovery_service
+    yield _client_for_plan(mock_discovery, "enterprise")
+    traces_mod.get_trace_discovery_service = original
     app.dependency_overrides.clear()
 
 
@@ -78,8 +86,8 @@ class TestFilterFields:
 
 
 class TestFilterValues:
-    def test_model_name_returns_values_by_frequency(self, client, mock_trace_reader):
-        mock_trace_reader.get_distinct_span_values.return_value = [
+    def test_model_name_returns_values_by_frequency(self, client, mock_discovery):
+        mock_discovery.get_distinct_span_values.return_value = [
             {"value": "gpt-4", "count": 10},
             {"value": "claude-opus-4.8", "count": 4},
         ]
@@ -88,48 +96,48 @@ class TestFilterValues:
         body = resp.json()
         assert body["field"] == "model_name"
         assert body["values"][0] == {"value": "gpt-4", "count": 10}
-        kw = mock_trace_reader.get_distinct_span_values.call_args.kwargs
+        kw = mock_discovery.get_distinct_span_values.call_args.kwargs
         assert kw["project_id"] == "p1"
         assert kw["column"] == "model_name"
 
-    def test_start_after_is_threaded_to_the_service(self, client, mock_trace_reader):
-        mock_trace_reader.get_distinct_span_values.return_value = []
+    def test_start_after_is_threaded_to_the_service(self, client, mock_discovery):
+        mock_discovery.get_distinct_span_values.return_value = []
         resp = client.get(
             "/api/v1/projects/p1/traces/filter-values/environment?start_after=2026-06-01T00:00:00"
         )
         assert resp.status_code == 200
-        assert mock_trace_reader.get_distinct_span_values.call_args.kwargs[
-            "start_after"
-        ] == datetime(2026, 6, 1, 0, 0, 0)
+        assert mock_discovery.get_distinct_span_values.call_args.kwargs["start_after"] == datetime(
+            2026, 6, 1, 0, 0, 0
+        )
 
-    def test_end_before_is_threaded_to_the_service(self, client, mock_trace_reader):
-        mock_trace_reader.get_distinct_span_values.return_value = []
+    def test_end_before_is_threaded_to_the_service(self, client, mock_discovery):
+        mock_discovery.get_distinct_span_values.return_value = []
         resp = client.get(
             "/api/v1/projects/p1/traces/filter-values/environment"
             "?start_after=2026-06-01T00:00:00&end_before=2026-06-02T00:00:00"
         )
         assert resp.status_code == 200
-        kw = mock_trace_reader.get_distinct_span_values.call_args.kwargs
+        kw = mock_discovery.get_distinct_span_values.call_args.kwargs
         assert kw["start_after"] == datetime(2026, 6, 1, 0, 0, 0)
         assert kw["end_before"] == datetime(2026, 6, 2, 0, 0, 0)
 
-    def test_unknown_field_is_404(self, client, mock_trace_reader):
+    def test_unknown_field_is_404(self, client, mock_discovery):
         resp = client.get("/api/v1/projects/p1/traces/filter-values/not_a_field")
         assert resp.status_code == 404
-        mock_trace_reader.get_distinct_span_values.assert_not_called()
+        mock_discovery.get_distinct_span_values.assert_not_called()
 
-    def test_numeric_field_is_rejected(self, client, mock_trace_reader):
+    def test_numeric_field_is_rejected(self, client, mock_discovery):
         resp = client.get("/api/v1/projects/p1/traces/filter-values/cost")
         assert resp.status_code == 400
-        mock_trace_reader.get_distinct_span_values.assert_not_called()
+        mock_discovery.get_distinct_span_values.assert_not_called()
 
 
 class TestGetDistinctSpanValues:
     def _service(self, monkeypatch, mock_client):
-        import rest.services.trace_reader as tr_mod
+        import rest.services.trace_discovery as discovery_mod
 
-        monkeypatch.setattr(tr_mod, "get_clickhouse_client", lambda: mock_client)
-        return tr_mod.TraceReaderService()
+        monkeypatch.setattr(discovery_mod, "get_clickhouse_client", lambda: mock_client)
+        return discovery_mod.TraceDiscoveryService()
 
     def test_builds_grouped_project_scoped_query(self, monkeypatch):
         mock_client = MagicMock()
@@ -270,26 +278,26 @@ class TestGetDistinctSpanValues:
         assert "LIMIT 1 BY project_id, trace_id, span_id" in query_text
 
     def test_cache_is_bounded(self, monkeypatch):
-        from rest.services.trace_reader import DISTINCT_VALUES_CACHE_MAX
+        from rest.services.trace_discovery import DISCOVERY_CACHE_MAX
 
         mock_client = MagicMock()
         mock_client.query.return_value.result_rows = []
         svc = self._service(monkeypatch, mock_client)
 
         # Far more distinct cache keys than the cap; size must stay bounded.
-        for i in range(DISTINCT_VALUES_CACHE_MAX + 50):
+        for i in range(DISCOVERY_CACHE_MAX + 50):
             svc.get_distinct_span_values(project_id=f"p{i}", column="model_name")
-        assert len(svc._distinct_cache) <= DISTINCT_VALUES_CACHE_MAX
+        assert len(svc._discovery_cache) <= DISCOVERY_CACHE_MAX
 
 
 class TestGetDistinctTraceValues:
     """The traces-table variant that powers the widget builder's traces-view dropdowns."""
 
     def _service(self, monkeypatch, mock_client):
-        import rest.services.trace_reader as tr_mod
+        import rest.services.trace_discovery as discovery_mod
 
-        monkeypatch.setattr(tr_mod, "get_clickhouse_client", lambda: mock_client)
-        return tr_mod.TraceReaderService()
+        monkeypatch.setattr(discovery_mod, "get_clickhouse_client", lambda: mock_client)
+        return discovery_mod.TraceDiscoveryService()
 
     def test_builds_grouped_project_scoped_traces_query(self, monkeypatch):
         mock_client = MagicMock()
@@ -382,3 +390,17 @@ class TestGetDistinctTraceValues:
         second = svc.get_distinct_trace_values(project_id="p1", column="environment")
         assert first == second
         mock_client.query.assert_called_once()
+
+
+class TestGetTraceDiscoveryService:
+    """The accessor hands out one service, so the answer cache it holds is shared."""
+
+    def test_repeated_calls_return_the_same_instance(self, monkeypatch):
+        import rest.services.trace_discovery as discovery_mod
+
+        monkeypatch.setattr(discovery_mod, "get_clickhouse_client", lambda: MagicMock())
+        monkeypatch.setattr(discovery_mod, "_service", None)
+
+        assert discovery_mod.get_trace_discovery_service() is (
+            discovery_mod.get_trace_discovery_service()
+        )

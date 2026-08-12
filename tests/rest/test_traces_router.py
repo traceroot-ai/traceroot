@@ -78,8 +78,19 @@ def mock_trace_reader():
 
 
 @pytest.fixture()
-def client(mock_trace_reader):
-    """TestClient with mocked auth and trace reader."""
+def mock_trace_discovery():
+    """Mock TraceDiscoveryService.
+
+    Distinct-value and metadata-key routes read from discovery, not the reader. Left
+    unpatched they build a real service and open a real ClickHouse connection, so these
+    tests pass or fail on whether a container happens to be listening.
+    """
+    return MagicMock()
+
+
+@pytest.fixture()
+def client(mock_trace_reader, mock_trace_discovery):
+    """TestClient with mocked auth and trace services."""
 
     async def mock_get_access(project_id: str, x_user_id=None):
         # Mirror the validate-project-access contract (workspaceId + billingPlan)
@@ -98,11 +109,14 @@ def client(mock_trace_reader):
     import rest.routers.traces as traces_mod
 
     original = traces_mod.get_trace_reader_service
+    original_discovery = traces_mod.get_trace_discovery_service
     traces_mod.get_trace_reader_service = lambda: mock_trace_reader
+    traces_mod.get_trace_discovery_service = lambda: mock_trace_discovery
 
     yield TestClient(app)
 
     traces_mod.get_trace_reader_service = original
+    traces_mod.get_trace_discovery_service = original_discovery
 
 
 class TestTracesExist:
@@ -459,7 +473,7 @@ class TestDashboardKeepsSpanTreeMetadata:
 
 
 @pytest.fixture()
-def free_plan_client(mock_trace_reader):
+def free_plan_client(mock_trace_reader, mock_trace_discovery):
     """TestClient with free-plan billing for retention gate tests."""
 
     async def mock_get_access(project_id: str, x_user_id=None):
@@ -476,11 +490,14 @@ def free_plan_client(mock_trace_reader):
     import rest.routers.traces as traces_mod
 
     original = traces_mod.get_trace_reader_service
+    original_discovery = traces_mod.get_trace_discovery_service
     traces_mod.get_trace_reader_service = lambda: mock_trace_reader
+    traces_mod.get_trace_discovery_service = lambda: mock_trace_discovery
 
     yield TestClient(app)
 
     traces_mod.get_trace_reader_service = original
+    traces_mod.get_trace_discovery_service = original_discovery
 
 
 def _now_naive():
@@ -517,14 +534,17 @@ class TestRetentionGate:
         assert abs((kw["start_after"] - expected).total_seconds()) < 2
 
     def test_get_filter_values_clamps_when_outside_window(
-        self, free_plan_client, mock_trace_reader
+        self, free_plan_client, mock_trace_discovery
     ):
-        mock_trace_reader.get_distinct_span_values.return_value = []
+        mock_trace_discovery.get_distinct_span_values.return_value = []
         old = (_now_naive() - timedelta(days=30)).isoformat()
         response = free_plan_client.get(
             f"/api/v1/projects/test-project/traces/filter-values/model_name?start_after={old}"
         )
         assert response.status_code == 200
+        kw = mock_trace_discovery.get_distinct_span_values.call_args.kwargs
+        expected = _now_naive() - timedelta(days=15, hours=1)
+        assert abs((kw["start_after"] - expected).total_seconds()) < 2
 
     def test_get_trace_403_when_trace_outside_window(self, free_plan_client, mock_trace_reader):
         old_trace = {**TRACE_DETAIL, "trace_start_time": datetime(2020, 1, 1)}

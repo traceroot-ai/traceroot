@@ -31,6 +31,7 @@ from rest.schemas.traces import (
 )
 from rest.services.filters import columns as filter_columns
 from rest.services.filters.translate import parse_filters_param
+from rest.services.trace_discovery import get_trace_discovery_service
 from rest.services.trace_reader import get_trace_reader_service
 
 logger = logging.getLogger(__name__)
@@ -201,7 +202,7 @@ async def get_filter_values(
             detail=f"Field '{field}' does not support distinct-value listing",
         )
 
-    service = get_trace_reader_service()
+    service = get_trace_discovery_service()
     values = service.get_distinct_span_values(
         project_id=project_id, column=column.name, start_after=start_after, end_before=end_before
     )
