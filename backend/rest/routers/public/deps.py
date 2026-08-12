@@ -438,3 +438,172 @@ async def authenticate_and_stamp_public_caller(request: Request, auth: DualAuth)
 
 
 DualStampedAuth = Annotated[AuthResult, Depends(authenticate_and_stamp_public_caller)]
+
+
+async def authenticate_account_caller(
+    authorization: Annotated[str | None, Header()] = None,
+) -> AuthResult:
+    """Authenticate an account-scope caller by a user session token only.
+
+    The discovery surface (``list_workspaces`` / ``list_projects``) answers
+    "which project?" *before* a project is known, so it cannot require a
+    ``project_id`` the way :func:`authenticate_public_caller` does. It is a
+    user-credential-only entry point: an API key (``tr-`` prefix) is
+    project-scoped and cannot enumerate an account, so it is rejected with 403.
+
+    The token is validated against the internal ``validate-user-token`` route
+    WITHOUT a ``projectId`` — the account scope, where a live session alone is
+    sufficient and the route returns ``{valid, userId, email}``. The resulting
+    :class:`AuthResult` carries the user identity only; workspace/project fields
+    are empty because an account has no single one. The raw token is never logged.
+
+    Args:
+        authorization (str | None): The ``Authorization: Bearer <token>`` header.
+
+    Returns:
+        AuthResult: A ``kind="user"`` result with ``user_id`` set and
+            ``project_id``/``workspace_id`` empty. ``ingestion_blocked`` is
+            always ``True`` (a user credential must never ingest).
+
+    Raises:
+        HTTPException: 401 for a missing/malformed header or an invalid/expired
+            token, 403 when an API key is presented (account ops are user-only),
+            and 503 (fail closed) for any introspection ambiguity — network
+            error, unexpected status, or a malformed/incomplete 200 body.
+    """
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing Authorization header",
+        )
+
+    parts = authorization.split(" ", 1)
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Authorization header format. Expected: Bearer <token>",
+        )
+
+    token = parts[1]
+
+    # An empty/whitespace-only token is a malformed credential, not an outage.
+    if not token.strip():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Authorization header. Expected: Bearer <token>",
+        )
+
+    # Account ops are user-credential-only. A key-shaped value (case-insensitive,
+    # whitespace-tolerant, mirroring the dual-auth discriminator) is a
+    # project-scoped credential and can never enumerate an account → 403.
+    if token.strip().lower().startswith("tr-"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="this operation requires a user login; API keys are project-scoped",
+        )
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                f"{settings.traceroot_ui_url}/api/internal/validate-user-token",
+                json={"token": token},
+                headers={"X-Internal-Secret": settings.internal_api_secret},
+            )
+    except httpx.RequestError as e:
+        logger.error(f"Failed to validate user token: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service unavailable",
+        ) from e
+
+    if response.status_code == 401:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication failed",
+        )
+
+    if response.status_code != 200:
+        logger.error(f"Unexpected response from auth service: {response.status_code}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service error",
+        )
+
+    # A 200 with a malformed body (non-JSON, or a non-object) is an auth-service
+    # error, not a client error — surface a controlled 503, never an uncaught 500.
+    try:
+        data = response.json()
+    except ValueError as e:
+        logger.error(f"Malformed JSON from auth service: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service error",
+        ) from e
+
+    if not isinstance(data, dict):
+        logger.error("Auth service returned a non-object JSON body")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service error",
+        )
+
+    if not data.get("valid"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=data.get("error", "Invalid token"),
+        )
+
+    # A valid:true account response must carry the user identity; its absence is
+    # malformed → 503 (fail closed rather than authenticating an anonymous user).
+    user_id = data.get("userId")
+    if not user_id:
+        logger.error("Auth service response missing userId for account scope")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service error",
+        )
+
+    return AuthResult(
+        kind="user",
+        # Account scope has no single project/workspace — the user_id is the
+        # identity, and these stay empty by design.
+        project_id="",
+        workspace_id="",
+        # The account-scope introspection returns no plan; account discovery ops
+        # are not plan-gated, so default to the free tier for rate-limit keying.
+        billing_plan="free",
+        # A user session token must never be usable to ingest (parity with the
+        # project-scoped user path).
+        ingestion_blocked=True,
+        user_id=user_id,
+    )
+
+
+AccountAuth = Annotated[AuthResult, Depends(authenticate_account_caller)]
+
+
+async def authenticate_and_stamp_account_caller(request: Request, auth: AccountAuth) -> AuthResult:
+    """Authenticate an account-scope caller, then stamp a per-user rate-limit id.
+
+    Account ops have no workspace, so — unlike the project-scoped stamping
+    wrappers — the bucket is keyed per user: the ``user_id`` is placed in the
+    workspace slot of :func:`set_rate_limit_identity`. This reuses the existing
+    key functions unchanged (a later task formalizes dedicated per-user keys). It
+    runs during dependency resolution, before slowapi evaluates the limit, so
+    ``key_func`` sees the identity on ``request.state``.
+
+    Args:
+        request (Request): Incoming request; its ``state`` is stamped with the
+            resolved (per-user) rate-limit identity.
+        auth (AccountAuth): Account-scope auth dependency resolving the user id.
+
+    Returns:
+        AuthResult: The authenticated result, passed through to the route handler.
+    """
+    clear_request_rate_limit_exempt()
+    # Account-scope ops have no workspace; bucket per user by keying on user_id.
+    set_rate_limit_identity(request, auth.user_id, auth.billing_plan)
+    return auth
+
+
+AccountStampedAuth = Annotated[AuthResult, Depends(authenticate_and_stamp_account_caller)]
