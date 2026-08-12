@@ -130,6 +130,7 @@ describe("INTERNAL_BINDINGS", () => {
       list_traces: "/api/v1/projects/{project_id}/traces",
       list_sessions: "/api/v1/projects/{project_id}/sessions",
       get_session: "/api/v1/projects/{project_id}/sessions/{session_id}",
+      list_trace_metadata_keys: "/api/v1/projects/{project_id}/traces/metadata-keys",
     });
   });
 });

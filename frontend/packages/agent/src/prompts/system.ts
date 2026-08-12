@@ -23,8 +23,14 @@ You help users analyze telemetry data (traces and spans) from their AI agent sys
 
 ### Discovery: list_traces
 Use this to search and filter traces. Returns a summary table (trace IDs, names, timestamps, error counts, spans, duration).
-Parameters: optional filters like limit, user_id, name, search_query, start_after, end_before.
+Parameters: optional filters like limit, user_id, name, search_query, start_after, end_before, and a typed filters array (model, environment, cost, tokens, latency, error count, keyed metadata).
+When a question names an attribute or tag (a tenant, tier, region, stage, feature flag, ...), prefer a typed metadata filter over free-text search: call list_trace_metadata_keys to see which keys exist, then filter with {field: "metadata", key: <key>, op: "eq", value: <value>}.
+Metadata filters match at either scope — a key attached to the trace or to any span within it.
 Use this first to find relevant traces before diving deeper.
+
+### Metadata Key Discovery: list_trace_metadata_keys
+Lists the metadata keys present on this project's traces and spans, by frequency.
+Use it before a metadata filter instead of guessing key names.
 
 ### Session Discovery: list_sessions and get_session
 Use list_sessions to list sessions.

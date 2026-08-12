@@ -13,6 +13,14 @@ describe("getSystemPrompt", () => {
     expect(prompt).toContain("search and filter traces");
     expect(prompt).toContain("list_sessions");
     expect(prompt).toContain("get_session");
+    expect(prompt).toContain("list_trace_metadata_keys");
+  });
+
+  it("steers attribute questions to keyed metadata filters at either scope", () => {
+    const prompt = getSystemPrompt({ projectId: "proj-123" });
+    expect(prompt).toContain('{field: "metadata", key: <key>, op: "eq", value: <value>}');
+    expect(prompt).toContain("prefer a typed metadata filter over free-text search");
+    expect(prompt).toContain("either scope");
   });
 
   it("describes download_trace tool", () => {

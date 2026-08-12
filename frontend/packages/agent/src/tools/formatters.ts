@@ -69,6 +69,19 @@ export function formatSessionDetail(data: unknown): string {
   ].join("\n");
 }
 
+/** Render a metadata-keys response as one key-per-line with occurrence counts. */
+export function formatMetadataKeys(data: unknown): string {
+  const body = (data ?? {}) as { keys?: unknown };
+  const keys = (body.keys || []) as any[];
+
+  if (!Array.isArray(keys) || keys.length === 0) {
+    return "No metadata keys found on this project's traces or spans.";
+  }
+
+  const lines = keys.map((k: any) => `- ${k.value} (${k.count} occurrences)`);
+  return `Metadata keys on this project's traces and spans (by frequency):\n${lines.join("\n")}\nUse one as the "key" of a metadata filter on list_traces.`;
+}
+
 /** Render a session list response as the per-session summary lines. */
 export function formatSessionList(data: unknown): string {
   const body = (data ?? {}) as { data?: unknown };
