@@ -210,6 +210,24 @@ export const REGISTRY: readonly RegistryEntry[] = [
     },
   },
   {
+    name: "list_projects",
+    description:
+      "List the projects the logged-in user can access, across workspaces (id, name, workspace). User-credential-only account discovery: use it to resolve the project_id a project-scoped request needs. Optionally filter by workspace_id.",
+    method: "get",
+    path: "/api/v1/public/projects",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workspace_id: {
+          type: "string",
+          description: "Restrict the result to projects in this workspace.",
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_sessions",
     description:
       "List recent sessions (groups of traces sharing a session id) for the project, with trace counts and durations. Search by session id substring.",
@@ -505,6 +523,19 @@ export const REGISTRY: readonly RegistryEntry[] = [
             "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
         },
       },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_workspaces",
+    description:
+      "List the workspaces the logged-in user belongs to (id, name, role). User-credential-only account discovery: it needs no project_id and is not available to project-scoped API keys.",
+    method: "get",
+    path: "/api/v1/public/workspaces",
+    inputSchema: {
+      type: "object",
+      properties: {},
       required: [],
       additionalProperties: false,
     },
