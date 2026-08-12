@@ -43,6 +43,21 @@
             ],
             "title": "Scorer Error Count"
           },
+          "scorers": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ScorerRef"
+                },
+                "maxItems": 200,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scorers"
+          },
           "status": {
             "enum": [
               "running",
@@ -185,6 +200,65 @@
           "data"
         ],
         "title": "DetectorResultItem",
+        "type": "object"
+      },
+      "EmittedMetric": {
+        "description": "One metric a scorer DEFINITION emits, with its own comparison policy. The metric\n``name`` is the EMITTED-METRIC identity (what a Score row reports as ``scorer_name``),\ndistinct from the scorer DEFINITION name. Mirrors ``EmittedMetricSchema``.",
+        "properties": {
+          "direction": {
+            "anyOf": [
+              {
+                "enum": [
+                  "higher_is_better",
+                  "lower_is_better",
+                  "none"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold"
+          },
+          "value_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "numeric",
+                  "boolean",
+                  "categorical"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value Type"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "EmittedMetric",
         "type": "object"
       },
       "ErrorResponse": {
@@ -1175,6 +1249,21 @@
               }
             ],
             "title": "Direction"
+          },
+          "emitted_metrics": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/EmittedMetric"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emitted Metrics"
           },
           "key": {
             "anyOf": [

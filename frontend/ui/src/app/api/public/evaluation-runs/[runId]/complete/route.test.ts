@@ -130,3 +130,58 @@ describe("POST /api/public/evaluation-runs/[runId]/complete", () => {
     expect(storedRun()).toMatchObject({ status: "running", completedAt: null });
   });
 });
+
+// A scorer DEFINITION (e.g. `grade`) owns EMITTED METRICS (e.g. `quality`), and which
+// ones it emits is only known once the run has run — so registration stores unresolved
+// definitions and completion folds the resolved manifest in.
+const RESOLVED_GRADE = {
+  name: "grade",
+  version: "v1",
+  emitted_metrics: [
+    { name: "quality", value_type: "numeric", direction: "higher_is_better", threshold: 0.5 },
+  ],
+};
+
+describe("POST complete — resolved scorer manifest", () => {
+  it("merges a manifest resolved during the run into the stored one", async () => {
+    storedRun().scorers = [{ name: "grade", version: "v1" }]; // registered unresolved
+
+    const res = await POST(makeRequest({ ...FINISHED, scorers: [RESOLVED_GRADE] }), params);
+
+    expect(res.status).toBe(200);
+    // The emitted metric and its policy survive the round trip — the whole point of the
+    // field; a stripped `emitted_metrics` would silently lose every metric's threshold.
+    expect(storedRun().scorers).toEqual([RESOLVED_GRADE]);
+  });
+
+  it("keeps definitions the resolved manifest does not mention", async () => {
+    storedRun().scorers = [
+      { name: "grade", version: "v1" },
+      { name: "latency", version: "v2", threshold: 100 },
+    ];
+
+    await POST(makeRequest({ ...FINISHED, scorers: [RESOLVED_GRADE] }), params);
+
+    expect(storedRun().scorers).toEqual([
+      RESOLVED_GRADE,
+      { name: "latency", version: "v2", threshold: 100 },
+    ]);
+  });
+
+  it("is idempotent across a completion replay", async () => {
+    storedRun().scorers = [{ name: "grade", version: "v1" }];
+
+    await POST(makeRequest({ ...FINISHED, scorers: [RESOLVED_GRADE] }), params);
+    await POST(makeRequest({ ...FINISHED, scorers: [RESOLVED_GRADE] }), params);
+
+    expect(storedRun().scorers).toEqual([RESOLVED_GRADE]);
+  });
+
+  it("leaves the stored manifest alone when an older SDK omits it", async () => {
+    storedRun().scorers = [RESOLVED_GRADE];
+
+    await POST(makeRequest(FINISHED), params);
+
+    expect(storedRun().scorers).toEqual([RESOLVED_GRADE]);
+  });
+});

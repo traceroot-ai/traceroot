@@ -169,6 +169,33 @@
             }
           ]
         }
+      },
+      {
+        "name": "scorer_with_emitted_metrics",
+        "payload": {
+          "evaluation_name": "Grading",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "scorers": [
+            {
+              "name": "grade",
+              "version": "v1",
+              "emitted_metrics": [
+                {
+                  "name": "quality",
+                  "value_type": "numeric",
+                  "direction": "lower_is_better",
+                  "threshold": 0.35
+                },
+                {
+                  "name": "coherence",
+                  "value_type": "boolean",
+                  "direction": "higher_is_better"
+                }
+              ]
+            }
+          ]
+        }
       }
     ],
     "invalid": [
@@ -301,6 +328,45 @@
               "messages": [
                 {
                   "role": "system"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "name": "emitted_metric_missing_name",
+        "payload": {
+          "evaluation_name": "Grading",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "scorers": [
+            {
+              "name": "grade",
+              "version": "v1",
+              "emitted_metrics": [
+                {
+                  "value_type": "numeric"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "name": "emitted_metric_bad_direction",
+        "payload": {
+          "evaluation_name": "Grading",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "scorers": [
+            {
+              "name": "grade",
+              "version": "v1",
+              "emitted_metrics": [
+                {
+                  "name": "quality",
+                  "direction": "up"
                 }
               ]
             }
@@ -655,6 +721,27 @@
           "task_error_count": null,
           "scorer_error_count": null
         }
+      },
+      {
+        "name": "resolved_scorer_manifest",
+        "payload": {
+          "status": "completed",
+          "scored_count": 3,
+          "scorers": [
+            {
+              "name": "grade",
+              "version": "v1",
+              "emitted_metrics": [
+                {
+                  "name": "quality",
+                  "value_type": "numeric",
+                  "direction": "lower_is_better",
+                  "threshold": 0.35
+                }
+              ]
+            }
+          ]
+        }
       }
     ],
     "invalid": [
@@ -707,6 +794,40 @@
         "name": "status_as_number",
         "payload": {
           "status": 1
+        }
+      },
+      {
+        "name": "scorer_missing_version",
+        "payload": {
+          "status": "completed",
+          "scorers": [
+            {
+              "name": "grade"
+            }
+          ]
+        }
+      }
+    ],
+    "degraded": [
+      {
+        "name": "unknown_emitted_metric_key_is_stripped",
+        "payload": {
+          "status": "completed",
+          "scorers": [
+            {
+              "name": "grade",
+              "version": "v1",
+              "emitted_metrics": [
+                {
+                  "name": "quality",
+                  "weight": 2
+                }
+              ]
+            }
+          ]
+        },
+        "expect": {
+          "scorers.0.emitted_metrics.0.weight": null
         }
       }
     ]

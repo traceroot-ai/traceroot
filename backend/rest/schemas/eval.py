@@ -162,6 +162,20 @@ _DISPLAY_ONLY_VARIANTS: dict[str, frozenset[str]] = {
 }
 
 
+SCORER_EMITTED_METRICS_MAX = 20
+
+
+class EmittedMetric(BaseModel):
+    """One metric a scorer DEFINITION emits, with its own comparison policy. The metric
+    ``name`` is the EMITTED-METRIC identity (what a Score row reports as ``scorer_name``),
+    distinct from the scorer DEFINITION name. Mirrors ``EmittedMetricSchema``."""
+
+    name: str = Field(min_length=1, max_length=200)
+    value_type: ScorerValueType | None = None
+    direction: ScorerDirection | None = None
+    threshold: JsonFloat | None = None
+
+
 class ScorerRef(BaseModel):
     """A scorer's descriptor. ``name`` + ``version`` are the comparison identity;
     the richer metadata is optional and back-compatible (an old SDK sending only
@@ -188,6 +202,12 @@ class ScorerRef(BaseModel):
     value_type: ScorerValueType | None = None
     direction: ScorerDirection | None = None
     threshold: JsonFloat | None = None
+    # Metrics this definition emits, each with its own policy. A Score is matched to a
+    # metric by name (Score.scorer_name == emitted_metrics[].name); the top-level
+    # name/value_type/direction/threshold stay valid as an older client's single metric.
+    emitted_metrics: (
+        Annotated[list[EmittedMetric], Field(max_length=SCORER_EMITTED_METRICS_MAX)] | None
+    ) = None
     # SDK-reported definition (all optional; absent or unrecognised → "—" in the detail).
     scorer_type: ScorerType | None = None
     output_type: ScorerOutputType | None = None
@@ -334,6 +354,10 @@ class CompleteRunRequest(BaseModel):
     scored_count: JsonNonNegativeInt | None = None
     task_error_count: JsonNonNegativeInt | None = None
     scorer_error_count: JsonNonNegativeInt | None = None
+    # The RESOLVED scorer manifest discovered during execution — merged (by definition
+    # name) into the stored manifest so each emitted metric's policy is present for
+    # read-back. Additive + idempotent. Mirrors the Zod field.
+    scorers: Annotated[list[ScorerRef], Field(max_length=EVAL_SCORER_LIST_MAX)] | None = None
 
 
 class CompleteRunResponse(BaseModel):
