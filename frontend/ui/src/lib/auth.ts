@@ -4,18 +4,7 @@ import { admin, deviceAuthorization } from "better-auth/plugins";
 import { prisma } from "@traceroot/core";
 import { env } from "@/env";
 import { DEVICE_CLIENT_IDS } from "@/lib/auth-clients";
-
-// Unambiguous alphabet (no 0/O/1/I) so a user reading the code aloud, or typing
-// it from a screen at a glance, can't confuse similar-looking characters.
-const USER_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-
-// 8-character code split into two hyphenated groups (XXXX-XXXX) — easier to
-// read and re-type than a single unbroken run of 8 characters.
-function hyphenated8(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(8));
-  const chars = Array.from(bytes, (byte) => USER_CODE_ALPHABET[byte % USER_CODE_ALPHABET.length]);
-  return `${chars.slice(0, 4).join("")}-${chars.slice(4).join("")}`;
-}
+import { generateUserCode } from "@/lib/device-user-code";
 
 export const auth = betterAuth({
   database: prismaAdapter(prisma, {
@@ -55,7 +44,7 @@ export const auth = betterAuth({
     deviceAuthorization({
       expiresIn: "30m", // a sign-up round trip (not just sign-in) needs to fit in the window
       interval: "5s",
-      generateUserCode: hyphenated8,
+      generateUserCode,
       validateClient: (clientId) => DEVICE_CLIENT_IDS.has(clientId),
       verificationUri: "/device",
     }),
