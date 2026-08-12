@@ -41,6 +41,8 @@ class FakeReader:
         self.list_return: tuple = ([], 0)
         self.raise_on_list = False
         self.raise_on_get_finding_by_trace = False
+        self.raise_on_get_finding = False
+        self.raise_on_get_detector = False
         self.detectors_args: dict | None = None
         self.detectors_return: tuple = ([], 0)
         self.raise_on_detectors = False
@@ -65,6 +67,8 @@ class FakeReader:
 
     def get_finding(self, project_id, finding_id):
         self.last_get = (project_id, finding_id)
+        if self.raise_on_get_finding:
+            raise RuntimeError("boom")
         return self.finding
 
     def get_finding_by_trace(self, project_id, trace_id):
@@ -75,6 +79,8 @@ class FakeReader:
 
     def get_detector(self, project_id, detector_id):
         self.last_get_detector = (project_id, detector_id)
+        if self.raise_on_get_detector:
+            raise RuntimeError("boom")
         return self.detector
 
 
@@ -255,6 +261,14 @@ def test_detail_404_when_missing(client, reader):
     assert client.get("/api/v1/public/detectors/findings/nope").status_code == 404
 
 
+def test_detail_reader_failure_returns_sanitized_500(client, reader):
+    reader.raise_on_get_finding = True
+    resp = client.get("/api/v1/public/detectors/findings/f1")
+    assert resp.status_code == 500
+    assert resp.json()["detail"] == "Failed to read finding"
+    assert "boom" not in resp.text
+
+
 def test_detail_by_trace_returns_finding(client, reader):
     reader.by_trace = _detail(trace_id="t9", results=[], rca=None)
     resp = client.get("/api/v1/public/detectors/traces/t9/finding")
@@ -357,6 +371,13 @@ class TestGetDetector:
         resp = client.get("/api/v1/public/detectors/nope")
         assert resp.status_code == 404
         assert resp.json()["detail"] == "Detector not found"
+
+    def test_reader_failure_returns_sanitized_500(self, client, reader):
+        reader.raise_on_get_detector = True
+        resp = client.get("/api/v1/public/detectors/det-1")
+        assert resp.status_code == 500
+        assert resp.json()["detail"] == "Failed to read detector"
+        assert "boom" not in resp.text
 
     def test_findings_path_is_not_shadowed_by_detector_id(self, client, reader):
         reader.list_return = ([], 0)

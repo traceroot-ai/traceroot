@@ -31,6 +31,8 @@ class FakeReader:
         self.list_return: tuple = ([], 0)
         self.raise_on_list = False
         self.raise_on_get_finding_by_trace = False
+        self.raise_on_get_finding = False
+        self.raise_on_get_detector = False
         self.finding: FindingDetail | None = None
         self.by_trace: FindingDetail | None = None
         self.last_get: tuple | None = None
@@ -52,6 +54,8 @@ class FakeReader:
 
     def get_finding(self, project_id, finding_id):
         self.last_get = (project_id, finding_id)
+        if self.raise_on_get_finding:
+            raise RuntimeError("boom")
         return self.finding
 
     def get_finding_by_trace(self, project_id, trace_id):
@@ -62,6 +66,8 @@ class FakeReader:
 
     def get_detector(self, project_id, detector_id):
         self.last_get_detector = (project_id, detector_id)
+        if self.raise_on_get_detector:
+            raise RuntimeError("boom")
         return self.detector
 
 
@@ -219,6 +225,12 @@ class TestGetFinding:
         resp = free_plan_client.get("/api/v1/projects/proj-A/detectors/findings/f-1")
         assert resp.status_code == 403
 
+    def test_reader_error_maps_to_500(self, client, reader):
+        reader.raise_on_get_finding = True
+        resp = client.get("/api/v1/projects/proj-A/detectors/findings/f-1")
+        assert resp.status_code == 500
+        assert resp.json()["detail"] == "Failed to read finding"
+
 
 class TestGetFindingByTrace:
     def test_200_scopes_to_project_and_trace(self, client, reader):
@@ -277,6 +289,12 @@ class TestGetDetector:
         resp = client.get("/api/v1/projects/proj-A/detectors/nope")
         assert resp.status_code == 404
         assert resp.json()["detail"] == "Detector not found"
+
+    def test_reader_error_maps_to_500(self, client, reader):
+        reader.raise_on_get_detector = True
+        resp = client.get("/api/v1/projects/proj-A/detectors/det-1")
+        assert resp.status_code == 500
+        assert resp.json()["detail"] == "Failed to read detector"
 
     def test_findings_path_is_not_shadowed_by_detector_id(self, client, reader):
         reader.list_return = ([], 0)
