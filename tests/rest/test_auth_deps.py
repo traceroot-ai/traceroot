@@ -9,15 +9,21 @@ import logging
 import httpx
 import pytest
 import respx
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from httpx import Response
 
+from rest.rate_limit import (
+    is_request_rate_limit_exempt,
+    mark_request_rate_limit_exempt,
+)
 from rest.routers.deps import get_project_access
 from rest.routers.public.deps import (
+    authenticate_and_stamp_public_caller,
     authenticate_public_caller,
     authenticate_user_token,
 )
 from rest.routers.public.traces import AuthResult, authenticate_api_key
+from shared.config import normalize_plan
 
 BASE_URL = "http://localhost:3000"
 
@@ -414,6 +420,17 @@ class TestAuthenticateUserToken:
         assert exc_info.value.detail == "Authentication service error"
 
     @respx.mock
+    async def test_200_non_dict_body_returns_503(self):
+        """A 200 whose JSON body is a non-object (array/string) is malformed → 503."""
+        respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+            return_value=Response(200, json=["not", "an", "object"])
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_user_token("sess-token", "proj-123")
+        assert exc_info.value.status_code == 503
+        assert exc_info.value.detail == "Authentication service error"
+
+    @respx.mock
     async def test_200_valid_false_returns_401(self):
         respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
             return_value=Response(200, json={"valid": False, "error": "nope"})
@@ -550,3 +567,81 @@ class TestAuthenticatePublicCaller:
         with pytest.raises(HTTPException) as exc_info:
             await authenticate_public_caller("BadFormat token123")
         assert exc_info.value.status_code == 401
+
+    async def test_empty_token_returns_401(self):
+        """`Bearer ` with an empty token is a malformed credential → 401, not a 503."""
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_public_caller("Bearer ")
+        assert exc_info.value.status_code == 401
+
+    @respx.mock
+    async def test_uppercase_prefix_routes_to_key_validator(self):
+        """A `TR-` (uppercase) value is key-shaped: route to the key validator,
+        where it is hashed, and never POST it unhashed to validate-user-token.
+        """
+        _mock_valid_key()
+        user_route = respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+            return_value=Response(200, json={"valid": True})
+        )
+        result = await authenticate_public_caller("Bearer TR-abc123", project_id="proj-123")
+        assert result.kind == "api_key"
+        assert user_route.call_count == 0
+
+    @respx.mock
+    async def test_leading_space_prefix_routes_to_key_validator(self):
+        """A stray-space `Bearer  tr-…` (token " tr-…") is still key-shaped and
+        must route to the key validator, never to validate-user-token.
+        """
+        _mock_valid_key()
+        user_route = respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+            return_value=Response(200, json={"valid": True})
+        )
+        result = await authenticate_public_caller("Bearer  tr-abc123", project_id="proj-123")
+        assert result.kind == "api_key"
+        assert user_route.call_count == 0
+
+
+# ── authenticate_and_stamp_public_caller (stamping wrapper) ──────────────
+
+
+class TestAuthenticateAndStampPublicCaller:
+    @staticmethod
+    def _bare_request() -> Request:
+        return Request({"type": "http", "headers": [], "state": {}})
+
+    async def test_key_result_clears_exempt_and_stamps_identity(self):
+        """A KEY AuthResult clears the exempt flag and stamps workspace+plan."""
+        # Poison the exempt flag first so we prove the wrapper clears it.
+        mark_request_rate_limit_exempt()
+        request = self._bare_request()
+        auth = AuthResult(
+            kind="api_key",
+            project_id="proj-123",
+            workspace_id="ws-456",
+            billing_plan="pro",
+            ingestion_blocked=False,
+        )
+        result = await authenticate_and_stamp_public_caller(request, auth)
+        assert result is auth
+        assert is_request_rate_limit_exempt() is False
+        assert request.state.rl_workspace_id == "ws-456"
+        assert request.state.rl_billing_plan == normalize_plan("pro")
+
+    async def test_user_result_clears_exempt_and_stamps_identity(self):
+        """A USER AuthResult (project-scoped) stamps the same identity fields."""
+        mark_request_rate_limit_exempt()
+        request = self._bare_request()
+        auth = AuthResult(
+            kind="user",
+            project_id="proj-123",
+            workspace_id="ws-456",
+            billing_plan="pro",
+            ingestion_blocked=True,
+            role="ADMIN",
+            user_id="user-789",
+        )
+        result = await authenticate_and_stamp_public_caller(request, auth)
+        assert result is auth
+        assert is_request_rate_limit_exempt() is False
+        assert request.state.rl_workspace_id == "ws-456"
+        assert request.state.rl_billing_plan == normalize_plan("pro")

@@ -365,7 +365,20 @@ async def authenticate_public_caller(
 
     token = parts[1]
 
-    if token.startswith("tr-"):
+    # An empty/whitespace-only token is a malformed credential, not an upstream
+    # outage — reject it here as 401 rather than letting it reach a validator and
+    # surface as a misleading 503.
+    if not token.strip():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Authorization header. Expected: Bearer <token>",
+        )
+
+    # Discriminate case-insensitively and ignoring surrounding whitespace so any
+    # key-shaped value (e.g. "TR-…", or a stray-space " tr-…") routes to the key
+    # validator — where the raw key is hashed before it leaves this process — and
+    # never to the user endpoint, which would POST the raw key unhashed.
+    if token.strip().lower().startswith("tr-"):
         # Key path: reuse the existing validator verbatim (do not duplicate it).
         result = await authenticate_api_key(authorization)
         # An API key already fixes its project; a provided project_id may only
