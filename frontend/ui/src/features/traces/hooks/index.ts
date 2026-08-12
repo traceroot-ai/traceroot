@@ -14,6 +14,9 @@ import { canonicalizeFilters } from "@/features/filters/predicate";
 // Composed state hooks
 export { useTraceListState } from "./use-trace-list-state";
 
+// Column visibility for the trace list
+export { useTraceColumns } from "./use-trace-columns";
+
 // Live trace streaming
 export { useTraceStream } from "./use-trace-stream";
 
