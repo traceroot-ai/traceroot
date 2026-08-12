@@ -4,14 +4,14 @@ Thin internal mirrors of the public detector reads so the in-app agent's
 registry-bound tools can dispatch here with service auth. Payload shapes are
 shared with the public surface (rest.schemas.public) by design — one registry
 definition serves both. Params must stay a superset of the public twins
-(enforced by tests/rest/test_public_internal_parity.py).
+(enforced by tests/rest/test_public_internal_parity.py), and the handler
+bodies live in rest.routers.detector_read_common so behavior cannot drift
+between the surfaces.
 """
 
-import logging
-from collections.abc import Callable
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Depends, Query, Request, Response
 
 from rest.rate_limit import (
     BUCKET_READ,
@@ -20,17 +20,18 @@ from rest.rate_limit import (
     limiter,
     resolve_limit,
 )
-from rest.retention import clamp_retention_window, enforce_retention_by_time
 from rest.routers.deps import RateLimitedProjectAccess
-from rest.schemas.common import PaginationMeta
+from rest.routers.detector_read_common import (
+    list_detectors_page,
+    list_findings_page,
+    require_finding,
+)
 from rest.schemas.public import (
     FindingDetail,
     PublicDetectorListResponse,
     PublicFindingListResponse,
 )
 from rest.services.detector_reader import DetectorReaderService, get_detector_reader_service
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/projects/{project_id}/detectors", tags=["Detectors"])
 
@@ -54,23 +55,7 @@ async def list_detectors(
     ),
 ):
     """List the project's detectors (newest first)."""
-    try:
-        items, total = service.list_detectors(
-            project_id=project_id,
-            limit=limit,
-            start_after=start_after,
-            end_before=end_before,
-        )
-    except Exception as e:
-        logger.exception(f"Error listing detectors: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to list detectors",
-        ) from e
-
-    return PublicDetectorListResponse(
-        data=items, meta=PaginationMeta(page=0, limit=limit, total=total)
-    )
+    return list_detectors_page(service, project_id, limit, start_after, end_before)
 
 
 @router.get("/findings", response_model=PublicFindingListResponse)
@@ -94,25 +79,15 @@ async def list_findings(
     trace_id: str | None = Query(None, description="Filter to a single trace"),
 ):
     """List recent detector findings for the project (newest first)."""
-    start_after, end_before = clamp_retention_window(_access.billing_plan, start_after, end_before)
-    try:
-        items, total = service.list_findings(
-            project_id=project_id,
-            limit=limit,
-            start_after=start_after,
-            end_before=end_before,
-            detector=detector,
-            trace_id=trace_id,
-        )
-    except Exception as e:
-        logger.exception(f"Error listing detector findings: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to list findings",
-        ) from e
-
-    return PublicFindingListResponse(
-        data=items, meta=PaginationMeta(page=0, limit=limit, total=total)
+    return list_findings_page(
+        service,
+        _access.billing_plan,
+        project_id,
+        limit,
+        start_after,
+        end_before,
+        detector,
+        trace_id,
     )
 
 
@@ -129,7 +104,7 @@ async def get_finding(
     service: DetectorReaderService = Depends(get_detector_reader_service),
 ):
     """Get a single finding by id, with per-detector results and RCA."""
-    return _require_finding(
+    return require_finding(
         lambda: service.get_finding(project_id, finding_id), _access.billing_plan
     )
 
@@ -147,30 +122,6 @@ async def get_finding_by_trace(
     service: DetectorReaderService = Depends(get_detector_reader_service),
 ):
     """Get the finding for a single trace (findings are 1-per-trace)."""
-    return _require_finding(
+    return require_finding(
         lambda: service.get_finding_by_trace(project_id, trace_id), _access.billing_plan
     )
-
-
-def _require_finding(fetch: Callable[[], FindingDetail | None], billing_plan: str) -> FindingDetail:
-    """Run a reader fetch, mapping None -> 404 and reader errors -> a clean 500.
-
-    Args:
-        fetch (Callable[[], FindingDetail | None]): Zero-arg reader call.
-        billing_plan (str): Plan used for the retention-by-time check.
-
-    Returns:
-        FindingDetail: The finding, when present and inside the retention window.
-    """
-    try:
-        finding = fetch()
-    except Exception as e:
-        logger.exception(f"Error reading detector finding: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to read finding",
-        ) from e
-    if finding is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Finding not found")
-    enforce_retention_by_time(billing_plan, finding.timestamp)
-    return finding
