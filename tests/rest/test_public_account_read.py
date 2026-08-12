@@ -7,11 +7,15 @@ and the account routes end-to-end, mocking BOTH internal routes with ``respx``:
 required; an API key (``tr-``) is rejected with 403.
 """
 
+import httpx
+import pytest
 import respx
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from httpx import Response
 
 from rest.main import app
+from rest.routers.public.account_read import _bearer_token
 
 BASE_URL = "http://localhost:3000"
 
@@ -162,3 +166,77 @@ def test_list_workspaces_requires_authorization():
     client = TestClient(app, raise_server_exceptions=False)
     resp = client.get("/api/v1/public/workspaces")
     assert resp.status_code == 401
+
+
+@respx.mock
+def test_list_workspaces_network_error_is_503():
+    """A network error reaching the internal listing route fails closed (503)."""
+    _mock_account_auth()
+    respx.post(f"{BASE_URL}/api/internal/user-memberships").mock(
+        side_effect=httpx.ConnectError("Connection refused")
+    )
+    client = TestClient(app, raise_server_exceptions=False)
+    resp = client.get("/api/v1/public/workspaces", headers=USER_HEADER)
+    assert resp.status_code == 503
+
+
+@respx.mock
+def test_list_workspaces_malformed_json_is_503():
+    """A 200 with a non-JSON body from the listing route fails closed (503)."""
+    _mock_account_auth()
+    respx.post(f"{BASE_URL}/api/internal/user-memberships").mock(
+        return_value=Response(200, content=b"<html>not json</html>")
+    )
+    client = TestClient(app, raise_server_exceptions=False)
+    resp = client.get("/api/v1/public/workspaces", headers=USER_HEADER)
+    assert resp.status_code == 503
+
+
+@respx.mock
+def test_list_workspaces_missing_workspaces_array_is_503():
+    """A 200 body without a ``workspaces`` array is malformed → 503."""
+    _mock_account_auth()
+    _mock_memberships(body={"unexpected": "shape"})
+    client = TestClient(app, raise_server_exceptions=False)
+    resp = client.get("/api/v1/public/workspaces", headers=USER_HEADER)
+    assert resp.status_code == 503
+
+
+@respx.mock
+def test_list_workspaces_malformed_item_is_503_not_500():
+    """A workspace item missing a required field fails closed with a 503."""
+    _mock_account_auth()
+    _mock_memberships(body={"workspaces": [{"name": "Alpha", "role": "admin"}]})  # no "id"
+    client = TestClient(app, raise_server_exceptions=False)
+    resp = client.get("/api/v1/public/workspaces", headers=USER_HEADER)
+    assert resp.status_code == 503
+
+
+@respx.mock
+def test_list_projects_malformed_project_item_is_503_not_500():
+    """A project item missing a required field fails closed with a 503."""
+    _mock_account_auth()
+    _mock_memberships(
+        body={
+            "workspaces": [
+                {"id": "ws-1", "name": "Alpha", "role": "admin", "projects": [{"id": "proj-1"}]}
+            ]
+        }  # project missing "name"
+    )
+    client = TestClient(app, raise_server_exceptions=False)
+    resp = client.get("/api/v1/public/projects", headers=USER_HEADER)
+    assert resp.status_code == 503
+
+
+# ── _bearer_token (route helper, defensive re-parse) ─────────────────────
+
+
+def test_bearer_token_extracts_valid_header():
+    assert _bearer_token("Bearer sess-token-abc") == "sess-token-abc"
+
+
+@pytest.mark.parametrize("header", [None, "", "BadFormat token123", "Bearer ", "Bearer   "])
+def test_bearer_token_missing_or_malformed_raises_401(header):
+    with pytest.raises(HTTPException) as exc_info:
+        _bearer_token(header)
+    assert exc_info.value.status_code == 401
