@@ -113,12 +113,13 @@ export function formatDetectorDetail(data: unknown): string {
   const rca = d.enable_rca ? "on" : "off";
   const sample = d.sample_rate != null ? `${d.sample_rate}%` : "unknown";
   const model = d.detection_model || "default";
+  const detection = d.detection_provider ? `${model} via ${d.detection_provider}` : model;
   const source = d.detection_source || "unknown";
 
   const header = [
     `Detector: ${d.detector_id} | ${d.name || "(unnamed)"}`,
     `Template: ${d.template || "none"} | ${state} | sample rate: ${sample} | RCA: ${rca}`,
-    `Detection: ${model} (${source}) | created ${d.created_at || "unknown"} | updated ${d.updated_at || "unknown"}`,
+    `Detection: ${detection} (${source}) | created ${d.created_at || "unknown"} | updated ${d.updated_at || "unknown"}`,
   ];
 
   const prompt = d.prompt ? truncate(d.prompt, 1000) : "(none)";

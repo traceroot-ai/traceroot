@@ -354,6 +354,7 @@ describe("formatters", () => {
         sample_rate: 25,
         enable_rca: true,
         detection_model: "claude-haiku-4-5",
+        detection_provider: "anthropic",
         detection_source: "system",
         updated_at: "2026-08-02T09:00:00Z",
         trigger_conditions: [{ field: "root_span_finished", op: "=", value: true }],
@@ -361,7 +362,7 @@ describe("formatters", () => {
     ).toBe(
       "Detector: det-1 | Error spike\n" +
         "Template: failure | enabled | sample rate: 25% | RCA: on\n" +
-        "Detection: claude-haiku-4-5 (system) | created 2026-08-01T12:00:00Z | updated 2026-08-02T09:00:00Z\n" +
+        "Detection: claude-haiku-4-5 via anthropic (system) | created 2026-08-01T12:00:00Z | updated 2026-08-02T09:00:00Z\n" +
         "\n" +
         "Prompt: Flag traces with elevated error rates\n" +
         'Output schema: {"type":"object"}\n' +
