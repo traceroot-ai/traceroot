@@ -598,6 +598,14 @@
             ],
             "title": "Input"
           },
+          "metadata_map": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": {},
+            "title": "Metadata Map",
+            "type": "object"
+          },
           "name": {
             "title": "Name",
             "type": "string"

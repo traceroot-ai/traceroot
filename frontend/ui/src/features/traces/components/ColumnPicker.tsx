@@ -1,7 +1,8 @@
 "use client";
 
 // Column picker for the trace list: every fixed column in `columns.ts`, checked when shown.
-// Fields only, and the only way a column reaches the list.
+// Fields only, and the only way a column reaches the list — metadata is one column holding
+// the whole map, never one column per key.
 import type { JSX } from "react";
 import { Check, Columns3 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";

@@ -276,11 +276,15 @@ class TraceReaderService:
                 -- THEN order by start time for pagination.
                 SELECT
                     trace_id, project_id, name, trace_start_time,
-                    user_id, session_id, input, output
+                    user_id, session_id, input, output, metadata_map
                 FROM (
+                    -- metadata_map is the TRACE row's metadata, and it is what the list's
+                    -- single default-off Metadata cell renders. A metadata FILTER also
+                    -- matches span-level keys, so a matched row can still show a blank
+                    -- cell here; the span detail panel is the reconciliation point.
                     SELECT
                         t.trace_id, t.project_id, t.name, t.trace_start_time,
-                        t.user_id, t.session_id, t.input, t.output
+                        t.user_id, t.session_id, t.input, t.output, t.metadata_map
                     FROM traces AS t
                     WHERE {where_clause}
                     ORDER BY t.ch_update_time DESC
@@ -327,7 +331,8 @@ class TraceReaderService:
                 p.output,
                 sa.total_input_tokens,
                 sa.total_output_tokens,
-                sa.total_cost
+                sa.total_cost,
+                p.metadata_map
             FROM page AS p
             LEFT JOIN span_agg AS sa ON p.trace_id = sa.trace_id
             ORDER BY p.trace_start_time DESC
@@ -373,6 +378,7 @@ class TraceReaderService:
                     "total_input_tokens": int(row[11]) if row[11] is not None else 0,
                     "total_output_tokens": int(row[12]) if row[12] is not None else 0,
                     "total_cost": float(row[13]) if row[13] is not None else 0.0,
+                    "metadata_map": dict(row[14]) if row[14] else {},
                 }
             )
 

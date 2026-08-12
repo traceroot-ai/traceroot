@@ -13,6 +13,8 @@ import {
   cn,
 } from "@/lib/utils";
 import { formatContentPreview } from "../utils";
+import { traceMetadataEntries } from "../utils/metadata";
+import { TraceMetadataCell } from "./TraceMetadataCell";
 import { fixedColumnLabel, isDefaultOnColumn, type FixedColumnId } from "@/features/traces/columns";
 
 // Below this the default columns crush each other once any column is added, so the table
@@ -211,6 +213,11 @@ const FIXED_CELLS: Record<FixedColumnId, (props: FixedCellProps) => ReactElement
         {formatContentPreview(trace.output)}
       </span>
     </td>
+  ),
+  // The whole payload, shaped like Input and Output. Display-only: a blob is not a value the
+  // filter registry can be handed, so a click here could only build a filter matching nothing.
+  metadata: ({ trace, borderClassName }) => (
+    <TraceMetadataCell entries={traceMetadataEntries(trace)} borderClassName={borderClassName} />
   ),
   user_id: ({ trace, borderClassName }) => (
     <FixedFieldCell value={trace.user_id} borderClassName={borderClassName} />
