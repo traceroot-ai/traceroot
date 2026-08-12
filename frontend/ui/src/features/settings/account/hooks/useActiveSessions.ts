@@ -29,8 +29,11 @@ export function useActiveSessions() {
 
   // The session hook is the supported way to identify "this" session client
   // side; we match its token against each listed row rather than assuming
-  // row order or any other positional signal.
-  const { data: currentSessionData } = authClient.useSession();
+  // row order or any other positional signal. Mirrors the isPending gating
+  // in device-client.tsx: until the current session resolves, we don't know
+  // which row is "this device" yet, so no row can be safely offered a plain
+  // revoke (a false negative would let the current session's row show one).
+  const { data: currentSessionData, isPending: currentSessionPending } = authClient.useSession();
   const currentToken = currentSessionData?.session?.token ?? null;
 
   const query = useQuery({
@@ -51,6 +54,10 @@ export function useActiveSessions() {
     updatedAt: session.updatedAt,
     ipAddress: session.ipAddress,
     userAgent: session.userAgent,
+    // While currentSessionPending, we don't yet know which token is "this
+    // device" — `isCurrent` may be a false negative here for the actual
+    // current row. Callers must also check `currentSessionPending` before
+    // offering a destructive revoke control, not rely on `isCurrent` alone.
     isCurrent: session.token === currentToken,
   }));
 
@@ -60,12 +67,26 @@ export function useActiveSessions() {
   );
 
   const revokeMutation = useMutation({
-    mutationFn: (token: string) => authClient.revokeSession({ token }),
+    mutationFn: async (token: string) => {
+      // @better-fetch/fetch resolves (doesn't throw) on business-logic
+      // failures, so an unchecked `error` here would let a failed revoke
+      // still hit onSuccess and silently refresh as if it had worked — on a
+      // credential kill switch, that's a false "it's revoked" signal.
+      const { error } = await authClient.revokeSession({ token });
+      if (error) {
+        throw new Error(error.message ?? "Failed to revoke session");
+      }
+    },
     onSuccess: refresh,
   });
 
   const revokeOthersMutation = useMutation({
-    mutationFn: () => authClient.revokeOtherSessions(),
+    mutationFn: async () => {
+      const { error } = await authClient.revokeOtherSessions();
+      if (error) {
+        throw new Error(error.message ?? "Failed to revoke other sessions");
+      }
+    },
     onSuccess: refresh,
   });
 
@@ -73,10 +94,13 @@ export function useActiveSessions() {
     sessions,
     isLoading: query.isLoading,
     isError: query.isError,
+    currentSessionPending,
     revoke: revokeMutation.mutate,
     isRevoking: revokeMutation.isPending,
     revokingToken: (revokeMutation.variables as string | undefined) ?? null,
+    revokeError: revokeMutation.error as Error | null,
     revokeOthers: revokeOthersMutation.mutate,
     isRevokingOthers: revokeOthersMutation.isPending,
+    revokeOthersError: revokeOthersMutation.error as Error | null,
   };
 }

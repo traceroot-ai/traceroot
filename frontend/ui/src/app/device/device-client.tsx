@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
@@ -272,8 +273,11 @@ function Consent({ clientName, email, code, pending, onApprove, onDeny }: Consen
       </div>
 
       <p className="text-[12px] text-muted-foreground">
-        This grants {clientName} read access to your workspaces. You can revoke it any time from
-        Active Sessions in your account settings.
+        This grants {clientName} read access to your workspaces. You can revoke it any time from{" "}
+        <Link href="/account/settings/sessions" className="underline hover:text-foreground">
+          Active Sessions
+        </Link>{" "}
+        in your account settings.
       </p>
 
       <p className="border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">

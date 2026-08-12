@@ -11,14 +11,21 @@ export function ActiveSessions() {
     sessions,
     isLoading,
     isError,
+    currentSessionPending,
     revoke,
     isRevoking,
     revokingToken,
+    revokeError,
     revokeOthers,
     isRevokingOthers,
+    revokeOthersError,
   } = useActiveSessions();
 
-  const hasOtherSessions = sessions.some((session) => !session.isCurrent);
+  // Until the current session resolves we don't know which row is "this
+  // device", so no destructive control — including revoke-all — is offered
+  // yet (see useActiveSessions' isCurrent comment for why).
+  const hasOtherSessions = !currentSessionPending && sessions.some((session) => !session.isCurrent);
+  const actionError = revokeOthersError ?? revokeError;
 
   return (
     <div className="space-y-6">
@@ -38,6 +45,12 @@ export function ActiveSessions() {
           {isRevokingOthers ? "Revoking..." : "Revoke all other sessions"}
         </Button>
       </div>
+
+      {actionError && (
+        <p role="alert" className="text-[13px] text-destructive">
+          {actionError.message}
+        </p>
+      )}
 
       <div className="border">
         {isLoading ? (
@@ -70,6 +83,7 @@ export function ActiveSessions() {
                 <SessionTableRow
                   key={session.id}
                   session={session}
+                  canRevoke={!currentSessionPending && !session.isCurrent}
                   onRevoke={() => revoke(session.token)}
                   isRevoking={isRevoking && revokingToken === session.token}
                 />
@@ -84,11 +98,13 @@ export function ActiveSessions() {
 
 interface SessionTableRowProps {
   session: SessionRow;
+  /** False while the current session is unresolved, or for the current row itself. */
+  canRevoke: boolean;
   onRevoke: () => void;
   isRevoking: boolean;
 }
 
-function SessionTableRow({ session, onRevoke, isRevoking }: SessionTableRowProps) {
+function SessionTableRow({ session, canRevoke, onRevoke, isRevoking }: SessionTableRowProps) {
   return (
     <tr className="border-b last:border-b-0 hover:bg-muted/20">
       <td className="px-3 py-2">
@@ -105,8 +121,10 @@ function SessionTableRow({ session, onRevoke, isRevoking }: SessionTableRowProps
       <td className="px-3 py-2 text-right">
         {/* Revoking your own session logs you out immediately, so the current
             row intentionally offers no plain revoke control — only other
-            sessions get a per-row destructive action. */}
-        {!session.isCurrent && (
+            sessions get a per-row destructive action. Also withheld while
+            the current session is still resolving, since until then we
+            can't yet rule out this row being the current one. */}
+        {canRevoke && (
           <Button
             variant="outline"
             size="sm"

@@ -132,6 +132,65 @@ describe("ActiveSessions", () => {
     await waitFor(() => expect(button.hasAttribute("disabled")).toBe(true));
   });
 
+  it("does not remove the row and shows an error when revokeSession returns an error", async () => {
+    mocks.useSession.mockReturnValue({ data: { session: currentSession }, isPending: false });
+    // listSessions must not be called a second time: a failed revoke should
+    // never trigger the onSuccess refresh path.
+    mocks.listSessions.mockResolvedValue({ data: [currentSession, cliSession], error: null });
+    mocks.revokeSession.mockResolvedValue({
+      data: null,
+      error: { message: "Session already expired" },
+    });
+
+    renderComponent();
+
+    await screen.findByText("TraceRoot CLI");
+    fireEvent.click(screen.getByRole("button", { name: /^revoke$/i }));
+
+    await waitFor(() => expect(mocks.revokeSession).toHaveBeenCalledWith({ token: "tok-cli" }));
+    expect(await screen.findByText("Session already expired")).toBeTruthy();
+    // The row is still there — a failed revoke must not silently refresh as
+    // if it had succeeded.
+    expect(screen.getByText("TraceRoot CLI")).toBeTruthy();
+    expect(mocks.listSessions).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not remove the row and shows an error when revokeOtherSessions returns an error", async () => {
+    mocks.useSession.mockReturnValue({ data: { session: currentSession }, isPending: false });
+    mocks.listSessions.mockResolvedValue({ data: [currentSession, cliSession], error: null });
+    mocks.revokeOtherSessions.mockResolvedValue({
+      data: null,
+      error: { message: "Could not revoke other sessions" },
+    });
+
+    renderComponent();
+
+    await screen.findByText("TraceRoot CLI");
+    fireEvent.click(screen.getByRole("button", { name: /revoke all other sessions/i }));
+
+    await waitFor(() => expect(mocks.revokeOtherSessions).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText("Could not revoke other sessions")).toBeTruthy();
+    expect(screen.getByText("TraceRoot CLI")).toBeTruthy();
+    expect(mocks.listSessions).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers no plain revoke on any row while the current session is still resolving", async () => {
+    // authClient.useSession() pending, same shape as the device-client.tsx
+    // sign-in gate: `data` is present but stale/undefined and isPending is
+    // true until better-auth confirms which session is "this device".
+    mocks.useSession.mockReturnValue({ data: undefined, isPending: true });
+    mocks.listSessions.mockResolvedValue({ data: [currentSession, cliSession], error: null });
+
+    renderComponent();
+
+    await screen.findByText("TraceRoot CLI");
+    // Neither row's revoke control is offered, and revoke-all is disabled,
+    // until we actually know which session is current.
+    expect(screen.queryByRole("button", { name: /^revoke$/i })).toBeNull();
+    const revokeAll = screen.getByRole("button", { name: /revoke all other sessions/i });
+    expect(revokeAll.hasAttribute("disabled")).toBe(true);
+  });
+
   it("shows an empty state when there are no sessions", async () => {
     mocks.useSession.mockReturnValue({ data: { session: currentSession }, isPending: false });
     mocks.listSessions.mockResolvedValue({ data: [], error: null });
