@@ -33,7 +33,7 @@ const relativeImportPatterns = [
 const registryGlyphPattern =
   "^(Lucide)?(Bot|BotMessageSquare|Box|CheckCircle2|CircleCheck|CircleDollarSign|CircleStop|StopCircle|" +
   "FolderKanban|Globe|Layers|Layers3|LayoutDashboard|LayoutGrid|Shapes|Users|" +
-  "Workflow|Wrench|XCircle)(Icon)?$";
+  "Workflow|Wrench|CircleX|XCircle)(Icon)?$";
 
 export default [
   js.configs.recommended,
