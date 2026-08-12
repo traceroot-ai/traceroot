@@ -341,6 +341,43 @@ def test_x_tool_enabled_set_and_shape():
         assert tool["description"], f"{name} needs an agent-facing description"
 
 
+# The project-scoped read ops depend on the dual-credential auth, which adds an
+# optional `project_id` query param (required under a user credential, absent-or-
+# matching under an API key). Ingestion and whoami stay key-only and must not.
+_PROJECT_ID_READ_OPS = [
+    "/api/v1/public/traces",
+    "/api/v1/public/traces/{trace_id}",
+    "/api/v1/public/traces/{trace_id}/export",
+    "/api/v1/public/traces/filter-values/{field}",
+    "/api/v1/public/sessions",
+    "/api/v1/public/sessions/{session_id}",
+    "/api/v1/public/detectors",
+    "/api/v1/public/detectors/findings",
+    "/api/v1/public/detectors/findings/{finding_id}",
+    "/api/v1/public/detectors/traces/{trace_id}/finding",
+]
+
+
+def test_dual_credential_reads_expose_described_project_id_query_param():
+    paths = _schema()["paths"]
+    for p in _PROJECT_ID_READ_OPS:
+        params = paths[p]["get"].get("parameters", [])
+        matches = [q for q in params if q["name"] == "project_id" and q["in"] == "query"]
+        assert len(matches) == 1, p
+        assert matches[0].get("required") is not True, p
+        assert matches[0].get("description"), p
+
+
+def test_key_only_ops_have_no_project_id_param():
+    paths = _schema()["paths"]
+    # whoami stays on the key-only stamped auth (a later task handles account scope).
+    whoami_params = paths["/api/v1/public/whoami"]["get"].get("parameters", [])
+    assert not [q for q in whoami_params if q["name"] == "project_id"]
+    # ingestion is key-only and unchanged.
+    post_params = paths["/api/v1/public/traces"]["post"].get("parameters", [])
+    assert not [q for q in post_params if q["name"] == "project_id"]
+
+
 def _filters_param(schema):
     params = schema["paths"]["/api/v1/public/traces"]["get"]["parameters"]
     matches = [p for p in params if p["name"] == "filters"]

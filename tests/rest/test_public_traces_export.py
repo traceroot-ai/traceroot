@@ -15,7 +15,11 @@ from fastapi.testclient import TestClient
 from httpx import Response
 
 from rest.main import app
-from rest.routers.public.deps import AuthResult, authenticate_api_key
+from rest.routers.public.deps import (
+    AuthResult,
+    authenticate_api_key,
+    authenticate_public_caller,
+)
 
 BASE_URL = "http://localhost:3000"
 
@@ -79,7 +83,11 @@ def mock_reader():
 
 @pytest.fixture()
 def client(mock_reader):
+    # whoami still authenticates via the key-only dependency; the swapped read
+    # routes (list/get/export) authenticate via the dual-credential dependency.
+    # This file exercises both surfaces, so override both.
     app.dependency_overrides[authenticate_api_key] = lambda: make_auth()
+    app.dependency_overrides[authenticate_public_caller] = lambda: make_auth()
 
     import rest.routers.public.traces_read as mod
 
@@ -302,7 +310,7 @@ class TestExportAuth:
         test_client = TestClient(app, raise_server_exceptions=False)
         resp = test_client.get(
             "/api/v1/public/traces/abc123/export",
-            headers={"Authorization": "Bearer bad"},
+            headers={"Authorization": "Bearer tr-bad"},
         )
         assert resp.status_code == 401
 

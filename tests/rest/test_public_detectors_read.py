@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from rest.main import app
-from rest.routers.public.deps import AuthResult, authenticate_api_key
+from rest.routers.public.deps import AuthResult, authenticate_public_caller
 from rest.schemas.public import (
     DetectorItem,
     DetectorResultItem,
@@ -76,7 +76,7 @@ def reader():
 @pytest.fixture()
 def client(reader):
     # conftest's autouse fixture clears app.dependency_overrides after each test.
-    app.dependency_overrides[authenticate_api_key] = lambda: make_auth()
+    app.dependency_overrides[authenticate_public_caller] = lambda: make_auth()
     app.dependency_overrides[get_detector_reader_service] = lambda: reader
     return TestClient(app)
 
@@ -269,7 +269,9 @@ def test_auth_required_without_key(reader):
 class TestDetectorsRetentionGate:
     @pytest.fixture()
     def free_client(self, reader):
-        app.dependency_overrides[authenticate_api_key] = lambda: make_auth(billing_plan="free")
+        app.dependency_overrides[authenticate_public_caller] = lambda: make_auth(
+            billing_plan="free"
+        )
         app.dependency_overrides[get_detector_reader_service] = lambda: reader
         return TestClient(app)
 

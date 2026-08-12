@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from httpx import Response
 
 from rest.main import app
-from rest.routers.public.deps import AuthResult, authenticate_api_key
+from rest.routers.public.deps import AuthResult, authenticate_public_caller
 
 BASE_URL = "http://localhost:3000"
 
@@ -88,7 +88,7 @@ def mock_reader():
 @pytest.fixture()
 def client(mock_reader):
     """TestClient with mocked API-key auth and trace reader."""
-    app.dependency_overrides[authenticate_api_key] = lambda: make_auth()
+    app.dependency_overrides[authenticate_public_caller] = lambda: make_auth()
 
     import rest.routers.public.traces_read as mod
 
@@ -458,7 +458,7 @@ class TestPublicTraceReadAuth:
         test_client = TestClient(app, raise_server_exceptions=False)
         resp = test_client.get(
             "/api/v1/public/traces/abc123",
-            headers={"Authorization": "Bearer bad-key"},
+            headers={"Authorization": "Bearer tr-bad-key"},
         )
         assert resp.status_code == 401
 
@@ -517,7 +517,9 @@ class TestPublicReadRateLimiting:
 class TestPublicTracesRetentionGate:
     @pytest.fixture()
     def free_client(self, mock_reader):
-        app.dependency_overrides[authenticate_api_key] = lambda: make_auth(billing_plan="free")
+        app.dependency_overrides[authenticate_public_caller] = lambda: make_auth(
+            billing_plan="free"
+        )
 
         import rest.routers.public.traces_read as mod
 
