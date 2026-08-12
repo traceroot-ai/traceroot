@@ -106,6 +106,39 @@ export function formatDetectorList(data: unknown): string {
   return `Found ${detectors.length} detectors${totalInfo}:\n${lines.join("\n")}`;
 }
 
+/** Render one detector's full configuration for the model. */
+export function formatDetectorDetail(data: unknown): string {
+  const d = (data ?? {}) as any;
+  const state = d.enabled ? "enabled" : "disabled";
+  const rca = d.enable_rca ? "on" : "off";
+  const sample = d.sample_rate != null ? `${d.sample_rate}%` : "unknown";
+  const model = d.detection_model || "default";
+  const source = d.detection_source || "unknown";
+
+  const header = [
+    `Detector: ${d.detector_id} | ${d.name || "(unnamed)"}`,
+    `Template: ${d.template || "none"} | ${state} | sample rate: ${sample} | RCA: ${rca}`,
+    `Detection: ${model} (${source}) | created ${d.created_at || "unknown"} | updated ${d.updated_at || "unknown"}`,
+  ];
+
+  const prompt = d.prompt ? truncate(d.prompt, 1000) : "(none)";
+  const schema =
+    d.output_schema != null ? truncate(JSON.stringify(d.output_schema), 400) : "(none)";
+  // No trigger row means the detector gates on nothing beyond its sample rate.
+  const trigger =
+    d.trigger_conditions != null
+      ? truncate(JSON.stringify(d.trigger_conditions), 400)
+      : "(none — runs on every sampled trace)";
+
+  return [
+    ...header,
+    "",
+    `Prompt: ${prompt}`,
+    `Output schema: ${schema}`,
+    `Trigger conditions: ${trigger}`,
+  ].join("\n");
+}
+
 /** Render a finding list response as per-finding summary lines. */
 export function formatFindingList(data: unknown): string {
   const body = (data ?? {}) as { data?: unknown; meta?: unknown };

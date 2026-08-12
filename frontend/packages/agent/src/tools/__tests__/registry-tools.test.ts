@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Executor } from "../../executors/interface.js";
 import {
+  formatDetectorDetail,
   formatDetectorList,
   formatFindingDetail,
   formatFindingList,
@@ -24,13 +25,14 @@ describe("createRegistryReadTools", () => {
     return impl;
   }
 
-  it("exposes exactly the seven internally-bound read tools", () => {
+  it("exposes exactly the eight internally-bound read tools", () => {
     const names = createRegistryReadTools("p1", "u1").map((t) => t.name);
     expect(names).toEqual([
       "list_traces",
       "list_sessions",
       "get_session",
       "list_detectors",
+      "get_detector",
       "list_findings",
       "get_finding",
       "get_finding_by_trace",
@@ -191,6 +193,30 @@ describe("createRegistryReadTools", () => {
     expect(result.content[0]!.text).toContain("det-1");
   });
 
+  it("get_detector hits the internal detector route and renders the config", async () => {
+    const impl = stubFetch({
+      detector_id: "det-1",
+      name: "Error spike",
+      template: "failure",
+      enabled: true,
+      created_at: "2026-08-01T12:00:00Z",
+      prompt: "Flag traces with elevated error rates",
+      output_schema: { type: "object" },
+      sample_rate: 25,
+      enable_rca: true,
+      detection_model: "claude-haiku-4-5",
+      detection_source: "system",
+      updated_at: "2026-08-02T09:00:00Z",
+      trigger_conditions: [{ field: "root_span_finished", op: "=", value: true }],
+    });
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_detector")!;
+    const result = await tool.execute("id", { label: "x", detector_id: "det-1" });
+    const [url] = impl.mock.calls[0]!;
+    expect(String(url)).toBe("http://fastapi.test/api/v1/projects/p1/detectors/det-1");
+    expect(result.content[0]!.text).toContain("Detector: det-1");
+    expect(result.content[0]!.text).toContain("Flag traces with elevated error rates");
+  });
+
   it("returns HTTP failures as tool text instead of throwing", async () => {
     vi.stubGlobal(
       "fetch",
@@ -216,6 +242,7 @@ describe("createTools", () => {
       "list_sessions",
       "get_session",
       "list_detectors",
+      "get_detector",
       "list_findings",
       "get_finding",
       "get_finding_by_trace",
@@ -312,6 +339,63 @@ describe("formatters", () => {
         "- det-1 | Error spike | template: error-rate | enabled | created 2026-08-01T12:00:00Z\n" +
         "- det-2 | Latency | template: latency | disabled | created unknown",
     );
+  });
+
+  it("formatDetectorDetail renders the full config", () => {
+    expect(
+      formatDetectorDetail({
+        detector_id: "det-1",
+        name: "Error spike",
+        template: "failure",
+        enabled: true,
+        created_at: "2026-08-01T12:00:00Z",
+        prompt: "Flag traces with elevated error rates",
+        output_schema: { type: "object" },
+        sample_rate: 25,
+        enable_rca: true,
+        detection_model: "claude-haiku-4-5",
+        detection_source: "system",
+        updated_at: "2026-08-02T09:00:00Z",
+        trigger_conditions: [{ field: "root_span_finished", op: "=", value: true }],
+      }),
+    ).toBe(
+      "Detector: det-1 | Error spike\n" +
+        "Template: failure | enabled | sample rate: 25% | RCA: on\n" +
+        "Detection: claude-haiku-4-5 (system) | created 2026-08-01T12:00:00Z | updated 2026-08-02T09:00:00Z\n" +
+        "\n" +
+        "Prompt: Flag traces with elevated error rates\n" +
+        'Output schema: {"type":"object"}\n' +
+        'Trigger conditions: [{"field":"root_span_finished","op":"=","value":true}]',
+    );
+  });
+
+  it("formatDetectorDetail states missing config pieces explicitly", () => {
+    const text = formatDetectorDetail({
+      detector_id: "det-2",
+      name: "Latency",
+      template: "blank",
+      enabled: false,
+      prompt: "",
+      sample_rate: 100,
+      enable_rca: false,
+    });
+    expect(text).toContain("disabled");
+    expect(text).toContain("RCA: off");
+    expect(text).toContain("Detection: default (unknown)");
+    expect(text).toContain("Prompt: (none)");
+    expect(text).toContain("Output schema: (none)");
+    expect(text).toContain("Trigger conditions: (none — runs on every sampled trace)");
+  });
+
+  it("formatDetectorDetail truncates a long prompt to 1000 chars", () => {
+    const text = formatDetectorDetail({
+      detector_id: "det-3",
+      name: "n",
+      prompt: "p".repeat(1200),
+      sample_rate: 50,
+    });
+    expect(text).toContain("p".repeat(1000));
+    expect(text).not.toContain("p".repeat(1001));
   });
 
   it("formatFindingList renders rows with truncated summaries and the empty state", () => {

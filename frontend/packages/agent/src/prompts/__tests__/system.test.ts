@@ -26,6 +26,7 @@ describe("getSystemPrompt", () => {
   it("describes the detector read tools", () => {
     const prompt = getSystemPrompt({ projectId: "proj-123" });
     expect(prompt).toContain("list_detectors");
+    expect(prompt).toContain("get_detector with a detector_id");
     expect(prompt).toContain("list_findings");
     expect(prompt).toContain("get_finding");
     expect(prompt).toContain("get_finding_by_trace");

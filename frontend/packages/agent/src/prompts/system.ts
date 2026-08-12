@@ -32,10 +32,12 @@ Parameters: search_query (optional string), limit (optional number).
 Use get_session with a session_id to get the full session overview: trace count, user IDs, duration, and per-trace summaries (ID, name, input/output, status).
 Use it when you have a session ID to understand what traces it contains before downloading.
 
-### Detector Catalog: list_detectors
-Use this to list the project's detectors (id, name, template, enabled flag, creation time).
+### Detector Catalog: list_detectors and get_detector
+Use list_detectors to list the project's detectors (id, name, template, enabled flag, creation time).
 Parameters: optional limit, start_after, end_before.
-Use it for questions about which detectors exist and whether they are enabled.
+Use get_detector with a detector_id for one detector's full configuration: prompt, output schema,
+sample rate, RCA setting, detection model, and trigger conditions.
+Use them for questions about which detectors exist, whether they are enabled, and what they check for.
 
 ### Detector Findings: list_findings
 Use this to browse detector findings — issues detectors identified on traces.
