@@ -613,7 +613,11 @@ class TestAuthenticateAndStampPublicCaller:
         return Request({"type": "http", "headers": [], "state": {}})
 
     async def test_key_result_clears_exempt_and_stamps_identity(self):
-        """A KEY AuthResult clears the exempt flag and stamps workspace+plan."""
+        """A KEY AuthResult clears the exempt flag and stamps workspace+plan.
+
+        No user_id is stamped (rl_user_id == "") so key_read/key_export stay
+        byte-identical to the pre-per-user-key format for API-key callers.
+        """
         # Poison the exempt flag first so we prove the wrapper clears it.
         mark_request_rate_limit_exempt()
         request = self._bare_request()
@@ -629,9 +633,14 @@ class TestAuthenticateAndStampPublicCaller:
         assert is_request_rate_limit_exempt() is False
         assert request.state.rl_workspace_id == "ws-456"
         assert request.state.rl_billing_plan == normalize_plan("pro")
+        assert request.state.rl_user_id == ""
 
     async def test_user_result_clears_exempt_and_stamps_identity(self):
-        """A USER AuthResult (project-scoped) stamps the same identity fields."""
+        """A USER AuthResult (project-scoped) also stamps the user_id.
+
+        Unlike the key path, a user-credential request carries a user_id so the
+        bucket gains the per-user dimension.
+        """
         mark_request_rate_limit_exempt()
         request = self._bare_request()
         auth = AuthResult(
@@ -648,6 +657,7 @@ class TestAuthenticateAndStampPublicCaller:
         assert is_request_rate_limit_exempt() is False
         assert request.state.rl_workspace_id == "ws-456"
         assert request.state.rl_billing_plan == normalize_plan("pro")
+        assert request.state.rl_user_id == "user-789"
 
 
 # ── authenticate_account_caller (account-scope, user-only) ───────────────
@@ -797,6 +807,7 @@ class TestAuthenticateAndStampAccountCaller:
         result = await authenticate_and_stamp_account_caller(request, auth)
         assert result is auth
         assert is_request_rate_limit_exempt() is False
-        # user_id occupies the workspace slot so the bucket is per-user.
-        assert request.state.rl_workspace_id == "user-789"
+        # Empty workspace + user_id in the dedicated user slot => rl:read:{plan}:{user_id}.
+        assert request.state.rl_workspace_id == ""
+        assert request.state.rl_user_id == "user-789"
         assert request.state.rl_billing_plan == normalize_plan("free")

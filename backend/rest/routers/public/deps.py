@@ -415,25 +415,34 @@ DualAuth = Annotated[AuthResult, Depends(authenticate_public_caller)]
 
 
 async def authenticate_and_stamp_public_caller(request: Request, auth: DualAuth) -> AuthResult:
-    """Authenticate a public caller, then stamp workspace/plan for rate limiting.
+    """Authenticate a public caller, then stamp workspace/plan(/user) for rate limiting.
 
     The dual-credential analog of :func:`authenticate_and_stamp_identity`: both
     credential kinds carry ``workspace_id`` and ``billing_plan`` for
-    project-scoped requests, so the stamping is identical. It runs during
-    dependency resolution — before slowapi evaluates the limit — so ``key_func``
-    sees the identity on ``request.state``.
+    project-scoped requests. A user-credential result also carries a
+    ``user_id``, which is passed through so the bucket gains a per-user
+    dimension (one user's CLI cannot starve a teammate's within the workspace's
+    read budget); an API-key result passes ``None`` so its key stays
+    byte-identical to before per-user keys existed. It runs during dependency
+    resolution — before slowapi evaluates the limit — so ``key_func`` sees the
+    identity on ``request.state``.
 
     Args:
         request (Request): Incoming request; its ``state`` is stamped with the
             resolved rate-limit identity.
-        auth (DualAuth): Dual-credential auth dependency resolving the workspace
-            and plan.
+        auth (DualAuth): Dual-credential auth dependency resolving the
+            workspace, plan, and (for user credentials) user id.
 
     Returns:
         AuthResult: The authenticated result, passed through to the route handler.
     """
     clear_request_rate_limit_exempt()
-    set_rate_limit_identity(request, auth.workspace_id, auth.billing_plan)
+    set_rate_limit_identity(
+        request,
+        auth.workspace_id,
+        auth.billing_plan,
+        auth.user_id if auth.kind == "user" else None,
+    )
     return auth
 
 
@@ -585,12 +594,12 @@ AccountAuth = Annotated[AuthResult, Depends(authenticate_account_caller)]
 async def authenticate_and_stamp_account_caller(request: Request, auth: AccountAuth) -> AuthResult:
     """Authenticate an account-scope caller, then stamp a per-user rate-limit id.
 
-    Account ops have no workspace, so — unlike the project-scoped stamping
-    wrappers — the bucket is keyed per user: the ``user_id`` is placed in the
-    workspace slot of :func:`set_rate_limit_identity`. This reuses the existing
-    key functions unchanged (a later task formalizes dedicated per-user keys). It
-    runs during dependency resolution, before slowapi evaluates the limit, so
-    ``key_func`` sees the identity on ``request.state``.
+    Account ops have no workspace, so the bucket is keyed per user: an empty
+    ``workspace_id`` plus ``auth.user_id`` in the dedicated user slot of
+    :func:`set_rate_limit_identity`, which yields the clean key
+    ``rl:read:{plan}:{user_id}``. It runs during dependency resolution, before
+    slowapi evaluates the limit, so ``key_func`` sees the identity on
+    ``request.state``.
 
     Args:
         request (Request): Incoming request; its ``state`` is stamped with the
@@ -601,8 +610,8 @@ async def authenticate_and_stamp_account_caller(request: Request, auth: AccountA
         AuthResult: The authenticated result, passed through to the route handler.
     """
     clear_request_rate_limit_exempt()
-    # Account-scope ops have no workspace; bucket per user by keying on user_id.
-    set_rate_limit_identity(request, auth.user_id, auth.billing_plan)
+    # Account-scope ops have no workspace; bucket per user via the user slot.
+    set_rate_limit_identity(request, "", auth.billing_plan, auth.user_id)
     return auth
 
 
