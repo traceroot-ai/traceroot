@@ -2377,6 +2377,24 @@
               "description": "Only detectors created before this time (exclusive, ISO 8601)",
               "title": "End Before"
             }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
           }
         ],
         "responses": {
@@ -2554,6 +2572,24 @@
               "description": "Filter to a single trace",
               "title": "Trace Id"
             }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
           }
         ],
         "responses": {
@@ -2651,6 +2687,24 @@
             "schema": {
               "title": "Finding Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
             }
           }
         ],
@@ -2764,6 +2818,24 @@
             "schema": {
               "title": "Trace Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
             }
           }
         ],
@@ -3219,7 +3291,7 @@
     },
     "/api/v1/public/sessions": {
       "get": {
-        "description": "List unique sessions for the API key's project with trace counts.\n\nArgs:\n    auth (StampedAuth): Resolved API-key context; scopes the read to its\n        project and stamps the rate-limit identity.\n    limit (int): Items per page (1-200).\n    search_query (str | None): Substring match on session id.\n    start_after (datetime | None): Inclusive lower bound on trace time.\n    end_before (datetime | None): Exclusive upper bound on trace time.\n\nReturns:\n    SessionListResponse: Session summaries, newest first.\n\nRaises:\n    HTTPException: 500 on a reader failure.",
+        "description": "List unique sessions for the API key's project with trace counts.\n\nArgs:\n    auth (DualStampedAuth): Resolved credential context (API key or user\n        session token); scopes the read to its project and stamps the\n        rate-limit identity.\n    limit (int): Items per page (1-200).\n    search_query (str | None): Substring match on session id.\n    start_after (datetime | None): Inclusive lower bound on trace time.\n    end_before (datetime | None): Exclusive upper bound on trace time.\n\nReturns:\n    SessionListResponse: Session summaries, newest first.\n\nRaises:\n    HTTPException: 500 on a reader failure.",
         "operationId": "list_sessions",
         "parameters": [
           {
@@ -3290,6 +3362,24 @@
               ],
               "description": "Only sessions with traces before this time (exclusive, ISO 8601)",
               "title": "End Before"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
             }
           }
         ],
@@ -3378,7 +3468,7 @@
     },
     "/api/v1/public/sessions/{session_id}": {
       "get": {
-        "description": "Get one session with all its traces for the key's project.\n\nRetention uses the silent list-style clamp rather than a 403: a session\nthat contains traces older than the plan window degrades to showing only\nthe in-window traces instead of failing outright.\n\nArgs:\n    auth (StampedAuth): Resolved API-key context; scopes the read to its\n        project and stamps the rate-limit identity.\n    session_id (str): Session to fetch.\n    start_after (datetime | None): Inclusive lower bound on trace time.\n    end_before (datetime | None): Exclusive upper bound on trace time.\n\nReturns:\n    SessionDetailResponse: The session overview and its traces.\n\nRaises:\n    HTTPException: 404 if the session is missing or outside the key's\n        project, 500 on a reader failure.",
+        "description": "Get one session with all its traces for the key's project.\n\nRetention uses the silent list-style clamp rather than a 403: a session\nthat contains traces older than the plan window degrades to showing only\nthe in-window traces instead of failing outright.\n\nArgs:\n    auth (DualStampedAuth): Resolved credential context (API key or user\n        session token); scopes the read to its project and stamps the\n        rate-limit identity.\n    session_id (str): Session to fetch.\n    start_after (datetime | None): Inclusive lower bound on trace time.\n    end_before (datetime | None): Exclusive upper bound on trace time.\n\nReturns:\n    SessionDetailResponse: The session overview and its traces.\n\nRaises:\n    HTTPException: 404 if the session is missing or outside the key's\n        project, 500 on a reader failure.",
         "operationId": "get_session",
         "parameters": [
           {
@@ -3426,6 +3516,24 @@
               ],
               "description": "Only traces before this time (exclusive, ISO 8601)",
               "title": "End Before"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
             }
           }
         ],
@@ -3898,6 +4006,24 @@
             "in": "query",
             "name": "filters",
             "required": false
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
           }
         ],
         "responses": {
@@ -4139,7 +4265,7 @@
     },
     "/api/v1/public/traces/filter-values/{field}": {
       "get": {
-        "description": "Distinct values for an open-ended categorical filter field.\n\nThe values-discovery companion to the typed ``filters`` parameter on the\ntrace list: the filterable field catalog lives in the generated schema,\nwhile a field's current values are dynamic per project. Only fields the\nregistry marks as distinct-query (model_name, environment) are listable;\nthe field is resolved through the registry before it reaches SQL, so it can\nnever be a raw client-supplied column name.\n\nArgs:\n    auth (StampedAuth): Resolved API-key context; scopes the read to its\n        project and stamps the rate-limit identity.\n    field (str): The categorical field to enumerate.\n    start_after (datetime | None): Lower bound on span start time (active\n        window).\n    end_before (datetime | None): Upper bound on span start time (active\n        window), symmetric with ``start_after`` so options match the list's\n        window.\n\nReturns:\n    FilterValuesResponse: Distinct values ordered by descending frequency.\n\nRaises:\n    HTTPException: 400 if the field is unknown or not a distinct-query\n        categorical, 500 on a reader failure.",
+        "description": "Distinct values for an open-ended categorical filter field.\n\nThe values-discovery companion to the typed ``filters`` parameter on the\ntrace list: the filterable field catalog lives in the generated schema,\nwhile a field's current values are dynamic per project. Only fields the\nregistry marks as distinct-query (model_name, environment) are listable;\nthe field is resolved through the registry before it reaches SQL, so it can\nnever be a raw client-supplied column name.\n\nArgs:\n    auth (DualStampedAuth): Resolved credential context (API key or user\n        session token); scopes the read to its project and stamps the\n        rate-limit identity.\n    field (str): The categorical field to enumerate.\n    start_after (datetime | None): Lower bound on span start time (active\n        window).\n    end_before (datetime | None): Upper bound on span start time (active\n        window), symmetric with ``start_after`` so options match the list's\n        window.\n\nReturns:\n    FilterValuesResponse: Distinct values ordered by descending frequency.\n\nRaises:\n    HTTPException: 400 if the field is unknown or not a distinct-query\n        categorical, 500 on a reader failure.",
         "operationId": "list_trace_filter_values",
         "parameters": [
           {
@@ -4187,6 +4313,24 @@
               ],
               "description": "Only consider spans starting before this timestamp",
               "title": "End Before"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
             }
           }
         ],
@@ -4290,7 +4434,7 @@
     },
     "/api/v1/public/traces/{trace_id}": {
       "get": {
-        "description": "Get a single trace for the key's project.\n\nDefaults to the lightweight `skeleton` projection (no per-span I/O); pass\n`fields=full` (or `fields=io,metadata`) for per-span input/output/metadata.\n\nArgs:\n    auth (StampedAuth): Resolved API-key context; scopes the read to its\n        project and stamps the rate-limit identity.\n    trace_id (str): Trace to fetch.\n    fields (str | None): Comma-separated projection groups (e.g. ``io``,\n        ``metadata``) or an alias (``skeleton``/``full``). ``None`` selects\n        the default `skeleton` projection.\n\nReturns:\n    PublicTraceDetailResponse: The trace with span skeletons, plus per-span\n        I/O when the projection requests it.\n\nRaises:\n    HTTPException: 400 if `fields` is invalid, 404 if the trace is missing\n        or outside the key's project, 500 on a reader failure.",
+        "description": "Get a single trace for the key's project.\n\nDefaults to the lightweight `skeleton` projection (no per-span I/O); pass\n`fields=full` (or `fields=io,metadata`) for per-span input/output/metadata.\n\nArgs:\n    auth (DualStampedAuth): Resolved credential context (API key or user\n        session token); scopes the read to its project and stamps the\n        rate-limit identity.\n    trace_id (str): Trace to fetch.\n    fields (str | None): Comma-separated projection groups (e.g. ``io``,\n        ``metadata``) or an alias (``skeleton``/``full``). ``None`` selects\n        the default `skeleton` projection.\n\nReturns:\n    PublicTraceDetailResponse: The trace with span skeletons, plus per-span\n        I/O when the projection requests it.\n\nRaises:\n    HTTPException: 400 if `fields` is invalid, 404 if the trace is missing\n        or outside the key's project, 500 on a reader failure.",
         "operationId": "get_trace",
         "parameters": [
           {
@@ -4318,6 +4462,24 @@
               ],
               "description": "Comma-separated field groups to include: 'core' (tree/timing/status, always included), 'usage' (tokens/cost), 'io' (per-span input/output), 'metadata' (per-span metadata). Aliases: 'skeleton' (core,usage), 'full' (everything). Unknown groups return 400.",
               "title": "Fields"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
             }
           }
         ],
@@ -4436,7 +4598,7 @@
     },
     "/api/v1/public/traces/{trace_id}/export": {
       "get": {
-        "description": "Export the V1 bundle (trace + spans + git_context + manifest) for the key's project.\n\nDefaults to the `full` projection \u2014 an export is explicit intent to take the\ncomplete trace, so per-span input/output/metadata are included unless the\ncaller narrows `fields`. `bundle.trace` equals the `traces get` payload at the\nsame projection.\n\nRate limited on its own `export` bucket because it builds and serializes the\nfull bundle.\n\nArgs:\n    auth (StampedAuth): Resolved API-key context; scopes the read to its\n        project and stamps the rate-limit identity.\n    trace_id (str): Trace to export.\n    fields (str | None): Comma-separated projection groups or an alias\n        (``skeleton``/``full``). ``None`` selects the default `full`\n        projection.\n\nReturns:\n    PublicTraceExportResponse: The V1 export bundle (manifest, trace, spans,\n        git_context) at the requested projection.\n\nRaises:\n    HTTPException: 400 if `fields` is invalid, 404 if the trace is missing\n        or outside the key's project, 500 on a reader failure.",
+        "description": "Export the V1 bundle (trace + spans + git_context + manifest) for the key's project.\n\nDefaults to the `full` projection \u2014 an export is explicit intent to take the\ncomplete trace, so per-span input/output/metadata are included unless the\ncaller narrows `fields`. `bundle.trace` equals the `traces get` payload at the\nsame projection.\n\nRate limited on its own `export` bucket because it builds and serializes the\nfull bundle.\n\nArgs:\n    auth (DualStampedAuth): Resolved credential context (API key or user\n        session token); scopes the read to its project and stamps the\n        rate-limit identity.\n    trace_id (str): Trace to export.\n    fields (str | None): Comma-separated projection groups or an alias\n        (``skeleton``/``full``). ``None`` selects the default `full`\n        projection.\n\nReturns:\n    PublicTraceExportResponse: The V1 export bundle (manifest, trace, spans,\n        git_context) at the requested projection.\n\nRaises:\n    HTTPException: 400 if `fields` is invalid, 404 if the trace is missing\n        or outside the key's project, 500 on a reader failure.",
         "operationId": "export_trace",
         "parameters": [
           {
@@ -4464,6 +4626,24 @@
               ],
               "description": "Comma-separated field groups to include: 'core' (tree/timing/status, always included), 'usage' (tokens/cost), 'io' (per-span input/output), 'metadata' (per-span metadata). Aliases: 'skeleton' (core,usage), 'full' (everything). Unknown groups return 400.",
               "title": "Fields"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
             }
           }
         ],

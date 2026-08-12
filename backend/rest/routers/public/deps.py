@@ -323,7 +323,16 @@ async def authenticate_user_token(token: str, project_id: str) -> AuthResult:
 
 async def authenticate_public_caller(
     authorization: Annotated[str | None, Header()] = None,
-    project_id: Annotated[str | None, Query()] = None,
+    project_id: Annotated[
+        str | None,
+        Query(
+            description=(
+                "Target project for the request. Required when authenticating with a user "
+                "session token (a user credential is only meaningful scoped to a project); "
+                "for an API key it is optional and, if given, must match the key's project."
+            ),
+        ),
+    ] = None,
 ) -> AuthResult:
     """Authenticate a public caller by either an API key or a user session token.
 
