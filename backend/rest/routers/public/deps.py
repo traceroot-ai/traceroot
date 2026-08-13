@@ -30,12 +30,21 @@ from dataclasses import dataclass
 from typing import Annotated, Literal
 
 import httpx
+import jwt
 from fastapi import Depends, Header, HTTPException, Query, Request, status
 
 from rest.rate_limit import clear_request_rate_limit_exempt, set_rate_limit_identity
+from rest.routers.public.jwks_cache import JwksUnavailableError, get_jwks_cache
 from shared.config import settings
 
 logger = logging.getLogger(__name__)
+
+# The CLI presents a short-lived EdDSA JWT (minted by the Next.js app's jwt()
+# plugin at /api/cli/token) as its working bearer, verified here OFFLINE against
+# the app's JWKS. These issuer/audience constants MUST match the ones the mint
+# route stamps (frontend/ui/src/app/api/cli/token/route.ts).
+_ACCESS_TOKEN_ISSUER = "traceroot"
+_ACCESS_TOKEN_AUDIENCE = "traceroot-api"
 
 
 def _is_api_key_token(token: str) -> bool:
@@ -57,6 +66,90 @@ def _is_api_key_token(token: str) -> bool:
         bool: ``True`` if the token is API-key-shaped, ``False`` otherwise.
     """
     return token.strip().lower().startswith("tr-")
+
+
+def _is_jwt(token: str) -> bool:
+    """Return whether a bearer token is a JWT (three non-empty dot-segments).
+
+    A session token is an opaque single string with no dots; a JWT is
+    ``header.payload.signature``. Called only after :func:`_is_api_key_token`, so
+    a ``tr-`` key never reaches here — this discriminates a CLI access JWT from a
+    raw session token so each routes to the right validator.
+
+    Args:
+        token (str): The raw bearer token, already stripped of the ``Bearer``
+            scheme.
+
+    Returns:
+        bool: ``True`` if the token is JWT-shaped, ``False`` otherwise.
+    """
+    parts = token.split(".")
+    return len(parts) == 3 and all(parts)
+
+
+async def _verify_access_jwt(token: str) -> str:
+    """Verify a CLI access JWT offline and return its subject (the user id).
+
+    The trust anchor for the CLI JWT path. Pins ``EdDSA`` (rejecting
+    ``alg=none``/HS*/RS* and any algorithm-confusion), validates the issuer,
+    audience, and expiry, and requires ``sub``. The signing key is resolved by
+    ``kid`` from the cached JWKS.
+
+    Args:
+        token (str): The raw JWT (already known to be JWT-shaped).
+
+    Returns:
+        str: The verified ``sub`` claim (the user id).
+
+    Raises:
+        HTTPException: 401 for any verification failure (bad signature, expired,
+            wrong issuer/audience, missing claims, unknown/absent ``kid``); 503
+            (fail closed) if the JWKS cannot be fetched.
+    """
+    invalid = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid token",
+    )
+
+    try:
+        header = jwt.get_unverified_header(token)
+    except jwt.InvalidTokenError:
+        raise invalid from None
+
+    kid = header.get("kid")
+    if not kid:
+        raise invalid
+
+    try:
+        signing_key = await get_jwks_cache().get_signing_key(kid)
+    except JwksUnavailableError as e:
+        logger.error(f"JWKS unavailable while verifying access token: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service error",
+        ) from e
+
+    # An unknown kid means the token was signed by a key not in our JWKS — an
+    # untrusted signer, not an outage.
+    if signing_key is None:
+        raise invalid
+
+    try:
+        claims = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["EdDSA"],
+            audience=_ACCESS_TOKEN_AUDIENCE,
+            issuer=_ACCESS_TOKEN_ISSUER,
+            options={"require": ["exp", "sub"]},
+        )
+    except jwt.InvalidTokenError:
+        raise invalid from None
+
+    sub = claims.get("sub")
+    if not sub or not isinstance(sub, str):
+        raise invalid
+    return sub
 
 
 @dataclass
@@ -426,6 +519,89 @@ async def authenticate_user_token(token: str, project_id: str) -> AuthResult:
     )
 
 
+async def authenticate_user_jwt(token: str, project_id: str) -> AuthResult:
+    """Authenticate a CLI access JWT for a project-scoped request.
+
+    The JWT establishes identity offline (:func:`_verify_access_jwt`); the
+    project-scoped fields a JWT doesn't carry — role, workspace, plan — are then
+    resolved for that user id via the internal ``user-project-access`` route. The
+    session-token equivalent is :func:`authenticate_user_token`; this returns the
+    same ``kind="user"`` project shape.
+
+    Args:
+        token (str): The raw JWT (already known to be JWT-shaped). Never logged.
+        project_id (str): The project the caller is scoping to.
+
+    Returns:
+        AuthResult: A ``kind="user"`` result carrying the resolved project,
+            workspace, plan, role, and user id.
+
+    Raises:
+        HTTPException: 401 for an invalid token, 403 when the user has no access
+            to ``project_id``, and 503 (fail closed) for any JWKS or
+            membership-introspection ambiguity.
+    """
+    user_id = await _verify_access_jwt(token)
+
+    data = await _post_internal_auth(
+        "/api/internal/user-project-access",
+        {"userId": user_id, "projectId": project_id},
+        log_label="cli access token",
+        invalid_detail="Invalid token",
+        forbidden_detail=f"No access to project '{project_id}'",
+    )
+
+    # A 200 response missing required project fields is malformed → 503.
+    try:
+        resolved_project_id = data["projectId"]
+        workspace_id = data["workspaceId"]
+        billing_plan = data["billingPlan"]
+        role = data["role"]
+    except KeyError as e:
+        logger.error(f"Auth service response missing required field: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service error",
+        ) from e
+
+    # An empty workspaceId would key every such tenant into one shared rate-limit
+    # bucket (parity with the API-key and session-token paths).
+    if not workspace_id:
+        logger.error("Auth service response has an empty workspaceId")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service error",
+        )
+
+    return AuthResult(
+        kind="user",
+        project_id=resolved_project_id,
+        workspace_id=workspace_id,
+        billing_plan=billing_plan,
+        ingestion_blocked=True,
+        role=role,
+        user_id=user_id,
+    )
+
+
+def _account_result_for_user(user_id: str) -> AuthResult:
+    """Build the account-scope AuthResult for a resolved user id.
+
+    Account scope has no single project/workspace/plan — the user id is the
+    identity, project/workspace stay empty, and the plan defaults to free (used
+    only for per-user rate-limit keying). Shared by the session-token and JWT
+    account paths.
+    """
+    return AuthResult(
+        kind="user",
+        project_id="",
+        workspace_id="",
+        billing_plan="free",
+        ingestion_blocked=True,
+        user_id=user_id,
+    )
+
+
 async def authenticate_public_caller(
     authorization: Annotated[str | None, Header()] = None,
     project_id: Annotated[
@@ -512,6 +688,10 @@ async def authenticate_public_caller(
                 "call list_projects to find one."
             ),
         )
+    # A JWT-shaped user credential is a CLI access token: verified offline against
+    # the JWKS. Anything else is a raw session token: introspected over HTTP.
+    if _is_jwt(token):
+        return await authenticate_user_jwt(token, project_id)
     return await authenticate_user_token(token, project_id)
 
 
@@ -615,8 +795,14 @@ async def authenticate_account_caller(
             detail="this operation requires a user login; API keys are project-scoped",
         )
 
-    # Account scope introspects the token WITHOUT a projectId (no 403 access
-    # branch here — a live session alone is sufficient).
+    # A JWT-shaped credential is a CLI access token: verified offline against the
+    # JWKS, no introspection call needed (identity is all account scope requires).
+    if _is_jwt(token):
+        user_id = await _verify_access_jwt(token)
+        return _account_result_for_user(user_id)
+
+    # Session-token path: introspect WITHOUT a projectId (no 403 access branch
+    # here — a live session alone is sufficient).
     data = await _post_internal_auth(
         "/api/internal/validate-user-token",
         {"token": token},
@@ -634,20 +820,7 @@ async def authenticate_account_caller(
             detail="Authentication service error",
         )
 
-    return AuthResult(
-        kind="user",
-        # Account scope has no single project/workspace — the user_id is the
-        # identity, and these stay empty by design.
-        project_id="",
-        workspace_id="",
-        # The account-scope introspection returns no plan; account discovery ops
-        # are not plan-gated, so default to the free tier for rate-limit keying.
-        billing_plan="free",
-        # A user session token must never be usable to ingest (parity with the
-        # project-scoped user path).
-        ingestion_blocked=True,
-        user_id=user_id,
-    )
+    return _account_result_for_user(user_id)
 
 
 _AccountAuth = Annotated[AuthResult, Depends(authenticate_account_caller)]
