@@ -326,3 +326,41 @@ class TestUpdateEvalResultCosts:
 
         mock_ch.query.assert_not_called()
         assert not any(sql.strip().startswith("UPDATE") for sql, _ in cursor.executed)
+
+    def test_backfill_reconciles_null_cost_results_grouped_by_project(self, monkeypatch):
+        """The periodic sweep (H7) re-derives cost for recent null-cost results grouped by
+        project — catching a result row that committed after its spans were processed and
+        so was never revisited by span-ingest."""
+        from worker import ingest_tasks
+
+        cursor = FakeCursor(fetchall_result=[("p1", "t1"), ("p1", "t2"), ("p2", "t3")])
+        self._patch_connect(monkeypatch, cursor)
+
+        calls: list = []
+        monkeypatch.setattr(
+            ingest_tasks,
+            "_update_eval_result_costs",
+            lambda project_id, trace_ids, ch: calls.append((project_id, set(trace_ids))),
+        )
+        monkeypatch.setattr("db.clickhouse.client.get_clickhouse_client", lambda: MagicMock())
+
+        out = ingest_tasks.backfill_eval_result_costs(batch_size=10)
+
+        assert out == {"projects": 2, "traces": 3}
+        assert dict(calls) == {"p1": {"t1", "t2"}, "p2": {"t3"}}
+        # Only recent rows are swept (bounded window, so it converges).
+        select_sql = next(sql for sql, _ in cursor.executed if sql.strip().startswith("SELECT"))
+        assert "cost IS NULL" in select_sql
+        assert "create_time >" in select_sql
+
+    def test_backfill_no_null_cost_results_is_a_noop(self, monkeypatch):
+        from worker import ingest_tasks
+
+        self._patch_connect(monkeypatch, FakeCursor(fetchall_result=[]))
+        called: list = []
+        monkeypatch.setattr(
+            ingest_tasks, "_update_eval_result_costs", lambda *a, **k: called.append(1)
+        )
+
+        assert ingest_tasks.backfill_eval_result_costs() == {"projects": 0, "traces": 0}
+        assert called == []

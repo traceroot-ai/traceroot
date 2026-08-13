@@ -211,6 +211,69 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
         pg_pool.putconn(conn)
 
 
+@app.task(name="worker.ingest_tasks.backfill_eval_result_costs")
+def backfill_eval_result_costs(batch_size: int = 500) -> dict:
+    """Reconcile eval-result costs that ingest could not fill (H7).
+
+    Cost is normally derived at span-ingest, but a result row that COMMITS AFTER its spans
+    were already processed is never revisited (see the LIMITATION note on
+    ``_update_eval_result_costs``) and stays ``cost = NULL`` despite priced LLM spans
+    sitting in ClickHouse. This periodic sweep re-runs that same derivation for recent
+    null-cost results, grouped by project. Bounded to ``batch_size`` rows and to a recent
+    window so it converges instead of perpetually re-sweeping genuinely cost-less traces
+    (which ``NULLIF`` deliberately keeps at NULL); the next run picks up any remainder.
+
+    Requires a Celery *beat* process to be scheduled (see ``celery_app.beat_schedule``).
+    """
+    from collections import defaultdict
+
+    from db.clickhouse.client import get_clickhouse_client
+
+    try:
+        pg_pool = _get_pg_pool()
+        conn = pg_pool.getconn()
+    except Exception:
+        logger.warning("eval cost backfill: no Postgres connection", exc_info=True)
+        return {"projects": 0, "traces": 0}
+    rows: list = []
+    try:
+        with conn.cursor() as cur:
+            # Only recent null-cost results: an older one is either genuinely cost-less
+            # (its spans summed to 0) or long past any late-arrival window, so re-deriving
+            # it forever would be wasted ClickHouse load.
+            cur.execute(
+                "SELECT project_id, trace_id FROM evaluation_results "
+                "WHERE cost IS NULL AND trace_id IS NOT NULL "
+                "AND create_time > now() - interval '7 days' "
+                "LIMIT %s",
+                (batch_size,),
+            )
+            rows = cur.fetchall()
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        logger.warning("eval cost backfill query failed", exc_info=True)
+        rows = []
+    finally:
+        pg_pool.putconn(conn)
+
+    by_project: dict[str, set[str]] = defaultdict(set)
+    for project_id, trace_id in rows:
+        by_project[project_id].add(trace_id)
+    if not by_project:
+        return {"projects": 0, "traces": 0}
+
+    ch_client = get_clickhouse_client()
+    traces = 0
+    for project_id, trace_ids in by_project.items():
+        _update_eval_result_costs(project_id, trace_ids, ch_client)
+        traces += len(trace_ids)
+    logger.info(
+        "eval cost backfill: reconciled %d trace(s) across %d project(s)", traces, len(by_project)
+    )
+    return {"projects": len(by_project), "traces": traces}
+
+
 @app.task(
     bind=True,
     autoretry_for=(Exception,),
