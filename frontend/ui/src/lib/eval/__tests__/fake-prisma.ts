@@ -204,6 +204,25 @@ class Model {
   async count(args: { where?: Row } = {}) {
     return this.rows.filter((r) => this.matches(r, args.where)).length;
   }
+  // Minimal groupBy: groups the filtered rows by the `by` fields and returns each
+  // group's key fields plus `_count._all` (the only aggregate the routes use).
+  async groupBy(args: { by: string[]; where?: Row; _count?: { _all?: boolean } }) {
+    const groups = new Map<string, { key: Row; n: number }>();
+    for (const r of this.rows.filter((row) => this.matches(row, args.where))) {
+      const k = JSON.stringify(args.by.map((f) => r[f]));
+      const g = groups.get(k);
+      if (g) g.n += 1;
+      else {
+        const key: Row = {};
+        for (const f of args.by) key[f] = r[f];
+        groups.set(k, { key, n: 1 });
+      }
+    }
+    return [...groups.values()].map((g) => ({
+      ...g.key,
+      ...(args._count ? { _count: { _all: g.n } } : {}),
+    }));
+  }
   // Every mutator takes an optional undo `log`: outside a transaction it is
   // omitted and the write is simply permanent; `TxModel` passes its call's own
   // log so a later rollback can find exactly what to undo.
