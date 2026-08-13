@@ -110,7 +110,7 @@ export function resolveAlertDisplayState(alert: AlertDisplayInput): AlertDisplay
     return withDetail(
       {
         label: "Failing",
-        tone: "warning",
+        tone: "alert",
         isPaused: false,
         detail: `Last run failed: ${alert.lastError}. It will retry next minute; if this persists, check the rule's filters and measure.`,
       },

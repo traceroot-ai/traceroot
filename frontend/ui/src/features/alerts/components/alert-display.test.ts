@@ -65,7 +65,7 @@ describe("resolveAlertDisplayState", () => {
     const state = stateOf({ lastError: "ClickHouse read timeout" });
 
     expect(state.label).toBe("Failing");
-    expect(state.tone).toBe("warning");
+    expect(state.tone).toBe("alert");
     expect(state.detail).toContain("ClickHouse read timeout");
     // And what happens next, which the label has no room for.
     expect(state.detail).toContain("retry");
