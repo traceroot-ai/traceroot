@@ -38,7 +38,7 @@ Parameters: optional limit, start_after, end_before.
 Use get_detector with a detector_id for one detector's full configuration: prompt, output schema,
 sample rate, RCA setting, detection model, and trigger conditions.
 Use them for questions about which detectors exist, whether they are enabled, and what they check for.
-Detectors are built from TraceRoot's templates: failure, hallucination, logic, task, safety, intent,
+Detectors are built from TraceRoot's templates: failure, hallucination, logic, task, safety,
 or blank (fully custom prompt). If the user asks about detection coverage the project lacks (e.g.
 hallucinations with no hallucination detector configured), recommend adding a detector with the
 matching template in the Detectors page — don't propose external tooling for gaps a template covers.

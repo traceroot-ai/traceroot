@@ -35,7 +35,8 @@ describe("getSystemPrompt", () => {
 
   it("lists the detector templates so coverage gaps get template recommendations", () => {
     const prompt = getSystemPrompt({ projectId: "proj-123" });
-    expect(prompt).toContain("failure, hallucination, logic, task, safety, intent");
+    expect(prompt).toContain("failure, hallucination, logic, task, safety");
+    expect(prompt).toContain("blank (fully custom prompt)");
     expect(prompt).toContain("recommend adding a detector with the");
   });
 
