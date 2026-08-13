@@ -696,7 +696,10 @@ model Score {
   // Lets the merge be a real upsert. Leads with result_id, so it also serves
   // the per-result score fetch.
   @@unique([resultId, scorerName, scorerVersion], map: "uq_score_result_scorer")
-  @@index([projectId], map: "ix_score_project_id")
+  // Serves the scorers route's `where project_id order by create_time desc` (and, via
+  // the leading column, plain project_id lookups) so it doesn't scan+sort the whole
+  // project's score history — mirrors EvaluationRun's (projectId, startedAt desc) index.
+  @@index([projectId, createTime(sort: Desc)], map: "ix_score_project_create_time")
   @@map("scores")
 }
 
