@@ -1,6 +1,7 @@
 import { prisma, type Prisma, type TestCase } from "@traceroot/core";
 import { randomUUID } from "crypto";
 import { versionSnowflakeFromMs } from "./snowflake";
+import { decodeJsonValue } from "./json-value";
 
 /** Deterministic read order for a version's cases (see the ordering note where
  *  it's used): every case a publish writes shares one `create_time` (Postgres'
@@ -84,13 +85,18 @@ function canonicalJson(v: unknown): string {
 
 /** A stable signature of a version's semantic CONTENT — the per-case (id, input, expected,
  *  metadata), order-independent. Capture provenance (source fields, review, addedBy,
- *  createTime) is NOT content, so it never forks a version. Identical content shares one. */
-function contentSignature(seeds: TestCaseSeed[]): string {
+ *  createTime) is NOT content, so it never forks a version. Identical content shares one.
+ *
+ *  input/expected are DECODED before canonicalization (they are stored as JSON-encoded
+ *  strings): otherwise two byte-different encodings of the same value — e.g. reordered
+ *  object keys `{"a":1,"b":2}` vs `{"b":2,"a":1}` — would sign differently and spuriously
+ *  fork a version / break content-addressed dedup, the same way metadata already canonicalizes. */
+export function contentSignature(seeds: TestCaseSeed[]): string {
   const rows = seeds
     .map((s) => ({
       id: s.testCaseId,
-      input: s.input,
-      expected: s.expected,
+      input: decodeJsonValue(s.input),
+      expected: s.expected == null ? null : decodeJsonValue(s.expected),
       metadata: s.metadata ?? null,
     }))
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));

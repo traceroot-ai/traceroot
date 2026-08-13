@@ -121,7 +121,8 @@ vi.mock("@traceroot/core", () => ({
   },
 }));
 
-import { publishDatasetVersion, VersionConflict } from "./versions";
+import { publishDatasetVersion, VersionConflict, contentSignature } from "./versions";
+import type { TestCaseSeed } from "./versions";
 
 beforeEach(() => {
   fakeDb.current = makeFakeDb();
@@ -171,5 +172,40 @@ describe("publishDatasetVersion — pointer compare-and-swap", () => {
     // transaction also rolls back B's created version row; this fake isn't
     // transactional, so that part isn't re-asserted here.)
     expect(fakeDb.current!.dataset.currentVersionId).toBe(aResult.versionId);
+  });
+});
+
+describe("contentSignature — canonicalizes DECODED input/expected (M8)", () => {
+  const seed = (over: Partial<TestCaseSeed>): TestCaseSeed => ({
+    testCaseId: "tc1",
+    input: '"x"',
+    expected: null,
+    metadata: null,
+    review: "needs_review",
+    captureReason: "manual",
+    sourceTraceId: null,
+    sourceSpanId: null,
+    sourceSpanName: null,
+    sourceSpanKind: null,
+    addedBy: null,
+    ...over,
+  });
+
+  it("treats reordered object keys in the encoded input as the same content", () => {
+    expect(contentSignature([seed({ input: '{"a":1,"b":2}' })])).toBe(
+      contentSignature([seed({ input: '{"b":2,"a":1}' })]),
+    );
+  });
+
+  it("still distinguishes genuinely different content", () => {
+    expect(contentSignature([seed({ input: '{"a":1}' })])).not.toBe(
+      contentSignature([seed({ input: '{"a":2}' })]),
+    );
+  });
+
+  it('does not conflate the string "42" with the number 42', () => {
+    expect(contentSignature([seed({ input: '"42"' })])).not.toBe(
+      contentSignature([seed({ input: "42" })]),
+    );
   });
 });
