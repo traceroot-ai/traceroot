@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from db.clickhouse.client import get_clickhouse_client
 from rest.routers.internal.auth import verify_internal_secret
+from rest.sql_utils import to_utc_naive
 
 router = APIRouter()
 
@@ -40,8 +41,8 @@ async def get_usage_total(
     ch = get_clickhouse_client()
 
     # Format datetime without timezone for ClickHouse
-    start_str = start.strftime("%Y-%m-%d %H:%M:%S")
-    end_str = end.strftime("%Y-%m-%d %H:%M:%S")
+    start_str = to_utc_naive(start).strftime("%Y-%m-%d %H:%M:%S")
+    end_str = to_utc_naive(end).strftime("%Y-%m-%d %H:%M:%S")
 
     # ReplacingMergeTree dedup via uniqExact — same trace/span id can have
     # multiple pre-merge rows in ClickHouse.
@@ -88,8 +89,8 @@ async def get_usage_details(
     ch = get_clickhouse_client()
 
     # Format datetime without timezone for ClickHouse
-    start_str = start.strftime("%Y-%m-%d %H:%M:%S")
-    end_str = end.strftime("%Y-%m-%d %H:%M:%S")
+    start_str = to_utc_naive(start).strftime("%Y-%m-%d %H:%M:%S")
+    end_str = to_utc_naive(end).strftime("%Y-%m-%d %H:%M:%S")
 
     # Query traces count — uniqExact dedups across pre-merge ReplacingMergeTree
     # rows (a single trace can have multiple rows until background merge runs,

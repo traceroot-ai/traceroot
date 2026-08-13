@@ -1107,6 +1107,54 @@ class TestUsageBillsEveryStoredRow:
         combined_sql = mock_ch.query.call_args_list[0].args[0]
         assert "source" not in combined_sql
 
+    def test_usage_bounds_are_normalized_to_utc(self, client, mock_ch, secret):
+        """An aware non-UTC offset must bill the UTC instant, not the wall clock sent."""
+        mock_ch.query.side_effect = [
+            _make_query_result([(1,)], ["total"]),
+            _make_query_result([(1,)], ["total"]),
+            _make_query_result([(0,)], ["total"]),
+        ]
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params={
+                "project_ids": "p1",
+                "start": "2026-07-01T02:00:00+02:00",
+                "end": "2026-08-01T02:00:00+02:00",
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        for call in mock_ch.query.call_args_list:
+            params = call.kwargs["parameters"]
+            assert params["start"] == "2026-07-01 00:00:00"
+            assert params["end"] == "2026-08-01 00:00:00"
+
+    def test_usage_total_bounds_are_normalized_to_utc(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [_make_query_result([(0,)], ["total"])]
+        resp = client.get(
+            "/api/v1/internal/usage/total",
+            params={
+                "project_ids": "p1",
+                "start": "2026-07-01T02:00:00+02:00",
+                "end": "2026-08-01T02:00:00+02:00",
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        params = mock_ch.query.call_args_list[0].kwargs["parameters"]
+        assert params["start"] == "2026-07-01 00:00:00"
+        assert params["end"] == "2026-08-01 00:00:00"
+
+    def test_non_ascii_secret_header_is_rejected_not_500(self, client, mock_ch, secret):
+        """Starlette decodes headers as latin-1; a 0x80-0xFF byte must still 403."""
+        resp = client.get(
+            "/api/v1/internal/usage/total",
+            params=self.PARAMS,
+            # Raw bytes: httpx would refuse the non-ASCII str client-side.
+            headers={b"X-Internal-Secret": "sécret\xff".encode("latin-1")},
+        )
+        assert resp.status_code == 403
+
 
 # =============================================================================
 # self_traced flag on detector runs
