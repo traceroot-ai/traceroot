@@ -14,6 +14,7 @@ import {
   useSetAlertStatus,
   useUpdateAlert,
   type AlertCreateInput,
+  type AlertRecord,
 } from "./use-alerts";
 
 class FakeBroadcastChannel {
@@ -191,6 +192,15 @@ describe("useAlert", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("carries the record's noDataMode through", async () => {
+    const detailRow = { ...alertRow, noDataMode: "NOTIFY" } as Partial<AlertRecord>;
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ alert: detailRow }));
+    const { wrapper } = setup(fetchMock);
+    const { result } = renderHook(() => useAlert("p1", "a1"), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.noDataMode).toBe("NOTIFY");
+  });
+
   it("throws an ApiError when the alert is gone", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ detail: "not found" }, 404));
     const { wrapper } = setup(fetchMock);
@@ -214,6 +224,16 @@ describe("useCreateAlert", () => {
     });
     expect(result.current.data).toEqual(alertRow);
     expectNotified(invalidateSpy);
+  });
+
+  it("sends noDataMode in the body when the input carries one", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ alert: alertRow }));
+    const { wrapper } = setup(fetchMock);
+    const { result } = renderHook(() => useCreateAlert("p1"), { wrapper });
+    result.current.mutate({ ...createInput, noDataMode: "ZERO" });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string) as AlertCreateInput;
+    expect(body.noDataMode).toBe("ZERO");
   });
 
   it("rejects with an ApiError and does not notify on failure", async () => {
@@ -287,9 +307,15 @@ describe("useSetAlertStatus", () => {
 });
 
 describe("isAlertGone", () => {
-  it("is true for 404 and 403 ApiErrors", () => {
+  it("is true for 404 and for a 403 that revoked access", () => {
     expect(isAlertGone(new ApiError(404, "gone"))).toBe(true);
-    expect(isAlertGone(new ApiError(403, "revoked"))).toBe(true);
+    expect(isAlertGone(new ApiError(403, "Not a member of this workspace"))).toBe(true);
+  });
+
+  it("is false for a 403 role denial: the rule still exists", () => {
+    // The exact message requireWorkspaceMembership returns when minRole is set.
+    expect(isAlertGone(new ApiError(403, "Requires MEMBER role or higher"))).toBe(false);
+    expect(isAlertGone(new ApiError(403, "Requires ADMIN role or higher"))).toBe(false);
   });
 
   it("is false for other statuses and non-ApiErrors", () => {

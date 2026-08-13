@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type {
   AlertAggregation,
   AlertFilter,
+  AlertNoDataMode,
   AlertRenotify,
   AlertSeverity,
   AlertStatus,
@@ -43,6 +44,7 @@ export interface AlertSummary {
 export interface AlertRecord extends AlertSummary {
   filters: AlertFilter[];
   renotify: AlertRenotify;
+  noDataMode: AlertNoDataMode;
 }
 
 /** The rule body the create endpoint accepts; mirrors `alertCreateSchema`. */
@@ -56,6 +58,7 @@ export interface AlertCreateInput {
   thresholdOperator: AlertThresholdOperator;
   threshold: number;
   renotify: AlertRenotify;
+  noDataMode?: AlertNoDataMode;
 }
 
 interface PaginationMeta {
@@ -184,9 +187,19 @@ export function useAlertCapacity(projectId: string) {
   });
 }
 
-/** A rule that has been deleted, or a workspace whose access was revoked. */
+// requireWorkspaceMembership's role refusal shares 403 with revoked access;
+// the message is the only signal the routes emit that separates them.
+const ROLE_DENIAL_MESSAGE = /^Requires [A-Z]+ role or higher$/;
+
+/**
+ * A rule that has been deleted, or a workspace whose access was revoked. A 403
+ * role denial is neither: the rule still exists, the caller just may not
+ * mutate it.
+ */
 export function isAlertGone(error: unknown): boolean {
-  return error instanceof ApiError && (error.status === 404 || error.status === 403);
+  if (!(error instanceof ApiError)) return false;
+  if (error.status === 404) return true;
+  return error.status === 403 && !ROLE_DENIAL_MESSAGE.test(error.message);
 }
 
 // Deliberately unpolled: a refetch landing mid-edit would be a rule under the

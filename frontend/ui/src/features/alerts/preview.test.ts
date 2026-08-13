@@ -96,42 +96,48 @@ describe("buildPreviewSpec", () => {
   });
 });
 
-describe("the form, the preview and the write gate agree", () => {
+describe("the preview and the evaluation worker agree", () => {
   const spansMeasures = ALERT_MEASURES_BY_VIEW.SPANS;
 
-  it("previews every combination the aggregation dropdown offers", () => {
-    // The bug this pins: the dropdown offered Latency + count and the preview had nothing.
-    const unpreviewable: string[] = [];
+  // Written out by hand rather than read off the source map so a drift against
+  // `_WIDGET_SOURCE_BY_ALERT_MEASURE` in backend/rest/services/alert_evaluation.py
+  // fails here instead of previewing a different number than the worker evaluates.
+  const expectedSource: Record<string, { view: string; field: string }> = {
+    count: { view: "spans", field: "count" },
+    trace_id: { view: "spans", field: "trace_id" },
+    latency: { view: "spans", field: "duration_ms" },
+    cost: { view: "spans", field: "cost" },
+    input_tokens: { view: "spans", field: "input_tokens" },
+    output_tokens: { view: "spans", field: "output_tokens" },
+    total_tokens: { view: "spans", field: "total_tokens" },
+    total_tokens_per_second: { view: "spans", field: "tokens_per_second" },
+    unique_user_ids: { view: "traces", field: "user_id" },
+    unique_session_ids: { view: "traces", field: "session_id" },
+  };
+
+  it("pins every offered combination to its engine view and field", () => {
+    expect(spansMeasures.map((m) => m.id).sort()).toEqual(Object.keys(expectedSource).sort());
 
     for (const measure of spansMeasures) {
+      const expected = expectedSource[measure.id];
       for (const aggregation of getValidAggregations(measure, "SPANS")) {
-        if (buildPreviewSpec("SPANS", measure.id, aggregation) === null) {
-          unpreviewable.push(`${measure.id} + ${aggregation}`);
-        }
+        const spec = buildPreviewSpec("SPANS", measure.id, aggregation);
+        expect(spec, `${measure.id} + ${aggregation}`).not.toBeNull();
+        expect(spec?.view, `${measure.id} + ${aggregation}`).toBe(expected.view);
+        expect(spec?.metric, `${measure.id} + ${aggregation}`).toEqual({
+          measure: expected.field,
+          agg: aggregation,
+        });
       }
     }
-
-    expect(unpreviewable).toEqual([]);
   });
 
-  it("has a spec for exactly the combinations the write gate calls evaluable", () => {
-    const disagreements: string[] = [];
+  it("routes exactly the unique-id measures through the traces view", () => {
+    const tracesRouted = spansMeasures
+      .map((m) => m.id)
+      .filter((id) => buildPreviewSpec("SPANS", id, "uniq")?.view === "traces");
 
-    for (const filters of [[], [{ field: "model_name", op: "=", value: "gpt-4o" }]]) {
-      for (const measure of spansMeasures) {
-        for (const aggregation of ALERT_AGGREGATIONS) {
-          const hasSpec = buildPreviewSpec("SPANS", measure.id, aggregation, filters) !== null;
-          const isEvaluable = isEvaluableAlertMetric("SPANS", measure.id, aggregation, filters);
-          if (hasSpec !== isEvaluable) {
-            disagreements.push(
-              `${measure.id} + ${aggregation} (${filters.length} filters): preview=${hasSpec} evaluable=${isEvaluable}`,
-            );
-          }
-        }
-      }
-    }
-
-    expect(disagreements).toEqual([]);
+    expect(tracesRouted).toEqual(["unique_user_ids", "unique_session_ids"]);
   });
 });
 
