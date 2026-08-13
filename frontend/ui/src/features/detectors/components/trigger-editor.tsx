@@ -38,8 +38,6 @@ interface TriggerEditorProps {
   /** Uncontrolled/save mode: shows a Save button when dirty */
   onSave?: (conditions: TriggerCondition[]) => void;
   isSaving?: boolean;
-  /** Read-only: show conditions but hide add/remove/save controls */
-  readOnly?: boolean;
   /** Card mode: renders as a bordered card section (header + body) for embedding inside a card container */
   asCard?: boolean;
 }
@@ -47,13 +45,11 @@ interface TriggerEditorProps {
 function ConditionRow({
   condition,
   projectId,
-  readOnly,
   onPatch,
   onRemove,
 }: {
   condition: TriggerCondition;
   projectId: string;
-  readOnly?: boolean;
   onPatch: (patch: Partial<TriggerCondition>) => void;
   onRemove: () => void;
 }) {
@@ -67,7 +63,7 @@ function ConditionRow({
     condition.field,
     undefined,
     undefined,
-    enumerable && !readOnly,
+    enumerable,
   );
 
   // Keep a previously-saved value selectable even when it no longer occurs in
@@ -156,16 +152,14 @@ function ConditionRow({
         />
       )}
 
-      {!readOnly && (
-        <button
-          type="button"
-          onClick={onRemove}
-          className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
-          aria-label="Remove condition"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
-      )}
+      <button
+        type="button"
+        onClick={onRemove}
+        className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+        aria-label="Remove condition"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
     </div>
   );
 }
@@ -176,7 +170,6 @@ export function TriggerEditor({
   onChange,
   onSave,
   isSaving,
-  readOnly,
   asCard,
 }: TriggerEditorProps) {
   const [conditions, setConditions] = useState<TriggerCondition[]>(initialConditions);
@@ -227,13 +220,12 @@ export function TriggerEditor({
 
   const conditionRows = (
     <FilterControlSizeProvider size="sm">
-      <div className={`space-y-1.5 ${readOnly ? "pointer-events-none opacity-60" : ""}`}>
+      <div className="space-y-1.5">
         {conditions.map((cond, i) => (
           <ConditionRow
             key={i}
             condition={cond}
             projectId={projectId}
-            readOnly={readOnly}
             onPatch={(patch) => updateCondition(i, patch)}
             onRemove={() => removeCondition(i)}
           />
@@ -248,17 +240,15 @@ export function TriggerEditor({
         {/* Card header */}
         <div className="flex items-center justify-between border-b border-border bg-muted/50 px-3 py-1.5">
           <span className="text-[12px] font-medium text-muted-foreground">Filter</span>
-          {!readOnly && (
-            <button
-              type="button"
-              onClick={addCondition}
-              disabled={atFilterCap}
-              className="flex items-center gap-1 text-[12px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50 disabled:hover:text-muted-foreground"
-            >
-              <Plus className="h-3 w-3" />
-              Add condition
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={addCondition}
+            disabled={atFilterCap}
+            className="flex items-center gap-1 text-[12px] text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50 disabled:hover:text-muted-foreground"
+          >
+            <Plus className="h-3 w-3" />
+            Add condition
+          </button>
         </div>
         {/* Card body */}
         <div className="p-3">
@@ -280,16 +270,14 @@ export function TriggerEditor({
       {/* Header row */}
       <div className="mb-2 flex items-center justify-between">
         <p className="text-[12px] font-medium text-muted-foreground">Filter</p>
-        {!readOnly && (
-          <button
-            type="button"
-            onClick={addCondition}
-            className="flex items-center gap-1 text-[12px] text-muted-foreground transition-colors hover:text-foreground"
-          >
-            <Plus className="h-3 w-3" />
-            Add condition
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={addCondition}
+          className="flex items-center gap-1 text-[12px] text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <Plus className="h-3 w-3" />
+          Add condition
+        </button>
       </div>
 
       {conditions.length === 0 ? (
@@ -301,8 +289,8 @@ export function TriggerEditor({
         </>
       )}
 
-      {/* Save button — only in uncontrolled/save mode when dirty and not readOnly */}
-      {!readOnly && !onChange && dirty && onSave && (
+      {/* Save button — only in uncontrolled/save mode when dirty */}
+      {!onChange && dirty && onSave && (
         <div className="mt-3 flex items-center justify-end gap-2">
           {validationError && (
             <span className="text-[12px] text-destructive">{validationError}</span>
