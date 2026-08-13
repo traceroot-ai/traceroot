@@ -144,4 +144,4 @@ async def get_detector(
     service: DetectorReaderService = Depends(get_detector_reader_service),
 ):
     """Get one detector's full configuration for the project."""
-    return require_detector(lambda: service.get_detector(project_id, detector_id))
+    return await require_detector(lambda: service.get_detector(project_id, detector_id))

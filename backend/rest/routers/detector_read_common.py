@@ -144,7 +144,7 @@ async def require_finding(
     return finding
 
 
-def require_detector(fetch: Callable[[], DetectorDetail | None]) -> DetectorDetail:
+async def require_detector(fetch: Callable[[], DetectorDetail | None]) -> DetectorDetail:
     """Run a detector fetch, mapping None -> 404 and reader errors -> a clean 500.
 
     No retention check: the detector catalog is configuration, not telemetry.
@@ -156,7 +156,7 @@ def require_detector(fetch: Callable[[], DetectorDetail | None]) -> DetectorDeta
         DetectorDetail: The detector, when it exists in the caller's project.
     """
     try:
-        detector = fetch()
+        detector = await asyncio.to_thread(fetch)
     except Exception as e:
         logger.exception(f"Error reading detector: {e}")
         raise HTTPException(
