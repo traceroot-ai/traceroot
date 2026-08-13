@@ -304,8 +304,6 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       evaluationName: r.evaluation.name,
       datasetName: datasetName.get(r.datasetId) ?? null,
       datasetVersionLabel: r.datasetVersion.label,
-      // The pinned dataset version's number; the list shows "<dataset name> v<n>".
-      datasetVersionNumber: r.datasetVersion.versionNumber,
       cost,
       // Metric-first: no single headline delta or per-case improved/regressed count from a
       // baseline (per-metric deltas live in the comparison block); kept null for back-compat.

@@ -490,7 +490,10 @@ model Dataset {
 // publishes a new version; historical versions (and any run that pinned them)
 // are never rewritten.
 model DatasetVersion {
-  id             String   @id @default(cuid()) @db.VarChar
+  // A time-sortable snowflake, NOT a cuid: `((createMs - epoch) << 22) | versionNumber`,
+  // minted at publish (see publishDatasetVersion / lib/eval/snowflake.ts) and set
+  // explicitly on create — hence no @default. It IS the value the UI and SDK see.
+  id             String   @id @db.VarChar
   datasetId      String   @map("dataset_id") @db.VarChar
   projectId      String   @map("project_id") @db.VarChar
   versionNumber  Int      @map("version_number") // 1-based

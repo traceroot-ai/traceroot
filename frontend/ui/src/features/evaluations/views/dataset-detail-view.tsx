@@ -256,18 +256,25 @@ export function DatasetDetailView({
                     value={selectedVersion?.id ?? ""}
                     onValueChange={(v) => setSelectedVersionId(v)}
                   >
-                    {/* The version id is its 1-based number; the cuid `v.id` stays the
-                          Select's value/PK only. w-auto hugs the number so there's no
-                          dead gap before the chevron. */}
+                    {/* The version id IS the time-sortable snowflake (`v.id`); the
+                          dropdown pairs each version NUMBER with that id so both the
+                          ordering and the exact id are visible. w-auto hugs the id (no
+                          dead gap before the chevron); the dropdown grows to fit its
+                          wider "<n>  <snowflake>" rows on its own. */}
                     <SelectTrigger className="h-7 w-auto gap-2 text-[12px]" title="Dataset version">
-                      <span className="whitespace-nowrap text-[12px] tabular-nums">
-                        {selectedVersion ? `v${selectedVersion.versionNumber}` : "Current version"}
+                      <span className="whitespace-nowrap font-mono text-[12px]">
+                        {selectedVersion ? selectedVersion.id : "Current version"}
                       </span>
                     </SelectTrigger>
                     <SelectContent align="end">
                       {versions.map((v) => (
                         <SelectItem key={v.id} value={v.id} className="text-[12px]">
-                          <span className="tabular-nums">v{v.versionNumber}</span>
+                          <span className="flex items-center gap-2">
+                            <span className="tabular-nums text-muted-foreground">
+                              {v.versionNumber}
+                            </span>
+                            <span className="font-mono">{v.id}</span>
+                          </span>
                         </SelectItem>
                       ))}
                     </SelectContent>

@@ -74,9 +74,15 @@ function makeFakeDb() {
           return null;
         },
       ),
-      create: vi.fn(async ({ data }: { data: Omit<FakeVersion, "id"> }) => {
+      // The publish nudges the generated snowflake id until it is free; here every
+      // generated id is unique (never in `versions`), so this always returns null.
+      findUnique: vi.fn(
+        async ({ where }: { where: { id: string } }) =>
+          versions.find((v) => v.id === where.id) ?? null,
+      ),
+      create: vi.fn(async ({ data }: { data: Omit<FakeVersion, "id"> & { id?: string } }) => {
         nextVersionN += 1;
-        const v: FakeVersion = { ...data, id: `v${nextVersionN}` };
+        const v: FakeVersion = { ...data, id: data.id ?? `v${nextVersionN}` };
         versions.push(v);
         return v;
       }),

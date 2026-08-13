@@ -187,9 +187,6 @@ export interface RunRow {
   evaluationName: string;
   datasetName: string | null;
   datasetVersionLabel: string;
-  /** The pinned dataset version's 1-based number, shown beside the dataset name
-   *  (list route only; optional so the run-detail/compare DTOs needn't supply it). */
-  datasetVersionNumber?: number;
   changeFromBaseline: number | null;
   errorCount: number;
   /** Derived (list route): regressed test-case count when trustworthy, else null. */

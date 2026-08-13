@@ -287,10 +287,9 @@ describe("Dataset detail — versions", () => {
     await screen.findByText(/charged twice/);
 
     fireEvent.click(screen.getByRole("combobox"));
-    // Each option is the version id as its 1-based number ("v<n>"); pick v1.
-    fireEvent.click(
-      await screen.findByRole("option", { name: new RegExp(`^v${V1.versionNumber}$`) }),
-    );
+    // Each option pairs the version number with its id (the snowflake, now stored as
+    // `v.id`); pick v1 by its id, which also asserts the id is rendered.
+    fireEvent.click(await screen.findByRole("option", { name: new RegExp(V1.id) }));
 
     // The older snapshot's content loads (no read-only banner — that was removed).
     expect(await screen.findByText("seeded ticket")).toBeDefined();
