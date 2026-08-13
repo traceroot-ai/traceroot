@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   CartesianGrid,
   Label,
@@ -29,6 +29,9 @@ import {
   seriesNameFormatter,
   pivotRows,
 } from "@/features/dashboards/components/renderers";
+import { DateFilterSelect } from "@/components/date-filter-select";
+import { makeRange } from "@/features/dashboards/range-presets";
+import { DEFAULT_DATE_FILTER, type DateFilterOption } from "@/lib/date-filter";
 import type { TimeRange } from "@/features/dashboards/types";
 import type { AlertAggregation, AlertFilter, AlertOperator, AlertView } from "../rule-model";
 import { buildPreviewSpec, parseThreshold } from "../preview";
@@ -50,22 +53,21 @@ interface AlertPreviewProps {
 // Red is reserved for the threshold and the breach; the series takes palette entry 1.
 const PREVIEW_SERIES_COLOR = SERIES_COLORS[1];
 
-// The range follows from the bucket, so there is no separate range to pick.
-const PREVIEW_WINDOW_COUNT = 20;
-
 const DAY_MS = 86_400_000;
 
-/**
- * Snapping the end to a bucket boundary makes the plotted buckets the ones the
- * rule will evaluate, and holds the query key still between boundaries so
- * typing cannot refire it.
- */
-function previewRange(bucketMs: number): TimeRange {
-  const end = Math.floor(Date.now() / bucketMs) * bucketMs;
-  return {
-    start: new Date(end - PREVIEW_WINDOW_COUNT * bucketMs),
-    end: new Date(end),
-  };
+// Mirrors MAX_EXPLICIT_BUCKETS in backend/rest/services/widget_query.py, which
+// rejects a range the rule's window divides into more points than this.
+const MAX_PREVIEW_BUCKETS = 500;
+
+function rangeFor(
+  option: DateFilterOption,
+  customStart: Date | null,
+  customEnd: Date | null,
+): TimeRange {
+  if (option.isCustom && customStart && customEnd) {
+    return { start: customStart, end: customEnd };
+  }
+  return makeRange(option.id);
 }
 
 // Applied as a text color so the SVG inherits it through currentColor: CSS
@@ -244,15 +246,39 @@ export function AlertPreview({
 }: AlertPreviewProps) {
   const spec = buildPreviewSpec(view, measureId, aggregation, filters);
   const bucketMs = ALERT_WINDOWS[window];
-  const range = useMemo(() => previewRange(bucketMs), [bucketMs]);
-  const preview = useWidgetPreview(projectId, spec, range, bucketMs / 1000);
+  const [dateFilter, setDateFilter] = useState(DEFAULT_DATE_FILTER);
+  const [customStart, setCustomStart] = useState<Date | null>(null);
+  const [customEnd, setCustomEnd] = useState<Date | null>(null);
+  const range = useMemo(
+    () => rangeFor(dateFilter, customStart, customEnd),
+    [dateFilter, customStart, customEnd],
+  );
+  // Past the cap the server picks the grain instead, which beats a 422.
+  const fitsBucket = range.end.getTime() - range.start.getTime() <= bucketMs * MAX_PREVIEW_BUCKETS;
+  const preview = useWidgetPreview(
+    projectId,
+    spec,
+    range,
+    fitsBucket ? bucketMs / 1000 : undefined,
+  );
 
   const thresholdValue = parseThreshold(threshold);
 
   return (
     <div className="flex min-h-[320px] min-w-0 flex-1 flex-col border border-border">
-      <div className="flex items-center border-b border-border bg-muted/50 px-3 py-1.5">
+      <div className="flex items-center justify-between border-b border-border bg-muted/50 px-3 py-1.5">
         <span className="text-[12px] font-medium text-muted-foreground">Live preview</span>
+        <DateFilterSelect
+          dateFilter={dateFilter}
+          customStartDate={customStart}
+          customEndDate={customEnd}
+          onDateFilterChange={setDateFilter}
+          onCustomRangeChange={(start, end) => {
+            setCustomStart(start);
+            setCustomEnd(end);
+          }}
+          className="h-7 min-w-0 text-[12px]"
+        />
       </div>
       <div className="min-h-0 flex-1 p-4">
         {spec === null ? (
