@@ -24,9 +24,9 @@ vi.mock("@/lib/auth-helpers", () => ({
   verifyInternalSecret: (...args: unknown[]) => verifyInternalSecretMock(...args),
 }));
 
-const getSessionMock = vi.fn();
-vi.mock("@/lib/auth", () => ({
-  auth: { api: { getSession: (...args: unknown[]) => getSessionMock(...args) } },
+const resolveTokenMock = vi.fn();
+vi.mock("@/lib/internal-session", () => ({
+  resolveSessionFromToken: (...args: unknown[]) => resolveTokenMock(...args),
 }));
 
 import { POST } from "./route";
@@ -39,7 +39,7 @@ beforeEach(() => {
   memberFindManyMock.mockReset();
   verifyInternalSecretMock.mockReset();
   verifyInternalSecretMock.mockReturnValue(true);
-  getSessionMock.mockReset();
+  resolveTokenMock.mockReset();
 });
 
 describe("POST /api/internal/user-memberships", () => {
@@ -51,7 +51,7 @@ describe("POST /api/internal/user-memberships", () => {
 
     expect(res.status).toBe(401);
     expect(body).toEqual({ error: "Unauthorized" });
-    expect(getSessionMock).not.toHaveBeenCalled();
+    expect(resolveTokenMock).not.toHaveBeenCalled();
     expect(memberFindManyMock).not.toHaveBeenCalled();
   });
 
@@ -77,8 +77,8 @@ describe("POST /api/internal/user-memberships", () => {
     expect(typeof body.error).toBe("string");
   });
 
-  it("returns 401 when getSession resolves no session", async () => {
-    getSessionMock.mockResolvedValue(null);
+  it("returns 401 when the token resolves to no live session", async () => {
+    resolveTokenMock.mockResolvedValue(null);
 
     const res = await POST(makeRequest({ token: "tok" }));
     const body = await res.json();
@@ -88,18 +88,14 @@ describe("POST /api/internal/user-memberships", () => {
     expect(memberFindManyMock).not.toHaveBeenCalled();
   });
 
-  it("treats a getSession throw as an invalid token, not a 500", async () => {
-    getSessionMock.mockRejectedValue(new Error("boom"));
+  it("propagates a resolver/database error instead of masking it as a bad token", async () => {
+    resolveTokenMock.mockRejectedValue(new Error("db down"));
 
-    const res = await POST(makeRequest({ token: "tok" }));
-    const body = await res.json();
-
-    expect(res.status).toBe(401);
-    expect(body).toEqual({ error: "invalid or expired token" });
+    await expect(POST(makeRequest({ token: "tok" }))).rejects.toThrow("db down");
   });
 
   it("returns the workspace/project graph for a live session", async () => {
-    getSessionMock.mockResolvedValue({ user: { id: "user-1", email: "user@example.com" } });
+    resolveTokenMock.mockResolvedValue({ user: { id: "user-1", email: "user@example.com" } });
     memberFindManyMock.mockResolvedValue([
       {
         role: "admin",
@@ -143,7 +139,7 @@ describe("POST /api/internal/user-memberships", () => {
   });
 
   it("returns an empty list when the user has no memberships", async () => {
-    getSessionMock.mockResolvedValue({ user: { id: "user-1" } });
+    resolveTokenMock.mockResolvedValue({ user: { id: "user-1" } });
     memberFindManyMock.mockResolvedValue([]);
 
     const res = await POST(makeRequest({ token: "tok" }));

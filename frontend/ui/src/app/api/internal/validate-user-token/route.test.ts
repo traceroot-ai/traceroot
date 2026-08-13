@@ -29,9 +29,9 @@ vi.mock("@/lib/auth-helpers", () => ({
   verifyInternalSecret: (...args: unknown[]) => verifyInternalSecretMock(...args),
 }));
 
-const getSessionMock = vi.fn();
-vi.mock("@/lib/auth", () => ({
-  auth: { api: { getSession: (...args: unknown[]) => getSessionMock(...args) } },
+const resolveTokenMock = vi.fn();
+vi.mock("@/lib/internal-session", () => ({
+  resolveSessionFromToken: (...args: unknown[]) => resolveTokenMock(...args),
 }));
 
 import { POST } from "./route";
@@ -45,7 +45,7 @@ beforeEach(() => {
   memberFindUniqueMock.mockReset();
   verifyInternalSecretMock.mockReset();
   verifyInternalSecretMock.mockReturnValue(true);
-  getSessionMock.mockReset();
+  resolveTokenMock.mockReset();
 });
 
 describe("POST /api/internal/validate-user-token", () => {
@@ -57,7 +57,7 @@ describe("POST /api/internal/validate-user-token", () => {
 
     expect(res.status).toBe(401);
     expect(body).toEqual({ valid: false, error: "Unauthorized" });
-    expect(getSessionMock).not.toHaveBeenCalled();
+    expect(resolveTokenMock).not.toHaveBeenCalled();
   });
 
   it("returns 400 on invalid JSON", async () => {
@@ -83,8 +83,8 @@ describe("POST /api/internal/validate-user-token", () => {
     expect(typeof body.error).toBe("string");
   });
 
-  it("returns 401 when getSession resolves no session", async () => {
-    getSessionMock.mockResolvedValue(null);
+  it("returns 401 when the token resolves to no live session", async () => {
+    resolveTokenMock.mockResolvedValue(null);
 
     const res = await POST(makeRequest({ token: "tok" }));
     const body = await res.json();
@@ -93,18 +93,16 @@ describe("POST /api/internal/validate-user-token", () => {
     expect(body).toEqual({ valid: false, error: "invalid or expired token" });
   });
 
-  it("treats a getSession throw as an invalid token, not a 500", async () => {
-    getSessionMock.mockRejectedValue(new Error("boom"));
+  it("propagates a resolver/database error instead of masking it as a bad token", async () => {
+    // A DB outage must surface as a 500 (which the backend maps to a fail-closed
+    // 503), not a misleading 401 that reads as "your token is invalid".
+    resolveTokenMock.mockRejectedValue(new Error("db down"));
 
-    const res = await POST(makeRequest({ token: "tok" }));
-    const body = await res.json();
-
-    expect(res.status).toBe(401);
-    expect(body).toEqual({ valid: false, error: "invalid or expired token" });
+    await expect(POST(makeRequest({ token: "tok" }))).rejects.toThrow("db down");
   });
 
   it("account-scope: no projectId returns valid + userId + email", async () => {
-    getSessionMock.mockResolvedValue({
+    resolveTokenMock.mockResolvedValue({
       user: { id: "user-1", email: "user@example.com" },
     });
 
@@ -117,7 +115,7 @@ describe("POST /api/internal/validate-user-token", () => {
   });
 
   it("project-scope: member returns valid + role/workspaceId/billingPlan/projectId", async () => {
-    getSessionMock.mockResolvedValue({ user: { id: "user-1", email: "user@example.com" } });
+    resolveTokenMock.mockResolvedValue({ user: { id: "user-1", email: "user@example.com" } });
     projectFindUniqueMock.mockResolvedValue({
       id: "proj-123",
       workspaceId: "ws-456",
@@ -140,7 +138,7 @@ describe("POST /api/internal/validate-user-token", () => {
   });
 
   it("project-scope: falls back to the FREE plan when the workspace has no billingPlan", async () => {
-    getSessionMock.mockResolvedValue({ user: { id: "user-1", email: "user@example.com" } });
+    resolveTokenMock.mockResolvedValue({ user: { id: "user-1", email: "user@example.com" } });
     projectFindUniqueMock.mockResolvedValue({
       id: "proj-123",
       workspaceId: "ws-456",
@@ -155,7 +153,7 @@ describe("POST /api/internal/validate-user-token", () => {
   });
 
   it("project-scope: project not found returns valid:true, hasAccess:false at 403", async () => {
-    getSessionMock.mockResolvedValue({ user: { id: "user-1", email: "user@example.com" } });
+    resolveTokenMock.mockResolvedValue({ user: { id: "user-1", email: "user@example.com" } });
     projectFindUniqueMock.mockResolvedValue(null);
 
     const res = await POST(makeRequest({ token: "tok", projectId: "missing" }));
@@ -167,7 +165,7 @@ describe("POST /api/internal/validate-user-token", () => {
   });
 
   it("project-scope: not a member returns valid:true, hasAccess:false at 403", async () => {
-    getSessionMock.mockResolvedValue({ user: { id: "user-1", email: "user@example.com" } });
+    resolveTokenMock.mockResolvedValue({ user: { id: "user-1", email: "user@example.com" } });
     projectFindUniqueMock.mockResolvedValue({
       id: "proj-123",
       workspaceId: "ws-456",
