@@ -269,6 +269,8 @@ model DeviceCode {
 
   @@index([deviceCode], map: "ix_device_code_device_code")
   @@index([userCode], map: "ix_device_code_user_code")
+  // Supports pruning expired rows (cleanup) and bounds the hot verify/poll path.
+  @@index([expiresAt], map: "ix_device_code_expires_at")
   @@map("device_codes")
 }
 
