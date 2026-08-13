@@ -329,15 +329,26 @@ export async function runAlertTick(now: Date): Promise<void> {
   await mapWithConcurrency(tasks, ALERT_EVALUATION_CONCURRENCY, (task) => task());
 }
 
-export function startAlertScheduler(): ReturnType<typeof cron.schedule> | undefined {
+export interface AlertSchedulerHandle {
+  readonly stop: () => void;
+  /** Resolves true once no tick is in flight, false if the bound expired first. */
+  readonly waitForIdle: (timeoutMs: number) => Promise<boolean>;
+}
+
+export function startAlertScheduler(): AlertSchedulerHandle | undefined {
   if (!isAlertsSchedulerEnabled()) {
     logInfo('scheduler disabled (set ALERTS_SCHEDULER_ENABLED="true" to run it)');
     return undefined;
   }
 
   let isTicking = false;
+  let isStopped = false;
+  let inFlightTick = Promise.resolve();
   let wasEnabled = true;
   const task = cron.schedule(ALERT_TICK_CRON, async () => {
+    // node-cron's stop() only clears the timer; a callback already dispatched still runs.
+    if (isStopped) return;
+
     // Read per tick, not held from boot: an operator reaches for this to stop
     // the paging during an incident, and restarting the worker to apply it
     // takes the three detector consumers down with it.
@@ -355,15 +366,37 @@ export function startAlertScheduler(): ReturnType<typeof cron.schedule> | undefi
       return;
     }
     isTicking = true;
-    try {
-      await runAlertTick(new Date());
-    } catch (error) {
-      logError("tick failed", error);
-    } finally {
-      isTicking = false;
-    }
+    inFlightTick = (async () => {
+      try {
+        await runAlertTick(new Date());
+      } catch (error) {
+        logError("tick failed", error);
+      } finally {
+        isTicking = false;
+      }
+    })();
+    await inFlightTick;
   });
 
   logInfo(`scheduler started (${ALERT_TICK_CRON})`);
-  return task;
+  return {
+    stop: () => {
+      isStopped = true;
+      task.stop();
+    },
+    waitForIdle: async (timeoutMs: number): Promise<boolean> => {
+      if (!isTicking) return true;
+      let timer: NodeJS.Timeout | undefined;
+      try {
+        return await Promise.race([
+          inFlightTick.then(() => true),
+          new Promise<boolean>((resolve) => {
+            timer = setTimeout(() => resolve(false), timeoutMs);
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+  };
 }

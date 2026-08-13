@@ -566,4 +566,76 @@ describe("startAlertScheduler", () => {
       expect(claimDueAlerts).toHaveBeenCalledTimes(2);
     });
   });
+
+  it("holds shutdown open until an in-flight tick finishes", async () => {
+    // The exit this covers: `completeAlertEvaluation` committed, the process
+    // died before the enqueue, and the first page of the incident never sends.
+    let release: (() => void) | undefined;
+    claimDueAlerts.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve([]);
+        }),
+    );
+
+    await withEnv("true", async () => {
+      const scheduler = startAlertScheduler();
+      const handler = cronSchedule.mock.calls[0][1];
+      const ticking = handler();
+
+      let isIdle: boolean | undefined;
+      const drained = scheduler?.waitForIdle(60_000).then((result) => {
+        isIdle = result;
+      });
+      await yieldToLoop();
+      expect(isIdle).toBeUndefined();
+
+      release?.();
+      await ticking;
+      await drained;
+      expect(isIdle).toBe(true);
+    });
+  });
+
+  it("gives up on the drain at the bound rather than outliving the stop grace", async () => {
+    vi.useFakeTimers();
+    try {
+      claimDueAlerts.mockImplementationOnce(() => new Promise(() => {}));
+
+      await withEnv("true", async () => {
+        const scheduler = startAlertScheduler();
+        const handler = cronSchedule.mock.calls[0][1];
+        void handler();
+
+        const drained = scheduler?.waitForIdle(5_000);
+        await vi.advanceTimersByTimeAsync(5_000);
+        await expect(drained).resolves.toBe(false);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("answers an idle scheduler immediately, without arming the bound", async () => {
+    await withEnv("true", async () => {
+      const scheduler = startAlertScheduler();
+      await expect(scheduler?.waitForIdle(0)).resolves.toBe(true);
+    });
+  });
+
+  it("never claims from a callback dispatched after stop", async () => {
+    // node-cron's stop() is only clearTimeout, so a callback already handed to
+    // the event loop still runs; the handler itself has to refuse.
+    await withEnv("true", async () => {
+      const scheduler = startAlertScheduler();
+      const handler = cronSchedule.mock.calls[0][1];
+      scheduler?.stop();
+
+      await handler();
+
+      expect(claimDueAlerts).not.toHaveBeenCalled();
+      expect(cronSchedule.mock.results[0].value.stop).toHaveBeenCalledTimes(1);
+      await expect(scheduler?.waitForIdle(0)).resolves.toBe(true);
+    });
+  });
 });

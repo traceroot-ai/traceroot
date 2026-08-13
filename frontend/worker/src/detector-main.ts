@@ -23,6 +23,9 @@ let detectorDigestWorker: ReturnType<typeof startDetectorDigestWorker> | undefin
 let alertNotificationWorker: ReturnType<typeof startAlertNotificationWorker> | undefined;
 let alertScheduler: ReturnType<typeof startAlertScheduler> | undefined;
 
+// A tick can run tens of seconds but compose's stop grace is 10s: an unbounded drain is a SIGKILL.
+const ALERT_TICK_DRAIN_TIMEOUT_MS = 5_000;
+
 async function shutdown(signal: string): Promise<void> {
   if (isShuttingDown) return;
   isShuttingDown = true;
@@ -32,6 +35,12 @@ async function shutdown(signal: string): Promise<void> {
   try {
     if (alertScheduler) {
       alertScheduler.stop();
+      const isDrained = await alertScheduler.waitForIdle(ALERT_TICK_DRAIN_TIMEOUT_MS);
+      if (!isDrained) {
+        console.log(
+          `[Detector Worker] alert tick still running after ${ALERT_TICK_DRAIN_TIMEOUT_MS}ms, continuing shutdown`,
+        );
+      }
     }
     if (alertNotificationWorker) {
       await alertNotificationWorker.close();
