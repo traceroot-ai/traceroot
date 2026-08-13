@@ -127,11 +127,13 @@ describe("LineNumberedTextarea", () => {
     expect(screen.getByText("4")).toBeTruthy();
   });
 
-  it("strips the display-only trailing newline from what it reports", () => {
+  it("reports the typed value verbatim, preserving a genuine trailing newline", () => {
     const onChange = vi.fn();
     render(<LineNumberedTextarea value="a" onChange={onChange} aria-label="field" />);
+    // Controlled to the raw value (no artificial trailing \n to strip), so input is reported
+    // verbatim — a real newline stays, and multi-char input never stacks one character per line.
     fireEvent.change(screen.getByLabelText("field"), { target: { value: "abc\n" } });
-    expect(onChange).toHaveBeenCalledWith("abc");
+    expect(onChange).toHaveBeenCalledWith("abc\n");
   });
 
   it("keeps a value that does not end in a newline", () => {

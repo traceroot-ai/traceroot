@@ -227,19 +227,14 @@ export function LineNumberedTextarea({
 }) {
   const isCollapsed = collapsed && value.length > collapseAt;
   const shown = isCollapsed ? value.slice(0, collapseAt) : value;
-  // Keep a real trailing empty line so the last line is always clickable — click
-  // it and type without pressing Enter first, and a 1-line value still shows an
-  // empty line 2. The parent value never keeps that trailing newline: it's added
-  // for display/editing and stripped from what onChange reports. (When collapsed
-  // there's no editing, so no trailing line is needed.)
-  //
-  // The newline is appended *unconditionally*. Appending it only when the value
-  // didn't already end in one meant pressing Enter (which makes the value end in
-  // a newline) was cancelled out by the strip below, so the line count — and the
-  // box height — never grew.
-  const textValue = isCollapsed ? shown : `${value}\n`;
-  const rawLines = textValue.split("\n");
-  const tokenLines = highlightJson ? tokenizeJsonByLine(textValue) : null;
+  // The display splits the RAW value — NO appended trailing newline. (Appending one previously
+  // let the caret sit past it, so a keystroke on the "next line" baked a real \n and stacked the
+  // text one character per line.) Line numbers still pad up to `minRows`, so an empty field shows
+  // the usual 1..minRows rows; the textarea, controlled to the raw value, makes typing flow
+  // normally without ever inserting a stray newline.
+  const displayText = isCollapsed ? shown : value;
+  const rawLines = displayText.split("\n");
+  const tokenLines = highlightJson ? tokenizeJsonByLine(displayText) : null;
   const totalLines = Math.max(rawLines.length, minRows);
   const digits = Math.max(2, String(totalLines).length);
   const gutterWidth = `calc(${digits}ch + 1rem)`;
@@ -264,79 +259,95 @@ export function LineNumberedTextarea({
           layer sizes to the FULL content height and scrolls together with the
           display layer, staying aligned. */}
       <div className="relative">
-      {/* Display layer — line numbers + (highlighted) content, wraps per line.
+        {/* Display layer — line numbers + (highlighted) content, wraps per line.
           Collapsed has no textarea overlay, so it must take pointer events (the
           inline expand control lives here). */}
-      <div
-        aria-hidden={!isCollapsed}
-        className={cn("pb-2 pt-1.5", !isCollapsed && "pointer-events-none")}
-      >
-        {Array.from({ length: totalLines }).map((_, i) => (
-          <div key={i} className="flex items-start">
-            <span
-              className="shrink-0 select-none border-r border-border bg-muted/40 px-2 text-right text-muted-foreground/50"
-              style={{ width: gutterWidth }}
-            >
-              {i + 1}
-            </span>
-            <span className="min-w-0 flex-1 whitespace-pre-wrap break-words px-2">
-              {tokenLines
-                ? (tokenLines[i] ?? []).map((t, ti) => (
-                    <span key={ti} className={t.cls || undefined}>
-                      {t.text}
-                    </span>
-                  ))
-                : (rawLines[i] ?? "")}
-              {"​"}
-            </span>
-          </div>
-        ))}
-        {/* Inline "…expand" as the final line, sitting with the text inside the box. */}
-        {isCollapsed && (
-          <div className="flex items-start">
-            <span
-              aria-hidden
-              className="shrink-0 select-none border-r border-border bg-muted/40 px-2 pt-2 text-right text-muted-foreground/50"
-              style={{ width: gutterWidth }}
-            >
-              {"​"}
-            </span>
-            <span className="min-w-0 flex-1 whitespace-pre-wrap break-words px-2 pt-2">
-              <button
-                type="button"
-                onClick={onExpand}
-                className="cursor-pointer align-baseline text-muted-foreground hover:text-foreground"
+        <div
+          aria-hidden={!isCollapsed}
+          className={cn("pb-2 pt-1.5", !isCollapsed && "pointer-events-none")}
+        >
+          {Array.from({ length: totalLines }).map((_, i) => (
+            <div key={i} className="flex items-start">
+              <span
+                className="shrink-0 select-none border-r border-border bg-muted/40 px-2 text-right text-muted-foreground/50"
+                style={{ width: gutterWidth }}
               >
-                …expand ({(value.length - collapseAt).toLocaleString()} more characters)
-              </button>
-            </span>
-          </div>
-        )}
-      </div>
-      {/* Editing layer — transparent text lined up over the display layer. Omitted
-          while collapsed so the inline expand control above stays clickable. */}
-      {!isCollapsed && (
-        <textarea
-          value={textValue}
-          onChange={(e) => {
-            if (readOnly) return;
-            const v = e.target.value;
-            onChange(v.endsWith("\n") ? v.slice(0, -1) : v);
-          }}
-          readOnly={readOnly}
-          spellCheck={false}
-          placeholder={placeholder}
-          aria-label={ariaLabel}
-          className={cn(
-            // Must match the display layer's font metrics exactly — the two are
-            // overlaid, so the line-height is the same whole pixel value.
-            "absolute inset-0 resize-none overflow-hidden whitespace-pre-wrap break-words bg-transparent pb-2 pr-2 pt-1.5 font-mono text-transparent placeholder:text-muted-foreground focus:outline-none",
-            fontClassName,
-            readOnly ? "cursor-default caret-transparent" : "caret-foreground",
+                {i + 1}
+              </span>
+              <span className="min-w-0 flex-1 whitespace-pre-wrap break-words px-2">
+                {tokenLines
+                  ? (tokenLines[i] ?? []).map((t, ti) => (
+                      <span key={ti} className={t.cls || undefined}>
+                        {t.text}
+                      </span>
+                    ))
+                  : (rawLines[i] ?? "")}
+                {"​"}
+              </span>
+            </div>
+          ))}
+          {/* Inline "…expand" as the final line, sitting with the text inside the box. */}
+          {isCollapsed && (
+            <div className="flex items-start">
+              <span
+                aria-hidden
+                className="shrink-0 select-none border-r border-border bg-muted/40 px-2 pt-2 text-right text-muted-foreground/50"
+                style={{ width: gutterWidth }}
+              >
+                {"​"}
+              </span>
+              <span className="min-w-0 flex-1 whitespace-pre-wrap break-words px-2 pt-2">
+                <button
+                  type="button"
+                  onClick={onExpand}
+                  className="cursor-pointer align-baseline text-muted-foreground hover:text-foreground"
+                >
+                  …expand ({(value.length - collapseAt).toLocaleString()} more characters)
+                </button>
+              </span>
+            </div>
           )}
-          style={{ paddingLeft: `calc(${gutterWidth} + 0.5rem)` }}
-        />
-      )}
+        </div>
+        {/* Editing layer — transparent text lined up over the display layer. Omitted
+          while collapsed so the inline expand control above stays clickable. */}
+        {!isCollapsed && (
+          <textarea
+            // Controlled to the RAW value — NOT `${value}\n`. The display layer adds a trailing
+            // blank line for visual padding, but baking that newline into the textarea's own value
+            // let the caret sit past it, so every keystroke on the "next line" wrote a real \n
+            // (turning "vertical" into one character per line).
+            value={value}
+            onChange={(e) => {
+              if (readOnly) return;
+              onChange(e.target.value);
+            }}
+            // While focused, the field genuinely holds `minRows` lines, so every reserved row is
+            // navigable NATIVELY — click and arrow keys just work, no custom hit-testing. On blur the
+            // padding (trailing blank lines) is trimmed so the saved value stays clean.
+            onFocus={() => {
+              if (readOnly) return;
+              const lines = value.split("\n").length;
+              if (lines < minRows) onChange(value + "\n".repeat(minRows - lines));
+            }}
+            onBlur={() => {
+              if (readOnly) return;
+              const trimmed = value.replace(/\n+$/, "");
+              if (trimmed !== value) onChange(trimmed);
+            }}
+            readOnly={readOnly}
+            spellCheck={false}
+            placeholder={placeholder}
+            aria-label={ariaLabel}
+            className={cn(
+              // Must match the display layer's font metrics exactly — the two are
+              // overlaid, so the line-height is the same whole pixel value.
+              "absolute inset-0 resize-none overflow-hidden whitespace-pre-wrap break-words bg-transparent pb-2 pr-2 pt-1.5 font-mono text-transparent placeholder:text-muted-foreground focus:outline-none",
+              fontClassName,
+              readOnly ? "cursor-default caret-transparent" : "caret-foreground",
+            )}
+            style={{ paddingLeft: `calc(${gutterWidth} + 0.5rem)` }}
+          />
+        )}
       </div>
     </div>
   );
