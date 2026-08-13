@@ -1,8 +1,9 @@
-"""Public, API-key-authenticated read API for detector findings.
+"""Public read API for detector findings.
 
 Mirrors the public traces read stack (DualStampedAuth, READ-bucket rate limiting,
-project-scoped reads). All access is scoped to the project resolved from the API
-key; a finding outside that project simply isn't found (404).
+project-scoped reads). Authenticated by either an API key (which fixes its own
+project) or a user session token (which names the project via ``project_id``); a
+finding outside the resolved project simply isn't found (404).
 """
 
 import logging
@@ -50,7 +51,7 @@ async def list_detectors(
         None, description="Only detectors created before this time (exclusive, ISO 8601)"
     ),
 ):
-    """List the detectors in the API key's project (newest first)."""
+    """List the detectors in the caller's project (newest first)."""
     try:
         items, total = service.list_detectors(
             project_id=auth.project_id,
@@ -89,7 +90,7 @@ async def list_findings(
     detector: str | None = Query(None, description="Filter by detector id, name, or template"),
     trace_id: str | None = Query(None, description="Filter to a single trace"),
 ):
-    """List recent detector findings for the API key's project (newest first)."""
+    """List recent detector findings for the caller's project (newest first)."""
     start_after, end_before = clamp_retention_window(auth.billing_plan, start_after, end_before)
     try:
         items, total = service.list_findings(

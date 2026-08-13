@@ -1,9 +1,11 @@
-"""Public, API-key-authenticated session read endpoints.
+"""Public session read endpoints.
 
 `GET /api/v1/public/sessions` (list) and `GET /api/v1/public/sessions/{session_id}`
-(get). Reads are scoped to the project the API key belongs to — the client never
-supplies a project id. Reuses the shared trace-reader service that also serves
-the user-authenticated session routes, so both surfaces share one implementation.
+(get). Authenticated by either an API key or a user session token
+(``DualStampedAuth``): an API key fixes its own project, while a user credential
+names the project via ``project_id``. Reuses the shared trace-reader service that
+also serves the user-authenticated session routes, so both surfaces share one
+implementation.
 """
 
 import logging
@@ -47,7 +49,7 @@ async def list_sessions(
         description="Only sessions with traces before this time (exclusive, ISO 8601)",
     ),
 ):
-    """List unique sessions for the API key's project with trace counts.
+    """List unique sessions for the caller's project with trace counts.
 
     Args:
         auth (DualStampedAuth): Resolved credential context (API key or user
