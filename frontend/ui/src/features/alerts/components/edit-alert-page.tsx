@@ -1,6 +1,5 @@
 "use client";
 
-import { DEFAULT_ALERT_SEVERITY } from "@traceroot/core";
 import { LoadingState } from "@/components/ui/loading-state";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { PageBackHeader } from "@/features/dashboards/components/PageBackHeader";
@@ -45,13 +44,6 @@ export function EditAlertPage({ projectId, alertId }: EditAlertPageProps) {
           backLabel="Alerts"
           title={alert ? `Edit Alert - ${alert.name}` : "Edit Alert"}
         />
-
-        {alert && alert.severity !== DEFAULT_ALERT_SEVERITY && (
-          <p className="shrink-0 border-b border-border px-4 py-2 text-[12px] text-muted-foreground">
-            Changing the metric or threshold clears this alert&apos;s current state; it re-evaluates
-            within a minute.
-          </p>
-        )}
 
         <div className="min-h-0 flex-1 overflow-y-auto lg:overflow-hidden">
           {isPending ? (
