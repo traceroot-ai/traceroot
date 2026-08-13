@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ListPagination } from "@/components/list-pagination";
 import { useUrlPagination } from "@/lib/hooks/use-url-pagination";
+import { useKeywordSearch } from "@/lib/hooks/use-keyword-search";
 import { useToast } from "@/components/ui/toast";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { DatasetActionsMenu, Timestamp } from "@/features/offline-eval/components";
@@ -24,14 +25,17 @@ export function DatasetsView({ projectId }: { projectId: string }) {
   const router = useRouter();
   const { toast } = useToast();
 
-  const [keyword, setKeyword] = React.useState("");
+  const { page, limit, goToPage, setLimit, resetPage } = useUrlPagination(50);
+  // Reset to page 0 whenever the (debounced) search changes, so a match on page 0 isn't
+  // hidden behind a stale page carried over from before the search (M6) — matching the
+  // traces list. `searchQuery` is the debounced value the API should use.
+  const { keyword, setKeyword, searchQuery } = useKeywordSearch(resetPage);
   const [newOpen, setNewOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<DatasetRow | null>(null);
   const [deleteTarget, setDeleteTarget] = React.useState<DatasetRow | null>(null);
 
-  const { page, limit, goToPage, setLimit } = useUrlPagination(50);
   const { data, isLoading, error, refetch } = useDatasets(projectId, {
-    search_query: keyword.trim() || undefined,
+    search_query: searchQuery,
     page,
     limit,
   });
