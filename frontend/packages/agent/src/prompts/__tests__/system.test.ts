@@ -28,10 +28,8 @@ describe("getSystemPrompt", () => {
   });
 
   it("includes current date in UTC", () => {
+    const today = new Date().toISOString().split("T")[0];
     const prompt = getSystemPrompt({ projectId: "proj-123" });
-    const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
-    expect(prompt).toContain("Current date:");
-    expect(prompt).toContain(today);
-    expect(prompt).toContain("UTC");
+    expect(prompt).toContain(`- Current date: ${today} (UTC)`);
   });
 });
