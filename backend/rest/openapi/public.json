@@ -3378,7 +3378,7 @@
     },
     "/api/v1/public/projects": {
       "get": {
-        "description": "List the projects the authenticated user can access, across workspaces.\n\nA user-credential-only discovery op (no ``project_id``). Projects are\nflattened across the user's workspaces and tagged with their owning\nworkspace; the answer is what you pass as ``project_id`` to a project-scoped\nrequest.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth; also stamps the\n        per-user rate-limit identity.\n    authorization (str | None): The bearer header, re-read to forward the\n        already-authenticated token to the internal listing call.\n    workspace_id (str | None): Optional filter; when given, only projects in\n        that workspace are returned.\n\nReturns:\n    PublicProjectListResponse: The accessible projects (id, name,\n        workspace_id, workspace_name).",
+        "description": "List the projects the authenticated user can access, across workspaces.\n\nA user-credential-only discovery op (no ``project_id``). Projects are\nflattened across the user's workspaces and tagged with their owning\nworkspace; the answer is what you pass as ``project_id`` to a project-scoped\nrequest.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or CLI\n        access JWT); carries the resolved ``user_id`` and stamps the per-user\n        rate-limit identity.\n    workspace_id (str | None): Optional filter; when given, only projects in\n        that workspace are returned.\n\nReturns:\n    PublicProjectListResponse: The accessible projects (id, name,\n        workspace_id, workspace_name).",
         "operationId": "list_projects",
         "parameters": [
           {
@@ -5013,7 +5013,7 @@
     },
     "/api/v1/public/workspaces": {
       "get": {
-        "description": "List the workspaces the authenticated user belongs to.\n\nA user-credential-only discovery op (no ``project_id``). Use it, then\n``list_projects``, to resolve the project a subsequent request scopes to.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth; also stamps the\n        per-user rate-limit identity.\n    authorization (str | None): The bearer header, re-read to forward the\n        already-authenticated token to the internal listing call.\n\nReturns:\n    PublicWorkspaceListResponse: The user's workspaces (id, name, role).",
+        "description": "List the workspaces the authenticated user belongs to.\n\nA user-credential-only discovery op (no ``project_id``). Use it, then\n``list_projects``, to resolve the project a subsequent request scopes to.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or CLI\n        access JWT); carries the resolved ``user_id`` and stamps the per-user\n        rate-limit identity.\n\nReturns:\n    PublicWorkspaceListResponse: The user's workspaces (id, name, role).",
         "operationId": "list_workspaces",
         "responses": {
           "200": {

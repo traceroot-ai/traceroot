@@ -1,23 +1,32 @@
 """Integration tests for the account-scope discovery reads.
 
 These exercise the REAL account-scope dependency (``authenticate_account_caller``)
-and the account routes end-to-end, mocking BOTH internal routes with ``respx``:
-``validate-user-token`` (the account-scope auth introspection, no projectId) and
-``user-memberships`` (the workspace/project listing). A user session token is
-required; an API key (``tr-``) is rejected with 403.
+and the account routes end-to-end, mocking the internal routes with ``respx``.
+BOTH account-scope credential kinds are covered: a raw session token
+(introspected via ``validate-user-token``) and a CLI access JWT (verified offline
+against a mocked JWKS). Either way the workspace/project listing is delegated to
+``user-memberships``, keyed by the resolved user id. An API key (``tr-``) is
+rejected with 403.
 """
 
+import json
+import time
+
 import httpx
-import pytest
+import jwt
 import respx
-from fastapi import HTTPException
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi.testclient import TestClient
 from httpx import Response
+from jwt.algorithms import OKPAlgorithm
 
 from rest.main import app
-from rest.routers.public.account_read import _bearer_token
+from rest.routers.public import deps
+from rest.routers.public.jwks_cache import JwksCache
 
 BASE_URL = "http://localhost:3000"
+JWKS_URL = f"{BASE_URL}/api/auth/jwks"
+_JWT_KID = "kid-acct-1"
 
 USER_HEADER = {"Authorization": "Bearer user-session-token"}
 KEY_HEADER = {"Authorization": "Bearer tr-some-key"}
@@ -63,7 +72,7 @@ def _mock_memberships(body=MEMBERSHIPS_BODY, status_code=200):
 @respx.mock
 def test_list_workspaces_returns_user_workspaces():
     _mock_account_auth()
-    _mock_memberships()
+    membership = _mock_memberships()
     resp = TestClient(app).get("/api/v1/public/workspaces", headers=USER_HEADER)
     assert resp.status_code == 200
     assert resp.json() == {
@@ -72,6 +81,9 @@ def test_list_workspaces_returns_user_workspaces():
             {"id": "ws-2", "name": "Beta", "role": "viewer"},
         ]
     }
+    # The session-token path also forwards the resolved user id (from the
+    # validate-user-token introspection), never the raw session token.
+    assert json.loads(membership.calls.last.request.content) == {"userId": "u1"}
 
 
 @respx.mock
@@ -228,15 +240,68 @@ def test_list_projects_malformed_project_item_is_503_not_500():
     assert resp.status_code == 503
 
 
-# ── _bearer_token (route helper, defensive re-parse) ─────────────────────
+# ── CLI access JWT account path (offline verify → list by resolved user id) ──
 
 
-def test_bearer_token_extracts_valid_header():
-    assert _bearer_token("Bearer sess-token-abc") == "sess-token-abc"
+def _install_jwt_signer(monkeypatch):
+    """Register a mocked JWKS and point the deps cache at it; return the signer."""
+    priv = Ed25519PrivateKey.generate()
+    jwk = OKPAlgorithm.to_jwk(priv.public_key(), as_dict=True)
+    jwk.update(kid=_JWT_KID, alg="EdDSA", use="sig")
+    respx.get(JWKS_URL).mock(return_value=Response(200, json={"keys": [jwk]}))
+    monkeypatch.setattr(deps, "get_jwks_cache", lambda: JwksCache(JWKS_URL))
+    return priv
 
 
-@pytest.mark.parametrize("header", [None, "", "BadFormat token123", "Bearer ", "Bearer   "])
-def test_bearer_token_missing_or_malformed_raises_401(header):
-    with pytest.raises(HTTPException) as exc_info:
-        _bearer_token(header)
-    assert exc_info.value.status_code == 401
+def _mint_jwt(priv, *, sub="u1"):
+    now = int(time.time())
+    return jwt.encode(
+        {"sub": sub, "aud": "traceroot-api", "iss": "traceroot", "iat": now, "exp": now + 900},
+        priv,
+        algorithm="EdDSA",
+        headers={"kid": _JWT_KID},
+    )
+
+
+@respx.mock
+def test_list_workspaces_accepts_a_cli_access_jwt(monkeypatch):
+    """A CLI access JWT is verified offline, then lists via user-memberships by user id."""
+    priv = _install_jwt_signer(monkeypatch)
+    membership = _mock_memberships()
+    token = _mint_jwt(priv, sub="u1")
+
+    resp = TestClient(app).get(
+        "/api/v1/public/workspaces", headers={"Authorization": f"Bearer {token}"}
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "data": [
+            {"id": "ws-1", "name": "Alpha", "role": "admin"},
+            {"id": "ws-2", "name": "Beta", "role": "viewer"},
+        ]
+    }
+    # Regression guard: the JWT's subject (user id) is forwarded to the internal
+    # listing route — never the raw JWT, which user-memberships can't resolve.
+    assert json.loads(membership.calls.last.request.content) == {"userId": "u1"}
+
+
+@respx.mock
+def test_list_projects_accepts_a_cli_access_jwt(monkeypatch):
+    priv = _install_jwt_signer(monkeypatch)
+    membership = _mock_memberships()
+    token = _mint_jwt(priv, sub="u1")
+
+    resp = TestClient(app).get(
+        "/api/v1/public/projects", headers={"Authorization": f"Bearer {token}"}
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "data": [
+            {"id": "proj-1", "name": "P1", "workspace_id": "ws-1", "workspace_name": "Alpha"},
+            {"id": "proj-2", "name": "P2", "workspace_id": "ws-1", "workspace_name": "Alpha"},
+            {"id": "proj-3", "name": "P3", "workspace_id": "ws-2", "workspace_name": "Beta"},
+        ]
+    }
+    assert json.loads(membership.calls.last.request.content) == {"userId": "u1"}
