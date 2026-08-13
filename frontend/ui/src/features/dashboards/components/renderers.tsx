@@ -601,12 +601,14 @@ function HistogramView({
   );
 }
 
-// Aggs whose empty buckets have no value (no average or percentile of
-// nothing): their series shows a gap instead of a false drop to 0. Mirrors
-// the backend's _NON_ADDITIVE_AGGS — same polarity, so an agg added to one
-// list but not the other degrades to the additive (zero-filled) treatment on
-// both sides rather than diverging. Absent agg = additive (legacy callers).
-const NON_ADDITIVE_AGGS = new Set<string>(["avg", "min", "max", "p50", "p95", "p99"]);
+// Mirrors the backend's _NON_ADDITIVE_AGGS at the same polarity: an agg missing
+// from either list degrades to zero-fill on both sides rather than diverging.
+const NON_ADDITIVE_AGGS = new Set<string>(["avg", "min", "max", "p50", "p75", "p90", "p95", "p99"]);
+
+/** Empty buckets are 0 for an additive agg; the rest have no value and draw a gap. */
+export function isAdditiveAgg(agg: string | undefined): boolean {
+  return agg === undefined || !NON_ADDITIVE_AGGS.has(agg);
+}
 
 export function QueryWidgetRenderer({
   display,
@@ -623,7 +625,7 @@ export function QueryWidgetRenderer({
   /** Aggregation from the widget spec; decides how empty buckets render. */
   agg?: (typeof AGGS)[number];
 }) {
-  const additive = agg === undefined || !NON_ADDITIVE_AGGS.has(agg);
+  const additive = isAdditiveAgg(agg);
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
   // Breakdown charts get a legend under the plot; everything else
   // (no-breakdown series, stat tiles, tables, histograms) stays legend-free.

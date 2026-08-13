@@ -221,3 +221,9 @@ class TestWidgetFieldValues:
         resp = client.get("/api/v1/projects/proj-1/widgets/field-values/spans/count")
         assert resp.status_code == 400
         mock_discovery.get_distinct_span_values.assert_not_called()
+
+    def test_keyed_field_is_400(self, client, mock_discovery):
+        """A keyed field's values sit behind a key the caller supplies, so there is no list."""
+        resp = client.get("/api/v1/projects/proj-1/widgets/field-values/spans/metadata")
+        assert resp.status_code == 400
+        mock_discovery.get_distinct_span_values.assert_not_called()

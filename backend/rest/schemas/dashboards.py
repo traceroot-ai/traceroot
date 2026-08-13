@@ -13,7 +13,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 DisplayType = Literal["line", "area", "bar", "pie", "number", "table", "histogram"]
-AggName = Literal["count", "sum", "avg", "min", "max", "p50", "p95", "p99"]
+AggName = Literal["count", "sum", "avg", "min", "max", "p50", "p75", "p90", "p95", "p99", "uniq"]
 
 
 class _StrictModel(BaseModel):
@@ -30,6 +30,9 @@ class WidgetFilter(_StrictModel):
     # min_length mirrors the frontend schema: an empty value means the filter
     # was never completed and would silently match only empty-valued rows.
     value: Annotated[str, StringConstraints(min_length=1)] | float
+    # The map key for a keyed field. Unconstrained here: whether a key is required,
+    # forbidden or over-length depends on the field, so the compiler raises those.
+    key: str | None = None
 
 
 class WidgetMetric(_StrictModel):
@@ -61,6 +64,9 @@ class WidgetQueryRequest(_StrictModel):
     spec: WidgetSpec
     start_time: datetime
     end_time: datetime
+    # Time-series bucket width, when the caller needs one specific grain rather than
+    # the range-derived one. Ignored by displays that carry no time axis.
+    bucket_seconds: int | None = Field(default=None, ge=1, le=86_400)
 
 
 class WidgetQueryResponse(BaseModel):
