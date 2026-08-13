@@ -37,20 +37,16 @@ export const auth = betterAuth({
     expiresIn: 30 * 24 * 60 * 60, // 30 days
   },
 
-  advanced: {
-    ipAddress: {
-      // Behind the platform proxy the real client IP arrives in
-      // x-forwarded-for; without this the rate limiter can't key per-client and
-      // degrades to one shared per-path bucket.
-      ipAddressHeaders: ["x-forwarded-for"],
-    },
-  },
-
   rateLimit: {
     // Enabled automatically in production. `/device/code` is unauthenticated and
     // inserts a device_codes row on every call, so a loop would grow the table
-    // unbounded — cap creation per client IP. (Per-instance memory storage by
-    // default: a coarse bound, not a cross-replica guarantee.)
+    // unbounded — cap creation. better-auth keys the limit on the client IP,
+    // read from x-forwarded-for by default; behind a proxy that *appends* to
+    // XFF the address can't be resolved and every caller falls into one shared
+    // bucket, so for reliable per-client keying set
+    // `advanced.ipAddress.trustedProxies` to the edge's CIDRs (a deploy config).
+    // Storage is per-instance memory by default: a coarse bound, not a
+    // cross-replica guarantee.
     customRules: {
       "/device/code": { window: 60, max: 10 },
     },
