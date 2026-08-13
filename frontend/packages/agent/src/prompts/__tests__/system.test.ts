@@ -39,6 +39,13 @@ describe("getSystemPrompt", () => {
     expect(prompt).toContain("recommend adding a detector with the");
   });
 
+  it("tells the agent telemetry is live so counts get re-queried, not recalled", () => {
+    const prompt = getSystemPrompt({ projectId: "proj-123" });
+    expect(prompt).toContain("Telemetry is live");
+    expect(prompt).toContain("re-run the query instead of answering from earlier results");
+    expect(prompt).toContain("don't invent filter explanations");
+  });
+
   it("points a session context at get_session and download_session", () => {
     const prompt = getSystemPrompt({ projectId: "proj-123", traceSessionId: "sess-9" });
     expect(prompt).toContain("Currently viewing Session ID: sess-9");

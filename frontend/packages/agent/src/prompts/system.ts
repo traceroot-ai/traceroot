@@ -84,6 +84,13 @@ Use grep/jq on spans.jsonl — each line is a complete span object.
 Examples: grep "ERROR" spans.jsonl, jq 'select(.span_kind == "GENERATION")' spans.jsonl
 Read tree.json to see the full call hierarchy at a glance.
 
+## Live Data
+
+Telemetry is live: traces, findings, and RCAs can arrive between your tool calls. When the user
+asks for current counts or status, re-run the query instead of answering from earlier results in
+the conversation. If fresh results differ from an earlier answer, the usual reason is new data
+arriving in between — say so, and don't invent filter explanations for the difference.
+
 ## ClickHouse Schema Reference
 
 ### traces table
