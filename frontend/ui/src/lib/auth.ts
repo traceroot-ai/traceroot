@@ -1,6 +1,6 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { admin, deviceAuthorization } from "better-auth/plugins";
+import { admin, deviceAuthorization, jwt } from "better-auth/plugins";
 import { prisma } from "@traceroot/core";
 import { env } from "@/env";
 import { DEVICE_CLIENT_IDS } from "@/lib/auth-clients";
@@ -67,6 +67,17 @@ export const auth = betterAuth({
       generateUserCode,
       validateClient: (clientId) => DEVICE_CLIENT_IDS.has(clientId),
       verificationUri: "/device",
+    }),
+    // Signs the short-lived CLI access tokens. The CLI stores the long-lived
+    // session token as a refresh credential and exchanges it (via
+    // /api/cli/token) for a 10-minute EdDSA JWT that is the actual request
+    // bearer; the Python backend verifies that JWT offline against /api/auth/jwks
+    // (no per-request introspection for the identity check). Keys live in the
+    // `jwks` table. bearer() stays off — the exchange route validates the
+    // session by a direct lookup, so the session token never rides /api/auth.
+    jwt({
+      jwt: { expirationTime: "10m" },
+      jwks: { keyPairConfig: { alg: "EdDSA" } },
     }),
   ],
 });

@@ -274,6 +274,20 @@ model DeviceCode {
   @@map("device_codes")
 }
 
+// EdDSA signing keys for the better-auth jwt() plugin. The private key signs the
+// short-lived CLI access JWTs; the public key is served at /api/auth/jwks so the
+// Python backend can verify them offline. A handful of rows (rotated over time),
+// never per-user or per-token.
+model Jwks {
+  id         String    @id @default(cuid()) @db.VarChar
+  publicKey  String    @map("public_key") @db.VarChar
+  privateKey String    @map("private_key") @db.VarChar
+  createdAt  DateTime  @default(now()) @db.Timestamp(6)
+  expiresAt  DateTime? @map("expires_at") @db.Timestamp(6)
+
+  @@map("jwks")
+}
+
 // Workspace-level GitHub App installations.
 // One row per (workspace, GitHub installation). Multiple rows per workspace
 // supports the multi-org case (e.g. workspace has projects under github.com/acme
