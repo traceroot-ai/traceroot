@@ -96,11 +96,21 @@ def test_forwards_deep_run_subpath_for_additive_score(client):
 
 
 @respx.mock
-def test_normalizes_upstream_error_shape_to_detail(client):
-    # The Next.js control plane fails with its `{error}` envelope; the gateway
-    # preserves the status but normalizes the body to the canonical `{detail}`.
+def test_normalizes_error_but_preserves_version_conflict_fields(client):
+    # The Next.js control plane fails with its `{error}` envelope; the gateway normalizes
+    # the message to the canonical `{detail}` but PRESERVES the version-conflict fields
+    # (base_version_id / current_version_id) so the SDK can report the conflict (M4) —
+    # while still not leaking the raw `error` key or any other upstream field.
     respx.post(f"{UI}/api/public/datasets/ds1/versions").mock(
-        return_value=Response(409, json={"error": "conflict", "current_version_id": "dv9"})
+        return_value=Response(
+            409,
+            json={
+                "error": "conflict",
+                "base_version_id": "dv1",
+                "current_version_id": "dv9",
+                "stack": "secret internals",
+            },
+        )
     )
     resp = client.post(
         "/api/v1/public/datasets/ds1/versions",
@@ -109,10 +119,10 @@ def test_normalizes_upstream_error_shape_to_detail(client):
     )
     assert resp.status_code == 409
     body = resp.json()
-    assert body == {"detail": "conflict"}
-    # The raw upstream body (extra keys) does not leak through.
+    assert body == {"detail": "conflict", "base_version_id": "dv1", "current_version_id": "dv9"}
+    # The raw `error` envelope and any unknown key (e.g. an internal stack) never leak.
     assert "error" not in body
-    assert "current_version_id" not in body
+    assert "stack" not in body
 
 
 @respx.mock
