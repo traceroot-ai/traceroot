@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowRight,
+  Bell,
   Bot,
   Braces,
   BotMessageSquare,
@@ -65,6 +66,10 @@ export const DOMAIN_ICONS = {
   // Free-form key/value data the user attached to a trace, not a traceroot field.
   metadata: Braces,
   dashboard: LayoutDashboard,
+  // A monitor watching a metric, distinct from `error` (CircleAlert), which
+  // marks a span that failed. An alert can fire on a metric that has nothing
+  // to do with errors, so the two must not share a glyph.
+  alert: Bell,
   // Neutral "unknown field" fallback for filter/widget dropdowns. Kept
   // decoupled from `model` even though both currently render as Box — if the
   // model glyph ever changes, unmapped fields shouldn't silently change with
