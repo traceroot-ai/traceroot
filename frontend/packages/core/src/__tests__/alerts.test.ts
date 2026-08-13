@@ -191,7 +191,7 @@ describe("what the form offers and what the engine can run", () => {
         if (offered.length === 0) problems.push(`${view}/${measure.id}: nothing runnable`);
         if (offered.join() !== inOrder.join()) problems.push(`${view}/${measure.id}: out of order`);
         // count belongs to the row-count measure, never to a column
-        if (measure.type === "number" && offered.includes("count")) {
+        if (measure.type !== "count" && offered.includes("count")) {
           problems.push(`${view}/${measure.id}: offers count on a column`);
         }
       }
