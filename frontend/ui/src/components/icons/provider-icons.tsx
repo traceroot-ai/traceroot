@@ -20,7 +20,7 @@ export const OpenAIIcon: FC<IconProps> = ({ className }) => (
   </svg>
 );
 
-// Anthropic "A" mark (from lmnr reference)
+// Anthropic "A" mark
 export const AnthropicIcon: FC<IconProps> = ({ className }) => (
   <svg
     viewBox="0 0 24 24"
@@ -34,7 +34,7 @@ export const AnthropicIcon: FC<IconProps> = ({ className }) => (
   </svg>
 );
 
-// Azure (multi-gradient, from lmnr reference)
+// Azure (multi-gradient)
 export const AzureIcon: FC<IconProps> = ({ className }) => (
   <svg
     viewBox="0 0 24 24"
@@ -99,7 +99,7 @@ export const AzureIcon: FC<IconProps> = ({ className }) => (
   </svg>
 );
 
-// Google Gemini (gradient gem, from lmnr reference)
+// Google Gemini (gradient gem)
 export const GoogleIcon: FC<IconProps> = ({ className }) => (
   <svg
     viewBox="0 0 24 24"
@@ -122,7 +122,7 @@ export const GoogleIcon: FC<IconProps> = ({ className }) => (
   </svg>
 );
 
-// AWS Bedrock (gradient, from lmnr reference)
+// AWS Bedrock (gradient)
 export const AWSIcon: FC<IconProps> = ({ className }) => (
   <svg
     viewBox="0 0 24 24"
