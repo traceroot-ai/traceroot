@@ -36,10 +36,11 @@ export const config = {
     // - api/auth (auth routes)
     // - api/public (API-key-authed SDK routes; auth via requireApiKeyProject, not a session cookie)
     // - api/internal (internal API for Python backend, uses X-Internal-Secret)
+    // - api/cli (CLI token exchange, authenticates by bearer session token, no cookie)
     // - api/billing/webhook (Stripe webhook, uses signature verification)
     // - auth/* (sign-in, sign-up pages)
     // - _next (Next.js internals)
     // - static files
-    "/((?!api/auth|api/public|api/internal|api/billing/webhook|api/github/token|api/github/callback|api/github/install-callback|auth/|_next/static|_next/image|images/|favicon.ico).*)",
+    "/((?!api/auth|api/public|api/internal|api/cli|api/billing/webhook|api/github/token|api/github/callback|api/github/install-callback|auth/|_next/static|_next/image|images/|favicon.ico).*)",
   ],
 };
