@@ -156,9 +156,10 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
     POSTed from a different service. If every span batch for a trace is processed before
     its result row exists, the lookup below returns empty on each one and nothing ever
     revisits it — ``cost`` stays NULL despite fully-priced LLM spans sitting in
-    ClickHouse. Closing that needs a trigger from the other side (derive on result-write
-    or run-finalize) or a periodic backfill over ``cost IS NULL AND trace_id IS NOT
-    NULL``; both are out of scope here.
+    ClickHouse. ``backfill_eval_result_costs`` closes that gap by re-running this
+    derivation for not-yet-derived result rows; it keys off the ``cost_derived_at`` marker
+    stamped below (NOT ``cost IS NULL``), so a zero-cost trace settles after one pass
+    instead of being re-swept forever.
 
     NOTE: once the SDK reports an authoritative per-result cost, this derivation must
     DEFER to it rather than overwrite — it exists only because per-result cost is absent
@@ -172,6 +173,7 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
     except Exception:
         logger.warning("eval cost derivation: no Postgres connection", exc_info=True)
         return
+    broken = False
     try:
         with conn.cursor() as cur:
             # Only the batch's trace_ids that are evaluation results — bounded lookup.
@@ -202,13 +204,31 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
                         " WHERE project_id = %s AND trace_id = %s",
                         (cost, project_id, trace_id),
                     )
+                # Mark EVERY examined result row as derivation-attempted — a state distinct
+                # from `cost IS NULL`, so a zero-cost trace (NULLIF above) or one whose
+                # spans never landed settles instead of being re-swept by the backfill
+                # forever (H7). Ingest never filters on this column, so the late-SPAN
+                # self-healing above is unaffected; only ``backfill_eval_result_costs``
+                # reads it.
+                cur.execute(
+                    "UPDATE evaluation_results SET cost_derived_at = now()"
+                    " WHERE project_id = %s AND trace_id = ANY(%s)",
+                    (project_id, eval_trace_ids),
+                )
         conn.commit()
     except Exception:
-        # A pooled connection must not be handed back mid-transaction.
-        conn.rollback()
+        broken = True
+        # rollback() on an already-dead connection can itself raise; swallow that so the
+        # finally still runs and the poisoned connection is evicted, not recycled.
+        try:
+            conn.rollback()
+        except Exception:
+            logger.warning("eval cost derivation: rollback failed", exc_info=True)
         logger.warning("eval cost derivation failed", exc_info=True)
     finally:
-        pg_pool.putconn(conn)
+        # Close (evict) a connection that errored rather than return a possibly-broken
+        # handle to the pool for the next borrower to trip over (H7).
+        pg_pool.putconn(conn, close=broken)
 
 
 @app.task(name="worker.ingest_tasks.backfill_eval_result_costs")
@@ -219,9 +239,11 @@ def backfill_eval_result_costs(batch_size: int = 500) -> dict:
     were already processed is never revisited (see the LIMITATION note on
     ``_update_eval_result_costs``) and stays ``cost = NULL`` despite priced LLM spans
     sitting in ClickHouse. This periodic sweep re-runs that same derivation for recent
-    null-cost results, grouped by project. Bounded to ``batch_size`` rows and to a recent
-    window so it converges instead of perpetually re-sweeping genuinely cost-less traces
-    (which ``NULLIF`` deliberately keeps at NULL); the next run picks up any remainder.
+    NOT-YET-DERIVED results (``cost_derived_at IS NULL``), grouped by project. Because
+    derivation stamps ``cost_derived_at`` regardless of the resulting cost, a zero-cost
+    trace settles after one pass instead of being re-swept forever; bounded to
+    ``batch_size`` newest-first rows within a recent window (backed by the partial index
+    ``ix_eval_result_cost_backfill``), the next run picks up any remainder.
 
     Requires a Celery *beat* process to be scheduled (see ``celery_app.beat_schedule``).
     """
@@ -236,26 +258,36 @@ def backfill_eval_result_costs(batch_size: int = 500) -> dict:
         logger.warning("eval cost backfill: no Postgres connection", exc_info=True)
         return {"projects": 0, "traces": 0}
     rows: list = []
+    broken = False
     try:
         with conn.cursor() as cur:
-            # Only recent null-cost results: an older one is either genuinely cost-less
-            # (its spans summed to 0) or long past any late-arrival window, so re-deriving
-            # it forever would be wasted ClickHouse load.
+            # Candidates are NOT-YET-DERIVED results (cost_derived_at IS NULL), not
+            # `cost IS NULL` — the latter also matches zero-cost traces that were already
+            # derived, which would be re-swept every tick and could starve a genuinely
+            # late row behind them. ORDER BY create_time DESC processes the newest (most
+            # likely still-arriving) candidates first so no row is indefinitely skipped;
+            # the recent-window bound keeps the scan on the partial index small. See
+            # migration ``ix_eval_result_cost_backfill``.
             cur.execute(
                 "SELECT project_id, trace_id FROM evaluation_results "
-                "WHERE cost IS NULL AND trace_id IS NOT NULL "
+                "WHERE cost_derived_at IS NULL AND trace_id IS NOT NULL "
                 "AND create_time > now() - interval '7 days' "
+                "ORDER BY create_time DESC "
                 "LIMIT %s",
                 (batch_size,),
             )
             rows = cur.fetchall()
         conn.commit()
     except Exception:
-        conn.rollback()
+        broken = True
+        try:
+            conn.rollback()
+        except Exception:
+            logger.warning("eval cost backfill: rollback failed", exc_info=True)
         logger.warning("eval cost backfill query failed", exc_info=True)
         rows = []
     finally:
-        pg_pool.putconn(conn)
+        pg_pool.putconn(conn, close=broken)
 
     by_project: dict[str, set[str]] = defaultdict(set)
     for project_id, trace_id in rows:

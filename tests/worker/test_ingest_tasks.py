@@ -220,11 +220,14 @@ class FakeCursor:
 
 
 class FakeConnection:
-    def __init__(self, cursor):
+    def __init__(self, cursor, rollback_raises=False):
         self._cursor = cursor
         self.committed = False
         self.closed = False
         self.rolled_back = False
+        # A connection that has already died can raise from rollback() itself — the
+        # error path must survive that and still evict the connection.
+        self._rollback_raises = rollback_raises
 
     def cursor(self):
         return self._cursor
@@ -234,6 +237,8 @@ class FakeConnection:
 
     def rollback(self):
         self.rolled_back = True
+        if self._rollback_raises:
+            raise Exception("connection already dead")
 
     def close(self):
         self.closed = True
@@ -241,26 +246,30 @@ class FakeConnection:
 
 class FakePool:
     """Stands in for the module-level ThreadedConnectionPool: hands out one connection
-    and records that it was handed back (putconn), not closed."""
+    and records how it was handed back — `returned` (putconn) and whether it was evicted
+    (`close=True`, which the real pool discards instead of recycling)."""
 
     def __init__(self, conn):
         self._conn = conn
         self.returned = False
+        self.closed_on_return = None
 
     def getconn(self):
         return self._conn
 
-    def putconn(self, conn):
+    def putconn(self, conn, close=False):
         assert conn is self._conn
         self.returned = True
+        self.closed_on_return = close
+        if close:
+            conn.close()
 
 
 class TestUpdateEvalResultCosts:
-    """`_update_eval_result_costs` denormalizes derived cost onto `evaluation_results`
-    for a costed trace, and per the module's own docstring — "never writes 0 (a
-    cost-less trace leaves `cost` NULL)" — must issue no UPDATE at all for a
-    cost-less trace. That second half had zero coverage: nothing under `tests/`
-    drove this function at all."""
+    """`_update_eval_result_costs` denormalizes derived cost onto `evaluation_results`.
+    The write is UNCONDITIONAL — a cost-less trace is written via `NULLIF(..., 0)` (kept
+    NULL, not 0) rather than skipped — and every examined row is stamped
+    `cost_derived_at` so the backfill can tell derived-to-NULL from not-yet-derived."""
 
     def _patch_connect(self, monkeypatch, cursor):
         pool = FakePool(FakeConnection(cursor))
@@ -298,18 +307,26 @@ class TestUpdateEvalResultCosts:
         updates = [
             (sql, params) for sql, params in cursor.executed if sql.strip().startswith("UPDATE")
         ]
-        assert len(updates) == 2
-        by_trace = {params[2]: (sql, params) for sql, params in updates}
+        # Two per-trace cost writes (NULLIF) ...
+        cost_updates = [(sql, params) for sql, params in updates if "NULLIF" in sql]
+        assert len(cost_updates) == 2
+        by_trace = {params[2]: (sql, params) for sql, params in cost_updates}
         assert set(by_trace) == {"t-costed", "t-zero"}
-        for sql, _ in updates:
+        for sql, _ in cost_updates:
             assert "evaluation_results" in sql
-            # NULLIF is what makes the unconditional write safe for a cost-less trace.
-            assert "NULLIF" in sql
         assert by_trace["t-costed"][1] == (pytest.approx(0.02), "proj-1", "t-costed")
         assert by_trace["t-zero"][1] == (pytest.approx(0.0), "proj-1", "t-zero")
+        # ... plus ONE derivation-attempted stamp covering every examined result row (H7),
+        # so the zero-cost trace settles instead of being re-swept by the backfill forever.
+        marking = [(sql, params) for sql, params in updates if "cost_derived_at" in sql]
+        assert len(marking) == 1
+        _, mark_params = marking[0]
+        assert mark_params[0] == "proj-1"
+        assert set(mark_params[1]) == {"t-costed", "t-zero"}
         assert pool._conn.committed is True
-        # Pooled: the connection is returned to the pool (putconn), not closed (M17).
+        # A clean run recycles the connection (putconn without close), never evicts it.
         assert pool.returned is True
+        assert pool.closed_on_return is False
         assert pool._conn.closed is False
 
     def test_no_eval_trace_ids_skips_clickhouse_and_updates(self, monkeypatch):
@@ -326,6 +343,29 @@ class TestUpdateEvalResultCosts:
 
         mock_ch.query.assert_not_called()
         assert not any(sql.strip().startswith("UPDATE") for sql, _ in cursor.executed)
+
+    def test_broken_connection_is_evicted_not_recycled(self, monkeypatch):
+        """When the work fails AND rollback() itself throws (a connection that has already
+        died), the error is swallowed and the poisoned connection is CLOSED on the way back
+        — never recycled into the pool for the next borrower to trip over (H7)."""
+        from worker.ingest_tasks import _update_eval_result_costs
+
+        cursor = FakeCursor(fetchall_result=[("t1",)])
+        conn = FakeConnection(cursor, rollback_raises=True)
+        pool = FakePool(conn)
+        monkeypatch.setattr("worker.ingest_tasks._get_pg_pool", lambda: pool)
+
+        # Blow up mid-work (after the scoping query) so the except path runs.
+        mock_ch = MagicMock()
+        mock_ch.query.side_effect = Exception("clickhouse down")
+
+        # A throwing rollback() must not escape this call.
+        _update_eval_result_costs("proj-1", {"t1"}, mock_ch)
+
+        assert conn.rolled_back is True  # rollback was attempted (and it raised)...
+        assert pool.returned is True  # ... yet the connection was still handed back ...
+        assert pool.closed_on_return is True  # ... and evicted, not recycled.
+        assert conn.closed is True
 
     def test_backfill_reconciles_null_cost_results_grouped_by_project(self, monkeypatch):
         """The periodic sweep (H7) re-derives cost for recent null-cost results grouped by
@@ -348,10 +388,14 @@ class TestUpdateEvalResultCosts:
 
         assert out == {"projects": 2, "traces": 3}
         assert dict(calls) == {"p1": {"t1", "t2"}, "p2": {"t3"}}
-        # Only recent rows are swept (bounded window, so it converges).
         select_sql = next(sql for sql, _ in cursor.executed if sql.strip().startswith("SELECT"))
-        assert "cost IS NULL" in select_sql
+        # Candidates are NOT-YET-DERIVED (cost_derived_at IS NULL), not cost IS NULL —
+        # so an already-derived zero-cost row can't be re-swept forever.
+        assert "cost_derived_at IS NULL" in select_sql
+        assert "cost IS NULL" not in select_sql
+        # Bounded window + newest-first ordering: converges, and no late row is starved.
         assert "create_time >" in select_sql
+        assert "ORDER BY create_time DESC" in select_sql
 
     def test_backfill_no_null_cost_results_is_a_noop(self, monkeypatch):
         from worker import ingest_tasks
