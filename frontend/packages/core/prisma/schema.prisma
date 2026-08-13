@@ -166,6 +166,7 @@ model Project {
   alertConfig  DetectorAlertConfig?
   detectorRcas DetectorRca[]
   dashboards   Dashboard[]
+  alerts       Alert[]
   workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([workspaceId], map: "ix_project_workspace_id")
@@ -459,6 +460,60 @@ model Dashboard {
 
   @@index([projectId], map: "ix_dashboard_project_id")
   @@map("dashboards")
+}
+
+// Threshold alert rule plus its evaluation state. Anything the scheduler's SQL
+// compares or orders on is a typed column; `filters` and `renotify` are only
+// ever deserialized by the application.
+model Alert {
+  id                String    @id @default(cuid()) @db.VarChar
+  projectId         String    @map("project_id") @db.VarChar
+  name              String    @db.VarChar
+  view              String    @db.VarChar
+  measure           String    @db.VarChar
+  aggregation       String    @db.VarChar
+  // Canonicalized on write (see `canonicalizeAlertFilters`).
+  filters           Json      @db.JsonB
+  // The window token ("10m"), not milliseconds — ALERT_WINDOWS is the
+  // allowlist, matching DetectorAlertConfig.alertWindow.
+  window            String    @db.VarChar
+  thresholdOperator String    @map("threshold_operator") @db.VarChar
+  threshold         Decimal   @db.Decimal(65, 30)
+  renotify          Json      @db.JsonB
+  status            String    @default("ACTIVE") @db.VarChar
+  severity          String    @default("UNKNOWN") @db.VarChar
+  // Two clocks, deliberately separate: renotify measures from `alertedAt`,
+  // first-notification delay from `severityChangedAt`. Collapsing them into one
+  // "last touched" silently resets the renotify interval every evaluation.
+  severityChangedAt DateTime? @map("severity_changed_at") @db.Timestamp(6)
+  alertedAt         DateTime? @map("alerted_at") @db.Timestamp(6)
+  // Only a successful run advances this, so it stays readable as "last good
+  // evaluation" while `lastError` says why nothing has landed since.
+  lastEvaluatedAt   DateTime? @map("last_evaluated_at") @db.Timestamp(6)
+  // Why the last run or its delivery failed. Null means the last run succeeded:
+  // a completion always writes both columns, so an error cannot outlive it.
+  lastError         String?   @map("last_error") @db.VarChar
+  lastErrorAt       DateTime? @map("last_error_at") @db.Timestamp(6)
+  // The last delivery attempt, which outlives `lastError`: a page dropped by the
+  // delivery worker is still a page nobody received, long after the next
+  // successful run has cleared the error.
+  lastNotifyStatus  String?   @map("last_notify_status") @db.VarChar
+  lastNotifyError   String?   @map("last_notify_error") @db.VarChar
+  lastNotifyAt      DateTime? @map("last_notify_at") @db.Timestamp(6)
+  // Null `nextRunAt` means due immediately; `lastClaimedAt` is the CAS token a
+  // completing tick writes back against.
+  nextRunAt         DateTime? @map("next_run_at") @db.Timestamp(6)
+  lastClaimedAt     DateTime? @map("last_claimed_at") @db.Timestamp(6)
+  createdBy         String    @map("created_by") @db.VarChar
+  createTime        DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime        DateTime  @updatedAt @map("update_time") @db.Timestamp(6)
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId], map: "ix_alert_project_id")
+  // Column order matches the claim query: equality on status, range on nextRunAt.
+  @@index([status, nextRunAt], map: "ix_alert_status_next_run_at")
+  @@map("alerts")
 }
 
 model Widget {
