@@ -4,10 +4,9 @@ import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 
 // The trace-list filter icons, extended with the widget registry's field
 // names the trace list spells differently (errors -> error_count), the token
-// variants, a distinct count symbol (the shared map's Box doubles as the
-// model icon, so count falling back to it read as "model"), and the user /
-// session symbols the trace-page tabs use. DOMAIN_ICONS.fallback (Box) stays
-// the generic fallback for unmapped fields.
+// variants, a distinct count symbol, and the user / session symbols the
+// trace-page tabs use. DOMAIN_ICONS.fallback stays the neutral fallback for
+// unmapped fields.
 const WIDGET_FIELD_ICONS: Record<string, LucideIcon> = {
   ...FIELD_ICONS,
   error_count: DOMAIN_ICONS.error,

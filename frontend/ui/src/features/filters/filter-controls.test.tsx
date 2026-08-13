@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { Hash } from "lucide-react";
+import { Box, Hash } from "lucide-react";
 import {
   FieldDropdown,
   FilterControlSizeProvider,
@@ -113,6 +113,7 @@ describe("ValueDropdown", () => {
 describe("FieldDropdown", () => {
   const options = [
     { key: "trace_id", label: "Trace ID", icon: Hash },
+    { key: "model_name", label: "Model", icon: Box },
     { key: "mystery", label: "Mystery" }, // no icon → generic fallback
   ];
 
@@ -127,6 +128,21 @@ describe("FieldDropdown", () => {
 
     rerender(<FieldDropdown options={options} valueKey="trace_id" onPick={onPick} />);
     expect(screen.getByRole("button", { name: /Trace ID/ })).toBeTruthy();
+  });
+
+  it("renders an iconless field with a glyph distinct from the model glyph", () => {
+    render(<FieldDropdown options={options} valueKey="mystery" onPick={vi.fn()} />);
+
+    const triggerIcon = screen.getByRole("button", { name: /Mystery/ }).querySelector("svg");
+    expect(triggerIcon?.getAttribute("class")).toContain("lucide-circle-dashed");
+
+    fireEvent.click(screen.getByRole("button", { name: /Mystery/ }));
+    const modelIcon = screen.getByRole("option", { name: /Model/ }).querySelector("svg");
+    const fallbackIcon = screen.getByRole("option", { name: /Mystery/ }).querySelector("svg");
+
+    expect(modelIcon?.getAttribute("class")).toContain("lucide-box");
+    expect(fallbackIcon?.getAttribute("class")).toContain("lucide-circle-dashed");
+    expect(fallbackIcon?.getAttribute("class")).not.toBe(modelIcon?.getAttribute("class"));
   });
 });
 

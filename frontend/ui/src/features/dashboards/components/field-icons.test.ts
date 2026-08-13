@@ -3,6 +3,7 @@ import {
   CircleAlert,
   Box,
   CircleCheck,
+  CircleDashed,
   CircleDollarSign,
   CircleStop,
   Clock,
@@ -49,7 +50,7 @@ describe("fieldIcon", () => {
     expect(fieldIcon("status")).toBe(CircleCheck);
   });
 
-  it("falls back to the generic box like the trace list does", () => {
-    expect(fieldIcon("some_future_field")).toBe(Box);
+  it("falls back to the neutral glyph like the trace list does", () => {
+    expect(fieldIcon("some_future_field")).toBe(CircleDashed);
   });
 });
