@@ -107,6 +107,21 @@ def test_query_endpoint_spec_error_is_422_with_step(enterprise_client):
     assert detail["step"] == "breakdown"
 
 
+def test_query_threads_bucket_seconds_to_the_service(client):
+    # The alert form's grain rides the body; a saved dashboard tile omits it.
+    fake = {"columns": [], "rows": [], "meta": {}}
+    with patch("rest.routers.dashboards.run_widget_query", return_value=fake) as mock_run:
+        resp = client.post(
+            "/api/v1/projects/proj-1/widgets/query", json={**VALID_BODY, "bucket_seconds": 300}
+        )
+    assert resp.status_code == 200
+    assert mock_run.call_args.kwargs["bucket_seconds"] == 300
+
+    with patch("rest.routers.dashboards.run_widget_query", return_value=fake) as mock_run:
+        client.post("/api/v1/projects/proj-1/widgets/query", json=VALID_BODY)
+    assert mock_run.call_args.kwargs["bucket_seconds"] is None
+
+
 def test_query_endpoint_pydantic_error_is_422(client):
     bad = {**VALID_BODY, "spec": {**VALID_BODY["spec"], "display": {"type": "gauge"}}}
     resp = client.post("/api/v1/projects/proj-1/widgets/query", json=bad)

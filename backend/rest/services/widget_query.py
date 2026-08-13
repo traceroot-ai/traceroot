@@ -155,15 +155,21 @@ def compile_widget_query(
     end_time = to_utc_naive(end_time)
     if end_time <= start_time:
         raise WidgetSpecError("time_range", "end_time must be after start_time")
-    if (
-        bucket_seconds is not None
-        and (end_time - start_time).total_seconds() > bucket_seconds * MAX_EXPLICIT_BUCKETS
-    ):
-        raise WidgetSpecError(
-            "bucket_seconds",
-            f"A {bucket_seconds}s bucket covers this range in more than"
-            f" {MAX_EXPLICIT_BUCKETS} buckets",
-        )
+    is_timeseries = spec.display.type in ("line", "area")
+    if bucket_seconds is not None:
+        # A width on a display with no time axis means the caller has the request's
+        # shape wrong — same stance as the key-on-an-unkeyed-field guard below.
+        if not is_timeseries:
+            raise WidgetSpecError(
+                "bucket_seconds",
+                f"bucket_seconds requires a time axis; display '{spec.display.type}' has none",
+            )
+        if (end_time - start_time).total_seconds() > bucket_seconds * MAX_EXPLICIT_BUCKETS:
+            raise WidgetSpecError(
+                "bucket_seconds",
+                f"A {bucket_seconds}s bucket covers this range in more than"
+                f" {MAX_EXPLICIT_BUCKETS} buckets",
+            )
 
     view = REGISTRY[spec.view]
     params: dict[str, Any] = {
@@ -257,7 +263,6 @@ def compile_widget_query(
     group_cols: list[str] = []
     order_by = ""
 
-    is_timeseries = spec.display.type in ("line", "area")
     if is_timeseries and spec.metric.agg in _NON_ADDITIVE_AGGS:
         # For count/sum an empty bucket genuinely is zero, but for averages
         # and percentiles it has NO value — a filled 0 would render as a false

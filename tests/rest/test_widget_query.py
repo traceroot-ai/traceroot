@@ -729,3 +729,60 @@ def test_metadata_is_span_scope_only():
                 display={"type": "number"},
             )
         )
+
+
+# --- explicit bucket width (bucket_seconds) ---
+
+
+def compile_bucketed(spec_dict, bucket_seconds, start=START, end=END):
+    spec = WidgetSpec.model_validate(spec_dict)
+    return compile_widget_query(
+        spec, project_id="proj-1", start_time=start, end_time=end, bucket_seconds=bucket_seconds
+    )
+
+
+def test_explicit_bucket_compiles_to_tostartofinterval():
+    """An explicit width replaces the derived hour/day grain, in UTC like the rest."""
+    sql, _ = compile_bucketed(make_spec(display={"type": "line"}), 300, end=datetime(2026, 6, 2))
+    assert "toStartOfInterval(event_time, INTERVAL 300 SECOND, 'UTC')" in sql
+    assert "STEP INTERVAL 300 SECOND" in sql
+    assert "toStartOfHour" not in sql and "toStartOfDay" not in sql
+
+
+def test_explicit_bucket_cap_sits_exactly_at_max_buckets():
+    """The 7-day window is 604800s: 500 buckets of 1210s cover it, 500 of 1209s do not."""
+    sql, _ = compile_bucketed(make_spec(display={"type": "line"}), 1210)
+    assert "INTERVAL 1210 SECOND" in sql
+    with pytest.raises(WidgetSpecError, match="buckets"):
+        compile_bucketed(make_spec(display={"type": "line"}), 1209)
+
+
+def test_explicit_bucket_on_a_display_without_a_time_axis_is_a_spec_error():
+    """The width is dead outside a time axis, so it is rejected rather than ignored."""
+    cases = [
+        ("bar", "model_name"),
+        ("pie", "model_name"),
+        ("number", None),
+        ("table", None),
+        ("histogram", None),
+    ]
+    for display, breakdown in cases:
+        with pytest.raises(WidgetSpecError, match="time axis"):
+            compile_bucketed(make_spec(display={"type": display}, breakdown=breakdown), 60)
+
+
+def test_run_widget_query_reports_explicit_bucket_granularity_in_ms(monkeypatch):
+    """An explicit width has no name in the hour/day vocabulary, so meta carries milliseconds."""
+    fake_result = MagicMock(column_names=["bucket", "value"], result_rows=[])
+    fake_client = MagicMock()
+    fake_client.query.return_value = fake_result
+    monkeypatch.setattr(wq, "get_clickhouse_client", lambda: fake_client)
+
+    out = wq.run_widget_query(
+        spec=WidgetSpec.model_validate(make_spec()),
+        project_id="p1",
+        start_time=START,
+        end_time=datetime(2026, 6, 2),
+        bucket_seconds=300,
+    )
+    assert out["meta"]["granularity"] == 300_000

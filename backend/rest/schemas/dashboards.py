@@ -65,7 +65,7 @@ class WidgetQueryRequest(_StrictModel):
     start_time: datetime
     end_time: datetime
     # Time-series bucket width, when the caller needs one specific grain rather than
-    # the range-derived one. Ignored by displays that carry no time axis.
+    # the range-derived one. Rejected (422) on displays that carry no time axis.
     bucket_seconds: int | None = Field(default=None, ge=1, le=86_400)
 
 
