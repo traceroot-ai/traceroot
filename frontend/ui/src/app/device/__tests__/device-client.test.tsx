@@ -9,6 +9,7 @@ import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/re
 const mocks = vi.hoisted(() => ({
   push: vi.fn(),
   useSession: vi.fn(),
+  signOut: vi.fn(),
   device: Object.assign(vi.fn(), { approve: vi.fn(), deny: vi.fn() }),
 }));
 
@@ -22,6 +23,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/auth-client", () => ({
   authClient: {
     useSession: () => mocks.useSession(),
+    signOut: (...args: unknown[]) => mocks.signOut(...args),
     device: mocks.device,
   },
 }));
@@ -50,44 +52,40 @@ afterEach(() => {
   mocks.device.mockReset();
   mocks.device.approve.mockReset();
   mocks.device.deny.mockReset();
+  mocks.signOut.mockReset();
   searchParams = new URLSearchParams();
 });
 
 describe("DeviceClient", () => {
-  it("pre-fills the code entry input from ?user_code", () => {
+  it("auto-redirects to sign-in with the code in callbackUrl when signed out (no Continue)", async () => {
     setParams({ user_code: "abcd1234" });
     signedOut();
 
     render(<DeviceClient />);
 
-    const input = screen.getByLabelText("Device code") as HTMLInputElement;
-    expect(input.value).toBe("ABCD-1234");
-  });
-
-  it("shows an empty entry field when no code is present", () => {
-    signedOut();
-
-    render(<DeviceClient />);
-
-    const input = screen.getByLabelText("Device code") as HTMLInputElement;
-    expect(input.value).toBe("");
-  });
-
-  it("redirects to sign-in with the code preserved in callbackUrl when signed out", async () => {
-    setParams({ user_code: "abcd1234" });
-    signedOut();
-
-    render(<DeviceClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-
+    // A code in the URL advances on its own — no manual Continue to reach login.
     await waitFor(() => expect(mocks.push).toHaveBeenCalled());
     const target = mocks.push.mock.calls[0][0] as string;
     expect(target).toBe(
       `/auth/sign-in?callbackUrl=${encodeURIComponent("/device?user_code=ABCD1234")}`,
     );
+    expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
   });
 
-  it("renders the client display name and the signed-in email on consent", async () => {
+  it("carries client_id through the signed-out redirect so consent still names the client", async () => {
+    setParams({ user_code: "abcd1234", client_id: "traceroot-cli" });
+    signedOut();
+
+    render(<DeviceClient />);
+
+    await waitFor(() => expect(mocks.push).toHaveBeenCalled());
+    const target = mocks.push.mock.calls[0][0] as string;
+    expect(target).toBe(
+      `/auth/sign-in?callbackUrl=${encodeURIComponent("/device?user_code=ABCD1234&client_id=traceroot-cli")}`,
+    );
+  });
+
+  it("auto-advances to consent when signed in with a code in the URL (no Continue)", async () => {
     setParams({ user_code: "abcd1234", client_id: "traceroot-cli" });
     signedIn("kai@example.com");
     mocks.device.mockResolvedValue({
@@ -96,10 +94,36 @@ describe("DeviceClient", () => {
     });
 
     render(<DeviceClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
     await waitFor(() => expect(screen.getByText("TraceRoot CLI")).toBeDefined());
     expect(screen.getByText("as kai@example.com")).toBeDefined();
+    expect(screen.getByText("ABCD-1234")).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Continue" })).toBeNull();
+  });
+
+  it("shows the entry form for a bare visit with no code in the URL", () => {
+    signedOut();
+
+    render(<DeviceClient />);
+
+    const input = screen.getByLabelText("Device code") as HTMLInputElement;
+    expect(input.value).toBe("");
+    expect(screen.getByRole("button", { name: "Continue" })).toBeDefined();
+  });
+
+  it("advances from a manually entered code when the URL has none", async () => {
+    signedIn("kai@example.com");
+    mocks.device.mockResolvedValue({
+      data: { user_code: "ABCD1234", status: "pending" },
+      error: null,
+    });
+
+    render(<DeviceClient />);
+    const input = screen.getByLabelText("Device code");
+    fireEvent.change(input, { target: { value: "abcd1234" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    await waitFor(() => expect(screen.getByText("as kai@example.com")).toBeDefined());
     expect(screen.getByText("ABCD-1234")).toBeDefined();
   });
 
@@ -112,7 +136,6 @@ describe("DeviceClient", () => {
     });
 
     render(<DeviceClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
     await waitFor(() => expect(screen.getByText("A command-line application")).toBeDefined());
   });
@@ -127,12 +150,28 @@ describe("DeviceClient", () => {
     mocks.device.approve.mockResolvedValue({ data: { success: true }, error: null });
 
     render(<DeviceClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     await waitFor(() => screen.getByRole("button", { name: "Approve" }));
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
 
     await waitFor(() => expect(screen.getByText("Approved")).toBeDefined());
     expect(mocks.device.approve).toHaveBeenCalledWith({ userCode: "ABCD1234" });
+  });
+
+  it("hands off to ?next after approve instead of the terminal screen (signup path)", async () => {
+    setParams({ user_code: "abcd1234", next: "/onboarding" });
+    signedIn();
+    mocks.device.mockResolvedValue({
+      data: { user_code: "ABCD1234", status: "pending" },
+      error: null,
+    });
+    mocks.device.approve.mockResolvedValue({ data: { success: true }, error: null });
+
+    render(<DeviceClient />);
+    await waitFor(() => screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/onboarding"));
+    expect(screen.queryByText("Approved")).toBeNull();
   });
 
   it("denies and shows the denied state", async () => {
@@ -145,7 +184,6 @@ describe("DeviceClient", () => {
     mocks.device.deny.mockResolvedValue({ data: { success: true }, error: null });
 
     render(<DeviceClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     await waitFor(() => screen.getByRole("button", { name: "Deny" }));
     fireEvent.click(screen.getByRole("button", { name: "Deny" }));
 
@@ -169,18 +207,19 @@ describe("DeviceClient", () => {
     });
 
     render(<DeviceClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     await waitFor(() => screen.getByRole("button", { name: "Approve" }));
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
 
     await waitFor(() =>
       expect(
         screen.getByText(
-          "This code isn't associated with your account, so it can't be approved or denied from here.",
+          "This code was already opened by a different account and is locked to it. Go back to your terminal and run the login command again to get a fresh code.",
         ),
       ).toBeDefined(),
     );
     expect(screen.queryByText("Approved")).toBeNull();
+    // Terminal error: no looping "Try again" — the code is dead, they need a new one.
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 
   it("shows a mapped message for an expired code", async () => {
@@ -192,7 +231,6 @@ describe("DeviceClient", () => {
     });
 
     render(<DeviceClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
     await waitFor(() =>
       expect(
@@ -212,7 +250,6 @@ describe("DeviceClient", () => {
     });
 
     render(<DeviceClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
     await waitFor(() =>
       expect(
@@ -232,7 +269,6 @@ describe("DeviceClient", () => {
     });
 
     render(<DeviceClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
     await waitFor(() => expect(screen.getByText("This code has already been used.")).toBeDefined());
   });
@@ -260,7 +296,6 @@ describe("DeviceClient", () => {
     });
 
     render(<DeviceClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     await waitFor(() => screen.getByRole("button", { name: "Deny" }));
     fireEvent.click(screen.getByRole("button", { name: "Deny" }));
 
@@ -274,7 +309,23 @@ describe("DeviceClient", () => {
     expect(screen.queryByText("Denied")).toBeNull();
   });
 
-  it("returns to the entry form from an error state via Try again", async () => {
+  it("offers Try again for a mistyped code and returns to the entry form", async () => {
+    setParams({ user_code: "abcd1234" });
+    signedIn();
+    mocks.device.mockResolvedValue({
+      data: null,
+      error: { error: "invalid_request", error_description: "Invalid user code" },
+    });
+
+    render(<DeviceClient />);
+    await waitFor(() => screen.getByRole("button", { name: "Try again" }));
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    const input = screen.getByLabelText("Device code") as HTMLInputElement;
+    expect(input.value).toBe("");
+  });
+
+  it("shows no Try again for an expired code (terminal — needs a fresh code)", async () => {
     setParams({ user_code: "abcd1234" });
     signedIn();
     mocks.device.mockResolvedValue({
@@ -283,11 +334,30 @@ describe("DeviceClient", () => {
     });
 
     render(<DeviceClient />);
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    await waitFor(() => screen.getByRole("button", { name: "Try again" }));
-    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "This code has expired. Go back to your terminal and run the login command again.",
+        ),
+      ).toBeDefined(),
+    );
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
 
-    const input = screen.getByLabelText("Device code") as HTMLInputElement;
-    expect(input.value).toBe("");
+  it("signs out and returns to sign-in from the consent 'Not you?' action", async () => {
+    setParams({ user_code: "abcd1234" });
+    signedIn("wrong@example.com");
+    mocks.device.mockResolvedValue({
+      data: { user_code: "ABCD1234", status: "pending" },
+      error: null,
+    });
+    mocks.signOut.mockResolvedValue(undefined);
+
+    render(<DeviceClient />);
+    await waitFor(() => screen.getByText("as wrong@example.com"));
+    fireEvent.click(screen.getByRole("button", { name: "Not you? Sign out" }));
+
+    await waitFor(() => expect(mocks.signOut).toHaveBeenCalled());
+    expect(mocks.push).toHaveBeenCalledWith("/auth/sign-in");
   });
 });

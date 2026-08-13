@@ -26,7 +26,7 @@ export function mapDeviceErrorMessage(err: DeviceErrorLike | null | undefined): 
     return "This code has expired. Go back to your terminal and run the login command again.";
   }
   if (code === "access_denied") {
-    return "This code isn't associated with your account, so it can't be approved or denied from here.";
+    return "This code was already opened by a different account and is locked to it. Go back to your terminal and run the login command again to get a fresh code.";
   }
   if (code === "unauthorized") {
     return "You need to sign in again before continuing.";
@@ -41,5 +41,23 @@ export function mapDeviceErrorMessage(err: DeviceErrorLike | null | undefined): 
     return "That code doesn't match a pending request. Double-check it and try again.";
   }
 
-  return description || "Something went wrong. Please try again.";
+  return (
+    description || "Something went wrong. Go back to your terminal and run the login command again."
+  );
+}
+
+/**
+ * Whether a device error can be recovered by re-entering a code on this page.
+ *
+ * Only a mistyped or not-yet-verified code is fixable here. Everything else —
+ * a code locked to another account (access_denied), an expired code, or one
+ * that's already been used — needs a brand-new code from the CLI, so offering
+ * a "Try again" that just re-checks the same dead code would only loop.
+ *
+ * @param err - The `{ error, error_description }` body from a device endpoint.
+ * @returns True if re-entering a code on the consent page can still succeed.
+ */
+export function isRecoverableDeviceError(err: DeviceErrorLike | null | undefined): boolean {
+  const description = err?.error_description ?? "";
+  return description.includes("Invalid user code") || description.includes("not been claimed");
 }
