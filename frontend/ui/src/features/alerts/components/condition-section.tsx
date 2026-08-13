@@ -33,6 +33,9 @@ interface RenotifyIntervalFieldProps {
  * The raw input string is the state the user types into, as with threshold, and
  * only a value that survives the clamp unchanged is handed up. Clamping every
  * keystroke instead turns a cleared field into 1 and the next digit into 1x.
+ *
+ * The field owns the raw string for as long as it is mounted; a parent that
+ * needs to reset it must remount it (key it by the rule's identity).
  */
 function RenotifyIntervalField({ intervalMinutes, onIntervalChange }: RenotifyIntervalFieldProps) {
   const [draft, setDraft] = useState(String(intervalMinutes));
@@ -64,6 +67,7 @@ function RenotifyIntervalField({ intervalMinutes, onIntervalChange }: RenotifyIn
         onChange={(e) => handleChange(e.target.value)}
         onBlur={handleBlur}
         aria-label="renotify interval"
+        required
         min={ALERT_RENOTIFY_MIN_MINUTES}
         max={ALERT_RENOTIFY_MAX_MINUTES}
         step="1"

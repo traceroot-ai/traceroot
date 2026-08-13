@@ -20,9 +20,11 @@ interface NotificationsSectionProps {
  * get a row here.
  */
 export function NotificationsSection({ projectId, name, onNameChange }: NotificationsSectionProps) {
-  const { data: project } = useProject(projectId);
+  const { data: project, isError: isProjectError } = useProject(projectId);
   const workspaceId = project?.workspace_id;
-  const { data: slack } = useSlackStatus(workspaceId);
+  // isLoading, not isPending: this query is disabled until the workspace is
+  // known, and a disabled query stays pending forever.
+  const { data: slack, isLoading: isSlackStatusLoading } = useSlackStatus(workspaceId);
 
   const isSlackConnected = !!slack?.connected;
   const integrationsHref = workspaceId ? `/workspaces/${workspaceId}/settings/integrations` : null;
@@ -45,7 +47,13 @@ export function NotificationsSection({ projectId, name, onNameChange }: Notifica
       </div>
       <div className="p-3">
         <FieldLabel>Integration</FieldLabel>
-        {integrationsHref ? (
+        {isProjectError ? (
+          <p className="text-[12px] text-destructive">
+            The workspace could not be loaded. Reload the page to try again.
+          </p>
+        ) : !integrationsHref || isSlackStatusLoading ? (
+          <p className="text-[12px] text-muted-foreground">Loading workspace...</p>
+        ) : (
           <SlackIntegrationLink
             href={integrationsHref}
             isConnected={isSlackConnected}
@@ -53,8 +61,6 @@ export function NotificationsSection({ projectId, name, onNameChange }: Notifica
             channelName={slack?.channel?.name}
             className="max-w-md"
           />
-        ) : (
-          <p className="text-[12px] text-muted-foreground">Loading workspace...</p>
         )}
         <p className="mt-2 text-[12px] text-muted-foreground">
           Alerts post to the Slack channel connected to this workspace.

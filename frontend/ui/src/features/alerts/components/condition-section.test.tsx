@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type { FormEvent } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 
@@ -96,6 +97,31 @@ describe("ConditionSection", () => {
       intervalMinutes: ALERT_RENOTIFY_MAX_MINUTES,
     });
     expect(input.value).toBe(String(ALERT_RENOTIFY_MAX_MINUTES));
+  });
+
+  it("blocks a submit while the interval sits blank instead of sending the stale value", () => {
+    const onSubmit = vi.fn((e: FormEvent) => e.preventDefault());
+    render(
+      <form onSubmit={onSubmit}>
+        <ConditionSection
+          operator=">"
+          threshold="5"
+          window="10m"
+          renotify={{ mode: "EVERY", intervalMinutes: 45 }}
+          onOperatorChange={vi.fn()}
+          onThresholdChange={vi.fn()}
+          onWindowChange={vi.fn()}
+          onRenotifyChange={vi.fn()}
+        />
+      </form>,
+    );
+    const input = screen.getByLabelText("renotify interval") as HTMLInputElement;
+    input.form!.requestSubmit();
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    fireEvent.change(input, { target: { value: "" } });
+    expect(input.validity.valueMissing).toBe(true);
+    input.form!.requestSubmit();
+    expect(onSubmit).toHaveBeenCalledTimes(1);
   });
 
   it("restores the last committed interval when blurred blank", () => {

@@ -48,6 +48,26 @@ describe("NotificationsSection", () => {
     expect(useSlackStatusMock).toHaveBeenCalledWith(undefined);
   });
 
+  it("keeps the loading fallback while the Slack status is still in flight", () => {
+    useProjectMock.mockReturnValue({ data: { workspace_id: "ws-1" } });
+    useSlackStatusMock.mockReturnValue({ data: undefined, isLoading: true });
+    renderSection();
+    expect(screen.getByText("Loading workspace...")).toBeTruthy();
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(screen.queryByText("Connect Slack")).toBeNull();
+  });
+
+  it("reports a workspace that failed to load instead of loading forever", () => {
+    useProjectMock.mockReturnValue({ data: undefined, isError: true });
+    useSlackStatusMock.mockReturnValue({ data: undefined });
+    renderSection();
+    expect(
+      screen.getByText("The workspace could not be loaded. Reload the page to try again."),
+    ).toBeTruthy();
+    expect(screen.queryByText("Loading workspace...")).toBeNull();
+    expect(screen.queryByRole("link")).toBeNull();
+  });
+
   it("nudges toward channel selection when Slack has none", () => {
     useProjectMock.mockReturnValue({ data: { workspace_id: "ws-1" } });
     useSlackStatusMock.mockReturnValue({ data: { connected: true, teamName: "Acme" } });
