@@ -271,7 +271,9 @@ const ENGINE_NUMBER_AGGREGATIONS: readonly AlertAggregation[] = [
 
 function isRunnableAggregation(type: AlertMeasureType, aggregation: AlertAggregation): boolean {
   if (type === "count") return aggregation === "count";
-  if (type === "string") return aggregation === "count" || aggregation === "uniq";
+  // Not count: count(user_id) tallies rows carrying the id, which reads as
+  // "unique users" on a measure labelled that way. Row counting is the count measure's job.
+  if (type === "string") return aggregation === "uniq";
   return ENGINE_NUMBER_AGGREGATIONS.includes(aggregation);
 }
 
