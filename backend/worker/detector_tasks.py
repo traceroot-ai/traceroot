@@ -15,7 +15,9 @@ import asyncio
 import hashlib
 import json
 import logging
+import operator
 import uuid
+from decimal import Decimal
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +32,14 @@ _LOCK_TTL_SECONDS = 3600
 # been quiet this long (no new span) before evaluating. Must match the
 # TypeScript EVALUATOR_DELAY constant.
 EVALUATOR_DELAY = 60_000  # ms
+
+# Lower bound on the trace-scope metadata read. The trace's root span landed in
+# the batch being processed, so trace_start_time is behind now() by the trace's
+# own wall clock plus export and ingest lag — seconds to minutes in practice.
+# A day of headroom over that still prunes to at most two monthly partitions and
+# two toDate(trace_start_time) index values. A trace older than this loses only
+# its trace-scope metadata keys; span-scope keys still merge.
+TRACE_METADATA_LOOKBACK_HOURS = 24
 
 # Token-checked release: delete the lock only when it still holds the exact
 # value this attempt wrote, so a failing attempt can never delete state
@@ -165,30 +175,89 @@ def _add_bullmq_job(job_id: str, data: dict) -> None:
     asyncio.run(_add())
 
 
+_ORDERING_COMPARATORS = {
+    ">": operator.gt,
+    ">=": operator.ge,
+    "<": operator.lt,
+    "<=": operator.le,
+}
+
+
+def _scalar_equals(actual, value) -> bool:
+    """Equality with numeric coercion, so a Decimal cost matches a JSON number the
+    way ClickHouse's ``sum(cost) = X`` would."""
+    numeric_types = (int, float, Decimal)
+    if (
+        isinstance(actual, numeric_types)
+        and isinstance(value, numeric_types)
+        and not isinstance(actual, bool)
+        and not isinstance(value, bool)
+    ):
+        try:
+            return float(actual) == float(value)
+        except (TypeError, ValueError, OverflowError):
+            return False
+    return actual == value
+
+
+def _eval_membership(values, op, value) -> bool:
+    """Span-membership semantics for a multi-valued field (environment, model_name,
+    metadata key values): ``=`` means some span carries the value, ``!=`` means none
+    does, ``contains`` is a case-insensitive substring over the carried values —
+    mirroring the trace-list filter's SPAN_MEMBERSHIP / keyed-map lowering."""
+    if op == "=":
+        return value in values
+    if op == "!=":
+        return value not in values
+    if op == "contains":
+        needle = str(value).lower()
+        return any(isinstance(v, str) and needle in v.lower() for v in values)
+    return False
+
+
 def _eval_condition(trace_summary: dict, condition: dict) -> bool:
-    """Evaluate a single trigger condition against a trace summary dict."""
+    """Evaluate a single trigger condition against a trace summary dict.
+
+    A malformed condition evaluates False rather than raising, so one bad
+    condition disables its own detector for the trace instead of dropping every
+    detector's evaluation. Malformed covers the element itself (a legacy row can
+    hold a bare string or null where a dict belongs) as well as its field, key
+    and value.
+    """
+    if not isinstance(condition, dict):
+        return False
+
     field = condition.get("field")
+    if not isinstance(field, str):
+        return False
+
     op = condition.get("op")
     value = condition.get("value")
 
     actual = trace_summary.get(field)
+    if isinstance(actual, dict):
+        key = condition.get("key")
+        actual = actual.get(key, []) if isinstance(key, str) else []
+    if isinstance(actual, list | tuple | set):
+        return _eval_membership(actual, op, value)
+
     # For != conditions, a missing/null field counts as "not equal"
     if actual is None:
         return op == "!="
 
     if op == "=":
-        return actual == value
-    elif op == "!=":
-        return actual != value
-    elif op == ">":
-        return float(actual) > float(value)
-    elif op == ">=":
-        return float(actual) >= float(value)
-    elif op == "<":
-        return float(actual) < float(value)
-    elif op == "<=":
-        return float(actual) <= float(value)
-    return False
+        return _scalar_equals(actual, value)
+    if op == "!=":
+        return not _scalar_equals(actual, value)
+    if op == "contains":
+        return isinstance(actual, str) and str(value).lower() in actual.lower()
+    comparator = _ORDERING_COMPARATORS.get(op)
+    if comparator is None:
+        return False
+    try:
+        return comparator(float(actual), float(value))
+    except (TypeError, ValueError, OverflowError):
+        return False
 
 
 def _passes_trigger(trace_summary: dict, conditions: list[dict]) -> bool:
@@ -196,10 +265,56 @@ def _passes_trigger(trace_summary: dict, conditions: list[dict]) -> bool:
     return all(_eval_condition(trace_summary, c) for c in conditions)
 
 
-def _get_trace_summaries(project_id: str, trace_ids: list[str]) -> dict[str, dict]:
-    """
-    Query ClickHouse for the fields needed for trigger evaluation.
-    Returns {trace_id: {environment}}
+def _merge_metadata_values(trace_map: dict | None, span_maps: list) -> dict[str, list[str]]:
+    """Fold the trace-scope map and every span-scope map into {key: [values...]},
+    so a metadata condition matches a key attached at either scope — the same OR
+    the trace-list filter's keyed-map lowering answers."""
+    merged: dict[str, list[str]] = {}
+    for source in (trace_map or {}, *(span_maps or [])):
+        if not isinstance(source, dict):
+            continue
+        for key, val in source.items():
+            bucket = merged.setdefault(key, [])
+            if val not in bucket:
+                bucket.append(val)
+    return merged
+
+
+def _has_metadata_condition(detectors: list[dict]) -> bool:
+    return any(
+        isinstance(condition, dict) and condition.get("field") == "metadata"
+        for detector in detectors
+        for condition in detector.get("conditions") or []
+    )
+
+
+def _get_trace_summaries(
+    project_id: str,
+    trace_ids: list[str],
+    *,
+    include_trace_metadata: bool = True,
+) -> dict[str, dict]:
+    """Query ClickHouse for the per-trace fields trigger conditions evaluate against.
+
+    Grain mirrors the trace-list filter registry (rest.services.filters.columns),
+    so a detector filter answers the same question the list's filter does:
+      - environment / model_name: distinct values across the trace's spans
+        (membership, not root-span value)
+      - cost: sum(cost); total_tokens: sum(total_tokens)
+      - duration_ms: wall-clock span, max end minus min start — not a sum
+      - errors: count of ERROR-status spans
+      - metadata: {key: [values...]} merged across trace scope and span scope
+
+    The trace-scope half of metadata is a second query, issued only when
+    ``include_trace_metadata`` is set — callers pass False when no active
+    detector filters on metadata, which is the common case.
+
+    Spans are deduped to the latest version per span_id before aggregating
+    (ReplacingMergeTree may hold replays at read time), like every trace-list
+    span scan. Evaluated when the root-bearing batch lands, so spans arriving
+    after the root span are not reflected in the aggregates.
+
+    Returns {trace_id: summary_dict}.
     """
     from db.clickhouse.client import get_clickhouse_client
 
@@ -207,24 +322,67 @@ def _get_trace_summaries(project_id: str, trace_ids: list[str]) -> dict[str, dic
         return {}
 
     ch = get_clickhouse_client()
+    parameters = {"project_id": project_id, "trace_ids": trace_ids}
 
     result = ch.query(
         """
         SELECT
             trace_id,
-            anyIf(environment, parent_span_id IS NULL) AS environment
-        FROM spans
-        WHERE project_id = {project_id:String}
-          AND trace_id IN {trace_ids:Array(String)}
+            groupUniqArray(environment) AS environments,
+            groupUniqArray(model_name) AS model_names,
+            sum(cost) AS cost,
+            sum(total_tokens) AS total_tokens,
+            if(
+                min(span_start_time) IS NOT NULL AND max(span_end_time) IS NOT NULL,
+                dateDiff('millisecond', min(span_start_time), max(span_end_time)),
+                NULL
+            ) AS duration_ms,
+            countIf(status = 'ERROR') AS errors,
+            groupArray(metadata_map) AS span_metadata_maps
+        FROM (
+            SELECT trace_id, span_id, environment, model_name, cost, total_tokens,
+                   span_start_time, span_end_time, status, metadata_map
+            FROM spans
+            WHERE project_id = {project_id:String}
+              AND trace_id IN {trace_ids:Array(String)}
+            ORDER BY ch_update_time DESC
+            LIMIT 1 BY project_id, trace_id, span_id
+        )
         GROUP BY trace_id
         """,
-        parameters={"project_id": project_id, "trace_ids": trace_ids},
+        parameters=parameters,
     )
+
+    trace_maps: dict[str, dict] = {}
+    if include_trace_metadata:
+        # `traces` is ordered by (project_id, toDate(trace_start_time), trace_id),
+        # so trace_id alone seeks nothing: without the time bound this reads every
+        # partition the project has ever written.
+        trace_metadata = ch.query(
+            f"""
+            SELECT trace_id, metadata_map
+            FROM traces
+            WHERE project_id = {{project_id:String}}
+              AND trace_start_time >= now() - INTERVAL {TRACE_METADATA_LOOKBACK_HOURS} HOUR
+              AND trace_id IN {{trace_ids:Array(String)}}
+            ORDER BY ch_update_time DESC
+            LIMIT 1 BY project_id, trace_id
+            """,
+            parameters=parameters,
+        )
+        trace_maps = {row[0]: row[1] for row in trace_metadata.result_rows}
 
     summaries: dict[str, dict] = {}
     for row in result.result_rows:
-        summaries[row[0]] = {
-            "environment": row[1],  # Nullable — None if not set
+        trace_id = row[0]
+        summaries[trace_id] = {
+            "environment": row[1],
+            "model_name": row[2],
+            "cost": row[3],
+            "total_tokens": row[4],
+            "duration_ms": row[5],
+            "errors": row[6],
+            "metadata": _merge_metadata_values(trace_maps.get(trace_id), row[7]),
         }
     return summaries
 
@@ -381,12 +539,20 @@ def enqueue_detector_runs(project_id: str, traces_with_root: set[str]) -> None:
         root_traces = list(traces_with_root)
         redis_client = _get_redis()
         detectors = _get_active_detectors(project_id)
-        summaries = _get_trace_summaries(project_id, root_traces) if detectors else {}
+        summaries = (
+            _get_trace_summaries(
+                project_id,
+                root_traces,
+                include_trace_metadata=_has_metadata_condition(detectors),
+            )
+            if detectors
+            else {}
+        )
         for trace_id in root_traces:
-            # Per-trace try/except so a malformed condition (e.g. non-numeric
-            # `value` for a `>` op causing float() to ValueError, or a None
-            # sample_rate) only drops the offending trace — remaining traces
-            # in the batch still get enqueued.
+            # Per-trace try/except so an unexpected per-trace failure (Redis,
+            # BullMQ) only drops the offending trace — remaining traces in the
+            # batch still get enqueued. Malformed conditions no longer raise:
+            # _eval_condition evaluates them False.
             try:
                 _claim_and_enqueue(
                     redis_client,
