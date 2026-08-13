@@ -394,10 +394,9 @@ model DetectorTrigger {
   id         String   @id @default(cuid()) @db.VarChar
   detectorId String   @unique @map("detector_id") @db.VarChar
   conditions Json     @db.JsonB
-  // [{field: "environment", op: "=", value: "prod"}, {field: "total_tokens", op: ">", value: 1000},
-  //  {field: "metadata", key: "tenant", op: "contains", value: "acme"}]
-  // Fields/ops are whitelisted by features/detectors/trigger-fields.ts (UI + API routes)
-  // and evaluated by backend/worker/detector_tasks.py.
+  // [{field: "environment", op: "=", value: "prod"}] — `environment` with =/!= is the
+  // only condition evaluated today (editor: features/detectors/components/trigger-editor.tsx,
+  // evaluator: backend/worker/detector_tasks.py). Empty list matches every completed trace.
 
   detector Detector @relation(fields: [detectorId], references: [id], onDelete: Cascade)
 
