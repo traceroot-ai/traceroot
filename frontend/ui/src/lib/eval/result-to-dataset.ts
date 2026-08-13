@@ -1,5 +1,6 @@
 import { prisma } from "@traceroot/core";
 import { publishDatasetVersion, newTestCaseId, type TestCaseSeed } from "./versions";
+import { encodeEditedText } from "./json-value";
 
 /**
  * Save an evaluation result into a dataset — the three explicit result-driven
@@ -18,10 +19,7 @@ import { publishDatasetVersion, newTestCaseId, type TestCaseSeed } from "./versi
  *  - Idempotency: a retried request with the same key returns the already-published
  *    version rather than duplicating (delegated to the engine).
  */
-export type ResultDatasetAction =
-  | "update_existing_case"
-  | "save_new_case"
-  | "duplicate_as_variant";
+export type ResultDatasetAction = "update_existing_case" | "save_new_case" | "duplicate_as_variant";
 
 export class ResultNotFound extends Error {
   constructor() {
@@ -90,9 +88,17 @@ export async function saveResultToDataset(opts: {
   const metadataProvided = opts.metadata !== undefined;
 
   // Never default expected to candidate: only an explicit value or explicit opt-in.
+  // Raw sources (candidate output, drawer text) are JSON-ENCODED on write so their
+  // type round-trips on pull — matching every other write path (trace-save, editor,
+  // public publish). `currentExpected` is already encoded, so it passes through; a
+  // null previous makes `encodeEditedText` fall back to encoding the text as-is.
   const resolveExpected = (currentExpected: string | null): string | null => {
-    if (opts.useCandidateAsExpected) return result.candidateOutput ?? null;
-    if (expectedProvided) return opts.expected ?? null;
+    if (opts.useCandidateAsExpected)
+      return result.candidateOutput == null
+        ? null
+        : encodeEditedText(currentExpected, result.candidateOutput);
+    if (expectedProvided)
+      return opts.expected == null ? null : encodeEditedText(currentExpected, opts.expected);
     return currentExpected;
   };
 
@@ -122,7 +128,7 @@ export async function saveResultToDataset(opts: {
           c.testCaseId === result.testCaseId
             ? {
                 ...c,
-                input: inputProvided ? (opts.input ?? "") : c.input,
+                input: inputProvided ? encodeEditedText(c.input, opts.input ?? "") : c.input,
                 expected: resolveExpected(c.expected),
                 metadata: metadataProvided ? opts.metadata : c.metadata,
               }
@@ -148,7 +154,9 @@ export async function saveResultToDataset(opts: {
 
   const newSeed: TestCaseSeed = {
     testCaseId: newTestCaseId(),
-    input: inputProvided ? (opts.input ?? "") : result.input,
+    // No prior stored value, so encode the raw text as-is (a JSON-looking string like
+    // "42" stays the string "42" instead of decoding to the number 42 on pull).
+    input: encodeEditedText(null, inputProvided ? (opts.input ?? "") : result.input),
     // A brand-new case: expected defaults to null (never the candidate) unless set.
     expected: resolveExpected(null),
     metadata: metadataProvided ? opts.metadata : null,
