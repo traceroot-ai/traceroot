@@ -536,9 +536,9 @@ it("sorts by cost across the FULL filtered set (not just the fetched page), null
 
   expect(body.data.map((r) => r.id)).toEqual(["run_pricey", "run_cheap", "run_no_cost"]);
   expect(body.meta.total).toBe(512);
-  // This branch never asks the DB to order/paginate directly — it derives the
-  // sort key itself and slices after.
-  expect(prismaMock.evaluationRun.count).not.toHaveBeenCalled();
+  // This branch derives the sort key + slices in Node (the DB isn't asked to order or
+  // paginate), but meta.total still comes from a real count(), not the window size (M5).
+  expect(prismaMock.evaluationRun.count).toHaveBeenCalledTimes(1);
 });
 
 it("sorts by elapsedMs, treating a still-running run (no completedAt) as sorting last", async () => {
