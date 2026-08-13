@@ -1,9 +1,10 @@
-"""Public, API-key-authenticated trace read endpoints (for the CLI).
+"""Public trace read endpoints (for the CLI).
 
 `GET /api/v1/public/traces` (list) and `GET /api/v1/public/traces/{trace_id}`
-(get). Reads are scoped to the project the API key belongs to — the client
-never supplies a project id. Kept separate from the ingestion route so read and
-write concerns stay decoupled; both reuse the shared API-key auth dependency.
+(get). Authenticated by either an API key or a user session token
+(``DualStampedAuth``): an API key fixes its own project, while a user credential
+names the project via ``project_id``. Kept separate from the ingestion route so
+read and write concerns stay decoupled.
 """
 
 import logging
@@ -83,7 +84,7 @@ async def list_traces(
         ),
     ),
 ):
-    """List recent traces for the API key's project (newest first).
+    """List recent traces for the caller's project (newest first).
 
     Offline-evaluation traces are excluded by default; pass
     ``include_evaluations=true`` to include them.
@@ -211,7 +212,7 @@ async def get_trace(
     trace_id: str,
     fields: str | None = Query(None, description=FIELDS_PARAM_DESC),
 ):
-    """Get a single trace for the key's project.
+    """Get a single trace for the caller's project.
 
     Defaults to the lightweight `skeleton` projection (no per-span I/O); pass
     `fields=full` (or `fields=io,metadata`) for per-span input/output/metadata.
@@ -249,7 +250,7 @@ async def export_trace(
     trace_id: str,
     fields: str | None = Query(None, description=FIELDS_PARAM_DESC),
 ):
-    """Export the V1 bundle (trace + spans + git_context + manifest) for the key's project.
+    """Export the V1 bundle (trace + spans + git_context + manifest) for the caller's project.
 
     Defaults to the `full` projection — an export is explicit intent to take the
     complete trace, so per-span input/output/metadata are included unless the
