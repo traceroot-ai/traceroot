@@ -129,20 +129,26 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     ]);
   } else {
     // Bound the set pulled for the Node-side sort (and thus the cost groupBy over its
-    // ids) to the most recent runs, so this can't OOM on a large project history.
-    const all = await prisma.evaluationRun.findMany({
-      where,
-      include,
-      orderBy: { runNumber: "desc" },
-      take: MAX_INMEMORY_SORT + 1,
-    });
+    // ids) to the most recent runs, so this can't OOM on a large project history — but
+    // report the TRUE filtered count for pagination (a separate count()), not the window
+    // size, so pages past the window aren't hidden. (The cost/duration ORDER is still only
+    // exact within the most-recent window — a known limitation of the Node-side sort.)
+    const [all, realTotal] = await Promise.all([
+      prisma.evaluationRun.findMany({
+        where,
+        include,
+        orderBy: { runNumber: "desc" },
+        take: MAX_INMEMORY_SORT + 1,
+      }),
+      prisma.evaluationRun.count({ where }),
+    ]);
     if (all.length > MAX_INMEMORY_SORT) {
       all.length = MAX_INMEMORY_SORT;
       console.warn(
         `runs list: cost/duration sort bounded to the ${MAX_INMEMORY_SORT} most recent runs`,
       );
     }
-    total = all.length;
+    total = realTotal;
 
     let sortValue: (r: (typeof all)[number]) => number | null;
     if (sort === "elapsedMs") {
