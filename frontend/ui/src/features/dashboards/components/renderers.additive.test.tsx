@@ -3,7 +3,7 @@ import { cleanup, render } from "@testing-library/react";
 import { cloneElement, isValidElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AGGS, type WidgetQueryResult } from "../types";
-import { QueryWidgetRenderer, isAdditiveAgg } from "./renderers";
+import { QueryWidgetRenderer, isAdditiveAgg, isSummableAgg } from "./renderers";
 
 // jsdom reports 0x0 for the container recharts measures against, so
 // ResponsiveContainer renders nothing. Stub it with a fixed size and, like the real
@@ -49,6 +49,16 @@ describe("isAdditiveAgg", () => {
     // An agg the engine grows and nobody adds here must land on the same side for every consumer.
     expect(isAdditiveAgg("stddev")).toBe(true);
     expect(isAdditiveAgg(undefined)).toBe(true);
+  });
+});
+
+describe("isSummableAgg", () => {
+  it("splits uniq off the additive set: gap-fills as zero, but sums overstate", () => {
+    expect(isSummableAgg("uniq")).toBe(false);
+    expect(isAdditiveAgg("uniq")).toBe(true);
+    expect(isSummableAgg("sum")).toBe(true);
+    expect(isSummableAgg("count")).toBe(true);
+    expect(isSummableAgg("p95")).toBe(false);
   });
 });
 
