@@ -42,7 +42,7 @@ describe("EditableValueBlock — seedJson re-seeding", () => {
   it("pretty-prints the initial (compact JSON) seed", () => {
     render(<Harness seedText='{"a":1}' />);
     const textarea = screen.getByLabelText("Output") as HTMLTextAreaElement;
-    expect(textarea.value).toBe('{\n  "a": 1\n}\n');
+    expect(textarea.value).toBe('{\n  "a": 1\n}');
   });
 
   it("does not rewrite a further edit that also happens to parse as JSON", () => {
@@ -59,10 +59,10 @@ describe("EditableValueBlock — seedJson re-seeding", () => {
   it("re-seeds once more when collapseResetKey changes (a genuinely new source)", () => {
     const { rerender } = render(<Harness seedText='{"a":1}' collapseResetKey="span-1" />);
     let textarea = screen.getByLabelText("Output") as HTMLTextAreaElement;
-    expect(textarea.value).toBe('{\n  "a": 1\n}\n');
+    expect(textarea.value).toBe('{\n  "a": 1\n}');
 
     rerender(<Harness seedText='{"b":2}' collapseResetKey="span-2" />);
     textarea = screen.getByLabelText("Output") as HTMLTextAreaElement;
-    expect(textarea.value).toBe('{\n  "b": 2\n}\n');
+    expect(textarea.value).toBe('{\n  "b": 2\n}');
   });
 });
