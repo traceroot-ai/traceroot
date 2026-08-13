@@ -7,6 +7,7 @@ import {
   successResponse,
 } from "@/lib/auth-helpers";
 import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
+import { stableDatasetId } from "@/lib/eval/dataset-id";
 
 type RouteParams = { params: Promise<{ projectId: string }> };
 
@@ -87,26 +88,20 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   const parsed = CreateDatasetRequestSchema.safeParse(body);
   if (!parsed.success) return errorResponse(parsed.error.issues[0].message, 400);
 
-  // A dataset's name is its human identity in the project: creating a second one with the
-  // same name deduplicates against the first from the user's point of view, so deny it here
-  // (case-insensitive) rather than silently making a confusing duplicate. Scoped to UI-authored
-  // datasets (`clientDatasetId: null`) to match the partial unique index that backs it — an SDK
-  // dataset may legitimately share a display name (it converges by its stable client id), so it
-  // must not make this pre-check falsely 409 a valid UI create.
-  const existing = await prisma.dataset.findFirst({
-    where: {
-      projectId,
-      clientDatasetId: null,
-      name: { equals: parsed.data.name, mode: "insensitive" as const },
-    },
-    select: { name: true },
+  // A dataset's identity is its key — its name, by convention. We derive the stable
+  // client id the SAME way the SDK does (`ds_ = "ds_" + sha256(name)[:26]`, see
+  // stableDatasetId), so a dataset created here and one pushed from the SDK under the
+  // same name converge onto a single `(projectId, clientDatasetId)` row. Creating a
+  // name that already resolves to an existing dataset therefore OPENS it (idempotent),
+  // rather than erroring — same name means the same dataset. `key` is stored as the
+  // stable pre-image; the display `name` may later be renamed without changing identity.
+  const key = parsed.data.name;
+  const clientDatasetId = stableDatasetId(key);
+
+  const existing = await prisma.dataset.findUnique({
+    where: { projectId_clientDatasetId: { projectId, clientDatasetId } },
   });
-  if (existing) {
-    return errorResponse(
-      `A dataset named "${existing.name}" already exists in this project. Pick a different name.`,
-      409,
-    );
-  }
+  if (existing) return successResponse({ dataset: existing, created: false }, 200);
 
   try {
     const dataset = await prisma.dataset.create({
@@ -114,18 +109,19 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         projectId,
         name: parsed.data.name,
         description: parsed.data.description ?? null,
+        key,
+        clientDatasetId,
       },
     });
-    return successResponse({ dataset }, 201);
+    return successResponse({ dataset, created: true }, 201);
   } catch (e) {
-    // Two concurrent creates can both clear the pre-check above; the partial unique index
-    // (uq_dataset_project_lower_name_ui) is the race-safe backstop, so translate its
-    // violation into the same 409 rather than letting it surface as a 500.
+    // A concurrent create of the same name won the race on the (projectId,
+    // clientDatasetId) unique; re-read and answer idempotently by opening the existing one.
     if (isPrismaKnownError(e, "P2002")) {
-      return errorResponse(
-        `A dataset named "${parsed.data.name}" already exists in this project. Pick a different name.`,
-        409,
-      );
+      const raced = await prisma.dataset.findUnique({
+        where: { projectId_clientDatasetId: { projectId, clientDatasetId } },
+      });
+      if (raced) return successResponse({ dataset: raced, created: false }, 200);
     }
     throw e;
   }

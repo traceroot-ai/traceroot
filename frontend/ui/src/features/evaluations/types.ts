@@ -41,6 +41,9 @@ export const EVAL_RUN_STATUS_LABEL: Record<EvalRunStatus, string> = {
 
 export interface DatasetRow {
   id: string;
+  // The SDK-facing id ("ds_…"); null for datasets authored in the UI. This is the
+  // dataset's semantic id — `id` (a cuid) is only a URL/PK detail.
+  clientDatasetId: string | null;
   projectId: string;
   name: string;
   description: string | null;
@@ -184,9 +187,8 @@ export interface RunRow {
   evaluationName: string;
   datasetName: string | null;
   datasetVersionLabel: string;
-  /** Dataset-version create time + number, for the UI's time-sortable snowflake id
-   *  (list route only; optional so the run-detail/compare DTOs needn't supply them). */
-  datasetVersionCreatedAt?: string;
+  /** The pinned dataset version's 1-based number, shown beside the dataset name
+   *  (list route only; optional so the run-detail/compare DTOs needn't supply it). */
   datasetVersionNumber?: number;
   changeFromBaseline: number | null;
   errorCount: number;

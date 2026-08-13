@@ -85,7 +85,11 @@ export function useCreateDataset(projectId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: { name: string; description?: string | null }) =>
-      sendJson<{ dataset: DatasetRow }>(`/api/projects/${projectId}/datasets`, "POST", input),
+      sendJson<{ dataset: DatasetRow; created: boolean }>(
+        `/api/projects/${projectId}/datasets`,
+        "POST",
+        input,
+      ),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["datasets"] }),
   });
 }

@@ -59,9 +59,14 @@ export function NewDatasetPanel({
       { name: state.name.trim(), description: state.description.trim() || null },
       {
         onSuccess: (data) => {
-          toast({ title: "Dataset created", tone: "success" });
+          // Creating a name that already resolves to a dataset opens it instead of
+          // erroring (same name = same dataset), so the toast reflects which happened.
+          toast({
+            title: data.created ? "Dataset created" : "Opened existing dataset",
+            tone: "success",
+          });
           onOpenChange(false);
-          // Jump straight into the dataset that was just created.
+          // Jump straight into the dataset (the one just created, or the existing one).
           router.push(`/projects/${projectId}/datasets/${data.dataset.id}`);
         },
         onError: (e) =>

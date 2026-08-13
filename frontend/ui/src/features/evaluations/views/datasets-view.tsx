@@ -133,9 +133,9 @@ export function DatasetsView({ projectId }: { projectId: string }) {
                     <Td className="text-foreground">{dataset.name}</Td>
                     <Td
                       className="max-w-[240px] truncate font-mono text-[11px] text-muted-foreground"
-                      title={dataset.id}
+                      title={dataset.clientDatasetId ?? dataset.id}
                     >
-                      {dataset.id}
+                      {dataset.clientDatasetId ?? dataset.id}
                     </Td>
                     <Td className="text-right tabular-nums text-muted-foreground">
                       {dataset.caseCount}

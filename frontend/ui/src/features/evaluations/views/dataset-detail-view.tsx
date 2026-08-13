@@ -37,7 +37,6 @@ import {
 import { TraceIOSection } from "@/features/traces/components/TraceIOValue";
 import { formatCost, formatElapsed } from "./evaluations-view";
 import { caseDisplayId, truncate } from "@/features/offline-eval/utils";
-import { versionSnowflake } from "@/lib/eval/snowflake";
 import { useDataset, useTestCaseRuns, useDeleteTestCase } from "../hooks";
 import { TestCaseEditorModal, type TestCaseEditorMode } from "../components/test-case-editor-modal";
 import { DeleteTestCaseDialog } from "../components/delete-test-case-dialog";
@@ -257,32 +256,18 @@ export function DatasetDetailView({
                     value={selectedVersion?.id ?? ""}
                     onValueChange={(v) => setSelectedVersionId(v)}
                   >
-                    {/* Trigger shows the time-sortable snowflake id;
-                          the dropdown pairs each version NUMBER with its snowflake so
-                          both the ordering and the exact version id are visible. w-auto
-                          hugs the id (no dead gap before the chevron); the dropdown grows
-                          to fit its wider "<n>  <snowflake>" rows on its own. */}
+                    {/* The version id is its 1-based number; the cuid `v.id` stays the
+                          Select's value/PK only. w-auto hugs the number so there's no
+                          dead gap before the chevron. */}
                     <SelectTrigger className="h-7 w-auto gap-2 text-[12px]" title="Dataset version">
-                      <span className="whitespace-nowrap font-mono text-[12px]">
-                        {selectedVersion
-                          ? versionSnowflake(
-                              selectedVersion.createTime,
-                              selectedVersion.versionNumber,
-                            )
-                          : "Current version"}
+                      <span className="whitespace-nowrap text-[12px] tabular-nums">
+                        {selectedVersion ? `v${selectedVersion.versionNumber}` : "Current version"}
                       </span>
                     </SelectTrigger>
                     <SelectContent align="end">
                       {versions.map((v) => (
                         <SelectItem key={v.id} value={v.id} className="text-[12px]">
-                          <span className="flex items-center gap-2">
-                            <span className="tabular-nums text-muted-foreground">
-                              {v.versionNumber}
-                            </span>
-                            <span className="font-mono">
-                              {versionSnowflake(v.createTime, v.versionNumber)}
-                            </span>
-                          </span>
+                          <span className="tabular-nums">v{v.versionNumber}</span>
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -674,9 +659,7 @@ function CasePanel({
               </div>
             ) : runs.length === 0 ? (
               <div className="h-full overflow-auto p-4">
-                <EmptyState>
-                  No experiment has measured this test case yet.
-                </EmptyState>
+                <EmptyState>No experiment has measured this test case yet.</EmptyState>
               </div>
             ) : (
               // Edge-to-edge table (no inset padding), so it reads like the Experiments

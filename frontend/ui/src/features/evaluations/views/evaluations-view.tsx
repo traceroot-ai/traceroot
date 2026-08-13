@@ -21,7 +21,6 @@ import { useKeywordSearch } from "@/lib/hooks/use-keyword-search";
 import { Table, TBody, Td, Th, THead, TR, TRHead } from "@/components/ui/table";
 import { DatasetActionsMenu, EmptyState, Timestamp } from "@/features/offline-eval/components";
 import { ProjectBreadcrumb } from "@/features/projects/components";
-import { versionSnowflake } from "@/lib/eval/snowflake";
 import { useEvaluationRuns, useDeleteRuns } from "../hooks";
 import { DeleteRunDialog } from "../components/delete-run-dialog";
 import { EVAL_RUN_STATUS_LABEL, type EvalRunStatus, type RunRow } from "../types";
@@ -79,7 +78,7 @@ export function EvaluationsView({ projectId }: { projectId: string }) {
 
 /**
  * One immutable run row: experiment (lineage) name, the run's own name (candidate
- * version + run number), the dataset (name + version snowflake, linking to the
+ * version + run number), the dataset (name + version number, linking to the
  * dataset), and total/average cost and duration. Clicking the row opens the run
  * detail; the far-right menu deletes the run.
  */
@@ -102,12 +101,9 @@ function RunTableRow({
   const avgCost = r.cost != null && r.caseCount > 0 ? r.cost / r.caseCount : null;
   const avgDurationMs =
     r.elapsedMs != null && r.caseCount > 0 ? Math.round(r.elapsedMs / r.caseCount) : null;
-  // Time-sortable dataset-version id (à la the dataset page); falls back to the
-  // label if the route didn't carry the version's create time / number.
-  const datasetSnowflake =
-    r.datasetVersionCreatedAt && r.datasetVersionNumber != null
-      ? versionSnowflake(r.datasetVersionCreatedAt, r.datasetVersionNumber)
-      : null;
+  // The dataset version pinned by this run, shown as its 1-based number (matching
+  // the dataset page's version selector).
+  const datasetVersion = r.datasetVersionNumber != null ? `v${r.datasetVersionNumber}` : null;
   return (
     <TR interactive onClick={() => router.push(`/projects/${projectId}/evaluations/${r.id}`)}>
       {/* Selection — clicking the checkbox must not open the run detail. */}
@@ -130,7 +126,7 @@ function RunTableRow({
       </Td>
       <Td className="text-muted-foreground">
         {/* Dataset name links to the dataset; stop the click from also opening the
-            run detail (the row's own onClick). The version snowflake sits beside it. */}
+            run detail (the row's own onClick). The version number sits beside it. */}
         <Link
           href={`/projects/${projectId}/datasets/${r.datasetId}`}
           onClick={(e) => e.stopPropagation()}
@@ -138,7 +134,9 @@ function RunTableRow({
         >
           {r.datasetName}
         </Link>{" "}
-        {datasetSnowflake && <span className="font-mono text-[11px]">{datasetSnowflake}</span>}
+        {datasetVersion && (
+          <span className="text-[11px] tabular-nums text-muted-foreground">{datasetVersion}</span>
+        )}
       </Td>
       <Td className="text-right tabular-nums text-muted-foreground">{formatCost(r.cost)}</Td>
       <Td className="text-right tabular-nums text-muted-foreground">{formatCost(avgCost)}</Td>

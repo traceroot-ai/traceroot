@@ -304,9 +304,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       evaluationName: r.evaluation.name,
       datasetName: datasetName.get(r.datasetId) ?? null,
       datasetVersionLabel: r.datasetVersion.label,
-      // Raw fields for the UI's time-sortable dataset-version snowflake (see
-      // lib/eval/snowflake); the list shows "<snowflake> <dataset name>".
-      datasetVersionCreatedAt: r.datasetVersion.createTime.toISOString(),
+      // The pinned dataset version's number; the list shows "<dataset name> v<n>".
       datasetVersionNumber: r.datasetVersion.versionNumber,
       cost,
       // Metric-first: no single headline delta or per-case improved/regressed count from a

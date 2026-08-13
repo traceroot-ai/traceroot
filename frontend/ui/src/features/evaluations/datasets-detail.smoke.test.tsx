@@ -15,7 +15,6 @@ import { describe, it, expect, vi, afterEach, beforeAll, beforeEach } from "vite
 import { render, cleanup, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@/components/ui/toast";
-import { versionSnowflake } from "@/lib/eval/snowflake";
 
 /** Mutable so a test can exercise the ?case=<id> deep link. */
 let searchParams = new URLSearchParams();
@@ -288,10 +287,10 @@ describe("Dataset detail — versions", () => {
     await screen.findByText(/charged twice/);
 
     fireEvent.click(screen.getByRole("combobox"));
-    // Options now read "<number> <snowflake>" (no "v" prefix); pick v1 by its
-    // derived snowflake, which also asserts the snowflake id is rendered.
-    const v1Snow = versionSnowflake(V1.createTime, V1.versionNumber);
-    fireEvent.click(await screen.findByRole("option", { name: new RegExp(v1Snow) }));
+    // Each option is the version id as its 1-based number ("v<n>"); pick v1.
+    fireEvent.click(
+      await screen.findByRole("option", { name: new RegExp(`^v${V1.versionNumber}$`) }),
+    );
 
     // The older snapshot's content loads (no read-only banner — that was removed).
     expect(await screen.findByText("seeded ticket")).toBeDefined();
@@ -453,9 +452,7 @@ describe("Dataset detail — the slide-in case panel", () => {
     mountDetail();
     await openCase(/charged twice/);
     fireEvent.click(screen.getByRole("button", { name: /Experiments/ }));
-    expect(
-      await screen.findByText(/No experiment has measured this test case yet/),
-    ).toBeDefined();
+    expect(await screen.findByText(/No experiment has measured this test case yet/)).toBeDefined();
   });
 
   // In-panel editing (Edit → line-numbered fields → Save/PATCH) is deferred;
