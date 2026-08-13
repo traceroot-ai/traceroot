@@ -47,6 +47,9 @@ const stored = {
   name: "support",
   description: "tickets",
   currentVersionId: "dv2",
+  // The dataset key (pre-image of dataset_id) is echoed back so a pulled dataset
+  // recovers it when key != name.
+  key: "support-tickets",
 };
 
 async function body(res: { json: () => Promise<unknown> }) {
@@ -74,6 +77,7 @@ describe("GET", () => {
       name: "support",
       description: "tickets",
       current_dataset_version_id: "dv2",
+      key: "support-tickets",
     });
     // The project comes from the key, so another project's id reads as not found.
     expect(prismaMock.dataset.findFirst.mock.calls[0][0].where).toEqual({

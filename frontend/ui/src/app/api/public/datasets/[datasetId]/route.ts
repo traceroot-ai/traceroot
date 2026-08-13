@@ -23,6 +23,8 @@ export async function GET(request: Request, { params }: RouteParams) {
     name: dataset.name,
     description: dataset.description,
     current_dataset_version_id: dataset.currentVersionId,
+    // The pre-image of dataset_id, so a pulled dataset recovers its key (key != name).
+    key: dataset.key,
   });
 }
 
@@ -59,12 +61,13 @@ export async function PATCH(request: Request, { params }: RouteParams) {
         ? { metadata: c.metadata === null ? Prisma.DbNull : (c.metadata as Prisma.InputJsonValue) }
         : {}),
     },
-    select: { id: true, name: true, description: true, currentVersionId: true },
+    select: { id: true, name: true, description: true, currentVersionId: true, key: true },
   });
   return NextResponse.json({
     dataset_id: datasetId,
     name: updated.name,
     description: updated.description,
     current_dataset_version_id: updated.currentVersionId,
+    key: updated.key,
   });
 }

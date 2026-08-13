@@ -707,6 +707,13 @@
           "type": "json_object",
           "required": false,
           "nullable": true
+        },
+        "key": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 200,
+          "required": false,
+          "nullable": false
         }
       }
     },

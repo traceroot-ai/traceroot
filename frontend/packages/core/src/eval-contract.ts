@@ -502,6 +502,10 @@ export const PublicUpsertDatasetRequestSchema = z
     name: z.string().min(1).max(200),
     description: z.string().max(2000).nullable().optional(),
     metadata: MetadataSchema.nullable().optional(),
+    // The pre-image the SDK hashed into `dataset_id` (by default it equals `name`).
+    // Optional and additive — older SDKs omit it. Persisted and echoed back so a
+    // pulled dataset can recover its true key when `key != name`.
+    key: z.string().min(1).max(200).optional(),
   })
   .strict();
 export type PublicUpsertDatasetRequest = z.infer<typeof PublicUpsertDatasetRequestSchema>;

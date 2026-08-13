@@ -464,6 +464,12 @@ model Dataset {
   // Scoping it to the project makes the keyspace per-tenant by construction;
   // public-API lookups use `projectId_clientDatasetId`, never `id`.
   clientDatasetId  String?  @map("client_dataset_id") @db.VarChar
+  // The pre-image the SDK hashes into `clientDatasetId` (dataset_id = "ds_" +
+  // sha256(key); by default key == name). Stored and echoed back on reads so a
+  // pulled dataset recovers its true key and keeps case ids convergent even when
+  // key != name (an explicit key, or a UI rename). The platform never interprets
+  // it — it is purely an SDK-side identity anchor.
+  key              String?  @map("key") @db.VarChar
   projectId        String   @map("project_id") @db.VarChar
   name             String   @db.VarChar
   description      String?  @db.Text
