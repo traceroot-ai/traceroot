@@ -11,8 +11,10 @@ export type ResolvedSession = {
 /**
  * Resolve a user from a raw session token via a direct database lookup.
  *
- * Shared by the internal routes the Python backend calls to introspect a user's
- * CLI credential (validate-user-token, user-memberships). Resolving by a direct
+ * Shared by the routes that resolve a raw session token: the internal
+ * `validate-user-token` route the Python backend calls to introspect a user's
+ * CLI credential, and the `/api/cli/token` mint route that exchanges it for a
+ * short-lived access JWT. Resolving by a direct
  * `session.token` lookup deliberately keeps the credential off the public
  * better-auth surface: enabling the bearer plugin so `auth.api.getSession` would
  * accept an `Authorization: Bearer <token>` header would also let that same CLI

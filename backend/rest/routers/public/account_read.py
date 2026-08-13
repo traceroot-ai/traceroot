@@ -7,14 +7,17 @@ on :data:`AccountStampedAuth`, which authenticates a user session token only.
 
 The account membership graph lives in Postgres/Prisma, so the listing is
 delegated to the Next.js internal ``user-memberships`` route (secret-authed,
-keyed by the caller's token). The raw token is never logged.
+keyed by the resolved user id). The credential (session token or CLI access
+JWT) is authenticated by :data:`AccountStampedAuth`; the handler forwards only
+the resolved ``user_id`` — never the raw credential — so both credential kinds
+share one listing path.
 """
 
 import logging
-from typing import Annotated, Any
+from typing import Any
 
 import httpx
-from fastapi import APIRouter, Header, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 
 from rest.rate_limit import (
     BUCKET_READ,
@@ -54,43 +57,17 @@ def _account_service_error() -> HTTPException:
     )
 
 
-def _bearer_token(authorization: str | None) -> str:
-    """Extract the bearer token from an ``Authorization`` header.
-
-    The value has already been authenticated by :data:`AccountStampedAuth`; this
-    re-reads it so the route can forward the raw token to the internal listing
-    call. The token is never logged.
-
-    Args:
-        authorization (str | None): The ``Authorization: Bearer <token>`` header.
-
-    Returns:
-        str: The raw bearer token.
-
-    Raises:
-        HTTPException: 401 if the header is missing or malformed (defensive — the
-            dependency has already validated it).
-    """
-    parts = (authorization or "").split(" ", 1)
-    if len(parts) != 2 or parts[0].lower() != "bearer" or not parts[1].strip():
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Authorization header format. Expected: Bearer <token>",
-        )
-    return parts[1]
-
-
-async def _fetch_memberships(token: str) -> list[dict[str, Any]]:
-    """Fetch the caller's workspace/project graph from the internal route.
+async def _fetch_memberships(user_id: str) -> list[dict[str, Any]]:
+    """Fetch a user's workspace/project graph from the internal route.
 
     Calls the Next.js internal ``user-memberships`` route (secret-authed, keyed
-    by the token). Fails closed with a 503 on any ambiguity — network error,
-    unexpected status, or a malformed body — mirroring the auth siblings. The
-    raw token is never logged.
+    by the resolved ``user_id`` the caller has already authenticated). Fails
+    closed with a 503 on any ambiguity — network error, unexpected status, or a
+    malformed body — mirroring the auth siblings. The user id is never logged.
 
     Args:
-        token (str): The caller's raw user session token, forwarded to the
-            internal route. Never logged.
+        user_id (str): The authenticated user's id, forwarded to the internal
+            route. Never logged.
 
     Returns:
         list[dict[str, Any]]: The ``workspaces`` array, each entry carrying
@@ -104,7 +81,7 @@ async def _fetch_memberships(token: str) -> list[dict[str, Any]]:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
                 f"{settings.traceroot_ui_url}/api/internal/user-memberships",
-                json={"token": token},
+                json={"userId": user_id},
                 headers={"X-Internal-Secret": settings.internal_api_secret},
             )
     except httpx.RequestError as e:
@@ -141,7 +118,6 @@ async def list_workspaces(
     request: Request,
     response: Response,
     auth: AccountStampedAuth,
-    authorization: Annotated[str | None, Header()] = None,
 ) -> PublicWorkspaceListResponse:
     """List the workspaces the authenticated user belongs to.
 
@@ -151,16 +127,14 @@ async def list_workspaces(
     Args:
         request (Request): Incoming request (rate-limit plumbing).
         response (Response): Outgoing response (rate-limit plumbing).
-        auth (AccountStampedAuth): Account-scope user auth; also stamps the
-            per-user rate-limit identity.
-        authorization (str | None): The bearer header, re-read to forward the
-            already-authenticated token to the internal listing call.
+        auth (AccountStampedAuth): Account-scope user auth (session token or CLI
+            access JWT); carries the resolved ``user_id`` and stamps the per-user
+            rate-limit identity.
 
     Returns:
         PublicWorkspaceListResponse: The user's workspaces (id, name, role).
     """
-    token = _bearer_token(authorization)
-    workspaces = await _fetch_memberships(token)
+    workspaces = await _fetch_memberships(auth.user_id)
     try:
         items = [
             WorkspaceListItem(id=ws["id"], name=ws["name"], role=ws["role"]) for ws in workspaces
@@ -181,7 +155,6 @@ async def list_projects(
     request: Request,
     response: Response,
     auth: AccountStampedAuth,
-    authorization: Annotated[str | None, Header()] = None,
     workspace_id: str | None = Query(
         None, description="Restrict the result to projects in this workspace."
     ),
@@ -196,10 +169,9 @@ async def list_projects(
     Args:
         request (Request): Incoming request (rate-limit plumbing).
         response (Response): Outgoing response (rate-limit plumbing).
-        auth (AccountStampedAuth): Account-scope user auth; also stamps the
-            per-user rate-limit identity.
-        authorization (str | None): The bearer header, re-read to forward the
-            already-authenticated token to the internal listing call.
+        auth (AccountStampedAuth): Account-scope user auth (session token or CLI
+            access JWT); carries the resolved ``user_id`` and stamps the per-user
+            rate-limit identity.
         workspace_id (str | None): Optional filter; when given, only projects in
             that workspace are returned.
 
@@ -207,8 +179,7 @@ async def list_projects(
         PublicProjectListResponse: The accessible projects (id, name,
             workspace_id, workspace_name).
     """
-    token = _bearer_token(authorization)
-    workspaces = await _fetch_memberships(token)
+    workspaces = await _fetch_memberships(auth.user_id)
     items: list[ProjectListItem] = []
     try:
         for ws in workspaces:
