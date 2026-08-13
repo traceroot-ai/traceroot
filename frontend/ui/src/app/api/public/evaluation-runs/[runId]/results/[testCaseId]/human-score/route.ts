@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
-import { prisma, CreateHumanScoreRequestSchema } from "@traceroot/core";
+import { prisma, Prisma, CreateHumanScoreRequestSchema } from "@traceroot/core";
 import { requireApiKeyProject } from "@/lib/eval/auth";
+
+const isUniqueViolation = (e: unknown) =>
+  e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002";
 
 type RouteParams = { params: Promise<{ runId: string; testCaseId: string }> };
 
@@ -43,12 +46,31 @@ export async function POST(request: Request, { params }: RouteParams) {
     reviewer: h.reviewer,
     status: "reviewed",
   };
-  const created = await prisma.humanScore.upsert({
-    where: { resultId_dimension: { resultId: result.id, dimension: h.dimension } },
-    create: { resultId: result.id, projectId, dimension: h.dimension, ...fields },
-    update: fields,
-    select: { id: true },
-  });
+  // upsert is not atomic against a concurrent insert, so two first reviews of the same
+  // (result, dimension) can race: the loser hits the uq_human_score_result_dimension
+  // P2002. Retry once — the second pass takes the update path against the winner's row —
+  // instead of surfacing it as a 500 (mirrors the /scores route). (LOW-d)
+  const upsertHumanScore = () =>
+    prisma.humanScore.upsert({
+      where: { resultId_dimension: { resultId: result.id, dimension: h.dimension } },
+      create: { resultId: result.id, projectId, dimension: h.dimension, ...fields },
+      update: fields,
+      select: { id: true },
+    });
+
+  let created: { id: string };
+  try {
+    created = await upsertHumanScore();
+  } catch (e) {
+    if (!isUniqueViolation(e)) {
+      return NextResponse.json({ error: "Failed to record human score" }, { status: 500 });
+    }
+    try {
+      created = await upsertHumanScore();
+    } catch {
+      return NextResponse.json({ error: "Failed to record human score" }, { status: 500 });
+    }
+  }
 
   return NextResponse.json({ human_score_id: created.id }, { status: 201 });
 }
