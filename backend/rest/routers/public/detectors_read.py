@@ -52,7 +52,7 @@ async def list_detectors(
     ),
 ):
     """List the detectors in the API key's project (newest first)."""
-    return list_detectors_page(service, auth.project_id, limit, start_after, end_before)
+    return await list_detectors_page(service, auth.project_id, limit, start_after, end_before)
 
 
 @router.get("/findings", response_model=PublicFindingListResponse, operation_id="list_findings")
@@ -75,7 +75,7 @@ async def list_findings(
     trace_id: str | None = Query(None, description="Filter to a single trace"),
 ):
     """List recent detector findings for the API key's project (newest first)."""
-    return list_findings_page(
+    return await list_findings_page(
         service,
         auth.billing_plan,
         auth.project_id,
@@ -99,7 +99,7 @@ async def get_finding(
     service: DetectorReaderService = Depends(get_detector_reader_service),
 ):
     """Get a single finding by id for the key's project."""
-    return require_finding(
+    return await require_finding(
         lambda: service.get_finding(auth.project_id, finding_id), auth.billing_plan
     )
 
@@ -118,6 +118,6 @@ async def get_finding_by_trace(
     service: DetectorReaderService = Depends(get_detector_reader_service),
 ):
     """Get the finding for a single trace (findings are 1-per-trace)."""
-    return require_finding(
+    return await require_finding(
         lambda: service.get_finding_by_trace(auth.project_id, trace_id), auth.billing_plan
     )

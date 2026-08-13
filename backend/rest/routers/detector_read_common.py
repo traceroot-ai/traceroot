@@ -4,9 +4,11 @@ The public (API-key) and internal (user/service) detector read routers expose
 the same reads over the same service and response schemas; only the auth
 source differs. Each router resolves auth and declares its params, then
 delegates here, so retention and error-mapping semantics cannot drift between
-the two surfaces.
+the two surfaces. The reader's ClickHouse/Postgres clients are synchronous, so
+every service call runs via ``asyncio.to_thread`` to keep it off the event loop.
 """
 
+import asyncio
 import logging
 from collections.abc import Callable
 from datetime import datetime
@@ -25,7 +27,7 @@ from rest.services.detector_reader import DetectorReaderService
 logger = logging.getLogger(__name__)
 
 
-def list_detectors_page(
+async def list_detectors_page(
     service: DetectorReaderService,
     project_id: str,
     limit: int,
@@ -48,7 +50,8 @@ def list_detectors_page(
         PublicDetectorListResponse: The page plus pagination meta.
     """
     try:
-        items, total = service.list_detectors(
+        items, total = await asyncio.to_thread(
+            service.list_detectors,
             project_id=project_id,
             limit=limit,
             start_after=start_after,
@@ -66,7 +69,7 @@ def list_detectors_page(
     )
 
 
-def list_findings_page(
+async def list_findings_page(
     service: DetectorReaderService,
     billing_plan: str,
     project_id: str,
@@ -93,7 +96,8 @@ def list_findings_page(
     """
     start_after, end_before = clamp_retention_window(billing_plan, start_after, end_before)
     try:
-        items, total = service.list_findings(
+        items, total = await asyncio.to_thread(
+            service.list_findings,
             project_id=project_id,
             limit=limit,
             start_after=start_after,
@@ -113,7 +117,9 @@ def list_findings_page(
     )
 
 
-def require_finding(fetch: Callable[[], FindingDetail | None], billing_plan: str) -> FindingDetail:
+async def require_finding(
+    fetch: Callable[[], FindingDetail | None], billing_plan: str
+) -> FindingDetail:
     """Run a reader fetch, mapping None -> 404 and reader errors -> a clean 500.
 
     Args:
@@ -124,7 +130,7 @@ def require_finding(fetch: Callable[[], FindingDetail | None], billing_plan: str
         FindingDetail: The finding, when present and inside the retention window.
     """
     try:
-        finding = fetch()
+        finding = await asyncio.to_thread(fetch)
     except Exception as e:
         logger.exception(f"Error reading detector finding: {e}")
         raise HTTPException(
