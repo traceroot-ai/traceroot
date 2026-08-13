@@ -303,8 +303,13 @@ def _get_trace_summaries(
     ch = get_clickhouse_client()
     parameters = {"project_id": project_id, "trace_ids": trace_ids}
 
+    # The rows below are read positionally, so the gated-off shape substitutes a
+    # constant for the metadata aggregate instead of dropping the column.
+    span_metadata_expr = "groupUniqArray(metadata_map)" if include_trace_metadata else "[]"
+    span_metadata_source = ", metadata_map" if include_trace_metadata else ""
+
     result = ch.query(
-        """
+        f"""
         SELECT
             trace_id,
             groupUniqArray(environment) AS environments,
@@ -312,19 +317,19 @@ def _get_trace_summaries(
             sum(cost) AS cost,
             sum(total_tokens) AS total_tokens,
             if(
-                min(span_start_time) IS NOT NULL AND max(span_end_time) IS NOT NULL,
+                max(span_end_time) IS NOT NULL,
                 dateDiff('millisecond', min(span_start_time), max(span_end_time)),
                 NULL
             ) AS duration_ms,
             countIf(status = 'ERROR') AS errors,
-            groupArray(metadata_map) AS span_metadata_maps,
+            {span_metadata_expr} AS span_metadata_maps,
             min(span_start_time) AS first_span_start
         FROM (
             SELECT trace_id, span_id, environment, model_name, cost, total_tokens,
-                   span_start_time, span_end_time, status, metadata_map
+                   span_start_time, span_end_time, status{span_metadata_source}
             FROM spans
-            WHERE project_id = {project_id:String}
-              AND trace_id IN {trace_ids:Array(String)}
+            WHERE project_id = {{project_id:String}}
+              AND trace_id IN {{trace_ids:Array(String)}}
             ORDER BY ch_update_time DESC
             LIMIT 1 BY project_id, trace_id, span_id
         )

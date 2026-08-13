@@ -270,6 +270,7 @@ def test_the_summary_names_every_field_a_trigger_can_be_built_on(monkeypatch):
             "metadata": {"tenant": ["acme"], "tier": ["gold"]},
         }
     }
+    assert "groupUniqArray(metadata_map)" in ch.calls[0][0]
     assert ch.calls[1][1]["trace_ids"] == ["t1"]
 
 
@@ -297,15 +298,31 @@ def test_the_trace_scope_read_is_bounded_by_the_data_not_the_clock(monkeypatch):
     assert summaries["t1"]["metadata"] == {"tenant": ["acme"]}
 
 
-def test_no_metadata_condition_means_the_traces_table_is_never_read(monkeypatch):
-    """The gate exists to keep a second table off the ingest path for the detectors
-    that do not need it, which is most of them."""
+def test_no_metadata_condition_means_no_metadata_is_read_at_either_scope(monkeypatch):
+    """The gate keeps a second table off the ingest path and the span-side
+    metadata aggregate out of the batch for the detectors that do not need
+    either, which is most of them. The gated-off SELECT keeps the column's
+    position as a constant `[]`, so every field after it must still land where
+    the positional reads expect it."""
     ch = _fake_clickhouse(
         monkeypatch,
-        [_span_row("t1", datetime(2026, 8, 1, 12, 0), [{"tier": "gold"}])],
+        [_span_row("t1", datetime(2026, 8, 1, 12, 0), [])],
     )
 
     summaries = _get_trace_summaries("proj-1", ["t1"], include_trace_metadata=False)
 
     assert len(ch.calls) == 1
-    assert summaries["t1"]["metadata"] == {"tier": ["gold"]}
+    spans_sql = ch.calls[0][0]
+    assert "groupUniqArray(metadata_map)" not in spans_sql
+    assert ", metadata_map" not in spans_sql
+    assert summaries == {
+        "t1": {
+            "environment": ["prod", "staging"],
+            "model_name": ["gpt-4"],
+            "cost": Decimal("0.25"),
+            "total_tokens": 1200,
+            "duration_ms": 4500,
+            "errors": 2,
+            "metadata": {},
+        }
+    }
