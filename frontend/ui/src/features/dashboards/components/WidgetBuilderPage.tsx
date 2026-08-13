@@ -3,16 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   Select,
   SelectContent,
@@ -36,7 +29,10 @@ import {
 import { FIELD_UNIT } from "@/features/filters/filter-controls";
 import { fieldIcon } from "./field-icons";
 import { FilterRow } from "./FilterRow";
+import { PageBackHeader } from "./PageBackHeader";
+import { PreviewRangeSelect } from "./PreviewRangeSelect";
 import { QueryWidgetRenderer } from "./renderers";
+import { FieldLabel, SectionBox } from "./SectionBox";
 
 const ModelIcon = fieldIcon("model_name");
 
@@ -67,23 +63,6 @@ function isHistogramBlocked(
 ): boolean {
   const field = draft.metric?.measure ? viewFields[draft.metric.measure] : undefined;
   return draft.display?.type === "histogram" && field?.histogrammable === false;
-}
-
-// Section boxes match the detector creation form: square-cornered border with
-// a muted header strip, sub-fields divided inside.
-function SectionBox({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="border border-border">
-      <div className="border-b border-border bg-muted/50 px-3 py-1.5">
-        <span className="text-[12px] font-medium text-muted-foreground">{label}</span>
-      </div>
-      <div className="divide-y divide-border">{children}</div>
-    </div>
-  );
-}
-
-function FieldLabel({ children }: { children: React.ReactNode }) {
-  return <p className="mb-1.5 text-[11px] font-medium text-muted-foreground">{children}</p>;
 }
 
 export function WidgetBuilderPage({
@@ -151,8 +130,13 @@ export function WidgetBuilderPage({
   const { data: schema } = useWidgetSchema(projectId);
   const view = draft.view as View | undefined;
   const viewFields: Record<string, WidgetSchemaField> = view ? (schema?.[view]?.fields ?? {}) : {};
+  // `viewFields` stays whole so a saved widget still finds its measure's label;
+  // only the dropdowns drop what the schema marks as another surface's field.
   const pickFields = (pred: (f: WidgetSchemaField) => boolean) =>
-    Object.entries(viewFields).filter(([, f]) => pred(f)) as [string, WidgetSchemaField][];
+    Object.entries(viewFields).filter(([, f]) => f.inBuilder !== false && pred(f)) as [
+      string,
+      WidgetSchemaField,
+    ][];
   const filterableFields = pickFields((f) => f.filterOps.length > 0);
   const measurableFields = pickFields((f) => f.aggs.length > 0);
   const groupableFields = pickFields((f) => f.groupable);
@@ -290,25 +274,13 @@ export function WidgetBuilderPage({
     }
   }
 
-  // Fall back to the default option so an unmatched id shows the same label
-  // as the window makeRange actually builds for it.
-  const activePreset =
-    RANGE_PRESETS.find((p) => p.id === rangeId) ??
-    RANGE_PRESETS.find((p) => p.id === DEFAULT_RANGE_ID)!;
-
   return (
     <div className="flex h-full flex-col text-[13px]">
-      {/* header */}
-      <div className="flex items-center gap-3 border-b border-border px-4 py-3">
-        <Link
-          href={dashboardUrl}
-          className="inline-flex items-center gap-1 text-[12px] text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          {dashboard?.name ?? "Dashboard"}
-        </Link>
-        <h1 className="text-[13px] font-medium">{isEdit ? "Edit widget" : "New widget"}</h1>
-      </div>
+      <PageBackHeader
+        backHref={dashboardUrl}
+        backLabel={dashboard?.name ?? "Dashboard"}
+        title={isEdit ? "Edit widget" : "New widget"}
+      />
 
       {/* body: config card left, preview right */}
       <div className="flex min-h-0 flex-1 gap-4 overflow-hidden p-4">
@@ -538,24 +510,7 @@ export function WidgetBuilderPage({
             >
               {effectiveTitle || "Preview"}
             </span>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="h-7 text-[12px]">
-                  {activePreset.label}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                {RANGE_PRESETS.map((preset) => (
-                  <DropdownMenuItem
-                    key={preset.id}
-                    className="text-[12px]"
-                    onClick={() => handleRangePick(preset.id)}
-                  >
-                    {preset.label}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <PreviewRangeSelect rangeId={rangeId} onRangeChange={handleRangePick} />
           </div>
           <div className="min-h-0 flex-1 p-4">
             {!specComplete || histogramBlocked ? (

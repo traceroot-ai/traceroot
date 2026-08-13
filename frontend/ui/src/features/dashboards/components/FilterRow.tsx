@@ -8,6 +8,7 @@ import {
   FIELD_UNIT,
   FieldDropdown,
   FilterControlSizeProvider,
+  MetadataKeyCombobox,
   NumberField,
   ParkedValueField,
   TextField,
@@ -34,12 +35,12 @@ export function FilterRow({
   range,
 }: {
   index: number;
-  filter: { field: string; op: string; value: string | number };
+  filter: { field: string; op: string; value: string | number; key?: string };
   filterableFields: [string, WidgetSchemaField][];
   fieldsMap: Record<string, WidgetSchemaField>;
   onChange: (
     idx: number,
-    patch: Partial<{ field: string; op: string; value: string | number }>,
+    patch: Partial<{ field: string; op: string; value: string | number; key: string | undefined }>,
   ) => void;
   onRemove: (idx: number) => void;
   projectId: string;
@@ -71,8 +72,8 @@ export function FilterRow({
   const showValueDropdown = enumerable && (options.length > 0 || isLoading);
 
   return (
-    // The widget builder's config column runs at 12px, so the shared controls
-    // render at their compact size here.
+    // Both consumers' config columns run at 12px, so the shared controls
+    // render at their compact size.
     <FilterControlSizeProvider size="sm">
       <div className="flex items-center gap-1">
         <FieldDropdown
@@ -82,11 +83,28 @@ export function FilterRow({
             icon: fieldIcon(key),
           }))}
           valueKey={filter.field || null}
-          // Picking a field selects its first operator, like the trace-list builder.
+          // Picking a field selects its first operator, like the trace-list builder,
+          // and drops the map key it was typed for. Cleared to undefined, not "" --
+          // the widget filter schema takes an absent key but rejects an empty one.
           onPick={(key) =>
-            onChange(index, { field: key, op: fieldsMap[key]?.filterOps[0] ?? "", value: "" })
+            onChange(index, {
+              field: key,
+              op: fieldsMap[key]?.filterOps[0] ?? "",
+              value: "",
+              key: undefined,
+            })
           }
         />
+
+        {fieldMeta?.requiresKey && (
+          <MetadataKeyCombobox
+            projectId={projectId}
+            startAfter={range.start.toISOString()}
+            endBefore={range.end.toISOString()}
+            value={filter.key ?? ""}
+            onValue={(v) => onChange(index, { key: v })}
+          />
+        )}
 
         {/* op — labeled with the trace-list filter vocabulary (is / ≥ / ≤) */}
         <Dropdown
