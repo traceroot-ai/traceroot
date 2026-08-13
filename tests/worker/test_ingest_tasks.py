@@ -224,6 +224,7 @@ class FakeConnection:
         self._cursor = cursor
         self.committed = False
         self.closed = False
+        self.rolled_back = False
 
     def cursor(self):
         return self._cursor
@@ -231,8 +232,27 @@ class FakeConnection:
     def commit(self):
         self.committed = True
 
+    def rollback(self):
+        self.rolled_back = True
+
     def close(self):
         self.closed = True
+
+
+class FakePool:
+    """Stands in for the module-level ThreadedConnectionPool: hands out one connection
+    and records that it was handed back (putconn), not closed."""
+
+    def __init__(self, conn):
+        self._conn = conn
+        self.returned = False
+
+    def getconn(self):
+        return self._conn
+
+    def putconn(self, conn):
+        assert conn is self._conn
+        self.returned = True
 
 
 class TestUpdateEvalResultCosts:
@@ -243,9 +263,9 @@ class TestUpdateEvalResultCosts:
     drove this function at all."""
 
     def _patch_connect(self, monkeypatch, cursor):
-        conn = FakeConnection(cursor)
-        monkeypatch.setattr("psycopg2.connect", lambda *a, **kw: conn)
-        return conn
+        pool = FakePool(FakeConnection(cursor))
+        monkeypatch.setattr("worker.ingest_tasks._get_pg_pool", lambda: pool)
+        return pool
 
     def test_writes_every_eval_trace_and_nullifs_the_costless_one(self, monkeypatch):
         """The write is UNCONDITIONAL — a zero total is still written, as NULLIF.
@@ -262,7 +282,7 @@ class TestUpdateEvalResultCosts:
         # Both traces are eval results (the scoping query returns both); only
         # "t-costed" has any non-scorer LLM cost, "t-zero" has none.
         cursor = FakeCursor(fetchall_result=[("t-costed",), ("t-zero",)])
-        conn = self._patch_connect(monkeypatch, cursor)
+        pool = self._patch_connect(monkeypatch, cursor)
 
         mock_ch = MagicMock()
         mock_ch.query.return_value = MagicMock(
@@ -287,8 +307,10 @@ class TestUpdateEvalResultCosts:
             assert "NULLIF" in sql
         assert by_trace["t-costed"][1] == (pytest.approx(0.02), "proj-1", "t-costed")
         assert by_trace["t-zero"][1] == (pytest.approx(0.0), "proj-1", "t-zero")
-        assert conn.committed is True
-        assert conn.closed is True
+        assert pool._conn.committed is True
+        # Pooled: the connection is returned to the pool (putconn), not closed (M17).
+        assert pool.returned is True
+        assert pool._conn.closed is False
 
     def test_no_eval_trace_ids_skips_clickhouse_and_updates(self, monkeypatch):
         """The scoping query (trace_id must belong to `evaluation_results`) returning

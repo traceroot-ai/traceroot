@@ -5,6 +5,7 @@ This module defines the async tasks that process trace data from S3 to ClickHous
 
 import json
 import logging
+import threading
 from collections import defaultdict
 from datetime import datetime
 
@@ -111,6 +112,29 @@ def _task_cost_by_trace(rows) -> dict[str, float]:
     return result
 
 
+_PG_POOL = None
+_PG_POOL_LOCK = threading.Lock()
+
+
+def _get_pg_pool():
+    """A lazily-created, thread-safe Postgres connection pool for the worker.
+
+    Cost derivation runs once per eval-bearing batch; opening a fresh
+    ``psycopg2.connect`` each time is pure connection churn (M17). A small module-level
+    ``ThreadedConnectionPool`` reuses connections across batches within a worker process.
+    """
+    global _PG_POOL
+    if _PG_POOL is None:
+        with _PG_POOL_LOCK:
+            if _PG_POOL is None:
+                from psycopg2 import pool as _pg_pool
+
+                from shared.config import settings
+
+                _PG_POOL = _pg_pool.ThreadedConnectionPool(1, 8, settings.database_url)
+    return _PG_POOL
+
+
 def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -> None:
     """Denormalize each evaluation trace's CANDIDATE-TASK cost onto its EvaluationResult.
 
@@ -142,12 +166,9 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
     """
     if not trace_ids:
         return
-    import psycopg2
-
-    from shared.config import settings
-
     try:
-        conn = psycopg2.connect(settings.database_url)
+        pg_pool = _get_pg_pool()
+        conn = pg_pool.getconn()
     except Exception:
         logger.warning("eval cost derivation: no Postgres connection", exc_info=True)
         return
@@ -160,31 +181,34 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
                 (project_id, list(trace_ids)),
             )
             eval_trace_ids = [r[0] for r in cur.fetchall()]
-            if not eval_trace_ids:
-                return
+            # No result rows yet for this batch's traces — nothing to write; the read
+            # transaction is still ended by the commit below so the pooled connection
+            # is handed back clean (not idle-in-transaction).
+            if eval_trace_ids:
+                # Pull the full span tree (not just cost-bearing spans) so the scorer
+                # subtree can be identified and excluded before summing.
+                rows = ch_client.query(
+                    "SELECT trace_id, span_id, parent_span_id, span_kind, cost FROM spans FINAL"
+                    " WHERE project_id = {pid:String} AND trace_id IN {ids:Array(String)}",
+                    parameters={"pid": project_id, "ids": eval_trace_ids},
+                ).result_rows
 
-            # Pull the full span tree (not just cost-bearing spans) so the scorer
-            # subtree can be identified and excluded before summing.
-            rows = ch_client.query(
-                "SELECT trace_id, span_id, parent_span_id, span_kind, cost FROM spans FINAL"
-                " WHERE project_id = {pid:String} AND trace_id IN {ids:Array(String)}",
-                parameters={"pid": project_id, "ids": eval_trace_ids},
-            ).result_rows
-
-            for trace_id, cost in _task_cost_by_trace(rows).items():
-                # Written unconditionally — see the docstring. NULLIF keeps a genuinely
-                # cost-less trace at NULL rather than a misleading 0.00, while still
-                # letting a previously over-reported cost be corrected back down.
-                cur.execute(
-                    "UPDATE evaluation_results SET cost = NULLIF(%s, 0), update_time = now()"
-                    " WHERE project_id = %s AND trace_id = %s",
-                    (cost, project_id, trace_id),
-                )
+                for trace_id, cost in _task_cost_by_trace(rows).items():
+                    # Written unconditionally — see the docstring. NULLIF keeps a genuinely
+                    # cost-less trace at NULL rather than a misleading 0.00, while still
+                    # letting a previously over-reported cost be corrected back down.
+                    cur.execute(
+                        "UPDATE evaluation_results SET cost = NULLIF(%s, 0), update_time = now()"
+                        " WHERE project_id = %s AND trace_id = %s",
+                        (cost, project_id, trace_id),
+                    )
         conn.commit()
     except Exception:
+        # A pooled connection must not be handed back mid-transaction.
+        conn.rollback()
         logger.warning("eval cost derivation failed", exc_info=True)
     finally:
-        conn.close()
+        pg_pool.putconn(conn)
 
 
 @app.task(
