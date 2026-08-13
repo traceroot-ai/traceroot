@@ -32,7 +32,7 @@ const SEVERITY_DISPLAY: Record<AlertSeverity, { label: string; tone: AlertTone }
   OK: { label: "OK", tone: "ok" },
   ALERT: { label: "Alert", tone: "alert" },
   NO_DATA: { label: "No Data", tone: "warning" },
-  UNKNOWN: { label: "Unknown", tone: "neutral" },
+  UNKNOWN: { label: "No Data", tone: "warning" },
 };
 
 const UNSENT = "The last notification could not be sent.";
@@ -123,8 +123,8 @@ export function resolveAlertDisplayState(alert: AlertDisplayInput): AlertDisplay
   if (alert.lastEvaluatedAt === null) {
     return withDetail(
       {
-        label: "Waiting for First Check",
-        tone: "neutral",
+        label: "No Data",
+        tone: "warning",
         isPaused: false,
         detail: "This rule has not run yet. Its first result appears within a minute.",
       },
