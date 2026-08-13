@@ -1,6 +1,12 @@
 import { prisma } from "@traceroot/core";
 
-export type ResolvedSession = { user: { id: string; email: string } } | null;
+export type ResolvedSession = {
+  // The session row id (NOT the token). Rides in the CLI access JWT as `sid` so
+  // a future write-path revocation check can verify this specific session is
+  // still live (revoking it in Active Sessions deletes the row).
+  sessionId: string;
+  user: { id: string; email: string };
+} | null;
 
 /**
  * Resolve a user from a raw session token via a direct database lookup.
@@ -22,6 +28,7 @@ export async function resolveSessionFromToken(token: string): Promise<ResolvedSe
   const session = await prisma.session.findUnique({
     where: { token },
     select: {
+      id: true,
       expiresAt: true,
       user: { select: { id: true, email: true } },
     },
@@ -31,5 +38,5 @@ export async function resolveSessionFromToken(token: string): Promise<ResolvedSe
     return null;
   }
 
-  return { user: session.user };
+  return { sessionId: session.id, user: session.user };
 }

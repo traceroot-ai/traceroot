@@ -12,13 +12,15 @@ beforeEach(() => {
 });
 
 describe("resolveSessionFromToken", () => {
-  it("returns the user for a live (unexpired) session, looked up by token", async () => {
+  it("returns the session id + user for a live (unexpired) session, looked up by token", async () => {
     findUniqueMock.mockResolvedValue({
+      id: "sess-1",
       expiresAt: new Date(Date.now() + 60_000),
       user: { id: "u1", email: "u@example.com" },
     });
 
     await expect(resolveSessionFromToken("tok")).resolves.toEqual({
+      sessionId: "sess-1",
       user: { id: "u1", email: "u@example.com" },
     });
     expect(findUniqueMock.mock.calls[0][0].where).toEqual({ token: "tok" });
