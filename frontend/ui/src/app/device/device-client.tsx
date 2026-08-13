@@ -8,7 +8,7 @@ import { authClient } from "@/lib/auth-client";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { formatUserCode } from "@/lib/device-user-code";
 import { DEVICE_CLIENT_IDS, DEVICE_CLIENT_NAMES } from "@/lib/auth-clients";
-import { mapDeviceErrorMessage } from "./device-error-messages";
+import { mapDeviceErrorMessage, isRecoverableDeviceError } from "./device-error-messages";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -44,7 +44,18 @@ type Phase =
   | { kind: "consent" }
   | { kind: "approved" }
   | { kind: "denied" }
-  | { kind: "error"; message: string };
+  // `recoverable` gates the "Try again" affordance: only a mistyped/unverified
+  // code can be re-entered here, so a locked/expired/used code shows guidance
+  // (get a fresh code from the CLI) with no looping retry button.
+  | { kind: "error"; message: string; recoverable: boolean };
+
+function errorPhase(err: Parameters<typeof mapDeviceErrorMessage>[0]): Phase {
+  return {
+    kind: "error",
+    message: mapDeviceErrorMessage(err),
+    recoverable: isRecoverableDeviceError(err),
+  };
+}
 
 function DeviceContent() {
   const router = useRouter();
@@ -56,8 +67,13 @@ function DeviceContent() {
 
   const [codeInput, setCodeInput] = useState(initialCode ? formatUserCode(initialCode) : "");
   const [entryError, setEntryError] = useState<string | null>(null);
-  const [activeCode, setActiveCode] = useState<string | null>(null);
-  const [phase, setPhase] = useState<Phase>({ kind: "entry" });
+  // A code in the URL (the CLI opened the "complete" verification URL, or we're
+  // returning from the sign-in round-trip) advances on its own — no manual
+  // Continue. The entry form is only for a bare /device visit with no code.
+  const [activeCode, setActiveCode] = useState<string | null>(initialCode || null);
+  const [phase, setPhase] = useState<Phase>(
+    initialCode ? { kind: "verifying" } : { kind: "entry" },
+  );
   const [actionPending, setActionPending] = useState(false);
 
   // Resolve the pending request once we have both a code and a signed-in
@@ -71,11 +87,18 @@ function DeviceContent() {
     }
 
     if (!sessionData?.user) {
-      // Round-trip the code through sign-in so it survives the redirect,
-      // including the Google OAuth hop. The target is built from user
-      // input (the entry field), so run it through the same same-origin
-      // guard used elsewhere before handing it to the router.
-      const target = safeCallbackUrl(`/device?user_code=${activeCode}`, "/device");
+      // Not signed in yet: go straight to sign-in, carrying the code back in
+      // the callbackUrl so the return lands on consent. better-auth stores the
+      // full callbackUrl (query included) in the OAuth state and redirects to
+      // it verbatim, so the code survives the Google hop. Carry client_id too so
+      // the returning consent screen still names the client. The target is built
+      // from user input (the entry field), so run it through the same
+      // same-origin guard used elsewhere before handing it to the router.
+      const params = new URLSearchParams({ user_code: activeCode });
+      if (clientId) {
+        params.set("client_id", clientId);
+      }
+      const target = safeCallbackUrl(`/device?${params.toString()}`, "/device");
       router.push(`/auth/sign-in?callbackUrl=${encodeURIComponent(target)}`);
       return;
     }
@@ -89,17 +112,16 @@ function DeviceContent() {
         return;
       }
       if (error) {
-        setPhase({ kind: "error", message: mapDeviceErrorMessage(error) });
+        setPhase(errorPhase(error));
         return;
       }
       if (data && data.status !== "pending") {
-        setPhase({
-          kind: "error",
-          message: mapDeviceErrorMessage({
+        setPhase(
+          errorPhase({
             error: "invalid_request",
             error_description: "Device code already processed",
           }),
-        });
+        );
         return;
       }
       setPhase({ kind: "consent" });
@@ -127,11 +149,20 @@ function DeviceContent() {
     }
     setActionPending(true);
     const { error } = await authClient.device.approve({ userCode: activeCode });
-    setActionPending(false);
     if (error) {
-      setPhase({ kind: "error", message: mapDeviceErrorMessage(error) });
+      setActionPending(false);
+      setPhase(errorPhase(error));
       return;
     }
+    // A signup routes the user here to approve before continuing to onboarding
+    // (?next), so hand off there now that the device is authorized. A plain
+    // sign-in carries no ?next — the user just returns to their terminal.
+    const next = searchParams.get("next");
+    if (next) {
+      router.push(safeCallbackUrl(next, "/"));
+      return;
+    }
+    setActionPending(false);
     setPhase({ kind: "approved" });
   }
 
@@ -143,7 +174,7 @@ function DeviceContent() {
     const { error } = await authClient.device.deny({ userCode: activeCode });
     setActionPending(false);
     if (error) {
-      setPhase({ kind: "error", message: mapDeviceErrorMessage(error) });
+      setPhase(errorPhase(error));
       return;
     }
     setPhase({ kind: "denied" });
@@ -154,6 +185,14 @@ function DeviceContent() {
     setEntryError(null);
     setCodeInput("");
     setPhase({ kind: "entry" });
+  }
+
+  // Signed in as the wrong account: the current code is already locked to this
+  // one, so drop this session and start clean. Authorizing a different account
+  // still needs a fresh code from the CLI — this just gets them out of here.
+  async function handleSwitchAccount() {
+    await authClient.signOut();
+    router.push("/auth/sign-in");
   }
 
   return (
@@ -190,6 +229,7 @@ function DeviceContent() {
               pending={actionPending}
               onApprove={handleApprove}
               onDeny={handleDeny}
+              onSwitchAccount={handleSwitchAccount}
             />
           )}
 
@@ -198,7 +238,11 @@ function DeviceContent() {
           {phase.kind === "denied" && <Denied />}
 
           {phase.kind === "error" && (
-            <ErrorState message={phase.message} onStartOver={handleStartOver} />
+            <ErrorState
+              message={phase.message}
+              recoverable={phase.recoverable}
+              onStartOver={handleStartOver}
+            />
           )}
         </CardContent>
       </Card>
@@ -255,16 +299,37 @@ type ConsentProps = {
   pending: boolean;
   onApprove: () => void;
   onDeny: () => void;
+  onSwitchAccount: () => void;
 };
 
-function Consent({ clientName, email, code, pending, onApprove, onDeny }: ConsentProps) {
+function Consent({
+  clientName,
+  email,
+  code,
+  pending,
+  onApprove,
+  onDeny,
+  onSwitchAccount,
+}: ConsentProps) {
   return (
     <div className="space-y-4">
       <div className="space-y-1 text-center">
         <p className="text-[13px]">
           <span className="font-medium">{clientName}</span> wants to sign in
         </p>
-        {email && <p className="text-[12px] text-muted-foreground">as {email}</p>}
+        {email && (
+          <div className="space-y-0.5 text-[12px] text-muted-foreground">
+            <p>as {email}</p>
+            <button
+              type="button"
+              onClick={onSwitchAccount}
+              disabled={pending}
+              className="underline hover:text-foreground disabled:opacity-50"
+            >
+              Not you? Sign out
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="border bg-muted/50 px-3 py-2 text-center">
@@ -325,16 +390,19 @@ function Denied() {
 
 type ErrorStateProps = {
   message: string;
+  recoverable: boolean;
   onStartOver: () => void;
 };
 
-function ErrorState({ message, onStartOver }: ErrorStateProps) {
+function ErrorState({ message, recoverable, onStartOver }: ErrorStateProps) {
   return (
     <div className="space-y-3 py-2 text-center">
       <p className="text-[13px] text-red-600 dark:text-red-400">{message}</p>
-      <Button variant="outline" size="sm" className="h-8 text-[13px]" onClick={onStartOver}>
-        Try again
-      </Button>
+      {recoverable && (
+        <Button variant="outline" size="sm" className="h-8 text-[13px]" onClick={onStartOver}>
+          Try again
+        </Button>
+      )}
     </div>
   );
 }
