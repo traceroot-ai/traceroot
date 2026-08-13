@@ -29,12 +29,16 @@ def secret(monkeypatch):
     return "test-secret"
 
 
+DEFAULT_CH_FAMILY = "detectors"
+
+
 @pytest.fixture()
-def mock_ch(monkeypatch):
-    """Mock the ClickHouse client used by the internal router."""
+def mock_ch(monkeypatch, request):
+    """Mock the ClickHouse client the endpoint family under test binds."""
     mock = MagicMock()
+    family = getattr(request.cls, "CH_FAMILY", DEFAULT_CH_FAMILY)
     monkeypatch.setattr(
-        "rest.routers.internal.get_clickhouse_client",
+        f"rest.routers.internal.{family}.get_clickhouse_client",
         lambda: mock,
     )
     return mock
@@ -782,6 +786,7 @@ def _otlp_body(
 
 
 class TestInternalTraceIngest:
+    CH_FAMILY = "ingest"
     URL = "/api/v1/internal/traces?project_id=proj-1"
 
     def test_rejects_missing_secret(self, client):
@@ -944,15 +949,19 @@ class TestInternalTraceIngest:
 
     def test_route_never_references_detection_enqueue(self):
         """Anti-recursion by construction: the module cannot enqueue detection."""
-        import rest.routers.internal as internal_module
+        from rest.routers.internal import ingest as ingest_module
 
-        assert "enqueue_detector_runs" not in inspect.getsource(internal_module)
+        source = inspect.getsource(ingest_module)
+        # The package __init__ only mounts sub-routers, so scanning it would assert nothing.
+        assert 'router.post("/traces"' in source
+        assert "enqueue_detector_runs" not in source
 
 
 class TestPerSpanProjectAttribution:
     """Attribute-at-source routing: the worker stamps traceroot.project_id
     per span; the request-level project id is only a single-project fallback."""
 
+    CH_FAMILY = "ingest"
     URL = "/api/v1/internal/traces"
 
     def test_mixed_project_batch_fans_each_trace_to_its_own_project(self, client, secret, mock_ch):
@@ -1057,6 +1066,7 @@ class TestPerSpanProjectAttribution:
 
 
 class TestUsageBillsEveryStoredRow:
+    CH_FAMILY = "usage"
     PARAMS: typing.ClassVar[dict[str, str]] = {
         "project_ids": "p1",
         "start": "2026-07-01T00:00:00Z",
