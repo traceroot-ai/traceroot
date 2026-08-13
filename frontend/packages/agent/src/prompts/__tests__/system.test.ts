@@ -33,6 +33,12 @@ describe("getSystemPrompt", () => {
     expect(prompt).toContain("root-cause analysis");
   });
 
+  it("lists the detector templates so coverage gaps get template recommendations", () => {
+    const prompt = getSystemPrompt({ projectId: "proj-123" });
+    expect(prompt).toContain("failure, hallucination, logic, task, safety, intent");
+    expect(prompt).toContain("recommend adding a detector with the");
+  });
+
   it("points a session context at get_session and download_session", () => {
     const prompt = getSystemPrompt({ projectId: "proj-123", traceSessionId: "sess-9" });
     expect(prompt).toContain("Currently viewing Session ID: sess-9");
