@@ -191,6 +191,11 @@ function DeviceContent() {
   // one, so drop this session and start clean. Authorizing a different account
   // still needs a fresh code from the CLI — this just gets them out of here.
   async function handleSwitchAccount() {
+    // Clear the code first. Signing out flips the session, which would otherwise
+    // re-fire the verify effect's signed-out branch and push a sign-in URL
+    // carrying this now-dead code — bouncing the user right back to it instead
+    // of the clean sign-in below.
+    setActiveCode(null);
     await authClient.signOut();
     router.push("/auth/sign-in");
   }
@@ -338,7 +343,8 @@ function Consent({
       </div>
 
       <p className="text-[12px] text-muted-foreground">
-        This grants {clientName} read access to your workspaces. You can revoke it any time from{" "}
+        Approving signs {clientName} in to your TraceRoot account. It stays signed in until you
+        revoke it from{" "}
         <Link href="/account/settings/sessions" className="underline hover:text-foreground">
           Active Sessions
         </Link>{" "}
