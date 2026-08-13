@@ -222,15 +222,18 @@ describe("DeviceClient", () => {
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 
-  it("shows a mapped message for an expired code", async () => {
+  it("shows a mapped message for an expired code (surfaced when approving)", async () => {
     setParams({ user_code: "abcd1234" });
     signedIn();
+    // The claim is deferred to the action, so the expired error appears on Approve.
     mocks.device.mockResolvedValue({
       data: null,
       error: { error: "expired_token", error_description: "User code has expired" },
     });
 
     render(<DeviceClient />);
+    await waitFor(() => screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
 
     await waitFor(() =>
       expect(
@@ -241,7 +244,7 @@ describe("DeviceClient", () => {
     );
   });
 
-  it("shows a mapped message for an invalid code", async () => {
+  it("shows a mapped message for an invalid code (surfaced when approving)", async () => {
     setParams({ user_code: "abcd1234" });
     signedIn();
     mocks.device.mockResolvedValue({
@@ -250,6 +253,8 @@ describe("DeviceClient", () => {
     });
 
     render(<DeviceClient />);
+    await waitFor(() => screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
 
     await waitFor(() =>
       expect(
@@ -260,7 +265,7 @@ describe("DeviceClient", () => {
     );
   });
 
-  it("shows an already-used message when the code has already been claimed", async () => {
+  it("shows an already-used message when the code has already been claimed (on approve)", async () => {
     setParams({ user_code: "abcd1234" });
     signedIn();
     mocks.device.mockResolvedValue({
@@ -269,6 +274,8 @@ describe("DeviceClient", () => {
     });
 
     render(<DeviceClient />);
+    await waitFor(() => screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
 
     await waitFor(() => expect(screen.getByText("This code has already been used.")).toBeDefined());
   });
@@ -309,7 +316,7 @@ describe("DeviceClient", () => {
     expect(screen.queryByText("Denied")).toBeNull();
   });
 
-  it("offers Try again for a mistyped code and returns to the entry form", async () => {
+  it("offers Try again for a mistyped code and returns to the entry form (on approve)", async () => {
     setParams({ user_code: "abcd1234" });
     signedIn();
     mocks.device.mockResolvedValue({
@@ -318,6 +325,8 @@ describe("DeviceClient", () => {
     });
 
     render(<DeviceClient />);
+    await waitFor(() => screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     await waitFor(() => screen.getByRole("button", { name: "Try again" }));
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
 
@@ -325,7 +334,7 @@ describe("DeviceClient", () => {
     expect(input.value).toBe("");
   });
 
-  it("shows no Try again for an expired code (terminal — needs a fresh code)", async () => {
+  it("shows no Try again for an expired code (terminal — needs a fresh code, on approve)", async () => {
     setParams({ user_code: "abcd1234" });
     signedIn();
     mocks.device.mockResolvedValue({
@@ -334,6 +343,8 @@ describe("DeviceClient", () => {
     });
 
     render(<DeviceClient />);
+    await waitFor(() => screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     await waitFor(() =>
       expect(
         screen.getByText(
@@ -344,13 +355,19 @@ describe("DeviceClient", () => {
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 
-  it("signs out and returns to sign-in from the consent 'Not you?' action", async () => {
+  it("does not claim the code on load — no verify call until the user acts", async () => {
+    setParams({ user_code: "abcd1234" });
+    signedIn();
+
+    render(<DeviceClient />);
+    // Consent shows without a verify/claim round-trip...
+    await waitFor(() => screen.getByRole("button", { name: "Approve" }));
+    expect(mocks.device).not.toHaveBeenCalled();
+  });
+
+  it("signs out and returns to sign-in carrying the code from the consent 'Not you?' action", async () => {
     setParams({ user_code: "abcd1234" });
     signedIn("wrong@example.com");
-    mocks.device.mockResolvedValue({
-      data: { user_code: "ABCD1234", status: "pending" },
-      error: null,
-    });
     mocks.signOut.mockResolvedValue(undefined);
 
     render(<DeviceClient />);
@@ -358,6 +375,10 @@ describe("DeviceClient", () => {
     fireEvent.click(screen.getByRole("button", { name: "Not you? Sign out" }));
 
     await waitFor(() => expect(mocks.signOut).toHaveBeenCalled());
-    expect(mocks.push).toHaveBeenCalledWith("/auth/sign-in");
+    // Code isn't claimed until the user acts, so it survives the account switch:
+    // carry it back via callbackUrl so the new account lands on consent.
+    expect(mocks.push).toHaveBeenCalledWith(
+      `/auth/sign-in?callbackUrl=${encodeURIComponent("/device?user_code=ABCD1234")}`,
+    );
   });
 });

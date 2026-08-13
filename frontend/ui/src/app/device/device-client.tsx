@@ -57,6 +57,26 @@ function errorPhase(err: Parameters<typeof mapDeviceErrorMessage>[0]): Phase {
   };
 }
 
+// Claim the code for the current session, deferred until the user acts (approve
+// or deny). better-auth's verify call (authClient.device) binds the code to the
+// current user, and a claimed code can only be approved/denied by that same
+// user — so claiming here rather than on page load is what lets "Not you? Sign
+// out" hand the still-unclaimed code to a different account. Returns an error
+// Phase to display, or null when the code was claimed and is still pending.
+async function claimActiveCode(code: string): Promise<Phase | null> {
+  const { data, error } = await authClient.device({ query: { user_code: code } });
+  if (error) {
+    return errorPhase(error);
+  }
+  if (data && data.status !== "pending") {
+    return errorPhase({
+      error: "invalid_request",
+      error_description: "Device code already processed",
+    });
+  }
+  return null;
+}
+
 function DeviceContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -103,33 +123,12 @@ function DeviceContent() {
       return;
     }
 
-    let cancelled = false;
-    setPhase({ kind: "verifying" });
-
-    (async () => {
-      const { data, error } = await authClient.device({ query: { user_code: activeCode } });
-      if (cancelled) {
-        return;
-      }
-      if (error) {
-        setPhase(errorPhase(error));
-        return;
-      }
-      if (data && data.status !== "pending") {
-        setPhase(
-          errorPhase({
-            error: "invalid_request",
-            error_description: "Device code already processed",
-          }),
-        );
-        return;
-      }
-      setPhase({ kind: "consent" });
-    })();
-
-    return () => {
-      cancelled = true;
-    };
+    // Signed in: show consent WITHOUT verifying yet. Verifying would claim the
+    // code for this session (see claimActiveCode), binding it to whoever is
+    // already logged in and defeating "Not you? Sign out". The claim happens when
+    // the user approves or denies. A stale/expired/already-used code is therefore
+    // surfaced at that point instead of on load.
+    setPhase({ kind: "consent" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeCode, sessionPending, sessionData?.user?.id]);
 
@@ -148,6 +147,13 @@ function DeviceContent() {
       return;
     }
     setActionPending(true);
+    // Claim the code for this session first (deferred from load), then approve.
+    const claimError = await claimActiveCode(activeCode);
+    if (claimError) {
+      setActionPending(false);
+      setPhase(claimError);
+      return;
+    }
     const { error } = await authClient.device.approve({ userCode: activeCode });
     if (error) {
       setActionPending(false);
@@ -171,6 +177,13 @@ function DeviceContent() {
       return;
     }
     setActionPending(true);
+    // Deny also requires the code to be claimed first (same as approve).
+    const claimError = await claimActiveCode(activeCode);
+    if (claimError) {
+      setActionPending(false);
+      setPhase(claimError);
+      return;
+    }
     const { error } = await authClient.device.deny({ userCode: activeCode });
     setActionPending(false);
     if (error) {
@@ -187,12 +200,26 @@ function DeviceContent() {
     setPhase({ kind: "entry" });
   }
 
-  // Signed in as the wrong account: the current code is already locked to this
-  // one, so drop this session and start clean. Authorizing a different account
-  // still needs a fresh code from the CLI — this just gets them out of here.
+  // Signed in as the wrong account. Because the code isn't claimed until the user
+  // acts (see claimActiveCode), it's still usable by a different account — so
+  // carry it back through sign-in and return to consent as the new account,
+  // rather than dropping the flow. Clear activeCode first so signing out doesn't
+  // re-fire the effect's signed-out branch mid-flip (we push the sign-in URL,
+  // with the code in callbackUrl, explicitly below).
   async function handleSwitchAccount() {
+    const code = activeCode;
+    setActiveCode(null);
     await authClient.signOut();
-    router.push("/auth/sign-in");
+    if (!code) {
+      router.push("/auth/sign-in");
+      return;
+    }
+    const params = new URLSearchParams({ user_code: code });
+    if (clientId) {
+      params.set("client_id", clientId);
+    }
+    const target = safeCallbackUrl(`/device?${params.toString()}`, "/device");
+    router.push(`/auth/sign-in?callbackUrl=${encodeURIComponent(target)}`);
   }
 
   return (
@@ -338,7 +365,8 @@ function Consent({
       </div>
 
       <p className="text-[12px] text-muted-foreground">
-        This grants {clientName} read access to your workspaces. You can revoke it any time from{" "}
+        Approving signs {clientName} in to your TraceRoot account. It stays signed in until you
+        revoke it from{" "}
         <Link href="/account/settings/sessions" className="underline hover:text-foreground">
           Active Sessions
         </Link>{" "}
