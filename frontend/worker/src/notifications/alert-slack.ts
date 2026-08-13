@@ -72,7 +72,7 @@ async function addWithTimeout(id: string, job: AlertNotificationJob): Promise<vo
 
 /**
  * The queue's `attempts` only cover a job that has landed in Redis, so a brief outage would
- * drop it. The jobId is the alert and its window, which BullMQ dedupes on, so no double-page.
+ * drop it. The jobId is the alert and its window, which BullMQ dedupes on, so no duplicate job.
  */
 export async function enqueueAlertNotification(payload: AlertNotification): Promise<void> {
   const job: AlertNotificationJob = {
@@ -266,12 +266,15 @@ async function revertEmission(payload: AlertNotificationJob, reason: string): Pr
 
 async function compensateNonDelivery(payload: AlertNotificationJob, reason: string): Promise<void> {
   const compensated = await revertEmission(payload, reason);
+  const { emission } = payload;
   // A failed revert leaves the rule reading as paged, a different thing to tell the owner.
   await recordAlertNotifyOutcome({
     alertId: payload.alertId,
     status: compensated ? "COMPENSATED" : "FAILED",
     error: reason,
     at: new Date(),
+    // A failed revert means the row may be newer than this emission: never bury its record.
+    notAfter: compensated || emission === undefined ? undefined : new Date(emission.evaluatedAt),
   });
 }
 

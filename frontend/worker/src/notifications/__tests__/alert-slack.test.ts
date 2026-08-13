@@ -326,6 +326,8 @@ describe("sendAlertNotification", () => {
     const [outcome] = notifyWrites();
     expect(outcome.data.lastNotifyStatus).toBe("COMPENSATED");
     expect(outcome.data.lastNotifyError).toContain(reason);
+    // The revert's CAS just won, so nothing newer can have landed: recorded unconditionally.
+    expect(outcome.where).toEqual({ id: "al_1" });
   });
 
   it.each([
@@ -350,6 +352,9 @@ describe("sendAlertNotification", () => {
     expect(notifyWrites()).toHaveLength(1);
     expect(notifyWrites()[0].data.lastNotifyStatus).toBe("FAILED");
     expect(notifyWrites()[0].data.lastNotifyError).toContain(reason);
+    // A permanent failure reports on the current emission, so it lands unconditionally:
+    // an older emission's slow delivery may have stamped a later lastNotifyAt.
+    expect(notifyWrites()[0].where).toEqual({ id: "al_1" });
   });
 
   it("stops the every-minute emit-and-take-back loop for a rule with no Slack channel", async () => {
@@ -450,6 +455,12 @@ describe("sendAlertNotification", () => {
 
     expect(stateWrites()).toHaveLength(1);
     expect(notifyWrites()[0].data.lastNotifyStatus).toBe("FAILED");
+    // The missed CAS is the proof the row is newer, so this FAILED must not bury a
+    // DELIVERED the emission that moved it on has recorded since.
+    expect(notifyWrites()[0].where).toEqual({
+      id: "al_1",
+      OR: [{ lastNotifyAt: null }, { lastNotifyAt: { lt: new Date(emission.evaluatedAt) } }],
+    });
   });
 
   it.each([
@@ -480,6 +491,8 @@ describe("sendAlertNotification", () => {
 
     expect(stateWrites()).toHaveLength(0);
     expect(notifyWrites()[0].data.lastNotifyStatus).toBe("FAILED");
+    // With no emission there is no instant to hold it behind.
+    expect(notifyWrites()[0].where).toEqual({ id: "al_1" });
   });
 
   it("does not give the page back on a failure the retry may still deliver", async () => {
