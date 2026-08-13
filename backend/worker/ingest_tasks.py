@@ -120,7 +120,7 @@ def _get_pg_pool():
     """A lazily-created, thread-safe Postgres connection pool for the worker.
 
     Cost derivation runs once per eval-bearing batch; opening a fresh
-    ``psycopg2.connect`` each time is pure connection churn (M17). A small module-level
+    ``psycopg2.connect`` each time is pure connection churn. A small module-level
     ``ThreadedConnectionPool`` reuses connections across batches within a worker process.
     """
     global _PG_POOL
@@ -207,7 +207,7 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
                 # Mark EVERY examined result row as derivation-attempted — a state distinct
                 # from `cost IS NULL`, so a zero-cost trace (NULLIF above) or one whose
                 # spans never landed settles instead of being re-swept by the backfill
-                # forever (H7). Ingest never filters on this column, so the late-SPAN
+                # forever. Ingest never filters on this column, so the late-SPAN
                 # self-healing above is unaffected; only ``backfill_eval_result_costs``
                 # reads it.
                 cur.execute(
@@ -227,13 +227,13 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
         logger.warning("eval cost derivation failed", exc_info=True)
     finally:
         # Close (evict) a connection that errored rather than return a possibly-broken
-        # handle to the pool for the next borrower to trip over (H7).
+        # handle to the pool for the next borrower to trip over.
         pg_pool.putconn(conn, close=broken)
 
 
 @app.task(name="worker.ingest_tasks.backfill_eval_result_costs")
 def backfill_eval_result_costs(batch_size: int = 500) -> dict:
-    """Reconcile eval-result costs that ingest could not fill (H7).
+    """Reconcile eval-result costs that ingest could not fill.
 
     Cost is normally derived at span-ingest, but a result row that COMMITS AFTER its spans
     were already processed is never revisited (see the LIMITATION note on

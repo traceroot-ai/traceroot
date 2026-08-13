@@ -49,7 +49,7 @@ export async function POST(request: Request, { params }: RouteParams) {
   // upsert is not atomic against a concurrent insert, so two first reviews of the same
   // (result, dimension) can race: the loser hits the uq_human_score_result_dimension
   // P2002. Retry once — the second pass takes the update path against the winner's row —
-  // instead of surfacing it as a 500 (mirrors the /scores route). (LOW-d)
+  // instead of surfacing it as a 500 (mirrors the /scores route).
   const upsertHumanScore = () =>
     prisma.humanScore.upsert({
       where: { resultId_dimension: { resultId: result.id, dimension: h.dimension } },

@@ -316,7 +316,7 @@ class TestUpdateEvalResultCosts:
             assert "evaluation_results" in sql
         assert by_trace["t-costed"][1] == (pytest.approx(0.02), "proj-1", "t-costed")
         assert by_trace["t-zero"][1] == (pytest.approx(0.0), "proj-1", "t-zero")
-        # ... plus ONE derivation-attempted stamp covering every examined result row (H7),
+        # ... plus ONE derivation-attempted stamp covering every examined result row,
         # so the zero-cost trace settles instead of being re-swept by the backfill forever.
         marking = [(sql, params) for sql, params in updates if "cost_derived_at" in sql]
         assert len(marking) == 1
@@ -347,7 +347,7 @@ class TestUpdateEvalResultCosts:
     def test_broken_connection_is_evicted_not_recycled(self, monkeypatch):
         """When the work fails AND rollback() itself throws (a connection that has already
         died), the error is swallowed and the poisoned connection is CLOSED on the way back
-        — never recycled into the pool for the next borrower to trip over (H7)."""
+        — never recycled into the pool for the next borrower to trip over."""
         from worker.ingest_tasks import _update_eval_result_costs
 
         cursor = FakeCursor(fetchall_result=[("t1",)])
@@ -368,7 +368,7 @@ class TestUpdateEvalResultCosts:
         assert conn.closed is True
 
     def test_backfill_reconciles_null_cost_results_grouped_by_project(self, monkeypatch):
-        """The periodic sweep (H7) re-derives cost for recent null-cost results grouped by
+        """The periodic sweep re-derives cost for recent null-cost results grouped by
         project — catching a result row that committed after its spans were processed and
         so was never revisited by span-ingest."""
         from worker import ingest_tasks

@@ -118,7 +118,7 @@ describe("result → dataset: update_existing_case", () => {
     const cases = casesIn(newVersion);
     expect(cases).toHaveLength(1); // updated, not duplicated
     expect(cases[0].testCaseId).toBe("tc-A");
-    // Values are JSON-encoded on write so their type round-trips on pull (H3).
+    // Values are JSON-encoded on write so their type round-trips on pull.
     expect(cases[0].expected).toBe('"revised expected"');
     expect(cases[0].input).toBe("orig input"); // unsupplied input unchanged
     // The old version's snapshot is untouched (immutability).
@@ -157,7 +157,7 @@ describe("result → dataset: save_new_case", () => {
     );
     expect(res.status).toBe(201);
     const c = casesIn(currentVersionId("ds2"))[0];
-    expect(c.expected).toBe('"the CANDIDATE answer"'); // JSON-encoded on write (H3)
+    expect(c.expected).toBe('"the CANDIDATE answer"'); // JSON-encoded on write
   });
 });
 

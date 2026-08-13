@@ -214,7 +214,7 @@ export async function GET(request: Request, { params }: RouteParams) {
   const page = hasMore ? rows.slice(0, limit) : rows;
 
   // One grouped aggregate for the whole page instead of a per-version count (avoids an
-  // N+1 of up to MAX_LIMIT counts), mirroring the datasets-list route (M10).
+  // N+1 of up to MAX_LIMIT counts), mirroring the datasets-list route.
   const versionIds = page.map((v) => v.id);
   const caseCounts =
     versionIds.length > 0

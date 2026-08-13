@@ -216,7 +216,7 @@ describe("SDK reporting: full run lifecycle", () => {
       fakePrisma.score.rows.filter((s) => s.resultId === notScored.id).every((s) => s.error),
     ).toBe(true);
 
-    // 3. Re-report of case-1 MERGES its scores (LOW-a), no duplicate row: routing-accuracy
+    // 3. Re-report of case-1 MERGES its scores, no duplicate row: routing-accuracy
     //    is updated in place, and `helpfulness` — not named in this payload — SURVIVES.
     //    A full replace would have wiped it (and, in production, any side-band `/scores`
     //    write for a scorer this payload doesn't mention), which is the bug this fixes.

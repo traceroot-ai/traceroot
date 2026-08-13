@@ -132,7 +132,7 @@ describe("POST … /results — a follow-up report only writes what it sent", ()
     expect(storedResult()).toMatchObject({ traceId: "trace-bbb" });
   });
 
-  it("does NOT bulk-clear scores on an explicit empty `scores` (LOW-a)", async () => {
+  it("does NOT bulk-clear scores on an explicit empty `scores`", async () => {
     await POST(makeRequest(firstReport()), params);
 
     await POST(
@@ -151,7 +151,7 @@ describe("POST … /results — a follow-up report only writes what it sent", ()
     expect(store.score.rows[0]).toMatchObject({ scorerName: "exact_match" });
   });
 
-  it("merges a new scorer without dropping the ones it didn't name (LOW-a)", async () => {
+  it("merges a new scorer without dropping the ones it didn't name", async () => {
     await POST(makeRequest(firstReport()), params);
 
     await POST(

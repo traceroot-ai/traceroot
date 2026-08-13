@@ -180,7 +180,7 @@ def _normalized_error(upstream: httpx.Response) -> JSONResponse:
             detail = message.strip()
         # Preserve the optimistic-concurrency conflict fields (a version 409) so the SDK
         # can report which base was stale and what the current version is — flattening to
-        # detail-only left its conflict diagnostics permanently None (M4). Only these known
+        # detail-only left its conflict diagnostics permanently None. Only these known
         # keys, str-or-null, are passed through — never the raw upstream body.
         for key in ("base_version_id", "current_version_id"):
             if key in data and (data[key] is None or isinstance(data[key], str)):

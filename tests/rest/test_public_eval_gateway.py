@@ -99,7 +99,7 @@ def test_forwards_deep_run_subpath_for_additive_score(client):
 def test_normalizes_error_but_preserves_version_conflict_fields(client):
     # The Next.js control plane fails with its `{error}` envelope; the gateway normalizes
     # the message to the canonical `{detail}` but PRESERVES the version-conflict fields
-    # (base_version_id / current_version_id) so the SDK can report the conflict (M4) —
+    # (base_version_id / current_version_id) so the SDK can report the conflict —
     # while still not leaking the raw `error` key or any other upstream field.
     respx.post(f"{UI}/api/public/datasets/ds1/versions").mock(
         return_value=Response(

@@ -516,7 +516,7 @@ it("sorts by cost across the FULL filtered set (not just the fetched page), null
   // set once (not paginated) so it can sort before slicing to a page.
   prismaMock.evaluationRun.findMany.mockResolvedValueOnce([cheap, pricey, noCost]);
   // meta.total is the TRUE filtered count (a separate count()), NOT the size of the
-  // in-memory sort window — so pages past the window aren't hidden (M5). Here the window
+  // in-memory sort window — so pages past the window aren't hidden. Here the window
   // holds 3 runs but the project has 512 matching runs.
   prismaMock.evaluationRun.count.mockResolvedValueOnce(512);
   // The route asks for `_count: { _all: true }` alongside `_sum`, and reads
@@ -537,7 +537,7 @@ it("sorts by cost across the FULL filtered set (not just the fetched page), null
   expect(body.data.map((r) => r.id)).toEqual(["run_pricey", "run_cheap", "run_no_cost"]);
   expect(body.meta.total).toBe(512);
   // This branch derives the sort key + slices in Node (the DB isn't asked to order or
-  // paginate), but meta.total still comes from a real count(), not the window size (M5).
+  // paginate), but meta.total still comes from a real count(), not the window size.
   expect(prismaMock.evaluationRun.count).toHaveBeenCalledTimes(1);
 });
 

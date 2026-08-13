@@ -342,7 +342,7 @@ class TraceReaderService:
             params["end_before"] = normalized_end
         # Exclude evaluation traces, keyed on is_evaluation like every other read path —
         # otherwise eval-only values (models, environments, names) are offered as filter
-        # options in the production trace explorer that then match nothing (M9). The inner
+        # options in the production trace explorer that then match nothing. The inner
         # scan is aliased `t` below so this `t.trace_id NOT IN (...)` predicate binds.
         inner_conditions.append(_evaluation_exclusion(params))
         inner_where = " AND ".join(inner_conditions)

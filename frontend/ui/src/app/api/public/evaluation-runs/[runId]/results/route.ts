@@ -110,7 +110,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         // Merge each scorer's row (upsert on uq_score_result_scorer) rather than
         // delete-all + recreate: a side-band `/scores` write for a DIFFERENT scorer
         // (e.g. a delayed human/LLM-judge score) must survive this report instead of
-        // being clobbered by a full replace (LOW-a). The same scorer is updated in place.
+        // being clobbered by a full replace. The same scorer is updated in place.
         for (const s of scoreRows) {
           await tx.score.upsert({
             where: {

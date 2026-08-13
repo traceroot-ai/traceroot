@@ -175,7 +175,7 @@ describe("publishDatasetVersion — pointer compare-and-swap", () => {
   });
 });
 
-describe("contentSignature — canonicalizes DECODED input/expected (M8)", () => {
+describe("contentSignature — canonicalizes DECODED input/expected", () => {
   const seed = (over: Partial<TestCaseSeed>): TestCaseSeed => ({
     testCaseId: "tc1",
     input: '"x"',

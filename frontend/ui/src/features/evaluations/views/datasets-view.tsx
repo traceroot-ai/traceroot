@@ -27,7 +27,7 @@ export function DatasetsView({ projectId }: { projectId: string }) {
 
   const { page, limit, goToPage, setLimit, resetPage } = useUrlPagination(50);
   // Reset to page 0 whenever the (debounced) search changes, so a match on page 0 isn't
-  // hidden behind a stale page carried over from before the search (M6) — matching the
+  // hidden behind a stale page carried over from before the search — matching the
   // traces list. `searchQuery` is the debounced value the API should use.
   const { keyword, setKeyword, searchQuery } = useKeywordSearch(resetPage);
   const [newOpen, setNewOpen] = React.useState(false);

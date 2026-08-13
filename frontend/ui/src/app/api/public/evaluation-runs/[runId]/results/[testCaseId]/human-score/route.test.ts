@@ -1,7 +1,7 @@
 /**
  * Human review upsert. Bound to (run, test case); one canonical review per
  * (result, dimension). The upsert isn't atomic against a concurrent insert, so a
- * P2002 on the first-review race is retried once rather than surfaced as a 500 (LOW-d).
+ * P2002 on the first-review race is retried once rather than surfaced as a 500.
  */
 import { it, expect, vi, beforeEach } from "vitest";
 
@@ -52,7 +52,7 @@ it("records a human score (201)", async () => {
   expect(await body(res)).toEqual({ human_score_id: "hs-1" });
 });
 
-it("retries once on a P2002 first-review race and succeeds, not a 500 (LOW-d)", async () => {
+it("retries once on a P2002 first-review race and succeeds, not a 500", async () => {
   prismaMock.humanScore.upsert.mockRejectedValueOnce(p2002()).mockResolvedValueOnce({ id: "hs-1" });
   const res = await POST(req(validBody), params);
   expect(res.status).toBe(201);

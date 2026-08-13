@@ -1,5 +1,5 @@
 /**
- * saveResultToDataset must JSON-ENCODE the values it writes (H3), so a result value
+ * saveResultToDataset must JSON-ENCODE the values it writes, so a result value
  * that looks like JSON (`42`, `true`, `[1,2]`) stays that literal string in the
  * immutable snapshot instead of decoding to a different type on pull. We assert on
  * the seeds the code hands to publishDatasetVersion (mocked to capture the transform).
@@ -40,7 +40,7 @@ beforeEach(() => {
   prismaMock.testCase.findFirst.mockResolvedValue(null);
 });
 
-describe("saveResultToDataset — values are JSON-encoded on write (H3)", () => {
+describe("saveResultToDataset — values are JSON-encoded on write", () => {
   it("encodes a new case's input from the result so a JSON-looking scalar stays a string", async () => {
     prismaMock.evaluationResult.findFirst.mockResolvedValue({
       id: "r1",

@@ -168,7 +168,7 @@ class TestGetDistinctSpanValues:
     def test_excludes_evaluation_traces(self, monkeypatch):
         # Eval traces are hidden from the production filter dropdown (keyed on
         # is_evaluation, like every list read path) so eval-only values aren't offered as
-        # options that then match nothing (M9). The inner scan is aliased `t` for the
+        # options that then match nothing. The inner scan is aliased `t` for the
         # `t.trace_id NOT IN (...)` semi-join the shared exclusion predicate emits.
         mock_client = MagicMock()
         mock_client.query.return_value.result_rows = []

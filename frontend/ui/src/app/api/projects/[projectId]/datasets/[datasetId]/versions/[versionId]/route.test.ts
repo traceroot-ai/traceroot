@@ -42,7 +42,7 @@ beforeEach(() => {
 
 it("returns the cases with input/expected decoded for display, oldest first", async () => {
   // Stored values are JSON-ENCODED; the response decodes them so this view matches
-  // the current-version view (not the raw quoted form). (M7)
+  // the current-version view (not the raw quoted form).
   const stored = [
     { id: "row1", testCaseId: "case-1", input: '"hello"', expected: "42" },
     { id: "row2", testCaseId: "case-2", input: '{"a":1}', expected: null },

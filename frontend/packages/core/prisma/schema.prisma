@@ -657,7 +657,7 @@ model EvaluationResult {
   // Set whenever cost derivation RUNS for this result, independent of the outcome — a
   // zero-cost trace legitimately leaves `cost` NULL (via NULLIF), so this marker is what
   // lets the periodic backfill tell "already derived" from "not yet derived" and settle
-  // instead of re-sweeping cost-less rows forever (H7). The partial index the backfill
+  // instead of re-sweeping cost-less rows forever. The partial index the backfill
   // probes (`ix_eval_result_cost_backfill`, WHERE cost_derived_at IS NULL AND trace_id IS
   // NOT NULL) can't be expressed here, so it lives in the migration as raw SQL.
   costDerivedAt   DateTime? @map("cost_derived_at") @db.Timestamp(6)

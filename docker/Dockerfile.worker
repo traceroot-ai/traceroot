@@ -22,7 +22,7 @@ ENV PYTHONPATH="/app/backend"
 WORKDIR /app/backend
 
 # `--beat` runs the embedded beat scheduler in-process so the periodic tasks in
-# `celery_app.beat_schedule` (the eval-result cost backfill, H7) actually fire.
+# `celery_app.beat_schedule` (the eval-result cost backfill) actually fire.
 # `--schedule` puts beat's PersistentScheduler state under /tmp, which is writable even
 # when the container root FS is read-only (a plain `celerybeat-schedule` in the CWD would
 # crash beat on a hardened/ephemeral image).
