@@ -5,9 +5,14 @@ Design
 * **Library**  ``slowapi`` (wraps ``limits``) with Redis storage shared across
   REST replicas, plus an in-memory fallback so a Redis outage degrades to
   per-process limiting instead of failing requests.
-* **Key**      the *workspace* (resolved from the API key for ingestion and the
-  public read API, and from the authenticated user for dashboard reads) — never
-  the raw API key, so a customer cannot multiply quota by minting more keys.
+* **Key**      the *workspace* for API-key traffic (ingestion and the public
+  read API) and for dashboard reads — never the raw API key, so a customer
+  cannot multiply quota by minting more keys. A *user-credentialed* read (the
+  CLI's session token) additionally gets a per-member bucket within its
+  workspace (``…:{workspace}:{user}``) so one member's CLI cannot starve a
+  teammate's reads; aggregate workspace read volume therefore scales with active
+  members — intended, since membership is real and not mintable, not a
+  per-workspace ceiling. Account-scope ops (no workspace) key on the user alone.
 * **Tiers**    per ``(bucket, billing-plan)`` limits resolved at request time
   from ``settings.rate_limit`` (see ``RateLimitSettings``).
 * **Self-host** deployments (``ENABLE_BILLING=false``) have no billing tiers, so
