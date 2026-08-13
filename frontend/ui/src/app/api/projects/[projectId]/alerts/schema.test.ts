@@ -6,18 +6,17 @@ import {
   ALERT_RENOTIFY_MIN_MINUTES,
 } from "@traceroot/core";
 import {
+  ALERT_FILTERS_MAX,
   alertCreateSchema,
   alertPauseSchema,
   alertUpdateSchema,
   firstIssueMessage,
   isAggregationValidForMeasure,
   isMeasureValidForView,
+  THRESHOLD_ABS_MAX,
   toAlertFilters,
   type AlertCreateInput,
 } from "./schema";
-
-const ALERT_FILTERS_MAX = 50;
-const THRESHOLD_ABS_MAX = 1e34;
 
 function createBody(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
