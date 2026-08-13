@@ -234,14 +234,17 @@ describe("PATCH /api/projects/[projectId]/alerts/[alertId]", () => {
     expect(row?.nextRunAt).toBeInstanceOf(Date);
   });
 
-  it("changes the no-data mode without voiding what has already been measured", async () => {
-    // How a gap reads is a notification policy, like renotify: it does not
-    // change the number the last window produced.
+  it("resets the alert to a cold start when the no-data mode changes", async () => {
+    // Stored state was computed under the old reading of a gap.
     expect((await patch({ noDataMode: "ZERO" })).status).toBe(200);
+    const row = store.get("alert-1");
 
-    expect(store.get("alert-1")?.noDataMode).toBe("ZERO");
-    expect(store.get("alert-1")?.severity).toBe("ALERT");
-    expect(store.get("alert-1")?.lastClaimedAt).not.toBeNull();
+    expect(row?.noDataMode).toBe("ZERO");
+    expect(row?.severity).toBe("UNKNOWN");
+    expect(row?.severityChangedAt).toBeNull();
+    expect(row?.alertedAt).toBeNull();
+    expect(row?.lastClaimedAt).toBeNull();
+    expect(row?.nextRunAt).toBeInstanceOf(Date);
     expect((await patch({ noDataMode: "SILENT" })).status).toBe(400);
   });
 
