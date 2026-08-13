@@ -314,7 +314,7 @@ describe("real Datasets + Evaluations views render server data", () => {
       json: async () => ({ data: [], meta: { page: 0, limit: 50, total: 0 } }),
     })) as unknown as typeof fetch;
     mount(<EvaluationsView projectId="p1" />);
-    expect(await screen.findByText(/No experiment runs yet/)).toBeDefined();
+    expect(await screen.findByText(/No evaluation runs yet/)).toBeDefined();
     expect(screen.queryByRole("button", { name: /Run evaluation/ })).toBeNull();
   });
 
@@ -351,7 +351,7 @@ describe("real Datasets + Evaluations views render server data", () => {
     mount(<RunDetailView projectId="p1" runId="run1" />);
     // The result row is present (the results table shows the case input).
     expect((await screen.findAllByText(/charged twice/)).length).toBeGreaterThan(0);
-    // Run identity + switching + comparison all moved to the Experiments list, so
+    // Run identity + switching + comparison all moved to the Evaluations list, so
     // this page carries no header of its own: no candidate badge, no run id, no
     // "Run #" switcher, no inline "Compare with".
     expect(screen.queryByText("git:4a91c02")).toBeNull();

@@ -25,7 +25,7 @@ import { useEvaluationRuns, useDeleteRuns } from "../hooks";
 import { DeleteRunDialog } from "../components/delete-run-dialog";
 import { EVAL_RUN_STATUS_LABEL, type EvalRunStatus, type RunRow } from "../types";
 
-// The Experiments page is one flat table of immutable runs. Scorers live in the
+// The Evaluations page is one flat table of immutable runs. Scorers live in the
 // SDK (tracked server-side, no UI page); per-run pass/fail and "main score" are
 // intentionally not surfaced here — a run has many scores and it's the author's
 // call what "passing" means, so the list stays to identity, cost, and lifecycle.
@@ -70,7 +70,7 @@ export function EvaluationsView({ projectId }: { projectId: string }) {
     <div className="flex h-full flex-col text-[13px]">
       {/* Populates the app's top breadcrumb bar (workspace / project). Without a
           mounted ProjectBreadcrumb the header goes blank on this route. */}
-      <ProjectBreadcrumb projectId={projectId} current="Experiments" />
+      <ProjectBreadcrumb projectId={projectId} current="Evaluations" />
       <RunsTab projectId={projectId} />
     </div>
   );
@@ -335,7 +335,7 @@ function RunsTab({ projectId }: { projectId: string }) {
                 />
               </Th>
               <Th className="w-[150px]">Timestamp</Th>
-              <Th>Experiment Name</Th>
+              <Th>Evaluation Name</Th>
               <Th>Run Name</Th>
               <Th>Dataset</Th>
               <Th className="w-[100px] text-right">Cost</Th>
@@ -359,7 +359,7 @@ function RunsTab({ projectId }: { projectId: string }) {
                 <EmptyState>
                   {filtered
                     ? "No runs match these filters."
-                    : "No experiment runs yet. Report a run from your SDK and it appears here."}
+                    : "No evaluation runs yet. Report a run from your SDK and it appears here."}
                 </EmptyState>
               </Cell>
             ) : (

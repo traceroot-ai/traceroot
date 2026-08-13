@@ -626,7 +626,7 @@ function CasePanel({
               : "text-muted-foreground hover:text-foreground",
           )}
         >
-          <History className="h-3.5 w-3.5" /> Experiments
+          <History className="h-3.5 w-3.5" /> Evaluations
           {runs.length > 0 && (
             <span className="rounded bg-muted px-1 text-[10px] tabular-nums text-muted-foreground">
               {runs.length}
@@ -666,17 +666,17 @@ function CasePanel({
               </div>
             ) : runs.length === 0 ? (
               <div className="h-full overflow-auto p-4">
-                <EmptyState>No experiment has measured this test case yet.</EmptyState>
+                <EmptyState>No evaluation has measured this test case yet.</EmptyState>
               </div>
             ) : (
-              // Edge-to-edge table (no inset padding), so it reads like the Experiments
+              // Edge-to-edge table (no inset padding), so it reads like the Evaluations
               // list page rather than a boxed card floating in whitespace.
               <div className="h-full overflow-auto">
                 <Table>
                   <THead>
                     <TRHead>
                       <Th className="w-[150px]">Timestamp</Th>
-                      <Th>Experiment Name</Th>
+                      <Th>Evaluation Name</Th>
                       <Th>Run Name</Th>
                       <Th className="w-[90px] text-right">Cost</Th>
                       <Th className="w-[90px] text-right">Avg Cost</Th>
@@ -686,7 +686,7 @@ function CasePanel({
                   </THead>
                   <TBody>
                     {runs.map((r) => {
-                      // Run-level averages, same math as the Experiments list.
+                      // Run-level averages, same math as the Evaluations list.
                       const avgCost =
                         r.cost != null && r.caseCount > 0 ? r.cost / r.caseCount : null;
                       const avgDurationMs =

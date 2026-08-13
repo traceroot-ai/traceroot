@@ -224,10 +224,10 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
   return (
     <>
       {/* The experiment name rides in the top breadcrumb bar (Workspace / Project /
-          Experiments / <name>), like the dataset detail page. */}
+          Evaluations / <name>), like the dataset detail page. */}
       <ProjectBreadcrumb
         projectId={projectId}
-        trail={[{ label: "Experiments", href: `/projects/${projectId}/evaluations` }]}
+        trail={[{ label: "Evaluations", href: `/projects/${projectId}/evaluations` }]}
         current={data?.run.evaluationName}
       />
       <div className="flex flex-1 flex-col overflow-hidden text-[12px]">

@@ -417,11 +417,11 @@ describe("Dataset detail — the slide-in case panel", () => {
     expect(window.open).toHaveBeenCalledWith("/projects/p1/datasets/ds1", "_blank");
   });
 
-  it("the Experiments view lists every evaluation run that measured the case", async () => {
+  it("the Evaluations view lists every evaluation run that measured the case", async () => {
     mountDetail();
     await openCase(/charged twice/);
     const dialog = screen.getByRole("dialog");
-    fireEvent.click(screen.getByRole("button", { name: /Experiments/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Evaluations/ }));
     expect(await screen.findByText("Billing routing nightly")).toBeDefined();
     // Run Name column: candidate version + run number.
     expect(screen.getByText("git:4a91c02")).toBeDefined();
@@ -435,7 +435,7 @@ describe("Dataset detail — the slide-in case panel", () => {
     expect(await within(dialog).findByText("Input")).toBeDefined();
   });
 
-  it("shows an empty Experiments state when nothing has measured the case", async () => {
+  it("shows an empty Evaluations state when nothing has measured the case", async () => {
     global.fetch = vi.fn(async (url: RequestInfo | URL) => ({
       ok: true,
       status: 200,
@@ -450,8 +450,8 @@ describe("Dataset detail — the slide-in case panel", () => {
     })) as unknown as typeof fetch;
     mountDetail();
     await openCase(/charged twice/);
-    fireEvent.click(screen.getByRole("button", { name: /Experiments/ }));
-    expect(await screen.findByText(/No experiment has measured this test case yet/)).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: /Evaluations/ }));
+    expect(await screen.findByText(/No evaluation has measured this test case yet/)).toBeDefined();
   });
 
   // In-panel editing (Edit → line-numbered fields → Save/PATCH) is deferred;
