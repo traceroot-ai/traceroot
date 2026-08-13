@@ -479,6 +479,10 @@ model Alert {
   thresholdOperator String    @map("threshold_operator") @db.VarChar
   threshold         Decimal   @db.Decimal(65, 30)
   renotify          Json      @db.JsonB
+  // What a window with nothing in it means for this rule (ALERT_NO_DATA_MODES).
+  // Defaulted in the database, so a rule written before the column existed keeps
+  // reading a gap the way it always did.
+  noDataMode        String    @default("HOLD") @map("no_data_mode") @db.VarChar
   status            String    @default("ACTIVE") @db.VarChar
   severity          String    @default("UNKNOWN") @db.VarChar
   // Two clocks, deliberately separate: renotify measures from `alertedAt`,

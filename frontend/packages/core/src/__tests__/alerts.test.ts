@@ -6,12 +6,14 @@ import {
   ALERT_FILTER_OPERATORS,
   ALERT_FILTER_OPERATORS_BY_FIELD,
   ALERT_MEASURES_BY_VIEW,
+  ALERT_NO_DATA_MODES,
   ALERT_RENOTIFY_MAX_MINUTES,
   ALERT_RENOTIFY_MIN_MINUTES,
   ALERT_SEVERITIES,
   ALERT_STATUSES,
   ALERT_THRESHOLD_OPERATORS,
   ALERT_VIEWS,
+  DEFAULT_ALERT_NO_DATA_MODE,
   DEFAULT_ALERT_RENOTIFY,
   DEFAULT_ALERT_RENOTIFY_INTERVAL_MINUTES,
   DEFAULT_ALERT_SEVERITY,
@@ -24,6 +26,7 @@ import {
   isAlertAggregation,
   isAlertFilterField,
   isAlertFilterOperator,
+  isAlertNoDataMode,
   isAlertSeverity,
   isAlertStatus,
   isAlertThresholdOperator,
@@ -119,9 +122,11 @@ describe("alert vocabulary guards", () => {
     for (const status of ALERT_STATUSES) expect(isAlertStatus(status)).toBe(true);
     for (const op of ALERT_THRESHOLD_OPERATORS) expect(isAlertThresholdOperator(op)).toBe(true);
     for (const agg of ALERT_AGGREGATIONS) expect(isAlertAggregation(agg)).toBe(true);
+    for (const mode of ALERT_NO_DATA_MODES) expect(isAlertNoDataMode(mode)).toBe(true);
     expect(isAlertView(DEFAULT_ALERT_VIEW)).toBe(true);
     expect(isAlertSeverity(DEFAULT_ALERT_SEVERITY)).toBe(true);
     expect(isAlertStatus(DEFAULT_ALERT_STATUS)).toBe(true);
+    expect(isAlertNoDataMode(DEFAULT_ALERT_NO_DATA_MODE)).toBe(true);
     expect(DEFAULT_ALERT_RENOTIFY).toEqual({ mode: "OFF" });
 
     // TraceRoot has no warning severity and casing is never coerced
@@ -132,6 +137,14 @@ describe("alert vocabulary guards", () => {
     expect(isAlertAggregation("p100")).toBe(false);
     expect(isAlertView("toString")).toBe(false);
     expect(isAlertAggregation("constructor")).toBe(false);
+    expect(isAlertNoDataMode("NO_DATA")).toBe(false);
+  });
+
+  it("defaults a rule to holding its last judgement through a gap", () => {
+    // The mode the database column defaults to, and the one the worker falls
+    // back on: changing it changes every rule that never asked for anything.
+    expect(DEFAULT_ALERT_NO_DATA_MODE).toBe("HOLD");
+    expect([...ALERT_NO_DATA_MODES]).toEqual(["HOLD", "ZERO", "NOTIFY"]);
   });
 
   it("windowToMs returns the canonical duration for every window token", () => {

@@ -12,14 +12,31 @@ export function isAlertView(value: string): value is AlertView {
   return (ALERT_VIEWS as readonly string[]).includes(value);
 }
 
-// NO_DATA displays but never notifies: it means the window produced no value
-// to judge, which is not the same as a window that measured zero.
+// NO_DATA means the window produced no value to judge, which is not the same as
+// a window that measured zero. Whether it notifies is the rule's own choice —
+// see ALERT_NO_DATA_MODES.
 export const ALERT_SEVERITIES = ["UNKNOWN", "OK", "ALERT", "NO_DATA"] as const;
 export type AlertSeverity = (typeof ALERT_SEVERITIES)[number];
 export const DEFAULT_ALERT_SEVERITY: AlertSeverity = "UNKNOWN";
 
 export function isAlertSeverity(value: string): value is AlertSeverity {
   return (ALERT_SEVERITIES as readonly string[]).includes(value);
+}
+
+/**
+ * What a window that measured nothing means for this rule. HOLD reads a gap as
+ * deciding nothing, so the rule stands on its last judgement and an outstanding
+ * page stays open across it. ZERO suits a measure whose absence is itself a
+ * number — no rows is a count of zero — and puts that zero to the threshold.
+ * NOTIFY is for a source whose silence is the incident: the gap pages, and its
+ * return pages again.
+ */
+export const ALERT_NO_DATA_MODES = ["HOLD", "ZERO", "NOTIFY"] as const;
+export type AlertNoDataMode = (typeof ALERT_NO_DATA_MODES)[number];
+export const DEFAULT_ALERT_NO_DATA_MODE: AlertNoDataMode = "HOLD";
+
+export function isAlertNoDataMode(value: string): value is AlertNoDataMode {
+  return (ALERT_NO_DATA_MODES as readonly string[]).includes(value);
 }
 
 export const ALERT_STATUSES = ["ACTIVE", "PAUSED"] as const;
