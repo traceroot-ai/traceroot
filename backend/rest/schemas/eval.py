@@ -177,10 +177,12 @@ class EmittedMetric(BaseModel):
 
 
 class ScorerRef(BaseModel):
-    """A scorer's descriptor. ``name`` + ``version`` are the comparison identity;
-    the richer metadata is optional and back-compatible (an old SDK sending only
-    ``{name, version}`` stays valid). Mirrors the non-strict ``ScorerRefSchema``,
-    so unknown keys are ignored rather than rejected.
+    """A scorer's descriptor. ``key`` is the stable SEMANTIC comparison identity
+    (it defaults to ``name`` when omitted — see below); ``name``/``version``/
+    ``language``/``source`` are provenance, NOT identity. The richer metadata is
+    optional and back-compatible (an old SDK sending only ``{name, version}`` stays
+    valid — its ``key`` falls back to ``name``). Mirrors the non-strict
+    ``ScorerRefSchema``, so unknown keys are ignored rather than rejected.
 
     The DEFINITION fields (``scorer_type``, prompt/source, config) let the read-only
     Scorer detail render an LLM judge's model + messages or a code scorer's snippet.
