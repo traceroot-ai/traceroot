@@ -107,10 +107,28 @@ export async function POST(request: Request, { params }: RouteParams) {
         select: { id: true },
       });
       if (scoreRows) {
-        await tx.score.deleteMany({ where: { resultId: result.id } });
-        if (scoreRows.length > 0) {
-          await tx.score.createMany({
-            data: scoreRows.map((s) => ({ ...s, resultId: result.id })),
+        // Merge each scorer's row (upsert on uq_score_result_scorer) rather than
+        // delete-all + recreate: a side-band `/scores` write for a DIFFERENT scorer
+        // (e.g. a delayed human/LLM-judge score) must survive this report instead of
+        // being clobbered by a full replace (LOW-a). The same scorer is updated in place.
+        for (const s of scoreRows) {
+          await tx.score.upsert({
+            where: {
+              resultId_scorerName_scorerVersion: {
+                resultId: result.id,
+                scorerName: s.scorerName,
+                scorerVersion: s.scorerVersion,
+              },
+            },
+            create: { ...s, resultId: result.id },
+            update: {
+              numericValue: s.numericValue,
+              boolValue: s.boolValue,
+              stringValue: s.stringValue,
+              passed: s.passed,
+              explanation: s.explanation,
+              error: s.error,
+            },
           });
         }
       }

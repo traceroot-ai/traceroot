@@ -216,7 +216,10 @@ describe("SDK reporting: full run lifecycle", () => {
       fakePrisma.score.rows.filter((s) => s.resultId === notScored.id).every((s) => s.error),
     ).toBe(true);
 
-    // 3. Idempotent re-report of case-1 replaces its scores, no duplicate row.
+    // 3. Re-report of case-1 MERGES its scores (LOW-a), no duplicate row: routing-accuracy
+    //    is updated in place, and `helpfulness` — not named in this payload — SURVIVES.
+    //    A full replace would have wiped it (and, in production, any side-band `/scores`
+    //    write for a scorer this payload doesn't mention), which is the bug this fixes.
     await upsertResult(
       req({
         test_case_id: "case-1",
@@ -232,15 +235,22 @@ describe("SDK reporting: full run lifecycle", () => {
       1,
     );
     let case1 = fakePrisma.evaluationResult.rows.find((r) => r.testCaseId === "case-1")!;
-    expect(fakePrisma.score.rows.filter((s) => s.resultId === case1.id)).toHaveLength(1);
+    const case1Scores = () => fakePrisma.score.rows.filter((s) => s.resultId === case1.id);
+    // Both scorers present: helpfulness kept, routing-accuracy updated in place (not dup'd).
+    expect(
+      case1Scores()
+        .map((s) => s.scorerName)
+        .sort(),
+    ).toEqual(["helpfulness", "routing-accuracy"]);
+    expect(case1Scores().filter((s) => s.scorerName === "routing-accuracy")).toHaveLength(1);
     // A caller omitting expected_output/change (both sent on the original report,
     // 2a) must not wipe them: an unsent field keeps its stored value.
     expect(case1.expectedOutput).toBe("billing");
     expect(case1.change).toBe("improved");
 
-    // 3b. A follow-up that omits `scores` entirely (not even `[]`) must leave the
-    // previously-reported scores untouched — only a caller-sent `scores` array
-    // (including an explicit `[]`) may replace them.
+    // 3b. A follow-up that omits `scores` entirely leaves the previously-reported scores
+    // untouched. (Nothing bulk-clears the set anymore — a results report only ever merges
+    // the scorers it names — so side-band `/scores` writes are never clobbered.)
     await upsertResult(
       req({
         test_case_id: "case-1",
@@ -250,7 +260,7 @@ describe("SDK reporting: full run lifecycle", () => {
       params(runId),
     );
     case1 = fakePrisma.evaluationResult.rows.find((r) => r.testCaseId === "case-1")!;
-    expect(fakePrisma.score.rows.filter((s) => s.resultId === case1.id)).toHaveLength(1);
+    expect(case1Scores()).toHaveLength(2);
     expect(case1.expectedOutput).toBe("billing");
     expect(case1.change).toBe("improved");
     expect(case1.traceId).toBe("trace-aaa");
