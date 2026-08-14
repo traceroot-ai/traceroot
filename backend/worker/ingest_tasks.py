@@ -8,6 +8,7 @@ import logging
 from collections import defaultdict
 from datetime import datetime
 
+from shared.datetime_utils import to_utc_aware
 from worker.celery_app import app
 
 logger = logging.getLogger(__name__)
@@ -16,7 +17,7 @@ logger = logging.getLogger(__name__)
 def _json_serializer(obj: object) -> str:
     """JSON serializer for datetime objects in span dicts."""
     if isinstance(obj, datetime):
-        return obj.isoformat()
+        return to_utc_aware(obj).isoformat()
     raise TypeError(f"Object of type {type(obj)} is not JSON serializable")
 
 

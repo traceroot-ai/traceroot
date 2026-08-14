@@ -1,10 +1,8 @@
 """Session-related response schemas."""
 
-from datetime import datetime
-
 from pydantic import BaseModel
 
-from rest.schemas.common import PaginationMeta
+from rest.schemas.common import PaginationMeta, UtcDatetime
 
 
 class SessionListItem(BaseModel):
@@ -13,8 +11,8 @@ class SessionListItem(BaseModel):
     session_id: str
     trace_count: int
     user_ids: list[str]
-    first_trace_time: datetime | None
-    last_trace_time: datetime | None
+    first_trace_time: UtcDatetime | None
+    last_trace_time: UtcDatetime | None
     duration_ms: float | None
     total_input_tokens: int | None
     total_output_tokens: int | None
@@ -35,7 +33,7 @@ class SessionTraceItem(BaseModel):
 
     trace_id: str
     name: str
-    trace_start_time: datetime
+    trace_start_time: UtcDatetime
     user_id: str | None
     input: str | None
     output: str | None
@@ -50,8 +48,8 @@ class SessionDetailResponse(BaseModel):
     traces: list[SessionTraceItem]
     user_ids: list[str]
     trace_count: int
-    first_trace_time: datetime | None
-    last_trace_time: datetime | None
+    first_trace_time: UtcDatetime | None
+    last_trace_time: UtcDatetime | None
     duration_ms: float | None
     total_input_tokens: int | None
     total_output_tokens: int | None
