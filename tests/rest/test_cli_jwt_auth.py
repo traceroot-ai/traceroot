@@ -6,6 +6,7 @@ audience/issuer/expiry, unknown kid, JWKS fail-closed). The session-token and
 API-key paths are covered by test_auth_deps.py / test_public_dual_auth.py.
 """
 
+import json
 import time
 from types import SimpleNamespace
 
@@ -81,13 +82,19 @@ class TestIsJwt:
 
 class TestJwtHappyPath:
     async def test_project_scope_resolves_membership(self, signer):
-        _mock_project_access(signer.respx)
+        route = _mock_project_access(signer.respx)
         token = _mint(signer.priv)
 
         result = await authenticate_public_caller(
             authorization=f"Bearer {token}", project_id="proj-123"
         )
 
+        # The verified sub (not any client-supplied value) is forwarded to the
+        # internal route, alongside the requested project.
+        assert json.loads(route.calls.last.request.content) == {
+            "userId": "user-1",
+            "projectId": "proj-123",
+        }
         assert result.kind == "user"
         assert result.user_id == "user-1"
         assert result.role == "ADMIN"
@@ -115,6 +122,29 @@ class TestJwtHappyPath:
             await authenticate_public_caller(authorization=f"Bearer {token}", project_id="proj-123")
         assert exc.value.status_code == 403
 
+    async def test_project_scope_200_hasaccess_false_is_403(self, signer):
+        # Defense-in-depth: a 200 body that explicitly denies access must 403,
+        # never be read as a grant (guards against internal-route contract drift).
+        signer.respx.post(UPA_URL).mock(
+            return_value=Response(
+                200,
+                json={
+                    "valid": True,
+                    "hasAccess": False,
+                    "userId": "user-1",
+                    "role": "ADMIN",
+                    "workspaceId": "ws-456",
+                    "billingPlan": "pro",
+                    "projectId": "proj-123",
+                },
+            )
+        )
+        with pytest.raises(HTTPException) as exc:
+            await authenticate_public_caller(
+                authorization=f"Bearer {_mint(signer.priv)}", project_id="proj-123"
+            )
+        assert exc.value.status_code == 403
+
 
 class TestJwtRejections:
     async def test_hs256_alg_confusion_rejected(self, signer):
@@ -127,6 +157,16 @@ class TestJwtRejections:
             algorithm="HS256",
             headers={"kid": KID},
         )
+        with pytest.raises(HTTPException) as exc:
+            await authenticate_account_caller(authorization=f"Bearer {token}")
+        assert exc.value.status_code == 401
+
+    async def test_attacker_key_with_trusted_kid_rejected(self, signer):
+        # A token signed by an attacker's OWN Ed25519 key but carrying our
+        # trusted kid must fail signature verification against the real JWKS
+        # public key — the core guarantee of offline verification.
+        attacker = Ed25519PrivateKey.generate()
+        token = _mint(attacker)
         with pytest.raises(HTTPException) as exc:
             await authenticate_account_caller(authorization=f"Bearer {token}")
         assert exc.value.status_code == 401

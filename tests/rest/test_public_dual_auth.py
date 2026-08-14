@@ -99,6 +99,18 @@ def test_user_token_without_access_is_403():
 
 
 @respx.mock
+def test_user_token_200_hasaccess_false_is_403():
+    """Defense-in-depth: a 200 introspection body that explicitly denies access
+    (a contract violation — the route should 403) must not be read as a grant."""
+    respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+        return_value=Response(200, json={**USER_OK_BODY, "hasAccess": False})
+    )
+    client = TestClient(app, raise_server_exceptions=False)
+    resp = client.get("/api/v1/public/traces?project_id=proj-A", headers=USER_HEADER)
+    assert resp.status_code == 403
+
+
+@respx.mock
 def test_key_with_mismatched_project_id_is_400():
     """A tr- key whose project contradicts an explicit ?project_id is a 400
     (absent-or-equal rule), exercised through the real dependency."""

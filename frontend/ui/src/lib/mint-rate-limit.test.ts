@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { checkMintRateLimit, rateLimitClientKey, __resetMintRateLimit } from "./mint-rate-limit";
+import {
+  checkMintRateLimit,
+  rateLimitClientKey,
+  __resetMintRateLimit,
+  __mintWindowCount,
+} from "./mint-rate-limit";
 
 beforeEach(() => {
   __resetMintRateLimit();
@@ -24,19 +29,36 @@ describe("checkMintRateLimit", () => {
     expect(checkMintRateLimit("b", 1, 1000, 1000)).toBe(true);
     expect(checkMintRateLimit("a", 1, 1000, 1000)).toBe(false);
   });
+
+  it("bounds tracked windows under a same-window distinct-key flood", () => {
+    const t = 1000;
+    // All in one window (nothing expires), more distinct keys than the cap.
+    for (let i = 0; i < 10_050; i++) {
+      checkMintRateLimit(`key-${i}`, 5, 60_000, t);
+    }
+    expect(__mintWindowCount()).toBeLessThanOrEqual(10_000);
+    // Still functional after eviction: a fresh key limits normally.
+    expect(checkMintRateLimit("fresh", 1, 60_000, t)).toBe(true);
+    expect(checkMintRateLimit("fresh", 1, 60_000, t)).toBe(false);
+    expect(__mintWindowCount()).toBeLessThanOrEqual(10_000);
+  });
 });
 
 describe("rateLimitClientKey", () => {
-  it("prefers x-real-ip", () => {
+  it("prefers the last x-forwarded-for hop over a client-settable x-real-ip", () => {
     const key = rateLimitClientKey(
       new Headers({ "x-real-ip": "1.2.3.4", "x-forwarded-for": "9.9.9.9" }),
     );
-    expect(key).toBe("1.2.3.4");
+    expect(key).toBe("9.9.9.9");
   });
 
   it("uses the LAST x-forwarded-for hop (ALB-appended client, not the spoofable leftmost)", () => {
     const key = rateLimitClientKey(new Headers({ "x-forwarded-for": "1.1.1.1, 2.2.2.2, 3.3.3.3" }));
     expect(key).toBe("3.3.3.3");
+  });
+
+  it("falls back to x-real-ip only when no x-forwarded-for is present", () => {
+    expect(rateLimitClientKey(new Headers({ "x-real-ip": "1.2.3.4" }))).toBe("1.2.3.4");
   });
 
   it("falls back to a shared bucket when no forwarding header is present", () => {
