@@ -3,8 +3,8 @@
  *
  * A reported run, read back through the run-detail route, must expose: the exact
  * dataset version, candidate version, run identity, each result's trace id, scores
- * with INDEPENDENT scorer errors, the task error, the run status/finality, human
- * scores, and the baseline relationship. prisma is mocked with a fully-formed run
+ * with INDEPENDENT scorer errors, the task error, the run status/finality, and the
+ * baseline relationship. prisma is mocked with a fully-formed run
  * (the route uses nested `include`), so this asserts the route's exposure + derived
  * fields, not the storage engine.
  */
@@ -130,17 +130,6 @@ beforeEach(() => {
             error: "Judge returned malformed JSON",
           },
         ],
-        humanScores: [
-          {
-            id: "h1",
-            dimension: "overall",
-            verdict: "pass",
-            quality: 4,
-            comment: "looks right",
-            reviewer: "e@x.com",
-            status: "reviewed",
-          },
-        ],
       },
       {
         id: "res2",
@@ -153,7 +142,6 @@ beforeEach(() => {
         taskError: "ToolTimeout: lookup_invoice timed out",
         candidateOutput: null,
         scores: [],
-        humanScores: [],
       },
     ],
   };
@@ -226,7 +214,7 @@ describe("run/result read-back", () => {
     expect(cmp.scorers.find((s) => s.name === "routing-accuracy")?.delta).toBeCloseTo(0.5);
   });
 
-  it("exposes result trace id, task error, scores with independent scorer errors, and human scores", async () => {
+  it("exposes result trace id, task error, and scores with independent scorer errors", async () => {
     const results = (await read()).body.results as Array<Record<string, unknown>>;
     expect(results).toHaveLength(2);
 
@@ -236,7 +224,6 @@ describe("run/result read-back", () => {
     const helpfulness = scores.find((s) => s.scorerName === "helpfulness")!;
     expect(helpfulness.error).toContain("malformed JSON");
     expect(helpfulness.numericValue).toBeNull(); // scorer error is not a zero
-    expect((passed.humanScores as unknown[]).length).toBe(1);
 
     const errored = results.find((r) => r.testCaseId === "case-2")!;
     expect(errored.status).toBe("errored");
@@ -251,35 +238,6 @@ describe("run/result read-back", () => {
     expect("provenance" in run).toBe(false);
     // The dropped orphan `model` column no longer appears on the read model.
     expect("model" in run).toBe(false);
-  });
-
-  it("derives the human-review summary read-only, without touching automated signals", async () => {
-    // res1 (auto passed) carries an "overall" human pass; res2 (auto errored) has none.
-    const run = (await read()).body.run as Record<string, unknown>;
-    const hr = run.humanReview as Record<string, number | string[]>;
-    expect(hr.dimensions).toEqual(["overall"]);
-    expect(hr.reviewedCount).toBe(1);
-    expect(hr.pendingCount).toBe(1); // res2 not reviewed on the active "overall" dimension
-    expect(hr.passCount).toBe(1);
-    expect(hr.failCount).toBe(0);
-    expect(hr.disagreementCount).toBe(0); // human pass agrees with the automated pass
-    // Automated signals are exactly what the comparison/status produce — never rewritten.
-    expect(run.status).toBe("completed_with_errors");
-    expect(run.baselineComparable).toBe(true);
-  });
-
-  it("counts a human-vs-automated disagreement without changing the automated verdict", async () => {
-    // Flip the human verdict on the auto-passed result to a fail → one disagreement.
-    (
-      db.run as { results: Array<{ humanScores: Array<{ verdict: string }> }> }
-    ).results[0].humanScores[0].verdict = "fail";
-    const run = (await read()).body.run as Record<string, unknown>;
-    const hr = run.humanReview as Record<string, number>;
-    expect(hr.disagreementCount).toBe(1);
-    expect(hr.failCount).toBe(1);
-    // The automated status / comparison are untouched by the human disagreement.
-    expect(run.status).toBe("completed_with_errors");
-    expect(run.baselineComparable).toBe(true);
   });
 
   it("marks an incompatible baseline (different dataset version) as not comparable", async () => {

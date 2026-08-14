@@ -297,24 +297,6 @@ export function useEvaluationRunDetails(projectId: string, runIds: string[]) {
   });
 }
 
-export function useCreateHumanScore(projectId: string, resultId: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (input: {
-      verdict: "pass" | "fail" | "unsure";
-      quality?: number | null;
-      comment?: string | null;
-      reviewer: string;
-    }) =>
-      sendJson(
-        `/api/projects/${projectId}/evaluations/results/${resultId}/human-score`,
-        "POST",
-        input,
-      ),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ["evaluations", "run"] }),
-  });
-}
-
 export interface TraceEvaluationResultRow {
   id: string;
   runId: string;

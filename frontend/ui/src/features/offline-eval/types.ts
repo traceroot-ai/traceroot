@@ -70,34 +70,6 @@ export const SPAN_KIND_LABEL: Record<SpanKind, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// Human review — the one thing people create in the UI
-// ---------------------------------------------------------------------------
-
-export type HumanVerdict = "pass" | "fail" | "unsure";
-
-export const HUMAN_VERDICT_LABEL: Record<HumanVerdict, string> = {
-  pass: "Pass",
-  fail: "Fail",
-  unsure: "Unsure",
-};
-
-/**
- * One person's judgment of one observed result.
- *
- * `correctedExpected` is kept separate from the verdict on purpose: judging what
- * happened once and changing what future runs are compared against are two
- * different decisions.
- */
-export interface HumanReview {
-  verdict: HumanVerdict;
-  quality?: number;
-  correctedExpected?: string;
-  comment?: string;
-  reviewer: string;
-  at: string;
-}
-
-// ---------------------------------------------------------------------------
 // Traces (real TraceDetail, plus the display fields a list needs)
 // ---------------------------------------------------------------------------
 
@@ -112,7 +84,6 @@ export interface ProtoTrace {
   /** Short plain summary of the outcome, for the list. */
   resultSummary: string;
   status: ResultStatus;
-  humanReview?: HumanReview;
 }
 
 export type TraceFilter = "all" | "passed" | "failed" | "needs_review" | "has_error";
@@ -171,7 +142,6 @@ export interface TestCase {
   metadata: Record<string, string>;
   addedAt: string;
   addedBy: string;
-  humanReview?: HumanReview;
 }
 
 export interface DatasetVersion {
@@ -330,7 +300,6 @@ export interface EvaluationResult {
   cost: number;
   /** The trace this result produced — opens the real trace detail. */
   traceId: string;
-  humanReview?: HumanReview;
 }
 
 export type ResultFilter = "all" | "regressions" | "failed" | "needs_review";
@@ -347,18 +316,16 @@ export const RESULT_FILTERS: Array<{ id: ResultFilter; label: string }> = [
 // ---------------------------------------------------------------------------
 
 /** Friendly types. */
-export type ScorerType = "rule" | "ai_judge" | "human_review";
+export type ScorerType = "rule" | "ai_judge";
 
 export const SCORER_TYPE_LABEL: Record<ScorerType, string> = {
   rule: "Rule / code",
   ai_judge: "LLM judge",
-  human_review: "Human review",
 };
 
 export const SCORER_TYPE_HELP: Record<ScorerType, string> = {
   rule: "Plain code. Same input, same answer, every time.",
   ai_judge: "A model reads the output and grades it against a rubric.",
-  human_review: "A person decides. Used when nothing automatic is good enough.",
 };
 
 export interface Scorer {

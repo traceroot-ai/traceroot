@@ -5,7 +5,7 @@
  * (B1/B3/B4) end to end against the in-memory fake prisma — proving the pieces the
  * SDK's remote paths depend on: client-id idempotency, one-call-one-version
  * publishing, optimistic-concurrency 409s, idempotent republish, the batch cap,
- * additive per-scorer scores, human scores, and the cancelled run status.
+ * additive per-scorer scores, and the cancelled run status.
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
@@ -33,7 +33,6 @@ import { POST as publishVersion, GET as listVersions } from "./datasets/[dataset
 import { GET as readVersion } from "./dataset-versions/[versionId]/route";
 import { POST as completeRun } from "./evaluation-runs/[runId]/complete/route";
 import { POST as addScore } from "./evaluation-runs/[runId]/results/[testCaseId]/scores/route";
-import { POST as addHumanScore } from "./evaluation-runs/[runId]/results/[testCaseId]/human-score/route";
 
 const API_KEY = "tr-test-key";
 const OTHER_KEY = "tr-other-key";
@@ -401,7 +400,7 @@ describe("A3: patch dataset metadata", () => {
   });
 });
 
-describe("B3/B4: additive scores and human scores", () => {
+describe("B3: additive scores", () => {
   beforeEach(() => {
     fakePrisma.evaluationResult.rows.push({
       id: "res1",
@@ -443,16 +442,6 @@ describe("B3/B4: additive scores and human scores", () => {
     expect(scores).toHaveLength(2);
     expect(scores.find((s) => s.scorerVersion === "v2")!.numericValue).toBe(0.8);
     expect(scores.find((s) => s.scorerVersion === "v3")!.numericValue).toBe(0.95);
-  });
-
-  it("records a human score bound to the run + test case", async () => {
-    const res = await addHumanScore(
-      req({ verdict: "pass", quality: 4, reviewer: "e@x.com" }),
-      resultParams("run1", "tc_1"),
-    );
-    expect(res.status).toBe(201);
-    expect(fakePrisma.humanScore.rows).toHaveLength(1);
-    expect(fakePrisma.humanScore.rows[0].verdict).toBe("pass");
   });
 
   it("404s a score for a result that does not exist", async () => {

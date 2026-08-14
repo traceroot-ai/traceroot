@@ -383,7 +383,6 @@ export class FakePrisma {
   score = new Model("score", [
     { fields: ["resultId", "scorerName", "scorerVersion"], name: "uq_score_result_scorer" },
   ]);
-  humanScore = new Model("humanScore");
 
   constructor() {
     this.wireRelations();
@@ -450,7 +449,6 @@ export class FakePrisma {
     };
     this.evaluationResult.relations = {
       scores: { kind: "hasMany", model: this.score, fk: "resultId" },
-      humanScores: { kind: "hasMany", model: this.humanScore, fk: "resultId" },
     };
   }
 
@@ -487,7 +485,6 @@ export class FakePrisma {
     this.score = new Model("score", [
       { fields: ["resultId", "scorerName", "scorerVersion"], name: "uq_score_result_scorer" },
     ]);
-    this.humanScore = new Model("humanScore");
     this.wireRelations();
   }
 }

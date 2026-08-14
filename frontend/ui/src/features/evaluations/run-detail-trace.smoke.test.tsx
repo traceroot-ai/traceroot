@@ -117,7 +117,6 @@ function makeResult(traceId: string | null) {
     cost: 0.012,
     createTime: "2026-07-17T10:24:00Z",
     scores: [],
-    humanScores: [],
     comparison: {
       pairing: "candidate_only",
       scorerCells: [],

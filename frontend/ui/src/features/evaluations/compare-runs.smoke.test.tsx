@@ -58,7 +58,6 @@ const result = (
     score("routing_accuracy", scores.routing_accuracy),
     score("is_known_category", scores.is_known_category),
   ],
-  humanScores: [],
   comparison: null,
 });
 

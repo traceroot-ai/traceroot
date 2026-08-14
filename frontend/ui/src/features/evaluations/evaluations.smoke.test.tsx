@@ -100,14 +100,6 @@ const RUN = {
     ],
     duration: { candidateMeanMs: 1500, baselineMeanMs: 1400, deltaMs: 100, pairedCount: 22 },
   },
-  humanReview: {
-    dimensions: [],
-    reviewedCount: 0,
-    pendingCount: 0,
-    passCount: 0,
-    failCount: 0,
-    disagreementCount: 0,
-  },
   metadata: null,
 } satisfies RunDetail;
 
@@ -140,7 +132,6 @@ const RESULT = {
       error: null,
     },
   ],
-  humanScores: [],
   comparison: {
     pairing: "paired",
     scorerCells: [
