@@ -178,3 +178,79 @@ class TestJwtRejections:
         with pytest.raises(HTTPException) as exc:
             await authenticate_account_caller(authorization=f"Bearer {token}")
         assert exc.value.status_code == 503
+
+    async def test_missing_exp_rejected(self, signer):
+        # The require=["exp", "sub"] guard rejects a token with no expiry, before
+        # any anonymous/forever-valid token can be accepted.
+        token = _mint(signer.priv, drop=("exp",))
+        with pytest.raises(HTTPException) as exc:
+            await authenticate_account_caller(authorization=f"Bearer {token}")
+        assert exc.value.status_code == 401
+
+    async def test_empty_sub_rejected(self, signer):
+        # An empty-string sub passes the require-presence check but is not a usable
+        # identity: the `if not sub` guard rejects it.
+        token = _mint(signer.priv, sub="")
+        with pytest.raises(HTTPException) as exc:
+            await authenticate_account_caller(authorization=f"Bearer {token}")
+        assert exc.value.status_code == 401
+
+    async def test_non_string_sub_rejected(self, signer):
+        # A non-string sub (the `not isinstance(sub, str)` guard) is likewise rejected.
+        token = _mint(signer.priv, sub=123)
+        with pytest.raises(HTTPException) as exc:
+            await authenticate_account_caller(authorization=f"Bearer {token}")
+        assert exc.value.status_code == 401
+
+    async def test_unparseable_jwt_shaped_token(self):
+        # "a.b.c" is JWT-shaped (three non-empty segments) so it reaches
+        # _verify_access_jwt, whose get_unverified_header raises before any JWKS
+        # lookup — a 401, never an uncaught crash. No signer/JWKS needed.
+        with pytest.raises(HTTPException) as exc:
+            await authenticate_account_caller(authorization="Bearer a.b.c")
+        assert exc.value.status_code == 401
+
+    async def test_jwt_project_empty_workspace_fails_closed(self, signer):
+        # A verified JWT whose user-project-access 200 carries an empty workspaceId
+        # would collapse tenants into one rate-limit bucket → fail closed (503).
+        signer.respx.post(UPA_URL).mock(
+            return_value=Response(
+                200,
+                json={
+                    "valid": True,
+                    "hasAccess": True,
+                    "userId": "user-1",
+                    "role": "ADMIN",
+                    "billingPlan": "pro",
+                    "projectId": "proj-123",
+                    "workspaceId": "",
+                },
+            )
+        )
+        with pytest.raises(HTTPException) as exc:
+            await authenticate_public_caller(
+                authorization=f"Bearer {_mint(signer.priv)}", project_id="proj-123"
+            )
+        assert exc.value.status_code == 503
+        assert exc.value.detail == "Authentication service error"
+
+    async def test_jwt_project_missing_fields_fails_closed(self, signer):
+        # Same path, but the 200 omits required project fields (workspaceId/role/…)
+        # → malformed introspection → fail closed (503), never an uncaught 500.
+        signer.respx.post(UPA_URL).mock(
+            return_value=Response(
+                200,
+                json={
+                    "valid": True,
+                    "hasAccess": True,
+                    "userId": "user-1",
+                    "projectId": "proj-123",
+                },
+            )
+        )
+        with pytest.raises(HTTPException) as exc:
+            await authenticate_public_caller(
+                authorization=f"Bearer {_mint(signer.priv)}", project_id="proj-123"
+            )
+        assert exc.value.status_code == 503
+        assert exc.value.detail == "Authentication service error"

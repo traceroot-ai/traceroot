@@ -11,15 +11,23 @@ byte-identical key-auth response contract; here the token value matters because
 the real dependency discriminates on the ``tr-`` prefix.
 """
 
+import time
 from unittest.mock import MagicMock
 
+import jwt
 import respx
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi.testclient import TestClient
 from httpx import Response
+from jwt.algorithms import OKPAlgorithm
 
 from rest.main import app
+from rest.routers.public import deps
+from rest.routers.public.jwks_cache import JwksCache
 
 BASE_URL = "http://localhost:3000"
+JWKS_URL = f"{BASE_URL}/api/auth/jwks"
+_JWT_KID = "kid-dual-1"
 
 USER_HEADER = {"Authorization": "Bearer user-session-token"}
 KEY_HEADER = {"Authorization": "Bearer tr-some-key"}
@@ -133,3 +141,136 @@ def test_key_with_matching_project_id_succeeds(monkeypatch):
     assert resp.status_code == 200
     assert resp.json() == EMPTY_LIST
     assert reader.list_traces.call_args.kwargs["project_id"] == "proj-A"
+
+
+def _install_jwt_signer(monkeypatch):
+    """Register a mocked JWKS and point the deps cache at it; return the signer."""
+    priv = Ed25519PrivateKey.generate()
+    jwk = OKPAlgorithm.to_jwk(priv.public_key(), as_dict=True)
+    jwk.update(kid=_JWT_KID, alg="EdDSA", use="sig")
+    respx.get(JWKS_URL).mock(return_value=Response(200, json={"keys": [jwk]}))
+    monkeypatch.setattr(deps, "get_jwks_cache", lambda: JwksCache(JWKS_URL))
+    return priv
+
+
+def _mint_jwt(priv, *, sub="u1"):
+    now = int(time.time())
+    return jwt.encode(
+        {"sub": sub, "aud": "traceroot-api", "iss": "traceroot", "iat": now, "exp": now + 900},
+        priv,
+        algorithm="EdDSA",
+        headers={"kid": _JWT_KID},
+    )
+
+
+@respx.mock
+def test_cli_access_jwt_reads_like_key_path(monkeypatch):
+    """A CLI access JWT + ?project_id verifies offline against the JWKS, resolves
+    the project via user-project-access, and reads the same body shape as the key
+    and session paths — proving the JWT branch is wired end-to-end through the
+    route, not just the dependency."""
+    priv = _install_jwt_signer(monkeypatch)
+    respx.post(f"{BASE_URL}/api/internal/user-project-access").mock(
+        return_value=Response(
+            200,
+            json={
+                "valid": True,
+                "hasAccess": True,
+                "userId": "u1",
+                "role": "member",
+                "workspaceId": "ws-1",
+                "billingPlan": "enterprise",
+                "projectId": "proj-A",
+            },
+        )
+    )
+    reader = _stub_reader(monkeypatch)
+    token = _mint_jwt(priv, sub="u1")
+    resp = TestClient(app).get(
+        "/api/v1/public/traces?project_id=proj-A",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == EMPTY_LIST
+    # The read is scoped to the project the JWT's user was granted, not a client value.
+    assert reader.list_traces.call_args.kwargs["project_id"] == "proj-A"
+
+
+def _stub_detector_reader(monkeypatch) -> MagicMock:
+    """Replace the detector reader with a mock returning an empty (items, total) page.
+
+    The route injects the reader via ``Depends(get_detector_reader_service)`` (not
+    an in-body call like traces/sessions), so patch it through FastAPI's
+    ``dependency_overrides`` — the conftest auto-clears these after each test.
+    """
+    reader = MagicMock()
+    reader.list_detectors.return_value = ([], 0)
+    from rest.routers.public.detectors_read import get_detector_reader_service
+
+    app.dependency_overrides[get_detector_reader_service] = lambda: reader
+    return reader
+
+
+def _stub_session_reader(monkeypatch) -> MagicMock:
+    """Replace the (shared) trace reader with a mock returning an empty session page."""
+    reader = MagicMock()
+    reader.list_sessions.return_value = {
+        "data": [],
+        "meta": {"page": 0, "limit": 50, "total": 0},
+    }
+    import rest.routers.public.sessions_read as mod
+
+    monkeypatch.setattr(mod, "get_trace_reader_service", lambda: reader)
+    return reader
+
+
+@respx.mock
+def test_detectors_user_token_reads_through_real_dual_auth(monkeypatch):
+    """The detectors list route resolves the real DualStampedAuth dependency: a
+    user token + ?project_id is introspected via validate-user-token and reads."""
+    respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+        return_value=Response(200, json=USER_OK_BODY)
+    )
+    reader = _stub_detector_reader(monkeypatch)
+    resp = TestClient(app).get("/api/v1/public/detectors?project_id=proj-A", headers=USER_HEADER)
+    assert resp.status_code == 200
+    # The read is scoped to the project resolved from the token, not a client value.
+    assert reader.list_detectors.call_args.kwargs["project_id"] == "proj-A"
+
+
+@respx.mock
+def test_detectors_user_token_without_access_is_403(monkeypatch):
+    """A valid token with no access to the project surfaces the validator's 403,
+    proving auth runs before the reader (which is never consulted)."""
+    respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+        return_value=Response(403, json={"valid": False, "hasAccess": False})
+    )
+    reader = _stub_detector_reader(monkeypatch)
+    client = TestClient(app, raise_server_exceptions=False)
+    resp = client.get("/api/v1/public/detectors?project_id=proj-A", headers=USER_HEADER)
+    assert resp.status_code == 403
+    assert reader.list_detectors.call_count == 0
+
+
+@respx.mock
+def test_sessions_user_token_reads_through_real_dual_auth(monkeypatch):
+    """Same real-dependency wiring for the sessions list route."""
+    respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+        return_value=Response(200, json=USER_OK_BODY)
+    )
+    reader = _stub_session_reader(monkeypatch)
+    resp = TestClient(app).get("/api/v1/public/sessions?project_id=proj-A", headers=USER_HEADER)
+    assert resp.status_code == 200
+    assert reader.list_sessions.call_args.kwargs["project_id"] == "proj-A"
+
+
+@respx.mock
+def test_sessions_user_token_without_access_is_403(monkeypatch):
+    respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+        return_value=Response(403, json={"valid": False, "hasAccess": False})
+    )
+    reader = _stub_session_reader(monkeypatch)
+    client = TestClient(app, raise_server_exceptions=False)
+    resp = client.get("/api/v1/public/sessions?project_id=proj-A", headers=USER_HEADER)
+    assert resp.status_code == 403
+    assert reader.list_sessions.call_count == 0

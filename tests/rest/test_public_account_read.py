@@ -102,6 +102,26 @@ def test_list_projects_flattens_across_workspaces():
 
 
 @respx.mock
+def test_list_workspaces_empty_membership_returns_empty_data():
+    """A user who belongs to no workspaces gets an empty list, not an error."""
+    _mock_account_auth()
+    _mock_memberships(body={"workspaces": []})
+    resp = TestClient(app).get("/api/v1/public/workspaces", headers=USER_HEADER)
+    assert resp.status_code == 200
+    assert resp.json() == {"data": []}
+
+
+@respx.mock
+def test_list_projects_empty_membership_returns_empty_data():
+    """No workspaces means no projects to flatten → empty list, not an error."""
+    _mock_account_auth()
+    _mock_memberships(body={"workspaces": []})
+    resp = TestClient(app).get("/api/v1/public/projects", headers=USER_HEADER)
+    assert resp.status_code == 200
+    assert resp.json() == {"data": []}
+
+
+@respx.mock
 def test_list_projects_filters_by_workspace_id():
     _mock_account_auth()
     _mock_memberships()
