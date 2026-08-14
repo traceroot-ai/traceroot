@@ -482,6 +482,14 @@ async def authenticate_user_token(token: str, project_id: str) -> AuthResult:
         forbidden_detail=f"No access to project '{project_id}'",
     )
 
+    # Defense-in-depth: a 200 body that explicitly denies access is a contract
+    # violation (the route should 403 instead) — never read it as a grant.
+    if data.get("hasAccess") is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"No access to project '{project_id}'",
+        )
+
     # A valid:true (200) response missing required project fields is malformed → 503.
     try:
         resolved_project_id = data["projectId"]
@@ -550,6 +558,14 @@ async def authenticate_user_jwt(token: str, project_id: str) -> AuthResult:
         invalid_detail="Invalid token",
         forbidden_detail=f"No access to project '{project_id}'",
     )
+
+    # Defense-in-depth: a 200 body that explicitly denies access is a contract
+    # violation (the route should 403 instead) — never read it as a grant.
+    if data.get("hasAccess") is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"No access to project '{project_id}'",
+        )
 
     # A 200 response missing required project fields is malformed → 503.
     try:
