@@ -175,6 +175,7 @@
             "pages": [
               "integrations/anthropic",
               "integrations/gemini",
+              "integrations/groq",
               "integrations/mistral",
               "integrations/openai",
               "integrations/openrouter"
