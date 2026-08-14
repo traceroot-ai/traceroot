@@ -39,6 +39,7 @@ class FakeReader:
         self.list_args: dict | None = None
         self.list_return: tuple = ([], 0)
         self.raise_on_list = False
+        self.raise_on_get_finding_by_trace = False
         self.detectors_args: dict | None = None
         self.detectors_return: tuple = ([], 0)
         self.raise_on_detectors = False
@@ -65,6 +66,8 @@ class FakeReader:
 
     def get_finding_by_trace(self, project_id, trace_id):
         self.last_by_trace = (project_id, trace_id)
+        if self.raise_on_get_finding_by_trace:
+            raise RuntimeError("boom")
         return self.by_trace
 
 
@@ -256,6 +259,14 @@ def test_detail_by_trace_returns_finding(client, reader):
 def test_detail_by_trace_404_when_none(client, reader):
     reader.by_trace = None
     assert client.get("/api/v1/public/detectors/traces/none/finding").status_code == 404
+
+
+def test_detail_by_trace_reader_failure_returns_sanitized_500(client, reader):
+    reader.raise_on_get_finding_by_trace = True
+    resp = client.get("/api/v1/public/detectors/traces/t1/finding")
+    assert resp.status_code == 500
+    assert resp.json()["detail"] == "Failed to read finding"
+    assert "boom" not in resp.text
 
 
 def test_auth_required_without_key(reader):

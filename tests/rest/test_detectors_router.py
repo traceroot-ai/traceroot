@@ -29,6 +29,7 @@ class FakeReader:
         self.list_args: dict | None = None
         self.list_return: tuple = ([], 0)
         self.raise_on_list = False
+        self.raise_on_get_finding_by_trace = False
         self.finding: FindingDetail | None = None
         self.by_trace: FindingDetail | None = None
         self.last_get: tuple | None = None
@@ -52,6 +53,8 @@ class FakeReader:
 
     def get_finding_by_trace(self, project_id, trace_id):
         self.last_by_trace = (project_id, trace_id)
+        if self.raise_on_get_finding_by_trace:
+            raise RuntimeError("boom")
         return self.by_trace
 
 
@@ -222,3 +225,9 @@ class TestGetFindingByTrace:
         reader.by_trace = None
         resp = client.get("/api/v1/projects/proj-A/detectors/traces/t-x/finding")
         assert resp.status_code == 404
+
+    def test_reader_error_maps_to_500(self, client, reader):
+        reader.raise_on_get_finding_by_trace = True
+        resp = client.get("/api/v1/projects/proj-A/detectors/traces/t-1/finding")
+        assert resp.status_code == 500
+        assert resp.json()["detail"] == "Failed to read finding"
