@@ -5,6 +5,7 @@ These endpoints are protected by X-Internal-Secret header and not exposed public
 
 import gzip
 import hmac
+import json
 import logging
 import re
 import zlib
@@ -23,6 +24,7 @@ from rest.schemas.detectors import (
 )
 from rest.sql_utils import escape_ilike, to_utc_naive
 from shared.config import settings
+from shared.detector_keys import detection_claim_key
 from worker.detector_transform import UnattributableSpanError, transform_detector_traces
 
 logger = logging.getLogger(__name__)
@@ -683,6 +685,74 @@ async def list_trace_detector_runs(trace_id: str, project_id: str):
             row_dict["timestamp"] = row_dict["timestamp"].isoformat()
         runs.append(row_dict)
     return {"runs": runs}
+
+
+_DETECTION_STATES = frozenset({"deciding", "sampled_out", "pending"})
+
+
+class TraceDetectionStateResponse(BaseModel):
+    """Per-trace detection state.
+
+    ``state`` is the worker's enqueue-claim state, or ``None`` when no claim record
+    is readable (never detected, expired, or Redis down). ``None`` means "no
+    signal", not "nothing is coming".
+    """
+
+    state: str | None = None
+    detector_ids: list[str] = Field(default_factory=list)
+
+
+@router.get(
+    "/traces/{trace_id}/detection-state",
+    response_model=TraceDetectionStateResponse,
+    dependencies=[Depends(verify_internal_secret)],
+)
+async def get_trace_detection_state(trace_id: str, project_id: str):
+    """Report whether detection is queued for a trace, and which detectors ran.
+
+    Detection is debounced (the evaluator waits for the trace to go quiet), so a
+    fresh trace has no findings or runs for roughly a minute. The worker already
+    records its enqueue decision per trace; exposing it lets a client show
+    "detection in progress" right away and know which runs to expect, instead of
+    guessing with a timer. ``sampled_out`` sticks: every detector was rejected, so
+    no run or finding will ever appear.
+
+    Fails soft by contract — an unreadable claim record returns an empty state
+    rather than an error, since this is only a hint and the client has a fallback.
+
+    Args:
+        trace_id (str): Trace whose detection state to report.
+        project_id (str): Project that owns the trace; scopes the claim key.
+
+    Returns:
+        TraceDetectionStateResponse: ``state`` one of ``deciding``,
+            ``pending``, ``sampled_out`` or ``None``, plus ``detector_ids``
+            (the detectors enqueued for this trace; empty unless ``pending``).
+    """
+    from shared.redis import get_async_redis_client
+
+    key = detection_claim_key(project_id, trace_id)
+    try:
+        raw = await get_async_redis_client().get(key)
+        payload = json.loads(raw) if raw else None
+    except Exception:
+        # Redis down or a payload we cannot decode — both are "no signal".
+        logger.warning("detection-state: unreadable claim for trace %s", trace_id, exc_info=True)
+        return TraceDetectionStateResponse()
+
+    if not isinstance(payload, dict):
+        return TraceDetectionStateResponse()
+
+    # Drop an unrecognized future state rather than leaking it to clients that
+    # branch on the known vocabulary.
+    state = payload.get("state")
+    raw_ids = payload.get("detector_ids")
+    return TraceDetectionStateResponse(
+        state=state if state in _DETECTION_STATES else None,
+        detector_ids=[d for d in raw_ids if isinstance(d, str)]
+        if isinstance(raw_ids, list)
+        else [],
+    )
 
 
 def _fetch_sample_summaries(
