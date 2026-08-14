@@ -153,6 +153,7 @@ export function SpanInfoPanel({
               cacheReadTokens={traceTokenUsage.cacheReadTokens}
               cacheWriteTokens={traceTokenUsage.cacheWriteTokens}
               reasoningTokens={traceTokenUsage.reasoningTokens}
+              usageDetails={traceTokenUsage.usageDetails}
             />
           )}
           {isTrace && traceTotalCost != null && (
@@ -172,6 +173,7 @@ export function SpanInfoPanel({
               cacheReadTokens={selection.span.usage_details?.cache_read_tokens}
               cacheWriteTokens={selection.span.usage_details?.cache_write_tokens}
               reasoningTokens={selection.span.usage_details?.reasoning_tokens}
+              usageDetails={selection.span.usage_details}
             />
           )}
           {!isTrace && (

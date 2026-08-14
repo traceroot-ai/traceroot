@@ -1906,6 +1906,67 @@ class TestManualUsageAttribute:
         assert span["output_tokens"] == 50
         assert span["usage_details"]["cache_read_tokens"] == 0
 
+    def test_manual_extra_keys_are_stored_display_only_and_unpriced(self):
+        from unittest.mock import patch
+
+        # Unrecognized fields (audio, image) reported via the manual dict must
+        # surface in usage_details as display-only extra keys and must NOT change
+        # the cost — the priced buckets reconcile with input/output as before.
+        payload = make_otel_payload(
+            [
+                self._manual_span(
+                    {
+                        "input_tokens": 1000,
+                        "output_tokens": 200,
+                        "cache_read_tokens": 900,
+                        "audio_tokens": 30,
+                        "image_tokens": 45,
+                        "videoTokens": 12,
+                    }
+                )
+            ],
+            scope_name="traceroot",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=MANUAL_USAGE_PRICES):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        span = spans[0]
+        # Priced buckets are unchanged
+        assert span["input_tokens"] == 1000
+        assert span["output_tokens"] == 200
+        assert span["usage_details"]["cache_read_tokens"] == 900
+        # Unrecognized keys land with the extra: prefix and snake_case normalization
+        assert span["usage_details"]["extra:audio_tokens"] == 30
+        assert span["usage_details"]["extra:image_tokens"] == 45
+        assert span["usage_details"]["extra:video_tokens"] == 12
+        # Cost matches a span without extra keys exactly
+        expected = (
+            100 * MANUAL_USAGE_PRICES["input"]
+            + 900 * MANUAL_USAGE_PRICES["cacheRead"]
+            + 200 * MANUAL_USAGE_PRICES["output"]
+        )
+        assert span["cost"] == pytest.approx(expected)
+
+    def test_manual_extras_only_usage_is_persisted_without_priced_tokens(self):
+        from unittest.mock import patch
+
+        # A manual dict with only unrecognized fields (no input/output) must still
+        # surface its extra usage in usage_details, independent of the priced guard.
+        payload = make_otel_payload(
+            [self._manual_span({"audio_tokens": 30, "image_tokens": 45})],
+            scope_name="traceroot",
+        )
+        with patch("worker.tokens.pricing.get_model_price", return_value=MANUAL_USAGE_PRICES):
+            _, spans = transform_otel_to_clickhouse(payload, "proj-1")
+
+        span = spans[0]
+        assert span["usage_details"]["extra:audio_tokens"] == 30
+        assert span["usage_details"]["extra:image_tokens"] == 45
+        # No priced buckets are fabricated from extras alone.
+        assert "cache_read_tokens" not in span["usage_details"]
+        assert "cache_write_tokens" not in span["usage_details"]
+        assert "reasoning_tokens" not in span["usage_details"]
+
     def test_lone_instrumentor_total_also_suppresses_manual_dict(self):
         from unittest.mock import patch
 
@@ -1957,7 +2018,7 @@ class TestManualUsageAttribute:
         assert parse_manual_usage(
             '{"input_tokens": "abc", "output_tokens": -5, "cache_read_tokens": 900, '
             '"unknown_key": 7, "reasoning_tokens": true}'
-        ) == {"output_tokens": 0, "cache_read_tokens": 900}
+        ) == {"output_tokens": 0, "cache_read_tokens": 900, "extra:unknown_key": 7}
         # json.loads accepts literal Infinity/NaN; int(inf) raises OverflowError
         # (not ValueError), so non-finite fields must drop rather than crash.
         assert parse_manual_usage(
@@ -1976,18 +2037,36 @@ class TestManualUsageAttribute:
 
     def test_unrecognized_usage_fields_are_reported(self, caplog):
         """A provider token type we do not model yet (audio, image, a new cache
-        variant) is never examined by the parser, so without a warning it vanishes
-        with no signal anywhere. The recognized fields must still parse."""
+        variant) is surfaced as a display-only extra key instead of vanishing, and
+        the recognized fields still parse. The warning stays so the unpriced nature
+        of the stored keys is diagnosable from the logs."""
         import logging
 
         from worker.otel_transform import parse_manual_usage
 
         with caplog.at_level(logging.WARNING):
             usage = parse_manual_usage('{"input_tokens": 10, "audio_tokens": 7, "image_tokens": 3}')
-        assert usage == {"input_tokens": 10}
+        assert usage == {"input_tokens": 10, "extra:audio_tokens": 7, "extra:image_tokens": 3}
         warning = "\n".join(r.getMessage() for r in caplog.records)
         assert "audio_tokens" in warning
         assert "image_tokens" in warning
+        assert "display-only" in warning
+
+    def test_manual_extra_key_spelling_collisions_are_summed(self):
+        from worker.otel_transform import parse_manual_usage
+
+        # Distinct spellings of the same token type normalize to the same extra:
+        # key; both values must survive (summed), not silently overwrite each other.
+        assert parse_manual_usage('{"audioTokens": 10, "audio_tokens": 20}') == {
+            "extra:audio_tokens": 30
+        }
+        # A merged sum that would exceed the plausible bound drops the incoming
+        # contribution instead of storing an unbounded Int64.
+        assert parse_manual_usage('{"audioTokens": 900000000, "audio_tokens": 900000000}') == {
+            "extra:audio_tokens": 900000000
+        }
+        # Non-finite unrecognized fields are dropped, never fatal.
+        assert parse_manual_usage('{"audio_tokens": Infinity}') == {}
 
     def test_fully_recognized_usage_logs_no_warning(self, caplog):
         import logging
