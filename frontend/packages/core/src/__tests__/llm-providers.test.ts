@@ -147,7 +147,7 @@ describe("ADAPTER_MODELS", () => {
     });
   });
 
-  it("includes grok-4.6 as the newest xAI model", () => {
+  it("includes grok-4.6 in the xAI model list", () => {
     const xaiModels = ADAPTER_MODELS["xai"];
     expect(xaiModels).toBeDefined();
 
