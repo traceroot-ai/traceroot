@@ -149,12 +149,6 @@ export const PROVIDER_PRIORITY: LLMAdapter[] = [
 // Curated model catalog per adapter — used for dropdown selection in BYOK provider settings.
 // Adapters NOT listed here (azure, amazon-bedrock, openrouter) use free-text input.
 export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
-  xai: [
-    { id: "grok-4.6", label: "grok-4.6" },
-    { id: "grok-4.5", label: "grok-4.5" },
-    { id: "grok-4.20", label: "grok-4.20" },
-    { id: "grok-4", label: "grok-4" },
-  ],
   openai: [
     // Limited partner preview as of 2026-07-09 — not yet accessible via self-serve API keys.
     { id: "gpt-5.6-sol", label: "gpt-5.6-sol" },
@@ -197,6 +191,12 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "deepseek-v4-pro", label: "deepseek-v4-pro" },
     { id: "deepseek-v4-flash", label: "deepseek-v4-flash" },
     { id: "deepseek-chat", label: "deepseek-chat" },
+  ],
+  xai: [
+    { id: "grok-4.6", label: "grok-4.6" },
+    { id: "grok-4.5", label: "grok-4.5" },
+    { id: "grok-4.20", label: "grok-4.20" },
+    { id: "grok-4", label: "grok-4" },
   ],
   moonshot: [
     { id: "kimi-k3", label: "kimi-k3" },
