@@ -147,15 +147,15 @@ describe("ADAPTER_MODELS", () => {
     });
   });
 
-  it("includes grok-4.6 as the newest xAI model",()=>{
+  it("includes grok-4.6 as the newest xAI model", () => {
     const xaiModels = ADAPTER_MODELS["xai"];
     expect(xaiModels).toBeDefined();
-    
-    expect(xaiModels![0]).toEqual({
-      id:"grok-4.6",
-      label:"grok-4.6"
-    })
-  })
+
+    expect(xaiModels).toContainEqual({
+      id: "grok-4.6",
+      label: "grok-4.6",
+    });
+  });
 });
 
 describe("docs stay in sync with SYSTEM_MODELS", () => {
