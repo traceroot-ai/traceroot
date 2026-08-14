@@ -19,6 +19,7 @@ import time
 
 import httpx
 from jwt import PyJWK, PyJWKSet
+from jwt.exceptions import PyJWTError
 
 from shared.config import settings
 
@@ -96,7 +97,11 @@ class JwksCache:
                 response = await client.get(self._jwks_url)
             response.raise_for_status()
             jwk_set = PyJWKSet.from_dict(response.json())
-        except (httpx.HTTPError, ValueError, KeyError, TypeError) as e:
+        # PyJWTError (base of PyJWKSetError) covers a 200 body that parses as JSON
+        # but is not a valid JWKS (empty/wrong-shaped key set from a partial deploy
+        # or rotation); without it that case would escape as an uncaught 500
+        # instead of failing closed as a 503.
+        except (httpx.HTTPError, PyJWTError, ValueError, KeyError, TypeError) as e:
             logger.error(f"Failed to fetch JWKS: {e}")
             raise JwksUnavailableError("Could not fetch signing keys") from e
 

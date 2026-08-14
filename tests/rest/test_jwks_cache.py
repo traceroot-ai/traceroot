@@ -95,3 +95,30 @@ class TestJwksCache:
         cache = JwksCache(JWKS_URL)
         with pytest.raises(JwksUnavailableError):
             await cache.get_signing_key("kid-1")
+
+    @respx.mock
+    async def test_malformed_body_fails_closed(self):
+        """A 200 whose JSON parses but is not a valid JWKS raises PyJWKSetError
+        inside PyJWKSet.from_dict; it must fail closed as JwksUnavailableError
+        (-> 503 upstream), not escape as an uncaught 500."""
+        respx.get(JWKS_URL).mock(return_value=Response(200, json={"not": "a jwks"}))
+
+        cache = JwksCache(JWKS_URL)
+        with pytest.raises(JwksUnavailableError):
+            await cache.get_signing_key("kid-1")
+
+    @respx.mock
+    async def test_unknown_kid_refetch_allowed_after_interval(self):
+        """A zero refetch cooldown lets an unknown kid trigger one refetch, which
+        picks up a rotated-in key (kid-2) added after the first load."""
+        priv = Ed25519PrivateKey.generate()
+        route = respx.get(JWKS_URL).mock(return_value=Response(200, json=_jwks("kid-1", priv)))
+
+        cache = JwksCache(JWKS_URL, min_refetch_interval_seconds=0)
+        assert await cache.get_signing_key("kid-1") is not None  # loads (call 1)
+
+        # Rotation: the endpoint now serves kid-2. A fresh cache misses it, but the
+        # zero cooldown permits the unknown-kid refetch that discovers it.
+        route.mock(return_value=Response(200, json=_jwks("kid-2", priv)))
+        assert await cache.get_signing_key("kid-2") is not None
+        assert route.call_count == 2
