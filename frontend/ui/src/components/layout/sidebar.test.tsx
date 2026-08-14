@@ -2,8 +2,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+// Radix DropdownMenu opens on pointerdown and relies on pointer-capture APIs
+// jsdom doesn't implement.
+window.HTMLElement.prototype.hasPointerCapture = vi.fn();
+window.HTMLElement.prototype.releasePointerCapture = vi.fn();
+window.HTMLElement.prototype.scrollIntoView = vi.fn();
 
 const navigation = { pathname: "/workspaces", params: {} as Record<string, string> };
 
@@ -12,15 +19,22 @@ vi.mock("next/navigation", () => ({
   useParams: () => navigation.params,
 }));
 
+const mocks = vi.hoisted(() => ({
+  theme: "light" as string | undefined,
+  setTheme: vi.fn(),
+  signOut: vi.fn(),
+}));
+
 vi.mock("@/lib/auth-client", () => ({
   authClient: {
     useSession: () => ({ data: null }),
     admin: { stopImpersonating: vi.fn() },
+    signOut: (...args: unknown[]) => mocks.signOut(...args),
   },
 }));
 
 vi.mock("next-themes", () => ({
-  useTheme: () => ({ theme: "light", setTheme: vi.fn() }),
+  useTheme: () => ({ theme: mocks.theme, setTheme: mocks.setTheme }),
 }));
 
 // Children with their own data needs; covered by their own tests
@@ -114,5 +128,104 @@ describe("Sidebar", () => {
     navigation.pathname = "/auth/sign-in";
     render();
     expect(container.innerHTML).toBe("");
+  });
+
+  describe("account menu", () => {
+    beforeEach(() => {
+      mocks.theme = "light";
+      mocks.setTheme.mockClear();
+      mocks.signOut.mockClear();
+      Object.defineProperty(window, "location", {
+        writable: true,
+        configurable: true,
+        value: { href: "" },
+      });
+    });
+
+    async function openAccountMenu() {
+      fireEvent.pointerDown(screen.getByRole("button", { name: "Account menu" }), {
+        button: 0,
+        pointerType: "mouse",
+      });
+      await screen.findByRole("menu");
+    }
+
+    async function openThemeSubmenu() {
+      fireEvent.click(screen.getByRole("menuitem", { name: /^Theme/ }));
+      await screen.findAllByRole("menuitemradio");
+    }
+
+    it("keeps the theme picker behind its own submenu, closed by default", async () => {
+      render();
+      await openAccountMenu();
+
+      const trigger = screen.getByRole("menuitem", { name: /^Theme/ });
+      expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
+      expect(trigger.getAttribute("aria-expanded")).toBe("false");
+      expect(screen.queryByRole("menuitemradio")).toBeNull();
+    });
+
+    it("shows the active theme's icon on the submenu trigger without opening it", async () => {
+      mocks.theme = "dark";
+      render();
+      await openAccountMenu();
+
+      const trigger = screen.getByRole("menuitem", { name: /^Theme/ });
+      expect(trigger.querySelector("svg.lucide-moon")).toBeTruthy();
+    });
+
+    it("shows left-aligned Light/Dark/System items with the active theme checked", async () => {
+      render();
+      await openAccountMenu();
+      await openThemeSubmenu();
+
+      const items = screen.getAllByRole("menuitemradio");
+      expect(items.map((el) => el.textContent)).toEqual(["Light", "Dark", "System"]);
+      items.forEach((el) => expect(el.className).not.toContain("justify-center"));
+
+      expect(items[0].getAttribute("aria-checked")).toBe("true");
+      expect(items[1].getAttribute("aria-checked")).toBe("false");
+      expect(items[2].getAttribute("aria-checked")).toBe("false");
+    });
+
+    it("calls setTheme when picking a different theme, without closing the menu", async () => {
+      render();
+      await openAccountMenu();
+      await openThemeSubmenu();
+
+      fireEvent.click(screen.getByRole("menuitemradio", { name: "Dark" }));
+
+      expect(mocks.setTheme).toHaveBeenCalledWith("dark");
+      // Both the root menu and the theme submenu should still be open.
+      expect(screen.getAllByRole("menu")).toHaveLength(2);
+    });
+
+    it("defaults to System checked when no theme is set yet", async () => {
+      mocks.theme = undefined;
+      render();
+      await openAccountMenu();
+      await openThemeSubmenu();
+
+      expect(
+        screen.getByRole("menuitemradio", { name: "System" }).getAttribute("aria-checked"),
+      ).toBe("true");
+    });
+
+    it("shows Log Out with an icon, separated by a divider, styled as destructive, and signs out on click", async () => {
+      render();
+      await openAccountMenu();
+
+      expect(screen.getByRole("separator")).toBeTruthy();
+
+      const logOut = screen.getByRole("menuitem", { name: /Log Out/i });
+      expect(logOut.className).not.toContain("justify-center");
+      expect(logOut.className).toContain("text-red-600");
+      expect(logOut.querySelector("svg")).toBeTruthy();
+
+      fireEvent.click(logOut);
+
+      expect(mocks.signOut).toHaveBeenCalled();
+      await waitFor(() => expect(window.location.href).toBe("/auth/sign-in"));
+    });
   });
 });
