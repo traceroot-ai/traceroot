@@ -76,6 +76,22 @@ afterEach(() => {
   mocks.testModelProvider.mockReset();
 });
 
+describe("ModelProvidersTab - Save error display", () => {
+  it("shows the failure icon and error message when saving a provider fails", async () => {
+    mocks.createModelProvider.mockRejectedValue(new Error("Network error"));
+    renderTab();
+
+    fireEvent.click(await screen.findByRole("button", { name: /add provider/i }));
+    fireEvent.change(screen.getByRole("combobox", { name: /adapter/i }), {
+      target: { value: "openai" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("sk-..."), { target: { value: "test-key" } });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    expect(await screen.findByText("Network error")).toBeTruthy();
+  });
+});
+
 describe("ModelProvidersTab - Test Connection error display", () => {
   it("renders the error in its own block below the button on failure, not inline", async () => {
     mocks.testModelProvider.mockResolvedValue({ success: false, error: "Invalid API key" });
