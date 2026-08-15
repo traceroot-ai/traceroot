@@ -4,12 +4,7 @@
  */
 import type { RunComparison, ResultComparison } from "@/lib/eval/comparison";
 
-export type {
-  RunComparison,
-  ResultComparison,
-  ScorerCellComparison,
-  Classification,
-} from "@/lib/eval/comparison";
+export type { RunComparison, ResultComparison } from "@/lib/eval/comparison";
 
 /**
  * Typed execution provenance surfaced on a run — mirrors the SDK's
@@ -95,6 +90,8 @@ export interface TestCaseRow {
   projectId: string;
   input: string;
   expected: string | null;
+  /** Recorded production output — kept on the row until the dataset-detail rework
+   *  that drops it (removed in the dataset-detail PR alongside the schema column). */
   recordedOutput: string | null;
   metadata: unknown;
   review: ReviewStatus;
@@ -215,6 +212,10 @@ export interface RunRow {
   evaluationName: string;
   datasetName: string | null;
   datasetVersionLabel: string;
+  /** Dataset-version create time + number, for the UI's time-sortable snowflake id
+   *  (list route only; optional so the run-detail/compare DTOs needn't supply them). */
+  datasetVersionCreatedAt?: string;
+  datasetVersionNumber?: number;
   changeFromBaseline: number | null;
   errorCount: number;
   /** Derived (list route): regressed test-case count when trustworthy, else null. */
@@ -239,91 +240,6 @@ export interface RunDetail extends RunRow {
 export interface RunDetailResponse {
   run: RunDetail;
   results: ResultRow[];
-}
-
-/** One run's summary in the compare view (both sides of the A-vs-B comparison). */
-export interface CompareRunSummary {
-  id: string;
-  runNumber: number;
-  evaluationId: string;
-  evaluationName: string;
-  candidateVersion: string;
-  /** The candidate model the run declared (provenance.declared_model); null when none.
-   *  Declared identity — distinct from the models observed in a result's trace. */
-  declaredModel: string | null;
-  datasetVersionId: string;
-  datasetVersionLabel: string;
-  status: EvalRunStatus;
-  mainScore: number | null;
-  mainScoreName: string | null;
-  caseCount: number;
-  scoredCount: number;
-  taskErrorCount: number;
-  scorerErrorCount: number;
-  startedAt: string;
-  completedAt: string | null;
-  /** Summed per-case duration and cost over the run's results (matches the run detail
-   *  and runs list), so the headline can diff them against the baseline. */
-  elapsedMs: number | null;
-  cost: number | null;
-}
-
-/** Raw per-scorer value on one side of a compared case (for the drawer's breakdown). */
-export interface CompareRawScore {
-  scorerName: string;
-  scorerVersion: string;
-  numericValue: number | null;
-  boolValue: boolean | null;
-  stringValue: string | null;
-  passed: boolean | null;
-  explanation: string | null;
-  error: string | null;
-}
-
-/** One case row in the compare view — the read contract the redesigned page consumes. */
-export interface CompareResultRow {
-  testCaseId: string;
-  /** Canonical (pinned dataset-version) content — what the engineer authored. */
-  input: string;
-  expectedOutput: string | null;
-  metadata: unknown;
-  provenance: {
-    sourceTraceId: string | null;
-    sourceSpanName: string | null;
-    sourceSpanKind: string | null;
-    captureReason: string;
-  } | null;
-  /** False when a run recorded an input different from the pinned dataset case. */
-  inputMatchesDataset: boolean;
-  candidateStatus: EvalResultStatus | null;
-  baselineStatus: EvalResultStatus | null;
-  candidateOutput: string | null;
-  baselineOutput: string | null;
-  candidateTraceId: string | null;
-  baselineTraceId: string | null;
-  candidateCost: number | null;
-  baselineCost: number | null;
-  candidateTaskError: string | null;
-  baselineTaskError: string | null;
-  candidateScores: CompareRawScore[];
-  baselineScores: CompareRawScore[];
-  /** Whether the candidate output differs from the baseline output; null if neither exists. */
-  outputChanged: boolean | null;
-  change: "improved" | "regressed" | "unchanged" | null;
-  comparison:
-    | (ResultRowComparison & {
-        baselineOutput: string | null;
-        /** Candidate case duration (task + scorers); null → Unknown, never 0. */
-        durationMs: number | null;
-      })
-    | null;
-}
-
-export interface CompareRunsResponse {
-  candidate: CompareRunSummary;
-  baseline: CompareRunSummary;
-  comparison: RunComparison;
-  results: CompareResultRow[];
 }
 
 export interface EvaluationRow {

@@ -1,743 +1,180 @@
 "use client";
 
 import * as React from "react";
-import { useQueries } from "@tanstack/react-query";
-import { ArrowLeftRight, ArrowRight, ChevronDown, ChevronRight } from "lucide-react";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Button } from "@/components/ui/button";
+import { Search } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Input } from "@/components/ui/input";
 import { Table, TBody, THead, TR, TRHead, Td, Th } from "@/components/ui/table";
-import { EmptyState, Timestamp } from "@/features/offline-eval/components";
+import { EmptyState } from "@/features/offline-eval/components";
 import { ProjectBreadcrumb } from "@/features/projects/components";
-import { changeSentiment, pctFraction, SENTIMENT_CLASS } from "@/features/offline-eval/utils";
+import { pctFraction, changeSentiment, SENTIMENT_CLASS } from "@/features/offline-eval/utils";
 import { cn } from "@/lib/utils";
-import { getTrace } from "@/lib/api";
-import { useSession as useAuthSession } from "@/lib/auth-client";
-import { TraceViewerPanel } from "@/features/traces/components";
-import { attributeTraceUsage, type TraceUsage, type UsageSpan } from "@/lib/eval/trace-usage";
-import { useCompareRuns, useEvaluationRuns, useEvaluations } from "../hooks";
-import type {
-  CompareRunSummary,
-  RunComparison,
-  Classification,
-  CompareResultRow,
-  ScorerCellComparison,
-} from "../types";
-import { RunStatusBadge } from "./evaluations-view";
-import { CompareCaseDrawer } from "./compare-case-drawer";
-import { ComparabilityBanner } from "@/features/evaluations/components/comparability-banner";
-import {
-  deriveVerdict,
-  VERDICT_META,
-  CASE_FILTERS,
-  CASE_SORTS,
-  matchesFilter,
-  filterCounts,
-  sortCases,
-  caseStatus,
-  type CaseFilterId,
-  type CaseSortId,
-  type CaseStatus,
-} from "../compare-derive";
+import { useEvaluationRunDetails } from "../hooks";
+import type { ResultRow, RunDetail, ScoreRow } from "../types";
 
-// ── Small formatters ──────────────────────────────────────────────────────
-const fmtScore = (v: number | null) => (v === null ? "—" : pctFraction(v));
-const fmtMs = (n: number | null) =>
-  n === null ? "Unknown" : n < 1000 ? `${Math.round(n)}ms` : `${(n / 1000).toFixed(1)}s`;
-const fmtCost = (n: number | null) => (n === null ? "Unknown" : `$${n.toFixed(4)}`);
-const truncate = (s: string, n = 90) => (s.length > n ? `${s.slice(0, n)}…` : s);
+// A run comparison is N runs (2+) measured on the SAME dataset, lined up by
+// dataset-row id (fixed once the dataset is created). Each metric column stacks one
+// value per run, colour-keyed to the baseline picker; against the chosen baseline
+// every other run also shows a green/red improvement/regression delta — à la a
+// side-by-side experiment diff. Row drill-in is postponed (cells expand to full text).
 
-/** The signed candidate−baseline delta shown beside a value cell (duration/cost) when
- *  comparing. Lower is better, so an increase is red and a decrease green. */
-function CellDelta({
-  delta,
-  format,
-}: {
-  delta: number | null;
-  format: (n: number) => string;
-}): React.ReactNode {
-  if (delta === null) return null;
-  if (delta === 0) return <span className="ml-1 text-muted-foreground">±0</span>;
+// Stable per-run colours, keyed by selection order so a baseline change never
+// recolours the table. The baseline picker is the legend.
+const RUN_DOTS = [
+  "bg-sky-500",
+  "bg-violet-500",
+  "bg-amber-500",
+  "bg-emerald-500",
+  "bg-rose-500",
+  "bg-teal-500",
+  "bg-indigo-500",
+  "bg-orange-500",
+];
+
+// ── Formatters ────────────────────────────────────────────────────────────
+/** A [0,1] score reads as a percentage; anything else as a trimmed number. */
+const fmtScoreNumber = (v: number) =>
+  v >= 0 && v <= 1 ? pctFraction(v) : Number.isInteger(v) ? String(v) : v.toFixed(2);
+const fmtMs = (n: number) => (n < 1000 ? `${Math.round(n)}ms` : `${(n / 1000).toFixed(1)}s`);
+const fmtCost = (n: number) => `$${n.toFixed(4)}`;
+/** A scorer's value as a comparable number (booleans/pass-fail fold to 1/0). */
+function scoreNumeric(s: ScoreRow | undefined): number | null {
+  if (!s || s.error) return null;
+  if (s.numericValue !== null) return s.numericValue;
+  if (s.boolValue !== null) return s.boolValue ? 1 : 0;
+  if (s.passed !== null) return s.passed ? 1 : 0;
+  return null;
+}
+/** A scorer value as display TEXT — used for categorical (string) scorers, whose
+ *  value can't fold to a number and would otherwise render as "—". */
+function scoreText(s: ScoreRow | undefined): string {
+  if (!s) return "—";
+  if (s.error) return "error";
+  if (s.stringValue !== null) return s.stringValue;
+  if (s.numericValue !== null) return fmtScoreNumber(s.numericValue);
+  if (s.boolValue !== null) return s.boolValue ? "pass" : "fail";
+  if (s.passed !== null) return s.passed ? "pass" : "fail";
+  return "—";
+}
+/** True when a scorer carries string values (categorical) rather than numbers. */
+function isCategoricalScore(s: ScoreRow): boolean {
   return (
-    <span className={`ml-1 ${SENTIMENT_CLASS[changeSentiment(-delta)]}`}>
-      {delta > 0 ? "+" : "−"}
-      {format(Math.abs(delta))}
+    s.stringValue !== null && s.numericValue === null && s.boolValue === null && s.passed === null
+  );
+}
+function meanNumeric(vals: (number | null)[]): number | null {
+  const nums = vals.filter((v): v is number => v !== null);
+  return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
+}
+
+type Bundle = { run: RunDetail; results: ResultRow[]; byCase: Map<string, ResultRow> };
+
+// ── Cell primitives ───────────────────────────────────────────────────────
+
+/** One coloured dot for a run. */
+function Dot({ color }: { color: string }) {
+  return <span className={cn("h-2 w-2 shrink-0 rounded-full", color)} aria-hidden />;
+}
+
+/** A signed, direction-aware delta vs the baseline (green = better, red = worse). */
+function Delta({
+  value,
+  fmt,
+  higherIsBetter,
+}: {
+  value: number;
+  fmt: (n: number) => string;
+  higherIsBetter: boolean;
+}) {
+  if (value === 0) return null;
+  return (
+    <span className={cn("ml-1", SENTIMENT_CLASS[changeSentiment(value, higherIsBetter)])}>
+      {value > 0 ? "+" : "−"}
+      {fmt(Math.abs(value))}
     </span>
   );
 }
 
-const VERDICT_TONE: Record<"good" | "bad" | "warn" | "neutral", string> = {
-  good: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-  bad: "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300",
-  warn: "border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300",
-  neutral: "border-border bg-muted/30 text-foreground",
-};
-
-const CHANGE_LABEL: Record<Classification, { label: string; className: string }> = {
-  improved: { label: "Improved", className: SENTIMENT_CLASS.good },
-  regressed: { label: "Regressed", className: SENTIMENT_CLASS.bad },
-  unchanged: { label: "Unchanged", className: "text-muted-foreground" },
-  changed: { label: "Changed", className: "text-foreground" },
-  unpaired: { label: "Unpaired", className: "text-muted-foreground" },
-  not_comparable: { label: "Not comparable", className: "text-amber-600 dark:text-amber-400" },
-};
-
-const STATUS_LABEL: Record<CaseStatus, { label: string; className: string }> = {
-  ...CHANGE_LABEL,
-  task_error: { label: "Task error", className: "text-red-600 dark:text-red-400" },
-  scorer_error: { label: "Scorer error", className: "text-amber-600 dark:text-amber-400" },
-  pending: { label: "Pending", className: "text-muted-foreground" },
-};
-
-// ── Layer 1: run identity (Baseline → Candidate) ──────────────────────────
-
-function RunChooser({
-  projectId,
-  label,
-  seedEvaluationId,
-  runId,
-  otherRunId,
-  onPick,
-}: {
-  projectId: string;
-  label: string;
-  seedEvaluationId: string | null;
-  runId: string | null;
-  otherRunId: string | null;
-  onPick: (runId: string) => void;
-}) {
-  const { data: evalData } = useEvaluations(projectId);
-  const evaluations = React.useMemo(() => evalData?.data ?? [], [evalData]);
-  const [evalId, setEvalId] = React.useState<string>(seedEvaluationId ?? "");
-  React.useEffect(() => {
-    if (seedEvaluationId) setEvalId(seedEvaluationId);
-  }, [seedEvaluationId]);
-  const { data: runsData } = useEvaluationRuns(
-    projectId,
-    evalId ? { evaluation_id: evalId } : undefined,
-  );
-  const runs = React.useMemo(() => runsData?.data ?? [], [runsData]);
+/** Truncated text that reveals its full value on hover (no click, no chrome). */
+function TextValue({ text }: { text: string | null }) {
+  const t = text?.trim();
+  if (!t) return <span className="text-muted-foreground">—</span>;
   return (
-    <div className="flex items-center gap-1.5">
-      <span className="text-[11px] text-muted-foreground">{label}</span>
-      <Select value={evalId} onValueChange={setEvalId}>
-        <SelectTrigger className="h-7 w-[160px] text-[12px]">
-          <SelectValue placeholder="Evaluation" />
-        </SelectTrigger>
-        <SelectContent>
-          {evaluations.map((e) => (
-            <SelectItem key={e.id} value={e.id} className="text-[12px]">
-              {e.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <Select value={runId ?? ""} onValueChange={onPick}>
-        <SelectTrigger className="h-7 w-[190px] text-[12px]">
-          <SelectValue placeholder="Run" />
-        </SelectTrigger>
-        <SelectContent>
-          {runs.map((r) => (
-            <SelectItem
-              key={r.id}
-              value={r.id}
-              className="text-[12px]"
-              disabled={r.id === otherRunId}
-            >
-              Run #{r.runNumber} · {r.candidateVersion}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}
-
-function RunHeaderCard({
-  run,
-  role,
-  crossEval,
-}: {
-  run: CompareRunSummary;
-  role: "Baseline" | "Candidate";
-  crossEval: boolean;
-}) {
-  return (
-    <div className="min-w-0 flex-1 rounded border border-border bg-muted/20 px-3 py-2">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] uppercase tracking-wide text-muted-foreground">{role}</span>
-        <RunStatusBadge status={run.status} />
-      </div>
-      <div className="mt-1 text-[12px] font-medium">{run.evaluationName}</div>
-      <div className="mt-0.5 flex items-baseline gap-1.5">
-        <span className="text-[13px] font-semibold">Run #{run.runNumber}</span>
-        <span className="truncate font-mono text-[11px] text-muted-foreground">
-          {run.candidateVersion}
-        </span>
-      </div>
-      {run.declaredModel && (
-        <div className="mt-0.5 text-[11px] text-muted-foreground">
-          Declared model <span className="font-medium text-foreground">{run.declaredModel}</span>
-        </div>
-      )}
-      <div className="mt-0.5 text-[11px] text-muted-foreground">
-        {run.datasetVersionLabel} · <Timestamp iso={run.startedAt} />
-      </div>
-      {crossEval && (
-        <div className="mt-0.5 text-[10px] text-muted-foreground">{run.evaluationName}</div>
-      )}
-    </div>
-  );
-}
-
-// ── Layer 3: decision metrics ─────────────────────────────────────────────
-
-type MetricState = "present" | "unknown" | "pending" | "idle";
-
-function MetricCard({
-  label,
-  baseline,
-  candidate,
-  delta,
-  format,
-  lowerIsBetter = false,
-  state = "present",
-  sub,
-  onRequestLoad,
-}: {
-  label: string;
-  baseline: number | null;
-  candidate: number | null;
-  delta: number | null;
-  format: (n: number) => string;
-  lowerIsBetter?: boolean;
-  state?: MetricState;
-  sub?: string;
-  /** When state is "idle", renders a "Load" affordance that invokes this instead of the
-   *  value — used to defer expensive, opt-in-only data (e.g. per-trace token totals). */
-  onRequestLoad?: () => void;
-}) {
-  const stateNote = state === "pending" ? "Pending" : state === "unknown" ? "Unknown" : null;
-  return (
-    <div className="rounded border border-border px-2.5 py-2">
-      <div className="text-[11px] text-muted-foreground">{label}</div>
-      {state === "idle" ? (
-        <button
-          type="button"
-          onClick={onRequestLoad}
-          className="mt-0.5 text-[12px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-        >
-          Load
-        </button>
-      ) : stateNote ? (
-        <div className="mt-0.5 text-[13px] text-muted-foreground">{stateNote}</div>
-      ) : (
-        <>
-          <div className="mt-0.5 flex items-baseline gap-1.5 tabular-nums">
-            <span className="text-muted-foreground">
-              {baseline === null ? "—" : format(baseline)}
-            </span>
-            <ArrowRight className="h-3 w-3 text-muted-foreground" aria-hidden />
-            <span className="text-[15px] font-medium">
-              {candidate === null ? "—" : format(candidate)}
-            </span>
-          </div>
-          <div className="mt-1.5 text-[11px] tabular-nums">
-            {delta === null || delta === 0 ? (
-              <span className="text-muted-foreground">{delta === 0 ? "±0" : (sub ?? "—")}</span>
-            ) : (
-              <span className={SENTIMENT_CLASS[changeSentiment(lowerIsBetter ? -delta : delta)]}>
-                {delta > 0 ? "+" : "−"}
-                {format(Math.abs(delta))}
-              </span>
-            )}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
-/** Count card (regressed/improved cases, errors) — a plain baseline→candidate/Δ tile. */
-function CountCard({
-  label,
-  baseline,
-  candidate,
-  badTone = false,
-}: {
-  label: string;
-  baseline: number;
-  candidate: number;
-  badTone?: boolean;
-}) {
-  const delta = candidate - baseline;
-  return (
-    <div className="rounded border border-border px-2.5 py-2">
-      <div className="text-[11px] text-muted-foreground">{label}</div>
-      <div className="mt-0.5 flex items-baseline gap-1.5 tabular-nums">
-        <span className="text-muted-foreground">{baseline}</span>
-        <ArrowRight className="h-3 w-3 text-muted-foreground" aria-hidden />
-        <span
-          className={cn("text-[15px] font-medium", badTone && candidate > 0 && SENTIMENT_CLASS.bad)}
-        >
-          {candidate}
-        </span>
-      </div>
-      <div className="mt-1.5 text-[11px] tabular-nums text-muted-foreground">
-        {delta === 0 ? "±0" : delta > 0 ? `+${delta}` : `−${Math.abs(delta)}`}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Single-value tile — a plain count with no baseline/delta. For quantities that are
- * comparison-level (already defined relative to the baseline, e.g. "cases that
- * regressed") there is no per-run baseline to show; rendering one anyway (as `0`) reads
- * as a real measurement instead of the placeholder it is. Use CountCard instead for
- * quantities that genuinely exist independently on each run (e.g. per-run error counts).
- */
-function ValueCard({
-  label,
-  value,
-  badTone = false,
-}: {
-  label: string;
-  value: number;
-  badTone?: boolean;
-}) {
-  return (
-    <div className="rounded border border-border px-2.5 py-2">
-      <div className="text-[11px] text-muted-foreground">{label}</div>
-      <div
-        className={cn(
-          "mt-0.5 text-[15px] font-medium tabular-nums",
-          badTone && value > 0 && SENTIMENT_CLASS.bad,
-        )}
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="block max-w-full cursor-default truncate">{t}</span>
+      </TooltipTrigger>
+      <TooltipContent
+        align="start"
+        side="bottom"
+        className="max-h-[420px] w-[460px] max-w-[80vw] overflow-auto whitespace-pre-wrap break-words border bg-popover p-3 font-mono text-[12px] leading-relaxed text-popover-foreground shadow-md"
       >
-        {value}
-      </div>
+        {t}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+/** One value per run, stacked and colour-keyed (in baseline-first display order). */
+function RunStack({
+  values,
+  align = "left",
+}: {
+  values: { runId: string; dot: string; node: React.ReactNode }[];
+  align?: "left" | "right";
+}) {
+  return (
+    <div className={cn("flex min-w-0 flex-col gap-0.5", align === "right" && "items-end")}>
+      {values.map((v) => (
+        <span key={v.runId} className="flex max-w-full items-center gap-1.5">
+          <Dot color={v.dot} />
+          <span className="min-w-0 truncate">{v.node}</span>
+        </span>
+      ))}
     </div>
   );
 }
 
 /**
- * Sums two parallel per-case values only over cases where BOTH sides have a value, so
- * the two totals cover the same population and their difference is a meaningful delta —
- * mirroring how `comparison.duration.pairedCount` already gates the duration tile —
- * instead of each side silently skipping its own nulls independently.
+ * A numeric column's per-run stack: each run's value plus, for the non-baseline
+ * runs, its improvement/regression delta against the baseline run.
  */
-function sumPaired(
-  rows: CompareResultRow[],
-  getCandidate: (r: CompareResultRow) => number | null,
-  getBaseline: (r: CompareResultRow) => number | null,
-): { candidate: number | null; baseline: number | null; pairedCount: number } {
-  let candidate = 0;
-  let baseline = 0;
-  let pairedCount = 0;
-  for (const r of rows) {
-    const c = getCandidate(r);
-    const b = getBaseline(r);
-    if (c === null || b === null) continue;
-    candidate += c;
-    baseline += b;
-    pairedCount += 1;
-  }
-  return pairedCount === 0
-    ? { candidate: null, baseline: null, pairedCount: 0 }
-    : { candidate, baseline, pairedCount };
-}
-
-/**
- * Sums trace-derived CANDIDATE-TASK tokens across cases (candidate/baseline) — only over the subset of
- * cases where BOTH sides have usable trace usage, so the two sums cover the same
- * population (see `sumPaired`) — with pending/unknown/idle state. Excludes the scorer
- * (LLM-judge) subtree, so swapping judges between runs is not counted as an
- * application-cost delta.
- *
- * Traces are only fetched once the caller opts in via `enabled`: a single comparison can
- * reference up to two full-trace fetches per case (candidate + baseline), which for a
- * few hundred cases is a few hundred requests just to fill this one tile.
- */
-function useTokenTotals(projectId: string, rows: CompareResultRow[], enabled: boolean) {
-  const { data: authSession } = useAuthSession();
-  const user = authSession?.user
-    ? { id: authSession.user.id, email: authSession.user.email }
-    : undefined;
-  const ids = React.useMemo(
-    () => [
-      ...new Set(
-        rows
-          .flatMap((r) => [r.candidateTraceId, r.baselineTraceId])
-          .filter((x): x is string => !!x),
-      ),
-    ],
-    [rows],
-  );
-  const queries = useQueries({
-    queries: ids.map((id) => ({
-      queryKey: ["trace", projectId, id],
-      queryFn: () => getTrace(projectId, id, "", user),
-      enabled: enabled && !!user,
-    })),
-  });
-  const loading = queries.some((q) => q.isLoading || q.isFetching);
-  // A fingerprint of the query results, so the map/sum below (built from raw spans) only
-  // recompute when a query's data actually changes — not on every render of this
-  // frequently re-rendered page (filter click, sort change, opening a case).
-  const dataFingerprint = queries.map((q) => q.dataUpdatedAt ?? 0).join(",");
-  const usageById = React.useMemo(() => {
-    const map = new Map<string, TraceUsage>();
-    ids.forEach((id, i) => {
-      map.set(id, attributeTraceUsage(queries[i].data?.spans as UsageSpan[] | undefined));
-    });
-    return map;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ids, dataFingerprint]);
-  const { candidate, baseline, pairedCount } = React.useMemo(
-    () =>
-      sumPaired(
-        rows,
-        (r) => {
-          const u = r.candidateTraceId ? usageById.get(r.candidateTraceId) : undefined;
-          return u?.state === "present" ? u.task.totalTokens : null;
-        },
-        (r) => {
-          const u = r.baselineTraceId ? usageById.get(r.baselineTraceId) : undefined;
-          return u?.state === "present" ? u.task.totalTokens : null;
-        },
-      ),
-    [usageById, rows],
-  );
-  const state: MetricState = !enabled
-    ? "idle"
-    : ids.length === 0
-      ? "unknown"
-      : loading
-        ? "pending"
-        : pairedCount === 0
-          ? "unknown"
-          : "present";
-  return { candidate, baseline, state };
-}
-
-function DecisionMetrics({
-  projectId,
-  comparison,
-  candidate,
+function NumericStack({
+  ordered,
   baseline,
-  rows,
+  dotFor,
+  get,
+  fmt,
+  higherIsBetter,
 }: {
-  projectId: string;
-  comparison: RunComparison;
-  candidate: CompareRunSummary;
-  baseline: CompareRunSummary;
-  rows: CompareResultRow[];
+  ordered: Bundle[];
+  baseline: Bundle;
+  dotFor: (runId: string) => string;
+  get: (b: Bundle) => number | null;
+  fmt: (n: number) => string;
+  higherIsBetter: boolean;
 }) {
-  const [tokensRequested, setTokensRequested] = React.useState(false);
-  const tokens = useTokenTotals(projectId, rows, tokensRequested);
-  const cost = React.useMemo(
-    () =>
-      sumPaired(
-        rows,
-        (r) => r.candidateCost,
-        (r) => r.baselineCost,
-      ),
-    [rows],
-  );
-  const costDelta =
-    cost.candidate !== null && cost.baseline !== null ? cost.candidate - cost.baseline : null;
-  const dur = comparison.duration;
-  const candErrors = candidate.taskErrorCount + candidate.scorerErrorCount;
-  const baseErrors = baseline.taskErrorCount + baseline.scorerErrorCount;
+  const base = get(baseline);
   return (
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-      <MetricCard
-        label={comparison.scorers[0] ? "Main score" : "Main score"}
-        baseline={comparison.mainScore.baseline}
-        candidate={comparison.mainScore.candidate}
-        delta={comparison.mainScore.delta}
-        format={(n) => pctFraction(n)}
-      />
-      <ValueCard label="Regressed test cases" value={comparison.caseCounts.regressed} badTone />
-      <ValueCard label="Improved test cases" value={comparison.caseCounts.improved} />
-      <CountCard label="Errors" baseline={baseErrors} candidate={candErrors} badTone />
-      <MetricCard
-        label="Avg case duration"
-        baseline={dur.baselineMeanMs}
-        candidate={dur.candidateMeanMs}
-        delta={dur.deltaMs}
-        format={fmtMs}
-        lowerIsBetter
-        state={dur.pairedCount === 0 ? "unknown" : "present"}
-      />
-      <MetricCard
-        label="Total cost"
-        baseline={cost.baseline}
-        candidate={cost.candidate}
-        delta={costDelta}
-        format={(n) => `$${n.toFixed(4)}`}
-        lowerIsBetter
-        state={cost.pairedCount === 0 ? "unknown" : "present"}
-      />
-      <MetricCard
-        label="Total tokens"
-        baseline={tokens.baseline}
-        candidate={tokens.candidate}
-        delta={
-          tokens.candidate !== null && tokens.baseline !== null
-            ? tokens.candidate - tokens.baseline
-            : null
-        }
-        format={(n) => Math.round(n).toLocaleString("en-US")}
-        lowerIsBetter
-        state={tokens.state}
-        onRequestLoad={() => setTokensRequested(true)}
-      />
-    </div>
-  );
-}
-
-// ── Layer 3b: per-scorer summary ──────────────────────────────────────────
-
-function ScorerSummary({ comparison }: { comparison: RunComparison }) {
-  const [open, setOpen] = React.useState(true);
-  const scorers = comparison.scorers;
-  if (scorers.length === 0) return null;
-  // Per-scorer improved/regressed cell counts from the cell tally isn't per-scorer in
-  // RunComparison; derive from the aggregate's transitions/means only. Show means +
-  // paired; categorical shows changed/unchanged.
-  return (
-    <div className="overflow-hidden rounded border border-border">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-1.5 border-b border-border bg-muted/40 px-2.5 py-1.5 text-left text-[12px] font-medium hover:bg-muted"
-      >
-        {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-        Scorers
-      </button>
-      {open && (
-        <table className="w-full text-[12px]">
-          <thead>
-            <tr className="text-[10px] text-muted-foreground">
-              <th className="py-1 pl-2.5 text-left font-normal">Scorer</th>
-              <th className="py-1 text-right font-normal">Baseline</th>
-              <th className="py-1 text-right font-normal">Candidate</th>
-              <th className="py-1 text-right font-normal">Δ</th>
-              <th className="py-1 pr-2.5 text-right font-normal">Paired</th>
-            </tr>
-          </thead>
-          <tbody className="[&_td:first-child]:pl-2.5 [&_td:last-child]:pr-2.5">
-            {scorers.map((s) => {
-              const better = s.direction !== "lower_is_better";
-              const numeric = s.valueType !== "categorical";
-              return (
-                <tr key={`${s.name}@${s.version}`}>
-                  <td className="py-1">
-                    <span className="font-medium">{s.name}</span>{" "}
-                    <span className="text-[10px] text-muted-foreground">{s.version}</span>
-                  </td>
-                  {numeric ? (
-                    <>
-                      <td className="py-1 text-right tabular-nums text-muted-foreground">
-                        {s.baselineMean === null ? "—" : pctFraction(s.baselineMean)}
-                      </td>
-                      <td className="py-1 text-right tabular-nums">
-                        {s.candidateMean === null ? "—" : pctFraction(s.candidateMean)}
-                      </td>
-                      <td className="py-1 text-right tabular-nums">
-                        {s.delta === null || s.delta === 0 ? (
-                          <span className="text-muted-foreground">
-                            {s.delta === 0 ? "±0" : "—"}
-                          </span>
-                        ) : (
-                          <span
-                            className={
-                              SENTIMENT_CLASS[changeSentiment(better ? s.delta : -s.delta)]
-                            }
-                          >
-                            {s.delta > 0 ? "+" : "−"}
-                            {pctFraction(Math.abs(s.delta))}
-                          </span>
-                        )}
-                      </td>
-                    </>
-                  ) : (
-                    <>
-                      <td className="py-1 text-right text-[11px] text-muted-foreground" colSpan={2}>
-                        categorical
-                      </td>
-                      <td className="py-1 text-right text-[11px] tabular-nums">
-                        {s.transitions ? `${s.transitions.changed} changed` : "—"}
-                      </td>
-                    </>
-                  )}
-                  <td className="py-1 text-right tabular-nums text-muted-foreground">
-                    {s.pairedCount}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
-    </div>
-  );
-}
-
-// ── Layer 4: case table ───────────────────────────────────────────────────
-
-function scorerCellText(c: ScorerCellComparison): string {
-  const v = (x: number | boolean | string | null) =>
-    x === null
-      ? "—"
-      : typeof x === "boolean"
-        ? x
-          ? "pass"
-          : "fail"
-        : typeof x === "number"
-          ? Number.isInteger(x)
-            ? String(x)
-            : x.toFixed(2)
-          : x;
-  return `${v(c.baselineValue)} → ${v(c.candidateValue)}`;
-}
-
-function CaseRow({
-  r,
-  isOpen,
-  onOpen,
-}: {
-  r: CompareResultRow;
-  /** Whether this row's case is the one currently shown in CompareCaseDrawer. */
-  isOpen: boolean;
-  onOpen: () => void;
-}) {
-  const cmp = r.comparison;
-  const st = caseStatus(r);
-  const changedCells = (cmp?.scorerCells ?? []).filter(
-    (c) =>
-      c.classification === "regressed" ||
-      c.classification === "improved" ||
-      c.classification === "changed" ||
-      c.reason,
-  );
-  const mainDelta = cmp?.mainScore.delta ?? null;
-  const mainChange = cmp?.caseChange ?? null;
-  return (
-    <TR
-      interactive
-      role="button"
-      tabIndex={0}
-      aria-expanded={isOpen}
-      aria-controls="compare-case-drawer"
-      className="focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
-      onClick={onOpen}
-      onKeyDown={(e) => {
-        if (e.key !== "Enter" && e.key !== " ") return;
-        e.preventDefault();
-        onOpen();
-      }}
-    >
-      {/* Input (primary) + expected + id secondary */}
-      <Td>
-        <div className="max-w-[280px] truncate">{truncate(r.input, 120)}</div>
-        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-          <span className="font-mono">{r.testCaseId}</span>
-          {r.provenance && <span title="Saved from a production trace">· from trace</span>}
-        </div>
-      </Td>
-      {/* Output change */}
-      <Td className="max-w-[220px]">
-        {r.outputChanged === false ? (
-          <span className="text-[11px] text-muted-foreground">No output change</span>
-        ) : (
-          <div className="text-[11px]">
-            <div className="truncate text-muted-foreground">
-              {r.baselineOutput === null ? "—" : truncate(r.baselineOutput, 40)}
-            </div>
-            <div className="truncate">
-              {r.candidateOutput === null ? "—" : truncate(r.candidateOutput, 40)}
-            </div>
-          </div>
-        )}
-      </Td>
-      {/* Main score (typed) */}
-      <Td className="text-[11px]">
-        {cmp ? (
-          <>
-            <div className="tabular-nums">
-              {fmtScore(cmp.mainScore.baseline)} → {fmtScore(cmp.mainScore.candidate)}
-            </div>
-            {mainChange && (
-              <div className={CHANGE_LABEL[mainChange].className}>
-                {mainDelta !== null && mainDelta !== 0
-                  ? `${mainDelta > 0 ? "+" : "−"}${pctFraction(Math.abs(mainDelta))} · `
-                  : ""}
-                {CHANGE_LABEL[mainChange].label}
-              </div>
-            )}
-          </>
-        ) : (
-          <span className="text-muted-foreground">—</span>
-        )}
-      </Td>
-      {/* Scorer changes (only changed/error cells) */}
-      <Td className="text-[11px]">
-        {changedCells.length === 0 ? (
-          <span className="text-muted-foreground">—</span>
-        ) : changedCells.length <= 2 ? (
-          <div className="space-y-0.5">
-            {changedCells.map((c) => (
-              <div key={`${c.scorerName}@${c.scorerVersion}`} className="tabular-nums">
-                <span className="text-muted-foreground">{c.scorerName}</span> {scorerCellText(c)}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <span className={SENTIMENT_CLASS.bad}>
-            {cmp?.regressedCellCount ?? 0} scorer regressions
-          </span>
-        )}
-      </Td>
-      {/* Duration — candidate value + Δ vs baseline. */}
-      <Td className="whitespace-nowrap text-right text-[11px] tabular-nums">
-        <span className={cmp?.durationMs == null ? "text-muted-foreground" : undefined}>
-          {fmtMs(cmp?.durationMs ?? null)}
-        </span>
-        <CellDelta delta={cmp?.durationDeltaMs ?? null} format={(n) => fmtMs(n)} />
-      </Td>
-      {/* Cost — candidate value + Δ vs baseline. */}
-      <Td className="whitespace-nowrap text-right text-[11px] tabular-nums">
-        {r.candidateCost === null && r.baselineCost === null ? (
-          <span className="text-muted-foreground">Unknown</span>
-        ) : (
-          <>
-            <span>{fmtCost(r.candidateCost)}</span>
-            <CellDelta
-              delta={
-                r.candidateCost !== null && r.baselineCost !== null
-                  ? r.candidateCost - r.baselineCost
-                  : null
-              }
-              format={(n) => fmtCost(n)}
-            />
-          </>
-        )}
-      </Td>
-      {/* Status */}
-      <Td>
-        <span className={cn("text-[11px]", STATUS_LABEL[st].className)}>
-          {STATUS_LABEL[st].label}
-        </span>
-      </Td>
-    </TR>
+    <RunStack
+      align="right"
+      values={ordered.map((b) => {
+        const v = get(b);
+        const isBaseline = b.run.id === baseline.run.id;
+        const delta = !isBaseline && v !== null && base !== null ? v - base : null;
+        return {
+          runId: b.run.id,
+          dot: dotFor(b.run.id),
+          node: (
+            <span className="whitespace-nowrap">
+              {v === null ? "—" : fmt(v)}
+              {delta !== null && <Delta value={delta} fmt={fmt} higherIsBetter={higherIsBetter} />}
+            </span>
+          ),
+        };
+      })}
+    />
   );
 }
 
@@ -745,280 +182,431 @@ function CaseRow({
 
 export function CompareRunsView({
   projectId,
-  candidateId,
+  runIds,
   baselineId,
-  onChange,
+  onChangeBaseline,
 }: {
   projectId: string;
-  candidateId: string | null;
+  runIds: string[];
   baselineId: string | null;
-  onChange: (baseline: string | null, candidate: string | null) => void;
+  onChangeBaseline: (baselineId: string | null) => void;
 }) {
-  const compare = useCompareRuns(projectId, candidateId, baselineId);
-  const data = compare.data;
-  const [filter, setFilter] = React.useState<CaseFilterId>("all");
-  const [sort, setSort] = React.useState<CaseSortId>("default");
-  const [openCaseId, setOpenCaseId] = React.useState<string | null>(null);
-  const [traceView, setTraceView] = React.useState<{ traceId: string; label: string } | null>(null);
+  const queries = useEvaluationRunDetails(projectId, runIds);
+  const [keyword, setKeyword] = React.useState("");
 
-  const crossEval = !!data && data.candidate.evaluationId !== data.baseline.evaluationId;
+  const isLoading = queries.some((q) => q.isLoading);
+  const isError = queries.some((q) => q.isError);
 
-  const rows = React.useMemo(() => data?.results ?? [], [data]);
-  const durationWorsened = (data?.comparison.duration.deltaMs ?? 0) > 0;
-  const verdict = data
-    ? deriveVerdict(data.comparison, data.candidate.status, data.baseline.status, durationWorsened)
-    : null;
-  const counts = React.useMemo(() => filterCounts(rows), [rows]);
-  const visible = React.useMemo(
-    () =>
-      sortCases(
-        rows.filter((r) => matchesFilter(r, filter)),
-        sort,
-      ),
-    [rows, filter, sort],
+  // Stable per-run colour, keyed by selection order (not display order).
+  const dotFor = React.useCallback(
+    (runId: string) => RUN_DOTS[Math.max(0, runIds.indexOf(runId)) % RUN_DOTS.length],
+    [runIds],
   );
-  const openCase = openCaseId ? (rows.find((r) => r.testCaseId === openCaseId) ?? null) : null;
+
+  // Bundles in display order: baseline first, then by run number ascending.
+  const ordered = React.useMemo<Bundle[]>(() => {
+    const bundles = queries
+      .map((q) => q.data)
+      .filter((d): d is NonNullable<typeof d> => !!d)
+      .map((d) => ({
+        run: d.run,
+        results: d.results,
+        byCase: new Map(d.results.map((r) => [r.testCaseId, r])),
+      }));
+    return bundles.sort((a, b) => {
+      if (a.run.id === baselineId) return -1;
+      if (b.run.id === baselineId) return 1;
+      return a.run.runNumber - b.run.runNumber;
+    });
+  }, [queries, baselineId]);
+
+  const baseline = ordered.find((b) => b.run.id === baselineId) ?? ordered[0];
+
+  // Same dataset NAME is required — rows line up by dataset-row id, meaningful only
+  // within one dataset (versions may differ).
+  const datasetNames = React.useMemo(
+    () => [...new Set(ordered.map((b) => b.run.datasetName ?? "—"))],
+    [ordered],
+  );
+  const crossExperiment = new Set(ordered.map((b) => b.run.evaluationName)).size > 1;
+
+  // Rows = intersection of dataset-row ids present in EVERY run (in baseline order).
+  const intersection = React.useMemo(() => {
+    if (ordered.length === 0) return [];
+    return ordered[0].results
+      .map((r) => r.testCaseId)
+      .filter((id) => ordered.every((b) => b.byCase.has(id)));
+  }, [ordered]);
+
+  // Union of scorer names across the compared runs.
+  const scorerNames = React.useMemo(() => {
+    const names = new Set<string>();
+    for (const b of ordered)
+      for (const r of b.results) for (const s of r.scores) names.add(s.scorerName);
+    return [...names].sort();
+  }, [ordered]);
+
+  // Per-scorer semantics: its direction (so a lower-is-better scorer colours its
+  // deltas correctly) and whether it's categorical (rendered as text, no delta).
+  // Direction comes from the run's declared scorer aggregate; categorical is detected
+  // from the raw values so runs without a comparison block are still covered.
+  const scorerMeta = React.useMemo(() => {
+    const higher = new Map<string, boolean>();
+    const categorical = new Set<string>();
+    for (const b of ordered) {
+      for (const s of b.run.comparison?.scorers ?? []) {
+        if (!higher.has(s.name)) higher.set(s.name, s.direction !== "lower_is_better");
+        if (s.valueType === "categorical") categorical.add(s.name);
+      }
+      for (const r of b.results)
+        for (const s of r.scores) if (isCategoricalScore(s)) categorical.add(s.scorerName);
+    }
+    return { higher, categorical };
+  }, [ordered]);
+  const higherFor = (name: string) => scorerMeta.higher.get(name) ?? true;
+  const isCategorical = (name: string) => scorerMeta.categorical.has(name);
+
+  // A run whose returned results fall short of its declared case count was truncated
+  // by the run-detail API cap, so its aggregates/deltas are computed on a partial set.
+  const truncatedRuns = React.useMemo(
+    () => ordered.filter((b) => b.run.caseCount > b.results.length),
+    [ordered],
+  );
+
+  // Per-run aggregates over the intersection (the compared population).
+  const agg = React.useMemo(() => {
+    const scorer = new Map<string, Map<string, number | null>>();
+    for (const name of scorerNames) {
+      const perRun = new Map<string, number | null>();
+      for (const b of ordered) {
+        perRun.set(
+          b.run.id,
+          meanNumeric(
+            intersection.map((id) =>
+              scoreNumeric(b.byCase.get(id)?.scores.find((s) => s.scorerName === name)),
+            ),
+          ),
+        );
+      }
+      scorer.set(name, perRun);
+    }
+    // Duration and Cost aggregate to TOTALS (like the Experiments list's columns),
+    // over the compared population; scorers aggregate to means above.
+    const sumOver = (get: (r: ResultRow | undefined) => number | null) => (b: Bundle) => {
+      const vals = intersection
+        .map((id) => get(b.byCase.get(id)))
+        .filter((v): v is number => v !== null);
+      return vals.length ? vals.reduce((a, v) => a + v, 0) : null;
+    };
+    const duration = new Map<string, number | null>();
+    const cost = new Map<string, number | null>();
+    for (const b of ordered) {
+      duration.set(b.run.id, sumOver((r) => r?.durationMs ?? null)(b));
+      cost.set(b.run.id, sumOver((r) => r?.cost ?? null)(b));
+    }
+    return { scorer, duration, cost };
+  }, [ordered, scorerNames, intersection]);
+
+  // Search over any run's input / output / expected for the row.
+  const visible = React.useMemo(() => {
+    const q = keyword.trim().toLowerCase();
+    if (!q) return intersection;
+    return intersection.filter((id) =>
+      ordered.some((b) => {
+        const r = b.byCase.get(id);
+        return (
+          (r?.input ?? "").toLowerCase().includes(q) ||
+          (r?.candidateOutput ?? "").toLowerCase().includes(q) ||
+          (r?.expectedOutput ?? "").toLowerCase().includes(q)
+        );
+      }),
+    );
+  }, [intersection, keyword, ordered]);
+
+  const runLabel = (b: Bundle) =>
+    `${crossExperiment ? `${b.run.evaluationName} ` : ""}#${b.run.runNumber} · ${b.run.candidateVersion}`;
+
+  const columnCount = 3 + scorerNames.length + 2;
 
   return (
-    <div className="flex h-full flex-col text-[12px]">
-      <ProjectBreadcrumb projectId={projectId} current="Compare runs" />
+    <TooltipProvider delayDuration={400}>
+      <div className="flex h-full flex-col text-[12px]">
+        <ProjectBreadcrumb projectId={projectId} current="Run Comparison" />
 
-      {/* Chooser — Baseline first, then Candidate */}
-      <div className="flex flex-wrap items-center gap-3 border-b border-border px-3 py-2">
-        <RunChooser
-          projectId={projectId}
-          label="Baseline"
-          seedEvaluationId={data?.baseline.evaluationId ?? null}
-          runId={baselineId}
-          otherRunId={candidateId}
-          onPick={(id) => onChange(id, candidateId)}
-        />
-        <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
-        <RunChooser
-          projectId={projectId}
-          label="Candidate"
-          seedEvaluationId={data?.candidate.evaluationId ?? null}
-          runId={candidateId}
-          otherRunId={baselineId}
-          onPick={(id) => onChange(baselineId, id)}
-        />
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 gap-1.5 text-[12px]"
-          disabled={!candidateId || !baselineId}
-          onClick={() => onChange(candidateId, baselineId)}
-          title="Swap baseline and candidate"
-        >
-          <ArrowLeftRight className="h-3.5 w-3.5" aria-hidden />
-          Swap
-        </Button>
-      </div>
-
-      <div className="min-h-0 flex-1 space-y-3 overflow-auto p-3">
-        {!candidateId || !baselineId ? (
-          <EmptyState>Pick a baseline and a candidate run to compare.</EmptyState>
-        ) : candidateId === baselineId ? (
-          <EmptyState>Pick two different runs.</EmptyState>
-        ) : compare.isLoading ? (
-          <EmptyState>Comparing…</EmptyState>
-        ) : compare.error || !data ? (
-          <EmptyState>Couldn’t compare these runs.</EmptyState>
-        ) : (
-          <>
-            {/* Layer 1 — identity, Baseline → Candidate */}
-            <div className="flex flex-col items-stretch gap-2 sm:flex-row">
-              <RunHeaderCard run={data.baseline} role="Baseline" crossEval={crossEval} />
-              <ArrowRight
-                className="mx-auto h-4 w-4 shrink-0 rotate-90 self-center text-muted-foreground sm:mt-6 sm:rotate-0"
-                aria-hidden
-              />
-              <RunHeaderCard run={data.candidate} role="Candidate" crossEval={crossEval} />
-            </div>
-
-            {/* Comparability first, straight from the backend discriminant. A
-                non-trustworthy comparison (cross-evaluation, mismatched snapshot,
-                a still-running run) gets the strong banner and NO colored verdict —
-                its deltas still render below as neutral metrics, never as a
-                ship / no-ship result. */}
-            <ComparabilityBanner
-              state={data.comparison.state}
-              reasons={data.comparison.reasons}
+        {/* Search + baseline picker. */}
+        <div className="flex flex-wrap items-center gap-3 border-b border-border px-3 py-1.5">
+          <div className="relative min-w-[12rem] max-w-md flex-1">
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              placeholder="Search..."
+              className="h-8 pl-8 text-[13px]"
             />
-
-            {/* Layer 2 — verdict (only when the comparison is authoritative) */}
-            {verdict && data.comparison.state === "trustworthy" && (
-              <div
-                className={cn(
-                  "rounded border px-3 py-2",
-                  VERDICT_TONE[VERDICT_META[verdict.verdict].tone],
-                )}
-              >
-                <div className="text-[13px] font-semibold">
-                  {VERDICT_META[verdict.verdict].label}
-                </div>
-                <div className="mt-0.5 space-y-0.5 text-[11px] leading-relaxed">
-                  {verdict.reasons.map((line, i) => (
-                    <div key={i}>{line}</div>
+          </div>
+          {ordered.length > 0 && baseline && (
+            <div className="ml-auto flex items-center gap-2">
+              <span className="text-[12px] text-muted-foreground">Baseline</span>
+              <Select value={baselineId ?? ""} onValueChange={(v) => onChangeBaseline(v)}>
+                {/* `[&>span]:!flex` overrides the trigger's base `line-clamp-1`
+                  (display:-webkit-box), which would otherwise swallow the dot. */}
+                <SelectTrigger
+                  className="h-8 w-auto gap-2 text-[13px] [&>span]:!flex [&>span]:items-center [&>span]:gap-2"
+                  title="Baseline run"
+                >
+                  <span className="whitespace-nowrap">
+                    <Dot color={dotFor(baseline.run.id)} />
+                    {runLabel(baseline)}
+                  </span>
+                </SelectTrigger>
+                <SelectContent align="end">
+                  {ordered.map((b) => (
+                    <SelectItem
+                      key={b.run.id}
+                      value={b.run.id}
+                      className="text-[12px]"
+                      icon={<Dot color={dotFor(b.run.id)} />}
+                    >
+                      {runLabel(b)}
+                    </SelectItem>
                   ))}
-                </div>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+        </div>
+
+        {runIds.length < 2 ? (
+          <div className="p-3">
+            <EmptyState>Select at least two runs to compare.</EmptyState>
+          </div>
+        ) : isLoading ? (
+          <div className="p-3">
+            <EmptyState>Comparing…</EmptyState>
+          </div>
+        ) : isError || ordered.length !== runIds.length || !baseline ? (
+          <div className="p-3">
+            <EmptyState>Couldn’t load one or more of these runs.</EmptyState>
+          </div>
+        ) : datasetNames.length > 1 ? (
+          <div className="p-3">
+            <EmptyState>
+              These runs are on different datasets ({datasetNames.join(", ")}). A run comparison
+              needs the same dataset.
+            </EmptyState>
+          </div>
+        ) : intersection.length === 0 ? (
+          <div className="p-3">
+            <EmptyState>
+              These runs share no dataset rows — their dataset versions have no rows in common.
+            </EmptyState>
+          </div>
+        ) : (
+          <div className="flex min-h-0 flex-1 flex-col">
+            {/* Some runs exceeded the run-detail result cap, so their columns are
+                computed on a partial set — say so rather than imply full coverage. */}
+            {truncatedRuns.length > 0 && (
+              <div className="border-b border-amber-400/60 bg-amber-100/50 px-3 py-2 text-[11px] text-amber-900 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200">
+                {truncatedRuns.map((b) => runLabel(b)).join(", ")} returned only the first{" "}
+                {truncatedRuns[0].results.length} of their cases (API limit), so their scores,
+                duration, and cost aggregates and deltas are partial.
               </div>
             )}
-
-            {/* Layer 3 — aggregate metrics + per-scorer */}
-            <DecisionMetrics
-              projectId={projectId}
-              comparison={data.comparison}
-              candidate={data.candidate}
-              baseline={data.baseline}
-              rows={rows}
-            />
-            <ScorerSummary comparison={data.comparison} />
-
-            {/* Layer 4 — case table */}
-            <div>
-              <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <div className="text-[12px] font-medium">Test cases</div>
-                  <div className="text-[11px] text-muted-foreground">
-                    Each row is one dataset input run through both the baseline and candidate ·{" "}
-                    {data.baseline.datasetVersionLabel === data.candidate.datasetVersionLabel
-                      ? data.candidate.datasetVersionLabel
-                      : `${data.baseline.datasetVersionLabel} vs ${data.candidate.datasetVersionLabel}`}{" "}
-                    · matched by test-case id
-                  </div>
-                </div>
-                <Select value={sort} onValueChange={(v) => setSort(v as CaseSortId)}>
-                  <SelectTrigger className="h-7 w-[190px] text-[12px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {CASE_SORTS.map((s) => (
-                      <SelectItem key={s.id} value={s.id} className="text-[12px]">
-                        {s.label}
-                      </SelectItem>
+            <div className="min-h-0 flex-1 overflow-auto">
+              <Table>
+                <THead>
+                  {/* Label row — grey, one line, with a divider below it. */}
+                  <TRHead>
+                    <Th className="min-w-[220px]">Input</Th>
+                    <Th className="min-w-[220px]">Output</Th>
+                    <Th className="min-w-[180px]">Expected</Th>
+                    {scorerNames.map((name) => (
+                      <Th key={name} className="w-[130px] text-right font-mono">
+                        {name}
+                      </Th>
                     ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Filters with counts */}
-              <div className="mb-1.5 flex flex-wrap gap-1">
-                {CASE_FILTERS.map((f) => (
-                  <button
-                    key={f.id}
-                    type="button"
-                    onClick={() => setFilter(f.id)}
-                    className={cn(
-                      "flex h-7 items-center gap-1.5 rounded-md border px-2.5 text-[12px] transition-colors",
-                      filter === f.id
-                        ? "border-foreground/30 bg-muted text-foreground"
-                        : "border-input text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    {f.label}
-                    <span className="tabular-nums text-muted-foreground">{counts[f.id]}</span>
-                  </button>
-                ))}
-              </div>
-
-              <div className="overflow-x-auto rounded border border-border">
-                <Table>
-                  <THead>
-                    <TRHead>
-                      <Th>Input</Th>
-                      <Th>Output change</Th>
-                      <Th className="w-[130px]">Main score</Th>
-                      <Th className="w-[150px]">Scorer changes</Th>
-                      <Th className="w-[90px] text-right">Duration</Th>
-                      <Th className="w-[90px] text-right">Cost</Th>
-                      <Th className="w-[110px]">Status</Th>
-                    </TRHead>
-                  </THead>
-                  <TBody>
-                    {visible.length === 0 ? (
-                      <tr>
-                        <td colSpan={7}>
-                          <EmptyState>No cases match this filter.</EmptyState>
-                        </td>
-                      </tr>
-                    ) : (
-                      visible.map((r) => (
-                        <CaseRow
-                          key={r.testCaseId}
-                          r={r}
-                          isOpen={r.testCaseId === openCaseId}
-                          onOpen={() => setOpenCaseId(r.testCaseId)}
+                    <Th className="w-[120px] text-right">Duration</Th>
+                    <Th className="w-[120px] text-right">Cost</Th>
+                  </TRHead>
+                  {/* Aggregate row — white, styled like the data cells below it. */}
+                  <tr className="border-b border-border bg-background">
+                    <Td />
+                    <Td />
+                    <Td />
+                    {scorerNames.map((name) => (
+                      <Td key={name} className="text-[10px] tabular-nums">
+                        <NumericStack
+                          ordered={ordered}
+                          baseline={baseline}
+                          dotFor={dotFor}
+                          get={(b) => agg.scorer.get(name)?.get(b.run.id) ?? null}
+                          fmt={fmtScoreNumber}
+                          higherIsBetter={higherFor(name)}
                         />
-                      ))
-                    )}
-                  </TBody>
-                </Table>
-              </div>
+                      </Td>
+                    ))}
+                    <Td className="text-[10px] tabular-nums">
+                      <NumericStack
+                        ordered={ordered}
+                        baseline={baseline}
+                        dotFor={dotFor}
+                        get={(b) => agg.duration.get(b.run.id) ?? null}
+                        fmt={fmtMs}
+                        higherIsBetter={false}
+                      />
+                    </Td>
+                    <Td className="text-[10px] tabular-nums">
+                      <NumericStack
+                        ordered={ordered}
+                        baseline={baseline}
+                        dotFor={dotFor}
+                        get={(b) => agg.cost.get(b.run.id) ?? null}
+                        fmt={fmtCost}
+                        higherIsBetter={false}
+                      />
+                    </Td>
+                  </tr>
+                </THead>
+                <TBody>
+                  {visible.length === 0 ? (
+                    <tr>
+                      <td colSpan={columnCount}>
+                        <EmptyState>No rows match your search.</EmptyState>
+                      </td>
+                    </tr>
+                  ) : (
+                    visible.map((id) => (
+                      <CaseRow
+                        key={id}
+                        caseId={id}
+                        ordered={ordered}
+                        baseline={baseline}
+                        dotFor={dotFor}
+                        scorerNames={scorerNames}
+                        higherFor={higherFor}
+                        isCategorical={isCategorical}
+                      />
+                    ))
+                  )}
+                </TBody>
+              </Table>
             </div>
-          </>
+          </div>
         )}
       </div>
+    </TooltipProvider>
+  );
+}
 
-      {/* Layer 5 — selected-case diagnosis drawer */}
-      {openCase && data && (
-        <CompareCaseDrawer
-          projectId={projectId}
-          row={openCase}
-          candidate={data.candidate}
-          baseline={data.baseline}
-          onClose={() => setOpenCaseId(null)}
-          enabled={!traceView}
-          traceSlot={
-            <div className="flex flex-wrap gap-1.5">
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 text-[12px]"
-                disabled={!openCase.candidateTraceId}
-                onClick={() =>
-                  openCase.candidateTraceId &&
-                  setTraceView({ traceId: openCase.candidateTraceId, label: "Candidate trace" })
-                }
-              >
-                Open candidate trace
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 text-[12px]"
-                disabled={!openCase.baselineTraceId}
-                onClick={() =>
-                  openCase.baselineTraceId &&
-                  setTraceView({ traceId: openCase.baselineTraceId, label: "Baseline trace" })
-                }
-              >
-                Open baseline trace
-              </Button>
-              {!openCase.candidateTraceId && !openCase.baselineTraceId && (
-                <span className="text-[11px] text-muted-foreground">
-                  No trace was emitted for this case.
-                </span>
-              )}
-            </div>
-          }
-        />
-      )}
+/**
+ * One dataset row across the compared runs. Input/Expected collapse to a single
+ * value when every run agrees; Output and the metric columns always stack one
+ * value per run, with green/red deltas against the baseline on the metrics.
+ */
+function CaseRow({
+  caseId,
+  ordered,
+  baseline,
+  dotFor,
+  scorerNames,
+  higherFor,
+  isCategorical,
+}: {
+  caseId: string;
+  ordered: Bundle[];
+  baseline: Bundle;
+  dotFor: (runId: string) => string;
+  scorerNames: string[];
+  higherFor: (name: string) => boolean;
+  isCategorical: (name: string) => boolean;
+}) {
+  const rowOf = (b: Bundle) => b.byCase.get(caseId);
 
-      {/* Trace viewer — opens over the drawer; switching baseline/candidate keeps the
-          case drawer mounted underneath. */}
-      {traceView && (
-        <TraceViewerPanel
-          key={traceView.traceId}
-          projectId={projectId}
-          traceId={traceView.traceId}
-          headerIdentity={{ label: traceView.label, value: traceView.traceId }}
-          onClose={() => setTraceView(null)}
-          onNavigate={() => {}}
-          canNavigateUp={false}
-          canNavigateDown={false}
-        />
+  // Collapse a per-run string column to one value when the runs agree.
+  const collapsed = (get: (r: ResultRow | undefined) => string | null) => {
+    const vals = ordered.map((b) => get(rowOf(b)) ?? "—");
+    return new Set(vals).size <= 1 ? vals[0] : null;
+  };
+  const collapsedInput = collapsed((r) => r?.input ?? null);
+  const collapsedExpected = collapsed((r) => r?.expectedOutput ?? null);
+
+  const textStack = (get: (r: ResultRow | undefined) => string | null) => (
+    <RunStack
+      values={ordered.map((b) => ({
+        runId: b.run.id,
+        dot: dotFor(b.run.id),
+        node: <TextValue text={get(rowOf(b))} />,
+      }))}
+    />
+  );
+
+  return (
+    <TR>
+      <Td className="max-w-[320px] align-top">
+        {collapsedInput !== null ? (
+          <TextValue text={collapsedInput} />
+        ) : (
+          textStack((r) => r?.input ?? null)
+        )}
+      </Td>
+      <Td className="max-w-[320px] align-top">{textStack((r) => r?.candidateOutput ?? null)}</Td>
+      <Td className="max-w-[240px] align-top text-muted-foreground">
+        {collapsedExpected !== null ? (
+          <TextValue text={collapsedExpected} />
+        ) : (
+          textStack((r) => r?.expectedOutput ?? null)
+        )}
+      </Td>
+      {scorerNames.map((name) =>
+        isCategorical(name) ? (
+          // Categorical scorer — show each run's text value (no numeric delta).
+          <Td key={name} className="align-top text-[11px]">
+            <RunStack
+              align="right"
+              values={ordered.map((b) => ({
+                runId: b.run.id,
+                dot: dotFor(b.run.id),
+                node: (
+                  <span className="whitespace-nowrap">
+                    {scoreText(rowOf(b)?.scores.find((s) => s.scorerName === name))}
+                  </span>
+                ),
+              }))}
+            />
+          </Td>
+        ) : (
+          <Td key={name} className="align-top text-[11px] tabular-nums">
+            <NumericStack
+              ordered={ordered}
+              baseline={baseline}
+              dotFor={dotFor}
+              get={(b) => scoreNumeric(rowOf(b)?.scores.find((s) => s.scorerName === name))}
+              fmt={fmtScoreNumber}
+              higherIsBetter={higherFor(name)}
+            />
+          </Td>
+        ),
       )}
-    </div>
+      <Td className="align-top text-[11px] tabular-nums">
+        <NumericStack
+          ordered={ordered}
+          baseline={baseline}
+          dotFor={dotFor}
+          get={(b) => rowOf(b)?.durationMs ?? null}
+          fmt={fmtMs}
+          higherIsBetter={false}
+        />
+      </Td>
+      <Td className="align-top text-[11px] tabular-nums">
+        <NumericStack
+          ordered={ordered}
+          baseline={baseline}
+          dotFor={dotFor}
+          get={(b) => rowOf(b)?.cost ?? null}
+          fmt={fmtCost}
+          higherIsBetter={false}
+        />
+      </Td>
+    </TR>
   );
 }
