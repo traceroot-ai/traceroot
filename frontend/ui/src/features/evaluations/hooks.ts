@@ -54,13 +54,20 @@ export function useDatasets(
   if (query.limit !== undefined) params.set("limit", String(query.limit));
   const qs = params.toString();
   return useQuery({
-    queryKey: ["datasets", "list", projectId, query.search_query ?? null, query.page ?? 0],
+    queryKey: [
+      "datasets",
+      "list",
+      projectId,
+      query.search_query ?? null,
+      query.page ?? 0,
+      query.limit ?? null,
+    ],
     queryFn: () =>
       getJson<{ data: DatasetRow[]; meta: Meta }>(
         `/api/projects/${projectId}/datasets${qs ? `?${qs}` : ""}`,
       ),
     enabled: !!projectId,
-    placeholderData: (prev) => prev,
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[2] === projectId ? prev : undefined),
   });
 }
 
@@ -71,7 +78,7 @@ export function useDataset(projectId: string, datasetId: string, versionId?: str
     queryFn: () =>
       getJson<DatasetDetailResponse>(`/api/projects/${projectId}/datasets/${datasetId}${qs}`),
     enabled: !!projectId && !!datasetId,
-    placeholderData: (prev) => prev,
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[2] === projectId ? prev : undefined),
   });
 }
 
@@ -153,7 +160,7 @@ export function useUpdateTestCase(projectId: string, datasetId: string) {
       };
     }) =>
       sendJson<{ versionId: string; versionNumber: number; focusTestCaseId: string }>(
-        `/api/projects/${projectId}/datasets/${datasetId}/test-cases/${args.testCaseId}`,
+        `/api/projects/${projectId}/datasets/${datasetId}/test-cases/${encodeURIComponent(args.testCaseId)}`,
         "PATCH",
         args.patch,
       ),
@@ -179,7 +186,7 @@ export function useTestCaseRuns(projectId: string, datasetId: string, testCaseId
     queryKey: ["datasets", projectId, datasetId, "test-case-runs", testCaseId],
     queryFn: () =>
       getJson<{ data: TestCaseRunRow[] }>(
-        `/api/projects/${projectId}/datasets/${datasetId}/test-cases/${testCaseId}/runs`,
+        `/api/projects/${projectId}/datasets/${datasetId}/test-cases/${encodeURIComponent(testCaseId!)}/runs`,
       ),
     enabled: !!projectId && !!datasetId && !!testCaseId,
   });
@@ -233,7 +240,7 @@ export function useEvaluationRuns(
         `/api/projects/${projectId}/evaluations/runs${qs ? `?${qs}` : ""}`,
       ),
     enabled: !!projectId,
-    placeholderData: (prev) => prev,
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[2] === projectId ? prev : undefined),
   });
 }
 
