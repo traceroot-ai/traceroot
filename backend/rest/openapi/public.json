@@ -1,6 +1,114 @@
 {
   "components": {
     "schemas": {
+      "CompleteRunRequest": {
+        "additionalProperties": false,
+        "description": "Complete/fail a run, reporting final completeness counts.",
+        "properties": {
+          "case_count": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Count"
+          },
+          "main_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Main Score"
+          },
+          "scored_count": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scored Count"
+          },
+          "scorer_error_count": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scorer Error Count"
+          },
+          "status": {
+            "enum": [
+              "running",
+              "completed",
+              "completed_with_errors",
+              "failed",
+              "incomplete",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "task_error_count": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Error Count"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "CompleteRunRequest",
+        "type": "object"
+      },
+      "CompleteRunResponse": {
+        "properties": {
+          "evaluation_run_id": {
+            "title": "Evaluation Run Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "running",
+              "completed",
+              "completed_with_errors",
+              "failed",
+              "incomplete",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "evaluation_run_id",
+          "status"
+        ],
+        "title": "CompleteRunResponse",
+        "type": "object"
+      },
       "DetectorItem": {
         "description": "A detector from the project's catalog (Postgres ``detectors``).\n\n``detector_id`` is the value to pass to ``findings list --detector`` to filter\nfindings to this detector.",
         "properties": {
@@ -85,6 +193,20 @@
           "data"
         ],
         "title": "DetectorResultItem",
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "description": "The canonical public error envelope (matches the gateway's normalized shape).",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ErrorResponse",
         "type": "object"
       },
       "ExportManifest": {
@@ -757,6 +879,448 @@
         "title": "RCAResult",
         "type": "object"
       },
+      "RegisterRunRequest": {
+        "additionalProperties": false,
+        "description": "Register/start a run. Idempotent on ``client_run_id`` within an evaluation.",
+        "properties": {
+          "baseline_run_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Run Id"
+          },
+          "candidate_version": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Candidate Version",
+            "type": "string"
+          },
+          "case_count": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Count"
+          },
+          "client_run_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Run Id"
+          },
+          "dataset_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "dataset_version_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Version Id"
+          },
+          "environment": {
+            "default": "evaluation",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Environment",
+            "type": "string"
+          },
+          "evaluation_name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Evaluation Name",
+            "type": "string"
+          },
+          "main_score_name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Main Score Name"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "scorers": {
+            "items": {
+              "$ref": "#/components/schemas/ScorerRef"
+            },
+            "title": "Scorers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "evaluation_name",
+          "dataset_id",
+          "candidate_version"
+        ],
+        "title": "RegisterRunRequest",
+        "type": "object"
+      },
+      "RegisterRunResponse": {
+        "properties": {
+          "dataset_version_id": {
+            "title": "Dataset Version Id",
+            "type": "string"
+          },
+          "evaluation_id": {
+            "title": "Evaluation Id",
+            "type": "string"
+          },
+          "evaluation_run_id": {
+            "title": "Evaluation Run Id",
+            "type": "string"
+          },
+          "run_number": {
+            "title": "Run Number",
+            "type": "integer"
+          },
+          "run_path": {
+            "title": "Run Path",
+            "type": "string"
+          },
+          "run_url": {
+            "title": "Run Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "evaluation_id",
+          "evaluation_run_id",
+          "run_number",
+          "dataset_version_id",
+          "run_path",
+          "run_url"
+        ],
+        "title": "RegisterRunResponse",
+        "type": "object"
+      },
+      "ScoreInput": {
+        "additionalProperties": false,
+        "description": "One scorer's outcome on one result. ``error`` set = the scorer failed to judge.",
+        "properties": {
+          "bool_value": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bool Value"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "explanation": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Explanation"
+          },
+          "numeric_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numeric Value"
+          },
+          "passed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passed"
+          },
+          "scorer_name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Scorer Name",
+            "type": "string"
+          },
+          "scorer_version": {
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Scorer Version",
+            "type": "string"
+          },
+          "string_value": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "String Value"
+          }
+        },
+        "required": [
+          "scorer_name",
+          "scorer_version"
+        ],
+        "title": "ScoreInput",
+        "type": "object"
+      },
+      "ScorerMessage": {
+        "description": "One prompt message of an LLM-judge scorer's definition.",
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "role": {
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "content"
+        ],
+        "title": "ScorerMessage",
+        "type": "object"
+      },
+      "ScorerRef": {
+        "description": "A scorer's descriptor. ``name`` + ``version`` are the comparison identity;\nthe richer metadata is optional and back-compatible (an old SDK sending only\n``{name, version}`` stays valid). Mirrors the non-strict ``ScorerRefSchema``,\nso unknown keys are ignored rather than rejected.\n\nThe DEFINITION fields (``scorer_type``, prompt/source, config) let the read-only\nScorer detail render an LLM judge's model + messages or a code scorer's snippet.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "enum": [
+                  "higher_is_better",
+                  "lower_is_better",
+                  "none"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "enum": [
+                  "python",
+                  "typescript"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "messages": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ScorerMessage"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Messages"
+          },
+          "metadata": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "output_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "score",
+                  "classification"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Type"
+          },
+          "scorer_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "llm_judge",
+                  "code"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scorer Type"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold"
+          },
+          "value_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "numeric",
+                  "boolean",
+                  "categorical"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value Type"
+          },
+          "version": {
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "version"
+        ],
+        "title": "ScorerRef",
+        "type": "object"
+      },
       "SpanResponse": {
         "description": "A span skeleton plus its per-span I/O blobs (``input``/``output``/``metadata``).\n\nThe projection-capable superset returned by the trace get/export endpoints.\nThe blobs default to ``None`` and are populated only when the caller requests\nthe matching field group (``io``/``metadata``; see\n``rest.projection``). The default ``skeleton`` projection leaves them ``None``\nand never runs the bulk span-I/O query, so there is no payload or query-cost\nregression for the dashboard. Keeping the fields present (as ``null``) rather\nthan omitting them is additive: a few bytes per span, and it matches the\nfields the shipped CLI's generated types already declare.\n\nOne internal-only exception: the dashboard's trace-detail read leaves a small\nSDK span-path subset in ``metadata`` on the skeleton, which it needs to\nrebuild the tree of an in-flight trace. The public routes drop it (see\n``rest.projection.drop_span_tree_metadata``), so for API clients the contract\nabove holds exactly: ``metadata`` is ``null`` unless requested.",
         "properties": {
@@ -974,6 +1538,168 @@
           "total_tokens"
         ],
         "title": "SpanResponse",
+        "type": "object"
+      },
+      "UpsertResultRequest": {
+        "additionalProperties": false,
+        "description": "Upsert one test-case result. Idempotent on (``run_id``, ``test_case_id``).\n``trace_id`` may be null now and set on a later call (out-of-order arrival).\nSending ``scores`` replaces the result's scores.",
+        "properties": {
+          "baseline_output": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Output"
+          },
+          "candidate_output": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Output"
+          },
+          "change": {
+            "anyOf": [
+              {
+                "enum": [
+                  "improved",
+                  "regressed",
+                  "unchanged"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change"
+          },
+          "cost": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "expected_output": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Output"
+          },
+          "input": {
+            "title": "Input",
+            "type": "string"
+          },
+          "main_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Main Score"
+          },
+          "scores": {
+            "items": {
+              "$ref": "#/components/schemas/ScoreInput"
+            },
+            "title": "Scores",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "passed",
+              "failed",
+              "errored",
+              "not_scored"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "task_error": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Error"
+          },
+          "test_case_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Test Case Id",
+            "type": "string"
+          },
+          "trace_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trace Id"
+          }
+        },
+        "required": [
+          "test_case_id",
+          "input",
+          "status"
+        ],
+        "title": "UpsertResultRequest",
+        "type": "object"
+      },
+      "UpsertResultResponse": {
+        "properties": {
+          "evaluation_result_id": {
+            "title": "Evaluation Result Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "evaluation_result_id"
+        ],
+        "title": "UpsertResultResponse",
         "type": "object"
       },
       "ValidationError": {
@@ -1631,9 +2357,322 @@
         ]
       }
     },
+    "/api/v1/public/evaluation-runs": {
+      "post": {
+        "description": "Register/start a run. Idempotent on ``client_run_id`` within an evaluation.",
+        "operationId": "register_run_api_v1_public_evaluation_runs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisterRunResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Register an evaluation run",
+        "tags": [
+          "Offline Eval (Public)"
+        ]
+      }
+    },
+    "/api/v1/public/evaluation-runs/{run_id}/complete": {
+      "post": {
+        "description": "Complete/fail a run, reporting final completeness counts.",
+        "operationId": "complete_run_api_v1_public_evaluation_runs__run_id__complete_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompleteRunResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Complete/finalize an evaluation run",
+        "tags": [
+          "Offline Eval (Public)"
+        ]
+      }
+    },
+    "/api/v1/public/evaluation-runs/{run_id}/results": {
+      "post": {
+        "description": "Upsert one test-case result (and its scores). Idempotent on (run, test case).",
+        "operationId": "upsert_result_api_v1_public_evaluation_runs__run_id__results_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertResultRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpsertResultResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Upsert one test-case result with scores",
+        "tags": [
+          "Offline Eval (Public)"
+        ]
+      }
+    },
     "/api/v1/public/traces": {
       "get": {
-        "description": "List recent traces for the API key's project (newest first).",
+        "description": "List recent traces for the API key's project (newest first).\n\nOffline-evaluation traces are excluded by default; pass\n``include_evaluations=true`` to include them.",
         "operationId": "list_traces_api_v1_public_traces_get",
         "parameters": [
           {
@@ -1686,6 +2725,18 @@
               ],
               "description": "Only traces that started before this time (exclusive, ISO 8601)",
               "title": "End Before"
+            }
+          },
+          {
+            "description": "Include offline-evaluation traces (environment=evaluation). Excluded by default so evaluation runs do not appear in the production trace list.",
+            "in": "query",
+            "name": "include_evaluations",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Include offline-evaluation traces (environment=evaluation). Excluded by default so evaluation runs do not appear in the production trace list.",
+              "title": "Include Evaluations",
+              "type": "boolean"
             }
           }
         ],
