@@ -166,6 +166,7 @@ def _normalized_error(upstream: httpx.Response) -> JSONResponse:
     status is preserved.
     """
     detail = _GENERIC_UPSTREAM_ERROR
+    conflict: dict = {}
     try:
         data = upstream.json()
     except ValueError:
@@ -177,7 +178,14 @@ def _normalized_error(upstream: httpx.Response) -> JSONResponse:
             message = data.get("error")
         if isinstance(message, str) and message.strip():
             detail = message.strip()
-    return JSONResponse(status_code=upstream.status_code, content={"detail": detail})
+        # Preserve the optimistic-concurrency conflict fields (a version 409) so the SDK
+        # can report which base was stale and what the current version is — flattening to
+        # detail-only left its conflict diagnostics permanently None. Only these known
+        # keys, str-or-null, are passed through — never the raw upstream body.
+        for key in ("base_version_id", "current_version_id"):
+            if key in data and (data[key] is None or isinstance(data[key], str)):
+                conflict[key] = data[key]
+    return JSONResponse(status_code=upstream.status_code, content={"detail": detail, **conflict})
 
 
 async def _read_capped_body(request: Request) -> bytes:

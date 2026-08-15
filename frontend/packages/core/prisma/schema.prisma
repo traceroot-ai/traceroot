@@ -464,6 +464,12 @@ model Dataset {
   // Scoping it to the project makes the keyspace per-tenant by construction;
   // public-API lookups use `projectId_clientDatasetId`, never `id`.
   clientDatasetId  String?  @map("client_dataset_id") @db.VarChar
+  // The pre-image the SDK hashes into `clientDatasetId` (dataset_id = "ds_" +
+  // sha256(key); by default key == name). Stored and echoed back on reads so a
+  // pulled dataset recovers its true key and keeps case ids convergent even when
+  // key != name (an explicit key, or a UI rename). The platform never interprets
+  // it — it is purely an SDK-side identity anchor.
+  key              String?  @map("key") @db.VarChar
   projectId        String   @map("project_id") @db.VarChar
   name             String   @db.VarChar
   description      String?  @db.Text
@@ -484,7 +490,10 @@ model Dataset {
 // publishes a new version; historical versions (and any run that pinned them)
 // are never rewritten.
 model DatasetVersion {
-  id             String   @id @default(cuid()) @db.VarChar
+  // A time-sortable snowflake, NOT a cuid: `((createMs - epoch) << 22) | versionNumber`,
+  // minted at publish (see publishDatasetVersion / lib/eval/snowflake.ts) and set
+  // explicitly on create — hence no @default. It IS the value the UI and SDK see.
+  id             String   @id @db.VarChar
   datasetId      String   @map("dataset_id") @db.VarChar
   projectId      String   @map("project_id") @db.VarChar
   versionNumber  Int      @map("version_number") // 1-based
@@ -550,7 +559,6 @@ model Evaluation {
   // share a display name under different keys. Backfilled from `name` for pre-key rows;
   // the register route sets it to `evaluation_key ?? evaluation_name`.
   evaluationKey String   @map("evaluation_key") @db.VarChar
-  mainScoreName String   @map("main_score_name") @db.VarChar
   createTime    DateTime @default(now()) @map("create_time") @db.Timestamp(6)
   updateTime    DateTime @updatedAt @map("update_time") @db.Timestamp(6)
 
@@ -580,8 +588,6 @@ model EvaluationRun {
   environment      String    @default("evaluation") @db.VarChar
   status           String    @default("running") @db.VarChar // running|completed|completed_with_errors|failed|incomplete
   baselineRunId    String?   @map("baseline_run_id") @db.VarChar
-  mainScore        Float?    @map("main_score")
-  mainScoreName    String?   @map("main_score_name") @db.VarChar
   caseCount        Int       @default(0) @map("case_count")
   scoredCount      Int       @default(0) @map("scored_count")
   taskErrorCount   Int       @default(0) @map("task_error_count")
@@ -644,11 +650,17 @@ model EvaluationResult {
   candidateOutput String?  @map("candidate_output") @db.Text // null when the task errored
   baselineOutput  String?  @map("baseline_output") @db.Text
   status          String   @db.VarChar // passed|failed|errored|not_scored
-  mainScore       Float?   @map("main_score")
   change          String?  @db.VarChar // improved|regressed|unchanged
   taskError       String?  @map("task_error") @db.Text // application/task failure
   durationMs      Int?     @map("duration_ms")
   cost            Float?
+  // Set whenever cost derivation RUNS for this result, independent of the outcome — a
+  // zero-cost trace legitimately leaves `cost` NULL (via NULLIF), so this marker is what
+  // lets the periodic backfill tell "already derived" from "not yet derived" and settle
+  // instead of re-sweeping cost-less rows forever. The partial index the backfill
+  // probes (`ix_eval_result_cost_backfill`, WHERE cost_derived_at IS NULL AND trace_id IS
+  // NOT NULL) can't be expressed here, so it lives in the migration as raw SQL.
+  costDerivedAt   DateTime? @map("cost_derived_at") @db.Timestamp(6)
   createTime      DateTime @default(now()) @map("create_time") @db.Timestamp(6)
   updateTime      DateTime @updatedAt @map("update_time") @db.Timestamp(6)
 
@@ -691,7 +703,10 @@ model Score {
   // Lets the merge be a real upsert. Leads with result_id, so it also serves
   // the per-result score fetch.
   @@unique([resultId, scorerName, scorerVersion], map: "uq_score_result_scorer")
-  @@index([projectId], map: "ix_score_project_id")
+  // Serves the scorers route's `where project_id order by create_time desc` (and, via
+  // the leading column, plain project_id lookups) so it doesn't scan+sort the whole
+  // project's score history — mirrors EvaluationRun's (projectId, startedAt desc) index.
+  @@index([projectId, createTime(sort: Desc)], map: "ix_score_project_create_time")
   @@map("scores")
 }
 

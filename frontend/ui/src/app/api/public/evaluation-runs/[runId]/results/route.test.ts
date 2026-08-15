@@ -41,7 +41,6 @@ function firstReport() {
     candidate_output: "4",
     duration_ms: 900,
     change: "improved",
-    main_score: 1,
     scores: [{ scorer_name: "exact_match", scorer_version: "1", numeric_value: 1 }],
   };
 }
@@ -133,7 +132,7 @@ describe("POST … /results — a follow-up report only writes what it sent", ()
     expect(storedResult()).toMatchObject({ traceId: "trace-bbb" });
   });
 
-  it("clears the scores when the body sends an explicit empty `scores`", async () => {
+  it("does NOT bulk-clear scores on an explicit empty `scores`", async () => {
     await POST(makeRequest(firstReport()), params);
 
     await POST(
@@ -146,10 +145,13 @@ describe("POST … /results — a follow-up report only writes what it sent", ()
       params,
     );
 
-    expect(store.score.rows).toHaveLength(0);
+    // An empty array names no scorers, so nothing is merged and the existing score
+    // survives — a report never bulk-wipes, so it can't clobber side-band `/scores` writes.
+    expect(store.score.rows).toHaveLength(1);
+    expect(store.score.rows[0]).toMatchObject({ scorerName: "exact_match" });
   });
 
-  it("replaces the scores when the body sends a new list", async () => {
+  it("merges a new scorer without dropping the ones it didn't name", async () => {
     await POST(makeRequest(firstReport()), params);
 
     await POST(
@@ -162,8 +164,11 @@ describe("POST … /results — a follow-up report only writes what it sent", ()
       params,
     );
 
-    expect(store.score.rows).toHaveLength(1);
-    expect(store.score.rows[0]).toMatchObject({ scorerName: "judge", numericValue: 0.5 });
+    // exact_match (from the first report, unnamed here) survives; judge is added.
+    expect(store.score.rows.map((s) => s.scorerName).sort()).toEqual(["exact_match", "judge"]);
+    expect(store.score.rows.find((s) => s.scorerName === "judge")).toMatchObject({
+      numericValue: 0.5,
+    });
   });
 
   it("does not null trace_id, cost, expected_output or change when they are omitted", async () => {
@@ -189,7 +194,6 @@ describe("POST … /results — a follow-up report only writes what it sent", ()
       candidateOutput: "4",
       change: "improved",
       durationMs: 900,
-      mainScore: 1,
     });
   });
 

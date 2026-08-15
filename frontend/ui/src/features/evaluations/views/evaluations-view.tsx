@@ -21,13 +21,11 @@ import { useKeywordSearch } from "@/lib/hooks/use-keyword-search";
 import { Table, TBody, Td, Th, THead, TR, TRHead } from "@/components/ui/table";
 import { DatasetActionsMenu, EmptyState, Timestamp } from "@/features/offline-eval/components";
 import { ProjectBreadcrumb } from "@/features/projects/components";
-import { pctFraction } from "@/features/offline-eval/utils";
-import { versionSnowflake } from "@/lib/eval/snowflake";
 import { useEvaluationRuns, useDeleteRuns } from "../hooks";
 import { DeleteRunDialog } from "../components/delete-run-dialog";
 import { EVAL_RUN_STATUS_LABEL, type EvalRunStatus, type RunRow } from "../types";
 
-// The Experiments page is one flat table of immutable runs. Scorers live in the
+// The Evaluations page is one flat table of immutable runs. Scorers live in the
 // SDK (tracked server-side, no UI page); per-run pass/fail and "main score" are
 // intentionally not surfaced here — a run has many scores and it's the author's
 // call what "passing" means, so the list stays to identity, cost, and lifecycle.
@@ -43,15 +41,6 @@ const STATUS_VARIANT: Record<EvalRunStatus, "success" | "danger" | "warning" | "
 
 export function RunStatusBadge({ status }: { status: EvalRunStatus }) {
   return <Badge variant={STATUS_VARIANT[status]}>{EVAL_RUN_STATUS_LABEL[status]}</Badge>;
-}
-
-// Kept for the dataset-detail Runs tab, which still shows a per-run score value.
-export function ScoreValue({ value }: { value: number | null }) {
-  return value === null ? (
-    <span className="text-muted-foreground">—</span>
-  ) : (
-    <>{pctFraction(value)}</>
-  );
 }
 
 const RUNS_COLUMN_COUNT = 10;
@@ -81,7 +70,7 @@ export function EvaluationsView({ projectId }: { projectId: string }) {
     <div className="flex h-full flex-col text-[13px]">
       {/* Populates the app's top breadcrumb bar (workspace / project). Without a
           mounted ProjectBreadcrumb the header goes blank on this route. */}
-      <ProjectBreadcrumb projectId={projectId} current="Experiments" />
+      <ProjectBreadcrumb projectId={projectId} current="Evaluations" />
       <RunsTab projectId={projectId} />
     </div>
   );
@@ -112,12 +101,8 @@ function RunTableRow({
   const avgCost = r.cost != null && r.caseCount > 0 ? r.cost / r.caseCount : null;
   const avgDurationMs =
     r.elapsedMs != null && r.caseCount > 0 ? Math.round(r.elapsedMs / r.caseCount) : null;
-  // Time-sortable dataset-version id (à la the dataset page); falls back to the
-  // label if the route didn't carry the version's create time / number.
-  const datasetSnowflake =
-    r.datasetVersionCreatedAt && r.datasetVersionNumber != null
-      ? versionSnowflake(r.datasetVersionCreatedAt, r.datasetVersionNumber)
-      : null;
+  // The pinned dataset-version id — the time-sortable snowflake, stored as the id.
+  const datasetVersion = r.datasetVersionId || null;
   return (
     <TR interactive onClick={() => router.push(`/projects/${projectId}/evaluations/${r.id}`)}>
       {/* Selection — clicking the checkbox must not open the run detail. */}
@@ -148,7 +133,7 @@ function RunTableRow({
         >
           {r.datasetName}
         </Link>{" "}
-        {datasetSnowflake && <span className="font-mono text-[11px]">{datasetSnowflake}</span>}
+        {datasetVersion && <span className="font-mono text-[11px]">{datasetVersion}</span>}
       </Td>
       <Td className="text-right tabular-nums text-muted-foreground">{formatCost(r.cost)}</Td>
       <Td className="text-right tabular-nums text-muted-foreground">{formatCost(avgCost)}</Td>
@@ -350,7 +335,7 @@ function RunsTab({ projectId }: { projectId: string }) {
                 />
               </Th>
               <Th className="w-[150px]">Timestamp</Th>
-              <Th>Experiment Name</Th>
+              <Th>Evaluation Name</Th>
               <Th>Run Name</Th>
               <Th>Dataset</Th>
               <Th className="w-[100px] text-right">Cost</Th>
@@ -374,7 +359,7 @@ function RunsTab({ projectId }: { projectId: string }) {
                 <EmptyState>
                   {filtered
                     ? "No runs match these filters."
-                    : "No experiment runs yet. Report a run from your SDK and it appears here."}
+                    : "No evaluation runs yet. Report a run from your SDK and it appears here."}
                 </EmptyState>
               </Cell>
             ) : (

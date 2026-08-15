@@ -6,7 +6,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const prismaMock = vi.hoisted(() => ({
-  dataset: { findMany: vi.fn(), findFirst: vi.fn(), count: vi.fn(), create: vi.fn() },
+  dataset: {
+    findMany: vi.fn(),
+    findFirst: vi.fn(),
+    findUnique: vi.fn(),
+    count: vi.fn(),
+    create: vi.fn(),
+  },
   testCase: { groupBy: vi.fn() },
   $transaction: vi.fn(async (arr: Promise<unknown>[]) => Promise.all(arr)),
 }));
@@ -27,6 +33,7 @@ vi.mock("@/lib/auth-helpers", () => ({
 }));
 
 import { GET, POST } from "./route";
+import { stableDatasetId } from "@/lib/eval/dataset-id";
 
 const params = { params: Promise.resolve({ projectId: "p1" }) };
 
@@ -65,7 +72,8 @@ beforeEach(() => {
   auth.requireProjectAccess.mockResolvedValue({ project: { id: "p1" } });
   prismaMock.$transaction.mockImplementation(async (arr: Promise<unknown>[]) => Promise.all(arr));
   prismaMock.dataset.findMany.mockResolvedValue([]);
-  prismaMock.dataset.findFirst.mockResolvedValue(null); // default: name is free to use
+  prismaMock.dataset.findFirst.mockResolvedValue(null);
+  prismaMock.dataset.findUnique.mockResolvedValue(null); // default: the derived ds_ is free
   prismaMock.dataset.count.mockResolvedValue(0);
   prismaMock.testCase.groupBy.mockResolvedValue([]);
 });
@@ -170,55 +178,64 @@ describe("GET", () => {
 });
 
 describe("POST", () => {
-  it("creates an empty dataset scoped to the project and 201s", async () => {
-    prismaMock.dataset.create.mockResolvedValue({ id: "ds_new", name: "support" });
+  it("creates a dataset with the SDK-convergent ds_ id + key and 201s", async () => {
+    prismaMock.dataset.create.mockResolvedValue({ id: "cuid1", name: "support" });
 
     const res = await POST(jsonReq({ name: "support", description: "tickets" }), params);
     expect(res.status).toBe(201);
-    expect((await body(res)).dataset).toMatchObject({ id: "ds_new" });
+    expect(await body(res)).toMatchObject({ dataset: { id: "cuid1" }, created: true });
+    // clientDatasetId is derived the same way the SDK does; key is the stable pre-image.
     expect(prismaMock.dataset.create).toHaveBeenCalledWith({
-      data: { projectId: "p1", name: "support", description: "tickets" },
+      data: {
+        projectId: "p1",
+        name: "support",
+        description: "tickets",
+        key: "support",
+        clientDatasetId: stableDatasetId("support"),
+      },
     });
   });
 
   it("stores a null description when none is given", async () => {
-    prismaMock.dataset.create.mockResolvedValue({ id: "ds_new" });
+    prismaMock.dataset.create.mockResolvedValue({ id: "cuid1" });
     await POST(jsonReq({ name: "support" }), params);
     expect(prismaMock.dataset.create.mock.calls[0][0].data.description).toBeNull();
   });
 
-  it("trims surrounding whitespace from the name before the guard and store", async () => {
-    prismaMock.dataset.create.mockResolvedValue({ id: "ds_new", name: "support" });
+  it("trims surrounding whitespace from the name before deriving the id and storing", async () => {
+    prismaMock.dataset.create.mockResolvedValue({ id: "cuid1", name: "support" });
     await POST(jsonReq({ name: "  support  " }), params);
-    // Both the uniqueness pre-check and the stored value see the normalized name.
-    expect(prismaMock.dataset.findFirst.mock.calls[0][0].where.name.equals).toBe("support");
-    expect(prismaMock.dataset.create.mock.calls[0][0].data.name).toBe("support");
+    const data = prismaMock.dataset.create.mock.calls[0][0].data;
+    // The normalized name feeds both the stored value and the derived id/key.
+    expect(data.name).toBe("support");
+    expect(data.key).toBe("support");
+    expect(data.clientDatasetId).toBe(stableDatasetId("support"));
   });
 
-  it("409s a name that already exists in the project (case-insensitive), without creating", async () => {
-    prismaMock.dataset.findFirst.mockResolvedValue({ name: "Support" }); // existing, different case
+  it("opens the existing dataset (200, no create) when the name already resolves to one", async () => {
+    prismaMock.dataset.findUnique.mockResolvedValue({ id: "cuid1", name: "support" });
     const res = await POST(jsonReq({ name: "support" }), params);
-    expect(res.status).toBe(409);
-    expect((await body(res)).error).toContain("already exists");
+    expect(res.status).toBe(200);
+    expect(await body(res)).toMatchObject({ dataset: { id: "cuid1" }, created: false });
     expect(prismaMock.dataset.create).not.toHaveBeenCalled();
-    // The uniqueness check is scoped to the project and case-insensitive.
-    expect(prismaMock.dataset.findFirst).toHaveBeenCalledWith({
+    // Looked up by the derived stable id, scoped to the project.
+    expect(prismaMock.dataset.findUnique).toHaveBeenCalledWith({
       where: {
-        projectId: "p1",
-        clientDatasetId: null,
-        name: { equals: "support", mode: "insensitive" },
+        projectId_clientDatasetId: { projectId: "p1", clientDatasetId: stableDatasetId("support") },
       },
-      select: { name: true },
     });
   });
 
-  it("409s when a concurrent create wins the race (P2002 from the partial unique index)", async () => {
-    // The pre-check clears (findFirst → null), but the create loses to the DB index —
-    // the race-safe backstop must surface the same 409, not an unhandled 500.
+  it("opens the existing dataset when a concurrent create wins the race (P2002 → re-read → 200)", async () => {
+    // The pre-check clears (findUnique → null), the create loses to the unique, and the
+    // re-read returns the winner — the whole thing stays idempotent, never a 500.
+    prismaMock.dataset.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: "cuid1", name: "support" });
     prismaMock.dataset.create.mockRejectedValue({ code: "P2002" });
     const res = await POST(jsonReq({ name: "support" }), params);
-    expect(res.status).toBe(409);
-    expect((await body(res)).error).toContain("already exists");
+    expect(res.status).toBe(200);
+    expect(await body(res)).toMatchObject({ dataset: { id: "cuid1" }, created: false });
   });
 
   it("400s an unparseable body", async () => {

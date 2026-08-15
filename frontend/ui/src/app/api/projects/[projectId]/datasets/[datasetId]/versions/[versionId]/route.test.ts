@@ -40,24 +40,28 @@ beforeEach(() => {
   auth.requireProjectAccess.mockResolvedValue({ project: { id: "p1" } });
 });
 
-it("returns the version with the cases it snapshotted, oldest first", async () => {
-  const testCases = [
-    { id: "row1", testCaseId: "case-1", input: "a" },
-    { id: "row2", testCaseId: "case-2", input: "b" },
+it("returns the cases with input/expected decoded for display, oldest first", async () => {
+  // Stored values are JSON-ENCODED; the response decodes them so this view matches
+  // the current-version view (not the raw quoted form).
+  const stored = [
+    { id: "row1", testCaseId: "case-1", input: '"hello"', expected: "42" },
+    { id: "row2", testCaseId: "case-2", input: '{"a":1}', expected: null },
   ];
   prismaMock.datasetVersion.findFirst.mockResolvedValue({
     id: "dv1",
     datasetId: "ds1",
     versionNumber: 1,
     label: "v1",
-    testCases,
+    testCases: stored,
   });
 
   const res = await GET({} as never, params);
   const b = await body(res);
   expect(res.status).toBe(200);
   expect((b.version as { label: string }).label).toBe("v1");
-  expect(b.testCases).toEqual(testCases);
+  const cases = b.testCases as Array<Record<string, unknown>>;
+  expect(cases[0]).toMatchObject({ testCaseId: "case-1", input: "hello", expected: "42" });
+  expect(cases[1]).toMatchObject({ testCaseId: "case-2", input: '{\n  "a": 1\n}', expected: null });
   expect(prismaMock.datasetVersion.findFirst).toHaveBeenCalledWith({
     where: { id: "dv1", datasetId: "ds1", projectId: "p1" },
     // Tiebroken on testCaseId (TEST_CASE_ORDER): a batch pushed in one SDK call

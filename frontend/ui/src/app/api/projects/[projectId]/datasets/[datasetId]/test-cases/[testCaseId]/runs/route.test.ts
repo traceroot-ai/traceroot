@@ -34,7 +34,7 @@ const params = {
 function resultRow(over: Record<string, unknown> = {}) {
   return {
     id: "res_1",
-    mainScore: 1,
+
     status: "passed",
     change: "improved",
     createTime: new Date("2026-07-21T00:00:10Z"),
@@ -79,7 +79,6 @@ it("flattens each result into a run row with the run's identity, version, score 
     evaluationName: "ticket-routing",
     datasetVersionId: "dv1",
     ranAt: "2026-07-21T00:00:00.000Z",
-    score: 1,
     status: "passed",
     change: "improved",
     caseCount: 3,
@@ -105,12 +104,11 @@ it("returns an empty list for a case no run has measured", async () => {
   expect(await rows(await GET({} as never, params))).toEqual([]);
 });
 
-it("passes through an unscored result's null score and null change", async () => {
+it("passes through an unscored result's null change", async () => {
   prismaMock.evaluationResult.findMany.mockResolvedValue([
-    resultRow({ mainScore: null, status: "not_scored", change: null }),
+    resultRow({ status: "not_scored", change: null }),
   ]);
   const row = (await rows(await GET({} as never, params)))[0];
-  expect(row.score).toBeNull();
   expect(row.change).toBeNull();
   expect(row.status).toBe("not_scored");
 });

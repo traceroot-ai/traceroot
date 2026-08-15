@@ -79,7 +79,13 @@ export function TestCaseEditorModal({
   }, [metadata]);
 
   const pending = save.isPending || update.isPending;
-  const canSave = !metadataError && !pending;
+  // In edit mode, keep Save disabled until a field actually changes (a create is always savable).
+  const hasChanges =
+    mode.kind !== "edit" ||
+    input !== mode.input ||
+    expected !== (mode.expected ?? "") ||
+    metadata !== metadataToText(mode.metadata);
+  const canSave = !metadataError && !pending && hasChanges;
 
   const handleSave = () => {
     if (!canSave) return;

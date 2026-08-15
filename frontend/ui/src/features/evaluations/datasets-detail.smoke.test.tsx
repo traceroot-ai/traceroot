@@ -15,7 +15,6 @@ import { describe, it, expect, vi, afterEach, beforeAll, beforeEach } from "vite
 import { render, cleanup, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@/components/ui/toast";
-import { versionSnowflake } from "@/lib/eval/snowflake";
 
 /** Mutable so a test can exercise the ?case=<id> deep link. */
 let searchParams = new URLSearchParams();
@@ -129,8 +128,6 @@ const RUN = {
   environment: "ci",
   status: "completed",
   baselineRunId: null,
-  mainScore: 0.938,
-  mainScoreName: "Routing accuracy",
   caseCount: 3,
   scoredCount: 3,
   taskErrorCount: 0,
@@ -290,10 +287,9 @@ describe("Dataset detail — versions", () => {
     await screen.findByText(/charged twice/);
 
     fireEvent.click(screen.getByRole("combobox"));
-    // Options now read "<number> <snowflake>" (no "v" prefix); pick v1 by its
-    // derived snowflake, which also asserts the snowflake id is rendered.
-    const v1Snow = versionSnowflake(V1.createTime, V1.versionNumber);
-    fireEvent.click(await screen.findByRole("option", { name: new RegExp(v1Snow) }));
+    // Each option pairs the version number with its id (the snowflake, now stored as
+    // `v.id`); pick v1 by its id, which also asserts the id is rendered.
+    fireEvent.click(await screen.findByRole("option", { name: new RegExp(V1.id) }));
 
     // The older snapshot's content loads (no read-only banner — that was removed).
     expect(await screen.findByText("seeded ticket")).toBeDefined();
@@ -377,9 +373,9 @@ describe("Dataset detail — filtering and adding rows", () => {
     expect(requests.some((r) => r.method === "DELETE")).toBe(false);
     fireEvent.click(screen.getAllByRole("button", { name: "Delete" }).at(-1)!);
     expect(await screen.findByText("Row deleted")).toBeDefined();
-    expect(
-      requests.some((r) => r.method === "DELETE" && r.url.includes("/test-cases/tc_1")),
-    ).toBe(true);
+    expect(requests.some((r) => r.method === "DELETE" && r.url.includes("/test-cases/tc_1"))).toBe(
+      true,
+    );
   });
 });
 
@@ -421,11 +417,11 @@ describe("Dataset detail — the slide-in case panel", () => {
     expect(window.open).toHaveBeenCalledWith("/projects/p1/datasets/ds1", "_blank");
   });
 
-  it("the Experiments view lists every evaluation run that measured the case", async () => {
+  it("the Evaluations view lists every evaluation run that measured the case", async () => {
     mountDetail();
     await openCase(/charged twice/);
     const dialog = screen.getByRole("dialog");
-    fireEvent.click(screen.getByRole("button", { name: /Experiments/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Evaluations/ }));
     expect(await screen.findByText("Billing routing nightly")).toBeDefined();
     // Run Name column: candidate version + run number.
     expect(screen.getByText("git:4a91c02")).toBeDefined();
@@ -439,7 +435,7 @@ describe("Dataset detail — the slide-in case panel", () => {
     expect(await within(dialog).findByText("Input")).toBeDefined();
   });
 
-  it("shows an empty Experiments state when nothing has measured the case", async () => {
+  it("shows an empty Evaluations state when nothing has measured the case", async () => {
     global.fetch = vi.fn(async (url: RequestInfo | URL) => ({
       ok: true,
       status: 200,
@@ -454,10 +450,8 @@ describe("Dataset detail — the slide-in case panel", () => {
     })) as unknown as typeof fetch;
     mountDetail();
     await openCase(/charged twice/);
-    fireEvent.click(screen.getByRole("button", { name: /Experiments/ }));
-    expect(
-      await screen.findByText(/No run has measured this row on the dataset version/),
-    ).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: /Evaluations/ }));
+    expect(await screen.findByText(/No evaluation has measured this test case yet/)).toBeDefined();
   });
 
   // In-panel editing (Edit → line-numbered fields → Save/PATCH) is deferred;
@@ -479,7 +473,6 @@ describe("Dataset detail — deep link", () => {
     expect(await screen.findByTitle("Copy ID")).toBeDefined();
     expect(await screen.findByText(caseDisplayId("tc_2"))).toBeDefined();
   });
-
   it("ignores a ?case that no row matches", async () => {
     searchParams = new URLSearchParams("case=tc_missing");
     mountDetail();
@@ -487,4 +480,3 @@ describe("Dataset detail — deep link", () => {
     expect(screen.queryByTitle("Copy ID")).toBeNull();
   });
 });
-

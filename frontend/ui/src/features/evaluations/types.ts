@@ -9,9 +9,7 @@ export type { RunComparison, ResultComparison } from "@/lib/eval/comparison";
 /** The per-result comparison block the run-detail route embeds on each result. */
 export type ResultRowComparison = Pick<
   ResultComparison,
-  | "caseChange"
   | "pairing"
-  | "mainScore"
   | "baselineDurationMs"
   | "durationDeltaMs"
   | "scorerCells"
@@ -43,6 +41,9 @@ export const EVAL_RUN_STATUS_LABEL: Record<EvalRunStatus, string> = {
 
 export interface DatasetRow {
   id: string;
+  // The SDK-facing id ("ds_…"); null for datasets authored in the UI. This is the
+  // dataset's semantic id — `id` (a cuid) is only a URL/PK detail.
+  clientDatasetId: string | null;
   projectId: string;
   name: string;
   description: string | null;
@@ -143,7 +144,6 @@ export interface ResultRow {
   candidateOutput: string | null;
   baselineOutput: string | null;
   status: EvalResultStatus;
-  mainScore: number | null;
   change: "improved" | "regressed" | "unchanged" | null;
   taskError: string | null;
   durationMs: number | null;
@@ -165,8 +165,6 @@ export interface RunRow {
   environment: string;
   status: EvalRunStatus;
   baselineRunId: string | null;
-  mainScore: number | null;
-  mainScoreName: string | null;
   caseCount: number;
   scoredCount: number;
   taskErrorCount: number;
@@ -189,10 +187,6 @@ export interface RunRow {
   evaluationName: string;
   datasetName: string | null;
   datasetVersionLabel: string;
-  /** Dataset-version create time + number, for the UI's time-sortable snowflake id
-   *  (list route only; optional so the run-detail/compare DTOs needn't supply them). */
-  datasetVersionCreatedAt?: string;
-  datasetVersionNumber?: number;
   changeFromBaseline: number | null;
   errorCount: number;
   /** Derived (list route): regressed test-case count when trustworthy, else null. */
@@ -223,7 +217,6 @@ export interface EvaluationRow {
   id: string;
   name: string;
   datasetId: string;
-  mainScoreName: string;
   datasetName: string | null;
   runCount: number;
   latestRun: {
@@ -231,7 +224,6 @@ export interface EvaluationRow {
     runNumber: number;
     candidateVersion: string;
     status: EvalRunStatus;
-    mainScore: number | null;
     startedAt: string;
     datasetVersionId: string;
   } | null;

@@ -7,6 +7,7 @@ import {
   successResponse,
 } from "@/lib/auth-helpers";
 import { TEST_CASE_ORDER } from "@/lib/eval/versions";
+import { displayJsonValue } from "@/lib/eval/json-value";
 
 type RouteParams = {
   params: Promise<{ projectId: string; datasetId: string; versionId: string }>;
@@ -28,5 +29,14 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
   });
   if (!version) return errorResponse("Dataset version not found", 404);
 
-  return successResponse({ version, testCases: version.testCases });
+  // Decode input/expected for display, matching the current-version route — otherwise
+  // the same case renders as raw JSON-encoded text here (e.g. `"hello"`, `42`) but
+  // decoded in the current view.
+  const testCases = version.testCases.map((t) => ({
+    ...t,
+    input: displayJsonValue(t.input),
+    expected: t.expected === null ? null : displayJsonValue(t.expected),
+  }));
+
+  return successResponse({ version: { ...version, testCases }, testCases });
 }

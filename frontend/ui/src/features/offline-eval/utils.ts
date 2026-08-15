@@ -5,23 +5,6 @@
 import { formatDate } from "@/lib/utils";
 import type { ResultStatus, ReviewStatus } from "./types";
 
-/** v1 navigation: Traces, Datasets, Evaluations, Scorers. */
-export function evalRoutes(projectId: string) {
-  const base = `/projects/${projectId}/offline-eval`;
-  return {
-    base,
-    traces: `${base}/traces`,
-    trace: (traceId: string) => `${base}/traces?trace=${traceId}`,
-    datasets: `${base}/datasets`,
-    dataset: (datasetId: string) => `${base}/datasets/${datasetId}`,
-    datasetCase: (datasetId: string, caseId: string) =>
-      `${base}/datasets/${datasetId}?case=${caseId}`,
-    evaluations: `${base}/evaluations`,
-    evaluation: (evaluationId: string) => `${base}/evaluations/${evaluationId}`,
-    scorers: `${base}/scorers`,
-  };
-}
-
 /** Badge variants for the status labels. Muted on purpose. */
 export const RESULT_STATUS_VARIANT: Record<ResultStatus, "success" | "danger" | "warning"> = {
   passed: "success",

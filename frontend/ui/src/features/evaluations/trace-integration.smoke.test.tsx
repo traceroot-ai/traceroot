@@ -264,9 +264,7 @@ describe("SaveTestCaseDrawer — save round trip", () => {
       mountDrawer();
       await screen.findByDisplayValue("I was charged twice for my July invoice");
       await pickDataset("Billing routing");
-      expect(
-        screen.getByRole("button", { name: "Save" }).hasAttribute("disabled"),
-      ).toBe(true);
+      expect(screen.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
       expect(
         screen.getByText(/Metadata isn't valid JSON|Metadata must be a JSON object/),
       ).toBeDefined();
@@ -313,7 +311,6 @@ describe("TraceEvaluationChip", () => {
         testCaseId: "tc_1",
         traceId: "t1",
         status: "passed",
-        mainScore: 1,
         scores: [],
         run: {
           id: "run1",

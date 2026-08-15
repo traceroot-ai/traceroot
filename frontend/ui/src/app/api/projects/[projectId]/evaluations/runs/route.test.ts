@@ -81,8 +81,7 @@ it("derives regressedCaseCount + trustworthy delta + elapsedMs for a listed run"
     candidateVersion: "sonnet",
     status: "completed",
     baselineRunId: "run_b",
-    mainScore: 0.5,
-    mainScoreName: "acc",
+
     taskErrorCount: 0,
     scorerErrorCount: 0,
     scorers: [{ name: "acc", version: "unversioned" }],
@@ -101,8 +100,7 @@ it("derives regressedCaseCount + trustworthy delta + elapsedMs for a listed run"
     candidateVersion: "opus",
     status: "completed",
     baselineRunId: null,
-    mainScore: 1,
-    mainScoreName: "acc",
+
     scorers: [{ name: "acc", version: "unversioned" }],
   };
 
@@ -115,7 +113,7 @@ it("derives regressedCaseCount + trustworthy delta + elapsedMs for a listed run"
       runId: "run_c",
       testCaseId: "t0",
       status: "passed",
-      mainScore: 1,
+
       candidateOutput: "billing",
       durationMs: 900,
       scores: [score("acc", 1)],
@@ -124,7 +122,7 @@ it("derives regressedCaseCount + trustworthy delta + elapsedMs for a listed run"
       runId: "run_c",
       testCaseId: "t5",
       status: "passed",
-      mainScore: 0,
+
       candidateOutput: "general",
       durationMs: 950,
       scores: [score("acc", 0)],
@@ -133,7 +131,7 @@ it("derives regressedCaseCount + trustworthy delta + elapsedMs for a listed run"
       runId: "run_b",
       testCaseId: "t0",
       status: "passed",
-      mainScore: 1,
+
       candidateOutput: "billing",
       durationMs: 800,
       scores: [score("acc", 1)],
@@ -142,7 +140,7 @@ it("derives regressedCaseCount + trustworthy delta + elapsedMs for a listed run"
       runId: "run_b",
       testCaseId: "t5",
       status: "passed",
-      mainScore: 1,
+
       candidateOutput: "technical",
       durationMs: 850,
       scores: [score("acc", 1)],
@@ -158,8 +156,9 @@ it("derives regressedCaseCount + trustworthy delta + elapsedMs for a listed run"
     data: Record<string, unknown>[];
   };
   const row = body.data[0];
-  expect(row.regressedCaseCount).toBe(1);
-  expect(row.changeFromBaseline).toBeCloseTo(-0.5);
+  // Metric-first: no single headline delta or per-case regressed count on the row.
+  expect(row.regressedCaseCount).toBeNull();
+  expect(row.changeFromBaseline).toBeNull();
   expect(row.baselineComparable).toBe(true);
   expect(row.elapsedMs).toBe(1850);
   // Bounded: one page-runs query + one baselines query + one grouped aggregate + one
@@ -175,7 +174,6 @@ it("derives regressedCaseCount + trustworthy delta + elapsedMs for a listed run"
   expect(Object.keys(resultArgs.select).sort()).toEqual([
     "candidateOutput",
     "durationMs",
-    "mainScore",
     "runId",
     "scores",
     "status",
@@ -195,15 +193,18 @@ it("shows null comparison fields for a run with no baseline", async () => {
       candidateVersion: "opus",
       status: "completed",
       baselineRunId: null,
-      mainScore: 1,
-      mainScoreName: "acc",
+
       taskErrorCount: 0,
       scorerErrorCount: 0,
       scorers: [],
       startedAt: new Date("2026-07-21T00:00:00Z"),
       completedAt: null,
       evaluation: { name: "e" },
-      datasetVersion: { label: "v1", createTime: new Date("2026-07-16T00:00:00Z"), versionNumber: 1 },
+      datasetVersion: {
+        label: "v1",
+        createTime: new Date("2026-07-16T00:00:00Z"),
+        versionNumber: 1,
+      },
     },
   ]);
   prismaMock.evaluationRun.count.mockResolvedValue(1);
@@ -236,8 +237,7 @@ it("derives per-status counts for a listed run", async () => {
     candidateVersion: "sonnet",
     status: "completed",
     baselineRunId: null,
-    mainScore: 0.5,
-    mainScoreName: "acc",
+
     taskErrorCount: 1,
     scorerErrorCount: 0,
     scorers: [{ name: "acc", version: "unversioned" }],
@@ -276,15 +276,18 @@ it("returns the pass rate, derived from the same counts", async () => {
       candidateVersion: "sonnet",
       status: "completed",
       baselineRunId: null,
-      mainScore: 0.66,
-      mainScoreName: "acc",
+
       taskErrorCount: 0,
       scorerErrorCount: 0,
       scorers: [],
       startedAt: new Date("2026-07-21T00:00:00Z"),
       completedAt: new Date("2026-07-21T00:00:05Z"),
       evaluation: { name: "ticket-routing" },
-      datasetVersion: { label: "v1", createTime: new Date("2026-07-16T00:00:00Z"), versionNumber: 1 },
+      datasetVersion: {
+        label: "v1",
+        createTime: new Date("2026-07-16T00:00:00Z"),
+        versionNumber: 1,
+      },
     },
   ]);
   prismaMock.evaluationRun.count.mockResolvedValue(1);
@@ -318,15 +321,18 @@ it("returns a null pass rate for an all-errored run, never 0", async () => {
       candidateVersion: "sonnet",
       status: "completed_with_errors",
       baselineRunId: null,
-      mainScore: null,
-      mainScoreName: "acc",
+
       taskErrorCount: 3,
       scorerErrorCount: 0,
       scorers: [],
       startedAt: new Date("2026-07-21T00:00:00Z"),
       completedAt: new Date("2026-07-21T00:00:05Z"),
       evaluation: { name: "ticket-routing" },
-      datasetVersion: { label: "v1", createTime: new Date("2026-07-16T00:00:00Z"), versionNumber: 1 },
+      datasetVersion: {
+        label: "v1",
+        createTime: new Date("2026-07-16T00:00:00Z"),
+        versionNumber: 1,
+      },
     },
   ]);
   prismaMock.evaluationRun.count.mockResolvedValue(1);
@@ -354,15 +360,18 @@ it("reports a running duration for a mid-flight run with no completedAt", async 
       candidateVersion: "sonnet",
       status: "running",
       baselineRunId: null,
-      mainScore: null,
-      mainScoreName: "acc",
+
       taskErrorCount: 0,
       scorerErrorCount: 0,
       scorers: [],
       startedAt: new Date("2026-07-21T00:00:00Z"),
       completedAt: null,
       evaluation: { name: "ticket-routing" },
-      datasetVersion: { label: "v1", createTime: new Date("2026-07-16T00:00:00Z"), versionNumber: 1 },
+      datasetVersion: {
+        label: "v1",
+        createTime: new Date("2026-07-16T00:00:00Z"),
+        versionNumber: 1,
+      },
     },
   ]);
   prismaMock.evaluationRun.count.mockResolvedValue(1);
@@ -394,8 +403,7 @@ it("reports zero counts for a run with no results, without extra queries", async
     candidateVersion: "sonnet",
     status: "running",
     baselineRunId: null,
-    mainScore: null,
-    mainScoreName: "acc",
+
     taskErrorCount: 0,
     scorerErrorCount: 0,
     scorers: [],
@@ -430,8 +438,7 @@ it("prefers the derived counts over a stored scoredCount that disagrees", async 
     candidateVersion: "sonnet",
     status: "completed",
     baselineRunId: null,
-    mainScore: 0.5,
-    mainScoreName: "acc",
+
     caseCount: 9,
     scoredCount: 9,
     taskErrorCount: 0,
@@ -473,8 +480,7 @@ function run(overrides: Partial<Record<string, unknown>> = {}) {
     candidateVersion: "sonnet",
     status: "completed",
     baselineRunId: null,
-    mainScore: 0.5,
-    mainScoreName: "acc",
+
     taskErrorCount: 0,
     scorerErrorCount: 0,
     scorers: [],
@@ -502,18 +508,6 @@ it("whitelists sort — an unrecognized value falls back to startedAt desc, neve
   );
 });
 
-it("sorts by mainScore ascending via the DB when sort=mainScore&order=asc", async () => {
-  prismaMock.evaluationRun.findMany.mockResolvedValueOnce([run()]);
-  prismaMock.evaluationRun.count.mockResolvedValue(1);
-  prismaMock.evaluationResult.findMany.mockResolvedValue([]);
-
-  await GET(nextUrl("sort=mainScore&order=asc") as never, params);
-
-  expect(prismaMock.evaluationRun.findMany).toHaveBeenCalledWith(
-    expect.objectContaining({ orderBy: [{ mainScore: "asc" }, { id: "asc" }] }),
-  );
-});
-
 it("sorts by cost across the FULL filtered set (not just the fetched page), nulls last", async () => {
   const cheap = run({ id: "run_cheap" });
   const pricey = run({ id: "run_pricey" });
@@ -521,6 +515,10 @@ it("sorts by cost across the FULL filtered set (not just the fetched page), null
   // No skip/take here — the cost/elapsedMs branch fetches the whole filtered
   // set once (not paginated) so it can sort before slicing to a page.
   prismaMock.evaluationRun.findMany.mockResolvedValueOnce([cheap, pricey, noCost]);
+  // meta.total is the TRUE filtered count (a separate count()), NOT the size of the
+  // in-memory sort window — so pages past the window aren't hidden. Here the window
+  // holds 3 runs but the project has 512 matching runs.
+  prismaMock.evaluationRun.count.mockResolvedValueOnce(512);
   // The route asks for `_count: { _all: true }` alongside `_sum`, and reads
   // `g._count._all` to derive the per-status counts — so the group rows must
   // carry it or the handler throws before the sort is ever exercised.
@@ -537,10 +535,10 @@ it("sorts by cost across the FULL filtered set (not just the fetched page), null
   };
 
   expect(body.data.map((r) => r.id)).toEqual(["run_pricey", "run_cheap", "run_no_cost"]);
-  expect(body.meta.total).toBe(3);
-  // This branch never asks the DB to order/paginate directly — it derives the
-  // sort key itself and slices after.
-  expect(prismaMock.evaluationRun.count).not.toHaveBeenCalled();
+  expect(body.meta.total).toBe(512);
+  // This branch derives the sort key + slices in Node (the DB isn't asked to order or
+  // paginate), but meta.total still comes from a real count(), not the window size.
+  expect(prismaMock.evaluationRun.count).toHaveBeenCalledTimes(1);
 });
 
 it("sorts by elapsedMs, treating a still-running run (no completedAt) as sorting last", async () => {

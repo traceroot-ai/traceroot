@@ -29,7 +29,8 @@ const PROJECT_ID = "proj_1";
 const params = (resultId: string) => ({
   params: Promise.resolve({ projectId: PROJECT_ID, resultId }),
 });
-const req = (body: unknown) => ({ json: async () => body }) as unknown as Parameters<typeof POST>[0];
+const req = (body: unknown) =>
+  ({ json: async () => body }) as unknown as Parameters<typeof POST>[0];
 const readJson = (res: { json: () => Promise<unknown> }) =>
   res.json() as Promise<Record<string, unknown>>;
 
@@ -104,7 +105,10 @@ beforeEach(() => {
 
 describe("result → dataset: update_existing_case", () => {
   it("updates the originating case in place, publishes a new version, no duplicate", async () => {
-    const res = await POST(req({ action: "update_existing_case", expected: "revised expected" }), params("res1"));
+    const res = await POST(
+      req({ action: "update_existing_case", expected: "revised expected" }),
+      params("res1"),
+    );
     expect(res.status).toBe(201);
     const body = await readJson(res);
     expect(body.test_case_id).toBe("tc-A"); // stable logical id preserved
@@ -114,7 +118,8 @@ describe("result → dataset: update_existing_case", () => {
     const cases = casesIn(newVersion);
     expect(cases).toHaveLength(1); // updated, not duplicated
     expect(cases[0].testCaseId).toBe("tc-A");
-    expect(cases[0].expected).toBe("revised expected");
+    // Values are JSON-encoded on write so their type round-trips on pull.
+    expect(cases[0].expected).toBe('"revised expected"');
     expect(cases[0].input).toBe("orig input"); // unsupplied input unchanged
     // The old version's snapshot is untouched (immutability).
     expect(casesIn("dv1")[0].expected).toBe("orig expected");
@@ -152,13 +157,16 @@ describe("result → dataset: save_new_case", () => {
     );
     expect(res.status).toBe(201);
     const c = casesIn(currentVersionId("ds2"))[0];
-    expect(c.expected).toBe("the CANDIDATE answer");
+    expect(c.expected).toBe('"the CANDIDATE answer"'); // JSON-encoded on write
   });
 });
 
 describe("result → dataset: duplicate_as_variant", () => {
   it("adds a second logical case even in the originating dataset, retaining provenance", async () => {
-    const res = await POST(req({ action: "duplicate_as_variant", dataset_id: "ds1" }), params("res1"));
+    const res = await POST(
+      req({ action: "duplicate_as_variant", dataset_id: "ds1" }),
+      params("res1"),
+    );
     expect(res.status).toBe(201);
     const cases = casesIn(currentVersionId("ds1"));
     expect(cases).toHaveLength(2); // original tc-A + the new variant
@@ -171,10 +179,16 @@ describe("result → dataset: duplicate_as_variant", () => {
 describe("result → dataset: idempotency", () => {
   it("a retried request with the same key returns the already-published version", async () => {
     const first = await readJson(
-      await POST(req({ action: "save_new_case", dataset_id: "ds2", idempotency_key: "k1" }), params("res1")),
+      await POST(
+        req({ action: "save_new_case", dataset_id: "ds2", idempotency_key: "k1" }),
+        params("res1"),
+      ),
     );
     const second = await readJson(
-      await POST(req({ action: "save_new_case", dataset_id: "ds2", idempotency_key: "k1" }), params("res1")),
+      await POST(
+        req({ action: "save_new_case", dataset_id: "ds2", idempotency_key: "k1" }),
+        params("res1"),
+      ),
     );
     expect(second.version_id).toBe(first.version_id);
     expect(second.replayed).toBe(true);
@@ -185,7 +199,9 @@ describe("result → dataset: idempotency", () => {
 
 describe("result → dataset: guards", () => {
   it("404s an unknown result", async () => {
-    expect((await POST(req({ action: "save_new_case", dataset_id: "ds2" }), params("nope"))).status).toBe(404);
+    expect(
+      (await POST(req({ action: "save_new_case", dataset_id: "ds2" }), params("nope"))).status,
+    ).toBe(404);
   });
   it("400s save_new_case without a target dataset_id", async () => {
     expect((await POST(req({ action: "save_new_case" }), params("res1"))).status).toBe(400);

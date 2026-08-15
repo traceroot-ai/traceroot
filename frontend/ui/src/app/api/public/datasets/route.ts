@@ -35,6 +35,7 @@ export async function GET(request: Request) {
     select: {
       id: true,
       clientDatasetId: true,
+      key: true,
       name: true,
       description: true,
       currentVersionId: true,
@@ -52,6 +53,8 @@ export async function GET(request: Request) {
       name: d.name,
       description: d.description,
       current_dataset_version_id: d.currentVersionId,
+      // The pre-image of dataset_id, so the SDK recovers its key when key != name.
+      key: d.key,
       updated_at: d.updateTime.toISOString(),
     })),
     next_cursor: hasMore ? page[page.length - 1].id : null,
@@ -85,61 +88,74 @@ export async function POST(request: Request) {
   }
   const c = parsed.data;
 
-  const key = { projectId, clientDatasetId: c.dataset_id };
-  const select = { id: true, name: true, description: true, currentVersionId: true };
+  const idWhere = { projectId, clientDatasetId: c.dataset_id };
+  const select = {
+    id: true,
+    name: true,
+    description: true,
+    currentVersionId: true,
+    key: true,
+  };
+  // The dataset key is echoed back to the SDK (see PublicUpsertDatasetRequestSchema).
+  const respond = (
+    d: {
+      name: string;
+      description: string | null;
+      currentVersionId: string | null;
+      key: string | null;
+    },
+    status: number,
+  ) =>
+    NextResponse.json(
+      {
+        dataset_id: c.dataset_id,
+        name: d.name,
+        description: d.description,
+        current_dataset_version_id: d.currentVersionId,
+        key: d.key,
+      },
+      { status },
+    );
 
   const existing = await prisma.dataset.findUnique({
-    where: { projectId_clientDatasetId: key },
+    where: { projectId_clientDatasetId: idWhere },
     select,
   });
   if (existing) {
-    return NextResponse.json(
-      {
-        dataset_id: c.dataset_id,
-        name: existing.name,
-        description: existing.description,
-        current_dataset_version_id: existing.currentVersionId,
-      },
-      { status: 200 },
-    );
+    // Backfill the key for a dataset first created before the key rode the wire
+    // (or by an SDK that omitted it): adopt the caller's key when we hold none.
+    if (existing.key == null && c.key != null) {
+      const patched = await prisma.dataset.update({
+        where: { projectId_clientDatasetId: idWhere },
+        data: { key: c.key },
+        select,
+      });
+      return respond(patched, 200);
+    }
+    return respond(existing, 200);
   }
 
   try {
     const created = await prisma.dataset.create({
       data: {
-        ...key,
+        ...idWhere,
         name: c.name,
         description: c.description ?? null,
+        key: c.key ?? null,
         metadata: (c.metadata ?? undefined) as Prisma.InputJsonValue | undefined,
       },
       select,
     });
-    return NextResponse.json(
-      {
-        dataset_id: c.dataset_id,
-        name: created.name,
-        description: created.description,
-        current_dataset_version_id: created.currentVersionId,
-      },
-      { status: 201 },
-    );
+    return respond(created, 201);
   } catch (err) {
     // Two first-time upserts of the same id raced: uq_dataset_project_client_id
     // rejected the loser. Re-read and answer as the idempotent 200 this promises.
     if (!isPrismaKnownError(err, "P2002")) throw err;
     const raced = await prisma.dataset.findUnique({
-      where: { projectId_clientDatasetId: key },
+      where: { projectId_clientDatasetId: idWhere },
       select,
     });
     if (!raced) throw err;
-    return NextResponse.json(
-      {
-        dataset_id: c.dataset_id,
-        name: raced.name,
-        description: raced.description,
-        current_dataset_version_id: raced.currentVersionId,
-      },
-      { status: 200 },
-    );
+    return respond(raced, 200);
   }
 }

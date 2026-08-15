@@ -86,7 +86,6 @@ describe("SDK reporting: full run lifecycle", () => {
         evaluation_name: "Billing routing",
         dataset_id: "ds1",
         candidate_version: "git:abc123",
-        main_score_name: "Routing accuracy",
         scorers: [
           { name: "routing-accuracy", version: "v3" },
           { name: "helpfulness", version: "v2" },
@@ -129,7 +128,6 @@ describe("SDK reporting: full run lifecycle", () => {
         candidate_output: "billing",
         expected_output: "billing",
         status: "passed",
-        main_score: 1,
         change: "improved",
         scores: [
           { scorer_name: "routing-accuracy", scorer_version: "v3", numeric_value: 1 },
@@ -160,7 +158,6 @@ describe("SDK reporting: full run lifecycle", () => {
         input: "explain the tax line",
         candidate_output: "billing",
         status: "passed",
-        main_score: 1,
         scores: [
           { scorer_name: "routing-accuracy", scorer_version: "v3", numeric_value: 1 },
           {
@@ -174,14 +171,13 @@ describe("SDK reporting: full run lifecycle", () => {
       params(runId),
     );
 
-    // 2d. A not-scored result — every scorer failed, no main score.
+    // 2d. A not-scored result — every scorer failed, no value produced.
     await upsertResult(
       req({
         test_case_id: "case-4",
         input: "cancel and refund",
         candidate_output: "billing",
         status: "not_scored",
-        main_score: null,
         scores: [
           {
             scorer_name: "routing-accuracy",
@@ -211,18 +207,19 @@ describe("SDK reporting: full run lifecycle", () => {
 
     const scorerErrRow = fakePrisma.evaluationResult.rows.find((r) => r.testCaseId === "case-3")!;
     expect(scorerErrRow.status).toBe("passed");
-    expect(scorerErrRow.mainScore).toBe(1);
     const scorerErrScores = fakePrisma.score.rows.filter((s) => s.resultId === scorerErrRow.id);
     expect(scorerErrScores.find((s) => s.scorerName === "helpfulness")!.error).toContain("JSON");
 
     const notScored = fakePrisma.evaluationResult.rows.find((r) => r.testCaseId === "case-4")!;
     expect(notScored.status).toBe("not_scored");
-    expect(notScored.mainScore).toBeNull();
     expect(
       fakePrisma.score.rows.filter((s) => s.resultId === notScored.id).every((s) => s.error),
     ).toBe(true);
 
-    // 3. Idempotent re-report of case-1 replaces its scores, no duplicate row.
+    // 3. Re-report of case-1 MERGES its scores, no duplicate row: routing-accuracy
+    //    is updated in place, and `helpfulness` — not named in this payload — SURVIVES.
+    //    A full replace would have wiped it (and, in production, any side-band `/scores`
+    //    write for a scorer this payload doesn't mention), which is the bug this fixes.
     await upsertResult(
       req({
         test_case_id: "case-1",
@@ -230,7 +227,6 @@ describe("SDK reporting: full run lifecycle", () => {
         input: "double charge refund?",
         candidate_output: "billing",
         status: "passed",
-        main_score: 1,
         scores: [{ scorer_name: "routing-accuracy", scorer_version: "v3", numeric_value: 1 }],
       }),
       params(runId),
@@ -239,15 +235,22 @@ describe("SDK reporting: full run lifecycle", () => {
       1,
     );
     let case1 = fakePrisma.evaluationResult.rows.find((r) => r.testCaseId === "case-1")!;
-    expect(fakePrisma.score.rows.filter((s) => s.resultId === case1.id)).toHaveLength(1);
+    const case1Scores = () => fakePrisma.score.rows.filter((s) => s.resultId === case1.id);
+    // Both scorers present: helpfulness kept, routing-accuracy updated in place (not dup'd).
+    expect(
+      case1Scores()
+        .map((s) => s.scorerName)
+        .sort(),
+    ).toEqual(["helpfulness", "routing-accuracy"]);
+    expect(case1Scores().filter((s) => s.scorerName === "routing-accuracy")).toHaveLength(1);
     // A caller omitting expected_output/change (both sent on the original report,
     // 2a) must not wipe them: an unsent field keeps its stored value.
     expect(case1.expectedOutput).toBe("billing");
     expect(case1.change).toBe("improved");
 
-    // 3b. A follow-up that omits `scores` entirely (not even `[]`) must leave the
-    // previously-reported scores untouched — only a caller-sent `scores` array
-    // (including an explicit `[]`) may replace them.
+    // 3b. A follow-up that omits `scores` entirely leaves the previously-reported scores
+    // untouched. (Nothing bulk-clears the set anymore — a results report only ever merges
+    // the scorers it names — so side-band `/scores` writes are never clobbered.)
     await upsertResult(
       req({
         test_case_id: "case-1",
@@ -257,7 +260,7 @@ describe("SDK reporting: full run lifecycle", () => {
       params(runId),
     );
     case1 = fakePrisma.evaluationResult.rows.find((r) => r.testCaseId === "case-1")!;
-    expect(fakePrisma.score.rows.filter((s) => s.resultId === case1.id)).toHaveLength(1);
+    expect(case1Scores()).toHaveLength(2);
     expect(case1.expectedOutput).toBe("billing");
     expect(case1.change).toBe("improved");
     expect(case1.traceId).toBe("trace-aaa");
@@ -289,7 +292,6 @@ describe("SDK reporting: full run lifecycle", () => {
     const done = await completeRun(
       req({
         status: "completed_with_errors",
-        main_score: 93.8,
         case_count: 24,
         scored_count: 22,
         task_error_count: 1,

@@ -120,7 +120,9 @@ class TestWriteIsUnconditional:
         conn.cursor.return_value.__enter__.return_value = cur
         with patch("psycopg2.connect", return_value=conn):
             _update_eval_result_costs("proj-1", {T}, ch)
-        return [c for c in cur.execute.call_args_list if "UPDATE" in c[0][0]]
+        # The per-trace COST write (NULLIF), not the separate `cost_derived_at` marking
+        # UPDATE that stamps every examined row (asserted in test_ingest_tasks.py).
+        return [c for c in cur.execute.call_args_list if "NULLIF" in c[0][0]]
 
     def test_a_recomputed_zero_is_written_back(self):
         # Mutation caught: restoring `if cost <= 0: continue`, which leaves the earlier

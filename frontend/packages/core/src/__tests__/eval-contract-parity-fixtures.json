@@ -10,7 +10,6 @@
           "dataset_id": "ds1",
           "dataset_version_id": "dv1",
           "candidate_version": "git:abc123",
-          "main_score_name": "Routing accuracy",
           "environment": "staging",
           "scorers": [
             {
@@ -51,7 +50,6 @@
           "dataset_id": "ds1",
           "candidate_version": "git:abc123",
           "dataset_version_id": null,
-          "main_score_name": null,
           "client_run_id": null,
           "baseline_run_id": null,
           "case_count": null,
@@ -168,6 +166,33 @@
               "value_type": "numeric",
               "direction": "lower_is_better",
               "threshold": 0.62
+            }
+          ]
+        }
+      },
+      {
+        "name": "scorer_with_emitted_metrics",
+        "payload": {
+          "evaluation_name": "Grading",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "scorers": [
+            {
+              "name": "grade",
+              "version": "v1",
+              "emitted_metrics": [
+                {
+                  "name": "quality",
+                  "value_type": "numeric",
+                  "direction": "lower_is_better",
+                  "threshold": 0.35
+                },
+                {
+                  "name": "coherence",
+                  "value_type": "boolean",
+                  "direction": "higher_is_better"
+                }
+              ]
             }
           ]
         }
@@ -308,6 +333,45 @@
             }
           ]
         }
+      },
+      {
+        "name": "emitted_metric_missing_name",
+        "payload": {
+          "evaluation_name": "Grading",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "scorers": [
+            {
+              "name": "grade",
+              "version": "v1",
+              "emitted_metrics": [
+                {
+                  "value_type": "numeric"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "name": "emitted_metric_bad_direction",
+        "payload": {
+          "evaluation_name": "Grading",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123",
+          "scorers": [
+            {
+              "name": "grade",
+              "version": "v1",
+              "emitted_metrics": [
+                {
+                  "name": "quality",
+                  "direction": "up"
+                }
+              ]
+            }
+          ]
+        }
       }
     ],
     "degraded": [
@@ -366,7 +430,6 @@
           "candidate_output": "billing",
           "expected_output": "billing",
           "status": "passed",
-          "main_score": 1,
           "change": "improved",
           "scores": [
             {
@@ -400,7 +463,6 @@
           "input": "explain the tax line",
           "candidate_output": "billing",
           "status": "passed",
-          "main_score": 1,
           "scores": [
             {
               "scorer_name": "helpfulness",
@@ -418,7 +480,6 @@
           "input": "cancel and refund",
           "candidate_output": "billing",
           "status": "not_scored",
-          "main_score": null,
           "scores": [
             {
               "scorer_name": "routing-accuracy",
@@ -551,15 +612,6 @@
         }
       },
       {
-        "name": "main_score_as_string",
-        "payload": {
-          "test_case_id": "case-1",
-          "input": "x",
-          "status": "passed",
-          "main_score": "0.5"
-        }
-      },
-      {
         "name": "cost_as_string",
         "payload": {
           "test_case_id": "case-1",
@@ -640,7 +692,6 @@
         "name": "full",
         "payload": {
           "status": "completed_with_errors",
-          "main_score": 93.8,
           "case_count": 24,
           "scored_count": 22,
           "task_error_count": 1,
@@ -665,20 +716,38 @@
         "name": "explicit_nulls",
         "payload": {
           "status": "failed",
-          "main_score": null,
           "case_count": null,
           "scored_count": null,
           "task_error_count": null,
           "scorer_error_count": null
+        }
+      },
+      {
+        "name": "resolved_scorer_manifest",
+        "payload": {
+          "status": "completed",
+          "scored_count": 3,
+          "scorers": [
+            {
+              "name": "grade",
+              "version": "v1",
+              "emitted_metrics": [
+                {
+                  "name": "quality",
+                  "value_type": "numeric",
+                  "direction": "lower_is_better",
+                  "threshold": 0.35
+                }
+              ]
+            }
+          ]
         }
       }
     ],
     "invalid": [
       {
         "name": "missing_status",
-        "payload": {
-          "main_score": 90
-        }
+        "payload": {}
       },
       {
         "name": "bad_status_enum",
@@ -708,13 +777,6 @@
         }
       },
       {
-        "name": "main_score_as_string",
-        "payload": {
-          "status": "completed",
-          "main_score": "0.5"
-        }
-      },
-      {
         "name": "case_count_as_string",
         "payload": {
           "status": "completed",
@@ -732,6 +794,40 @@
         "name": "status_as_number",
         "payload": {
           "status": 1
+        }
+      },
+      {
+        "name": "scorer_missing_version",
+        "payload": {
+          "status": "completed",
+          "scorers": [
+            {
+              "name": "grade"
+            }
+          ]
+        }
+      }
+    ],
+    "degraded": [
+      {
+        "name": "unknown_emitted_metric_key_is_stripped",
+        "payload": {
+          "status": "completed",
+          "scorers": [
+            {
+              "name": "grade",
+              "version": "v1",
+              "emitted_metrics": [
+                {
+                  "name": "quality",
+                  "weight": 2
+                }
+              ]
+            }
+          ]
+        },
+        "expect": {
+          "scorers.0.emitted_metrics.0.weight": null
         }
       }
     ]

@@ -85,8 +85,7 @@ beforeEach(() => {
     runNumber: 27,
     candidateVersion: "git:4a91c02",
     status: "completed_with_errors",
-    mainScore: 0.9,
-    mainScoreName: "routing-accuracy",
+
     caseCount: 3,
     scoredCount: 2,
     taskErrorCount: 1,
@@ -99,7 +98,7 @@ beforeEach(() => {
       id: "run0",
       runNumber: 26,
       candidateVersion: "git:0000000",
-      mainScore: 0.75,
+
       evaluationId: "eval1",
       datasetVersionId: "dv12", // same version → comparable
       datasetVersion: { label: "v12" },
@@ -111,7 +110,7 @@ beforeEach(() => {
         testCaseId: "case-1",
         traceId: "tr_abc",
         status: "passed",
-        mainScore: 1,
+
         taskError: null,
         candidateOutput: "billing",
         scores: [
@@ -149,7 +148,7 @@ beforeEach(() => {
         testCaseId: "case-2",
         traceId: null,
         status: "errored",
-        mainScore: null,
+
         // Task error: the application failed, distinct from a scorer error.
         taskError: "ToolTimeout: lookup_invoice timed out",
         candidateOutput: null,
@@ -159,7 +158,7 @@ beforeEach(() => {
     ],
   };
   // The baseline run (fetched separately by the route) with raw results/scores that
-  // pair on the main scorer so the derived comparison is trustworthy.
+  // pair on the `routing-accuracy` metric so the derived comparison is trustworthy.
   db.baseline = {
     id: "run0",
     projectId: PROJECT_ID,
@@ -170,14 +169,13 @@ beforeEach(() => {
     candidateVersion: "git:0000000",
     status: "completed",
     baselineRunId: null,
-    mainScore: 0.75,
-    mainScoreName: "routing-accuracy",
+
     scorers: [{ name: "routing-accuracy", version: "v3" }],
     results: [
       {
         testCaseId: "case-1",
         status: "passed",
-        mainScore: 0.5,
+
         candidateOutput: "billing",
         durationMs: 700,
         scores: [
@@ -187,7 +185,7 @@ beforeEach(() => {
       {
         testCaseId: "case-2",
         status: "passed",
-        mainScore: 1,
+
         candidateOutput: "technical",
         durationMs: 720,
         scores: [
@@ -217,17 +215,15 @@ describe("run/result read-back", () => {
     expect(run.errorCount).toBe(2); // taskErrorCount + scorerErrorCount
   });
 
-  it("exposes the baseline relationship and comparable delta", async () => {
+  it("exposes the baseline relationship (metric-first: no single headline delta on the row)", async () => {
     const run = (await read()).body.run as Record<string, unknown>;
     expect(run.baselineRunId).toBe("run0");
     expect(run.baselineComparable).toBe(true);
-    // NOT the raw run.mainScore subtraction (0.9 - 0.75 = 0.15): case-2's candidate
-    // task errored (no routing-accuracy score), so it's excluded from the paired
-    // aggregate. The only actually-comparable case is case-1 (candidate 1 vs
-    // baseline 0.5), so the trustworthy headline delta is 0.5, derived the same way
-    // as every per-scorer aggregate — never a subtraction of the two runs' raw
-    // SDK-reported aggregates, which can silently cover different case sets.
-    expect(run.changeFromBaseline).toBeCloseTo(0.5);
+    // Per-metric deltas live in the comparison block; the back-compat row scalar is null.
+    expect(run.changeFromBaseline).toBeNull();
+    const cmp = run.comparison as { scorers: { name: string; delta: number }[] };
+    // The routing-accuracy metric's paired mean delta (case-1: 1 vs 0.5; case-2 excluded).
+    expect(cmp.scorers.find((s) => s.name === "routing-accuracy")?.delta).toBeCloseTo(0.5);
   });
 
   it("exposes result trace id, task error, scores with independent scorer errors, and human scores", async () => {
@@ -269,7 +265,6 @@ describe("run/result read-back", () => {
     expect(hr.disagreementCount).toBe(0); // human pass agrees with the automated pass
     // Automated signals are exactly what the comparison/status produce — never rewritten.
     expect(run.status).toBe("completed_with_errors");
-    expect(run.changeFromBaseline).toBeCloseTo(0.5);
     expect(run.baselineComparable).toBe(true);
   });
 
@@ -282,10 +277,9 @@ describe("run/result read-back", () => {
     const hr = run.humanReview as Record<string, number>;
     expect(hr.disagreementCount).toBe(1);
     expect(hr.failCount).toBe(1);
-    // The automated main score / status / comparison are untouched by the disagreement.
-    expect(run.mainScore).toBe(0.9);
+    // The automated status / comparison are untouched by the human disagreement.
     expect(run.status).toBe("completed_with_errors");
-    expect(run.changeFromBaseline).toBeCloseTo(0.5);
+    expect(run.baselineComparable).toBe(true);
   });
 
   it("marks an incompatible baseline (different dataset version) as not comparable", async () => {

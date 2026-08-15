@@ -85,7 +85,11 @@ export function useCreateDataset(projectId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: { name: string; description?: string | null }) =>
-      sendJson<{ dataset: DatasetRow }>(`/api/projects/${projectId}/datasets`, "POST", input),
+      sendJson<{ dataset: DatasetRow; created: boolean }>(
+        `/api/projects/${projectId}/datasets`,
+        "POST",
+        input,
+      ),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ["datasets"] }),
   });
 }
@@ -190,7 +194,6 @@ export interface TestCaseRunRow {
    *  DIFFERENT version of this row (a different input/expected association). */
   datasetVersionId: string;
   ranAt: string;
-  score: number | null;
   status: string;
   change: "improved" | "regressed" | "unchanged" | null;
   /** Run-level totals (summed over the run's cases), à la the Experiments list. */
@@ -318,7 +321,6 @@ export interface TraceEvaluationResultRow {
   testCaseId: string;
   traceId: string | null;
   status: EvalResultStatus;
-  mainScore: number | null;
   scores: ScoreRow[];
   run: {
     id: string;

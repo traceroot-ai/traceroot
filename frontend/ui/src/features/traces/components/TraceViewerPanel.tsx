@@ -65,6 +65,12 @@ interface TraceViewerPanelProps {
    */
   traceOverride?: TraceDetail;
   /**
+   * Hide the Detectors tab entirely. The offline-eval surface opens a test case's REAL run
+   * trace (so `traceOverride` is unset), but detectors are never part of that view. Unset in
+   * production.
+   */
+  hideDetectors?: boolean;
+  /**
    * Optional action bar for the span detail panel, computed per selection —
    * e.g. offline-eval's "Save as test case" / "Review". Return null to hide it
    * (e.g. at trace level). Unset in production.
@@ -161,6 +167,7 @@ export function TraceViewerPanel({
   initialFullscreen,
   newTabPath,
   traceOverride,
+  hideDetectors,
   spanActions,
   spanHeaderAction,
   spanExtraTags,
@@ -495,7 +502,7 @@ export function TraceViewerPanel({
             {/* Detectors fetch by traceId, which under an override is the synthetic
                 eval-<resultId> — no ClickHouse row can ever back it, so the tab is
                 hidden rather than firing a doomed request. */}
-            {!traceOverride && (
+            {!traceOverride && !hideDetectors && (
               <button
                 onClick={() => setViewMode("detectors")}
                 className={cn(
@@ -569,7 +576,7 @@ export function TraceViewerPanel({
                   {/* Detectors fetches its own data by traceId, so it renders
                     ahead of the trace-load guards — a slow or failed *trace*
                     fetch must not hide independently-loaded detector data. */}
-                  {viewMode === "detectors" && !traceOverride ? (
+                  {viewMode === "detectors" && !traceOverride && !hideDetectors ? (
                     <TraceDetectorsTab projectId={projectId} traceId={traceId} />
                   ) : isLoading ? (
                     <div className="flex h-full items-center justify-center">

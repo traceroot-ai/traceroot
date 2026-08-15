@@ -11,7 +11,6 @@ import {
   datasetPullCodeTs,
   datasetPullVersionCode,
   datasetPullVersionCodeTs,
-  evalRoutes,
   formatStamp,
   parseMetadata,
   pct,
@@ -23,27 +22,6 @@ import {
   signedPoints,
   truncate,
 } from "./utils";
-
-describe("evalRoutes", () => {
-  const routes = evalRoutes("proj-1");
-
-  it("builds the static section routes under the project", () => {
-    expect(routes.base).toBe("/projects/proj-1/offline-eval");
-    expect(routes.traces).toBe("/projects/proj-1/offline-eval/traces");
-    expect(routes.datasets).toBe("/projects/proj-1/offline-eval/datasets");
-    expect(routes.evaluations).toBe("/projects/proj-1/offline-eval/evaluations");
-    expect(routes.scorers).toBe("/projects/proj-1/offline-eval/scorers");
-  });
-
-  it("builds the parameterised routes", () => {
-    expect(routes.trace("tr_1")).toBe("/projects/proj-1/offline-eval/traces?trace=tr_1");
-    expect(routes.dataset("ds1")).toBe("/projects/proj-1/offline-eval/datasets/ds1");
-    expect(routes.datasetCase("ds1", "case-001")).toBe(
-      "/projects/proj-1/offline-eval/datasets/ds1?case=case-001",
-    );
-    expect(routes.evaluation("eval1")).toBe("/projects/proj-1/offline-eval/evaluations/eval1");
-  });
-});
 
 describe("status variant maps", () => {
   it("maps every result status to a badge tone", () => {

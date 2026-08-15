@@ -118,6 +118,24 @@ export const ScorerMessageSchema = z.object({
   content: z.string().max(SCORER_MESSAGE_CONTENT_MAX),
 });
 
+/** Upper bound on the metrics a single scorer definition may emit. */
+export const SCORER_EMITTED_METRICS_MAX = 20;
+
+/**
+ * One metric a scorer DEFINITION emits, carrying that metric's own comparison policy.
+ * The metric `name` is the EMITTED-METRIC identity — what a Score row reports as
+ * `scorer_name` — and is distinct from the scorer DEFINITION name (a `grade` definition
+ * can emit a `quality` metric). A definition may emit several metrics; a failed scorer
+ * may emit none. Policy is matched to a Score by this `name`, never by the definition.
+ */
+export const EmittedMetricSchema = z.object({
+  name: z.string().min(1).max(200),
+  value_type: ScorerValueTypeSchema.nullable().optional(),
+  direction: ScorerDirectionSchema.nullable().optional(),
+  threshold: z.number().nullable().optional(),
+});
+export type EmittedMetric = z.infer<typeof EmittedMetricSchema>;
+
 /**
  * A scorer's descriptor. `name` + `version` are the identity used for cell
  * comparison; the richer metadata is optional and back-compatible — an old SDK
@@ -155,6 +173,15 @@ export const ScorerRefSchema = z.object({
   value_type: ScorerValueTypeSchema.nullable().optional(),
   direction: ScorerDirectionSchema.nullable().optional(),
   threshold: z.number().nullable().optional(),
+  // The metrics this definition emits, each with its OWN policy. A Score is matched to a
+  // metric by name (Score.scorer_name == emitted_metrics[].name). The top-level
+  // name/value_type/direction/threshold above stay valid as an older client's single
+  // implicit metric named after the scorer, so both shapes resolve a metric's policy.
+  emitted_metrics: z
+    .array(EmittedMetricSchema)
+    .max(SCORER_EMITTED_METRICS_MAX)
+    .nullable()
+    .optional(),
   // SDK-reported definition (all optional; absent or unrecognised → "—" in the detail).
   scorer_type: ScorerTypeSchema.nullable().optional().catch(null),
   output_type: ScorerOutputTypeSchema.nullable().optional().catch(null),
@@ -217,7 +244,6 @@ export const RegisterRunRequestSchema = z
     /** Omit to pin the dataset's current published version. */
     dataset_version_id: z.string().min(1).max(64).nullable().optional(),
     candidate_version: z.string().min(1).max(200),
-    main_score_name: z.string().min(1).max(200).nullable().optional(),
     environment: z.string().min(1).max(64).default("evaluation"),
     scorers: z.array(ScorerRefSchema).max(EVAL_SCORER_LIST_MAX).default([]),
     /** SDK-supplied idempotency key. */
@@ -291,7 +317,6 @@ export const UpsertResultRequestSchema = z
     candidate_output: z.string().max(EVAL_PAYLOAD_TEXT_MAX).nullable().optional(),
     baseline_output: z.string().max(EVAL_PAYLOAD_TEXT_MAX).nullable().optional(),
     status: EvalResultStatusSchema,
-    main_score: z.number().nullable().optional(),
     change: ResultChangeSchema.nullable().optional(),
     task_error: z.string().max(10000).nullable().optional(),
     duration_ms: z.number().int().nonnegative().nullable().optional(),
@@ -326,20 +351,18 @@ export type UpsertResultResponse = z.infer<typeof UpsertResultResponseSchema>;
 export const CompleteRunRequestSchema = z
   .object({
     status: EvalRunStatusSchema,
-    main_score: z.number().nullable().optional(),
-    /**
-     * The run-level main-score metric name, RESOLVED at completion. Lets an SDK
-     * register a run before any scorer's emitted metric name is known and name it
-     * here once it is. Optional and additive — an older SDK omits it and keeps the
-     * name it chose at registration (or none). When registration already fixed a
-     * name, this must match it (a mismatch is a conflict); for a successfully scored
-     * run the resolved name must exist among the run's emitted scores.
-     */
-    main_score_name: z.string().min(1).max(200).nullable().optional(),
     case_count: z.number().int().nonnegative().nullable().optional(),
     scored_count: z.number().int().nonnegative().nullable().optional(),
     task_error_count: z.number().int().nonnegative().nullable().optional(),
     scorer_error_count: z.number().int().nonnegative().nullable().optional(),
+    /**
+     * The RESOLVED scorer manifest, discovered during execution. Registration may
+     * carry unresolved definitions (emitted metrics unknown until the run runs); the
+     * SDK sends the resolved manifest here and the platform merges it (by definition
+     * name) into the stored manifest, so each emitted metric's policy is present for
+     * read-back. Additive + idempotent; an older SDK omits it.
+     */
+    scorers: z.array(ScorerRefSchema).max(EVAL_SCORER_LIST_MAX).nullable().optional(),
   })
   .strict();
 export type CompleteRunRequest = z.infer<typeof CompleteRunRequestSchema>;
@@ -479,6 +502,10 @@ export const PublicUpsertDatasetRequestSchema = z
     name: z.string().min(1).max(200),
     description: z.string().max(2000).nullable().optional(),
     metadata: MetadataSchema.nullable().optional(),
+    // The pre-image the SDK hashed into `dataset_id` (by default it equals `name`).
+    // Optional and additive — older SDKs omit it. Persisted and echoed back so a
+    // pulled dataset can recover its true key when `key != name`.
+    key: z.string().min(1).max(200).optional(),
   })
   .strict();
 export type PublicUpsertDatasetRequest = z.infer<typeof PublicUpsertDatasetRequestSchema>;

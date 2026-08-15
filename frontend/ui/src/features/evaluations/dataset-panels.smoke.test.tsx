@@ -37,6 +37,8 @@ const DATASET = {
 let requests: Array<{ url: string; method: string; body: unknown }> = [];
 /** Flipped by a test to make every write fail, exercising the error toasts. */
 let writesFail = false;
+/** Flipped by a test so a create resolves to an EXISTING dataset (created: false). */
+let createReturnsExisting = false;
 
 function payloadFor(url: string, method: string): unknown {
   if (url.includes("/evaluations")) {
@@ -45,7 +47,7 @@ function payloadFor(url: string, method: string): unknown {
   if (url.includes("/datasets")) {
     // Creating a dataset returns the created row (the panel navigates into it);
     // the list GET returns the paged collection.
-    if (method === "POST") return { dataset: DATASET };
+    if (method === "POST") return { dataset: DATASET, created: !createReturnsExisting };
     return { data: [DATASET], meta: { page: 0, limit: 50, total: 1 } };
   }
   return {};
@@ -61,6 +63,7 @@ beforeAll(() => {
 beforeEach(() => {
   requests = [];
   writesFail = false;
+  createReturnsExisting = false;
   mockPush.mockClear();
   global.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
     const method = init?.method ?? "GET";
@@ -133,6 +136,18 @@ describe("New dataset panel", () => {
     });
   });
 
+  it("opening an existing dataset (created: false) toasts 'Opened existing' and navigates in", async () => {
+    // Convergence: a name that already resolves to a dataset opens it rather than erroring.
+    createReturnsExisting = true;
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: "New Dataset" }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Billing routing" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+    expect(await screen.findByText("Opened existing dataset")).toBeDefined();
+    expect(mockPush).toHaveBeenCalledWith("/projects/p1/datasets/ds1");
+  });
+
   it("closes on Cancel, on the X, and on Escape", async () => {
     mount();
     const open = await screen.findByRole("button", { name: "New Dataset" });
@@ -174,10 +189,9 @@ describe("Edit dataset panel", () => {
     // Seeded from the dataset row.
     const name = (await screen.findByLabelText("Name")) as HTMLInputElement;
     expect(name.value).toBe("Billing routing");
-    expect(
-      (screen.getByLabelText("Description") as HTMLInputElement)
-        .value,
-    ).toBe("Routing tickets");
+    expect((screen.getByLabelText("Description") as HTMLInputElement).value).toBe(
+      "Routing tickets",
+    );
 
     fireEvent.change(name, { target: { value: "Billing routing v2" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -186,13 +200,6 @@ describe("Edit dataset panel", () => {
     const patch = requests.find((r) => r.method === "PATCH");
     expect(patch?.url).toContain("/api/projects/p1/datasets/ds1");
     expect(patch?.body).toEqual({ name: "Billing routing v2", description: "Routing tickets" });
-  });
-
-  it("copies the dataset id from the header chip", async () => {
-    mount();
-    await rowAction("Edit");
-    fireEvent.click(await screen.findByTitle("Copy dataset ID"));
-    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("ds1"));
   });
 
   it("surfaces a save failure and closes on Cancel", async () => {

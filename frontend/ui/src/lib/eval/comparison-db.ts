@@ -23,7 +23,6 @@ interface DbScore {
 interface DbResult {
   testCaseId: string;
   status: string;
-  mainScore: number | null;
   candidateOutput: string | null;
   durationMs: number | null;
   scores: DbScore[];
@@ -36,37 +35,82 @@ interface DbRun {
   datasetVersionId: string;
   candidateVersion: string;
   status: string;
-  mainScore: number | null;
-  mainScoreName: string | null;
   baselineRunId: string | null;
   scorers: unknown; // Json: [{ name, version, value_type?, direction?, threshold? }]
 }
 
-/** Parse the run's `scorers` JSON into typed metadata, tolerating old `{name,version}`. */
+/** A metric's typed policy (value type, direction, threshold) read off a scorer ref or one
+ *  of its emitted-metric objects, tolerating absent/unrecognised values. */
+function metaOf(name: string, version: string, o: Record<string, unknown>): ComparisonScorerMeta {
+  return {
+    name,
+    version,
+    valueType:
+      o.value_type === "numeric" || o.value_type === "boolean" || o.value_type === "categorical"
+        ? o.value_type
+        : null,
+    direction:
+      o.direction === "higher_is_better" ||
+      o.direction === "lower_is_better" ||
+      o.direction === "none"
+        ? o.direction
+        : null,
+    threshold: typeof o.threshold === "number" ? o.threshold : null,
+  };
+}
+
+/** Parse the run's `scorers` JSON into per-metric policy, keyed by the name a Score reports as
+ * `scorer_name`, tolerating the old `{name,version}` shape.
+ *
+ * A scorer DEFINITION owns the METRICS it emits; a Score reports the emitted-metric name, never
+ * the definition name. So:
+ *  - when a scorer declares `emitted_metrics`, only those are surfaced (each under its own name);
+ *    the definition name is NOT surfaced — it matches no Score, so it would be a phantom metric.
+ *  - a scorer with no `emitted_metrics` IS its own single implicit metric (older SDK, or a metric
+ *    named after the definition) — surface the definition's top-level policy.
+ * Two scorers emitting the SAME metric name with a CONFLICTING policy can't be disambiguated from
+ * a Score alone, so that metric drops to non-directional (null policy) rather than letting array
+ * order silently pick a direction (which would flip improved↔regressed). */
 export function parseScorers(json: unknown): ComparisonScorerMeta[] {
   if (!Array.isArray(json)) return [];
-  const out: ComparisonScorerMeta[] = [];
+  const byName = new Map<string, ComparisonScorerMeta>();
+  const add = (meta: ComparisonScorerMeta) => {
+    const prev = byName.get(meta.name);
+    if (!prev) {
+      byName.set(meta.name, meta);
+    } else if (
+      prev.valueType !== meta.valueType ||
+      prev.direction !== meta.direction ||
+      prev.threshold !== meta.threshold
+    ) {
+      // Conflicting policy for one metric name → ambiguous; compare it non-directionally.
+      byName.set(meta.name, {
+        name: meta.name,
+        version: prev.version,
+        valueType: null,
+        direction: null,
+        threshold: null,
+      });
+    }
+  };
   for (const raw of json) {
     if (!raw || typeof raw !== "object") continue;
     const o = raw as Record<string, unknown>;
     if (typeof o.name !== "string") continue;
-    out.push({
-      name: o.name,
-      version: typeof o.version === "string" ? o.version : "",
-      valueType:
-        o.value_type === "numeric" || o.value_type === "boolean" || o.value_type === "categorical"
-          ? o.value_type
-          : null,
-      direction:
-        o.direction === "higher_is_better" ||
-        o.direction === "lower_is_better" ||
-        o.direction === "none"
-          ? o.direction
-          : null,
-      threshold: typeof o.threshold === "number" ? o.threshold : null,
-    });
+    const version = typeof o.version === "string" ? o.version : "";
+    const emitted = Array.isArray(o.emitted_metrics) ? o.emitted_metrics : [];
+    if (emitted.length === 0) {
+      add(metaOf(o.name, version, o));
+    } else {
+      for (const m of emitted) {
+        if (m && typeof m === "object") {
+          const em = m as Record<string, unknown>;
+          if (typeof em.name === "string") add(metaOf(em.name, version, em));
+        }
+      }
+    }
   }
-  return out;
+  return [...byName.values()];
 }
 
 export function toComparisonRun(r: DbRun): ComparisonRun {
@@ -77,8 +121,6 @@ export function toComparisonRun(r: DbRun): ComparisonRun {
     datasetVersionId: r.datasetVersionId,
     candidateVersion: r.candidateVersion,
     status: r.status,
-    mainScore: r.mainScore,
-    mainScoreName: r.mainScoreName,
     baselineRunId: r.baselineRunId,
     scorers: parseScorers(r.scorers),
   };
@@ -88,7 +130,6 @@ export function toComparisonResults(rows: DbResult[]): ComparisonResult[] {
   return rows.map((r) => ({
     testCaseId: r.testCaseId,
     status: r.status,
-    mainScore: r.mainScore,
     candidateOutput: r.candidateOutput,
     durationMs: r.durationMs,
     scores: r.scores.map(
@@ -102,9 +143,4 @@ export function toComparisonResults(rows: DbResult[]): ComparisonResult[] {
       }),
     ),
   }));
-}
-
-/** Map a derived case verdict back onto the legacy `change` enum (best effort). */
-export function caseChangeToLegacy(c: string): "improved" | "regressed" | "unchanged" | null {
-  return c === "improved" || c === "regressed" || c === "unchanged" ? c : null;
 }

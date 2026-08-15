@@ -1,5 +1,7 @@
 import { prisma, type Prisma, type TestCase } from "@traceroot/core";
 import { randomUUID } from "crypto";
+import { versionSnowflakeFromMs } from "./snowflake";
+import { decodeJsonValue } from "./json-value";
 
 /** Deterministic read order for a version's cases (see the ordering note where
  *  it's used): every case a publish writes shares one `create_time` (Postgres'
@@ -83,10 +85,20 @@ function canonicalJson(v: unknown): string {
 
 /** A stable signature of a version's semantic CONTENT — the per-case (id, input, expected,
  *  metadata), order-independent. Capture provenance (source fields, review, addedBy,
- *  createTime) is NOT content, so it never forks a version. Identical content shares one. */
-function contentSignature(seeds: TestCaseSeed[]): string {
+ *  createTime) is NOT content, so it never forks a version. Identical content shares one.
+ *
+ *  input/expected are DECODED before canonicalization (they are stored as JSON-encoded
+ *  strings): otherwise two byte-different encodings of the same value — e.g. reordered
+ *  object keys `{"a":1,"b":2}` vs `{"b":2,"a":1}` — would sign differently and spuriously
+ *  fork a version / break content-addressed dedup, the same way metadata already canonicalizes. */
+export function contentSignature(seeds: TestCaseSeed[]): string {
   const rows = seeds
-    .map((s) => ({ id: s.testCaseId, input: s.input, expected: s.expected, metadata: s.metadata ?? null }))
+    .map((s) => ({
+      id: s.testCaseId,
+      input: decodeJsonValue(s.input),
+      expected: s.expected == null ? null : decodeJsonValue(s.expected),
+      metadata: s.metadata ?? null,
+    }))
     .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   return canonicalJson(rows);
 }
@@ -215,8 +227,25 @@ export async function publishDatasetVersion(opts: {
     });
     const versionNumber = (last?.versionNumber ?? 0) + 1;
 
+    // The version id is a time-sortable snowflake generated here — it IS the value the
+    // UI and SDK see (it replaced the cuid PK). It encodes (createMs, versionNumber), so
+    // it is unique within a dataset by versionNumber; a clash is only possible across
+    // datasets minting the same versionNumber in the same millisecond, so nudge the ms
+    // until the id is free and store that same ms as createTime (keeping the two in sync).
+    let createMs = Date.now();
+    let id = versionSnowflakeFromMs(createMs, versionNumber);
+    for (
+      let i = 0;
+      i < 100 && (await tx.datasetVersion.findUnique({ where: { id }, select: { id: true } }));
+      i++
+    ) {
+      createMs += 1;
+      id = versionSnowflakeFromMs(createMs, versionNumber);
+    }
+
     const version = await tx.datasetVersion.create({
       data: {
+        id,
         datasetId,
         projectId: opts.projectId,
         versionNumber,
@@ -224,6 +253,7 @@ export async function publishDatasetVersion(opts: {
         note: opts.note ?? null,
         createdBy: opts.createdBy ?? null,
         idempotencyKey: opts.idempotencyKey ?? null,
+        createTime: new Date(createMs),
       },
     });
 

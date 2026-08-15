@@ -20,7 +20,7 @@ same name already grouped — but the identity was fragile (tied to a human labe
 Evaluation definition   (project_id, evaluation_key)   — stable, cross-language, cross-run
   Evaluation run        unique run id, run_number       — one execution (idempotent on client_run_id)
     Candidate           candidate_version               — what changed (model/prompt/code label)
-    Provenance          run.provenance                  — sdk_language/version, git, CI, declared model
+    (run metadata)      git sha / sdk language           — OPTIONAL, non-identity; NOT a structured contract field
   Scorer definition     scorers[].name (semantic)       — shared across implementations
     Scorer version      scorers[].version               — a specific implementation/config
     Emitted metric      Score.scorer_name               — a named value (see scorer-metric-contract.md)
@@ -30,8 +30,10 @@ Evaluation definition   (project_id, evaluation_key)   — stable, cross-languag
   one definition regardless of SDK language; two evaluations may share a display `name`
   under different keys.
 - **Run** = always a new `id` + `run_number`; idempotent on `client_run_id`.
-- **Provenance** (already in the contract) carries `sdk_language`/`sdk_version`, git and CI —
-  the language is provenance, never identity.
+- **Run metadata**: the structured `RunProvenance` field was **removed** from the wire
+  contract (DB column dropped in `20260810000000_drop_run_provenance`). Any git / CI /
+  sdk-language details now ride as OPTIONAL, non-identity run metadata — never part of the
+  grouping or revision identity.
 
 ## Wire contract (additive)
 
@@ -90,5 +92,6 @@ platform does NOT guess span roles from names.
   reporting it. NOT added as a dead contract field.
 - **TS OTLP fixtures**: no raw packaged-TS-SDK OTLP payload exists in the repo, so the
   cross-surface test uses representative OTLP; a literal packaged-TS capture is SDK-owned.
-- **`provenance.sdk_language`**: already in the contract; the SDK must populate it for the
-  header chip to name the language.
+- **sdk language**: NOT a structured contract field (provenance was removed). If a header
+  chip names the language, it derives it from optional non-identity run metadata, not a
+  guaranteed contract field.

@@ -74,9 +74,15 @@ function makeFakeDb() {
           return null;
         },
       ),
-      create: vi.fn(async ({ data }: { data: Omit<FakeVersion, "id"> }) => {
+      // The publish nudges the generated snowflake id until it is free; here every
+      // generated id is unique (never in `versions`), so this always returns null.
+      findUnique: vi.fn(
+        async ({ where }: { where: { id: string } }) =>
+          versions.find((v) => v.id === where.id) ?? null,
+      ),
+      create: vi.fn(async ({ data }: { data: Omit<FakeVersion, "id"> & { id?: string } }) => {
         nextVersionN += 1;
-        const v: FakeVersion = { ...data, id: `v${nextVersionN}` };
+        const v: FakeVersion = { ...data, id: data.id ?? `v${nextVersionN}` };
         versions.push(v);
         return v;
       }),
@@ -115,7 +121,8 @@ vi.mock("@traceroot/core", () => ({
   },
 }));
 
-import { publishDatasetVersion, VersionConflict } from "./versions";
+import { publishDatasetVersion, VersionConflict, contentSignature } from "./versions";
+import type { TestCaseSeed } from "./versions";
 
 beforeEach(() => {
   fakeDb.current = makeFakeDb();
@@ -165,5 +172,40 @@ describe("publishDatasetVersion — pointer compare-and-swap", () => {
     // transaction also rolls back B's created version row; this fake isn't
     // transactional, so that part isn't re-asserted here.)
     expect(fakeDb.current!.dataset.currentVersionId).toBe(aResult.versionId);
+  });
+});
+
+describe("contentSignature — canonicalizes DECODED input/expected", () => {
+  const seed = (over: Partial<TestCaseSeed>): TestCaseSeed => ({
+    testCaseId: "tc1",
+    input: '"x"',
+    expected: null,
+    metadata: null,
+    review: "needs_review",
+    captureReason: "manual",
+    sourceTraceId: null,
+    sourceSpanId: null,
+    sourceSpanName: null,
+    sourceSpanKind: null,
+    addedBy: null,
+    ...over,
+  });
+
+  it("treats reordered object keys in the encoded input as the same content", () => {
+    expect(contentSignature([seed({ input: '{"a":1,"b":2}' })])).toBe(
+      contentSignature([seed({ input: '{"b":2,"a":1}' })]),
+    );
+  });
+
+  it("still distinguishes genuinely different content", () => {
+    expect(contentSignature([seed({ input: '{"a":1}' })])).not.toBe(
+      contentSignature([seed({ input: '{"a":2}' })]),
+    );
+  });
+
+  it('does not conflate the string "42" with the number 42', () => {
+    expect(contentSignature([seed({ input: '"42"' })])).not.toBe(
+      contentSignature([seed({ input: "42" })]),
+    );
   });
 });

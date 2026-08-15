@@ -21,6 +21,36 @@
         }
       }
     },
+    "EmittedMetric": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "name": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 200,
+          "required": true,
+          "nullable": false
+        },
+        "value_type": {
+          "type": "enum",
+          "enum": ["numeric", "boolean", "categorical"],
+          "required": false,
+          "nullable": true
+        },
+        "direction": {
+          "type": "enum",
+          "enum": ["higher_is_better", "lower_is_better", "none"],
+          "required": false,
+          "nullable": true
+        },
+        "threshold": {
+          "type": "number",
+          "required": false,
+          "nullable": true
+        }
+      }
+    },
     "ScorerRef": {
       "kind": "object",
       "unknown_keys": "strip",
@@ -60,6 +90,15 @@
         },
         "threshold": {
           "type": "number",
+          "required": false,
+          "nullable": true
+        },
+        "emitted_metrics": {
+          "type": "array",
+          "items": {
+            "type": "EmittedMetric"
+          },
+          "max_items": 20,
           "required": false,
           "nullable": true
         },
@@ -218,13 +257,6 @@
           "required": true,
           "nullable": false
         },
-        "main_score_name": {
-          "type": "string",
-          "min_length": 1,
-          "max_length": 200,
-          "required": false,
-          "nullable": true
-        },
         "environment": {
           "type": "string",
           "min_length": 1,
@@ -354,11 +386,6 @@
           "required": true,
           "nullable": false
         },
-        "main_score": {
-          "type": "number",
-          "required": false,
-          "nullable": true
-        },
         "change": {
           "type": "enum",
           "enum": ["improved", "regressed", "unchanged"],
@@ -422,18 +449,6 @@
           "required": true,
           "nullable": false
         },
-        "main_score": {
-          "type": "number",
-          "required": false,
-          "nullable": true
-        },
-        "main_score_name": {
-          "type": "string",
-          "min_length": 1,
-          "max_length": 200,
-          "required": false,
-          "nullable": true
-        },
         "case_count": {
           "type": "integer",
           "minimum": 0,
@@ -455,6 +470,15 @@
         "scorer_error_count": {
           "type": "integer",
           "minimum": 0,
+          "required": false,
+          "nullable": true
+        },
+        "scorers": {
+          "type": "array",
+          "items": {
+            "type": "ScorerRef"
+          },
+          "max_items": 200,
           "required": false,
           "nullable": true
         }
@@ -683,6 +707,13 @@
           "type": "json_object",
           "required": false,
           "nullable": true
+        },
+        "key": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 200,
+          "required": false,
+          "nullable": false
         }
       }
     },

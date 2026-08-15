@@ -300,7 +300,6 @@ describe("lineage resolution", () => {
         datasetId: "ds1",
         name: "nightly",
         evaluationKey: "nightly",
-        mainScoreName: "Score",
         createTime: new Date(),
       });
     });
@@ -393,7 +392,6 @@ describe("client_run_id idempotency", () => {
       datasetId: "ds1",
       name: "nightly",
       evaluationKey: "nightly",
-      mainScoreName: "Score",
       createTime: new Date(),
     };
     db.rows.evaluation.push(evaluation);

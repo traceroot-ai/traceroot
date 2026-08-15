@@ -5,6 +5,7 @@ This module defines the async tasks that process trace data from S3 to ClickHous
 
 import json
 import logging
+import threading
 from collections import defaultdict
 from datetime import datetime
 
@@ -111,6 +112,29 @@ def _task_cost_by_trace(rows) -> dict[str, float]:
     return result
 
 
+_PG_POOL = None
+_PG_POOL_LOCK = threading.Lock()
+
+
+def _get_pg_pool():
+    """A lazily-created, thread-safe Postgres connection pool for the worker.
+
+    Cost derivation runs once per eval-bearing batch; opening a fresh
+    ``psycopg2.connect`` each time is pure connection churn. A small module-level
+    ``ThreadedConnectionPool`` reuses connections across batches within a worker process.
+    """
+    global _PG_POOL
+    if _PG_POOL is None:
+        with _PG_POOL_LOCK:
+            if _PG_POOL is None:
+                from psycopg2 import pool as _pg_pool
+
+                from shared.config import settings
+
+                _PG_POOL = _pg_pool.ThreadedConnectionPool(1, 8, settings.database_url)
+    return _PG_POOL
+
+
 def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -> None:
     """Denormalize each evaluation trace's CANDIDATE-TASK cost onto its EvaluationResult.
 
@@ -132,9 +156,10 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
     POSTed from a different service. If every span batch for a trace is processed before
     its result row exists, the lookup below returns empty on each one and nothing ever
     revisits it — ``cost`` stays NULL despite fully-priced LLM spans sitting in
-    ClickHouse. Closing that needs a trigger from the other side (derive on result-write
-    or run-finalize) or a periodic backfill over ``cost IS NULL AND trace_id IS NOT
-    NULL``; both are out of scope here.
+    ClickHouse. ``backfill_eval_result_costs`` closes that gap by re-running this
+    derivation for not-yet-derived result rows; it keys off the ``cost_derived_at`` marker
+    stamped below (NOT ``cost IS NULL``), so a zero-cost trace settles after one pass
+    instead of being re-swept forever.
 
     NOTE: once the SDK reports an authoritative per-result cost, this derivation must
     DEFER to it rather than overwrite — it exists only because per-result cost is absent
@@ -142,15 +167,13 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
     """
     if not trace_ids:
         return
-    import psycopg2
-
-    from shared.config import settings
-
     try:
-        conn = psycopg2.connect(settings.database_url)
+        pg_pool = _get_pg_pool()
+        conn = pg_pool.getconn()
     except Exception:
         logger.warning("eval cost derivation: no Postgres connection", exc_info=True)
         return
+    broken = False
     try:
         with conn.cursor() as cur:
             # Only the batch's trace_ids that are evaluation results — bounded lookup.
@@ -160,31 +183,127 @@ def _update_eval_result_costs(project_id: str, trace_ids: set[str], ch_client) -
                 (project_id, list(trace_ids)),
             )
             eval_trace_ids = [r[0] for r in cur.fetchall()]
-            if not eval_trace_ids:
-                return
+            # No result rows yet for this batch's traces — nothing to write; the read
+            # transaction is still ended by the commit below so the pooled connection
+            # is handed back clean (not idle-in-transaction).
+            if eval_trace_ids:
+                # Pull the full span tree (not just cost-bearing spans) so the scorer
+                # subtree can be identified and excluded before summing.
+                rows = ch_client.query(
+                    "SELECT trace_id, span_id, parent_span_id, span_kind, cost FROM spans FINAL"
+                    " WHERE project_id = {pid:String} AND trace_id IN {ids:Array(String)}",
+                    parameters={"pid": project_id, "ids": eval_trace_ids},
+                ).result_rows
 
-            # Pull the full span tree (not just cost-bearing spans) so the scorer
-            # subtree can be identified and excluded before summing.
-            rows = ch_client.query(
-                "SELECT trace_id, span_id, parent_span_id, span_kind, cost FROM spans FINAL"
-                " WHERE project_id = {pid:String} AND trace_id IN {ids:Array(String)}",
-                parameters={"pid": project_id, "ids": eval_trace_ids},
-            ).result_rows
-
-            for trace_id, cost in _task_cost_by_trace(rows).items():
-                # Written unconditionally — see the docstring. NULLIF keeps a genuinely
-                # cost-less trace at NULL rather than a misleading 0.00, while still
-                # letting a previously over-reported cost be corrected back down.
+                for trace_id, cost in _task_cost_by_trace(rows).items():
+                    # Written unconditionally — see the docstring. NULLIF keeps a genuinely
+                    # cost-less trace at NULL rather than a misleading 0.00, while still
+                    # letting a previously over-reported cost be corrected back down.
+                    cur.execute(
+                        "UPDATE evaluation_results SET cost = NULLIF(%s, 0), update_time = now()"
+                        " WHERE project_id = %s AND trace_id = %s",
+                        (cost, project_id, trace_id),
+                    )
+                # Mark EVERY examined result row as derivation-attempted — a state distinct
+                # from `cost IS NULL`, so a zero-cost trace (NULLIF above) or one whose
+                # spans never landed settles instead of being re-swept by the backfill
+                # forever. Ingest never filters on this column, so the late-SPAN
+                # self-healing above is unaffected; only ``backfill_eval_result_costs``
+                # reads it.
                 cur.execute(
-                    "UPDATE evaluation_results SET cost = NULLIF(%s, 0), update_time = now()"
-                    " WHERE project_id = %s AND trace_id = %s",
-                    (cost, project_id, trace_id),
+                    "UPDATE evaluation_results SET cost_derived_at = now()"
+                    " WHERE project_id = %s AND trace_id = ANY(%s)",
+                    (project_id, eval_trace_ids),
                 )
         conn.commit()
     except Exception:
+        broken = True
+        # rollback() on an already-dead connection can itself raise; swallow that so the
+        # finally still runs and the poisoned connection is evicted, not recycled.
+        try:
+            conn.rollback()
+        except Exception:
+            logger.warning("eval cost derivation: rollback failed", exc_info=True)
         logger.warning("eval cost derivation failed", exc_info=True)
     finally:
-        conn.close()
+        # Close (evict) a connection that errored rather than return a possibly-broken
+        # handle to the pool for the next borrower to trip over.
+        pg_pool.putconn(conn, close=broken)
+
+
+@app.task(name="worker.ingest_tasks.backfill_eval_result_costs")
+def backfill_eval_result_costs(batch_size: int = 500) -> dict:
+    """Reconcile eval-result costs that ingest could not fill.
+
+    Cost is normally derived at span-ingest, but a result row that COMMITS AFTER its spans
+    were already processed is never revisited (see the LIMITATION note on
+    ``_update_eval_result_costs``) and stays ``cost = NULL`` despite priced LLM spans
+    sitting in ClickHouse. This periodic sweep re-runs that same derivation for recent
+    NOT-YET-DERIVED results (``cost_derived_at IS NULL``), grouped by project. Because
+    derivation stamps ``cost_derived_at`` regardless of the resulting cost, a zero-cost
+    trace settles after one pass instead of being re-swept forever; bounded to
+    ``batch_size`` newest-first rows within a recent window (backed by the partial index
+    ``ix_eval_result_cost_backfill``), the next run picks up any remainder.
+
+    Requires a Celery *beat* process to be scheduled (see ``celery_app.beat_schedule``).
+    """
+    from collections import defaultdict
+
+    from db.clickhouse.client import get_clickhouse_client
+
+    try:
+        pg_pool = _get_pg_pool()
+        conn = pg_pool.getconn()
+    except Exception:
+        logger.warning("eval cost backfill: no Postgres connection", exc_info=True)
+        return {"projects": 0, "traces": 0}
+    rows: list = []
+    broken = False
+    try:
+        with conn.cursor() as cur:
+            # Candidates are NOT-YET-DERIVED results (cost_derived_at IS NULL), not
+            # `cost IS NULL` — the latter also matches zero-cost traces that were already
+            # derived, which would be re-swept every tick and could starve a genuinely
+            # late row behind them. ORDER BY create_time DESC processes the newest (most
+            # likely still-arriving) candidates first so no row is indefinitely skipped;
+            # the recent-window bound keeps the scan on the partial index small. See
+            # migration ``ix_eval_result_cost_backfill``.
+            cur.execute(
+                "SELECT project_id, trace_id FROM evaluation_results "
+                "WHERE cost_derived_at IS NULL AND trace_id IS NOT NULL "
+                "AND create_time > now() - interval '7 days' "
+                "ORDER BY create_time DESC "
+                "LIMIT %s",
+                (batch_size,),
+            )
+            rows = cur.fetchall()
+        conn.commit()
+    except Exception:
+        broken = True
+        try:
+            conn.rollback()
+        except Exception:
+            logger.warning("eval cost backfill: rollback failed", exc_info=True)
+        logger.warning("eval cost backfill query failed", exc_info=True)
+        rows = []
+    finally:
+        pg_pool.putconn(conn, close=broken)
+
+    by_project: dict[str, set[str]] = defaultdict(set)
+    for project_id, trace_id in rows:
+        by_project[project_id].add(trace_id)
+    if not by_project:
+        return {"projects": 0, "traces": 0}
+
+    ch_client = get_clickhouse_client()
+    traces = 0
+    for project_id, trace_ids in by_project.items():
+        _update_eval_result_costs(project_id, trace_ids, ch_client)
+        traces += len(trace_ids)
+    logger.info(
+        "eval cost backfill: reconciled %d trace(s) across %d project(s)", traces, len(by_project)
+    )
+    return {"projects": len(by_project), "traces": traces}
 
 
 @app.task(

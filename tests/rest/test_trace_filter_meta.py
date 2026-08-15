@@ -165,6 +165,22 @@ class TestGetDistinctSpanValues:
 
         assert customer_traffic_only() in mock_client.query.call_args[0][0]
 
+    def test_excludes_evaluation_traces(self, monkeypatch):
+        # Eval traces are hidden from the production filter dropdown (keyed on
+        # is_evaluation, like every list read path) so eval-only values aren't offered as
+        # options that then match nothing. The inner scan is aliased `t` for the
+        # `t.trace_id NOT IN (...)` semi-join the shared exclusion predicate emits.
+        mock_client = MagicMock()
+        mock_client.query.return_value.result_rows = []
+        svc = self._service(monkeypatch, mock_client)
+
+        svc.get_distinct_span_values(project_id="p1", column="model_name")
+
+        query_text = mock_client.query.call_args[0][0]
+        assert "FROM spans AS t" in query_text
+        assert "t.trace_id NOT IN (SELECT trace_id FROM traces" in query_text
+        assert "is_evaluation = 1" in query_text
+
     def test_no_window_defaults_a_lookback_bound_never_unbounded(self, monkeypatch):
         """A direct caller passing no window must not trigger an all-time span scan:
         a default lower bound is injected (symmetric with the filtered trace list)."""

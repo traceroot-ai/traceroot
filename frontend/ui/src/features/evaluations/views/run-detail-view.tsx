@@ -28,7 +28,7 @@ function fmtDurationMs(ms: number | null | undefined): string {
 function scoreValue(s: ScoreRow): string {
   if (s.error) return "error";
   if (s.numericValue !== null) return String(s.numericValue);
-  if (s.boolValue !== null) return s.boolValue ? "pass" : "fail";
+  if (s.boolValue !== null) return s.boolValue ? "true" : "false";
   if (s.stringValue !== null) return s.stringValue;
   if (s.passed !== null) return s.passed ? "pass" : "fail";
   return "—";
@@ -224,10 +224,10 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
   return (
     <>
       {/* The experiment name rides in the top breadcrumb bar (Workspace / Project /
-          Experiments / <name>), like the dataset detail page. */}
+          Evaluations / <name>), like the dataset detail page. */}
       <ProjectBreadcrumb
         projectId={projectId}
-        trail={[{ label: "Experiments", href: `/projects/${projectId}/evaluations` }]}
+        trail={[{ label: "Evaluations", href: `/projects/${projectId}/evaluations` }]}
         current={data?.run.evaluationName}
       />
       <div className="flex flex-1 flex-col overflow-hidden text-[12px]">
@@ -277,6 +277,7 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
           projectId={projectId}
           traceId={panelTraceId}
           traceOverride={panelOverride}
+          hideDetectors
           newTabPath={`/projects/${projectId}/evaluations/${runId}`}
           onClose={closeResult}
           onNavigate={navigateResult}

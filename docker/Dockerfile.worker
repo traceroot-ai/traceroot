@@ -21,4 +21,14 @@ ENV PYTHONPATH="/app/backend"
 
 WORKDIR /app/backend
 
-CMD ["celery", "-A", "worker.celery_app", "worker", "--loglevel=info"]
+# `--beat` runs the embedded beat scheduler in-process so the periodic tasks in
+# `celery_app.beat_schedule` (the eval-result cost backfill) actually fire.
+# `--schedule` puts beat's PersistentScheduler state under /tmp, which is writable even
+# when the container root FS is read-only (a plain `celerybeat-schedule` in the CWD would
+# crash beat on a hardened/ephemeral image).
+# Safe with the default single worker replica; the backfill is idempotent, so even if
+# workers are ever scaled >1 (embedded beat would then tick per replica) the duplicate
+# runs are harmless — move to a dedicated single `celery ... beat` process (or a
+# leader-locked tick) before scaling workers horizontally.
+CMD ["celery", "-A", "worker.celery_app", "worker", "--beat", \
+     "--schedule", "/tmp/celerybeat-schedule", "--loglevel=info"]

@@ -162,11 +162,27 @@ _DISPLAY_ONLY_VARIANTS: dict[str, frozenset[str]] = {
 }
 
 
+SCORER_EMITTED_METRICS_MAX = 20
+
+
+class EmittedMetric(BaseModel):
+    """One metric a scorer DEFINITION emits, with its own comparison policy. The metric
+    ``name`` is the EMITTED-METRIC identity (what a Score row reports as ``scorer_name``),
+    distinct from the scorer DEFINITION name. Mirrors ``EmittedMetricSchema``."""
+
+    name: str = Field(min_length=1, max_length=200)
+    value_type: ScorerValueType | None = None
+    direction: ScorerDirection | None = None
+    threshold: JsonFloat | None = None
+
+
 class ScorerRef(BaseModel):
-    """A scorer's descriptor. ``name`` + ``version`` are the comparison identity;
-    the richer metadata is optional and back-compatible (an old SDK sending only
-    ``{name, version}`` stays valid). Mirrors the non-strict ``ScorerRefSchema``,
-    so unknown keys are ignored rather than rejected.
+    """A scorer's descriptor. ``key`` is the stable SEMANTIC comparison identity
+    (it defaults to ``name`` when omitted — see below); ``name``/``version``/
+    ``language``/``source`` are provenance, NOT identity. The richer metadata is
+    optional and back-compatible (an old SDK sending only ``{name, version}`` stays
+    valid — its ``key`` falls back to ``name``). Mirrors the non-strict
+    ``ScorerRefSchema``, so unknown keys are ignored rather than rejected.
 
     The DEFINITION fields (``scorer_type``, prompt/source, config) let the read-only
     Scorer detail render an LLM judge's model + messages or a code scorer's snippet.
@@ -188,6 +204,12 @@ class ScorerRef(BaseModel):
     value_type: ScorerValueType | None = None
     direction: ScorerDirection | None = None
     threshold: JsonFloat | None = None
+    # Metrics this definition emits, each with its own policy. A Score is matched to a
+    # metric by name (Score.scorer_name == emitted_metrics[].name); the top-level
+    # name/value_type/direction/threshold stay valid as an older client's single metric.
+    emitted_metrics: (
+        Annotated[list[EmittedMetric], Field(max_length=SCORER_EMITTED_METRICS_MAX)] | None
+    ) = None
     # SDK-reported definition (all optional; absent or unrecognised → "—" in the detail).
     scorer_type: ScorerType | None = None
     output_type: ScorerOutputType | None = None
@@ -251,7 +273,6 @@ class RegisterRunRequest(BaseModel):
     # Omit to pin the dataset's current published version.
     dataset_version_id: str | None = Field(default=None, min_length=1, max_length=64)
     candidate_version: str = Field(min_length=1, max_length=200)
-    main_score_name: str | None = Field(default=None, min_length=1, max_length=200)
     environment: str = Field(default="evaluation", min_length=1, max_length=64)
     scorers: list[ScorerRef] = Field(default_factory=list, max_length=EVAL_SCORER_LIST_MAX)
     # SDK-supplied idempotency key.
@@ -307,7 +328,6 @@ class UpsertResultRequest(BaseModel):
     candidate_output: str | None = Field(default=None, max_length=EVAL_PAYLOAD_TEXT_MAX)
     baseline_output: str | None = Field(default=None, max_length=EVAL_PAYLOAD_TEXT_MAX)
     status: EvalResultStatus
-    main_score: JsonFloat | None = None
     change: ResultChange | None = None
     task_error: str | None = Field(default=None, max_length=10000)
     duration_ms: JsonNonNegativeInt | None = None
@@ -332,15 +352,14 @@ class CompleteRunRequest(BaseModel):
     """Complete/fail a run, reporting final completeness counts."""
 
     status: EvalRunStatus
-    main_score: JsonFloat | None = None
-    # The run-level main-score metric name, RESOLVED at completion — lets an SDK
-    # register before any scorer's emitted name is known and name it here. Additive:
-    # an older SDK omits it. Mirrors ``main_score_name`` on the Zod CompleteRunRequest.
-    main_score_name: str | None = Field(default=None, min_length=1, max_length=200)
     case_count: JsonNonNegativeInt | None = None
     scored_count: JsonNonNegativeInt | None = None
     task_error_count: JsonNonNegativeInt | None = None
     scorer_error_count: JsonNonNegativeInt | None = None
+    # The RESOLVED scorer manifest discovered during execution — merged (by definition
+    # name) into the stored manifest so each emitted metric's policy is present for
+    # read-back. Additive + idempotent. Mirrors the Zod field.
+    scorers: Annotated[list[ScorerRef], Field(max_length=EVAL_SCORER_LIST_MAX)] | None = None
 
 
 class CompleteRunResponse(BaseModel):

@@ -340,6 +340,11 @@ class TraceReaderService:
         if normalized_end is not None:
             inner_conditions.append(f"{time_column} < {{end_before:DateTime64(3)}}")
             params["end_before"] = normalized_end
+        # Exclude evaluation traces, keyed on is_evaluation like every other read path —
+        # otherwise eval-only values (models, environments, names) are offered as filter
+        # options in the production trace explorer that then match nothing. The inner
+        # scan is aliased `t` below so this `t.trace_id NOT IN (...)` predicate binds.
+        inner_conditions.append(_evaluation_exclusion(params))
         inner_where = " AND ".join(inner_conditions)
 
         # Dedup ReplacingMergeTree rows to the latest version per logical row BEFORE
@@ -350,7 +355,7 @@ class TraceReaderService:
             SELECT value, count() AS n
             FROM (
                 SELECT {column} AS value
-                FROM {table}
+                FROM {table} AS t
                 WHERE {inner_where}
                 ORDER BY ch_update_time DESC
                 LIMIT 1 BY {dedup_keys}

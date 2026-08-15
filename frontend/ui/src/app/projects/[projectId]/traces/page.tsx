@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
-import { X, Inbox, AlertTriangle } from "lucide-react";
+import { X, Inbox, AlertTriangle, Plus } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { TraceSearchFilterInput } from "@/features/filters/trace-search-filter-input";
@@ -437,13 +437,14 @@ export default function TracesPage() {
             <Button
               variant="outline"
               size="sm"
-              className="h-7 shrink-0 text-[12px]"
+              className="h-7 shrink-0 gap-1.5 text-[12px]"
               onClick={() => {
                 setSaveSpanId(selection.type === "span" ? selection.span.span_id : undefined);
                 setSaveOpen(true);
               }}
             >
-              Save as test case
+              <Plus className="h-3.5 w-3.5" aria-hidden />
+              Add to datasets
             </Button>
           )}
           // Offline eval: while the "Save as test case" drawer is open, clicking a
