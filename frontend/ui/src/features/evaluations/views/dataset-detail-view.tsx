@@ -119,6 +119,9 @@ export function DatasetDetailView({
   const save = useSaveTestCase(projectId, datasetId);
   const update = useUpdateTestCase(projectId, datasetId);
 
+  // Hold the stable lineage id (testCaseId), not the per-version row id — a
+  // save/review publishes a new version with fresh row ids, and the row id
+  // would go dead and unmount the panel out from under the user.
   const [openCaseId, setOpenCaseId] = React.useState<string | null>(null);
 
   // Deep link: /datasets/[id]?case=<testCaseId> opens that case's panel once (e.g.
@@ -130,11 +133,14 @@ export function DatasetDetailView({
     if (!caseParam || !data || handledCaseParam.current === caseParam) return;
     const match = data.testCases.find((c) => c.testCaseId === caseParam);
     if (match) {
-      setOpenCaseId(match.id);
+      setOpenCaseId(match.testCaseId);
       handledCaseParam.current = caseParam;
     }
   }, [searchParams, data]);
   const [reviewCaseId, setReviewCaseId] = React.useState<string | null>(null);
+  // Mirrors CasePanel's dirty flag so the table can prompt before discarding an
+  // unsaved edit on row-click, without lifting the whole edit buffer up.
+  const dirtyRef = React.useRef(false);
   const [keyword, setKeyword] = React.useState("");
   const [historyKeyword, setHistoryKeyword] = React.useState("");
   const [codeOpen, setCodeOpen] = React.useState(false);
@@ -172,8 +178,13 @@ export function DatasetDetailView({
     );
   }, [runs, historyKeyword]);
 
-  const openCase = openCaseId ? (cases.find((c) => c.id === openCaseId) ?? null) : null;
-  const reviewCase = reviewCaseId ? (cases.find((c) => c.id === reviewCaseId) ?? null) : null;
+  // Resolved against allCases (not the keyword-filtered `cases`) and keyed on the
+  // stable testCaseId — otherwise typing in the search box, or a save publishing
+  // a new version's row ids, would silently unmount the open panel.
+  const openCase = openCaseId ? (allCases.find((c) => c.testCaseId === openCaseId) ?? null) : null;
+  const reviewCase = reviewCaseId
+    ? (allCases.find((c) => c.testCaseId === reviewCaseId) ?? null)
+    : null;
 
   const reviewTarget = React.useMemo<TestCaseReviewTarget | null>(() => {
     if (!reviewCase || !dataset) return null;
@@ -185,18 +196,32 @@ export function DatasetDetailView({
     };
   }, [reviewCase, dataset]);
 
-  const submitReview = async (result: { review: ReviewStatus; correctedExpected?: string }) => {
+  const submitReview = (result: { review: ReviewStatus; correctedExpected?: string }) => {
     if (!reviewCase) return;
-    // Return the promise so the drawer only reports success / closes once the publish
-    // actually lands, and stays open (input intact) on failure. The drawer owns the
-    // success toast + close; a rejection there keeps the reviewer's work.
-    await update.mutateAsync({
-      testCaseId: reviewCase.testCaseId,
-      patch: {
-        review: result.review,
-        ...(result.correctedExpected ? { expected: result.correctedExpected } : {}),
+    update.mutate(
+      {
+        testCaseId: reviewCase.testCaseId,
+        patch: {
+          review: result.review,
+          ...(result.correctedExpected ? { expected: result.correctedExpected } : {}),
+        },
       },
-    });
+      {
+        onSuccess: () => {
+          toast({ title: "Review saved — new dataset version published", tone: "success" });
+          // Follow the version just published rather than leaving the view
+          // pinned to whatever was selected before the save.
+          setSelectedVersionId(null);
+          setReviewCaseId(null);
+        },
+        onError: (e) =>
+          toast({
+            title: "Could not save this review",
+            description: String(e),
+            tone: "warning",
+          }),
+      },
+    );
   };
 
   const addEmptyRow = () => {
@@ -409,25 +434,45 @@ export function DatasetDetailView({
                     </TRHead>
                   </THead>
                   <TBody>
-                    {cases.map((tc) => (
-                      <TR
-                        key={tc.id}
-                        interactive
-                        selected={tc.id === openCaseId}
-                        onClick={() => setOpenCaseId(tc.id)}
-                      >
-                        <Td className="whitespace-nowrap text-muted-foreground">
-                          <Timestamp iso={tc.createTime} />
-                        </Td>
-                        <Td className="max-w-[320px] truncate" title={tc.input || undefined}>
-                          {orDash(tc.input || null)}
-                        </Td>
-                        <Td className="max-w-[320px] truncate" title={tc.expected ?? undefined}>
-                          {orDash(tc.expected)}
-                        </Td>
-                        <Td className="max-w-[240px] truncate">{metadataPreview(tc.metadata)}</Td>
-                      </TR>
-                    ))}
+                    {cases.map((tc) => {
+                      const openThisCase = () => {
+                        if (
+                          dirtyRef.current &&
+                          !window.confirm("Discard unsaved changes to this case?")
+                        ) {
+                          return;
+                        }
+                        setOpenCaseId(tc.testCaseId);
+                      };
+                      return (
+                        <TR
+                          key={tc.id}
+                          interactive
+                          selected={tc.testCaseId === openCaseId}
+                          tabIndex={0}
+                          role="button"
+                          aria-expanded={tc.testCaseId === openCaseId}
+                          onClick={openThisCase}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              openThisCase();
+                            }
+                          }}
+                        >
+                          <Td className="whitespace-nowrap text-muted-foreground">
+                            <Timestamp iso={tc.createTime} />
+                          </Td>
+                          <Td className="max-w-[320px] truncate" title={tc.input || undefined}>
+                            {orDash(tc.input || null)}
+                          </Td>
+                          <Td className="max-w-[320px] truncate" title={tc.expected ?? undefined}>
+                            {orDash(tc.expected)}
+                          </Td>
+                          <Td className="max-w-[240px] truncate">{metadataPreview(tc.metadata)}</Td>
+                        </TR>
+                      );
+                    })}
                   </TBody>
                 </Table>
               )}
@@ -515,15 +560,19 @@ export function DatasetDetailView({
           datasetId={datasetId}
           datasetName={dataset.name}
           readOnly={!isCurrentVersion}
+          dirtyRef={dirtyRef}
           onClose={() => setOpenCaseId(null)}
-          onReview={() => setReviewCaseId(openCase.id)}
+          onReview={() => setReviewCaseId(openCase.testCaseId)}
+          onSaved={() => setSelectedVersionId(null)}
           onNavigate={(dir) => {
-            const idx = cases.findIndex((c) => c.id === openCase.id);
+            const idx = cases.findIndex((c) => c.testCaseId === openCase.testCaseId);
             const next = dir === "up" ? idx - 1 : idx + 1;
-            if (next >= 0 && next < cases.length) setOpenCaseId(cases[next].id);
+            if (next >= 0 && next < cases.length) setOpenCaseId(cases[next].testCaseId);
           }}
-          canNavigateUp={cases.findIndex((c) => c.id === openCase.id) > 0}
-          canNavigateDown={cases.findIndex((c) => c.id === openCase.id) < cases.length - 1}
+          canNavigateUp={cases.findIndex((c) => c.testCaseId === openCase.testCaseId) > 0}
+          canNavigateDown={
+            cases.findIndex((c) => c.testCaseId === openCase.testCaseId) < cases.length - 1
+          }
         />
       )}
 
@@ -589,8 +638,10 @@ function CasePanel({
   datasetId,
   datasetName,
   readOnly = false,
+  dirtyRef,
   onClose,
   onReview,
+  onSaved,
   onNavigate,
   canNavigateUp,
   canNavigateDown,
@@ -602,8 +653,14 @@ function CasePanel({
   /** Viewing an older snapshot: fields and Save are disabled (editing branches
    * from the current version, not this one). */
   readOnly?: boolean;
+  /** Mirrors `dirty` for the parent, which can't see this component's state
+   * directly (e.g. to confirm before switching rows). */
+  dirtyRef: React.MutableRefObject<boolean>;
   onClose: () => void;
   onReview: () => void;
+  /** Called after a save publishes a new version, so the parent can stop
+   * pinning an older/explicit version selection and follow the new current. */
+  onSaved: () => void;
   onNavigate: (direction: "up" | "down") => void;
   canNavigateUp: boolean;
   canNavigateDown: boolean;
@@ -627,17 +684,29 @@ function CasePanel({
   const [expectedText, setExpectedText] = React.useState(testCase.expected ?? "");
   const [metadataText, setMetadataText] = React.useState(initialMetadata);
 
+  // Re-seed on the per-version ROW id, not the stable testCaseId. A save or a
+  // snapshot switch publishes a NEW version — same testCaseId, new row id and values —
+  // so keying on the row id refreshes the buffer to the just-saved/selected values
+  // (otherwise a successful metadata save looks lost). A same-version background
+  // refetch keeps the same row id, so it still can't stomp in-progress typing.
   React.useEffect(() => {
     setInputText(testCase.input);
     setExpectedText(testCase.expected ?? "");
     setMetadataText(initialMetadata);
-  }, [testCase.id, testCase.input, testCase.expected, initialMetadata]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [testCase.id]);
 
   const dirty =
     !readOnly &&
     (inputText !== testCase.input ||
       expectedText !== (testCase.expected ?? "") ||
       metadataText !== initialMetadata);
+
+  React.useEffect(() => {
+    dirtyRef.current = dirty;
+  }, [dirty, dirtyRef]);
+
+  const confirmDiscard = () => !dirty || window.confirm("Discard unsaved changes to this case?");
 
   // Metadata only persists when it parses to an object; a half-typed edit keeps
   // the prior value rather than blowing it away.
@@ -653,6 +722,18 @@ function CasePanel({
     }
     return undefined; // leave stored metadata untouched
   };
+
+  // Surfaces the same parse failure `parseMetadata` swallows, so a half-typed
+  // edit is visibly unsaveable instead of silently dropped on Save.
+  const metadataInvalid = React.useMemo(() => {
+    if (metadataText.trim() === "") return false;
+    try {
+      const parsed = JSON.parse(metadataText);
+      return parsed === null || typeof parsed !== "object" || Array.isArray(parsed);
+    } catch {
+      return true;
+    }
+  }, [metadataText]);
 
   const saveEdits = () => {
     const patch: {
@@ -672,15 +753,63 @@ function CasePanel({
     update.mutate(
       { testCaseId: testCase.testCaseId, patch },
       {
-        onSuccess: () => toast({ title: "Saved — new dataset version published", tone: "success" }),
+        onSuccess: () => {
+          toast({ title: "Saved — new dataset version published", tone: "success" });
+          onSaved();
+        },
+        onError: (e) =>
+          toast({
+            title: "Could not save this test case",
+            description: String(e),
+            tone: "warning",
+          }),
       },
     );
   };
 
+  const panelRef = React.useRef<HTMLDivElement>(null);
+  const previousFocusRef = React.useRef<HTMLElement | null>(null);
+
+  // Move focus into the panel on open and restore it to whatever triggered the
+  // open (usually the table row) on close, matching the trace/span panel.
+  React.useEffect(() => {
+    previousFocusRef.current = document.activeElement as HTMLElement | null;
+    panelRef.current?.focus();
+    return () => {
+      previousFocusRef.current?.focus?.();
+    };
+  }, []);
+
+  const guardedClose = () => {
+    if (confirmDiscard()) onClose();
+  };
+  const guardedNavigate = (direction: "up" | "down") => {
+    if (confirmDiscard()) onNavigate(direction);
+  };
+
+  // Close on Escape, unless a nested Radix overlay (the value-block format
+  // popover) already consumed it in the capture phase — defaultPrevented means
+  // "already handled, leave this panel open".
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (e.defaultPrevented) return;
+      guardedClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onClose, dirty]);
+
   return (
     <div
+      ref={panelRef}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Test case ${caseDisplayId(testCase.testCaseId)}`}
+      tabIndex={-1}
       className={cn(
-        "animate-slide-in-right fixed bottom-0 right-0 z-50 flex flex-col border-l border-border bg-background shadow-xl transition-[width,top] duration-200",
+        "animate-slide-in-right fixed bottom-0 right-0 z-50 flex flex-col border-l border-border bg-background shadow-xl transition-[width,top] duration-200 focus:outline-none",
         fullscreen
           ? sidebarCollapsed
             ? "top-14 w-[calc(100%-3.5rem)]"
@@ -707,7 +836,7 @@ function CasePanel({
             <Button
               variant="outline"
               size="sm"
-              onClick={() => onNavigate("up")}
+              onClick={() => guardedNavigate("up")}
               disabled={!canNavigateUp}
               className="h-7 w-7 p-0"
               title="Previous row"
@@ -717,7 +846,7 @@ function CasePanel({
             <Button
               variant="outline"
               size="sm"
-              onClick={() => onNavigate("down")}
+              onClick={() => guardedNavigate("down")}
               disabled={!canNavigateDown}
               className="h-7 w-7 p-0"
               title="Next row"
@@ -746,7 +875,7 @@ function CasePanel({
               variant="ghost"
               size="sm"
               className="h-7 w-7 p-0"
-              onClick={onClose}
+              onClick={guardedClose}
               aria-label="Close"
             >
               <X className="h-4 w-4" />
@@ -872,6 +1001,11 @@ function CasePanel({
             collapsible
             readOnly={readOnly}
           />
+          {metadataInvalid && (
+            <p className="text-[11px] leading-snug text-amber-700 dark:text-amber-300">
+              Metadata must be a JSON object — this edit won&apos;t be saved until it is.
+            </p>
+          )}
           <p className="text-[11px] leading-snug text-muted-foreground">
             Saving publishes a new dataset version — it changes what future runs are compared
             against and never rewrites a snapshot an earlier run used.
@@ -929,19 +1063,21 @@ function CasePanel({
             size="sm"
             variant="outline"
             className="h-8 flex-1 text-[12px]"
-            disabled={update.isPending}
+            disabled={update.isPending || metadataInvalid}
             onClick={saveEdits}
           >
             Save changes
           </Button>
         )}
-        {/* Review publishes a new version, so it's only offered on the editable
-            current snapshot — not while viewing a read-only older version. */}
-        {!readOnly && (
-          <Button size="sm" className="h-8 flex-1 text-[12px]" onClick={onReview}>
-            Review
-          </Button>
-        )}
+        <Button
+          size="sm"
+          className="h-8 flex-1 text-[12px]"
+          onClick={onReview}
+          disabled={readOnly}
+          title={readOnly ? "Switch to the current version to review this case" : undefined}
+        >
+          Review
+        </Button>
       </div>
     </div>
   );
