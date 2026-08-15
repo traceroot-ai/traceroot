@@ -58,6 +58,7 @@ import {
 import { reproduceRunCode, reproduceRunCodeTs } from "@/features/offline-eval/utils";
 import { matchSpans } from "@/lib/eval/span-match";
 import { ComparabilityBanner } from "@/features/evaluations/components/comparability-banner";
+import { CandidateIdentity } from "@/features/evaluations/components/candidate-identity";
 import {
   Select,
   SelectContent,
@@ -116,10 +117,11 @@ function CellDelta({
   delta: number | null;
   format: (n: number) => string;
 }): React.ReactNode {
-  if (delta === null || delta === 0) return null;
+  if (delta === null) return null;
+  const sign = delta > 0 ? "+" : delta < 0 ? "−" : "";
   return (
     <span className={`ml-1 ${SENTIMENT_CLASS[changeSentiment(-delta)]}`}>
-      {delta > 0 ? "+" : "−"}
+      {sign}
       {format(Math.abs(delta))}
     </span>
   );
@@ -402,30 +404,6 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
   const results = React.useMemo(() => data?.results ?? [], [data]);
   const run = data?.run;
 
-  // This evaluation's other runs — the compare-baseline picker below and the
-  // header RunSwitcher share this query key, so it's one fetch, not two.
-  const siblingRuns = useEvaluationRuns(projectId, {
-    evaluation_id: run?.evaluationId,
-    limit: 100,
-  });
-
-  // Other runs of this evaluation, to pick a comparison baseline from (never an
-  // arbitrary run from another evaluation). Newest first, current run excluded.
-  const compareOptions = React.useMemo(
-    () =>
-      run
-        ? (siblingRuns.data?.data ?? [])
-            .filter((s) => s.id !== run.id)
-            .sort((a, b) => b.runNumber - a.runNumber)
-            .map((s) => ({
-              id: s.id,
-              label: `#${s.runNumber} · ${s.candidateVersion}`,
-              score: s.mainScore,
-            }))
-        : [],
-    [siblingRuns.data, run],
-  );
-
   // On-demand comparison of this run (candidate) vs the picked run (baseline), from the
   // same backend engine + route the compare page uses — no second implementation.
   const compare = useCompareRuns(projectId, runId, compareId);
@@ -475,8 +453,12 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
   // The baseline case's trace (from the picked compare run), fetched so the trace
   // viewer's Diff toggle can diff each span (I/O, metadata, latency/token/cost) against
   // its baseline counterpart. Span ids differ across runs, so we match structurally
-  // (kind + name + sibling index) once the baseline trace is loaded.
-  const baselineTraceId = comparing ? (openCompareRow?.baselineTraceId ?? null) : null;
+  // (kind + name + sibling index) once the baseline trace is loaded. Suppressed when
+  // the candidate side is itself reconstructed (no real telemetry) — its timestamps are
+  // fake placeholders, so diffing it against a real baseline trace would produce
+  // fabricated latency deltas instead of an honest "unknown".
+  const baselineTraceId =
+    comparing && useRealTrace ? (openCompareRow?.baselineTraceId ?? null) : null;
   const baselineTrace = useTrace(projectId, baselineTraceId ?? "", !!baselineTraceId);
   const baselineSpanMatch = React.useMemo(() => {
     const baseSpans = baselineTrace.data?.spans;
@@ -528,7 +510,6 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
             openResultId={openResultId}
             compareId={compareId}
             onCompareChange={setCompareId}
-            compareOptions={compareOptions}
             compareData={compare.data ?? null}
             compareLoading={!!compareId && compare.isLoading}
             compareByCase={comparing ? compareByCase : null}
@@ -840,7 +821,6 @@ function RunBody({
   openResultId,
   compareId,
   onCompareChange,
-  compareOptions,
   compareData,
   compareLoading,
   compareByCase,
@@ -854,7 +834,6 @@ function RunBody({
   openResultId: string | null;
   compareId: string | null;
   onCompareChange: (id: string | null) => void;
-  compareOptions: Array<{ id: string; label: string; score: number | null }>;
   compareData: CompareRunsResponse | null;
   compareLoading: boolean;
   compareByCase: Map<string, CompareResultRow> | null;
@@ -863,6 +842,34 @@ function RunBody({
   const [reproduceOpen, setReproduceOpen] = React.useState(false);
   const comparing = !!compareByCase;
   const cmp = compareData?.comparison ?? null;
+
+  // This evaluation's other runs, to pick a comparison baseline from. `run` is always
+  // loaded here (RunBody only mounts once the run-detail fetch resolves), so this never
+  // fires the unfiltered, whole-project query the header RunSwitcher's own call would —
+  // both share the same evaluation-scoped query key, so it's one fetch, not two.
+  const siblingRuns = useEvaluationRuns(projectId, { evaluation_id: run.evaluationId, limit: 100 });
+
+  // Only runs of the SAME evaluation AND the same dataset snapshot, still running
+  // excluded — anything else is a baseline the engine (comparison.ts) would flag
+  // `different_dataset_version` or `baseline_not_terminal` and mark untrustworthy.
+  // Newest first, current run excluded.
+  const compareOptions = React.useMemo(
+    () =>
+      (siblingRuns.data?.data ?? [])
+        .filter(
+          (s) =>
+            s.id !== run.id &&
+            s.datasetVersionId === run.datasetVersionId &&
+            s.status !== "running",
+        )
+        .sort((a, b) => b.runNumber - a.runNumber)
+        .map((s) => ({
+          id: s.id,
+          label: `#${s.runNumber} · ${s.candidateVersion} · ${s.datasetVersionLabel}`,
+          score: s.mainScore,
+        })),
+    [siblingRuns.data, run],
+  );
 
   return (
     <>
@@ -945,6 +952,10 @@ function RunBody({
           </div>
         }
       />
+
+      {/* Candidate identity — the model/prompt/code this run exercised, from its
+          declared provenance. Describes the candidate under test, never the cases. */}
+      <CandidateIdentity provenance={run.provenance} />
 
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex min-h-0 flex-1 flex-col">
@@ -1365,7 +1376,7 @@ function ResultsSection({
                             <span className="text-muted-foreground">No output</span>
                           )}
                         </span>
-                        {row?.outputChanged === true && (
+                        {row?.outputChanged === true && rowCmp?.pairing === "paired" && (
                           <span
                             className="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground"
                             title="Output differs from the baseline run"

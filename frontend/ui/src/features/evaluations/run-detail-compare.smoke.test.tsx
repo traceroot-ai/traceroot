@@ -100,7 +100,18 @@ const runRow = (id: string, runNumber: number, version: string, mainScore: numbe
   erroredCount: 0,
   notScoredCount: 0,
   scorers: [{ name: "accuracy", version: "v1" }],
-  model: null,
+  provenance: {
+    git_repository: null,
+    git_ref: null,
+    git_commit: null,
+    git_dirty: null,
+    ci_provider: null,
+    ci_build_id: null,
+    sdk_language: null,
+    sdk_version: null,
+    declared_model: "claude-opus-4",
+    declared_prompt_version: null,
+  },
   startedAt: "2026-07-17T10:24:00Z",
   completedAt: "2026-07-17T10:30:00Z",
   evaluationName: "Billing routing",
@@ -268,6 +279,14 @@ const pickCompare = async () => {
 };
 
 describe("run detail — compare with", () => {
+  it("surfaces the candidate's declared model in the identity strip", async () => {
+    mount();
+    // The run's declared candidate model is shown up top — candidate identity, never
+    // attached to a test case.
+    expect(await screen.findByText("Declared model")).toBeDefined();
+    expect(screen.getByText("claude-opus-4")).toBeDefined();
+  });
+
   it("lists sibling runs and, on pick, shows the comparison banner", async () => {
     mount();
     await pickCompare();
