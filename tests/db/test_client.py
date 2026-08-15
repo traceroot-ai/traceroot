@@ -55,9 +55,13 @@ class TestInsertTracesBatch:
         # ch_create_time and ch_update_time are auto-set
         assert isinstance(row[12], datetime)
         assert isinstance(row[13], datetime)
-        assert len(columns) == 15
         assert "environment" in columns
         assert row[columns.index("environment")] == "production"
+        assert len(columns) == 16
+        # Addressed by name, not position: `is_evaluation` extends the row, and a
+        # positional assert would silently follow the wrong column.
+        assert "is_evaluation" in columns
+        assert row[columns.index("is_evaluation")] == 0
 
     def test_empty_batch_no_insert(self):
         """Empty list -> no _client.insert() call."""
@@ -167,12 +171,16 @@ class TestInsertSpansBatch:
         assert row[13] == 100  # input_tokens
         assert row[14] == 50  # output_tokens
         assert row[15] == 150  # total_tokens
-        # 3 fixed breakdown columns collapsed into one usage_details map (net -2),
-        # then source and environment added.
-        assert len(columns) == 26
         assert "usage_details" in columns
         assert "environment" in columns
         assert row[columns.index("environment")] == "production"
+        # 3 fixed breakdown columns collapsed into one usage_details map (net -2),
+        # then source, environment and is_evaluation added.
+        assert len(columns) == 27
+        # Addressed by name, not position: `is_evaluation` extends the row, and a
+        # positional assert would silently follow the wrong column.
+        assert "is_evaluation" in columns
+        assert row[columns.index("is_evaluation")] == 0
 
     def test_optional_fields_none(self):
         """None values for optional fields (cost, tokens)."""
