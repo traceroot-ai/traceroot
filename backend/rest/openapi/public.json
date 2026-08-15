@@ -2918,13 +2918,13 @@
             }
           },
           {
-            "description": "Include offline-evaluation traces (environment=evaluation). Excluded by default so evaluation runs do not appear in the production trace list.",
+            "description": "Include traces produced by offline-evaluation runs. Excluded by default so evaluation runs do not appear in the production trace list.",
             "in": "query",
             "name": "include_evaluations",
             "required": false,
             "schema": {
               "default": false,
-              "description": "Include offline-evaluation traces (environment=evaluation). Excluded by default so evaluation runs do not appear in the production trace list.",
+              "description": "Include traces produced by offline-evaluation runs. Excluded by default so evaluation runs do not appear in the production trace list.",
               "title": "Include Evaluations",
               "type": "boolean"
             }
