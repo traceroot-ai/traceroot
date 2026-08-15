@@ -2,12 +2,12 @@
   "components": {
     "schemas": {
       "CompleteRunRequest": {
-        "additionalProperties": false,
         "description": "Complete/fail a run, reporting final completeness counts.",
         "properties": {
           "case_count": {
             "anyOf": [
               {
+                "maximum": 9007199254740991.0,
                 "minimum": 0.0,
                 "type": "integer"
               },
@@ -28,9 +28,23 @@
             ],
             "title": "Main Score"
           },
+          "main_score_name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Main Score Name"
+          },
           "scored_count": {
             "anyOf": [
               {
+                "maximum": 9007199254740991.0,
                 "minimum": 0.0,
                 "type": "integer"
               },
@@ -43,6 +57,7 @@
           "scorer_error_count": {
             "anyOf": [
               {
+                "maximum": 9007199254740991.0,
                 "minimum": 0.0,
                 "type": "integer"
               },
@@ -67,6 +82,7 @@
           "task_error_count": {
             "anyOf": [
               {
+                "maximum": 9007199254740991.0,
                 "minimum": 0.0,
                 "type": "integer"
               },
@@ -880,7 +896,6 @@
         "type": "object"
       },
       "RegisterRunRequest": {
-        "additionalProperties": false,
         "description": "Register/start a run. Idempotent on ``client_run_id`` within an evaluation.",
         "properties": {
           "baseline_run_id": {
@@ -905,6 +920,7 @@
           "case_count": {
             "anyOf": [
               {
+                "maximum": 9007199254740991.0,
                 "minimum": 0.0,
                 "type": "integer"
               },
@@ -984,10 +1000,21 @@
             ],
             "title": "Metadata"
           },
+          "provenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunProvenance"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "scorers": {
             "items": {
               "$ref": "#/components/schemas/ScorerRef"
             },
+            "maxItems": 200,
             "title": "Scorers",
             "type": "array"
           }
@@ -1038,8 +1065,133 @@
         "title": "RegisterRunResponse",
         "type": "object"
       },
+      "RunProvenance": {
+        "description": "Typed execution provenance (git/CI/SDK identity + declared candidate\nmodel/prompt). Mirrors ``RunProvenanceSchema`` on the Zod side. Every field is\noptional and reported by the SDK from what it can actually observe; unknown\nvalues are absent/null and never inferred. Distinct from free-form ``metadata``\nand never a substitute for the user-facing ``candidate_version`` label.",
+        "properties": {
+          "ci_build_id": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ci Build Id"
+          },
+          "ci_provider": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ci Provider"
+          },
+          "declared_model": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Declared Model"
+          },
+          "declared_prompt_version": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Declared Prompt Version"
+          },
+          "git_commit": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Git Commit"
+          },
+          "git_dirty": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Git Dirty"
+          },
+          "git_ref": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Git Ref"
+          },
+          "git_repository": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Git Repository"
+          },
+          "sdk_language": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sdk Language"
+          },
+          "sdk_version": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sdk Version"
+          }
+        },
+        "title": "RunProvenance",
+        "type": "object"
+      },
       "ScoreInput": {
-        "additionalProperties": false,
         "description": "One scorer's outcome on one result. ``error`` set = the scorer failed to judge.",
         "properties": {
           "bool_value": {
@@ -1135,6 +1287,7 @@
         "description": "One prompt message of an LLM-judge scorer's definition.",
         "properties": {
           "content": {
+            "maxLength": 20000,
             "title": "Content",
             "type": "string"
           },
@@ -1153,7 +1306,7 @@
         "type": "object"
       },
       "ScorerRef": {
-        "description": "A scorer's descriptor. ``name`` + ``version`` are the comparison identity;\nthe richer metadata is optional and back-compatible (an old SDK sending only\n``{name, version}`` stays valid). Mirrors the non-strict ``ScorerRefSchema``,\nso unknown keys are ignored rather than rejected.\n\nThe DEFINITION fields (``scorer_type``, prompt/source, config) let the read-only\nScorer detail render an LLM judge's model + messages or a code scorer's snippet.",
+        "description": "A scorer's descriptor. ``name`` + ``version`` are the comparison identity;\nthe richer metadata is optional and back-compatible (an old SDK sending only\n``{name, version}`` stays valid). Mirrors the non-strict ``ScorerRefSchema``,\nso unknown keys are ignored rather than rejected.\n\nThe DEFINITION fields (``scorer_type``, prompt/source, config) let the read-only\nScorer detail render an LLM judge's model + messages or a code scorer's snippet.\n\n``scorer_type`` / ``output_type`` / ``language`` are display-only, so an\nunrecognised value from a newer SDK degrades to ``None`` rather than failing\nrun registration (which would lose the run's every result and score) \u2014\nmatching ``.catch(null)`` on the Zod side. The vocabularies that drive\npersistence and aggregation still reject.",
         "properties": {
           "description": {
             "anyOf": [
@@ -1204,6 +1357,7 @@
                 "items": {
                   "$ref": "#/components/schemas/ScorerMessage"
                 },
+                "maxItems": 50,
                 "type": "array"
               },
               {
@@ -1272,6 +1426,7 @@
           "source": {
             "anyOf": [
               {
+                "maxLength": 50000,
                 "type": "string"
               },
               {
@@ -1541,12 +1696,12 @@
         "type": "object"
       },
       "UpsertResultRequest": {
-        "additionalProperties": false,
-        "description": "Upsert one test-case result. Idempotent on (``run_id``, ``test_case_id``).\n``trace_id`` may be null now and set on a later call (out-of-order arrival).\nSending ``scores`` replaces the result's scores.",
+        "description": "Upsert one test-case result. Idempotent on (``run_id``, ``test_case_id``).\n``trace_id`` may be null now and set on a later call (out-of-order arrival).\n\n``scores`` is genuinely optional and carries three distinct meanings, so the\nout-of-order flow (POST the result with its scores, then re-POST later just to\nattach the OTel ``trace_id``) cannot destroy them: absent \u2192 leave the existing\nscores untouched, ``[]`` \u2192 clear them, non-empty \u2192 replace them. Do not give\nthis a ``default_factory=list``, which would collapse the first two cases.\n\nEvery optional field is a *partial* update: a key the caller omits keeps its\nstored value, while an explicit null clears it. Sending ``scores`` replaces\nthe result's scores (``[]`` clears them); omitting it leaves them alone.",
         "properties": {
           "baseline_output": {
             "anyOf": [
               {
+                "maxLength": 1000000,
                 "type": "string"
               },
               {
@@ -1558,6 +1713,7 @@
           "candidate_output": {
             "anyOf": [
               {
+                "maxLength": 1000000,
                 "type": "string"
               },
               {
@@ -1597,6 +1753,7 @@
           "duration_ms": {
             "anyOf": [
               {
+                "maximum": 9007199254740991.0,
                 "minimum": 0.0,
                 "type": "integer"
               },
@@ -1609,6 +1766,7 @@
           "expected_output": {
             "anyOf": [
               {
+                "maxLength": 1000000,
                 "type": "string"
               },
               {
@@ -1618,6 +1776,7 @@
             "title": "Expected Output"
           },
           "input": {
+            "maxLength": 1000000,
             "title": "Input",
             "type": "string"
           },
@@ -1636,6 +1795,7 @@
             "items": {
               "$ref": "#/components/schemas/ScoreInput"
             },
+            "maxItems": 200,
             "title": "Scores",
             "type": "array"
           },
@@ -2417,15 +2577,25 @@
             },
             "description": "Not found"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
           },
           "503": {
             "content": {
@@ -2525,15 +2695,25 @@
             },
             "description": "Not found"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
           },
           "503": {
             "content": {
@@ -2633,15 +2813,25 @@
             },
             "description": "Not found"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
           },
           "503": {
             "content": {

@@ -176,6 +176,36 @@ export type ScoreInput = z.infer<typeof ScoreInputSchema>;
 // ---------------------------------------------------------------------------
 
 /**
+ * Structured, machine-collected run provenance — the verifiable execution
+ * context around the run. Distinct from free-form `metadata`: every field is
+ * typed, optional, and reported by the SDK from what it can actually observe
+ * (git/CI/SDK identity). Unknown values are omitted or null and are never
+ * inferred; a missing block never rejects a run. `candidate_version` stays the
+ * user-facing label — provenance is not a substitute for it and is never
+ * treated as a verified identity beyond what the SDK reported.
+ */
+export const RunProvenanceSchema = z
+  .object({
+    git_repository: z.string().max(500).nullable().optional(),
+    git_ref: z.string().max(500).nullable().optional(),
+    git_commit: z.string().max(200).nullable().optional(),
+    git_dirty: z.boolean().nullable().optional(),
+    ci_provider: z.string().max(100).nullable().optional(),
+    ci_build_id: z.string().max(200).nullable().optional(),
+    sdk_language: z.string().max(50).nullable().optional(),
+    sdk_version: z.string().max(50).nullable().optional(),
+    /**
+     * Declared candidate identity — surfaced only if the SDK reports it, never
+     * inferred from `candidate_version` or any label.
+     */
+    declared_model: z.string().max(200).nullable().optional(),
+    declared_prompt_version: z.string().max(200).nullable().optional(),
+  });
+// Non-strict (strips unknown keys), mirroring ScorerRef and the permissive
+// gateway: a newer SDK adding a provenance field must not 422 the whole run.
+export type RunProvenance = z.infer<typeof RunProvenanceSchema>;
+
+/**
  * Register/start a run. Idempotent on `client_run_id` within an evaluation:
  * re-sending the same key returns the existing run. The evaluation lineage is
  * resolved (create-if-absent) from `evaluation_name` + `dataset_id`.
@@ -195,36 +225,49 @@ export const RegisterRunRequestSchema = z
     baseline_run_id: z.string().min(1).max(64).nullable().optional(),
     case_count: z.number().int().nonnegative().nullable().optional(),
     /**
-     * Structured run provenance (model, prompt, config, git repo/ref/commit, …).
-     * Free-form and optional — the current SDK does not send it, and its absence
-     * never rejects a run. Presented as informational secondary detail, never as
-     * an evaluation error, and never a source of secrets.
+     * Typed execution provenance (git/CI/SDK identity, declared candidate
+     * model/prompt). Optional; absence never rejects a run. See
+     * {@link RunProvenanceSchema}.
+     */
+    provenance: RunProvenanceSchema.nullable().optional(),
+    /**
+     * Free-form run metadata — arbitrary user key/values, kept verbatim. Distinct
+     * from `provenance` (typed) — presented as informational secondary detail,
+     * never an evaluation error, and never a source of secrets.
      */
     metadata: MetadataSchema.nullable().optional(),
   })
   .strict();
 export type RegisterRunRequest = z.infer<typeof RegisterRunRequestSchema>;
 
-export interface RegisterRunResponse {
-  evaluation_id: string;
-  evaluation_run_id: string;
-  run_number: number;
-  dataset_version_id: string;
+/**
+ * The response bodies are schemas, not bare interfaces, so the structural parity
+ * guard can introspect them the same way it introspects the requests — a response
+ * field added on one layer only is otherwise invisible to every test. The gateway
+ * proxies the upstream body verbatim, so these are the published contract and the
+ * inferred types below stay the single definition the handlers write against.
+ */
+export const RegisterRunResponseSchema = z.object({
+  evaluation_id: z.string(),
+  evaluation_run_id: z.string(),
+  run_number: z.number().int(),
+  dataset_version_id: z.string(),
   /**
    * UI-relative path to the run, `/projects/<projectId>/evaluations/<runId>`. The
    * backend owns the route shape. Kept for back-compat; prefer `run_url` for the
    * printed link — joining `run_path` to the SDK's `host_url` only resolves when the
    * API and UI share an origin (breaks in split-origin dev, where host_url is the API).
    */
-  run_path: string;
+  run_path: z.string(),
   /**
    * Absolute, clickable run URL — `run_path` resolved against the control plane's
    * configured public app origin (`NEXT_PUBLIC_APP_URL`). Correct regardless of how
    * the API and UI origins are split, so the SDK should print this verbatim rather
    * than reconstructing the link from `host_url`.
    */
-  run_url: string;
-}
+  run_url: z.string(),
+});
+export type RegisterRunResponse = z.infer<typeof RegisterRunResponseSchema>;
 
 /**
  * Upsert one test-case result. Idempotent on (`run_id`, `test_case_id`).
@@ -280,15 +323,25 @@ export const UpsertResultRequestSchema = z
   .strict();
 export type UpsertResultRequest = z.infer<typeof UpsertResultRequestSchema>;
 
-export interface UpsertResultResponse {
-  evaluation_result_id: string;
-}
+export const UpsertResultResponseSchema = z.object({
+  evaluation_result_id: z.string(),
+});
+export type UpsertResultResponse = z.infer<typeof UpsertResultResponseSchema>;
 
 /** Complete/fail a run, reporting final completeness counts. */
 export const CompleteRunRequestSchema = z
   .object({
     status: EvalRunStatusSchema,
     main_score: z.number().nullable().optional(),
+    /**
+     * The run-level main-score metric name, RESOLVED at completion. Lets an SDK
+     * register a run before any scorer's emitted metric name is known and name it
+     * here once it is. Optional and additive — an older SDK omits it and keeps the
+     * name it chose at registration (or none). When registration already fixed a
+     * name, this must match it (a mismatch is a conflict); for a successfully scored
+     * run the resolved name must exist among the run's emitted scores.
+     */
+    main_score_name: z.string().min(1).max(200).nullable().optional(),
     case_count: z.number().int().nonnegative().nullable().optional(),
     scored_count: z.number().int().nonnegative().nullable().optional(),
     task_error_count: z.number().int().nonnegative().nullable().optional(),
@@ -296,6 +349,13 @@ export const CompleteRunRequestSchema = z
   })
   .strict();
 export type CompleteRunRequest = z.infer<typeof CompleteRunRequestSchema>;
+
+export const CompleteRunResponseSchema = z.object({
+  evaluation_run_id: z.string(),
+  /** Echoes the persisted run status. */
+  status: EvalRunStatusSchema,
+});
+export type CompleteRunResponse = z.infer<typeof CompleteRunResponseSchema>;
 
 // ---------------------------------------------------------------------------
 // User-session CRUD requests (Datasets pages)
@@ -343,6 +403,40 @@ export const UpdateTestCaseRequestSchema = z
   })
   .strict();
 export type UpdateTestCaseRequest = z.infer<typeof UpdateTestCaseRequestSchema>;
+
+/** The three explicit evaluation-result → dataset actions the UI can request. */
+export const ResultDatasetActionSchema = z.enum([
+  "update_existing_case",
+  "save_new_case",
+  "duplicate_as_variant",
+]);
+export type ResultDatasetAction = z.infer<typeof ResultDatasetActionSchema>;
+
+/**
+ * Save an evaluation result into a dataset. Candidate output is NEVER used as the
+ * expected output unless `use_candidate_as_expected` is set (or an explicit
+ * `expected` is supplied). Re-saving a result into its ORIGINATING dataset as a new
+ * case is refused with a conflict that directs the client to update instead — only
+ * `duplicate_as_variant` intentionally creates a second logical case.
+ */
+export const SaveResultToDatasetRequestSchema = z
+  .object({
+    action: ResultDatasetActionSchema,
+    /** Target dataset for save_new_case / duplicate_as_variant. For
+     *  update_existing_case it is ignored (the originating dataset is used). */
+    dataset_id: z.string().min(1).max(64).nullable().optional(),
+    /** Case input; defaults to the result's recorded input when omitted. */
+    input: z.string().max(EVAL_PAYLOAD_TEXT_MAX).nullable().optional(),
+    /** Explicit expected output. */
+    expected: z.string().max(EVAL_PAYLOAD_TEXT_MAX).nullable().optional(),
+    /** Explicit opt-in to set expected = the result's candidate output. */
+    use_candidate_as_expected: z.boolean().optional(),
+    metadata: MetadataSchema.nullable().optional(),
+    /** Idempotency for retried requests (a replay returns the version already published). */
+    idempotency_key: z.string().min(1).max(128).nullable().optional(),
+  })
+  .strict();
+export type SaveResultToDatasetRequest = z.infer<typeof SaveResultToDatasetRequestSchema>;
 
 export const CreateHumanScoreRequestSchema = z
   .object({

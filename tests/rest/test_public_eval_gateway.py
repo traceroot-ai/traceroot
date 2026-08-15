@@ -178,3 +178,82 @@ def test_requires_authentication():
     with TestClient(app) as bare:
         resp = bare.post("/api/v1/public/datasets", json={"dataset_id": "ds1", "name": "x"})
     assert resp.status_code == 401
+
+
+# --- Typed Phase-4 reporting routes -----------------------------------------
+
+VALID_REGISTER = {
+    "evaluation_name": "Billing routing",
+    "dataset_id": "ds1",
+    "candidate_version": "git:abc123",
+    "scorers": [{"name": "routing-accuracy", "version": "v3"}],
+}
+VALID_RESULT = {"test_case_id": "case-1", "input": "q", "status": "passed", "scores": []}
+VALID_COMPLETE = {"status": "completed", "case_count": 3, "scored_count": 3}
+
+
+@respx.mock
+def test_register_run_typed_route_forwards_body(client):
+    route = respx.post(f"{UI}/api/public/evaluation-runs").mock(
+        return_value=Response(201, json={"evaluation_run_id": "run1", "run_number": 1})
+    )
+    resp = client.post("/api/v1/public/evaluation-runs", headers=AUTH_HEADER, json=VALID_REGISTER)
+    assert resp.status_code == 201
+    assert route.called
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["evaluation_name"] == "Billing routing"
+    assert route.calls.last.request.headers["authorization"] == "Bearer tr_key"
+
+
+@respx.mock
+def test_upsert_result_typed_route_forwards_to_run_scoped_path(client):
+    route = respx.post(f"{UI}/api/public/evaluation-runs/run1/results").mock(
+        return_value=Response(200, json={"evaluation_result_id": "res1"})
+    )
+    resp = client.post(
+        "/api/v1/public/evaluation-runs/run1/results", headers=AUTH_HEADER, json=VALID_RESULT
+    )
+    assert resp.status_code == 200
+    assert route.called
+    assert json.loads(route.calls.last.request.content)["test_case_id"] == "case-1"
+
+
+@respx.mock
+def test_complete_run_typed_route_forwards_to_run_scoped_path(client):
+    route = respx.post(f"{UI}/api/public/evaluation-runs/run1/complete").mock(
+        return_value=Response(200, json={"evaluation_run_id": "run1", "status": "completed"})
+    )
+    resp = client.post(
+        "/api/v1/public/evaluation-runs/run1/complete", headers=AUTH_HEADER, json=VALID_COMPLETE
+    )
+    assert resp.status_code == 200
+    assert route.called
+
+
+@respx.mock
+def test_scores_subpath_still_forwards_via_hidden_catchall(client):
+    # The additive per-scorer scores endpoint is not typed; it still proxies through
+    # the catch-all, unshadowed by the explicit `/results` route above it.
+    route = respx.post(f"{UI}/api/public/evaluation-runs/run1/results/case-1/scores").mock(
+        return_value=Response(200, json={"score_id": "s1"})
+    )
+    resp = client.post(
+        "/api/v1/public/evaluation-runs/run1/results/case-1/scores",
+        headers=AUTH_HEADER,
+        json={"scorer_name": "helpfulness", "scorer_version": "v2", "numeric_value": 0.9},
+    )
+    assert resp.status_code == 200
+    assert route.called
+
+
+@respx.mock
+def test_typed_route_rejects_invalid_body_before_forwarding(client):
+    # Missing required `candidate_version` → 422 at the gateway; nothing is forwarded.
+    route = respx.post(f"{UI}/api/public/evaluation-runs").mock(return_value=Response(201))
+    resp = client.post(
+        "/api/v1/public/evaluation-runs",
+        headers=AUTH_HEADER,
+        json={"evaluation_name": "x", "dataset_id": "ds1"},
+    )
+    assert resp.status_code == 422
+    assert not route.called
