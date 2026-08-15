@@ -1,6 +1,6 @@
 // Database
 export { prisma } from "./lib/prisma.ts";
-export { PrismaClient } from "@prisma/client";
+export { PrismaClient, Prisma } from "@prisma/client";
 export * from "./ee/billing/index.ts";
 
 // Encryption
@@ -23,6 +23,15 @@ export type {
   Account,
   GitHubInstallation,
   ModelProvider,
+  // Offline evaluation
+  Dataset,
+  DatasetVersion,
+  TestCase,
+  Evaluation,
+  EvaluationRun,
+  EvaluationResult,
+  Score,
+  HumanScore,
 } from "@prisma/client";
 
 // Constants & Zod schemas
