@@ -614,6 +614,15 @@ model EvaluationRun {
   // also serves the per-evaluation run list.
   @@unique([evaluationId, runNumber], map: "uq_run_evaluation_run_number")
   @@index([projectId], map: "ix_evaluation_run_project_id")
+  // The runs list is `where project_id = ? [and evaluation_id = ?] order by
+  // started_at desc` with skip/take. On the single-column indexes alone every page
+  // fetches the whole matching history and top-N-sorts it, so cost grows with the
+  // project's run count rather than the page size. Descending to match the ordering
+  // exactly, so pagination becomes a plain index scan.
+  @@index([projectId, startedAt(sort: Desc)], map: "ix_evaluation_run_project_started_at")
+  @@index([evaluationId, startedAt(sort: Desc)], map: "ix_evaluation_run_evaluation_started_at")
+  // The dataset filter on the same list had no index on this table at all.
+  @@index([datasetId, startedAt(sort: Desc)], map: "ix_evaluation_run_dataset_started_at")
   @@map("evaluation_runs")
 }
 
@@ -646,6 +655,9 @@ model EvaluationResult {
   @@unique([runId, testCaseId], map: "uq_result_run_test_case")
   @@index([projectId], map: "ix_evaluation_result_project_id")
   @@index([traceId], map: "ix_evaluation_result_trace_id")
+  // The lineage aggregate sums cost and duration grouped by evaluation_id; without
+  // this it is a project-wide scan of the results table.
+  @@index([evaluationId], map: "ix_evaluation_result_evaluation_id")
   @@map("evaluation_results")
 }
 
