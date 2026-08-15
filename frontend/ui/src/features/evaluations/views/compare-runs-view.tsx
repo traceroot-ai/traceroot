@@ -52,6 +52,25 @@ const fmtMs = (n: number | null) =>
 const fmtCost = (n: number | null) => (n === null ? "Unknown" : `$${n.toFixed(4)}`);
 const truncate = (s: string, n = 90) => (s.length > n ? `${s.slice(0, n)}…` : s);
 
+/** The signed candidate−baseline delta shown beside a value cell (duration/cost) when
+ *  comparing. Lower is better, so an increase is red and a decrease green. */
+function CellDelta({
+  delta,
+  format,
+}: {
+  delta: number | null;
+  format: (n: number) => string;
+}): React.ReactNode {
+  if (delta === null) return null;
+  if (delta === 0) return <span className="ml-1 text-muted-foreground">±0</span>;
+  return (
+    <span className={`ml-1 ${SENTIMENT_CLASS[changeSentiment(-delta)]}`}>
+      {delta > 0 ? "+" : "−"}
+      {format(Math.abs(delta))}
+    </span>
+  );
+}
+
 const VERDICT_TONE: Record<"good" | "bad" | "warn" | "neutral", string> = {
   good: "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
   bad: "border-red-500/40 bg-red-500/10 text-red-700 dark:text-red-300",
@@ -178,7 +197,7 @@ function RunHeaderCard({
 
 // ── Layer 3: decision metrics ─────────────────────────────────────────────
 
-type MetricState = "present" | "unknown" | "pending";
+type MetricState = "present" | "unknown" | "pending" | "idle";
 
 function MetricCard({
   label,
@@ -189,6 +208,7 @@ function MetricCard({
   lowerIsBetter = false,
   state = "present",
   sub,
+  onRequestLoad,
 }: {
   label: string;
   baseline: number | null;
@@ -198,12 +218,23 @@ function MetricCard({
   lowerIsBetter?: boolean;
   state?: MetricState;
   sub?: string;
+  /** When state is "idle", renders a "Load" affordance that invokes this instead of the
+   *  value — used to defer expensive, opt-in-only data (e.g. per-trace token totals). */
+  onRequestLoad?: () => void;
 }) {
   const stateNote = state === "pending" ? "Pending" : state === "unknown" ? "Unknown" : null;
   return (
     <div className="rounded border border-border px-2.5 py-2">
       <div className="text-[11px] text-muted-foreground">{label}</div>
-      {stateNote ? (
+      {state === "idle" ? (
+        <button
+          type="button"
+          onClick={onRequestLoad}
+          className="mt-0.5 text-[12px] text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+        >
+          Load
+        </button>
+      ) : stateNote ? (
         <div className="mt-0.5 text-[13px] text-muted-foreground">{stateNote}</div>
       ) : (
         <>
@@ -216,7 +247,7 @@ function MetricCard({
               {candidate === null ? "—" : format(candidate)}
             </span>
           </div>
-          <div className="mt-0.5 text-[11px] tabular-nums">
+          <div className="mt-1.5 text-[11px] tabular-nums">
             {delta === null || delta === 0 ? (
               <span className="text-muted-foreground">{delta === 0 ? "±0" : (sub ?? "—")}</span>
             ) : (
@@ -257,15 +288,81 @@ function CountCard({
           {candidate}
         </span>
       </div>
-      <div className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
+      <div className="mt-1.5 text-[11px] tabular-nums text-muted-foreground">
         {delta === 0 ? "±0" : delta > 0 ? `+${delta}` : `−${Math.abs(delta)}`}
       </div>
     </div>
   );
 }
 
-/** Sums trace-derived tokens across cases (candidate/baseline), with pending/unknown. */
-function useTokenTotals(projectId: string, rows: CompareResultRow[]) {
+/**
+ * Single-value tile — a plain count with no baseline/delta. For quantities that are
+ * comparison-level (already defined relative to the baseline, e.g. "cases that
+ * regressed") there is no per-run baseline to show; rendering one anyway (as `0`) reads
+ * as a real measurement instead of the placeholder it is. Use CountCard instead for
+ * quantities that genuinely exist independently on each run (e.g. per-run error counts).
+ */
+function ValueCard({
+  label,
+  value,
+  badTone = false,
+}: {
+  label: string;
+  value: number;
+  badTone?: boolean;
+}) {
+  return (
+    <div className="rounded border border-border px-2.5 py-2">
+      <div className="text-[11px] text-muted-foreground">{label}</div>
+      <div
+        className={cn(
+          "mt-0.5 text-[15px] font-medium tabular-nums",
+          badTone && value > 0 && SENTIMENT_CLASS.bad,
+        )}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Sums two parallel per-case values only over cases where BOTH sides have a value, so
+ * the two totals cover the same population and their difference is a meaningful delta —
+ * mirroring how `comparison.duration.pairedCount` already gates the duration tile —
+ * instead of each side silently skipping its own nulls independently.
+ */
+function sumPaired(
+  rows: CompareResultRow[],
+  getCandidate: (r: CompareResultRow) => number | null,
+  getBaseline: (r: CompareResultRow) => number | null,
+): { candidate: number | null; baseline: number | null; pairedCount: number } {
+  let candidate = 0;
+  let baseline = 0;
+  let pairedCount = 0;
+  for (const r of rows) {
+    const c = getCandidate(r);
+    const b = getBaseline(r);
+    if (c === null || b === null) continue;
+    candidate += c;
+    baseline += b;
+    pairedCount += 1;
+  }
+  return pairedCount === 0
+    ? { candidate: null, baseline: null, pairedCount: 0 }
+    : { candidate, baseline, pairedCount };
+}
+
+/**
+ * Sums trace-derived tokens across cases (candidate/baseline) — only over the subset of
+ * cases where BOTH sides have usable trace usage, so the two sums cover the same
+ * population (see `sumPaired`) — with pending/unknown/idle state.
+ *
+ * Traces are only fetched once the caller opts in via `enabled`: a single comparison can
+ * reference up to two full-trace fetches per case (candidate + baseline), which for a
+ * few hundred cases is a few hundred requests just to fill this one tile.
+ */
+function useTokenTotals(projectId: string, rows: CompareResultRow[], enabled: boolean) {
   const { data: authSession } = useAuthSession();
   const user = authSession?.user
     ? { id: authSession.user.id, email: authSession.user.email }
@@ -284,37 +381,44 @@ function useTokenTotals(projectId: string, rows: CompareResultRow[]) {
     queries: ids.map((id) => ({
       queryKey: ["trace", projectId, id],
       queryFn: () => getTrace(projectId, id, "", user),
-      enabled: !!user,
+      enabled: enabled && !!user,
     })),
   });
-  const usageById = new Map<string, TraceUsage>();
-  let loading = false;
-  ids.forEach((id, i) => {
-    const q = queries[i];
-    if (q.isLoading || q.isFetching) loading = true;
-    usageById.set(id, attributeTraceUsage(q.data?.spans as UsageSpan[] | undefined));
-  });
-  const sum = (getId: (r: CompareResultRow) => string | null) => {
-    let total = 0;
-    let any = false;
-    for (const r of rows) {
-      const id = getId(r);
-      const u = id ? usageById.get(id) : undefined;
-      if (u && u.state === "present") {
-        total += u.combined.totalTokens;
-        any = true;
-      }
-    }
-    return any ? total : null;
-  };
-  const candidate = sum((r) => r.candidateTraceId);
-  const baseline = sum((r) => r.baselineTraceId);
-  const state: MetricState =
-    ids.length === 0
+  const loading = queries.some((q) => q.isLoading || q.isFetching);
+  // A fingerprint of the query results, so the map/sum below (built from raw spans) only
+  // recompute when a query's data actually changes — not on every render of this
+  // frequently re-rendered page (filter click, sort change, opening a case).
+  const dataFingerprint = queries.map((q) => q.dataUpdatedAt ?? 0).join(",");
+  const usageById = React.useMemo(() => {
+    const map = new Map<string, TraceUsage>();
+    ids.forEach((id, i) => {
+      map.set(id, attributeTraceUsage(queries[i].data?.spans as UsageSpan[] | undefined));
+    });
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ids, dataFingerprint]);
+  const { candidate, baseline, pairedCount } = React.useMemo(
+    () =>
+      sumPaired(
+        rows,
+        (r) => {
+          const u = r.candidateTraceId ? usageById.get(r.candidateTraceId) : undefined;
+          return u?.state === "present" ? u.combined.totalTokens : null;
+        },
+        (r) => {
+          const u = r.baselineTraceId ? usageById.get(r.baselineTraceId) : undefined;
+          return u?.state === "present" ? u.combined.totalTokens : null;
+        },
+      ),
+    [usageById, rows],
+  );
+  const state: MetricState = !enabled
+    ? "idle"
+    : ids.length === 0
       ? "unknown"
       : loading
         ? "pending"
-        : candidate === null && baseline === null
+        : pairedCount === 0
           ? "unknown"
           : "present";
   return { candidate, baseline, state };
@@ -333,16 +437,19 @@ function DecisionMetrics({
   baseline: CompareRunSummary;
   rows: CompareResultRow[];
 }) {
-  const tokens = useTokenTotals(projectId, rows);
-  const costCand = rows.reduce<number | null>(
-    (acc, r) => (r.candidateCost === null ? acc : (acc ?? 0) + r.candidateCost),
-    null,
+  const [tokensRequested, setTokensRequested] = React.useState(false);
+  const tokens = useTokenTotals(projectId, rows, tokensRequested);
+  const cost = React.useMemo(
+    () =>
+      sumPaired(
+        rows,
+        (r) => r.candidateCost,
+        (r) => r.baselineCost,
+      ),
+    [rows],
   );
-  const costBase = rows.reduce<number | null>(
-    (acc, r) => (r.baselineCost === null ? acc : (acc ?? 0) + r.baselineCost),
-    null,
-  );
-  const costDelta = costCand !== null && costBase !== null ? costCand - costBase : null;
+  const costDelta =
+    cost.candidate !== null && cost.baseline !== null ? cost.candidate - cost.baseline : null;
   const dur = comparison.duration;
   const candErrors = candidate.taskErrorCount + candidate.scorerErrorCount;
   const baseErrors = baseline.taskErrorCount + baseline.scorerErrorCount;
@@ -355,17 +462,8 @@ function DecisionMetrics({
         delta={comparison.mainScore.delta}
         format={(n) => pctFraction(n)}
       />
-      <CountCard
-        label="Regressed test cases"
-        baseline={0}
-        candidate={comparison.caseCounts.regressed}
-        badTone
-      />
-      <CountCard
-        label="Improved test cases"
-        baseline={0}
-        candidate={comparison.caseCounts.improved}
-      />
+      <ValueCard label="Regressed test cases" value={comparison.caseCounts.regressed} badTone />
+      <ValueCard label="Improved test cases" value={comparison.caseCounts.improved} />
       <CountCard label="Errors" baseline={baseErrors} candidate={candErrors} badTone />
       <MetricCard
         label="Avg case duration"
@@ -378,12 +476,12 @@ function DecisionMetrics({
       />
       <MetricCard
         label="Total cost"
-        baseline={costBase}
-        candidate={costCand}
+        baseline={cost.baseline}
+        candidate={cost.candidate}
         delta={costDelta}
         format={(n) => `$${n.toFixed(4)}`}
         lowerIsBetter
-        state={costCand === null && costBase === null ? "unknown" : "present"}
+        state={cost.pairedCount === 0 ? "unknown" : "present"}
       />
       <MetricCard
         label="Total tokens"
@@ -397,6 +495,7 @@ function DecisionMetrics({
         format={(n) => Math.round(n).toLocaleString("en-US")}
         lowerIsBetter
         state={tokens.state}
+        onRequestLoad={() => setTokensRequested(true)}
       />
     </div>
   );
@@ -508,7 +607,16 @@ function scorerCellText(c: ScorerCellComparison): string {
   return `${v(c.baselineValue)} → ${v(c.candidateValue)}`;
 }
 
-function CaseRow({ r, onOpen }: { r: CompareResultRow; onOpen: () => void }) {
+function CaseRow({
+  r,
+  isOpen,
+  onOpen,
+}: {
+  r: CompareResultRow;
+  /** Whether this row's case is the one currently shown in CompareCaseDrawer. */
+  isOpen: boolean;
+  onOpen: () => void;
+}) {
   const cmp = r.comparison;
   const st = caseStatus(r);
   const changedCells = (cmp?.scorerCells ?? []).filter(
@@ -521,7 +629,20 @@ function CaseRow({ r, onOpen }: { r: CompareResultRow; onOpen: () => void }) {
   const mainDelta = cmp?.mainScore.delta ?? null;
   const mainChange = cmp?.caseChange ?? null;
   return (
-    <TR interactive onClick={onOpen}>
+    <TR
+      interactive
+      role="button"
+      tabIndex={0}
+      aria-expanded={isOpen}
+      aria-controls="compare-case-drawer"
+      className="focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring"
+      onClick={onOpen}
+      onKeyDown={(e) => {
+        if (e.key !== "Enter" && e.key !== " ") return;
+        e.preventDefault();
+        onOpen();
+      }}
+    >
       {/* Input (primary) + expected + id secondary */}
       <Td>
         <div className="max-w-[280px] truncate" title={r.input}>
@@ -585,22 +706,29 @@ function CaseRow({ r, onOpen }: { r: CompareResultRow; onOpen: () => void }) {
           </span>
         )}
       </Td>
-      {/* Duration */}
+      {/* Duration — candidate value + Δ vs baseline. */}
       <Td className="whitespace-nowrap text-right text-[11px] tabular-nums">
-        {cmp?.durationDeltaMs != null ? (
-          <span className={SENTIMENT_CLASS[changeSentiment(-cmp.durationDeltaMs)]}>
-            {fmtMs(cmp.durationMs ?? null)}
-          </span>
-        ) : (
-          <span className="text-muted-foreground">{fmtMs(cmp?.durationMs ?? null)}</span>
-        )}
+        <span className={cmp?.durationMs == null ? "text-muted-foreground" : undefined}>
+          {fmtMs(cmp?.durationMs ?? null)}
+        </span>
+        <CellDelta delta={cmp?.durationDeltaMs ?? null} format={(n) => fmtMs(n)} />
       </Td>
-      {/* Cost */}
+      {/* Cost — candidate value + Δ vs baseline. */}
       <Td className="whitespace-nowrap text-right text-[11px] tabular-nums">
         {r.candidateCost === null && r.baselineCost === null ? (
           <span className="text-muted-foreground">Unknown</span>
         ) : (
-          <span>{fmtCost(r.candidateCost)}</span>
+          <>
+            <span>{fmtCost(r.candidateCost)}</span>
+            <CellDelta
+              delta={
+                r.candidateCost !== null && r.baselineCost !== null
+                  ? r.candidateCost - r.baselineCost
+                  : null
+              }
+              format={(n) => fmtCost(n)}
+            />
+          </>
         )}
       </Td>
       {/* Status */}
@@ -819,6 +947,7 @@ export function CompareRunsView({
                         <CaseRow
                           key={r.testCaseId}
                           r={r}
+                          isOpen={r.testCaseId === openCaseId}
                           onOpen={() => setOpenCaseId(r.testCaseId)}
                         />
                       ))
@@ -839,6 +968,7 @@ export function CompareRunsView({
           candidate={data.candidate}
           baseline={data.baseline}
           onClose={() => setOpenCaseId(null)}
+          enabled={!traceView}
           traceSlot={
             <div className="flex flex-wrap gap-1.5">
               <Button

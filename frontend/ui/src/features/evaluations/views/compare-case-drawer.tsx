@@ -125,6 +125,30 @@ function tokenText(u: TraceUsage): string {
   return u.combined.totalTokens.toLocaleString("en-US");
 }
 
+// Evaluation-judge (scorer subtree) tokens — the cost of GRADING, kept apart from the
+// candidate's task tokens so it never enters the candidate verdict. "None" is a proven
+// zero (a trace with no judge usage), distinct from pending/unknown.
+function overheadTokenText(u: TraceUsage): string {
+  if (u.state === "pending") return "Pending";
+  if (u.state === "unknown") return "Unknown";
+  if (u.scorer.spanCount === 0) return "None";
+  return u.scorer.totalTokens.toLocaleString("en-US");
+}
+
+/** Distinct OBSERVED models in a bucket — measured from the trace, never inferred from
+ *  a candidate label. Em dash when the trace reported none. */
+function modelsText(u: TraceUsage, bucket: "task" | "scorer"): string {
+  if (u.state === "pending") return "Pending";
+  const models = u[bucket].models;
+  return models.length > 0 ? models.join(", ") : "—";
+}
+
+/** True once either side's trace has real usage — gates the judge/model rows so they
+ *  don't render a wall of "Unknown" before any trace has loaded. */
+function anyUsagePresent(a: TraceUsage, b: TraceUsage): boolean {
+  return a.state === "present" || b.state === "present";
+}
+
 /**
  * Selected-case diagnosis drawer: context, Baseline|Candidate outputs, per-scorer
  * breakdown with explanations, operational metrics (duration server-derived; cost
@@ -138,6 +162,7 @@ export function CompareCaseDrawer({
   baseline,
   onClose,
   traceSlot,
+  enabled = true,
 }: {
   projectId: string;
   row: CompareResultRow;
@@ -146,17 +171,29 @@ export function CompareCaseDrawer({
   onClose: () => void;
   /** Trace-access controls (candidate/baseline), wired by the page. */
   traceSlot?: React.ReactNode;
+  /**
+   * Set to false while a non-nested overlay stacked above the drawer (e.g. the trace
+   * viewer opened via traceSlot) should own Escape instead of the drawer.
+   */
+  enabled?: boolean;
 }) {
+  // Close on Escape. Listen on `document` in the bubble phase — the convention used by
+  // TraceViewerPanel — and bail if the key was already consumed by a nested overlay
+  // (Radix select/popover), signaled via `defaultPrevented`; call preventDefault() here
+  // so any layer further out also knows Escape was handled. `enabled` additionally lets
+  // the page suppress this while a sibling overlay (not a descendant, so it can't rely on
+  // defaultPrevented) is stacked on top and should own Escape instead.
   React.useEffect(() => {
+    if (!enabled) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onClose();
-      }
+      if (e.key !== "Escape") return;
+      if (e.defaultPrevented) return;
+      e.preventDefault();
+      onClose();
     };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [onClose]);
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose, enabled]);
 
   const candUsage = useUsage(projectId, row.candidateTraceId);
   const baseUsage = useUsage(projectId, row.baselineTraceId);
@@ -164,7 +201,10 @@ export function CompareCaseDrawer({
   const outputSame = row.outputChanged === false;
 
   return (
-    <div className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-[620px] max-w-[96vw] flex-col border-l border-border bg-background text-[12px] shadow-xl">
+    <div
+      id="compare-case-drawer"
+      className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-[620px] max-w-[96vw] flex-col border-l border-border bg-background text-[12px] shadow-xl"
+    >
       <div className="flex shrink-0 items-start justify-between gap-2 border-b border-border px-4 py-3">
         <div className="min-w-0">
           <div className="text-[13px] font-medium">Case comparison</div>
@@ -286,13 +326,39 @@ export function CompareCaseDrawer({
             }
           />
           <OpMetric
-            label="Tokens (trace)"
+            label="Candidate tokens"
             value={
               <span>
                 {tokenText(baseUsage)} → {tokenText(candUsage)}
               </span>
             }
           />
+          {/* The judge's own token cost — reported, but explicitly separate from the
+              candidate above so it never colours the candidate verdict. */}
+          {anyUsagePresent(baseUsage, candUsage) &&
+            (baseUsage.scorer.spanCount > 0 || candUsage.scorer.spanCount > 0) && (
+              <OpMetric
+                label="Evaluation overhead"
+                value={
+                  <span className="text-muted-foreground">
+                    {overheadTokenText(baseUsage)} → {overheadTokenText(candUsage)}
+                    <span className="ml-1 text-[10px]">judge tokens</span>
+                  </span>
+                }
+              />
+            )}
+          {/* Observed candidate models — measured from each side's trace, kept distinct
+              from the run's declared model (which can differ). */}
+          {anyUsagePresent(baseUsage, candUsage) && (
+            <OpMetric
+              label="Observed model"
+              value={
+                <span>
+                  {modelsText(baseUsage, "task")} → {modelsText(candUsage, "task")}
+                </span>
+              }
+            />
+          )}
         </div>
 
         {/* Trace access (wired by the page) */}

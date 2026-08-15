@@ -26,6 +26,26 @@ const FORMAT_LABEL: Record<IOFormat, string> = {
 };
 const FORMATS: IOFormat[] = ["pretty", "json", "text", "yaml", "markdown"];
 
+/**
+ * Above this many characters, the JSON/Text/YAML/Markdown branches skip their real
+ * renderer (tokenizeJson, MarkdownView, toYaml/toText) and show a truncated preview
+ * instead. Those renderers walk the whole payload synchronously — a multi-MB blob
+ * would flood the DOM (JSON) or blow the call stack (YAML) on a single span click.
+ * The Pretty branch is unaffected: ContentRenderer/JsonRenderer already truncate and
+ * collapse for exactly this reason.
+ */
+const MAX_INLINE_CONTENT = 200_000;
+
+/** Recursion cap for toYaml: an arbitrarily deep untrusted payload (e.g. deeply
+ *  nested tool-call args) must not be able to overflow the call stack. */
+const MAX_YAML_DEPTH = 40;
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+}
+
 function parseMaybe(content: string): unknown {
   try {
     return JSON.parse(content);
@@ -42,6 +62,7 @@ function toText(value: unknown): string {
 /** Minimal YAML for the shapes span I/O holds (scalars, flat-ish objects/arrays). */
 function toYaml(value: unknown, indent = 0): string {
   const pad = "  ".repeat(indent);
+  if (indent > MAX_YAML_DEPTH) return `${pad}"...(max depth exceeded)"`;
   if (value === null || value === undefined) return `${pad}null`;
   if (typeof value === "string") {
     if (value.includes("\n")) {
@@ -155,6 +176,15 @@ function FormatSwitcher({
           role="button"
           tabIndex={0}
           title="Change format"
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              // Required: expandable-section.tsx only stops *click* propagation from
+              // the header action, so a bare onKeyDown would also toggle the section.
+              e.stopPropagation();
+              setOpen((o) => !o);
+            }
+          }}
           className="flex cursor-pointer items-center gap-0.5 rounded px-1 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
           {FORMAT_LABEL[format]}
@@ -197,8 +227,15 @@ export function TraceIOSection({
   defaultOpen?: boolean;
 }) {
   const [format, setFormat] = useState<IOFormat>("pretty");
-  const parsed = useMemo(() => (content ? parseMaybe(content) : null), [content]);
   const hasContent = content !== null && content !== "";
+  // Non-pretty formats serialize/parse the whole blob synchronously (tokenizeJson,
+  // MarkdownView, toYaml/toText) with no truncation of their own, unlike Pretty's
+  // ContentRenderer. Cap them up front rather than rendering multi-MB payloads.
+  const isOversized = hasContent && content!.length > MAX_INLINE_CONTENT;
+  const parsed = useMemo(
+    () => (content && !isOversized ? parseMaybe(content) : null),
+    [content, isOversized],
+  );
 
   return (
     <ExpandableSection
@@ -218,6 +255,16 @@ export function TraceIOSection({
         <span className="text-[11px] text-muted-foreground">-</span>
       ) : format === "pretty" ? (
         <ContentRenderer content={content} />
+      ) : isOversized ? (
+        <div>
+          <p className="mb-1 text-[11px] italic text-muted-foreground">
+            Showing first {formatBytes(MAX_INLINE_CONTENT)} of {formatBytes(content!.length)} — copy
+            to see all.
+          </p>
+          <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed">
+            {content!.slice(0, MAX_INLINE_CONTENT)}
+          </pre>
+        </div>
       ) : format === "markdown" ? (
         // Model output is very often markdown; render it rather than showing the raw source.
         <MarkdownView content={content} />
