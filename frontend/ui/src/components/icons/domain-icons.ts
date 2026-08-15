@@ -46,7 +46,6 @@ export const DOMAIN_ICONS = {
   assistant: BotMessageSquare,
   user: Users,
   session: Layers,
-  lineage: Layers,
   trace: Workflow,
   id: Hash,
   // Distinct concept from `id` (a count of things vs. an identifier) that
@@ -63,6 +62,8 @@ export const DOMAIN_ICONS = {
   detector: Eye,
   environment: Globe,
   dashboard: LayoutDashboard,
+  // Collapsing rows into a lineage/roll-up (e.g. "Group by evaluation").
+  group: Layers,
   // Neutral "unknown field" fallback for filter/widget dropdowns. Kept
   // decoupled from `model` even though both currently render as Box — if the
   // model glyph ever changes, unmapped fields shouldn't silently change with
