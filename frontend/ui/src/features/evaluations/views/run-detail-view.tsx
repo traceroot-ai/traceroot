@@ -57,6 +57,7 @@ import {
 } from "../components/save-result-to-dataset-drawer";
 import { reproduceRunCode, reproduceRunCodeTs } from "@/features/offline-eval/utils";
 import { matchSpans } from "@/lib/eval/span-match";
+import { ComparabilityBanner } from "@/features/evaluations/components/comparability-banner";
 import {
   Select,
   SelectContent,
@@ -953,32 +954,62 @@ function RunBody({
             </div>
           )}
 
-          {comparing && cmp && (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-muted/30 px-3 py-2 text-[11px]">
-              <span className="flex items-center gap-1.5">
-                <GitCompare className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
-                <span className="font-medium">
-                  Comparing vs #{compareData?.baseline.runNumber} ·{" "}
-                  <span className="font-mono">{compareData?.baseline.candidateVersion}</span>
-                </span>
-              </span>
-              <span className="text-muted-foreground">baseline → candidate (this run)</span>
-              <span className="h-3 w-px bg-border" aria-hidden />
-              <span className={cmp.caseCounts.regressed > 0 ? SENTIMENT_CLASS.bad : ""}>
-                {cmp.caseCounts.regressed} regressed
-              </span>
-              <span className={cmp.caseCounts.improved > 0 ? SENTIMENT_CLASS.good : ""}>
-                {cmp.caseCounts.improved} improved
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="ml-auto h-6 px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
-                onClick={() => onCompareChange(null)}
-              >
-                Clear
-              </Button>
+          {/* Comparability is a single backend-owned discriminant (`cmp.state`). An
+              `unavailable` comparison is only the banner + a way out; every other
+              state keeps the counts strip, and a non-trustworthy state rides the
+              banner ABOVE it so the counts are never read as an authoritative verdict. */}
+          {comparing && cmp && cmp.state === "unavailable" && (
+            <div className="border-b border-border px-3 py-2">
+              <ComparabilityBanner
+                state={cmp.state}
+                reasons={cmp.reasons}
+                action={
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
+                    onClick={() => onCompareChange(null)}
+                  >
+                    Clear
+                  </Button>
+                }
+              />
             </div>
+          )}
+
+          {comparing && cmp && cmp.state !== "unavailable" && (
+            <>
+              {cmp.state !== "trustworthy" && (
+                <div className="border-b border-border px-3 py-2">
+                  <ComparabilityBanner state={cmp.state} reasons={cmp.reasons} />
+                </div>
+              )}
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-muted/30 px-3 py-2 text-[11px]">
+                <span className="flex items-center gap-1.5">
+                  <GitCompare className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
+                  <span className="font-medium">
+                    Comparing vs #{compareData?.baseline.runNumber} ·{" "}
+                    <span className="font-mono">{compareData?.baseline.candidateVersion}</span>
+                  </span>
+                </span>
+                <span className="text-muted-foreground">baseline → candidate (this run)</span>
+                <span className="h-3 w-px bg-border" aria-hidden />
+                <span className={cmp.caseCounts.regressed > 0 ? SENTIMENT_CLASS.bad : ""}>
+                  {cmp.caseCounts.regressed} regressed
+                </span>
+                <span className={cmp.caseCounts.improved > 0 ? SENTIMENT_CLASS.good : ""}>
+                  {cmp.caseCounts.improved} improved
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="ml-auto h-6 px-1.5 text-[11px] text-muted-foreground hover:text-foreground"
+                  onClick={() => onCompareChange(null)}
+                >
+                  Clear
+                </Button>
+              </div>
+            </>
           )}
 
           <ResultsSection

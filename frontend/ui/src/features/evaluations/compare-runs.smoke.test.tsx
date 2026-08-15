@@ -194,6 +194,7 @@ const labData = {
   comparison: {
     available: true,
     trustworthy: true,
+    state: "trustworthy",
     reasons: [],
     baseline: { runId: "opus", runNumber: 41, candidateVersion: "opus" },
     mainScore: { candidate: 6 / 7, baseline: 1, delta: 6 / 7 - 1 },
