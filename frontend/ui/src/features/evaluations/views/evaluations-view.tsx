@@ -3,9 +3,10 @@
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
+  ArrowDown,
+  ArrowUp,
   ChevronDown,
   ChevronRight,
-  GitCompare,
   Layers,
   ListChecks,
   Ruler,
@@ -14,7 +15,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { ModelSelector } from "@/features/ai-assistant/components/model-selector";
 import {
   Select,
   SelectContent,
@@ -28,27 +29,12 @@ import { Table, TBody, Td, Th, THead, TR, TRHead } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { CopyButton } from "@/components/ui/copy-button";
 import { HighlightedCode } from "@/features/offline-eval/components/syntax";
-import { useToast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
-import {
-  EmptyState,
-  Timestamp,
-  useRowSelection,
-  SelectAllHeaderCell,
-  SelectRowCell,
-  BulkActionBar,
-} from "@/features/offline-eval/components";
+import { EmptyState, Timestamp, LineNumberedTextarea } from "@/features/offline-eval/components";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { PassRate } from "../components/pass-rate";
 import { pctFraction, SENTIMENT_CLASS } from "@/features/offline-eval/utils";
-import {
-  useDatasets,
-  useEvaluationRuns,
-  useScorers,
-  useScorer,
-  useDeleteRuns,
-  type ScorerRegistryRow,
-} from "../hooks";
+import { useDatasets, useEvaluationRuns, useScorers, type ScorerRegistryRow } from "../hooks";
 import { EVAL_RUN_STATUS_LABEL, type EvalRunStatus, type RunRow } from "../types";
 
 // Run-centric: the Evaluations page is one table of immutable runs. Scorers is the
@@ -120,7 +106,7 @@ export function EvaluationsView({ projectId }: { projectId: string }) {
 // Runs — the flat execution list.
 // ---------------------------------------------------------------------------
 
-const RUNS_COLUMN_COUNT = 9;
+const RUNS_COLUMN_COUNT = 8;
 
 /** Human elapsed duration; "—" when unknown (never 0). */
 export function formatElapsed(ms: number | null | undefined): string {
@@ -156,30 +142,17 @@ export function formatCost(cost: number | null | undefined): React.ReactNode {
 function RunTableRow({
   run: r,
   projectId,
-  selected,
-  onToggle,
   showEvaluation = true,
   indent = false,
 }: {
   run: RunRow;
   projectId: string;
-  selected: boolean;
-  onToggle: () => void;
   showEvaluation?: boolean;
   indent?: boolean;
 }) {
   const router = useRouter();
   return (
-    <TR
-      interactive
-      selected={selected}
-      onClick={() => router.push(`/projects/${projectId}/evaluations/${r.id}`)}
-    >
-      <SelectRowCell
-        checked={selected}
-        onToggle={onToggle}
-        label={`Select ${r.evaluationName} #${r.runNumber}`}
-      />
+    <TR interactive onClick={() => router.push(`/projects/${projectId}/evaluations/${r.id}`)}>
       <Td className={cn(indent && "pl-6")}>
         {showEvaluation && (
           <button
@@ -312,17 +285,11 @@ function GroupHeaderRow({
   isOpen,
   onToggle,
   projectId,
-  selected,
-  indeterminate,
-  onToggleSelect,
 }: {
   group: RunGroup;
   isOpen: boolean;
   onToggle: () => void;
   projectId: string;
-  selected: boolean;
-  indeterminate: boolean;
-  onToggleSelect: () => void;
 }) {
   const router = useRouter();
   const latest = group.runs[0];
@@ -330,22 +297,6 @@ function GroupHeaderRow({
   const agg = React.useMemo(() => aggregateGroup(group.runs), [group.runs]);
   return (
     <TR className="bg-muted/40 font-medium">
-      {/* Group selection: selects/deselects every run in the lineage at once. */}
-      <td
-        className="w-8 border-r border-border/50 px-3 py-1.5"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <Checkbox
-          checked={selected}
-          indeterminate={indeterminate}
-          onCheckedChange={onToggleSelect}
-          aria-label={
-            selected
-              ? `Deselect all runs in ${group.evaluationName}`
-              : `Select all runs in ${group.evaluationName}`
-          }
-        />
-      </td>
       <Td>
         <div className="flex items-center gap-1.5">
           <button
@@ -463,13 +414,11 @@ function Toggle({
 }
 
 function RunsTab({ projectId }: { projectId: string }) {
-  const router = useRouter();
   const searchParams = useSearchParams();
   // Scoping the list to one evaluation lineage lives in the URL (?evaluation=<id>) so
   // browser back/forward and sharing work.
   const scopedEvalId = searchParams.get("evaluation");
 
-  const { toast } = useToast();
   const [keyword, setKeyword] = React.useState("");
   const [datasetFilter, setDatasetFilter] = React.useState(ALL);
   const [statusFilter, setStatusFilter] = React.useState(ALL);
@@ -510,47 +459,6 @@ function RunsTab({ projectId }: { projectId: string }) {
   );
   const grouped = groupBy && !scopedEvalId;
   const groups = React.useMemo(() => (grouped ? groupRunsByEvaluation(runs) : []), [grouped, runs]);
-
-  const runIds = React.useMemo(() => runs.map((r) => r.id), [runs]);
-  const sel = useRowSelection(runIds);
-  const deleteRuns = useDeleteRuns(projectId);
-  const deleteSelected = () => {
-    const ids = [...sel.selected];
-    if (ids.length === 0) return;
-    if (
-      !window.confirm(
-        `Delete ${ids.length} run${ids.length === 1 ? "" : "s"}? This can't be undone.`,
-      )
-    )
-      return;
-    deleteRuns.mutate(ids, {
-      onSuccess: () => {
-        sel.clear();
-        toast({
-          title: `Deleted ${ids.length} run${ids.length === 1 ? "" : "s"}`,
-          tone: "success",
-        });
-      },
-      onError: () => toast({ title: "Could not delete runs", tone: "warning" }),
-    });
-  };
-
-  // Comparison is an action: select exactly two runs to compare. Newer → candidate,
-  // older → baseline (by start time); the compare page makes roles explicit + swappable.
-  const comparePair = React.useMemo(() => {
-    const chosen = runs.filter((r) => sel.has(r.id));
-    if (chosen.length !== 2) return null;
-    const [newer, older] = [...chosen].sort(
-      (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime(),
-    );
-    return { candidate: newer.id, baseline: older.id };
-  }, [runs, sel]);
-  const openCompare = () => {
-    if (!comparePair) return;
-    router.push(
-      `/projects/${projectId}/evaluations/compare?baseline=${comparePair.baseline}&candidate=${comparePair.candidate}`,
-    );
-  };
 
   const toggleGroup = (id: string) =>
     setExpanded((cur) => {
@@ -624,34 +532,10 @@ function RunsTab({ projectId }: { projectId: string }) {
         <LineageHeader run={allRuns[0]} runCount={allRuns.length} projectId={projectId} />
       )}
 
-      <BulkActionBar
-        count={sel.count}
-        onDelete={deleteSelected}
-        onClear={sel.clear}
-        extra={
-          comparePair && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 gap-1 px-1.5 text-[12px]"
-              onClick={openCompare}
-            >
-              <GitCompare className="h-3.5 w-3.5" aria-hidden />
-              Compare
-            </Button>
-          )
-        }
-      />
-
       <div className="min-h-0 flex-1 overflow-auto">
         <Table>
           <THead>
             <TRHead>
-              <SelectAllHeaderCell
-                checked={sel.allSelected}
-                indeterminate={sel.someSelected}
-                onToggle={sel.toggleAll}
-              />
               <Th>Evaluation / Run</Th>
               <Th>Dataset</Th>
               <Th className="w-[110px] text-right">Main score</Th>
@@ -680,46 +564,28 @@ function RunsTab({ projectId }: { projectId: string }) {
                 </EmptyState>
               </Cell>
             ) : grouped ? (
-              groups.map((g) => {
-                const groupIds = g.runs.map((r) => r.id);
-                const groupAll = groupIds.every((id) => sel.has(id));
-                const groupSome = !groupAll && groupIds.some((id) => sel.has(id));
-                return (
-                  <React.Fragment key={g.evaluationId}>
-                    <GroupHeaderRow
-                      group={g}
-                      isOpen={expanded.has(g.evaluationId)}
-                      onToggle={() => toggleGroup(g.evaluationId)}
-                      projectId={projectId}
-                      selected={groupAll}
-                      indeterminate={groupSome}
-                      onToggleSelect={() => sel.setMany(groupIds, !groupAll)}
-                    />
-                    {expanded.has(g.evaluationId) &&
-                      g.runs.map((r) => (
-                        <RunTableRow
-                          key={r.id}
-                          run={r}
-                          projectId={projectId}
-                          selected={sel.has(r.id)}
-                          onToggle={() => sel.toggle(r.id)}
-                          showEvaluation={false}
-                          indent
-                        />
-                      ))}
-                  </React.Fragment>
-                );
-              })
-            ) : (
-              runs.map((r) => (
-                <RunTableRow
-                  key={r.id}
-                  run={r}
-                  projectId={projectId}
-                  selected={sel.has(r.id)}
-                  onToggle={() => sel.toggle(r.id)}
-                />
+              groups.map((g) => (
+                <React.Fragment key={g.evaluationId}>
+                  <GroupHeaderRow
+                    group={g}
+                    isOpen={expanded.has(g.evaluationId)}
+                    onToggle={() => toggleGroup(g.evaluationId)}
+                    projectId={projectId}
+                  />
+                  {expanded.has(g.evaluationId) &&
+                    g.runs.map((r) => (
+                      <RunTableRow
+                        key={r.id}
+                        run={r}
+                        projectId={projectId}
+                        showEvaluation={false}
+                        indent
+                      />
+                    ))}
+                </React.Fragment>
               ))
+            ) : (
+              runs.map((r) => <RunTableRow key={r.id} run={r} projectId={projectId} />)
             )}
           </TBody>
         </Table>
@@ -739,8 +605,7 @@ function RunsTab({ projectId }: { projectId: string }) {
 // the source of truth for the rest, rather than fabricating descriptive text.
 // ---------------------------------------------------------------------------
 
-// +1 for the leading selection checkbox column.
-const SCORERS_COLUMN_COUNT = 5;
+const SCORERS_COLUMN_COUNT = 8;
 
 const VALUE_TYPE_LABEL: Record<ScorerRegistryRow["valueType"], string> = {
   numeric: "Numeric",
@@ -750,16 +615,8 @@ const VALUE_TYPE_LABEL: Record<ScorerRegistryRow["valueType"], string> = {
   unknown: "Unknown",
 };
 
-const DIRECTION_LABEL: Record<NonNullable<ScorerRegistryRow["direction"]>, string> = {
-  higher_is_better: "Higher is better",
-  lower_is_better: "Lower is better",
-  none: "No direction",
-};
-
 function ScorersTab({ projectId }: { projectId: string }) {
   const { data, isLoading, error } = useScorers(projectId);
-  // Memoized so the derived id list (and therefore row selection) is stable
-  // across renders rather than churning on a fresh array identity.
   const allScorers = React.useMemo(() => data?.data ?? [], [data]);
   const [keyword, setKeyword] = React.useState("");
   const scorers = React.useMemo(() => {
@@ -774,12 +631,15 @@ function ScorersTab({ projectId }: { projectId: string }) {
   // than a persistent split-pane.
   const [openKey, setOpenKey] = React.useState<string | null>(null);
   const active = allScorers.find((s) => `${s.name}@${s.version}` === openKey) ?? null;
-
-  // Checkbox selection, independent of which scorer the panel is showing. The registry
-  // is derived from reported runs, so there is nothing to delete — the bar offers
-  // selection + Clear only.
-  const scorerKeys = React.useMemo(() => scorers.map((s) => `${s.name}@${s.version}`), [scorers]);
-  const sel = useRowSelection(scorerKeys);
+  const activeIndex = scorers.findIndex((s) => `${s.name}@${s.version}` === openKey);
+  const navigateScorer = (dir: "up" | "down") => {
+    if (activeIndex === -1) return;
+    const next = dir === "up" ? activeIndex - 1 : activeIndex + 1;
+    if (next >= 0 && next < scorers.length) {
+      const s = scorers[next];
+      setOpenKey(`${s.name}@${s.version}`);
+    }
+  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -794,20 +654,18 @@ function ScorersTab({ projectId }: { projectId: string }) {
           />
         </div>
       </div>
-      <BulkActionBar count={sel.count} onClear={sel.clear} />
       <div className="min-h-0 flex-1 overflow-auto">
         <Table>
           <THead>
             <TRHead>
-              <SelectAllHeaderCell
-                checked={sel.allSelected}
-                indeterminate={sel.someSelected}
-                onToggle={sel.toggleAll}
-              />
               <Th>Scorer</Th>
               <Th className="w-[110px]">Output</Th>
-              <Th className="w-[120px] text-right">Scores</Th>
-              <Th className="w-[120px] text-right">Error rate</Th>
+              <Th className="w-[100px] text-right">Evaluations</Th>
+              <Th className="w-[80px] text-right">Runs</Th>
+              <Th className="w-[90px] text-right">Scores</Th>
+              <Th className="w-[90px] text-right">Pass rate</Th>
+              <Th className="w-[100px] text-right">Error rate</Th>
+              <Th className="w-[140px] text-right">Last used</Th>
             </TRHead>
           </THead>
           <TBody>
@@ -840,11 +698,6 @@ function ScorersTab({ projectId }: { projectId: string }) {
                     selected={key === openKey}
                     onClick={() => setOpenKey(key)}
                   >
-                    <SelectRowCell
-                      checked={sel.has(key)}
-                      onToggle={() => sel.toggle(key)}
-                      label={`Select ${s.name} ${s.version}`}
-                    />
                     <Td>
                       <span className="flex items-baseline gap-1.5">
                         <span className="font-medium">{s.name}</span>
@@ -857,15 +710,33 @@ function ScorersTab({ projectId }: { projectId: string }) {
                       <Badge variant="outline">{VALUE_TYPE_LABEL[s.valueType]}</Badge>
                     </Td>
                     <Td className="text-right tabular-nums text-muted-foreground">
-                      {s.scoreCount}
+                      {s.evaluationCount}
+                    </Td>
+                    <Td className="text-right tabular-nums text-muted-foreground">{s.runCount}</Td>
+                    <Td className="text-right tabular-nums text-muted-foreground">
+                      {s.scoreCount.toLocaleString("en-US")}
                     </Td>
                     <Td className="text-right tabular-nums">
-                      {s.errorRate === 0 ? (
+                      {s.passRate === null ? (
                         <span className="text-muted-foreground">—</span>
                       ) : (
+                        `${(s.passRate * 100).toFixed(1)}%`
+                      )}
+                    </Td>
+                    <Td className="text-right tabular-nums">
+                      {s.errorRate > 0 ? (
                         <span className={SENTIMENT_CLASS.bad}>
                           {(s.errorRate * 100).toFixed(1)}%
                         </span>
+                      ) : (
+                        <span className="text-muted-foreground">0%</span>
+                      )}
+                    </Td>
+                    <Td className="whitespace-nowrap text-right text-muted-foreground">
+                      {s.lastUsed ? (
+                        <Timestamp iso={s.lastUsed} />
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
                       )}
                     </Td>
                   </TR>
@@ -879,9 +750,11 @@ function ScorersTab({ projectId }: { projectId: string }) {
       {active && (
         <ScorerDetailPanel
           key={`${active.name}@${active.version}`}
-          projectId={projectId}
           scorer={active}
           onClose={() => setOpenKey(null)}
+          onNavigate={navigateScorer}
+          canNavigateUp={activeIndex > 0}
+          canNavigateDown={activeIndex !== -1 && activeIndex < scorers.length - 1}
         />
       )}
     </div>
@@ -894,10 +767,6 @@ function fmtScorerVersion(v: string): string {
   return /^\d/.test(v) ? `v${v}` : v;
 }
 
-const OUTPUT_TYPE_LABEL: Record<"score" | "classification", string> = {
-  score: "Score",
-  classification: "Classification",
-};
 const LANGUAGE_LABEL: Record<"python" | "typescript", string> = {
   python: "Python",
   typescript: "TypeScript",
@@ -920,18 +789,6 @@ function definitionTypeLabel(
 ): string | null {
   if (kind === "llm_judge") return "LLM judge";
   if (kind === "code") return s.language ? LANGUAGE_LABEL[s.language] : "Code";
-  return null;
-}
-
-/** Output type (Score / Classification): the SDK's declared value wins; otherwise it's
- *  inferred from the declared/observed value type, and flagged as inferred. */
-function outputTypeOf(s: ScorerRegistryRow): { text: string; inferred: boolean } | null {
-  if (s.outputType) return { text: OUTPUT_TYPE_LABEL[s.outputType], inferred: false };
-  const vt =
-    s.declaredValueType ??
-    (s.valueType !== "unknown" && s.valueType !== "mixed" ? s.valueType : null);
-  if (vt === "categorical") return { text: "Classification", inferred: true };
-  if (vt === "numeric" || vt === "boolean") return { text: "Score", inferred: true };
   return null;
 }
 
@@ -961,16 +818,6 @@ function ScorerCard({
   );
 }
 
-/** A labelled fact row inside a card. */
-function ScorerFact({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-start justify-between gap-6 py-0.5">
-      <dt className="shrink-0 text-[11px] text-muted-foreground">{label}</dt>
-      <dd className="min-w-0 text-right text-[12px]">{children}</dd>
-    </div>
-  );
-}
-
 /**
  * Read-only scorer detail — a bigger, detector-style subpage (mirrors DetectorPanel's
  * 70%-width right slide-in with bordered cards). It does NOT dim/blur the page behind it
@@ -979,13 +826,17 @@ function ScorerFact({ label, children }: { label: string; children: React.ReactN
  * anything unreported reads "Not provided by SDK", never invented from the name.
  */
 export function ScorerDetailPanel({
-  projectId,
   scorer,
   onClose,
+  onNavigate,
+  canNavigateUp,
+  canNavigateDown,
 }: {
-  projectId: string;
   scorer: ScorerRegistryRow;
   onClose: () => void;
+  onNavigate?: (dir: "up" | "down") => void;
+  canNavigateUp?: boolean;
+  canNavigateDown?: boolean;
 }) {
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1025,54 +876,82 @@ export function ScorerDetailPanel({
             title="Copy scorer id"
           />
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          className="rounded-sm text-muted-foreground hover:text-foreground"
-        >
-          <X className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          {onNavigate && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onNavigate("up")}
+                disabled={!canNavigateUp}
+                className="h-7 w-7 p-0"
+                title="Previous scorer"
+              >
+                <ArrowUp className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onNavigate("down")}
+                disabled={!canNavigateDown}
+                className="h-7 w-7 p-0"
+                title="Next scorer"
+              >
+                <ArrowDown className="h-4 w-4" />
+              </Button>
+            </>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onClose}
+            aria-label="Close"
+            className="h-7 w-7 p-0"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-auto text-[12px]">
-        <ScorerDetail projectId={projectId} scorer={scorer} kind={kind} />
+        <ScorerDetail scorer={scorer} kind={kind} />
       </div>
     </div>
   );
 }
 
 function ScorerDetail({
-  projectId,
   scorer,
   kind,
 }: {
-  projectId: string;
   scorer: ScorerRegistryRow;
   kind: "llm_judge" | "code" | null;
 }) {
-  const maxCount = scorer.distribution?.reduce((m, d) => Math.max(m, d.count), 0) ?? 0;
-  const family = useScorer(projectId, scorer.name);
-  const versions = family.data?.versions ?? [];
-  const ot = outputTypeOf(scorer);
-  const metadataText =
-    scorer.metadata != null &&
-    (typeof scorer.metadata !== "object" || Object.keys(scorer.metadata).length > 0)
-      ? JSON.stringify(scorer.metadata, null, 2)
-      : null;
-
-  const typeLabel = definitionTypeLabel(scorer, kind);
+  const systemPrompt = scorer.messages?.find((m) => m.role === "system")?.content ?? null;
   return (
     <div className="flex flex-col gap-3 p-4">
-      {/* Definition — leads with the exact type: LLM judge, Python, or TypeScript. */}
-      <div className="flex items-baseline gap-2">
-        <h3 className="text-[13px] font-semibold">Definition</h3>
-        <span className="text-[13px] font-medium text-muted-foreground">{typeLabel ?? "—"}</span>
-      </div>
-      {/* Type-specific body */}
+      {/* Name — read-only, in the detector's editable-field chrome. */}
+      <ScorerCard title="Name">
+        <Input value={scorer.name} readOnly className="h-7 text-[13px]" />
+      </ScorerCard>
+
+      {/* Model — the detector's model dropdown, rendered read-only (the wrapper
+          blocks pointer + focus, so it shows the model but never opens). */}
+      {kind === "llm_judge" && (
+        <ScorerCard title="Model">
+          <div className="pointer-events-none [&_*]:pointer-events-none">
+            <ModelSelector
+              value={{ model: scorer.model ?? "", provider: "", source: "system", adapter: "" }}
+              onChange={() => {}}
+            />
+          </div>
+        </ScorerCard>
+      )}
+
+      {/* Prompt (LLM judge) or code snippet (code scorer). */}
       {kind === "code" ? (
         <ScorerCard
-          title="Source"
+          title="Code"
           action={
             scorer.sourceCode ? (
               <CopyButton
@@ -1093,201 +972,42 @@ function ScorerDetail({
             <NotProvided />
           )}
         </ScorerCard>
-      ) : kind === "llm_judge" ? (
-        // One "Prompt" card: the model sits in the header; messages are role-labelled
-        // rows separated by dividers (no card-in-card nesting).
-        <ScorerCard
-          title="Prompt"
-          action={
-            scorer.model ? (
-              <span className="font-mono text-[11px] text-muted-foreground">{scorer.model}</span>
-            ) : (
-              <span className="text-[11px] text-muted-foreground">— no model</span>
-            )
-          }
-        >
-          {scorer.messages && scorer.messages.length > 0 ? (
-            <div className="divide-y divide-border">
-              {scorer.messages.map((m, i) => (
-                <div key={i} className="py-2 first:pt-0 last:pb-0">
-                  <div className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                    {m.role}
-                  </div>
-                  <pre className="max-h-[30vh] overflow-auto whitespace-pre-wrap font-mono text-[11px] leading-relaxed">
-                    {m.content}
-                  </pre>
-                </div>
-              ))}
-            </div>
+      ) : (
+        <ScorerCard title="Prompt">
+          {systemPrompt ? (
+            <LineNumberedTextarea
+              value={systemPrompt}
+              onChange={() => {}}
+              readOnly
+              aria-label="System prompt"
+            />
           ) : (
             <NotProvided />
           )}
         </ScorerCard>
-      ) : (
-        <ScorerCard title="Definition">
-          <p className="text-[11px] leading-relaxed text-muted-foreground">
-            The SDK hasn&apos;t reported this scorer&apos;s definition — an LLM judge&apos;s model
-            &amp; messages, or a code scorer&apos;s snippet.
-          </p>
-        </ScorerCard>
       )}
 
-      {/* Shared configuration */}
-      <ScorerCard title="Configuration">
-        <dl>
-          <ScorerFact label="Output type">
-            {ot ? (
-              <>
-                {ot.text}
-                {ot.inferred && (
-                  <span className="ml-1 text-[11px] text-muted-foreground">(inferred)</span>
-                )}
-              </>
-            ) : (
-              <NotProvided />
-            )}
-          </ScorerFact>
-          <ScorerFact label="Pass threshold">
-            {scorer.threshold !== null ? (
-              <span className="tabular-nums">{scorer.threshold}</span>
-            ) : (
-              <NotProvided />
-            )}
-          </ScorerFact>
-          <ScorerFact label="Direction">
-            {scorer.direction ? DIRECTION_LABEL[scorer.direction] : <NotProvided />}
-          </ScorerFact>
-          <ScorerFact label="Description">
-            {scorer.description ? scorer.description : <NotProvided />}
-          </ScorerFact>
-        </dl>
-      </ScorerCard>
-
-      {/* Metadata */}
-      <ScorerCard title="Metadata">
-        {metadataText ? (
-          <HighlightedCode
-            code={metadataText}
-            className="max-h-[30vh] overflow-auto whitespace-pre font-mono text-[11px] leading-relaxed"
-          />
+      {/* Pass threshold — read-only draggable bar, mirroring the detector's Sampling. */}
+      <ScorerCard title="Pass threshold">
+        {scorer.threshold !== null ? (
+          <div className="flex items-center gap-3">
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.01}
+              value={Math.min(1, Math.max(0, scorer.threshold))}
+              readOnly
+              tabIndex={-1}
+              aria-label="Pass threshold"
+              className="pointer-events-none flex-1 accent-foreground"
+            />
+            <span className="w-12 shrink-0 text-right text-[13px] tabular-nums text-muted-foreground">
+              {scorer.threshold}
+            </span>
+          </div>
         ) : (
           <NotProvided />
-        )}
-      </ScorerCard>
-
-      {/* Observed usage — honest stats derived from reported scores. */}
-      <ScorerCard title="Observed usage">
-        <dl>
-          <ScorerFact label="Evaluations">
-            <span className="tabular-nums">{scorer.evaluationCount}</span>
-          </ScorerFact>
-          <ScorerFact label="Runs">
-            <span className="tabular-nums">{scorer.runCount}</span>
-          </ScorerFact>
-          <ScorerFact label="Scored results">
-            <span className="tabular-nums">{scorer.scoreCount.toLocaleString("en-US")}</span>
-          </ScorerFact>
-          {scorer.numeric && (
-            <>
-              <ScorerFact label="Mean">
-                <span className="tabular-nums">{scorer.numeric.mean.toFixed(3)}</span>
-              </ScorerFact>
-              <ScorerFact label="Range">
-                <span className="tabular-nums">
-                  {scorer.numeric.min.toFixed(2)} – {scorer.numeric.max.toFixed(2)}
-                </span>
-              </ScorerFact>
-            </>
-          )}
-          {scorer.passRate !== null && (
-            <ScorerFact label="Pass rate">
-              <span className="tabular-nums">{(scorer.passRate * 100).toFixed(1)}%</span>
-            </ScorerFact>
-          )}
-          <ScorerFact label="Error rate">
-            {scorer.errorCount === 0 ? (
-              <span className="tabular-nums text-muted-foreground">0%</span>
-            ) : (
-              <span className={cn("tabular-nums", SENTIMENT_CLASS.bad)}>
-                {(scorer.errorRate * 100).toFixed(1)}% ({scorer.errorCount} of {scorer.scoreCount})
-              </span>
-            )}
-          </ScorerFact>
-          <ScorerFact label="Last used">
-            {scorer.lastUsed ? (
-              <Timestamp iso={scorer.lastUsed} className="inline" />
-            ) : (
-              <span className="text-muted-foreground">—</span>
-            )}
-          </ScorerFact>
-        </dl>
-
-        {scorer.distribution && scorer.distribution.length > 0 && (
-          <div className="mt-3">
-            <div className="mb-1 text-[11px] text-muted-foreground">Score distribution</div>
-            <ul className="flex flex-col gap-1.5">
-              {scorer.distribution.map((d) => (
-                <li key={d.label} className="flex items-center gap-2 text-[11px]">
-                  <span className="w-24 shrink-0 truncate" title={d.label}>
-                    {d.label}
-                  </span>
-                  <span className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                    <span
-                      className="block h-full rounded-full bg-foreground/70"
-                      style={{ width: `${maxCount > 0 ? (d.count / maxCount) * 100 : 0}%` }}
-                    />
-                  </span>
-                  <span className="w-10 shrink-0 text-right tabular-nums text-muted-foreground">
-                    {d.count}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {scorer.recentErrors.length > 0 && (
-          <div className="mt-3">
-            <div className="mb-1 text-[11px] text-muted-foreground">Recent scorer errors</div>
-            <ul className="flex flex-col gap-1.5">
-              {scorer.recentErrors.map((e, i) => (
-                <li
-                  key={i}
-                  className="rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 font-mono text-[11px] leading-relaxed text-amber-700 dark:text-amber-300"
-                >
-                  {e.message}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
-        {versions.length > 1 && (
-          <div className="mt-3">
-            <div className="mb-1 text-[11px] text-muted-foreground">Version history</div>
-            <ul className="flex flex-col gap-0.5">
-              {versions.map((v) => (
-                <li
-                  key={v.version}
-                  className={cn(
-                    "flex items-center justify-between gap-2 rounded px-1.5 py-0.5 text-[11px]",
-                    v.version === scorer.version && "bg-muted/60",
-                  )}
-                >
-                  <span className="flex items-center gap-1.5">
-                    <span className="font-medium">{fmtScorerVersion(v.version)}</span>
-                    {v.version === scorer.version && (
-                      <span className="text-[10px] text-muted-foreground">viewing</span>
-                    )}
-                  </span>
-                  <span className="tabular-nums text-muted-foreground">
-                    {v.scoreCount} scored{v.lastUsed ? " · " : ""}
-                    {v.lastUsed && <Timestamp iso={v.lastUsed} className="inline" />}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
         )}
       </ScorerCard>
     </div>

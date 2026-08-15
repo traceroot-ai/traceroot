@@ -10,6 +10,7 @@ import type {
   EvaluationRow,
   RunRow,
   RunDetailResponse,
+  CompareRunsResponse,
   EvalResultStatus,
   ScoreRow,
 } from "./types";
@@ -245,6 +246,24 @@ export function useEvaluationRun(projectId: string, runId: string) {
   });
 }
 
+/** Compare two arbitrary runs (candidate vs baseline) of the same evaluation. */
+export function useCompareRuns(
+  projectId: string,
+  candidateId: string | null,
+  baselineId: string | null,
+) {
+  return useQuery({
+    queryKey: ["evaluations", "compare", projectId, candidateId, baselineId],
+    queryFn: () =>
+      getJson<CompareRunsResponse>(
+        `/api/projects/${projectId}/evaluations/compare?candidate=${encodeURIComponent(
+          candidateId!,
+        )}&baseline=${encodeURIComponent(baselineId!)}`,
+      ),
+    enabled: !!projectId && !!candidateId && !!baselineId && candidateId !== baselineId,
+  });
+}
+
 export function useCreateHumanScore(projectId: string, resultId: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -323,12 +342,72 @@ export function useTraceTestCases(projectId: string, traceId: string) {
   });
 }
 
+/** Delete one or more evaluation runs (cascades their results + scores). */
+export function useDeleteRuns(projectId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (runIds: string[]) =>
+      Promise.all(
+        runIds.map((id) =>
+          sendJson<{ deleted: boolean }>(
+            `/api/projects/${projectId}/evaluations/runs/${id}`,
+            "DELETE",
+            undefined,
+          ),
+        ),
+      ),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ["evaluations", "runs"] }),
+  });
+}
+
 export interface ScorerRegistryRow {
   name: string;
   version: string;
   scoreCount: number;
   errorCount: number;
   errorRate: number;
+  /** Inferred from which value column the scores populate. */
+  valueType: "numeric" | "boolean" | "categorical" | "mixed" | "unknown";
+  /** Declared metadata from the run's scorers JSON (when the SDK sends it). */
+  declaredValueType: "numeric" | "boolean" | "categorical" | null;
+  direction: "higher_is_better" | "lower_is_better" | "none" | null;
+  threshold: number | null;
+  /** Numeric summary over successfully-scored numeric values (else null). */
+  numeric: { mean: number; min: number; max: number; count: number } | null;
+  /** Fraction of scores marked passed (else null when the scorer sets no `passed`). */
+  passRate: number | null;
+  /** Boolean (true/false) or categorical value counts, most-common first. */
+  distribution: Array<{ label: string; count: number }> | null;
+  runCount: number;
+  evaluationCount: number;
+  lastUsed: string | null;
+  recentErrors: Array<{ message: string; at: string }>;
+  /** Always "SDK": the catalog only shows what the SDK reported. */
+  source: "SDK";
+  // SDK-reported scorer DEFINITION (offline-eval/sdk-ask/scorer-definition-reporting.md).
+  // Every field is optional — absent → "Not provided by SDK", never inferred.
+  scorerType: "llm_judge" | "code" | null;
+  outputType: "score" | "classification" | null;
+  description: string | null;
+  metadata: unknown | null;
+  model: string | null;
+  messages: Array<{ role: string; content: string }> | null;
+  language: "python" | "typescript" | null;
+  sourceCode: string | null;
+}
+
+/** One scorer family (all versions of a name) + a family-level usage summary. */
+export interface ScorerFamilyResponse {
+  name: string;
+  versions: ScorerRegistryRow[];
+  usage: {
+    runCount: number;
+    evaluationCount: number;
+    scoreCount: number;
+    errorCount: number;
+    lastUsed: string | null;
+  };
+  source: "SDK";
 }
 
 /** Read-only scorer registry, aggregated from reported runs. */
@@ -338,5 +417,17 @@ export function useScorers(projectId: string) {
     queryFn: () =>
       getJson<{ data: ScorerRegistryRow[] }>(`/api/projects/${projectId}/evaluations/scorers`),
     enabled: !!projectId,
+  });
+}
+
+/** One scorer family (its versions + usage), for the scorer detail. */
+export function useScorer(projectId: string, name: string | null) {
+  return useQuery({
+    queryKey: ["evaluations", "scorer", projectId, name],
+    queryFn: () =>
+      getJson<ScorerFamilyResponse>(
+        `/api/projects/${projectId}/evaluations/scorers/${encodeURIComponent(name!)}`,
+      ),
+    enabled: !!projectId && !!name,
   });
 }

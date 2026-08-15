@@ -13,12 +13,14 @@ interface SearchFilterBarProps {
   // Optional replacement for the default search input (e.g. a combined
   // search-and-filter input). When provided, the plain input is not rendered.
   searchInput?: React.ReactNode;
-  // Date filter
-  dateFilter: DateFilterOption;
-  customStartDate: Date | null;
-  customEndDate: Date | null;
-  onDateFilterChange: (option: DateFilterOption) => void;
-  onCustomRangeChange: (startDate: Date, endDate: Date) => void;
+  // Date filter — omit all five when the list has no date predicate to apply
+  // one to; a rendered-but-inert filter would falsely read as an applied
+  // constraint. The control simply doesn't render when `dateFilter` is unset.
+  dateFilter?: DateFilterOption;
+  customStartDate?: Date | null;
+  customEndDate?: Date | null;
+  onDateFilterChange?: (option: DateFilterOption) => void;
+  onCustomRangeChange?: (startDate: Date, endDate: Date) => void;
   // Retention gating — options exceeding the window show a lock icon
   retentionDays?: number | null;
   onUpgradeClick?: () => void;
@@ -55,16 +57,18 @@ export function SearchFilterBar({
           </div>
         )}
         {children}
-        <DateFilterSelect
-          className="ml-auto"
-          dateFilter={dateFilter}
-          customStartDate={customStartDate}
-          customEndDate={customEndDate}
-          onDateFilterChange={onDateFilterChange}
-          onCustomRangeChange={onCustomRangeChange}
-          retentionDays={retentionDays}
-          onUpgradeClick={onUpgradeClick}
-        />
+        {dateFilter && onDateFilterChange && onCustomRangeChange && (
+          <DateFilterSelect
+            className="ml-auto"
+            dateFilter={dateFilter}
+            customStartDate={customStartDate ?? null}
+            customEndDate={customEndDate ?? null}
+            onDateFilterChange={onDateFilterChange}
+            onCustomRangeChange={onCustomRangeChange}
+            retentionDays={retentionDays}
+            onUpgradeClick={onUpgradeClick}
+          />
+        )}
       </div>
     </div>
   );
