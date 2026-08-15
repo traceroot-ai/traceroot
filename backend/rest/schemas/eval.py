@@ -209,6 +209,10 @@ class UpsertResultRequest(BaseModel):
     attach the OTel ``trace_id``) cannot destroy them: absent → leave the existing
     scores untouched, ``[]`` → clear them, non-empty → replace them. Do not give
     this a ``default_factory=list``, which would collapse the first two cases.
+
+    Every optional field is a *partial* update: a key the caller omits keeps its
+    stored value, while an explicit null clears it. Sending ``scores`` replaces
+    the result's scores (``[]`` clears them); omitting it leaves them alone.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -225,6 +229,8 @@ class UpsertResultRequest(BaseModel):
     task_error: str | None = Field(default=None, max_length=10000)
     duration_ms: int | None = Field(default=None, ge=0)
     cost: float | None = Field(default=None, ge=0)
+    # None (absent) and [] (explicit clear) mean different things to the writer, so
+    # this deliberately has no default_factory.
     scores: list[ScoreInput] | None = Field(default=None, max_length=EVAL_SCORER_LIST_MAX)
 
 
