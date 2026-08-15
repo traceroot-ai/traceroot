@@ -107,7 +107,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
   const include = {
     evaluation: { select: { name: true } },
-    datasetVersion: { select: { label: true } },
+    datasetVersion: { select: { label: true, createTime: true, versionNumber: true } },
   };
 
   let runs: Awaited<ReturnType<typeof prisma.evaluationRun.findMany<{ include: typeof include }>>>;
@@ -307,6 +307,10 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
       evaluationName: r.evaluation.name,
       datasetName: datasetName.get(r.datasetId) ?? null,
       datasetVersionLabel: r.datasetVersion.label,
+      // Raw fields for the UI's time-sortable dataset-version snowflake (see
+      // lib/eval/snowflake); the list shows "<snowflake> <dataset name>".
+      datasetVersionCreatedAt: r.datasetVersion.createTime.toISOString(),
+      datasetVersionNumber: r.datasetVersion.versionNumber,
       cost,
       // Delta + regressed-case count only when trustworthy; otherwise null (UI shows —),
       // never a misleading number beside an incompatible baseline.

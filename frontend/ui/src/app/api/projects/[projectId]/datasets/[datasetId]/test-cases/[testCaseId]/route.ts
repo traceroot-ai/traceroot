@@ -96,3 +96,48 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     throw err;
   }
 }
+
+// DELETE — remove a test case. Like PATCH, this publishes a NEW dataset version
+// with the case dropped; earlier snapshots (and any run pinned to them) keep it,
+// so a delete is recoverable by viewing/branching an older version.
+export async function DELETE(_req: NextRequest, { params }: RouteParams) {
+  const authResult = await requireAuth();
+  if (authResult.error) return authResult.error;
+  const { projectId, datasetId, testCaseId } = await params;
+  const accessResult = await requireProjectAccess(authResult.user.id, projectId, Role.MEMBER);
+  if (accessResult.error) return accessResult.error;
+
+  // Guard before publishing so deleting a missing case never creates a no-op version.
+  const dataset = await prisma.dataset.findFirst({
+    where: { id: datasetId, projectId },
+    select: { currentVersionId: true },
+  });
+  if (!dataset) return errorResponse("Dataset not found", 404);
+  const exists = dataset.currentVersionId
+    ? await prisma.testCase.findFirst({
+        where: { datasetVersionId: dataset.currentVersionId, testCaseId },
+        select: { id: true },
+      })
+    : null;
+  if (!exists) return errorResponse("Test case not found in the current version", 404);
+
+  try {
+    const result = await publishDatasetVersion({
+      datasetId,
+      projectId,
+      createdBy: authResult.user.email ?? null,
+      note: `Deleted test case ${testCaseId}`,
+      transform: (current) => ({
+        focusTestCaseId: "",
+        cases: current.filter((seed) => seed.testCaseId !== testCaseId),
+      }),
+    });
+    return successResponse(result, 201);
+  } catch (err) {
+    if (err instanceof DatasetNotFound) return errorResponse("Dataset not found", 404);
+    if (err instanceof VersionConflict) {
+      return errorResponse("The dataset changed while deleting; please retry", 409);
+    }
+    throw err;
+  }
+}

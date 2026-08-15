@@ -623,12 +623,6 @@
           "required": false,
           "nullable": true
         },
-        "recorded_output": {
-          "type": "string",
-          "max_length": 1000000,
-          "required": false,
-          "nullable": true
-        },
         "metadata": {
           "type": "json_object",
           "required": false,

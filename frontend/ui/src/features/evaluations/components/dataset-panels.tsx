@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useRouter } from "next/navigation";
 import { Check, Copy, Database, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
@@ -29,6 +30,7 @@ export function NewDatasetPanel({
   onOpenChange: (open: boolean) => void;
 }) {
   const { toast } = useToast();
+  const router = useRouter();
   const create = useCreateDataset(projectId);
   const [state, setState] = React.useState<DatasetFormState>(emptyDatasetForm());
 
@@ -56,9 +58,11 @@ export function NewDatasetPanel({
     create.mutate(
       { name: state.name.trim(), description: state.description.trim() || null },
       {
-        onSuccess: () => {
+        onSuccess: (data) => {
           toast({ title: "Dataset created", tone: "success" });
           onOpenChange(false);
+          // Jump straight into the dataset that was just created.
+          router.push(`/projects/${projectId}/datasets/${data.dataset.id}`);
         },
         onError: (e) =>
           toast({ title: "Could not create dataset", description: String(e), tone: "warning" }),
@@ -67,40 +71,56 @@ export function NewDatasetPanel({
   };
 
   return (
-    <div className="animate-slide-in-right fixed inset-y-0 right-0 z-50 flex w-[560px] max-w-[96vw] flex-col border-l border-border bg-background shadow-xl">
-      <div className="flex shrink-0 items-center justify-between border-b border-border px-4 py-3">
-        <h2 className="text-[13px] font-semibold">New dataset</h2>
-        <button
-          type="button"
-          onClick={() => onOpenChange(false)}
-          aria-label="Close"
-          className="rounded-sm text-muted-foreground opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-1 focus:ring-ring"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+      {/* Dimmed backdrop; clicking it closes the modal. */}
+      <div
+        className="absolute inset-0 bg-black/40"
+        onClick={() => onOpenChange(false)}
+        aria-hidden
+      />
+      {/* Centered modal (matches the "Add to datasets" modal), not a side drawer. */}
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="new-dataset-title"
+        className="relative z-10 flex max-h-[90vh] w-[min(560px,94vw)] flex-col rounded-lg border border-border bg-background shadow-xl"
+      >
+        <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-3">
+          <h2 id="new-dataset-title" className="text-[13px] font-semibold">
+            New dataset
+          </h2>
+          <button
+            type="button"
+            onClick={() => onOpenChange(false)}
+            aria-label="Close"
+            className="rounded-sm text-muted-foreground opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-1 focus:ring-ring"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
 
-      <div className="min-h-0 flex-1 overflow-auto p-4">
-        <DatasetFormFields state={state} onChange={setState} />
-      </div>
+        <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
+          <DatasetFormFields state={state} onChange={setState} />
+        </div>
 
-      <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-4 py-3">
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-7 text-[12px]"
-          onClick={() => onOpenChange(false)}
-        >
-          Cancel
-        </Button>
-        <Button
-          size="sm"
-          className="h-7 text-[12px]"
-          onClick={handleCreate}
-          disabled={!canCreate || create.isPending}
-        >
-          {create.isPending ? "Creating…" : "Create dataset"}
-        </Button>
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border px-5 py-3">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-[12px]"
+            onClick={() => onOpenChange(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            className="h-7 text-[12px]"
+            onClick={handleCreate}
+            disabled={!canCreate || create.isPending}
+          >
+            {create.isPending ? "Creating…" : "Create"}
+          </Button>
+        </div>
       </div>
     </div>
   );

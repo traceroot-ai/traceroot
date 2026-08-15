@@ -103,7 +103,6 @@ export async function POST(request: Request, { params }: RouteParams) {
             input: ch.input !== undefined ? encodeJsonValue(ch.input) : (prev?.input ?? ""),
             expected:
               ch.expected === undefined ? (prev?.expected ?? null) : encodeJsonValue(ch.expected),
-            recordedOutput: prev?.recordedOutput ?? null,
             metadata: ch.metadata !== undefined ? ch.metadata : (prev?.metadata ?? null),
             review: prev?.review ?? "needs_review",
             captureReason: prev?.captureReason ?? "manual",

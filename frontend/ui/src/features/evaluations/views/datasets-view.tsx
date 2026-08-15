@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { SearchFilterBar } from "@/components/search-filter-bar";
@@ -10,14 +9,11 @@ import { useUrlPagination } from "@/lib/hooks/use-url-pagination";
 import { useToast } from "@/components/ui/toast";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { DatasetActionsMenu, Timestamp } from "@/features/offline-eval/components";
+import { Table, TBody, Td, Th, THead, TR, TRHead, TableEmpty } from "@/components/ui/table";
 import { useDatasets, useDeleteDataset, useEvaluations } from "../hooks";
 import type { DatasetRow } from "../types";
 import { NewDatasetPanel, DatasetEditPanel } from "../components/dataset-panels";
 import { DeleteDatasetDialog } from "../components/delete-dataset-dialog";
-
-const TH =
-  "h-7 whitespace-nowrap border-r border-border/50 px-3 text-left text-[12px] font-medium text-muted-foreground";
-const TD = "border-r border-border/50 px-3 py-1.5 text-[12px]";
 
 /**
  * Dataset list — the dataset library, wired to the server: tracing-style
@@ -84,31 +80,29 @@ export function DatasetsView({ projectId }: { projectId: string }) {
       <SearchFilterBar
         searchValue={keyword}
         onSearchChange={setKeyword}
-        searchPlaceholder="Search datasets..."
+        searchPlaceholder="Search..."
       >
         <span className="flex-1" aria-hidden />
       </SearchFilterBar>
 
       <div className="min-h-0 flex-1 overflow-auto">
-        <table className="w-full">
-          <thead className="sticky top-0 bg-background">
-            <tr className="border-b border-border bg-muted/50">
-              <th className={`${TH} w-[170px]`}>Last updated</th>
-              <th className={`${TH} w-[240px]`}>Dataset ID</th>
-              <th className={TH}>Name</th>
-              <th className={`${TH} w-[110px] text-right`}>Test cases</th>
-              <th className={`${TH} w-[90px] text-right`}>Versions</th>
-              <th className={`${TH} w-[110px] text-right`}>Evaluations</th>
-              <th className="w-[56px] px-2 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody>
+        <Table>
+          <THead>
+            <TRHead>
+              <Th className="w-[170px]">Updated At</Th>
+              <Th>Name</Th>
+              <Th className="w-[240px]">Dataset ID</Th>
+              <Th className="w-[110px] text-right">Items</Th>
+              <Th className="w-[90px] text-right">Versions</Th>
+              <Th className="w-[110px] text-right">Evaluations</Th>
+              <Th className="w-[56px] text-right">Actions</Th>
+            </TRHead>
+          </THead>
+          <TBody>
             {isLoading ? (
-              <RowMessage>Loading datasets...</RowMessage>
+              <TableEmpty colSpan={7}>Loading datasets...</TableEmpty>
             ) : error ? (
-              <RowMessage tone="destructive">
+              <TableEmpty colSpan={7}>
                 Error loading datasets.{" "}
                 <button
                   type="button"
@@ -117,62 +111,53 @@ export function DatasetsView({ projectId }: { projectId: string }) {
                 >
                   Try again
                 </button>
-              </RowMessage>
+              </TableEmpty>
             ) : datasets.length === 0 ? (
-              <RowMessage>
+              <TableEmpty colSpan={7}>
                 {keyword
                   ? "No datasets match your search."
                   : "No datasets yet — save a trace or span as a test case to start one."}
-              </RowMessage>
+              </TableEmpty>
             ) : (
               datasets.map((dataset) => {
                 const href = `/projects/${projectId}/datasets/${dataset.id}`;
                 return (
-                  <tr
-                    key={dataset.id}
-                    onClick={() => router.push(href)}
-                    className="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-muted/50"
-                  >
-                    <td className={`${TD} whitespace-nowrap text-muted-foreground`}>
+                  <TR key={dataset.id} interactive onClick={() => router.push(href)}>
+                    <Td className="whitespace-nowrap text-muted-foreground">
                       <Timestamp iso={dataset.updateTime} />
-                    </td>
-                    <td
-                      className={`${TD} max-w-[240px] truncate font-mono text-[11px] text-muted-foreground`}
+                    </Td>
+                    {/* Name is the row's primary identifier — dark like the detector
+                        list's name cell — but NOT a separate link: the whole row is the
+                        single click target (keyboard-reachable via the interactive TR),
+                        so there's no competing name link. */}
+                    <Td className="text-foreground">{dataset.name}</Td>
+                    <Td
+                      className="max-w-[240px] truncate font-mono text-[11px] text-muted-foreground"
                       title={dataset.id}
                     >
                       {dataset.id}
-                    </td>
-                    <td className={`${TD} font-medium`}>
-                      {/* A real link, not just a clickable <tr>: keyboard-reachable,
-                          and middle-click / open-in-new-tab / copy-link all work.
-                          The row's onClick above stays as a mouse convenience. */}
-                      <Link
-                        href={href}
-                        className="rounded outline-none hover:underline focus-visible:ring-1 focus-visible:ring-ring"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        {dataset.name}
-                      </Link>
-                    </td>
-                    <td className={`${TD} text-right tabular-nums`}>{dataset.caseCount}</td>
-                    <td className={`${TD} text-right tabular-nums text-muted-foreground`}>
+                    </Td>
+                    <Td className="text-right tabular-nums text-muted-foreground">
+                      {dataset.caseCount}
+                    </Td>
+                    <Td className="text-right tabular-nums text-muted-foreground">
                       {dataset.versionCount}
-                    </td>
-                    <td className={`${TD} text-right tabular-nums text-muted-foreground`}>
+                    </Td>
+                    <Td className="text-right tabular-nums text-muted-foreground">
                       {evalCountByDataset.get(dataset.id) ?? 0}
-                    </td>
-                    <td className="px-2 text-right">
+                    </Td>
+                    <Td className="text-right">
                       <DatasetActionsMenu
                         onEdit={() => setEditing(dataset)}
                         onDelete={() => setDeleteTarget(dataset)}
                       />
-                    </td>
-                  </tr>
+                    </Td>
+                  </TR>
                 );
               })
             )}
-          </tbody>
-        </table>
+          </TBody>
+        </Table>
       </div>
 
       {meta && meta.total > 0 && (
@@ -204,20 +189,5 @@ export function DatasetsView({ projectId }: { projectId: string }) {
         />
       )}
     </div>
-  );
-}
-
-function RowMessage({ children, tone }: { children: React.ReactNode; tone?: "destructive" }) {
-  return (
-    <tr>
-      <td
-        colSpan={7}
-        className={`px-3 py-10 text-center text-[12px] ${
-          tone ? "text-destructive" : "text-muted-foreground"
-        }`}
-      >
-        {children}
-      </td>
-    </tr>
   );
 }

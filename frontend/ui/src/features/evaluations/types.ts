@@ -90,9 +90,6 @@ export interface TestCaseRow {
   projectId: string;
   input: string;
   expected: string | null;
-  /** Recorded production output — kept on the row until the dataset-detail rework
-   *  that drops it (removed in the dataset-detail PR alongside the schema column). */
-  recordedOutput: string | null;
   metadata: unknown;
   review: ReviewStatus;
   captureReason: string;

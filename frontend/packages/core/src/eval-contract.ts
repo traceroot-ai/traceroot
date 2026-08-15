@@ -393,7 +393,6 @@ export const CreateTestCaseRequestSchema = z
   .object({
     input: z.string().max(EVAL_PAYLOAD_TEXT_MAX),
     expected: z.string().max(EVAL_PAYLOAD_TEXT_MAX).nullable().optional(),
-    recorded_output: z.string().max(EVAL_PAYLOAD_TEXT_MAX).nullable().optional(),
     metadata: MetadataSchema.nullable().optional(),
     review: ReviewStatusSchema.default("needs_review"),
     capture_reason: CaptureReasonSchema.default("manual"),

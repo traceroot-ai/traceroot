@@ -515,7 +515,6 @@ model TestCase {
   projectId        String   @map("project_id") @db.VarChar
   input            String   @db.Text
   expected         String?  @db.Text
-  recordedOutput   String?  @map("recorded_output") @db.Text
   metadata         Json?    @map("metadata") @db.JsonB
   review           String   @default("needs_review") @db.VarChar // "needs_review"|"ready"
   captureReason    String   @default("manual") @map("capture_reason") @db.VarChar // "manual"|"error"|"failed_tool"|"negative_feedback"

@@ -7,7 +7,7 @@
 import { it, expect, vi, beforeEach } from "vitest";
 
 const prismaMock = vi.hoisted(() => ({
-  evaluationResult: { findMany: vi.fn() },
+  evaluationResult: { findMany: vi.fn(), groupBy: vi.fn() },
 }));
 const auth = vi.hoisted(() => ({ requireAuth: vi.fn(), requireProjectAccess: vi.fn() }));
 
@@ -43,6 +43,8 @@ function resultRow(over: Record<string, unknown> = {}) {
       runNumber: 2,
       candidateVersion: "sonnet",
       startedAt: new Date("2026-07-21T00:00:00Z"),
+      datasetVersionId: "dv1",
+      caseCount: 3,
       evaluation: { name: "ticket-routing" },
     },
     ...over,
@@ -57,10 +59,15 @@ beforeEach(() => {
   vi.clearAllMocks();
   auth.requireAuth.mockResolvedValue({ user: { id: "u1" } });
   auth.requireProjectAccess.mockResolvedValue({ project: { id: "p1" } });
+  prismaMock.evaluationResult.groupBy.mockResolvedValue([]);
 });
 
-it("flattens each result into a run row with the run's identity and this case's score", async () => {
+it("flattens each result into a run row with the run's identity, version, score and run-level totals", async () => {
   prismaMock.evaluationResult.findMany.mockResolvedValue([resultRow()]);
+  // Run-level totals summed over all of run_2's cases (not just this one).
+  prismaMock.evaluationResult.groupBy.mockResolvedValue([
+    { runId: "run_2", _sum: { cost: 0.03, durationMs: 1500 } },
+  ]);
 
   const res = await GET({} as never, params);
   expect(res.status).toBe(200);
@@ -70,10 +77,14 @@ it("flattens each result into a run row with the run's identity and this case's 
     runNumber: 2,
     candidateVersion: "sonnet",
     evaluationName: "ticket-routing",
+    datasetVersionId: "dv1",
     ranAt: "2026-07-21T00:00:00.000Z",
     score: 1,
     status: "passed",
     change: "improved",
+    caseCount: 3,
+    cost: 0.03,
+    elapsedMs: 1500,
   });
 });
 

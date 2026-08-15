@@ -9,7 +9,7 @@
  * text is normalised to match, so what is saved is canonical.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, cleanup, screen } from "@testing-library/react";
+import { render, cleanup, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 vi.mock("@/lib/api/traces", () => ({
@@ -82,7 +82,7 @@ const valueOf = (label: string) =>
 describe("save-as-test-case seed formats", () => {
   it("expands Input even though it was captured compact", async () => {
     mount();
-    await screen.findByText("support-ticket-triage");
+    await waitFor(() => expect(valueOf("Input")).toContain("I was charged twice"));
     const input = valueOf("Input");
     expect(input).toContain("\n"); // pretty, not the captured one-liner
     expect(input).toContain('  "message": "I was charged twice"');
@@ -90,13 +90,13 @@ describe("save-as-test-case seed formats", () => {
 
   it("keeps Metadata on one line even though it was captured indented", async () => {
     mount();
-    await screen.findByText("support-ticket-triage");
+    await waitFor(() => expect(valueOf("Input")).toContain("I was charged twice"));
     expect(valueOf("Metadata")).toBe('{"suite":"smoke"}');
   });
 
   it("expands Output — the editable field that becomes the expected outcome", async () => {
     mount();
-    await screen.findByText("support-ticket-triage");
+    await waitFor(() => expect(valueOf("Input")).toContain("I was charged twice"));
     const output = valueOf("Output");
     expect(output).toContain("\n");
     expect(output).toContain('  "route": "billing"');

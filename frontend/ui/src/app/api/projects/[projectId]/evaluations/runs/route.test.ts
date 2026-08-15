@@ -89,7 +89,7 @@ it("derives regressedCaseCount + trustworthy delta + elapsedMs for a listed run"
     startedAt: new Date("2026-07-21T00:00:00Z"),
     completedAt: new Date("2026-07-21T00:00:05Z"),
     evaluation: { name: "ticket-routing" },
-    datasetVersion: { label: "v1" },
+    datasetVersion: { label: "v1", createTime: new Date("2026-07-16T00:00:00Z"), versionNumber: 1 },
   };
   const baselineRun = {
     id: "run_b",
@@ -203,7 +203,7 @@ it("shows null comparison fields for a run with no baseline", async () => {
       startedAt: new Date("2026-07-21T00:00:00Z"),
       completedAt: null,
       evaluation: { name: "e" },
-      datasetVersion: { label: "v1" },
+      datasetVersion: { label: "v1", createTime: new Date("2026-07-16T00:00:00Z"), versionNumber: 1 },
     },
   ]);
   prismaMock.evaluationRun.count.mockResolvedValue(1);
@@ -244,7 +244,7 @@ it("derives per-status counts for a listed run", async () => {
     startedAt: new Date("2026-07-21T00:00:00Z"),
     completedAt: new Date("2026-07-21T00:00:05Z"),
     evaluation: { name: "ticket-routing" },
-    datasetVersion: { label: "v1" },
+    datasetVersion: { label: "v1", createTime: new Date("2026-07-16T00:00:00Z"), versionNumber: 1 },
   };
   prismaMock.evaluationRun.findMany.mockResolvedValueOnce([run]);
   prismaMock.evaluationRun.count.mockResolvedValue(1);
@@ -284,7 +284,7 @@ it("returns the pass rate, derived from the same counts", async () => {
       startedAt: new Date("2026-07-21T00:00:00Z"),
       completedAt: new Date("2026-07-21T00:00:05Z"),
       evaluation: { name: "ticket-routing" },
-      datasetVersion: { label: "v1" },
+      datasetVersion: { label: "v1", createTime: new Date("2026-07-16T00:00:00Z"), versionNumber: 1 },
     },
   ]);
   prismaMock.evaluationRun.count.mockResolvedValue(1);
@@ -326,7 +326,7 @@ it("returns a null pass rate for an all-errored run, never 0", async () => {
       startedAt: new Date("2026-07-21T00:00:00Z"),
       completedAt: new Date("2026-07-21T00:00:05Z"),
       evaluation: { name: "ticket-routing" },
-      datasetVersion: { label: "v1" },
+      datasetVersion: { label: "v1", createTime: new Date("2026-07-16T00:00:00Z"), versionNumber: 1 },
     },
   ]);
   prismaMock.evaluationRun.count.mockResolvedValue(1);
@@ -362,7 +362,7 @@ it("reports a running duration for a mid-flight run with no completedAt", async 
       startedAt: new Date("2026-07-21T00:00:00Z"),
       completedAt: null,
       evaluation: { name: "ticket-routing" },
-      datasetVersion: { label: "v1" },
+      datasetVersion: { label: "v1", createTime: new Date("2026-07-16T00:00:00Z"), versionNumber: 1 },
     },
   ]);
   prismaMock.evaluationRun.count.mockResolvedValue(1);
@@ -402,7 +402,7 @@ it("reports zero counts for a run with no results, without extra queries", async
     startedAt: new Date("2026-07-21T00:00:00Z"),
     completedAt: null,
     evaluation: { name: "ticket-routing" },
-    datasetVersion: { label: "v1" },
+    datasetVersion: { label: "v1", createTime: new Date("2026-07-16T00:00:00Z"), versionNumber: 1 },
   };
   prismaMock.evaluationRun.findMany.mockResolvedValueOnce([run]);
   prismaMock.evaluationRun.count.mockResolvedValue(1);
@@ -440,7 +440,7 @@ it("prefers the derived counts over a stored scoredCount that disagrees", async 
     startedAt: new Date("2026-07-21T00:00:00Z"),
     completedAt: new Date("2026-07-21T00:00:05Z"),
     evaluation: { name: "ticket-routing" },
-    datasetVersion: { label: "v1" },
+    datasetVersion: { label: "v1", createTime: new Date("2026-07-16T00:00:00Z"), versionNumber: 1 },
   };
   prismaMock.evaluationRun.findMany.mockResolvedValueOnce([run]);
   prismaMock.evaluationRun.count.mockResolvedValue(1);
@@ -481,7 +481,7 @@ function run(overrides: Partial<Record<string, unknown>> = {}) {
     startedAt: new Date("2026-07-21T00:00:00Z"),
     completedAt: new Date("2026-07-21T00:00:05Z"),
     evaluation: { name: "ticket-routing" },
-    datasetVersion: { label: "v1" },
+    datasetVersion: { label: "v1", createTime: new Date("2026-07-16T00:00:00Z"), versionNumber: 1 },
     ...overrides,
   };
 }

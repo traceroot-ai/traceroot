@@ -83,7 +83,6 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
             input: encodeJsonValue(c.input),
             expected:
               c.expected === null || c.expected === undefined ? null : encodeJsonValue(c.expected),
-            recordedOutput: c.recorded_output ?? null,
             metadata: (c.metadata ?? null) as Record<string, unknown> | null,
             review: c.review,
             captureReason: c.capture_reason,
