@@ -3,24 +3,25 @@ import {
   prisma,
   PublishDatasetVersionRequestSchema,
   DATASET_VERSION_MAX_CHANGES,
+  DATASET_VERSION_MAX_BYTES,
+  serializedByteLength,
 } from "@traceroot/core";
 import { requireApiKeyProject } from "@/lib/eval/auth";
 import {
   publishDatasetVersion,
+  resolvePublicDataset,
   DatasetNotFound,
   VersionConflict,
   type TestCaseSeed,
 } from "@/lib/eval/versions";
+import { encodeJsonValue } from "@/lib/eval/json-value";
+import { readLimitedJson } from "@/lib/eval/body";
+import { isPrismaKnownError, prismaErrorTarget } from "@/lib/eval/prisma-errors";
 
 type RouteParams = { params: Promise<{ datasetId: string }> };
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
-
-/** input/expected arrive as any JSON; store as text (non-strings are stringified). */
-function toText(value: unknown): string {
-  return typeof value === "string" ? value : JSON.stringify(value);
-}
 
 // POST /api/public/datasets/[datasetId]/versions — publish ONE immutable version
 // from a batch of test-case changes (A4). One call → one version, atomically.
@@ -32,13 +33,19 @@ export async function POST(request: Request, { params }: RouteParams) {
   const { projectId } = auth;
   const { datasetId } = await params;
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  // Bound the body on the wire, BEFORE it is buffered and parsed: a count cap
+  // cannot stop 1000 changes each carrying a multi-megabyte `input`, and by the
+  // time a parsed payload could be measured it is already resident in memory.
+  const body = await readLimitedJson(request, DATASET_VERSION_MAX_BYTES);
+  if (!body.ok) {
+    return NextResponse.json(
+      body.status === 413
+        ? { error: body.error, limit_bytes: DATASET_VERSION_MAX_BYTES }
+        : { error: body.error },
+      { status: body.status },
+    );
   }
-  const parsed = PublishDatasetVersionRequestSchema.safeParse(body);
+  const parsed = PublishDatasetVersionRequestSchema.safeParse(body.value);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
   }
@@ -51,17 +58,28 @@ export async function POST(request: Request, { params }: RouteParams) {
     );
   }
 
-  // Resolve the SDK client id to the internal row id; `publishDatasetVersion` (also
-  // called by internal UI routes) keys on the internal id.
-  const ds = await prisma.dataset.findUnique({
-    where: { projectId_clientDatasetId: { projectId, clientDatasetId: datasetId } },
-    select: { id: true },
-  });
-  if (!ds) return NextResponse.json({ error: "Dataset not found" }, { status: 404 });
+  // Per-value caps live in the contract; this bounds their SUM, which is what the
+  // transaction actually writes.
+  const totalBytes = c.changes.reduce(
+    (sum, ch) =>
+      ch.op !== "upsert"
+        ? sum
+        : sum +
+          serializedByteLength(ch.input) +
+          serializedByteLength(ch.expected) +
+          serializedByteLength(ch.metadata),
+    0,
+  );
+  if (totalBytes > DATASET_VERSION_MAX_BYTES) {
+    return NextResponse.json(
+      { error: "Publish payload too large", limit_bytes: DATASET_VERSION_MAX_BYTES },
+      { status: 413 },
+    );
+  }
 
   try {
     const result = await publishDatasetVersion({
-      datasetId: ds.id,
+      clientDatasetId: datasetId,
       projectId,
       label: c.label,
       baseVersionId: c.base_version_id,
@@ -80,8 +98,11 @@ export async function POST(request: Request, { params }: RouteParams) {
           const prev = byId.get(ch.test_case_id);
           byId.set(ch.test_case_id, {
             testCaseId: ch.test_case_id,
-            input: ch.input !== undefined ? toText(ch.input) : (prev?.input ?? ""),
-            expected: ch.expected === undefined ? (prev?.expected ?? null) : toText(ch.expected),
+            // Store input/expected JSON-ENCODED so native types (incl. genuine
+            // JSON-looking strings) round-trip on read. See lib/eval/json-value.
+            input: ch.input !== undefined ? encodeJsonValue(ch.input) : (prev?.input ?? ""),
+            expected:
+              ch.expected === undefined ? (prev?.expected ?? null) : encodeJsonValue(ch.expected),
             recordedOutput: prev?.recordedOutput ?? null,
             metadata: ch.metadata !== undefined ? ch.metadata : (prev?.metadata ?? null),
             review: prev?.review ?? "needs_review",
@@ -124,6 +145,41 @@ export async function POST(request: Request, { params }: RouteParams) {
         { status: 409 },
       );
     }
+    // Backstop for a constraint violation that outlived the retries in
+    // publishDatasetVersion. An SDK that retries on 409 and treats a repeated
+    // 200 as success must never see an opaque 500 here — least of all for an
+    // idempotency key, where a 500 leaves it unable to tell if the publish landed.
+    if (isPrismaKnownError(err, "P2002")) {
+      const dataset = await resolvePublicDataset(prisma, projectId, datasetId);
+      const target = prismaErrorTarget(err);
+      if (dataset && c.idempotency_key && target.includes("idempotency")) {
+        const landed = await prisma.datasetVersion.findFirst({
+          where: { datasetId: dataset.id, idempotencyKey: c.idempotency_key },
+          select: { id: true, versionNumber: true },
+        });
+        if (landed) {
+          return NextResponse.json(
+            {
+              dataset_id: datasetId,
+              dataset_version_id: landed.id,
+              version_number: landed.versionNumber,
+              case_count: await prisma.testCase.count({
+                where: { datasetVersionId: landed.id },
+              }),
+            },
+            { status: 200 },
+          );
+        }
+      }
+      return NextResponse.json(
+        {
+          error: "conflict",
+          base_version_id: c.base_version_id,
+          current_version_id: dataset?.currentVersionId ?? null,
+        },
+        { status: 409 },
+      );
+    }
     throw err;
   }
 }
@@ -136,22 +192,14 @@ export async function GET(request: Request, { params }: RouteParams) {
   const { projectId } = auth;
   const { datasetId } = await params;
 
-  // The SDK id is the project-scoped client id; resolve it to the internal row id
-  // before querying versions (whose `datasetId` FK is the internal id, not the client one).
-  const dataset = await prisma.dataset.findUnique({
-    where: { projectId_clientDatasetId: { projectId, clientDatasetId: datasetId } },
-    select: { id: true, currentVersionId: true },
-  });
+  const dataset = await resolvePublicDataset(prisma, projectId, datasetId);
   if (!dataset) return NextResponse.json({ error: "Dataset not found" }, { status: 404 });
 
   const url = new URL(request.url);
   const rawLimit = Number(url.searchParams.get("limit"));
-  // Floor THEN clamp: a positive fraction floors to 0, an empty page whose cursor
-  // still dereferences its last row — a 500. Clamp the floored value to at least 1.
-  const flooredLimit = Math.floor(rawLimit);
   const limit =
-    Number.isFinite(rawLimit) && flooredLimit >= 1
-      ? Math.min(flooredLimit, MAX_LIMIT)
+    Number.isFinite(rawLimit) && rawLimit > 0
+      ? Math.min(Math.floor(rawLimit), MAX_LIMIT)
       : DEFAULT_LIMIT;
   const cursor = url.searchParams.get("cursor");
 
@@ -165,26 +213,16 @@ export async function GET(request: Request, { params }: RouteParams) {
 
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
-  // One grouped aggregate for every page version's case count — not a per-row count
-  // query (up to `limit` round-trips) on a public endpoint.
-  const versionIds = page.map((v) => v.id);
-  const caseCounts =
-    versionIds.length > 0
-      ? await prisma.testCase.groupBy({
-          by: ["datasetVersionId"],
-          where: { datasetVersionId: { in: versionIds } },
-          _count: { _all: true },
-        })
-      : [];
-  const countByVersion = new Map(caseCounts.map((c) => [c.datasetVersionId, c._count._all]));
-  const versions = page.map((v) => ({
-    dataset_version_id: v.id,
-    version_number: v.versionNumber,
-    label: v.label,
-    note: v.note,
-    case_count: countByVersion.get(v.id) ?? 0,
-    created_at: v.createTime.toISOString(),
-    is_current: v.id === dataset.currentVersionId,
-  }));
+  const versions = await Promise.all(
+    page.map(async (v) => ({
+      dataset_version_id: v.id,
+      version_number: v.versionNumber,
+      label: v.label,
+      note: v.note,
+      case_count: await prisma.testCase.count({ where: { datasetVersionId: v.id } }),
+      created_at: v.createTime.toISOString(),
+      is_current: v.id === dataset.currentVersionId,
+    })),
+  );
   return NextResponse.json({ versions, next_cursor: hasMore ? page[page.length - 1].id : null });
 }
