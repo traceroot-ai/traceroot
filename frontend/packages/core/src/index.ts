@@ -31,7 +31,6 @@ export type {
   EvaluationRun,
   EvaluationResult,
   Score,
-  HumanScore,
 } from "@prisma/client";
 
 // Constants & Zod schemas

@@ -107,32 +107,6 @@ export interface ScoreRow {
   error: string | null;
 }
 
-export interface HumanScoreRow {
-  id: string;
-  /** Named review dimension (default "overall"); one canonical review per (result, dimension). */
-  dimension: string;
-  verdict: string;
-  quality: number | null;
-  comment: string | null;
-  reviewer: string;
-  /** Review lifecycle status (V1: "reviewed"). */
-  status: string;
-  createTime: string;
-  updateTime: string;
-}
-
-/** Run-level human-review summary, derived read-only from reviews + automated status. */
-export interface HumanReviewSummary {
-  /** Dimensions with at least one review in the run — the active/configured set. */
-  dimensions: string[];
-  reviewedCount: number;
-  pendingCount: number;
-  passCount: number;
-  failCount: number;
-  /** Reviews whose human pass/fail verdict disagrees with the automated pass/fail. */
-  disagreementCount: number;
-}
-
 export interface ResultRow {
   id: string;
   runId: string;
@@ -150,7 +124,6 @@ export interface ResultRow {
   cost: number | null;
   createTime: string;
   scores: ScoreRow[];
-  humanScores: HumanScoreRow[];
   /** Backend-derived candidate-vs-baseline comparison for this result. */
   comparison: ResultRowComparison | null;
 }
@@ -204,8 +177,6 @@ export interface RunDetail extends RunRow {
   elapsedMs: number | null;
   /** The backend-derived run-level comparison (single source of truth). */
   comparison: RunComparison;
-  /** Derived human-review summary; automated signals are never affected by it. */
-  humanReview: HumanReviewSummary;
 }
 
 export interface RunDetailResponse {

@@ -84,9 +84,6 @@ export const ReviewStatusSchema = z.enum(REVIEW_STATUSES);
 export const CAPTURE_REASONS = ["manual", "error", "failed_tool", "negative_feedback"] as const;
 export const CaptureReasonSchema = z.enum(CAPTURE_REASONS);
 
-export const HUMAN_VERDICTS = ["pass", "fail", "unsure"] as const;
-export const HumanVerdictSchema = z.enum(HUMAN_VERDICTS);
-
 // ---------------------------------------------------------------------------
 // Scorer descriptor — name + version recorded on every run and score
 // ---------------------------------------------------------------------------
@@ -455,18 +452,6 @@ export const SaveResultToDatasetRequestSchema = z
   })
   .strict();
 export type SaveResultToDatasetRequest = z.infer<typeof SaveResultToDatasetRequestSchema>;
-
-export const CreateHumanScoreRequestSchema = z
-  .object({
-    /** Named review dimension; defaults to the single "overall" dimension. */
-    dimension: z.string().min(1).max(100).default("overall"),
-    verdict: HumanVerdictSchema,
-    quality: z.number().int().min(1).max(5).nullable().optional(),
-    comment: z.string().max(5000).nullable().optional(),
-    reviewer: z.string().min(1).max(200),
-  })
-  .strict();
-export type CreateHumanScoreRequest = z.infer<typeof CreateHumanScoreRequestSchema>;
 
 // ---------------------------------------------------------------------------
 // API-key dataset authoring (SDK owns dataset_id / test_case_id; server owns

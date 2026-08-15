@@ -85,7 +85,6 @@ function candidate(over: Record<string, unknown> = {}) {
         durationMs: 900,
         cost: null,
         scores: [score("acc", 1)],
-        humanScores: [],
       },
       {
         id: "r_b",
@@ -102,7 +101,6 @@ function candidate(over: Record<string, unknown> = {}) {
         durationMs: 1000,
         cost: null,
         scores: [score("acc", 0)],
-        humanScores: [],
       },
     ],
     ...over,
@@ -226,15 +224,14 @@ it("derives per-status counts from the run's own results", async () => {
     candidate({
       baselineRunId: null,
       results: [
-        { id: "r1", testCaseId: "t0", status: "passed", scores: [], humanScores: [] },
-        { id: "r2", testCaseId: "t1", status: "failed", scores: [], humanScores: [] },
+        { id: "r1", testCaseId: "t0", status: "passed", scores: [] },
+        { id: "r2", testCaseId: "t1", status: "failed", scores: [] },
         {
           id: "r3",
           testCaseId: "t2",
           status: "errored",
 
           scores: [],
-          humanScores: [],
         },
       ],
     }),

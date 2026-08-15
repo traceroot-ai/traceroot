@@ -639,46 +639,6 @@
         }
       }
     },
-    "CreateHumanScoreRequest": {
-      "kind": "object",
-      "unknown_keys": "forbid",
-      "fields": {
-        "dimension": {
-          "type": "string",
-          "min_length": 1,
-          "max_length": 100,
-          "required": false,
-          "nullable": false,
-          "default": "overall"
-        },
-        "verdict": {
-          "type": "enum",
-          "enum": ["pass", "fail", "unsure"],
-          "required": true,
-          "nullable": false
-        },
-        "quality": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 5,
-          "required": false,
-          "nullable": true
-        },
-        "comment": {
-          "type": "string",
-          "max_length": 5000,
-          "required": false,
-          "nullable": true
-        },
-        "reviewer": {
-          "type": "string",
-          "min_length": 1,
-          "max_length": 200,
-          "required": true,
-          "nullable": false
-        }
-      }
-    },
     "PublicUpsertDatasetRequest": {
       "kind": "object",
       "unknown_keys": "forbid",

@@ -13,7 +13,6 @@ export {
   EmptyState,
 } from "./page-chrome";
 export { CreateDrawer, FormCard, AdvancedSection } from "./form-kit";
-export { ReviewPanel, type ReviewTarget } from "./review-panel";
 export { TestCaseReviewDrawer, type TestCaseReviewTarget } from "./test-case-review-drawer";
 export { useRowSelection, SelectAllHeaderCell, SelectRowCell, BulkActionBar } from "./selection";
 export { UploadControl } from "./upload-control";
