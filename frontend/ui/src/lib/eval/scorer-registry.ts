@@ -59,6 +59,7 @@ function emptyDefinition(): ScorerDefinition {
 export interface ScorerRow extends ScorerDefinition {
   name: string;
   version: string;
+  /** Rows that actually produced a value (excludes errored attempts). */
   scoreCount: number;
   errorCount: number;
   errorRate: number;
@@ -77,6 +78,14 @@ export interface ScorerRow extends ScorerDefinition {
   recentErrors: Array<{ message: string; at: string }>;
   /** Always "SDK" — the catalog only ever shows what the SDK reported. */
   source: "SDK";
+  /** Fingerprint of the latest-reported definition (null when no definition was ever
+   *  reported). Lets the UI tell whether `distinctDefinitions` above 1 means this
+   *  exact definition, or one since superseded, is what the aggregates reflect. */
+  definitionHash: string | null;
+  /** How many distinct definition fingerprints were reported under this identical
+   *  (name, version) key. >1 means the pooled aggregates below span genuinely
+   *  different measurement instruments (see module docs on identity). */
+  distinctDefinitions: number;
 }
 
 interface Agg {
@@ -84,7 +93,10 @@ interface Agg {
   version: string;
   total: number;
   errored: number;
-  numericValues: number[];
+  numSum: number;
+  numMin: number;
+  numMax: number;
+  numCount: number;
   passedTrue: number;
   passedTotal: number;
   boolTrue: number;
@@ -97,6 +109,31 @@ interface Agg {
   seenNumeric: boolean;
   seenBool: boolean;
   seenString: boolean;
+}
+
+function newAgg(name: string, version: string): Agg {
+  return {
+    name,
+    version,
+    total: 0,
+    errored: 0,
+    numSum: 0,
+    numMin: Infinity,
+    numMax: -Infinity,
+    numCount: 0,
+    passedTrue: 0,
+    passedTotal: 0,
+    boolTrue: 0,
+    boolFalse: 0,
+    categories: new Map(),
+    runIds: new Set(),
+    evaluationIds: new Set(),
+    lastUsed: 0,
+    recentErrors: [],
+    seenNumeric: false,
+    seenBool: false,
+    seenString: false,
+  };
 }
 
 function inferValueType(a: Agg): InferredValueType {
@@ -129,11 +166,37 @@ function declaredByKey(runManifests: Array<{ scorers: unknown }>) {
   return declared;
 }
 
-/** Latest-reported scorer DEFINITION per (name, version), read from the raw manifest.
- *  A later run that reports any definition field wins (definition is part of identity;
- *  changing it should bump the scorer version). Unknown fields are ignored. */
-function definitionByKey(runManifests: Array<{ scorers: unknown }>) {
+/** Cheap, non-cryptographic fingerprint of a definition payload — good enough to
+ *  detect "two manifests disagree", not to dedupe against an adversary. */
+function hashDefinition(def: ScorerDefinition): string {
+  const payload = JSON.stringify([
+    def.scorerType,
+    def.outputType,
+    def.model,
+    def.messages,
+    def.language,
+    def.sourceCode,
+  ]);
+  let h = 0;
+  for (let i = 0; i < payload.length; i++) {
+    h = (Math.imul(h, 31) + payload.charCodeAt(i)) | 0;
+  }
+  return h.toString(36);
+}
+
+/** Latest-reported scorer DEFINITION per (name, version), read from the raw manifest,
+ *  plus every distinct definition fingerprint observed under that key. A later run
+ *  that reports any definition field wins for the returned definition (definition is
+ *  part of identity; changing it should bump the scorer version) — but `hashesByKey`
+ *  still records when more than one distinct definition was reported under the same
+ *  key, so callers can flag that the pooled aggregates span more than one instrument.
+ *  Unknown fields are ignored. */
+function definitionByKey(runManifests: Array<{ scorers: unknown }>): {
+  map: Map<string, ScorerDefinition>;
+  hashesByKey: Map<string, Set<string>>;
+} {
   const map = new Map<string, ScorerDefinition>();
+  const hashesByKey = new Map<string, Set<string>>();
   for (const run of runManifests) {
     if (!Array.isArray(run.scorers)) continue;
     for (const raw of run.scorers) {
@@ -186,10 +249,34 @@ function definitionByKey(runManifests: Array<{ scorers: unknown }>) {
         def.sourceCode = o.source;
         any = true;
       }
-      if (any) map.set(`${o.name}@${version}`, def);
+      if (any) {
+        const key = `${o.name}@${version}`;
+        map.set(key, def);
+        let hashes = hashesByKey.get(key);
+        if (!hashes) {
+          hashes = new Set();
+          hashesByKey.set(key, hashes);
+        }
+        hashes.add(hashDefinition(def));
+      }
     }
   }
-  return map;
+  return { map, hashesByKey };
+}
+
+/** Every (name, version) pair any run manifest referenced, regardless of whether it
+ *  carried rich fields — used to seed a catalog row for a scorer that has been
+ *  declared but never yet scored (or a version whose first result hasn't landed). */
+function allManifestKeys(
+  runManifests: Array<{ scorers: unknown }>,
+): Map<string, { name: string; version: string }> {
+  const keys = new Map<string, { name: string; version: string }>();
+  for (const run of runManifests) {
+    for (const s of parseScorers(run.scorers)) {
+      keys.set(`${s.name}@${s.version}`, { name: s.name, version: s.version });
+    }
+  }
+  return keys;
 }
 
 /**
@@ -202,32 +289,14 @@ export function aggregateScorers(
   runManifests: Array<{ scorers: unknown }>,
 ): ScorerRow[] {
   const declared = declaredByKey(runManifests);
-  const definitions = definitionByKey(runManifests);
+  const { map: definitions, hashesByKey } = definitionByKey(runManifests);
   const byKey = new Map<string, Agg>();
 
   for (const s of scores) {
     const key = `${s.scorerName}@${s.scorerVersion}`;
     let a = byKey.get(key);
     if (!a) {
-      a = {
-        name: s.scorerName,
-        version: s.scorerVersion,
-        total: 0,
-        errored: 0,
-        numericValues: [],
-        passedTrue: 0,
-        passedTotal: 0,
-        boolTrue: 0,
-        boolFalse: 0,
-        categories: new Map(),
-        runIds: new Set(),
-        evaluationIds: new Set(),
-        lastUsed: 0,
-        recentErrors: [],
-        seenNumeric: false,
-        seenBool: false,
-        seenString: false,
-      };
+      a = newAgg(s.scorerName, s.scorerVersion);
       byKey.set(key, a);
     }
     a.total += 1;
@@ -245,7 +314,10 @@ export function aggregateScorers(
       else a.boolFalse += 1;
     } else if (s.numericValue !== null) {
       a.seenNumeric = true;
-      a.numericValues.push(s.numericValue);
+      a.numCount += 1;
+      a.numSum += s.numericValue;
+      if (s.numericValue < a.numMin) a.numMin = s.numericValue;
+      if (s.numericValue > a.numMax) a.numMax = s.numericValue;
     } else if (s.stringValue !== null) {
       a.seenString = true;
       a.categories.set(s.stringValue, (a.categories.get(s.stringValue) ?? 0) + 1);
@@ -256,18 +328,20 @@ export function aggregateScorers(
     }
   }
 
+  // Seed a zero-count row for every (name, version) a manifest declared but that
+  // never produced a Score row — a version declared and not yet scored (or whose
+  // first result hasn't landed) should still resolve.
+  for (const [key, { name, version }] of allManifestKeys(runManifests)) {
+    if (!byKey.has(key)) byKey.set(key, newAgg(name, version));
+  }
+
   return [...byKey.values()]
     .map((a): ScorerRow => {
-      const meta = declared.get(`${a.name}@${a.version}`) ?? null;
-      const nums = a.numericValues;
+      const key = `${a.name}@${a.version}`;
+      const meta = declared.get(key) ?? null;
       const numeric =
-        nums.length > 0
-          ? {
-              mean: nums.reduce((x, y) => x + y, 0) / nums.length,
-              min: Math.min(...nums),
-              max: Math.max(...nums),
-              count: nums.length,
-            }
+        a.numCount > 0
+          ? { mean: a.numSum / a.numCount, min: a.numMin, max: a.numMax, count: a.numCount }
           : null;
       let distribution: Array<{ label: string; count: number }> | null = null;
       if (a.seenBool && !a.seenNumeric && !a.seenString) {
@@ -281,11 +355,15 @@ export function aggregateScorers(
           .sort((x, y) => y.count - x.count)
           .slice(0, 8);
       }
+      const definition = definitions.get(key) ?? null;
+      const hashes = hashesByKey.get(key);
       return {
-        ...(definitions.get(`${a.name}@${a.version}`) ?? emptyDefinition()),
+        ...(definition ?? emptyDefinition()),
         name: a.name,
         version: a.version,
-        scoreCount: a.total,
+        // Rows that actually produced a value — an all-errored scorer reports 0,
+        // never `total`, so it doesn't read as having "scored" anything.
+        scoreCount: a.total - a.errored,
         errorCount: a.errored,
         errorRate: a.total > 0 ? a.errored / a.total : 0,
         valueType: inferValueType(a),
@@ -295,6 +373,8 @@ export function aggregateScorers(
         numeric,
         passRate: a.passedTotal > 0 ? a.passedTrue / a.passedTotal : null,
         distribution,
+        definitionHash: definition ? hashDefinition(definition) : null,
+        distinctDefinitions: hashes?.size ?? 0,
         runCount: a.runIds.size,
         evaluationCount: a.evaluationIds.size,
         lastUsed: a.lastUsed > 0 ? new Date(a.lastUsed).toISOString() : null,
