@@ -17,7 +17,6 @@ import {
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ModelSelector } from "@/features/ai-assistant/components/model-selector";
 import {
   Select,
   SelectContent,
@@ -880,7 +879,16 @@ function ScorersTab({ projectId }: { projectId: string }) {
                     key={key}
                     interactive
                     selected={key === openKey}
+                    tabIndex={0}
+                    role="button"
+                    aria-expanded={key === openKey}
                     onClick={() => setOpenKey(key)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setOpenKey(key);
+                      }
+                    }}
                   >
                     <Td>
                       <span className="flex items-baseline gap-1.5">
@@ -956,6 +964,17 @@ const LANGUAGE_LABEL: Record<"python" | "typescript", string> = {
   typescript: "TypeScript",
 };
 
+const OUTPUT_TYPE_LABEL: Record<NonNullable<ScorerRegistryRow["outputType"]>, string> = {
+  score: "Score",
+  classification: "Classification",
+};
+
+const DIRECTION_LABEL: Record<NonNullable<ScorerRegistryRow["direction"]>, string> = {
+  higher_is_better: "Higher is better",
+  lower_is_better: "Lower is better",
+  none: "None",
+};
+
 /** The scorer's type — declared by the SDK, or derived from which definition fields it
  *  reported (code source ⇒ code; model/messages ⇒ judge). Never guessed from the name. */
 function scorerKind(s: ScorerRegistryRow): "llm_judge" | "code" | null {
@@ -979,6 +998,17 @@ function definitionTypeLabel(
 /** For a field the SDK does not (yet) register — shown as a plain em dash. */
 function NotProvided() {
   return <span className="text-muted-foreground">—</span>;
+}
+
+/** Labeled value inside a card — a muted caption over the value, for cards that
+ *  hold several small fields (Config, Usage) rather than one big one. */
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-[11px] text-muted-foreground">{label}</span>
+      <span className="text-[13px]">{children}</span>
+    </div>
+  );
 }
 
 /** Bordered card with a muted header strip — mirrors the detector detail panel. */
@@ -1111,29 +1141,39 @@ function ScorerDetail({
   scorer: ScorerRegistryRow;
   kind: "llm_judge" | "code" | null;
 }) {
-  const systemPrompt = scorer.messages?.find((m) => m.role === "system")?.content ?? null;
   return (
     <div className="flex flex-col gap-3 p-4">
-      {/* Name — read-only, in the detector's editable-field chrome. */}
+      {/* Name — static text; an input box is edit chrome for a value that can
+          never be edited here. */}
       <ScorerCard title="Name">
-        <Input value={scorer.name} readOnly className="h-7 text-[13px]" />
+        <span className="text-[13px] font-medium">{scorer.name}</span>
       </ScorerCard>
 
-      {/* Model — the detector's model dropdown, rendered read-only (the wrapper
-          blocks pointer + focus, so it shows the model but never opens). */}
+      {/* Model — the SDK-reported model id as plain text. Not the live ModelSelector:
+          that control fabricates "Select model" when the SDK reports none (the one
+          surface whose contract is an honest em dash for unreported fields) and, even
+          wrapped in pointer-events-none, leaves a focusable, keyboard-openable popover
+          trigger in the tab order. */}
       {kind === "llm_judge" && (
         <ScorerCard title="Model">
-          <div className="pointer-events-none [&_*]:pointer-events-none">
-            <ModelSelector
-              value={{ model: scorer.model ?? "", provider: "", source: "system", adapter: "" }}
-              onChange={() => {}}
-            />
-          </div>
+          {scorer.model ? (
+            <span className="font-mono text-[12px]">{scorer.model}</span>
+          ) : (
+            <NotProvided />
+          )}
         </ScorerCard>
       )}
 
-      {/* Prompt (LLM judge) or code snippet (code scorer). */}
-      {kind === "code" ? (
+      {/* Definition: an undeclared scorer (kind === null) says so plainly instead of
+          being rendered with the shape of a judge with a missing prompt. Code/prompt
+          only render once the SDK actually reported that shape. */}
+      {kind === null ? (
+        <ScorerCard title="Definition">
+          <span className="text-muted-foreground">
+            This scorer hasn’t reported a definition. Scorers are defined in your SDK code.
+          </span>
+        </ScorerCard>
+      ) : kind === "code" ? (
         <ScorerCard
           title="Code"
           action={
@@ -1158,14 +1198,23 @@ function ScorerDetail({
         </ScorerCard>
       ) : (
         <ScorerCard title="Prompt">
-          {systemPrompt ? (
-            <LineNumberedTextarea
-              value={systemPrompt}
-              onChange={() => {}}
-              readOnly
-              fontClassName="text-[12px] leading-[20px]"
-              aria-label="System prompt"
-            />
+          {scorer.messages?.length ? (
+            <div className="flex flex-col gap-3">
+              {scorer.messages.map((m, i) => (
+                <div key={i} className="flex flex-col gap-1">
+                  <span className="text-[11px] uppercase text-muted-foreground">{m.role}</span>
+                  <LineNumberedTextarea
+                    value={m.content}
+                    onChange={() => {}}
+                    readOnly
+                    collapsed
+                    collapseAt={4000}
+                    fontClassName="text-[12px] leading-[20px]"
+                    aria-label={`${m.role} message`}
+                  />
+                </div>
+              ))}
+            </div>
           ) : (
             <NotProvided />
           )}
@@ -1193,6 +1242,63 @@ function ScorerDetail({
           </div>
         ) : (
           <NotProvided />
+        )}
+      </ScorerCard>
+
+      {/* Config — the scorer's declared shape, independent of how it's been used:
+          output type, the direction a comparison should read a delta as an
+          improvement, free-form description, and any SDK-attached metadata. */}
+      <ScorerCard title="Config">
+        <div className="flex flex-col gap-2">
+          <Field label="Output type">
+            {scorer.outputType ? OUTPUT_TYPE_LABEL[scorer.outputType] : <NotProvided />}
+          </Field>
+          <Field label="Direction">
+            {scorer.direction ? DIRECTION_LABEL[scorer.direction] : <NotProvided />}
+          </Field>
+          <Field label="Description">{scorer.description ?? <NotProvided />}</Field>
+          <Field label="Metadata">
+            {scorer.metadata != null ? (
+              <pre className="whitespace-pre-wrap break-all font-mono text-[11px]">
+                {JSON.stringify(scorer.metadata, null, 2)}
+              </pre>
+            ) : (
+              <NotProvided />
+            )}
+          </Field>
+        </div>
+      </ScorerCard>
+
+      {/* Usage — observed from reported runs. For an undeclared scorer this is the
+          only thing there is to show, and it's useful context for every scorer. */}
+      <ScorerCard title="Usage">
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <Field label="Evaluations">{scorer.evaluationCount}</Field>
+          <Field label="Runs">{scorer.runCount}</Field>
+          <Field label="Scores">{scorer.scoreCount.toLocaleString("en-US")}</Field>
+          <Field label="Pass rate">
+            {scorer.passRate === null ? <NotProvided /> : `${(scorer.passRate * 100).toFixed(1)}%`}
+          </Field>
+          <Field label="Error rate">
+            {scorer.errorRate > 0 ? (
+              <span className={SENTIMENT_CLASS.bad}>{(scorer.errorRate * 100).toFixed(1)}%</span>
+            ) : (
+              "0%"
+            )}
+          </Field>
+          <Field label="Last used">
+            {scorer.lastUsed ? <Timestamp iso={scorer.lastUsed} /> : <NotProvided />}
+          </Field>
+        </div>
+        {scorer.recentErrors.length > 0 && (
+          <div className="mt-3 flex flex-col gap-1 border-t border-border pt-2">
+            <span className="text-[11px] font-medium text-muted-foreground">Recent errors</span>
+            {scorer.recentErrors.map((e, i) => (
+              <div key={i} className="text-[11px] text-muted-foreground">
+                <Timestamp iso={e.at} /> — {e.message}
+              </div>
+            ))}
+          </div>
         )}
       </ScorerCard>
     </div>
