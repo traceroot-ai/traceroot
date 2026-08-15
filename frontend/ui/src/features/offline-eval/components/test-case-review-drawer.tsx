@@ -11,7 +11,11 @@ import {
   DrawerHeader,
   DrawerTitle,
 } from "@/components/ui/drawer";
+import { EditableValueBlock } from "./code";
 import type { ReviewStatus } from "../types";
+
+/** Read-only fields never edit, so onChange is a no-op. */
+const noop = () => {};
 
 /**
  * Review test case — the server-wired review drawer. Submitting persists
@@ -85,25 +89,47 @@ export function TestCaseReviewDrawer({
             (Pass / Fail / quality) happens elsewhere.
           </p>
 
-          <div>
-            <p className="mb-1 text-[11px] text-muted-foreground">Input</p>
-            <div className="rounded border border-border bg-muted/20 px-2.5 py-2 leading-relaxed">
-              {target.input || <span className="text-muted-foreground">—</span>}
+          {target.input ? (
+            <EditableValueBlock
+              label="Input"
+              text={target.input}
+              onChange={noop}
+              readOnly
+              boxed
+              copyable
+              autoDetectKind
+              minRows={2}
+            />
+          ) : (
+            <div>
+              <p className="mb-1 text-[11px] text-muted-foreground">Input</p>
+              <div className="rounded border border-border bg-muted/20 px-2.5 py-2 leading-relaxed">
+                <span className="text-muted-foreground">—</span>
+              </div>
             </div>
-          </div>
+          )}
 
-          <div>
-            <p className="mb-1 text-[11px] text-muted-foreground">Expected outcome</p>
-            <div className="rounded border border-border bg-muted/20 px-2.5 py-2 leading-relaxed">
-              {target.expected ? (
-                target.expected
-              ) : (
+          {target.expected ? (
+            <EditableValueBlock
+              label="Expected outcome"
+              text={target.expected}
+              onChange={noop}
+              readOnly
+              boxed
+              copyable
+              autoDetectKind
+              minRows={2}
+            />
+          ) : (
+            <div>
+              <p className="mb-1 text-[11px] text-muted-foreground">Expected outcome</p>
+              <div className="rounded border border-border bg-muted/20 px-2.5 py-2 leading-relaxed">
                 <span className="text-muted-foreground">
                   Not required — a scorer judges the output directly.
                 </span>
-              )}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="h-px bg-border" />
 

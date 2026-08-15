@@ -10,7 +10,7 @@ const prismaMock = vi.hoisted(() => ({
   dataset: { findMany: vi.fn() },
   // Each lineage carries an aggregate row derived at read time (average score over
   // the runs that were actually scored, plus summed cost/duration over its results).
-  evaluationRun: { groupBy: vi.fn() },
+  evaluationRun: { groupBy: vi.fn(), findMany: vi.fn() },
   evaluationResult: { groupBy: vi.fn() },
 }));
 const auth = vi.hoisted(() => ({ requireAuth: vi.fn(), requireProjectAccess: vi.fn() }));
@@ -67,6 +67,7 @@ beforeEach(() => {
   // No aggregate rows unless a case sets them: a lineage with no scored run reports
   // nulls rather than a fabricated zero.
   prismaMock.evaluationRun.groupBy.mockResolvedValue([]);
+  prismaMock.evaluationRun.findMany.mockResolvedValue([]);
   prismaMock.evaluationResult.groupBy.mockResolvedValue([]);
 });
 
@@ -133,4 +134,26 @@ it("403s a caller without project access", async () => {
   });
   expect((await GET({} as never, params)).status).toBe(403);
   expect(prismaMock.evaluation.findMany).not.toHaveBeenCalled();
+});
+
+it("sums each case's duration for the lineage duration total", async () => {
+  prismaMock.evaluation.findMany.mockResolvedValue([evaluation()]);
+  // Duration is the sum of every case's duration across the lineage's runs (120s here),
+  // so the lineage total adds up to the per-case rows — never run wall-clock.
+  prismaMock.evaluationResult.groupBy.mockResolvedValue([
+    { evaluationId: "eval_1", _sum: { durationMs: 120_000, cost: null } },
+  ]);
+
+  const [row] = await rows(await GET({} as never, params));
+  expect((row.aggregate as { totalDurationMs: number | null }).totalDurationMs).toBe(120_000);
+});
+
+it("reports a null lineage duration when no case reported one", async () => {
+  prismaMock.evaluation.findMany.mockResolvedValue([evaluation()]);
+  prismaMock.evaluationResult.groupBy.mockResolvedValue([
+    { evaluationId: "eval_1", _sum: { durationMs: null, cost: null } },
+  ]);
+
+  const [row] = await rows(await GET({} as never, params));
+  expect((row.aggregate as { totalDurationMs: number | null }).totalDurationMs).toBeNull();
 });

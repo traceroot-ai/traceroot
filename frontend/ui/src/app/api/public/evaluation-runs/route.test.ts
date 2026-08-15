@@ -63,6 +63,15 @@ function makeDb() {
     $transaction: async (fn: (tx: unknown) => unknown) => fn(client),
 
     dataset: {
+      // The register route resolves the SDK's project-scoped client id, not the PK.
+      findUnique: async ({ where }: Args) => {
+        const key = where.projectId_clientDatasetId;
+        return (
+          rows.dataset.find(
+            (d) => d.projectId === key.projectId && d.clientDatasetId === key.clientDatasetId,
+          ) ?? null
+        );
+      },
       findFirst: async ({ where }: Args) =>
         rows.dataset.find((d) => d.id === where.id && d.projectId === where.projectId) ?? null,
     },
@@ -165,7 +174,12 @@ beforeEach(() => {
   process.env.NEXT_PUBLIC_APP_URL = APP_URL;
   auth.requireApiKeyProject.mockResolvedValue({ projectId: PROJECT_ID });
 
-  db.rows.dataset.push({ id: "ds1", projectId: PROJECT_ID, currentVersionId: "dv1" });
+  db.rows.dataset.push({
+    id: "ds1",
+    clientDatasetId: "ds1",
+    projectId: PROJECT_ID,
+    currentVersionId: "dv1",
+  });
   db.rows.datasetVersion.push({ id: "dv1", datasetId: "ds1", projectId: PROJECT_ID });
   db.rows.datasetVersion.push({ id: "dv2", datasetId: "ds1", projectId: PROJECT_ID });
   db.rows.testCase.push({ id: "tc1", datasetVersionId: "dv1" });
@@ -173,6 +187,7 @@ beforeEach(() => {
   // Another tenant's dataset, reachable only by guessing its id.
   db.rows.dataset.push({
     id: "ds_other",
+    clientDatasetId: "ds_other",
     projectId: OTHER_PROJECT_ID,
     currentVersionId: "dv_other",
   });
@@ -243,6 +258,27 @@ describe("lineage resolution", () => {
     expect(payload.evaluation_id).toBe("eval_winner");
     expect(db.rows.evaluationRun).toHaveLength(1);
     expect(db.rows.evaluationRun[0].evaluationId).toBe("eval_winner");
+  });
+});
+
+describe("dataset resolution", () => {
+  it("resolves a dataset by its internal id, the same way GET /datasets/{id} does", async () => {
+    // pull_dataset resolves an internal id via resolvePublicDataset's PK fallback and
+    // stamps it back, so register must resolve identically — a strict client-id-only
+    // lookup would 404 an id that pull just accepted (e.g. an internal id from the UI).
+    db.rows.dataset.push({
+      id: "cmse_internal_pk",
+      clientDatasetId: "regression",
+      projectId: PROJECT_ID,
+      currentVersionId: "dv_reg",
+    });
+    db.rows.datasetVersion.push({ id: "dv_reg", datasetId: "cmse_internal_pk", projectId: PROJECT_ID });
+
+    const res = await POST(post(body({ dataset_id: "cmse_internal_pk" })));
+
+    expect(res.status).toBe(201);
+    expect(db.rows.evaluationRun[0].datasetId).toBe("cmse_internal_pk");
+    expect(db.rows.evaluationRun[0].datasetVersionId).toBe("dv_reg");
   });
 });
 

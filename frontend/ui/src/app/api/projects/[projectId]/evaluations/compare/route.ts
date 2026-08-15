@@ -11,12 +11,6 @@ import { toComparisonRun, toComparisonResults, caseChangeToLegacy } from "@/lib/
 
 type RouteParams = { params: Promise<{ projectId: string }> };
 
-function elapsedMs(startedAt: Date, completedAt: Date | null): number | null {
-  if (!completedAt) return null;
-  const ms = completedAt.getTime() - startedAt.getTime();
-  return ms >= 0 ? ms : null;
-}
-
 // Both runs' result sets are unbounded in principle — a large run can have thousands
 // of cases, each carrying several @db.Text columns plus per-scorer rows. Capping keeps
 // the query size and response payload bounded; `resultsTruncated` in the response tells
@@ -47,7 +41,10 @@ function declaredModel(provenance: unknown): string | null {
   return null;
 }
 
-function runSummary(run: LoadedRun) {
+function runSummary(
+  run: LoadedRun,
+  totals: { cost: number | null; durationMs: number | null } | undefined,
+) {
   return {
     id: run.id,
     runNumber: run.runNumber,
@@ -66,7 +63,10 @@ function runSummary(run: LoadedRun) {
     scorerErrorCount: run.scorerErrorCount,
     startedAt: run.startedAt,
     completedAt: run.completedAt,
-    elapsedMs: elapsedMs(run.startedAt, run.completedAt),
+    // Summed per-case totals (over ALL results), matching the run detail + runs list —
+    // so the headline diffs like against like, not case-sum vs wall-clock.
+    elapsedMs: totals?.durationMs ?? null,
+    cost: totals?.cost ?? null,
   };
 }
 
@@ -256,9 +256,18 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
     .filter((c) => c.pairing === "baseline_only" && !candidateCaseIds.has(c.testCaseId))
     .map((c) => buildCase(c.testCaseId, c));
 
+  // Summed per-case cost + duration for each run, over ALL results (not the capped
+  // `results` above), so the headline totals + diffs match the run detail and list.
+  const runTotals = await prisma.evaluationResult.groupBy({
+    by: ["runId"],
+    where: { projectId, runId: { in: [candidate.id, baseline.id] } },
+    _sum: { cost: true, durationMs: true },
+  });
+  const totalsByRun = new Map(runTotals.map((t) => [t.runId, t._sum]));
+
   return successResponse({
-    candidate: runSummary(candidate),
-    baseline: runSummary(baseline),
+    candidate: runSummary(candidate, totalsByRun.get(candidate.id)),
+    baseline: runSummary(baseline, totalsByRun.get(baseline.id)),
     comparison,
     results: [...results, ...baselineOnly],
     // True when either side has more cases than the cap above — the comparison and

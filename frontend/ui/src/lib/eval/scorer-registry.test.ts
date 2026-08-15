@@ -217,9 +217,27 @@ describe("aggregateScorers — definition folding", () => {
     expect(r.model).toBeNull();
     expect(r.messages).toBeNull();
     expect(r.sourceCode).toBeNull();
+    // An absent required_inputs stays null (unknown), never coerced to [] ("nothing").
+    expect(r.requiredInputs).toBeNull();
     // Value type is still INFERRED from the observed score, independent of the
     // (absent) declared definition.
     expect(r.valueType).toBe("numeric");
+  });
+
+  it("carries declared required_inputs through, keeping an explicit empty list distinct from absent", () => {
+    const [withInputs] = aggregateScorers(
+      [score({ scorerName: "em", scorerVersion: "v1", numericValue: 1 })],
+      [{ scorers: [{ name: "em", version: "v1", required_inputs: ["output", "expected", 7] }] }],
+    );
+    // Non-string entries are dropped; the declared inputs survive.
+    expect(withInputs.requiredInputs).toEqual(["output", "expected"]);
+
+    const [readsNothing] = aggregateScorers(
+      [score({ scorerName: "noop", scorerVersion: "v1", numericValue: 1 })],
+      [{ scorers: [{ name: "noop", version: "v1", required_inputs: [] }] }],
+    );
+    // [] is a real "reads no case fields", NOT the same as an absent (null) declaration.
+    expect(readsNothing.requiredInputs).toEqual([]);
   });
 
   it("tolerates malformed manifests instead of throwing", () => {

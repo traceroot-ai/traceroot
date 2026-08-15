@@ -196,8 +196,10 @@ describe("TestCaseReviewDrawer (server-wired)", () => {
     mount(<TestCaseReviewDrawer target={TARGET} open onOpenChange={vi.fn()} onSubmit={vi.fn()} />);
     expect(await screen.findByText("Review test case")).toBeDefined();
     expect(screen.getByText("tc_9f2 · Billing routing")).toBeDefined();
-    expect(screen.getByText(/charged twice/)).toBeDefined();
-    expect(screen.getByText("billing")).toBeDefined();
+    // Input/Expected render in the shared ValueBlock (a read-only field), so their
+    // content is the field value, not free text.
+    expect(screen.getByDisplayValue(/charged twice/)).toBeDefined();
+    expect(screen.getByDisplayValue("billing")).toBeDefined();
     expect(screen.getAllByRole("checkbox").length).toBe(5);
     // Ready is advisory, and the copy says so.
     expect(screen.getByText(/never blocks the case from an evaluation/)).toBeDefined();

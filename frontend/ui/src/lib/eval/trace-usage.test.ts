@@ -15,6 +15,7 @@ function span(
     output_tokens: u.output_tokens ?? null,
     total_tokens: u.total_tokens ?? null,
     cost: u.cost ?? null,
+    model_name: u.model_name ?? null,
   };
 }
 
@@ -139,5 +140,27 @@ describe("attributeTraceUsage", () => {
     expect(u.state).toBe("present"); // usage fields present (all zero) → a real zero
     expect(u.task.totalTokens).toBe(0);
     expect(u.task.spanCount).toBe(1);
+  });
+
+  it("collects observed task and judge models separately (mixed-model run)", () => {
+    const spans = [
+      span("root", null, "EVALUATION"),
+      span("task", "root", "TASK"),
+      span("task-llm", "task", "LLM", { total_tokens: 100, cost: 0.003, model_name: "claude-sonnet-4" }),
+      span("task-llm2", "task", "LLM", { total_tokens: 50, cost: 0.001, model_name: "gpt-4o" }),
+      span("scorer", "root", "SCORER"),
+      span("judge-llm", "scorer", "LLM", { total_tokens: 40, cost: 0.001, model_name: "gpt-4o-judge" }),
+    ];
+    const u = attributeTraceUsage(spans);
+    // Observed task models are distinct + sorted; the judge model is kept separate.
+    expect(u.task.models).toEqual(["claude-sonnet-4", "gpt-4o"]);
+    expect(u.scorer.models).toEqual(["gpt-4o-judge"]);
+    expect(u.combined.models).toEqual(["claude-sonnet-4", "gpt-4o", "gpt-4o-judge"]);
+  });
+
+  it("leaves models empty when no leaf reports one — observed, never inferred", () => {
+    const u = attributeTraceUsage(evalTrace({ scorerLlm: true }));
+    expect(u.task.models).toEqual([]);
+    expect(u.scorer.models).toEqual([]);
   });
 });

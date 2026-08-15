@@ -301,9 +301,14 @@ describe("CompareRunsView — Opus → Sonnet lab", () => {
     expect(screen.getByText(/double-charged and I want a refund/)).toBeTruthy();
     // Default sort puts the regression first: within the CASE table (the one with the
     // "Input" header), the first body row's input is ticket-05's.
-    const caseTable = screen.getByText("Input").closest("table") as HTMLTableElement;
-    const bodyRows = within(caseTable).getAllByRole("row").slice(1); // drop header row
-    expect(within(bodyRows[0]).getByText(/double-charged/)).toBeTruthy();
+    // Scoped to the column header: "Input" also appears as a field label elsewhere
+    // on the page, which is not inside the case table.
+
+    const caseTable = screen
+      .getAllByRole("columnheader", { name: "Input" })[0]
+      .closest("table") as HTMLTableElement;
+    const bodyRows = Array.from(caseTable.querySelectorAll("tbody tr"));
+    expect(within(bodyRows[0] as HTMLElement).getByText(/double-charged/)).toBeTruthy();
   });
 
   it("opens a case drawer with baseline/candidate outputs and per-scorer breakdown", () => {

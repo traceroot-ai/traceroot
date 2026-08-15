@@ -77,12 +77,15 @@ it("flattens each result into a run row with the run's identity and this case's 
   });
 });
 
-it("queries by project + stable testCaseId (not the dataset), newest first", async () => {
+it("queries by project + stable testCaseId, scoped to this dataset, newest first", async () => {
   prismaMock.evaluationResult.findMany.mockResolvedValue([]);
   await GET({} as never, params);
 
   const args = prismaMock.evaluationResult.findMany.mock.calls[0][0];
-  expect(args.where).toEqual({ projectId: "p1", testCaseId: "case-1" });
+  // A stable testCaseId is only unique within a dataset lineage, and this route is
+  // mounted under a specific datasetId — so results are scoped through the run's
+  // dataset, never surfacing runs from another dataset that reused the id.
+  expect(args.where).toEqual({ projectId: "p1", testCaseId: "case-1", run: { datasetId: "ds1" } });
   expect(args.orderBy).toEqual({ createTime: "desc" });
 });
 

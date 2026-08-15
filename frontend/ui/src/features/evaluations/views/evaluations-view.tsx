@@ -32,15 +32,10 @@ import { Input } from "@/components/ui/input";
 import { CopyButton } from "@/components/ui/copy-button";
 import { HighlightedCode } from "@/features/offline-eval/components/syntax";
 import { cn } from "@/lib/utils";
-import { useToast } from "@/components/ui/toast";
 import {
   EmptyState,
   Timestamp,
   LineNumberedTextarea,
-  useRowSelection,
-  SelectAllHeaderCell,
-  SelectRowCell,
-  BulkActionBar,
 } from "@/features/offline-eval/components";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { PassRate } from "../components/pass-rate";
@@ -118,8 +113,7 @@ export function EvaluationsView({ projectId }: { projectId: string }) {
 // Runs — the flat execution list.
 // ---------------------------------------------------------------------------
 
-// 9 = the 8 data columns plus the row-selection checkbox column.
-const RUNS_COLUMN_COUNT = 9;
+const RUNS_COLUMN_COUNT = 8;
 // Matches the route's default `limit` (runs/route.ts) so the page-count math
 // here lines up with what the server actually returns per page.
 const RUNS_PAGE_LIMIT = 50;
@@ -160,28 +154,18 @@ function RunTableRow({
   projectId,
   showEvaluation = true,
   indent = false,
-  selected,
-  onToggleSelect,
 }: {
   run: RunRow;
   projectId: string;
   showEvaluation?: boolean;
   indent?: boolean;
-  selected: boolean;
-  onToggleSelect: () => void;
 }) {
   const router = useRouter();
   return (
     <TR
       interactive
-      selected={selected}
       onClick={() => router.push(`/projects/${projectId}/evaluations/${r.id}`)}
     >
-      <SelectRowCell
-        checked={selected}
-        onToggle={onToggleSelect}
-        label={`Select run #${r.runNumber}`}
-      />
       <Td className={cn(indent && "pl-6")}>
         {showEvaluation && (
           <button
@@ -322,8 +306,6 @@ function GroupHeaderRow({
   onToggle,
   projectId,
   truncated,
-  selectedIds,
-  onToggleGroupSelection,
 }: {
   group: RunGroup;
   isOpen: boolean;
@@ -333,28 +315,17 @@ function GroupHeaderRow({
    *  below) — the lineage may extend beyond what's loaded, so sums here are
    *  page-local, not lineage totals. */
   truncated: boolean;
-  selectedIds: Set<string>;
-  onToggleGroupSelection: (ids: string[], on: boolean) => void;
 }) {
   const router = useRouter();
   const latest = group.runs[0];
   const earlier = group.runs.length - 1;
   const agg = React.useMemo(() => aggregateGroup(group.runs), [group.runs]);
-  const groupIds = React.useMemo(() => group.runs.map((r) => r.id), [group.runs]);
-  const allSelected = groupIds.length > 0 && groupIds.every((id) => selectedIds.has(id));
-  const someSelected = !allSelected && groupIds.some((id) => selectedIds.has(id));
   // "total"/"avg" over a truncated page are page-local sums, not lineage totals —
   // label them as partial so they don't read as the whole lineage's figures.
   const totalLabel = truncated ? "partial" : "total";
   const avgLabel = truncated ? "partial avg" : "avg";
   return (
     <TR className="bg-muted/40 font-medium">
-      <SelectRowCell
-        checked={allSelected}
-        indeterminate={someSelected}
-        onToggle={() => onToggleGroupSelection(groupIds, !allSelected)}
-        label={`Select all runs in ${group.evaluationName}`}
-      />
       <Td>
         <div className="flex items-center gap-1.5">
           <button
@@ -496,16 +467,17 @@ function RunsTab({ projectId }: { projectId: string }) {
     setPage(0);
   }, [scopedEvalId, searchQuery, datasetFilter, statusFilter]);
 
-  const { toast } = useToast();
   const { data: datasetsData } = useDatasets(projectId, { limit: 200 });
   // Resolve the selected range to actual bounds and send them to the query — the date
   // control was previously read for display only, so it never narrowed the runs list.
-  const { startAfter, endBefore } = toTimestampBounds(
-    dateFilter.id,
-    customStart ?? undefined,
-    customEnd ?? undefined,
+  // Memoized on the filter/custom-range inputs: `toTimestampBounds` reads `new Date()`
+  // for preset windows, so recomputing every render would churn the query key (a fresh
+  // millisecond bound each time) and refetch forever.
+  const { startAfter, endBefore } = React.useMemo(
+    () => toTimestampBounds(dateFilter.id, customStart ?? undefined, customEnd ?? undefined),
+    [dateFilter.id, customStart, customEnd],
   );
-  const { data, isLoading, error, refetch } = useEvaluationRuns(projectId, {
+  const { data, isLoading, error } = useEvaluationRuns(projectId, {
     evaluation_id: scopedEvalId ?? undefined,
     search_query: searchQuery,
     dataset_id: datasetFilter === ALL ? undefined : datasetFilter,
@@ -550,47 +522,6 @@ function RunsTab({ projectId }: { projectId: string }) {
       else next.add(id);
       return next;
     });
-
-  // Selection operates on run ids regardless of display mode: in the flat table
-  // that's the (possibly latest-only-reduced) `runs`; grouped, it's every run
-  // across every group (including collapsed ones), so checking a group selects
-  // its member runs whether or not they're currently rendered.
-  const selectableIds = React.useMemo(
-    () => (grouped ? allRuns.map((r) => r.id) : runs.map((r) => r.id)),
-    [grouped, allRuns, runs],
-  );
-  const selection = useRowSelection<string>(selectableIds);
-
-  const handleBulkDelete = React.useCallback(async () => {
-    const ids = [...selection.selected];
-    const results = await Promise.allSettled(
-      ids.map(async (id) => {
-        const res = await fetch(`/api/projects/${projectId}/evaluations/runs/${id}`, {
-          method: "DELETE",
-        });
-        if (!res.ok) throw new Error(`Failed to delete run ${id}`);
-        return id;
-      }),
-    );
-    const succeededIds = results
-      .filter((r): r is PromiseFulfilledResult<string> => r.status === "fulfilled")
-      .map((r) => r.value);
-    const failedCount = results.length - succeededIds.length;
-    selection.setMany(succeededIds, false);
-    await refetch();
-    if (failedCount === 0) {
-      toast({
-        title: `${succeededIds.length} run${succeededIds.length === 1 ? "" : "s"} deleted`,
-        tone: "success",
-      });
-    } else {
-      toast({
-        title: `${succeededIds.length} of ${results.length} runs deleted`,
-        description: `${failedCount} failed to delete.`,
-        tone: "warning",
-      });
-    }
-  }, [selection, projectId, refetch, toast]);
 
   return (
     <>
@@ -663,21 +594,10 @@ function RunsTab({ projectId }: { projectId: string }) {
         </div>
       )}
 
-      <BulkActionBar
-        count={selection.count}
-        onDelete={handleBulkDelete}
-        onClear={selection.clear}
-      />
-
       <div className="min-h-0 flex-1 overflow-auto">
         <Table>
           <THead>
             <TRHead>
-              <SelectAllHeaderCell
-                checked={selection.allSelected}
-                indeterminate={selection.someSelected}
-                onToggle={selection.toggleAll}
-              />
               <Th>Evaluation / Run</Th>
               <Th>Dataset</Th>
               <Th className="w-[110px] text-right">Main score</Th>
@@ -714,8 +634,6 @@ function RunsTab({ projectId }: { projectId: string }) {
                     onToggle={() => toggleGroup(g.evaluationId)}
                     projectId={projectId}
                     truncated={truncated}
-                    selectedIds={selection.selected}
-                    onToggleGroupSelection={selection.setMany}
                   />
                   {expanded.has(g.evaluationId) &&
                     g.runs.map((r) => (
@@ -725,21 +643,13 @@ function RunsTab({ projectId }: { projectId: string }) {
                         projectId={projectId}
                         showEvaluation={false}
                         indent
-                        selected={selection.has(r.id)}
-                        onToggleSelect={() => selection.toggle(r.id)}
                       />
                     ))}
                 </React.Fragment>
               ))
             ) : (
               runs.map((r) => (
-                <RunTableRow
-                  key={r.id}
-                  run={r}
-                  projectId={projectId}
-                  selected={selection.has(r.id)}
-                  onToggleSelect={() => selection.toggle(r.id)}
-                />
+                <RunTableRow key={r.id} run={r} projectId={projectId} />
               ))
             )}
           </TBody>
@@ -1001,6 +911,56 @@ function NotProvided() {
   return <span className="text-muted-foreground">—</span>;
 }
 
+/** Input names that name the REFERENCE ANSWER — the expected/ground-truth output. If
+ *  a scorer requires one of these it grades against a reference; otherwise it judges
+ *  the output on its own (a reference answer is "not required"). Matched case-insensitively. */
+const REFERENCE_ANSWER_KEYS = new Set([
+  "expected",
+  "expected_output",
+  "reference",
+  "reference_output",
+  "ground_truth",
+]);
+
+function usesReferenceAnswer(inputs: string[]): boolean {
+  return inputs.some((i) => REFERENCE_ANSWER_KEYS.has(i.trim().toLowerCase()));
+}
+
+/**
+ * The scorer's declared inputs + whether it needs a reference answer. Null = the SDK
+ * never declared its inputs (unknown), rendered as "—" — NOT as "reads nothing". An
+ * explicit empty list is a real "reads no case fields". The reference-answer line is
+ * always shown for a declared scorer so a case with no expected output can tell, at a
+ * glance, whether that's a gap or simply "not required by this scorer".
+ */
+function ScorerRequires({ requiredInputs }: { requiredInputs: string[] | null }) {
+  // `== null` also catches a pre-deploy read model that never carried the field.
+  if (requiredInputs == null) return <NotProvided />;
+  if (requiredInputs.length === 0)
+    return <span className="text-muted-foreground">Reads no case fields</span>;
+  const usesRef = usesReferenceAnswer(requiredInputs);
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap gap-1">
+        {requiredInputs.map((i) => (
+          <span
+            key={i}
+            className="rounded border border-border bg-muted/40 px-1.5 py-0.5 font-mono text-[11px]"
+          >
+            {i}
+          </span>
+        ))}
+      </div>
+      <div className="text-[11px] text-muted-foreground">
+        Reference answer{" "}
+        <span className={usesRef ? "font-medium text-foreground" : ""}>
+          {usesRef ? "used by this scorer" : "not required by this scorer"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 /** Labeled value inside a card — a muted caption over the value, for cards that
  *  hold several small fields (Config, Usage) rather than one big one. */
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -1258,6 +1218,9 @@ function ScorerDetail({
             {scorer.direction ? DIRECTION_LABEL[scorer.direction] : <NotProvided />}
           </Field>
           <Field label="Description">{scorer.description ?? <NotProvided />}</Field>
+          <Field label="Requires">
+            <ScorerRequires requiredInputs={scorer.requiredInputs} />
+          </Field>
           <Field label="Metadata">
             {scorer.metadata != null ? (
               <pre className="whitespace-pre-wrap break-all font-mono text-[11px]">

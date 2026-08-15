@@ -17,15 +17,9 @@ type RouteParams = { params: Promise<{ projectId: string; runId: string }> };
 // have thousands of cases, each carrying several @db.Text columns plus per-scorer rows.
 // Capping keeps a single request's query size and response payload bounded; `resultsTruncated`
 // tells the caller when they are looking at a partial view. This is a stopgap, not real
-// pagination — see the finding this addresses for the fuller fix (page `results`, keep the
-// aggregate `comparison` over the full set).
+// pagination; a fuller approach would page `results` while keeping the aggregate
+// `comparison` computed over the full set.
 const MAX_RUN_DETAIL_RESULTS = 1000;
-
-function elapsedMs(startedAt: Date, completedAt: Date | null): number | null {
-  if (!completedAt) return null;
-  const ms = completedAt.getTime() - startedAt.getTime();
-  return ms >= 0 ? ms : null;
-}
 
 // GET — a single evaluation run with its results, scores, human scores, and the
 // backend-derived candidate-vs-baseline comparison (the single source of truth).
@@ -128,6 +122,15 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     _count: { _all: true },
   });
 
+  // Run totals derived from ALL results (never the capped `results` page above): the
+  // summed per-case duration AND cost. The runs list sums the same way, so the detail
+  // and the list agree; there is no trustworthy stored run-level cost/duration to read
+  // instead — cost lives per case, so the headline stat must sum it here.
+  const resultAgg = await prisma.evaluationResult.aggregate({
+    where: { runId, projectId },
+    _sum: { durationMs: true, cost: true },
+  });
+
   // Derived human-review summary: reviewed/pending over active dimensions, human
   // pass/fail, and human-vs-automated disagreement. Read-only — computing this never
   // touches the automated score, comparison, or run status.
@@ -154,7 +157,10 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
       changeFromBaseline: comparison.trustworthy ? comparison.mainScore.delta : null,
       baselineComparable: comparison.trustworthy,
       errorCount: run.taskErrorCount + run.scorerErrorCount,
-      elapsedMs: elapsedMs(run.startedAt, run.completedAt),
+      elapsedMs: resultAgg._sum.durationMs,
+      // Summed per-case cost — the runs list computes it the same way. Overrides any
+      // stored run.cost (there is none), so the headline stat matches the case rows.
+      cost: resultAgg._sum.cost,
       ...countResultStatuses(statusGroups.map((g) => ({ status: g.status, count: g._count._all }))),
       humanReview,
       comparison,

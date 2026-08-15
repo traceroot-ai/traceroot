@@ -349,11 +349,12 @@ export function CompareCaseDrawer({
                 }
               />
             )}
-          {/* Observed candidate models — measured from each side's trace, kept distinct
-              from the run's declared model (which can differ). */}
+          {/* Observed CANDIDATE (task) models — measured from each side's trace, kept
+              distinct from the run's declared model (which can differ). Each side shows
+              its own, so different candidate models read as different here. */}
           {anyUsagePresent(baseUsage, candUsage) && (
             <OpMetric
-              label="Observed model"
+              label="Observed task model"
               value={
                 <span>
                   {modelsText(baseUsage, "task")} → {modelsText(candUsage, "task")}
@@ -361,6 +362,20 @@ export function CompareCaseDrawer({
               }
             />
           )}
+          {/* Observed JUDGE (scorer) models — the evaluator, never the model being
+              evaluated. Shown per side, so a shared judge reads identically on both
+              sides WITHOUT implying the candidate models are the same. */}
+          {anyUsagePresent(baseUsage, candUsage) &&
+            (baseUsage.scorer.spanCount > 0 || candUsage.scorer.spanCount > 0) && (
+              <OpMetric
+                label="Judge model"
+                value={
+                  <span className="text-muted-foreground">
+                    {modelsText(baseUsage, "scorer")} → {modelsText(candUsage, "scorer")}
+                  </span>
+                }
+              />
+            )}
         </div>
 
         {/* Trace access (wired by the page) */}

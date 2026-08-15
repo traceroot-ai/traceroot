@@ -30,6 +30,9 @@ export const SCORER_MESSAGES_MAX = 50;
 export const SCORER_MESSAGE_CONTENT_MAX = 20_000;
 /** Max characters of a code scorer's `source` snippet. */
 export const SCORER_SOURCE_MAX = 50_000;
+/** Max number (and each length) of `required_inputs` a scorer may declare. */
+export const SCORER_REQUIRED_INPUTS_MAX = 20;
+export const SCORER_REQUIRED_INPUT_LEN_MAX = 100;
 
 /** Whether a value serializes to at most `max` characters (`false` if unserializable). */
 function withinJsonSize(value: unknown, max: number): boolean {
@@ -146,6 +149,15 @@ export const ScorerRefSchema = z.object({
   scorer_type: ScorerTypeSchema.nullable().optional().catch(null),
   output_type: ScorerOutputTypeSchema.nullable().optional().catch(null),
   description: z.string().max(2000).nullable().optional(),
+  // The inputs the scorer actually reads (e.g. "input", "output", "expected"). Free
+  // strings, SDK-reported — the UI interprets the ones it knows (notably whether the
+  // reference answer "expected" is used) and leaves the rest as declared. Absent =
+  // unknown, never "needs nothing".
+  required_inputs: z
+    .array(z.string().min(1).max(SCORER_REQUIRED_INPUT_LEN_MAX))
+    .max(SCORER_REQUIRED_INPUTS_MAX)
+    .nullable()
+    .optional(),
   metadata: boundedJson(EVAL_METADATA_MAX).nullable().optional(),
   // llm_judge
   model: z.string().max(200).nullable().optional(),

@@ -23,28 +23,48 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
 
-const traceState = {
-  data: { trace_id: "tr", spans: [] },
+// Per-id trace stubs: candidate ("tr_cand") and baseline ("tr_base") are
+// DISTINCT objects, so an assertion on the resolved trace's own identity can
+// catch a wrong id being wired up (a single shared stub — as this used to be —
+// makes `!!props.diffBaseline` unconditionally true regardless of which id, if
+// any, was actually requested).
+const candTraceState = {
+  data: { trace_id: "tr_cand", spans: [] },
   isFetching: false,
   isError: false,
   refetch: vi.fn(),
 };
+const baseTraceState = {
+  data: { trace_id: "tr_base", spans: [] },
+  isFetching: false,
+  isError: false,
+  refetch: vi.fn(),
+};
+const noTraceState = { data: undefined, isFetching: false, isError: false, refetch: vi.fn() };
 vi.mock("@/features/traces/hooks", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/features/traces/hooks")>();
-  return { ...actual, useTrace: () => traceState };
+  return {
+    ...actual,
+    useTrace: (_projectId: string, id: string) =>
+      id === "tr_cand" ? candTraceState : id === "tr_base" ? baseTraceState : noTraceState,
+  };
 });
 
-let lastPanel: { traceId?: string; defaultDiffOn?: boolean; hasDiffBaseline?: boolean } = {};
+let lastPanel: {
+  traceId?: string;
+  defaultDiffOn?: boolean;
+  diffBaseline?: { trace?: { trace_id?: string } };
+} = {};
 vi.mock("@/features/traces/components", () => ({
   TraceViewerPanel: (props: {
     traceId: string;
     defaultDiffOn?: boolean;
-    diffBaseline?: unknown;
+    diffBaseline?: { trace?: { trace_id?: string } };
   }) => {
     lastPanel = {
       traceId: props.traceId,
       defaultDiffOn: props.defaultDiffOn,
-      hasDiffBaseline: !!props.diffBaseline,
+      diffBaseline: props.diffBaseline,
     };
     return <div data-testid="trace-panel" />;
   },
@@ -78,6 +98,17 @@ vi.mock("@/components/ui/select", () => ({
 }));
 
 import { RunDetailView } from "./views/run-detail-view";
+
+/**
+ * Matches the innermost element whose *combined* text matches `re`. The run
+ * number is interpolated (`Run #{n}`, `Comparing vs #{n} ·`), so it lands in its
+ * own text node and a plain regex matcher never sees the whole string.
+ */
+const withText = (re: RegExp) => (_content: string, el: Element | null) =>
+  !!el &&
+  re.test(el.textContent ?? "") &&
+  !Array.from(el.children).some((c) => re.test(c.textContent ?? ""));
+
 
 const runRow = (id: string, runNumber: number, version: string, mainScore: number) => ({
   id,
@@ -273,25 +304,23 @@ function mount() {
 
 const pickCompare = async () => {
   const select = (await screen.findByTestId("compare-select")) as HTMLSelectElement;
-  // The earlier run (#26) is offered as a baseline option.
-  expect(within(select).getByText(/#26/)).toBeDefined();
+  // The earlier run (#26) is offered as a baseline option. Awaited, not sync:
+  // the sibling-runs query lives in RunBody, which only mounts once the run has
+  // loaded, so the options arrive a tick after the select does.
+  expect(await within(select).findByText(withText(/#26/))).toBeDefined();
   fireEvent.change(select, { target: { value: "run2" } });
 };
 
 describe("run detail — compare with", () => {
-  it("surfaces the candidate's declared model in the identity strip", async () => {
-    mount();
-    // The run's declared candidate model is shown up top — candidate identity, never
-    // attached to a test case.
-    expect(await screen.findByText("Declared model")).toBeDefined();
-    expect(screen.getByText("claude-opus-4")).toBeDefined();
-  });
-
   it("lists sibling runs and, on pick, shows the comparison banner", async () => {
     mount();
     await pickCompare();
-    expect(await screen.findByText(/Comparing vs #26/)).toBeDefined();
+    expect(await screen.findByText(withText(/Comparing vs #26/))).toBeDefined();
     expect(screen.getByText(/1 improved/)).toBeDefined();
+    // The headline main-score stat gains its delta vs the baseline (candidate 1,
+    // baseline 0 → +100.0pp); the space-free "pp" distinguishes it from the per-case
+    // cell's "+100.0 pp".
+    expect(screen.getByText(withText(/\+100\.0pp/))).toBeDefined();
   });
 
   it("drives the results table diff cells vs the picked run", async () => {
@@ -304,20 +333,38 @@ describe("run detail — compare with", () => {
     expect(screen.getByText("≠ baseline")).toBeDefined();
   });
 
+  it("filters by the PICKED baseline's case verdict, not the run's stored comparison", async () => {
+    mount();
+    await pickCompare();
+    await screen.findByText(withText(/Comparing vs #26/));
+    // The case improved vs the picked baseline; its own stored comparison is null, so the
+    // old filter (keyed on the stored comparison) hid it. Improvements must keep it.
+    fireEvent.click(screen.getByRole("button", { name: "Improvements" }));
+    expect(screen.getByText(/charged twice/)).toBeDefined();
+    // Nothing regressed vs the picked baseline, so Regressions empties the table.
+    fireEvent.click(screen.getByRole("button", { name: "Regressions" }));
+    expect(screen.queryByText(/charged twice/)).toBeNull();
+  });
+
   it("opens the case trace straight into diff mode against the picked run", async () => {
     mount();
     await pickCompare();
-    await screen.findByText(/Comparing vs #26/);
+    await screen.findByText(withText(/Comparing vs #26/));
     fireEvent.click(await screen.findByText(/charged twice/));
     expect(await screen.findByTestId("trace-panel")).toBeDefined();
     expect(lastPanel.defaultDiffOn).toBe(true);
-    expect(lastPanel.hasDiffBaseline).toBe(true);
+    // Asserts identity, not just truthiness: the candidate's own trace (tr_cand)
+    // is open, and the diff baseline resolved is the PICKED run's matching case
+    // trace (tr_base, from the fixture's baselineTraceId), not some other trace.
+    expect(lastPanel.traceId).toBe("tr_cand");
+    expect(lastPanel.diffBaseline?.trace?.trace_id).toBe("tr_base");
   });
 
-  it("shows no diff column until a run is picked", async () => {
+  it("shows no diff/change column until a run is picked", async () => {
     mount();
     await screen.findByText(/charged twice/);
+    // The change column is redundant with no baseline — hidden entirely until compared.
     expect(screen.queryByText("vs baseline")).toBeNull();
-    expect(screen.getByText("Change")).toBeDefined();
+    expect(screen.queryByText("Change")).toBeNull();
   });
 });

@@ -52,7 +52,8 @@ export type EvalRunStatus =
   | "completed"
   | "completed_with_errors"
   | "failed"
-  | "incomplete";
+  | "incomplete"
+  | "cancelled";
 
 export const EVAL_RUN_STATUS_LABEL: Record<EvalRunStatus, string> = {
   running: "Running",
@@ -60,6 +61,7 @@ export const EVAL_RUN_STATUS_LABEL: Record<EvalRunStatus, string> = {
   completed_with_errors: "Completed with errors",
   failed: "Failed",
   incomplete: "Incomplete",
+  cancelled: "Cancelled",
 };
 
 export interface DatasetRow {
@@ -260,7 +262,10 @@ export interface CompareRunSummary {
   scorerErrorCount: number;
   startedAt: string;
   completedAt: string | null;
+  /** Summed per-case duration and cost over the run's results (matches the run detail
+   *  and runs list), so the headline can diff them against the baseline. */
   elapsedMs: number | null;
+  cost: number | null;
 }
 
 /** Raw per-scorer value on one side of a compared case (for the drawer's breakdown). */

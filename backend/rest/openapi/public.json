@@ -1408,6 +1408,23 @@
             ],
             "title": "Output Type"
           },
+          "required_inputs": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Required Inputs"
+          },
           "scorer_type": {
             "anyOf": [
               {

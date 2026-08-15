@@ -23,6 +23,22 @@ vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null
 import { DatasetsView } from "./views/datasets-view";
 import { EvaluationsView } from "./views/evaluations-view";
 import { RunDetailView } from "./views/run-detail-view";
+import { DatasetDetailView } from "./views/dataset-detail-view";
+import type { RunDetail } from "./types";
+
+/**
+ * Matches the innermost element whose *combined* text matches `re`.
+ *
+ * Several of these strings are deliberately split across elements: the run
+ * number is a keyboard-accessible <Link> followed by " · candidate", the
+ * datasets error is followed by a "Try again" button, and the not-found copy
+ * interpolates the id. A plain string/regex matcher only ever sees one text
+ * node, so it cannot match any of them.
+ */
+const withText = (re: RegExp) => (_content: string, el: Element | null) =>
+  !!el &&
+  re.test(el.textContent ?? "") &&
+  !Array.from(el.children).some((c) => re.test(c.textContent ?? ""));
 
 const RUN = {
   id: "run1",
@@ -40,6 +56,15 @@ const RUN = {
   scoredCount: 22,
   taskErrorCount: 1,
   scorerErrorCount: 1,
+  // Matches caseCount (24): 22 passed, 0 failed, 1 errored, 1 not-scored. Real
+  // fixtures must carry these — the list route emits them unconditionally and
+  // PassRate's fraction/percentage render NaN when they're missing (see the
+  // "Passed column renders a real fraction" test below).
+  passedCount: 22,
+  failedCount: 0,
+  erroredCount: 1,
+  notScoredCount: 1,
+  cost: 0.264,
   scorers: [{ name: "routing-accuracy", version: "v3" }],
   provenance: null,
   startedAt: "2026-07-17T10:24:00Z",
@@ -58,6 +83,7 @@ const RUN = {
     reasons: [],
     baseline: { runId: "run0", runNumber: 26, candidateVersion: "git:0000000" },
     mainScore: { candidate: 0.938, baseline: 0.714, delta: 0.224 },
+    reportedMainScore: { candidate: null, baseline: null },
     caseCounts: {
       improved: 1,
       regressed: 0,
@@ -216,6 +242,16 @@ function payloadFor(url: string): unknown {
     };
   }
   if (url.match(/\/datasets\/ds1$/)) {
+    const version = {
+      id: "dv1",
+      datasetId: "ds1",
+      projectId: "p1",
+      versionNumber: 1,
+      label: "v1",
+      note: null,
+      createdBy: null,
+      createTime: "2026-07-16T00:00:00Z",
+    };
     return {
       dataset: {
         id: "ds1",
@@ -228,29 +264,14 @@ function payloadFor(url: string): unknown {
         caseCount: 2,
         versionCount: 1,
       },
-      currentVersion: {
-        id: "dv1",
-        datasetId: "ds1",
-        projectId: "p1",
-        versionNumber: 1,
-        label: "v1",
-        note: null,
-        createdBy: null,
-        createTime: "2026-07-16T00:00:00Z",
-      },
+      currentVersion: version,
+      // The requested (here, current) version and whether it's current — both
+      // required by DatasetDetailResponse; DatasetDetailView reads them directly
+      // (types.ts:94-96).
+      selectedVersion: version,
+      isCurrentVersion: true,
       testCases: [],
-      versions: [
-        {
-          id: "dv1",
-          datasetId: "ds1",
-          projectId: "p1",
-          versionNumber: 1,
-          label: "v1",
-          note: null,
-          createdBy: null,
-          createTime: "2026-07-16T00:00:00Z",
-        },
-      ],
+      versions: [version],
     };
   }
   if (url.includes("/datasets")) {
@@ -318,8 +339,20 @@ describe("real Datasets + Evaluations views render server data", () => {
 
   it("run-centric table shows immutable-run identity (Run # + candidate) for both runs", async () => {
     mount(<EvaluationsView projectId="p1" />);
-    expect(await screen.findByText(/Run #27 ·/)).toBeDefined();
-    expect(await screen.findByText(/Run #26 ·/)).toBeDefined();
+    expect(await screen.findByText(withText(/Run #27 ·/))).toBeDefined();
+    expect(await screen.findByText(withText(/Run #26 ·/))).toBeDefined();
+  });
+
+  it("Passed column renders a real fraction from result-status counts, not undefined/NaN", async () => {
+    mount(<EvaluationsView projectId="p1" />);
+    await screen.findByText(withText(/Run #27 ·/));
+    // Both runs carry passedCount:22/failedCount:0 (of caseCount 24; 1 errored,
+    // 1 not-scored excluded from the fraction) — one "22/22" per flat run row.
+    // Before the fixture had these counts, this cell silently rendered
+    // "undefined/NaN" / "NaN%" instead (lib/eval/pass-rate.ts: passRate(undefined,
+    // undefined) => NaN, which is not `=== 0` so the null/"—" guard never fires).
+    expect(screen.getAllByText("22/22").length).toBe(2);
+    expect(screen.getAllByText("100.0%").length).toBe(2);
   });
 
   it("Latest only keeps just the newest run of each lineage", async () => {
@@ -334,13 +367,43 @@ describe("real Datasets + Evaluations views render server data", () => {
 
   it("Group by evaluation collapses runs under a lineage header", async () => {
     mount(<EvaluationsView projectId="p1" />);
-    await screen.findByText(/Run #27 ·/);
+    await screen.findByText(withText(/Run #27 ·/));
     fireEvent.click(screen.getByRole("button", { name: /Group by evaluation/ }));
     // Group header shows per-column aggregate totals across the lineage (not the latest
     // run's values): run count, the averaged main score, and total captions.
     expect(await screen.findByText(/2 runs/)).toBeDefined();
     expect(screen.getByText(/93\.8%/)).toBeDefined(); // avg main score across the lineage
-    expect(screen.getAllByText("total").length).toBeGreaterThan(0);
+    // Two "total" captions: pooled cost (both runs report a cost) and pooled
+    // duration — not just duration alone, which is what a zero-cost fixture
+    // silently degraded to.
+    expect(screen.getAllByText("total").length).toBe(2);
+    // Pooled pass rate across both runs' counts (44 passed / 44 judged), not the
+    // zero-denominator "—" fallback aggregateGroup produces when the fixture
+    // carries no passedCount/failedCount at all.
+    expect(screen.getByText("44/44")).toBeDefined();
+  });
+
+  it("renders a non-empty status badge even for a run status the UI's own type omits", async () => {
+    // The backend accepts "cancelled" (backend/rest/schemas/eval.py) and the list
+    // route spreads a run's status through untouched, but EvalRunStatus /
+    // STATUS_VARIANT / EVAL_RUN_STATUS_LABEL (types.ts, evaluations-view.tsx) don't
+    // have a "cancelled" key — so, unlike compare-runs.smoke.test.tsx (which stubs
+    // RunStatusBadge to echo the raw string and never exercises this), the REAL
+    // badge here renders <Badge variant={undefined}>{undefined}</Badge>: visually
+    // empty. `as never` bypasses the type system the same way a value the backend
+    // actually sends would arrive at runtime — TypeScript can't stop it.
+    const RUN_CANCELLED = { ...RUN, id: "run-cancelled", status: "cancelled" as never };
+    global.fetch = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: [RUN_CANCELLED], meta: { page: 0, limit: 50, total: 1 } }),
+    })) as unknown as typeof fetch;
+    mount(<EvaluationsView projectId="p1" />);
+    const row = (await screen.findByText(withText(/Run #27 ·/))).closest(
+      "tr",
+    ) as HTMLTableRowElement;
+    const statusCell = within(row).getAllByRole("cell")[6];
+    expect(statusCell.textContent?.trim()).not.toBe("");
   });
 
   it("Scorers tab shows an SDK-defined scorer and opens its read-only detail", async () => {
@@ -365,5 +428,129 @@ describe("real Datasets + Evaluations views render server data", () => {
     expect((await screen.findAllByText("git:4a91c02")).length).toBeGreaterThan(0);
     // The result row is present (the hero results table shows the case input).
     expect((await screen.findAllByText(/charged twice/)).length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Loading / error / empty states. The issue AC ("Each surface has a mount
+// smoke test covering loading / empty / error / populated") and the PR body
+// both claimed this file asserted all four for every surface; before this,
+// only the populated leg (plus one empty-runs case above) was ever exercised,
+// so e.g. swapping the isLoading/error branches in run-detail-view.tsx:400-404
+// — or dropping any surface's `error ?` leg entirely — passed the whole suite.
+// ---------------------------------------------------------------------------
+describe("loading / error / empty states", () => {
+  // A fetch that never resolves — isLoading stays true for the assertion.
+  const pendingFetch = () =>
+    vi.fn(() => new Promise<Response>(() => {})) as unknown as typeof fetch;
+  const failingFetch = (status = 500) =>
+    vi.fn(async () => ({
+      ok: false,
+      status,
+      json: async () => ({ error: "boom" }),
+    })) as unknown as typeof fetch;
+  const emptyListFetch = () =>
+    vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: [], meta: { page: 0, limit: 50, total: 0 } }),
+    })) as unknown as typeof fetch;
+
+  it("Datasets shows a loading state while the fetch is in flight", () => {
+    global.fetch = pendingFetch();
+    mount(<DatasetsView projectId="p1" />);
+    expect(screen.getByText("Loading datasets...")).toBeDefined();
+  });
+
+  it("Datasets shows an error state when the fetch fails", async () => {
+    global.fetch = failingFetch();
+    mount(<DatasetsView projectId="p1" />);
+    expect(await screen.findByText(withText(/Error loading datasets/))).toBeDefined();
+  });
+
+  it("Datasets shows an empty state pointing at saving a trace/span as a test case", async () => {
+    global.fetch = emptyListFetch();
+    mount(<DatasetsView projectId="p1" />);
+    expect(await screen.findByText(/No datasets yet/)).toBeDefined();
+  });
+
+  it("Evaluations Runs tab shows a loading state while the fetch is in flight", () => {
+    global.fetch = pendingFetch();
+    mount(<EvaluationsView projectId="p1" />);
+    expect(screen.getByText("Loading runs...")).toBeDefined();
+  });
+
+  it("Evaluations Runs tab shows an error state when the fetch fails", async () => {
+    global.fetch = failingFetch();
+    mount(<EvaluationsView projectId="p1" />);
+    expect(await screen.findByText("Error loading runs")).toBeDefined();
+  });
+
+  it("Scorers tab shows loading, error, and empty states", async () => {
+    global.fetch = pendingFetch();
+    mount(<EvaluationsView projectId="p1" />);
+    fireEvent.click(await screen.findByRole("button", { name: /Scorers/ }));
+    expect(screen.getByText("Loading scorers...")).toBeDefined();
+    cleanup();
+
+    global.fetch = failingFetch();
+    mount(<EvaluationsView projectId="p1" />);
+    fireEvent.click(await screen.findByRole("button", { name: /Scorers/ }));
+    expect(await screen.findByText("Error loading scorers")).toBeDefined();
+    cleanup();
+
+    global.fetch = emptyListFetch();
+    mount(<EvaluationsView projectId="p1" />);
+    fireEvent.click(await screen.findByRole("button", { name: /Scorers/ }));
+    expect(await screen.findByText(/No scorers yet/)).toBeDefined();
+  });
+
+  it("Run detail shows a loading state, then a not-found state on error", async () => {
+    global.fetch = pendingFetch();
+    mount(<RunDetailView projectId="p1" runId="run1" />);
+    expect(screen.getByText("Loading run...")).toBeDefined();
+    cleanup();
+
+    global.fetch = failingFetch(404);
+    mount(<RunDetailView projectId="p1" runId="run1" />);
+    expect(await screen.findByText("Evaluation run not found")).toBeDefined();
+    expect(screen.getByText("Back to evaluations")).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Dataset detail — of the five routed evaluation surfaces (datasets,
+// datasets/[datasetId], evaluations, evaluations/[runId], evaluations/compare),
+// this was the only one with zero mount coverage: `payloadFor`'s
+// `/datasets/ds1$` branch above was built and never used by any test, so this
+// suite's own claim to "Mount smoke tests for Datasets, Evaluations, Run
+// detail, Comparison, and Scorers" was false for Datasets' detail route.
+// ---------------------------------------------------------------------------
+describe("real Dataset detail view renders server data", () => {
+  it("shows the dataset identity and its (empty) test-case table", async () => {
+    mount(<DatasetDetailView projectId="p1" datasetId="ds1" />);
+    expect((await screen.findAllByText("Billing routing")).length).toBeGreaterThan(0);
+    expect(await screen.findByText(/No test cases yet/)).toBeDefined();
+  });
+
+  it("shows a loading state while the fetch is in flight", () => {
+    global.fetch = vi.fn(() => new Promise<Response>(() => {})) as unknown as typeof fetch;
+    mount(<DatasetDetailView projectId="p1" datasetId="ds1" />);
+    expect(screen.getByText("Loading dataset...")).toBeDefined();
+  });
+
+  it("shows a not-found state for an unknown dataset", async () => {
+    // A real 404 — the view distinguishes "this dataset does not exist" from
+    // "the request failed", and only the former gets the not-found copy. A 200
+    // with an empty body is a malformed response, not a missing dataset, so it
+    // correctly renders the generic "Couldn't load dataset" state instead.
+    global.fetch = vi.fn(async () => ({
+      ok: false,
+      status: 404,
+      json: async () => ({}),
+    })) as unknown as typeof fetch;
+    mount(<DatasetDetailView projectId="p1" datasetId="missing-ds" />);
+    expect(await screen.findByText(withText(/No dataset with the id missing-ds/))).toBeDefined();
+    expect(screen.getByText("Back to datasets")).toBeDefined();
   });
 });

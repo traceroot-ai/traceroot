@@ -34,6 +34,10 @@ export interface ScorerDefinition {
   scorerType: "llm_judge" | "code" | null;
   outputType: "score" | "classification" | null;
   description: string | null;
+  /** The inputs the scorer reads (e.g. "input", "output", "expected"). Drives the
+   *  "Requires" card and the reference-answer used/not-used note. Null = the SDK
+   *  never declared them (unknown), which is NOT the same as "reads nothing". */
+  requiredInputs: string[] | null;
   metadata: unknown | null;
   // llm_judge
   model: string | null;
@@ -48,6 +52,7 @@ function emptyDefinition(): ScorerDefinition {
     scorerType: null,
     outputType: null,
     description: null,
+    requiredInputs: null,
     metadata: null,
     model: null,
     messages: null,
@@ -176,6 +181,7 @@ function hashDefinition(def: ScorerDefinition): string {
     def.messages,
     def.language,
     def.sourceCode,
+    def.requiredInputs,
   ]);
   let h = 0;
   for (let i = 0; i < payload.length; i++) {
@@ -216,6 +222,13 @@ function definitionByKey(runManifests: Array<{ scorers: unknown }>): {
       }
       if (typeof o.description === "string") {
         def.description = o.description;
+        any = true;
+      }
+      if (Array.isArray(o.required_inputs)) {
+        const inputs = o.required_inputs.filter((x): x is string => typeof x === "string");
+        // An explicit empty array is a real answer ("reads nothing"), distinct from
+        // an absent field — so [] is kept, not coalesced back to null.
+        def.requiredInputs = inputs;
         any = true;
       }
       if (o.metadata !== undefined && o.metadata !== null) {

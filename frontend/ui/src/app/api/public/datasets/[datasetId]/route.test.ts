@@ -131,8 +131,8 @@ describe("PATCH", () => {
   it("replaces metadata with an object and clears it with an explicit null", async () => {
     prismaMock.dataset.findFirst.mockResolvedValue({ id: "ds1" });
 
-    await PATCH(jsonReq({ metadata: { owner: "hao" } }), params);
-    expect(patchData().metadata).toEqual({ owner: "hao" });
+    await PATCH(jsonReq({ metadata: { owner: "acme" } }), params);
+    expect(patchData().metadata).toEqual({ owner: "acme" });
 
     prismaMock.dataset.update.mockClear();
     await PATCH(jsonReq({ metadata: null, description: null }), params);
