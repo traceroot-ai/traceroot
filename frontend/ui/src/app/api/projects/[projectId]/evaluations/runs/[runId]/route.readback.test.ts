@@ -109,7 +109,15 @@ beforeEach(() => {
           },
         ],
         humanScores: [
-          { id: "h1", verdict: "pass", quality: 4, comment: "looks right", reviewer: "e@x.com" },
+          {
+            id: "h1",
+            dimension: "overall",
+            verdict: "pass",
+            quality: 4,
+            comment: "looks right",
+            reviewer: "e@x.com",
+            status: "reviewed",
+          },
         ],
       },
       {
@@ -190,7 +198,13 @@ describe("run/result read-back", () => {
     const run = (await read()).body.run as Record<string, unknown>;
     expect(run.baselineRunId).toBe("run0");
     expect(run.baselineComparable).toBe(true);
-    expect(run.changeFromBaseline).toBeCloseTo(0.15); // 0.9 - 0.75
+    // NOT the raw run.mainScore subtraction (0.9 - 0.75 = 0.15): case-2's candidate
+    // task errored (no routing-accuracy score), so it is excluded from the paired
+    // aggregate. The only actually-comparable case is case-1 (candidate 1 vs
+    // baseline 0.5), so the trustworthy headline delta is 0.5 — derived the same way
+    // as every per-scorer aggregate, never a subtraction of the two runs' raw
+    // SDK-reported aggregates, which can silently cover different case sets.
+    expect(run.changeFromBaseline).toBeCloseTo(0.5);
   });
 
   it("exposes result trace id, task error, scores with independent scorer errors, and human scores", async () => {
@@ -210,6 +224,57 @@ describe("run/result read-back", () => {
     expect(errored.taskError).toContain("ToolTimeout");
     expect(errored.candidateOutput).toBeNull();
     expect((errored.scores as unknown[]).length).toBe(0);
+  });
+
+  it("surfaces structured run provenance in the read model", async () => {
+    (db.run as Record<string, unknown>).provenance = {
+      git_repository: "github.com/acme/agent",
+      git_commit: "4a91c02",
+      git_dirty: false,
+      ci_provider: "github-actions",
+      sdk_language: "python",
+      sdk_version: "0.4.1",
+      declared_model: "gpt-4o-2024-08-06",
+      declared_prompt_version: "router-v7",
+    };
+    const run = (await read()).body.run as Record<string, unknown>;
+    const prov = run.provenance as Record<string, unknown>;
+    expect(prov.git_commit).toBe("4a91c02");
+    expect(prov.declared_model).toBe("gpt-4o-2024-08-06");
+    expect(prov.sdk_language).toBe("python");
+    // The dropped orphan `model` column no longer appears on the read model.
+    expect("model" in run).toBe(false);
+  });
+
+  it("derives the human-review summary read-only, without touching automated signals", async () => {
+    // res1 (auto passed) carries an "overall" human pass; res2 (auto errored) has none.
+    const run = (await read()).body.run as Record<string, unknown>;
+    const hr = run.humanReview as Record<string, number | string[]>;
+    expect(hr.dimensions).toEqual(["overall"]);
+    expect(hr.reviewedCount).toBe(1);
+    expect(hr.pendingCount).toBe(1); // res2 not reviewed on the active "overall" dimension
+    expect(hr.passCount).toBe(1);
+    expect(hr.failCount).toBe(0);
+    expect(hr.disagreementCount).toBe(0); // human pass agrees with the automated pass
+    // Automated signals are exactly what the comparison/status produce — never rewritten.
+    expect(run.status).toBe("completed_with_errors");
+    expect(run.changeFromBaseline).toBeCloseTo(0.5);
+    expect(run.baselineComparable).toBe(true);
+  });
+
+  it("counts a human-vs-automated disagreement without changing the automated verdict", async () => {
+    // Flip the human verdict on the auto-passed result to a fail → one disagreement.
+    (
+      db.run as { results: Array<{ humanScores: Array<{ verdict: string }> }> }
+    ).results[0].humanScores[0].verdict = "fail";
+    const run = (await read()).body.run as Record<string, unknown>;
+    const hr = run.humanReview as Record<string, number>;
+    expect(hr.disagreementCount).toBe(1);
+    expect(hr.failCount).toBe(1);
+    // The automated main score / status / comparison are untouched by the disagreement.
+    expect(run.mainScore).toBe(0.9);
+    expect(run.status).toBe("completed_with_errors");
+    expect(run.changeFromBaseline).toBeCloseTo(0.5);
   });
 
   it("marks an incompatible baseline (different dataset version) as not comparable", async () => {
