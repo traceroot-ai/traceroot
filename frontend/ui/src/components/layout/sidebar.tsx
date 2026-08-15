@@ -14,7 +14,6 @@ import {
   Monitor,
   Settings,
   UserRoundSearch,
-  Eye,
   Database,
   FlaskConical,
 } from "lucide-react";

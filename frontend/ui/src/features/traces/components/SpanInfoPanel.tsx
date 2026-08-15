@@ -2,20 +2,9 @@
 
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import {
-  Clock,
-  Users,
-  Layers,
-  ChevronRight,
-  AlertCircle,
-  GitBranch,
-  GitCommitHorizontal,
-  FileCode,
-} from "lucide-react";
+import { ChevronRight, GitBranch, GitCommitHorizontal, FileCode } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
-import { ChevronRight, GitBranch, GitCommitHorizontal, FileCode, Loader2 } from "lucide-react";
 import { CopyButton } from "@/components/ui/copy-button";
-import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { formatDuration, formatDate, buildUrlWithFilters } from "@/lib/utils";
 import { TokenChip } from "./TokenChip";
 import { CostChip } from "./CostChip";
