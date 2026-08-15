@@ -88,14 +88,47 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   });
   if (!existing) return errorResponse("Dataset not found", 404);
 
-  const dataset = await prisma.dataset.update({
-    where: { id: datasetId },
-    data: {
-      ...(parsed.data.name !== undefined ? { name: parsed.data.name } : {}),
-      ...(parsed.data.description !== undefined ? { description: parsed.data.description } : {}),
-    },
-  });
-  return successResponse({ dataset });
+  // A dataset's name is its human identity: renaming onto a name another dataset in the
+  // project already uses would deduplicate them, so deny it (case-insensitive). Excludes
+  // this dataset itself, so keeping (or re-casing) its own name is allowed.
+  if (parsed.data.name !== undefined) {
+    const clash = await prisma.dataset.findFirst({
+      where: {
+        projectId,
+        clientDatasetId: null, // UI-scoped, matching the partial unique index
+        id: { not: datasetId },
+        name: { equals: parsed.data.name, mode: "insensitive" as const },
+      },
+      select: { name: true },
+    });
+    if (clash) {
+      return errorResponse(
+        `A dataset named "${clash.name}" already exists in this project. Pick a different name.`,
+        409,
+      );
+    }
+  }
+
+  try {
+    const dataset = await prisma.dataset.update({
+      where: { id: datasetId },
+      data: {
+        ...(parsed.data.name !== undefined ? { name: parsed.data.name } : {}),
+        ...(parsed.data.description !== undefined ? { description: parsed.data.description } : {}),
+      },
+    });
+    return successResponse({ dataset });
+  } catch (e) {
+    // A rename racing a concurrent create/rename to the same name loses to the partial
+    // unique index (uq_dataset_project_lower_name_ui); surface the same 409 as the pre-check.
+    if (parsed.data.name !== undefined && isPrismaKnownError(e, "P2002")) {
+      return errorResponse(
+        `A dataset named "${parsed.data.name}" already exists in this project. Pick a different name.`,
+        409,
+      );
+    }
+    throw e;
+  }
 }
 
 // DELETE — remove the dataset and cascade its versions/test cases.

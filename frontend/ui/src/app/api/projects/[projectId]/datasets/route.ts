@@ -6,6 +6,7 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 
 type RouteParams = { params: Promise<{ projectId: string }> };
 
@@ -86,12 +87,46 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   const parsed = CreateDatasetRequestSchema.safeParse(body);
   if (!parsed.success) return errorResponse(parsed.error.issues[0].message, 400);
 
-  const dataset = await prisma.dataset.create({
-    data: {
+  // A dataset's name is its human identity in the project: creating a second one with the
+  // same name deduplicates against the first from the user's point of view, so deny it here
+  // (case-insensitive) rather than silently making a confusing duplicate. Scoped to UI-authored
+  // datasets (`clientDatasetId: null`) to match the partial unique index that backs it — an SDK
+  // dataset may legitimately share a display name (it converges by its stable client id), so it
+  // must not make this pre-check falsely 409 a valid UI create.
+  const existing = await prisma.dataset.findFirst({
+    where: {
       projectId,
-      name: parsed.data.name,
-      description: parsed.data.description ?? null,
+      clientDatasetId: null,
+      name: { equals: parsed.data.name, mode: "insensitive" as const },
     },
+    select: { name: true },
   });
-  return successResponse({ dataset }, 201);
+  if (existing) {
+    return errorResponse(
+      `A dataset named "${existing.name}" already exists in this project. Pick a different name.`,
+      409,
+    );
+  }
+
+  try {
+    const dataset = await prisma.dataset.create({
+      data: {
+        projectId,
+        name: parsed.data.name,
+        description: parsed.data.description ?? null,
+      },
+    });
+    return successResponse({ dataset }, 201);
+  } catch (e) {
+    // Two concurrent creates can both clear the pre-check above; the partial unique index
+    // (uq_dataset_project_lower_name_ui) is the race-safe backstop, so translate its
+    // violation into the same 409 rather than letting it surface as a 500.
+    if (isPrismaKnownError(e, "P2002")) {
+      return errorResponse(
+        `A dataset named "${parsed.data.name}" already exists in this project. Pick a different name.`,
+        409,
+      );
+    }
+    throw e;
+  }
 }

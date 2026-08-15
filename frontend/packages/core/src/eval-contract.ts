@@ -357,7 +357,9 @@ export type CompleteRunResponse = z.infer<typeof CompleteRunResponseSchema>;
 
 export const CreateDatasetRequestSchema = z
   .object({
-    name: z.string().min(1).max(200),
+    // Trim before validating so a name's stored/compared form is normalized — otherwise
+    // "Regression" vs "Regression " read as distinct and defeat the uniqueness guard.
+    name: z.string().trim().min(1).max(200),
     description: z.string().max(2000).nullable().optional(),
   })
   .strict();
@@ -365,7 +367,7 @@ export type CreateDatasetRequest = z.infer<typeof CreateDatasetRequestSchema>;
 
 export const UpdateDatasetRequestSchema = z
   .object({
-    name: z.string().min(1).max(200).optional(),
+    name: z.string().trim().min(1).max(200).optional(),
     description: z.string().max(2000).nullable().optional(),
   })
   .strict();
