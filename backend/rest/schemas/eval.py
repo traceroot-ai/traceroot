@@ -7,15 +7,23 @@ codegen-friendly OpenAPI schema. Persistence stays in the Prisma-owned Next.js
 handlers — the gateway forwards the (validated) body on and never duplicates it.
 
 Parity rules with the Zod source:
-- Zod ``.strict()`` objects reject unknown keys → ``ConfigDict(extra="forbid")``.
-- ``ScorerRefSchema`` is a plain (non-strict) ``z.object`` that strips unknown
-  keys → default ``extra="ignore"`` (no forbid) on ``ScorerRef``.
 - ``z.string().min(1).max(n)`` → ``Field(min_length=1, max_length=n)``.
 - ``z.number().int().nonnegative()`` → ``int`` with ``ge=0``; ``z.number()`` → ``float``.
 - ``.nullable().optional()`` → ``T | None = None``; ``.default(x)`` → default ``x``.
 - ``z.array(X).max(n)`` → ``list[X]`` with ``max_length=n``.
 - A display-only enum with ``.catch(null)`` → ``Literal[...] | None`` plus a
   ``mode="before"`` validator that degrades an unrecognised value to ``None``.
+
+Unknown keys: the Zod request schemas are ``.strict()``, but these models are
+deliberately NOT ``extra="forbid"``. They run in the *gateway*, which is contracted
+to forward bodies verbatim to the Prisma-owned Next.js handler that actually
+persists — and FastAPI validates the request model before the handler body runs, so
+a forbid here would 422 a field the gateway does not yet model and it would never
+reach persistence at all. That also breaks rolling deploys: a newer SDK's optional
+field would be rejected by every gateway instance older than it, while the Next.js
+handler it is talking to would have accepted it. Strictness stays on the Zod side,
+where the authoritative writer lives; the caps, vocabularies and shapes below are
+still enforced here so a malformed payload never reaches the control plane.
 
 A cross-language drift test (``tests/rest/test_eval_contract_parity.py`` +
 ``eval-contract-parity.drift.test.ts``) feeds the same representative payloads to
@@ -25,7 +33,7 @@ both layers and asserts identical accept/reject verdicts.
 import json
 from typing import Any, Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 # --- Payload caps (mirror the shared caps at the top of the Zod contract) ----
 
@@ -141,8 +149,6 @@ class ScorerRef(BaseModel):
 class ScoreInput(BaseModel):
     """One scorer's outcome on one result. ``error`` set = the scorer failed to judge."""
 
-    model_config = ConfigDict(extra="forbid")
-
     scorer_name: str = Field(min_length=1, max_length=200)
     scorer_version: str = Field(min_length=1, max_length=50)
     numeric_value: float | None = None
@@ -158,8 +164,6 @@ class ScoreInput(BaseModel):
 
 class RegisterRunRequest(BaseModel):
     """Register/start a run. Idempotent on ``client_run_id`` within an evaluation."""
-
-    model_config = ConfigDict(extra="forbid")
 
     evaluation_name: str = Field(min_length=1, max_length=200)
     dataset_id: str = Field(min_length=1, max_length=64)
@@ -215,8 +219,6 @@ class UpsertResultRequest(BaseModel):
     the result's scores (``[]`` clears them); omitting it leaves them alone.
     """
 
-    model_config = ConfigDict(extra="forbid")
-
     test_case_id: str = Field(min_length=1, max_length=64)
     trace_id: str | None = Field(default=None, min_length=1, max_length=64)
     input: str = Field(max_length=EVAL_PAYLOAD_TEXT_MAX)
@@ -243,8 +245,6 @@ class UpsertResultResponse(BaseModel):
 
 class CompleteRunRequest(BaseModel):
     """Complete/fail a run, reporting final completeness counts."""
-
-    model_config = ConfigDict(extra="forbid")
 
     status: EvalRunStatus
     main_score: float | None = None
