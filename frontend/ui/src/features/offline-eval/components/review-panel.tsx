@@ -26,6 +26,15 @@ import { HUMAN_VERDICT_LABEL, type HumanReview, type HumanVerdict } from "../typ
  */
 
 export interface ReviewTarget {
+  /**
+   * Stable identity for this target (e.g. the result/span id), independent of
+   * object identity. Callers build `target` as a fresh object literal on every
+   * render, so the form-seeding effect below keys on this instead of on `target`
+   * itself — otherwise any parent re-render (a background refetch, a mutation
+   * settling) would look like "the user opened a new target" and wipe an
+   * in-progress, unsaved review.
+   */
+  targetKey: string;
   /** Where the review was opened from. */
   contextLabel: string;
   input: string;
@@ -49,7 +58,13 @@ export function ReviewPanel({
   target: ReviewTarget | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSave: (review: HumanReview) => void | Promise<void>;
+  /**
+   * May reject/throw to report a save failure. Awaited by `handleSave`, which
+   * only toasts success and closes the drawer once this resolves — a failure
+   * keeps the drawer open with the reviewer's input intact and toasts an error
+   * instead, since a false "saved" here is silent data loss.
+   */
+  onSave: (review: HumanReview) => void | Promise<unknown>;
   /** Toast description shown after saving; omit for none. */
   savedDescription?: string;
   /** Small note in the footer (e.g. "Saved in this page only."). */
@@ -61,6 +76,7 @@ export function ReviewPanel({
   const [quality, setQuality] = React.useState<number | undefined>(undefined);
   const [comment, setComment] = React.useState("");
   const [showEvidence, setShowEvidence] = React.useState(false);
+  const [saving, setSaving] = React.useState(false);
 
   React.useEffect(() => {
     if (!open || !target) return;
@@ -69,14 +85,17 @@ export function ReviewPanel({
     setQuality(existing?.quality);
     setComment(existing?.comment ?? "");
     setShowEvidence(false);
-  }, [open, target]);
+    // Keyed on the stable targetKey, not on `target` itself — callers pass a fresh
+    // object literal every render, and depending on that identity would reset the
+    // form (discarding an unsaved review) on any unrelated parent re-render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, target?.targetKey]);
 
   if (!target) return null;
 
   const handleSave = async () => {
+    setSaving(true);
     try {
-      // Await the persist so a failed request is never presented as saved. onSave may
-      // be sync (returns void) or return a promise that rejects on failure.
       await onSave({
         verdict,
         quality,
@@ -84,20 +103,19 @@ export function ReviewPanel({
         reviewer: "You",
         at: new Date().toISOString(),
       });
-    } catch {
       toast({
-        title: "Could not save review",
-        description: "It wasn't persisted — please try again.",
-        tone: "warning",
+        title: "Review saved",
+        ...(savedDescription ? { description: savedDescription } : {}),
+        tone: "success",
       });
-      return; // keep the drawer open with the reviewer's input intact
+      onOpenChange(false);
+    } catch (e) {
+      // Keep the drawer open with the reviewer's input intact — closing here
+      // (or toasting success) would discard a review that was never persisted.
+      toast({ title: "Could not save the review", description: String(e), tone: "warning" });
+    } finally {
+      setSaving(false);
     }
-    toast({
-      title: "Review saved",
-      ...(savedDescription ? { description: savedDescription } : {}),
-      tone: "success",
-    });
-    onOpenChange(false);
   };
 
   return (
@@ -227,12 +245,13 @@ export function ReviewPanel({
               variant="outline"
               size="sm"
               className="h-7 text-[12px]"
+              disabled={saving}
               onClick={() => onOpenChange(false)}
             >
               Cancel
             </Button>
-            <Button size="sm" className="h-7 text-[12px]" onClick={handleSave}>
-              Save review
+            <Button size="sm" className="h-7 text-[12px]" disabled={saving} onClick={handleSave}>
+              {saving ? "Saving..." : "Save review"}
             </Button>
           </span>
         </DrawerFooter>

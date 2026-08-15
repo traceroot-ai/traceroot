@@ -203,21 +203,24 @@ describe("TestCaseReviewDrawer (server-wired)", () => {
     expect(screen.getByText(/never blocks the case from an evaluation/)).toBeDefined();
   });
 
-  it("Mark ready submits without a correction and closes", async () => {
+  it("Mark ready submits without a correction and leaves closing to the caller", async () => {
     const onSubmit = vi.fn();
     const onOpenChange = vi.fn();
     mount(
       <TestCaseReviewDrawer target={TARGET} open onOpenChange={onOpenChange} onSubmit={onSubmit} />,
     );
     const boxes = await screen.findAllByRole("checkbox");
+    // "Mark ready" is gated on every verification check: a half-reviewed case must
+    // not be publishable as ready.
     fireEvent.click(boxes[0]);
-    fireEvent.click(boxes[4]);
-    // Ticking then un-ticking still leaves the checks purely advisory.
-    fireEvent.click(boxes[4]);
+    expect(screen.getByRole("button", { name: "Mark ready" }).hasAttribute("disabled")).toBe(true);
+    boxes.slice(1).forEach((b) => fireEvent.click(b));
 
     fireEvent.click(screen.getByRole("button", { name: "Mark ready" }));
     expect(onSubmit).toHaveBeenCalledWith({ review: "ready", correctedExpected: undefined });
-    expect(onOpenChange).toHaveBeenCalledWith(false);
+    // The drawer does not close itself: the save may still be in flight or fail, so
+    // the caller closes it only once it has actually persisted.
+    expect(onOpenChange).not.toHaveBeenCalled();
   });
 
   it("a changed expected outcome rides along, trimmed", async () => {
@@ -239,6 +242,7 @@ describe("TestCaseReviewDrawer (server-wired)", () => {
     fireEvent.change(await screen.findByLabelText(/Correct the expected outcome/), {
       target: { value: "billing" },
     });
+    screen.getAllByRole("checkbox").forEach((b) => fireEvent.click(b));
     fireEvent.click(screen.getByRole("button", { name: "Mark ready" }));
     expect(onSubmit).toHaveBeenCalledWith({ review: "ready", correctedExpected: undefined });
   });

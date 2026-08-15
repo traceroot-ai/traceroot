@@ -19,8 +19,14 @@ import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { SearchFilterBar } from "@/components/search-filter-bar";
-import { DATE_FILTER_OPTIONS, type DateFilterOption } from "@/lib/date-filter";
 import { Table, TBody, THead, TR, TRHead, Td, Th } from "@/components/ui/table";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import {
@@ -45,6 +51,10 @@ import { useEvaluationRun, useEvaluationRuns, useCreateHumanScore, useCompareRun
 import { PullCodeDrawer } from "../components/pull-code-drawer";
 import { PassRate } from "../components/pass-rate";
 import { SaveTestCaseDrawer } from "../components/trace-integration";
+import {
+  SaveResultToDatasetDrawer,
+  type ResultDatasetAction,
+} from "../components/save-result-to-dataset-drawer";
 import { reproduceRunCode, reproduceRunCodeTs } from "@/features/offline-eval/utils";
 import { matchSpans } from "@/lib/eval/span-match";
 import {
@@ -62,7 +72,32 @@ import type {
   CompareResultRow,
   CompareRunsResponse,
   ResultRowComparison,
+  HumanScoreRow,
+  HumanReviewSummary,
 } from "../types";
+import { HUMAN_VERDICT_LABEL, type HumanReview, type HumanVerdict } from "@/features/offline-eval/types";
+
+/** The single canonical dimension reviewed in V1. */
+const REVIEW_DIMENSION = "overall";
+
+/**
+ * Map the read-model review row a result carries into the panel's `HumanReview`
+ * shape, so re-opening the review drawer pre-fills the saved verdict/quality/comment
+ * instead of a blank form (nulls → undefined; the review's `updateTime` is its `at`).
+ */
+function toExistingReview(humanScores: HumanScoreRow[]): HumanReview | undefined {
+  const saved =
+    humanScores.find((h) => h.dimension === REVIEW_DIMENSION) ?? humanScores[0];
+  return saved
+    ? {
+        verdict: saved.verdict as HumanVerdict,
+        quality: saved.quality ?? undefined,
+        comment: saved.comment ?? undefined,
+        reviewer: saved.reviewer,
+        at: saved.updateTime,
+      }
+    : undefined;
+}
 
 /** Case/run duration; "Unknown" when unmeasured (never 0s). */
 function fmtDurationMs(ms: number | null | undefined): string {
@@ -244,7 +279,10 @@ type ResultFilterId =
   | "failed"
   | "errors"
   | "unpaired"
-  | "not_scored";
+  | "not_scored"
+  | "needs_human_review"
+  | "human_reviewed"
+  | "judge_disagreement";
 
 const RESULT_FILTERS: Array<{ id: ResultFilterId; label: string }> = [
   { id: "all", label: "All" },
@@ -254,7 +292,67 @@ const RESULT_FILTERS: Array<{ id: ResultFilterId; label: string }> = [
   { id: "errors", label: "Errors" },
   { id: "unpaired", label: "Unpaired" },
   { id: "not_scored", label: "Not scored" },
+  { id: "needs_human_review", label: "Needs human review" },
+  { id: "human_reviewed", label: "Reviewed" },
+  { id: "judge_disagreement", label: "Judge disagreement" },
 ];
+
+/** The result's canonical human review (V1: the "overall" dimension), if any. */
+function resultReview(r: ResultRow): HumanScoreRow | undefined {
+  const reviews = r.humanScores ?? [];
+  return reviews.find((h) => h.dimension === REVIEW_DIMENSION) ?? reviews[0];
+}
+
+/**
+ * A human pass/fail verdict disagreeing with the automated pass/fail — both must be
+ * boolean, so "unsure" and a quality-only review never count (mirrors the backend
+ * `deriveHumanReviewSummary`). Read-only: this never alters the automated score.
+ */
+function isJudgeDisagreement(r: ResultRow): boolean {
+  const review = resultReview(r);
+  if (!review || (review.verdict !== "pass" && review.verdict !== "fail")) return false;
+  const automatedPass = r.status === "passed" ? true : r.status === "failed" ? false : null;
+  if (automatedPass === null) return false;
+  return (review.verdict === "pass") !== automatedPass;
+}
+
+/** Compact human-review chip for the result drawer — verdict/quality/reviewer, plus a
+ *  disagreement flag. Never renders the automated score; it sits beside it. */
+function ReviewTag({
+  review,
+  disagreement,
+}: {
+  review: HumanScoreRow | undefined;
+  disagreement: boolean;
+}) {
+  if (!review) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-md border bg-muted/40 px-2.5 py-1 text-xs">
+        <span className="text-muted-foreground">Human review:</span>
+        <span className="font-medium text-muted-foreground">Pending</span>
+      </span>
+    );
+  }
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs ${
+        disagreement
+          ? "border-amber-400/60 bg-amber-100/50 dark:border-amber-700/60 dark:bg-amber-950/30"
+          : "bg-muted/40"
+      }`}
+    >
+      <span className="text-muted-foreground">Human review:</span>
+      <span className="font-medium">{HUMAN_VERDICT_LABEL[review.verdict as HumanVerdict]}</span>
+      {review.quality != null && <span className="text-muted-foreground">· {review.quality}/5</span>}
+      <span className="text-muted-foreground">· {review.reviewer}</span>
+      {disagreement && (
+        <span className="font-medium text-amber-700 dark:text-amber-400">
+          · Disagrees with automated
+        </span>
+      )}
+    </span>
+  );
+}
 
 // Filters key on the DERIVED case verdict (comparison.caseChange), never the stored
 // change column. "Unpaired" folds in not_comparable (paired but un-trustable) cases.
@@ -267,6 +365,9 @@ const RESULT_FILTER_FN: Record<ResultFilterId, (r: ResultRow) => boolean> = {
   unpaired: (r) =>
     r.comparison?.caseChange === "unpaired" || r.comparison?.caseChange === "not_comparable",
   not_scored: (r) => r.status === "not_scored",
+  needs_human_review: (r) => !resultReview(r),
+  human_reviewed: (r) => !!resultReview(r),
+  judge_disagreement: isJudgeDisagreement,
 };
 
 /**
@@ -288,6 +389,10 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
   // "Save as test case" drawer (only for real ingested traces): which span it targets.
   const [saveTestCaseOpen, setSaveTestCaseOpen] = React.useState(false);
   const [saveTestCaseSpanId, setSaveTestCaseSpanId] = React.useState<string | undefined>(undefined);
+  // Result→dataset drawer: which action the "Add to dataset" menu picked (null = closed).
+  const [resultDatasetAction, setResultDatasetAction] = React.useState<ResultDatasetAction | null>(
+    null,
+  );
   // "Compare with" — another run of the SAME evaluation, chosen inline. The current run
   // is the candidate; the picked run is the baseline. Comparison is computed on demand
   // by the backend engine (the SDK no longer declares baselines).
@@ -485,7 +590,7 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
                 className="h-7 text-[12px]"
                 onClick={() => setReviewOpen(true)}
               >
-                Review output
+                {resultReview(openResult) ? "Edit review" : "Review output"}
               </Button>
               <Link
                 href={`/projects/${projectId}/datasets/${run.datasetId}?case=${openResult.testCaseId}`}
@@ -494,21 +599,66 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
                 <Database className="h-3.5 w-3.5" aria-hidden />
                 View source test case
               </Link>
-              {useRealTrace && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 text-[12px]"
-                  onClick={() => {
-                    setSaveTestCaseSpanId(
-                      selection.type === "span" ? selection.span.span_id : undefined,
-                    );
-                    setSaveTestCaseOpen(true);
-                  }}
-                >
-                  Save as test case
-                </Button>
-              )}
+              {/* Result → dataset: the three case-level actions live under one menu.
+                  Saving/duplicating/updating operates on the RESULT (its whole
+                  candidate output for this case), publishing a new immutable dataset
+                  version; the finer "save a specific span" capture stays available
+                  below for real ingested traces. */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="h-7 gap-1 text-[12px]">
+                    <Database className="h-3.5 w-3.5" aria-hidden />
+                    Add to dataset
+                    <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-64">
+                  <DropdownMenuItem onSelect={() => setResultDatasetAction("update_existing_case")}>
+                    <div>
+                      <div className="text-[12px] font-medium">Update source case</div>
+                      <div className="text-[11px] text-muted-foreground">
+                        Publish a new version of this case
+                      </div>
+                    </div>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setResultDatasetAction("save_new_case")}>
+                    <div>
+                      <div className="text-[12px] font-medium">Save as a new case</div>
+                      <div className="text-[11px] text-muted-foreground">
+                        Add a new case to a dataset
+                      </div>
+                    </div>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setResultDatasetAction("duplicate_as_variant")}>
+                    <div>
+                      <div className="text-[12px] font-medium">Duplicate as a variant</div>
+                      <div className="text-[11px] text-muted-foreground">
+                        Branch this case without touching the original
+                      </div>
+                    </div>
+                  </DropdownMenuItem>
+                  {useRealTrace && (
+                    <>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onSelect={() => {
+                          setSaveTestCaseSpanId(
+                            selection.type === "span" ? selection.span.span_id : undefined,
+                          );
+                          setSaveTestCaseOpen(true);
+                        }}
+                      >
+                        <div>
+                          <div className="text-[12px] font-medium">Save a span as a case…</div>
+                          <div className="text-[11px] text-muted-foreground">
+                            Capture the selected span&rsquo;s input/output
+                          </div>
+                        </div>
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
             </>
           )}
           spanExtraTags={() => (
@@ -531,6 +681,9 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
                   {run.datasetName} · {run.datasetVersionLabel}
                 </span>
               </span>
+              {/* Human review — shown ALONGSIDE the automated score/status (never
+                  replacing it); a disagreement between the two is labelled, not hidden. */}
+              <ReviewTag review={resultReview(openResult)} disagreement={isJudgeDisagreement(openResult)} />
             </>
           )}
           /* Baseline run's trace + a per-span matcher. Powers the viewer's Diff
@@ -556,6 +709,11 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
         target={
           openResult
             ? ({
+                // The result id, not the object literal below (which is rebuilt on
+                // every render) — ReviewPanel keys its form-reset effect on this so
+                // an unrelated re-render (e.g. a background refetch) can't wipe an
+                // in-progress review.
+                targetKey: openResult.id,
                 contextLabel: `${openResult.testCaseId} · ${run?.evaluationName} ${run?.candidateVersion}`,
                 input: openResult.input,
                 output: openResult.candidateOutput ?? "No output — the task errored.",
@@ -565,23 +723,27 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
                   display: s.error ? "Scorer error" : scoreValue(s),
                   explanation: s.error ?? s.explanation ?? undefined,
                 })),
-                existing: undefined,
+                existing: toExistingReview(openResult.humanScores),
               } satisfies ReviewTarget)
             : null
         }
         open={reviewOpen}
         onOpenChange={setReviewOpen}
         onSave={(review) =>
-          // Return the promise so the panel awaits persistence — a failed human-score
-          // request is no longer shown as saved.
-          humanScore
-            .mutateAsync({
-              verdict: review.verdict,
-              quality: review.quality ?? null,
-              comment: review.comment ?? null,
-              reviewer: review.reviewer,
-            })
-            .then(() => {})
+          // A promise ReviewPanel awaits: it only toasts "Review saved" and closes
+          // the drawer once this resolves, and surfaces a failure (rejecting here)
+          // instead of silently discarding the review.
+          new Promise<void>((resolve, reject) => {
+            humanScore.mutate(
+              {
+                verdict: review.verdict,
+                quality: review.quality ?? null,
+                comment: review.comment ?? null,
+                reviewer: review.reviewer,
+              },
+              { onSuccess: () => resolve(), onError: (e) => reject(e) },
+            );
+          })
         }
       />
 
@@ -593,6 +755,28 @@ export function RunDetailView({ projectId, runId }: { projectId: string; runId: 
         open={saveTestCaseOpen}
         onOpenChange={setSaveTestCaseOpen}
       />
+
+      {/* Result → dataset: update the source case, save a new one, or duplicate as a
+          variant. Publishes a new immutable dataset version; never a scoring action. */}
+      {openResult && run && (
+        <SaveResultToDatasetDrawer
+          projectId={projectId}
+          open={resultDatasetAction !== null}
+          onOpenChange={(o) => {
+            if (!o) setResultDatasetAction(null);
+          }}
+          action={resultDatasetAction ?? "update_existing_case"}
+          result={{
+            id: openResult.id,
+            input: openResult.input,
+            expectedOutput: openResult.expectedOutput,
+            candidateOutput: openResult.candidateOutput,
+            testCaseId: openResult.testCaseId,
+          }}
+          sourceDatasetId={run.datasetId}
+          sourceDatasetName={run.datasetName ?? "this run's dataset"}
+        />
+      )}
     </>
   );
 }
@@ -713,7 +897,11 @@ function RunBody({
               onValueChange={(v) => onCompareChange(v === NO_COMPARE ? null : v)}
             >
               <SelectTrigger
-                className="h-7 w-fit max-w-[240px] gap-1.5 text-[12px]"
+                // The trigger is justify-between by default, so any width beyond the
+                // text is dealt out BETWEEN the icon and the value — measured at 44px
+                // on a 240px trigger. Letting the value grow absorbs that space
+                // instead, which holds even if the width utilities don't apply.
+                className="h-7 w-fit max-w-[240px] justify-start gap-1.5 text-[12px] [&>span]:min-w-0 [&>span]:flex-1"
                 aria-label="Compare with"
               >
                 <GitCompare className="h-3.5 w-3.5 shrink-0" aria-hidden />
@@ -757,16 +945,16 @@ function RunBody({
         }
       />
 
-      <div className="min-h-0 flex-1 overflow-auto">
-        <div className="flex flex-col gap-3 p-4">
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex min-h-0 flex-1 flex-col">
           {compareLoading && (
-            <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
+            <div className="border-b border-border bg-muted/30 px-3 py-1.5 text-[11px] text-muted-foreground">
               Computing comparison…
             </div>
           )}
 
           {comparing && cmp && (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border bg-muted/30 px-3 py-2 text-[11px]">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border bg-muted/30 px-3 py-2 text-[11px]">
               <span className="flex items-center gap-1.5">
                 <GitCompare className="h-3.5 w-3.5 text-muted-foreground" aria-hidden />
                 <span className="font-medium">
@@ -914,6 +1102,87 @@ const RESULT_COLUMN_COUNT = 8;
 /** Sentinel for the "Compare with" select's no-selection option (Radix needs a value). */
 const NO_COMPARE = "__none__";
 
+/**
+ * Run-level headline metrics — main score, pass rate, cost, duration — above the
+ * filter bar. Sourced from `run` (never derived from `results`), so an empty or
+ * fully-failing run still renders these instead of a blank strip. `null`/`undefined`
+ * render "—", never a fabricated 0 — the run may simply not have reported a cost,
+ * or may still be running (no `elapsedMs` yet).
+ */
+function HeadlineMetrics({ run }: { run: RunDetail }) {
+  return (
+    <div className="flex flex-wrap items-center gap-6 border-b border-border px-3 py-2">
+      <HeadlineStat label={run.mainScoreName ?? "Main score"}>
+        {run.mainScore === null ? (
+          <span className="text-muted-foreground">—</span>
+        ) : (
+          pctFraction(run.mainScore)
+        )}
+      </HeadlineStat>
+      <HeadlineStat label="Pass rate">
+        <PassRate counts={run} />
+      </HeadlineStat>
+      <HeadlineStat label="Cost">
+        {run.cost === null || run.cost === undefined ? (
+          <span className="text-muted-foreground">—</span>
+        ) : (
+          `$${run.cost.toFixed(4)}`
+        )}
+      </HeadlineStat>
+      <HeadlineStat label="Duration">{fmtDurationMs(run.elapsedMs)}</HeadlineStat>
+      <HumanReviewHeadline hr={run.humanReview} />
+    </div>
+  );
+}
+
+/**
+ * Run-level human-review summary. Sits alongside the automated headline stats and
+ * never replaces them — human review is a separate, co-equal signal.
+ */
+function HumanReviewHeadline({ hr }: { hr: HumanReviewSummary | undefined }) {
+  if (!hr || hr.dimensions.length === 0) {
+    return (
+      <HeadlineStat label="Human review">
+        <span className="text-muted-foreground">Not started</span>
+      </HeadlineStat>
+    );
+  }
+  const total = hr.reviewedCount + hr.pendingCount;
+  const judged = hr.passCount + hr.failCount;
+  return (
+    <>
+      <HeadlineStat label="Human review">
+        {hr.reviewedCount} / {total}
+      </HeadlineStat>
+      <HeadlineStat label="Human pass rate">
+        {judged === 0 ? (
+          <span className="text-muted-foreground">—</span>
+        ) : (
+          pctFraction(hr.passCount / judged)
+        )}
+      </HeadlineStat>
+      <HeadlineStat label="Disagreements">
+        {hr.disagreementCount === 0 ? (
+          <span className="text-muted-foreground">0</span>
+        ) : (
+          <span className="text-amber-600 dark:text-amber-500">{hr.disagreementCount}</span>
+        )}
+      </HeadlineStat>
+    </>
+  );
+}
+
+function HeadlineStat({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</span>
+      <div className="text-[13px] font-medium tabular-nums">{children}</div>
+    </div>
+  );
+}
+
+const RESULT_COLUMN_COUNT = 7;
+
 function ResultsSection({
   run,
   results,
@@ -935,11 +1204,6 @@ function ResultsSection({
 }) {
   const [keyword, setKeyword] = React.useState("");
   const [sortWorst, setSortWorst] = React.useState(false);
-  const [dateFilter, setDateFilter] = React.useState<DateFilterOption>(
-    DATE_FILTER_OPTIONS.find((o) => o.id === "14d") ?? DATE_FILTER_OPTIONS[0],
-  );
-  const [customStart, setCustomStart] = React.useState<Date | null>(null);
-  const [customEnd, setCustomEnd] = React.useState<Date | null>(null);
 
   // Per-result comparison vs the picked run (null when not comparing).
   const cmpFor = React.useCallback(
@@ -971,7 +1235,14 @@ function ResultsSection({
   }, [results, keyword, filter, sortWorst, cmpFor]);
 
   return (
-    <div className="rounded-md border border-border">
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* Headline metrics for the run — rendered from the run itself, never from
+          `results`, so they still show for an empty or fully-failing run (no
+          per-case rows) rather than leaving this a blank strip above the table. */}
+      <HeadlineMetrics run={run} />
+      {/* No date-range control here: every result in this table belongs to one run,
+          so there is no time range to narrow — a date filter would render but
+          filter nothing. */}
       <SearchFilterBar
         searchInput={
           <div className="relative min-w-[10rem] max-w-md flex-1">
@@ -984,14 +1255,6 @@ function ResultsSection({
             />
           </div>
         }
-        dateFilter={dateFilter}
-        customStartDate={customStart}
-        customEndDate={customEnd}
-        onDateFilterChange={setDateFilter}
-        onCustomRangeChange={(s, e) => {
-          setCustomStart(s);
-          setCustomEnd(e);
-        }}
       >
         <div className="flex items-center gap-1">
           {RESULT_FILTERS.map((option) => (
@@ -1007,6 +1270,9 @@ function ResultsSection({
           ))}
         </div>
         <span className="flex-1" aria-hidden />
+        {/* This is the run's overall pass rate — it does not change with the status
+            filter above, so it reads as the run's rate, not a count of the
+            currently-visible rows. */}
         <PassRate counts={run} withLabel />
         <span className="flex-1" aria-hidden />
         <Button
@@ -1021,100 +1287,102 @@ function ResultsSection({
         </Button>
       </SearchFilterBar>
 
-      <Table>
-        <THead>
-          <TRHead>
-            <Th>Input</Th>
-            <Th>Output</Th>
-            <Th>Expected</Th>
-            <Th className="w-[170px]">Main score</Th>
-            {/* Change is only meaningful against a picked run; hidden otherwise. */}
-            {comparing && <Th className="w-[110px] text-right">vs baseline</Th>}
-            <Th className="w-[90px] text-right">Duration</Th>
-            <Th className="w-[90px] text-right">Cost</Th>
-            <Th className="w-[110px]">Status</Th>
-          </TRHead>
-        </THead>
-        <TBody>
-          {visible.length === 0 ? (
-            <tr>
-              <td colSpan={comparing ? RESULT_COLUMN_COUNT : RESULT_COLUMN_COUNT - 1}>
-                <p className="px-4 py-12 text-center text-[12px] text-muted-foreground">
-                  {results.length === 0
-                    ? "No per-case results reported for this run yet."
-                    : "No results match this filter."}
-                </p>
-              </td>
-            </tr>
-          ) : (
-            visible.map((result) => {
-              const row = cmpFor(result);
-              const rowCmp = row?.comparison ?? null;
-              return (
-                <TR
-                  key={result.id}
-                  interactive
-                  selected={result.id === openResultId}
-                  onClick={() => onOpen(result.id)}
-                >
-                  <Td className="max-w-[260px] truncate" title={result.input}>
-                    {result.input}
-                  </Td>
-                  <Td className="max-w-[260px]">
-                    <div className="flex min-w-0 items-center gap-1.5">
-                      <span className="truncate" title={result.candidateOutput ?? undefined}>
-                        {result.candidateOutput ?? (
-                          <span className="text-muted-foreground">No output</span>
-                        )}
-                      </span>
-                      {row?.outputChanged === true && (
-                        <span
-                          className="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground"
-                          title="Output differs from the baseline run"
-                        >
-                          ≠ baseline
-                        </span>
-                      )}
-                    </div>
-                  </Td>
-                  <Td
-                    className="max-w-[220px] truncate text-muted-foreground"
-                    title={result.expectedOutput ?? undefined}
+      <div className="min-h-0 flex-1 overflow-auto">
+        <Table>
+          <THead>
+            <TRHead>
+              <Th>Input</Th>
+              <Th>Output</Th>
+              <Th>Expected</Th>
+              <Th className="w-[170px]">Main score</Th>
+              {/* Change is only meaningful against a picked run; hidden otherwise. */}
+              {comparing && <Th className="w-[110px] text-right">vs baseline</Th>}
+              <Th className="w-[90px] text-right">Duration</Th>
+              <Th className="w-[90px] text-right">Cost</Th>
+              <Th className="w-[110px]">Status</Th>
+            </TRHead>
+          </THead>
+          <TBody>
+            {visible.length === 0 ? (
+              <tr>
+                <td colSpan={comparing ? RESULT_COLUMN_COUNT : RESULT_COLUMN_COUNT - 1}>
+                  <p className="px-4 py-12 text-center text-[12px] text-muted-foreground">
+                    {results.length === 0
+                      ? "No per-case results reported for this run yet."
+                      : "No results match this filter."}
+                  </p>
+                </td>
+              </tr>
+            ) : (
+              visible.map((result) => {
+                const row = cmpFor(result);
+                const rowCmp = row?.comparison ?? null;
+                return (
+                  <TR
+                    key={result.id}
+                    interactive
+                    selected={result.id === openResultId}
+                    onClick={() => onOpen(result.id)}
                   >
-                    {result.expectedOutput ?? "—"}
-                  </Td>
-                  <Td>
-                    <MainScoreCell result={result} comparison={rowCmp} />
-                  </Td>
-                  {comparing && (
-                    <Td className="text-right">
-                      <ChangeCell change={rowCmp?.caseChange ?? null} />
+                    <Td className="max-w-[260px] truncate" title={result.input}>
+                      {result.input}
                     </Td>
-                  )}
-                  <Td className="whitespace-nowrap text-right text-[11px] tabular-nums text-muted-foreground">
-                    {fmtDurationMs(result.durationMs)}
+                    <Td className="max-w-[260px]">
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <span className="truncate" title={result.candidateOutput ?? undefined}>
+                          {result.candidateOutput ?? (
+                            <span className="text-muted-foreground">No output</span>
+                          )}
+                        </span>
+                        {row?.outputChanged === true && (
+                          <span
+                            className="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground"
+                            title="Output differs from the baseline run"
+                          >
+                            ≠ baseline
+                          </span>
+                        )}
+                      </div>
+                    </Td>
+                    <Td
+                      className="max-w-[220px] truncate text-muted-foreground"
+                      title={result.expectedOutput ?? undefined}
+                    >
+                      {result.expectedOutput ?? "—"}
+                    </Td>
+                    <Td>
+                      <MainScoreCell result={result} comparison={rowCmp} />
+                    </Td>
                     {comparing && (
-                      <CellDelta delta={rowCmp?.durationDeltaMs ?? null} format={fmtDurationMs} />
+                      <Td className="text-right">
+                        <ChangeCell change={rowCmp?.caseChange ?? null} />
+                      </Td>
                     )}
-                  </Td>
-                  <Td className="whitespace-nowrap text-right text-[11px] tabular-nums text-muted-foreground">
-                    {result.cost === null ? "—" : `$${result.cost.toFixed(4)}`}
-                    {comparing && result.cost !== null && row?.baselineCost != null && (
-                      <CellDelta
-                        delta={result.cost - row.baselineCost}
-                        format={(n) => `$${n.toFixed(4)}`}
-                      />
-                    )}
-                  </Td>
-                  <Td>
-                    <EvalResultBadge status={result.status} />
-                  </Td>
-                </TR>
-              );
-            })
-          )}
-        </TBody>
-      </Table>
+                    <Td className="whitespace-nowrap text-right text-[11px] tabular-nums text-muted-foreground">
+                      {fmtDurationMs(result.durationMs)}
+                      {comparing && (
+                        <CellDelta delta={rowCmp?.durationDeltaMs ?? null} format={fmtDurationMs} />
+                      )}
+                    </Td>
+                    <Td className="whitespace-nowrap text-right text-[11px] tabular-nums text-muted-foreground">
+                      {result.cost === null ? "—" : `$${result.cost.toFixed(4)}`}
+                      {comparing && result.cost !== null && row?.baselineCost != null && (
+                        <CellDelta
+                          delta={result.cost - row.baselineCost}
+                          format={(n) => `$${n.toFixed(4)}`}
+                        />
+                      )}
+                    </Td>
+                    <Td>
+                      <EvalResultBadge status={result.status} />
+                    </Td>
+                  </TR>
+                );
+              })
+            )}
+          </TBody>
+        </Table>
+      </div>
     </div>
   );
 }
