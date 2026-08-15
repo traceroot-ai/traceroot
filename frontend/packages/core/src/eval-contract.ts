@@ -142,6 +142,16 @@ export const ScorerMessageSchema = z.object({
 export const ScorerRefSchema = z.object({
   name: z.string().min(1).max(200),
   version: z.string().min(1).max(50),
+  /**
+   * Stable SEMANTIC scorer identity, independent of function spelling and SDK language
+   * (e.g. `grade` for both `covers_both_cities` in Python and `coversBothCities` in
+   * TypeScript). Additive + back-compatible: defaults to `name` when the SDK omits it, so a
+   * single-language user is unaffected. `name`/`language`/`source`/`version` are
+   * provenance/display, NEVER identity — semantic equality is never derived from them.
+   * Must be DECLARED (not an unknown key) to survive into the persisted per-run manifest,
+   * for the same reason `emitted_metrics` is declared.
+   */
+  key: z.string().min(1).max(200).nullable().optional(),
   value_type: ScorerValueTypeSchema.nullable().optional(),
   direction: ScorerDirectionSchema.nullable().optional(),
   threshold: z.number().nullable().optional(),
@@ -188,36 +198,6 @@ export type ScoreInput = z.infer<typeof ScoreInputSchema>;
 // ---------------------------------------------------------------------------
 
 /**
- * Structured, machine-collected run provenance — the verifiable execution
- * context around the run. Distinct from free-form `metadata`: every field is
- * typed, optional, and reported by the SDK from what it can actually observe
- * (git/CI/SDK identity). Unknown values are omitted or null and are never
- * inferred; a missing block never rejects a run. `candidate_version` stays the
- * user-facing label — provenance is not a substitute for it and is never
- * treated as a verified identity beyond what the SDK reported.
- */
-export const RunProvenanceSchema = z
-  .object({
-    git_repository: z.string().max(500).nullable().optional(),
-    git_ref: z.string().max(500).nullable().optional(),
-    git_commit: z.string().max(200).nullable().optional(),
-    git_dirty: z.boolean().nullable().optional(),
-    ci_provider: z.string().max(100).nullable().optional(),
-    ci_build_id: z.string().max(200).nullable().optional(),
-    sdk_language: z.string().max(50).nullable().optional(),
-    sdk_version: z.string().max(50).nullable().optional(),
-    /**
-     * Declared candidate identity — surfaced only if the SDK reports it, never
-     * inferred from `candidate_version` or any label.
-     */
-    declared_model: z.string().max(200).nullable().optional(),
-    declared_prompt_version: z.string().max(200).nullable().optional(),
-  });
-// Non-strict (strips unknown keys), mirroring ScorerRef and the permissive
-// gateway: a newer SDK adding a provenance field must not 422 the whole run.
-export type RunProvenance = z.infer<typeof RunProvenanceSchema>;
-
-/**
  * Register/start a run. Idempotent on `client_run_id` within an evaluation:
  * re-sending the same key returns the existing run. The evaluation lineage is
  * resolved (create-if-absent) from `evaluation_name` + `dataset_id`.
@@ -225,6 +205,14 @@ export type RunProvenance = z.infer<typeof RunProvenanceSchema>;
 export const RegisterRunRequestSchema = z
   .object({
     evaluation_name: z.string().min(1).max(200),
+    /**
+     * Stable semantic identity of the evaluation, DECOUPLED from the display
+     * `evaluation_name`. Runs sharing `(project, evaluation_key)` group under one
+     * evaluation definition regardless of SDK language (Python + TypeScript), while two
+     * evaluations may share a display name under different keys. Additive + back-compatible:
+     * an older SDK omits it and the platform falls back to grouping by `evaluation_name`.
+     */
+    evaluation_key: z.string().min(1).max(200).nullable().optional(),
     dataset_id: z.string().min(1).max(64),
     /** Omit to pin the dataset's current published version. */
     dataset_version_id: z.string().min(1).max(64).nullable().optional(),
@@ -237,15 +225,9 @@ export const RegisterRunRequestSchema = z
     baseline_run_id: z.string().min(1).max(64).nullable().optional(),
     case_count: z.number().int().nonnegative().nullable().optional(),
     /**
-     * Typed execution provenance (git/CI/SDK identity, declared candidate
-     * model/prompt). Optional; absence never rejects a run. See
-     * {@link RunProvenanceSchema}.
-     */
-    provenance: RunProvenanceSchema.nullable().optional(),
-    /**
-     * Free-form run metadata — arbitrary user key/values, kept verbatim. Distinct
-     * from `provenance` (typed) — presented as informational secondary detail,
-     * never an evaluation error, and never a source of secrets.
+     * Free-form run metadata — arbitrary user key/values, kept verbatim.
+     * Presented as informational secondary detail, never an evaluation error,
+     * and never a source of secrets.
      */
     metadata: MetadataSchema.nullable().optional(),
   })

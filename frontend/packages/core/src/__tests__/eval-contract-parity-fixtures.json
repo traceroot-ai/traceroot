@@ -20,12 +20,20 @@
               "direction": "higher_is_better",
               "threshold": 0.8
             },
-            { "name": "helpfulness", "version": "v2" }
+            {
+              "name": "helpfulness",
+              "version": "v2"
+            }
           ],
           "client_run_id": "client-1",
           "baseline_run_id": "run-prev",
           "case_count": 24,
-          "metadata": { "model": "claude", "git": { "ref": "abc123" } }
+          "metadata": {
+            "model": "claude",
+            "git": {
+              "ref": "abc123"
+            }
+          }
         }
       },
       {
@@ -56,7 +64,13 @@
           "evaluation_name": "Billing routing",
           "dataset_id": "ds1",
           "candidate_version": "git:abc123",
-          "scorers": [{ "name": "routing-accuracy", "version": "v3", "unknown_scorer_field": "x" }]
+          "scorers": [
+            {
+              "name": "routing-accuracy",
+              "version": "v3",
+              "unknown_scorer_field": "x"
+            }
+          ]
         }
       },
       {
@@ -76,10 +90,18 @@
               "threshold": 0.7,
               "model": "claude-sonnet",
               "description": "Judges whether the answer is grounded in the retrieved context.",
-              "metadata": { "temperature": 0 },
+              "metadata": {
+                "temperature": 0
+              },
               "messages": [
-                { "role": "system", "content": "grade this" },
-                { "role": "user", "content": "{{input}}" }
+                {
+                  "role": "system",
+                  "content": "grade this"
+                },
+                {
+                  "role": "user",
+                  "content": "{{input}}"
+                }
               ]
             }
           ]
@@ -119,14 +141,45 @@
           "evaluation_name": "Billing routing",
           "dataset_id": "ds1",
           "candidate_version": "git:abc123",
-          "case_count": 24.0
+          "case_count": 24
+        }
+      },
+      {
+        "name": "explicit_evaluation_key",
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "evaluation_key": "billing-routing-v2",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc123"
+        }
+      },
+      {
+        "name": "scorer_with_semantic_key",
+        "payload": {
+          "evaluation_name": "Grading",
+          "dataset_id": "ds1",
+          "candidate_version": "git:abc",
+          "scorers": [
+            {
+              "key": "grade",
+              "name": "covers_both_cities",
+              "version": "v2",
+              "language": "python",
+              "value_type": "numeric",
+              "direction": "lower_is_better",
+              "threshold": 0.62
+            }
+          ]
         }
       }
     ],
     "invalid": [
       {
         "name": "missing_candidate_version",
-        "payload": { "evaluation_name": "Billing routing", "dataset_id": "ds1" }
+        "payload": {
+          "evaluation_name": "Billing routing",
+          "dataset_id": "ds1"
+        }
       },
       {
         "name": "unknown_top_level_key",
@@ -160,7 +213,11 @@
           "evaluation_name": "Billing routing",
           "dataset_id": "ds1",
           "candidate_version": "git:abc123",
-          "scorers": [{ "name": "routing-accuracy" }]
+          "scorers": [
+            {
+              "name": "routing-accuracy"
+            }
+          ]
         }
       },
       {
@@ -204,7 +261,13 @@
           "evaluation_name": "Billing routing",
           "dataset_id": "ds1",
           "candidate_version": "git:abc123",
-          "scorers": [{ "name": "routing-accuracy", "version": "v3", "threshold": "0.5" }]
+          "scorers": [
+            {
+              "name": "routing-accuracy",
+              "version": "v3",
+              "threshold": "0.5"
+            }
+          ]
         }
       },
       {
@@ -217,7 +280,12 @@
             {
               "name": "faithfulness",
               "version": "v1",
-              "messages": [{ "role": "", "content": "grade this" }]
+              "messages": [
+                {
+                  "role": "",
+                  "content": "grade this"
+                }
+              ]
             }
           ]
         }
@@ -229,7 +297,15 @@
           "dataset_id": "ds1",
           "candidate_version": "git:abc123",
           "scorers": [
-            { "name": "faithfulness", "version": "v1", "messages": [{ "role": "system" }] }
+            {
+              "name": "faithfulness",
+              "version": "v1",
+              "messages": [
+                {
+                  "role": "system"
+                }
+              ]
+            }
           ]
         }
       }
@@ -264,9 +340,17 @@
           "evaluation_name": "Billing routing",
           "dataset_id": "ds1",
           "candidate_version": "git:abc123",
-          "scorers": [{ "name": "routing-accuracy", "version": "v3", "unknown_scorer_field": "x" }]
+          "scorers": [
+            {
+              "name": "routing-accuracy",
+              "version": "v3",
+              "unknown_scorer_field": "x"
+            }
+          ]
         },
-        "expect": { "scorers.0.unknown_scorer_field": null }
+        "expect": {
+          "scorers.0.unknown_scorer_field": null
+        }
       }
     ]
   },
@@ -285,8 +369,16 @@
           "main_score": 1,
           "change": "improved",
           "scores": [
-            { "scorer_name": "routing-accuracy", "scorer_version": "v3", "numeric_value": 1 },
-            { "scorer_name": "helpfulness", "scorer_version": "v2", "numeric_value": 0.9 }
+            {
+              "scorer_name": "routing-accuracy",
+              "scorer_version": "v3",
+              "numeric_value": 1
+            },
+            {
+              "scorer_name": "helpfulness",
+              "scorer_version": "v2",
+              "numeric_value": 0.9
+            }
           ]
         }
       },
@@ -339,7 +431,11 @@
       },
       {
         "name": "minimal",
-        "payload": { "test_case_id": "case-5", "input": "where is my order", "status": "passed" }
+        "payload": {
+          "test_case_id": "case-5",
+          "input": "where is my order",
+          "status": "passed"
+        }
       },
       {
         "name": "with_duration_cost_and_typed_scores",
@@ -368,7 +464,7 @@
           "test_case_id": "case-7",
           "input": "q",
           "status": "passed",
-          "duration_ms": 1200.0,
+          "duration_ms": 1200,
           "cost": 0
         }
       }
@@ -376,15 +472,25 @@
     "invalid": [
       {
         "name": "missing_status",
-        "payload": { "test_case_id": "case-1", "input": "x" }
+        "payload": {
+          "test_case_id": "case-1",
+          "input": "x"
+        }
       },
       {
         "name": "missing_input",
-        "payload": { "test_case_id": "case-1", "status": "passed" }
+        "payload": {
+          "test_case_id": "case-1",
+          "status": "passed"
+        }
       },
       {
         "name": "bad_status_enum",
-        "payload": { "test_case_id": "case-1", "input": "x", "status": "kinda_passed" }
+        "payload": {
+          "test_case_id": "case-1",
+          "input": "x",
+          "status": "kinda_passed"
+        }
       },
       {
         "name": "bad_change_enum",
@@ -397,7 +503,12 @@
       },
       {
         "name": "unknown_top_level_key",
-        "payload": { "test_case_id": "case-1", "input": "x", "status": "passed", "nope": 1 }
+        "payload": {
+          "test_case_id": "case-1",
+          "input": "x",
+          "status": "passed",
+          "nope": 1
+        }
       },
       {
         "name": "unknown_score_key",
@@ -405,7 +516,13 @@
           "test_case_id": "case-1",
           "input": "x",
           "status": "passed",
-          "scores": [{ "scorer_name": "s", "scorer_version": "v1", "bogus": 1 }]
+          "scores": [
+            {
+              "scorer_name": "s",
+              "scorer_version": "v1",
+              "bogus": 1
+            }
+          ]
         }
       },
       {
@@ -419,11 +536,19 @@
       },
       {
         "name": "empty_test_case_id",
-        "payload": { "test_case_id": "", "input": "x", "status": "passed" }
+        "payload": {
+          "test_case_id": "",
+          "input": "x",
+          "status": "passed"
+        }
       },
       {
         "name": "input_as_number",
-        "payload": { "test_case_id": "case-1", "input": 123, "status": "passed" }
+        "payload": {
+          "test_case_id": "case-1",
+          "input": 123,
+          "status": "passed"
+        }
       },
       {
         "name": "main_score_as_string",
@@ -436,7 +561,12 @@
       },
       {
         "name": "cost_as_string",
-        "payload": { "test_case_id": "case-1", "input": "x", "status": "passed", "cost": "1.5" }
+        "payload": {
+          "test_case_id": "case-1",
+          "input": "x",
+          "status": "passed",
+          "cost": "1.5"
+        }
       },
       {
         "name": "duration_ms_as_boolean",
@@ -453,7 +583,13 @@
           "test_case_id": "case-1",
           "input": "x",
           "status": "passed",
-          "scores": [{ "scorer_name": "s", "scorer_version": "v1", "bool_value": "yes" }]
+          "scores": [
+            {
+              "scorer_name": "s",
+              "scorer_version": "v1",
+              "bool_value": "yes"
+            }
+          ]
         }
       },
       {
@@ -462,7 +598,13 @@
           "test_case_id": "case-1",
           "input": "x",
           "status": "passed",
-          "scores": [{ "scorer_name": "s", "scorer_version": "v1", "passed": 1 }]
+          "scores": [
+            {
+              "scorer_name": "s",
+              "scorer_version": "v1",
+              "passed": 1
+            }
+          ]
         }
       },
       {
@@ -471,7 +613,13 @@
           "test_case_id": "case-1",
           "input": "x",
           "status": "passed",
-          "scores": [{ "scorer_name": "s", "scorer_version": "v1", "numeric_value": "0.9" }]
+          "scores": [
+            {
+              "scorer_name": "s",
+              "scorer_version": "v1",
+              "numeric_value": "0.9"
+            }
+          ]
         }
       },
       {
@@ -499,10 +647,19 @@
           "scorer_error_count": 1
         }
       },
-      { "name": "minimal", "payload": { "status": "completed" } },
+      {
+        "name": "minimal",
+        "payload": {
+          "status": "completed"
+        }
+      },
       {
         "name": "integral_float_counts",
-        "payload": { "status": "completed", "case_count": 24.0, "scored_count": 22.0 }
+        "payload": {
+          "status": "completed",
+          "case_count": 24,
+          "scored_count": 22
+        }
       },
       {
         "name": "explicit_nulls",
@@ -517,18 +674,66 @@
       }
     ],
     "invalid": [
-      { "name": "missing_status", "payload": { "main_score": 90 } },
-      { "name": "bad_status_enum", "payload": { "status": "done" } },
-      { "name": "unknown_key", "payload": { "status": "completed", "extra": 1 } },
-      { "name": "negative_count", "payload": { "status": "completed", "case_count": -2 } },
-      { "name": "fractional_count", "payload": { "status": "completed", "scored_count": 1.5 } },
-      { "name": "main_score_as_string", "payload": { "status": "completed", "main_score": "0.5" } },
-      { "name": "case_count_as_string", "payload": { "status": "completed", "case_count": "3" } },
+      {
+        "name": "missing_status",
+        "payload": {
+          "main_score": 90
+        }
+      },
+      {
+        "name": "bad_status_enum",
+        "payload": {
+          "status": "done"
+        }
+      },
+      {
+        "name": "unknown_key",
+        "payload": {
+          "status": "completed",
+          "extra": 1
+        }
+      },
+      {
+        "name": "negative_count",
+        "payload": {
+          "status": "completed",
+          "case_count": -2
+        }
+      },
+      {
+        "name": "fractional_count",
+        "payload": {
+          "status": "completed",
+          "scored_count": 1.5
+        }
+      },
+      {
+        "name": "main_score_as_string",
+        "payload": {
+          "status": "completed",
+          "main_score": "0.5"
+        }
+      },
+      {
+        "name": "case_count_as_string",
+        "payload": {
+          "status": "completed",
+          "case_count": "3"
+        }
+      },
       {
         "name": "scored_count_as_boolean",
-        "payload": { "status": "completed", "scored_count": true }
+        "payload": {
+          "status": "completed",
+          "scored_count": true
+        }
       },
-      { "name": "status_as_number", "payload": { "status": 1 } }
+      {
+        "name": "status_as_number",
+        "payload": {
+          "status": 1
+        }
+      }
     ]
   }
 }

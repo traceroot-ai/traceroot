@@ -345,7 +345,7 @@ export class FakePrisma {
   testCase = new Model("testCase");
   evaluation = new Model(
     "evaluation",
-    [{ fields: ["projectId", "name"], name: "uq_evaluation_project_name" }],
+    [{ fields: ["projectId", "evaluationKey"], name: "uq_evaluation_project_key" }],
     true,
   );
   evaluationRun = new Model(
@@ -449,7 +449,7 @@ export class FakePrisma {
     this.testCase = new Model("testCase");
     this.evaluation = new Model(
       "evaluation",
-      [{ fields: ["projectId", "name"], name: "uq_evaluation_project_name" }],
+      [{ fields: ["projectId", "evaluationKey"], name: "uq_evaluation_project_key" }],
       true,
     );
     this.evaluationRun = new Model(

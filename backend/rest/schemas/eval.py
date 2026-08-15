@@ -180,6 +180,11 @@ class ScorerRef(BaseModel):
 
     name: str = Field(min_length=1, max_length=200)
     version: str = Field(min_length=1, max_length=50)
+    # Stable SEMANTIC scorer identity, independent of function spelling and SDK language
+    # (e.g. `grade` for both `covers_both_cities` (py) and `coversBothCities` (ts)). Additive:
+    # defaults to `name` when omitted. name/language/source/version are provenance, NOT
+    # identity. Declared (not an unknown key) so it survives into the persisted manifest.
+    key: str | None = Field(default=None, min_length=1, max_length=200)
     value_type: ScorerValueType | None = None
     direction: ScorerDirection | None = None
     threshold: JsonFloat | None = None
@@ -233,32 +238,15 @@ class ScoreInput(BaseModel):
 # --- (a) Register / start a run ---------------------------------------------
 
 
-class RunProvenance(BaseModel):
-    """Typed execution provenance (git/CI/SDK identity + declared candidate
-    model/prompt). Mirrors ``RunProvenanceSchema`` on the Zod side. Every field is
-    optional and reported by the SDK from what it can actually observe; unknown
-    values are absent/null and never inferred. Distinct from free-form ``metadata``
-    and never a substitute for the user-facing ``candidate_version`` label.
-    """
-
-    git_repository: str | None = Field(default=None, max_length=500)
-    git_ref: str | None = Field(default=None, max_length=500)
-    git_commit: str | None = Field(default=None, max_length=200)
-    git_dirty: bool | None = None
-    ci_provider: str | None = Field(default=None, max_length=100)
-    ci_build_id: str | None = Field(default=None, max_length=200)
-    sdk_language: str | None = Field(default=None, max_length=50)
-    sdk_version: str | None = Field(default=None, max_length=50)
-    # Declared candidate identity — surfaced only if the SDK reports it, never
-    # inferred from candidate_version or any label.
-    declared_model: str | None = Field(default=None, max_length=200)
-    declared_prompt_version: str | None = Field(default=None, max_length=200)
-
-
 class RegisterRunRequest(BaseModel):
     """Register/start a run. Idempotent on ``client_run_id`` within an evaluation."""
 
     evaluation_name: str = Field(min_length=1, max_length=200)
+    # Stable semantic identity of the evaluation, decoupled from the display name. Runs
+    # sharing (project, evaluation_key) group under one evaluation definition regardless of
+    # SDK language; two evaluations may share a display name under different keys. Additive:
+    # an older SDK omits it and the platform falls back to grouping by evaluation_name.
+    evaluation_key: str | None = Field(default=None, min_length=1, max_length=200)
     dataset_id: str = Field(min_length=1, max_length=64)
     # Omit to pin the dataset's current published version.
     dataset_version_id: str | None = Field(default=None, min_length=1, max_length=64)
@@ -270,8 +258,6 @@ class RegisterRunRequest(BaseModel):
     client_run_id: str | None = Field(default=None, min_length=1, max_length=128)
     baseline_run_id: str | None = Field(default=None, min_length=1, max_length=64)
     case_count: JsonNonNegativeInt | None = None
-    # Typed execution provenance (git/CI/SDK identity, declared candidate model/prompt).
-    provenance: RunProvenance | None = None
     # Free-form run metadata — arbitrary user key/values, kept verbatim.
     metadata: dict[str, Any] | None = None
 

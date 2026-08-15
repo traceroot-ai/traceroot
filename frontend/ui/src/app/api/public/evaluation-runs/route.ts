@@ -45,7 +45,7 @@ type RegisterOutcome =
 /**
  * A unique-constraint violation from the register transaction. Every unique index
  * this transaction can touch marks a race with a concurrent registration:
- *   uq_evaluation_project_name    — two processes created the same lineage,
+ *   uq_evaluation_project_key     — two processes created the same lineage,
  *   uq_run_evaluation_run_number  — two runs allocated the same run_number,
  *   uq_run_client_run_id          — an SDK retry raced its own original request.
  * All three are resolved by replaying the transaction (see POST).
@@ -95,17 +95,20 @@ async function registerRun(
     }
   }
 
-  // An evaluation is identified by (project, name) — runs of the same-named
-  // evaluation are additive (run #N) and comparable, even when the dataset id
-  // churns (e.g. the SDK creates a fresh Dataset each run). The per-run dataset /
-  // version is recorded on the run, and comparison flags a dataset mismatch.
-  // uq_evaluation_project_name makes that identity a database invariant, so two
-  // processes registering the same name (a CI matrix, parallel pytest shards)
-  // cannot both insert and split the history: the loser gets P2002 and finds the
+  // An evaluation is identified by its stable (project, evaluation_key). Runs of the same
+  // evaluation are additive (run #N) and comparable even when the dataset id churns (the
+  // SDK may create a fresh Dataset each run); the per-run dataset/version is recorded on the
+  // run and comparison flags a mismatch. The key is decoupled from the display name so
+  // equivalent Python + TypeScript runs group under one definition. An older SDK omits the
+  // key and falls back to the name — reproducing the pre-key behavior (and matching the
+  // migration's backfill of key := name). uq_evaluation_project_key makes the identity a DB
+  // invariant, so two processes registering the same key (a CI matrix, parallel pytest
+  // shards) cannot both insert and split the history: the loser gets P2002 and finds the
   // winner's row on replay.
+  const evaluationKey = req.evaluation_key ?? req.evaluation_name;
   const evaluation =
     (await tx.evaluation.findUnique({
-      where: { projectId_name: { projectId, name: req.evaluation_name } },
+      where: { projectId_evaluationKey: { projectId, evaluationKey } },
       select: { id: true },
     })) ??
     (await tx.evaluation.create({
@@ -113,6 +116,7 @@ async function registerRun(
         projectId,
         datasetId: dataset.id,
         name: req.evaluation_name,
+        evaluationKey,
         mainScoreName: req.main_score_name ?? "Score",
       },
       select: { id: true },
@@ -175,9 +179,6 @@ async function registerRun(
       // SDK sends it; a legacy {name, version} scorer stays valid. Cast because
       // the scorer metadata field is typed `unknown` (arbitrary JSON).
       scorers: req.scorers as unknown as Prisma.InputJsonValue,
-      // Typed execution provenance (git/CI/SDK + declared candidate model/prompt),
-      // kept distinct from free-form `metadata`. Absent when the SDK reports none.
-      provenance: (req.provenance ?? undefined) as Prisma.InputJsonValue | undefined,
       metadata: (req.metadata ?? undefined) as Prisma.InputJsonValue | undefined,
       clientRunId: req.client_run_id ?? null,
     },

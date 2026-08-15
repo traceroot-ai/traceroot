@@ -54,9 +54,7 @@ vi.mock("@traceroot/core", async (importOriginal) => {
             args.where.runId === "run0" ? db.baseline : args.where.runId === "run1" ? db.run : null;
           const results =
             (src as { results?: Array<{ durationMs?: number | null }> } | null)?.results ?? [];
-          const present = results
-            .map((r) => r.durationMs)
-            .filter((d): d is number => d != null);
+          const present = results.map((r) => r.durationMs).filter((d): d is number => d != null);
           return {
             _sum: { durationMs: present.length > 0 ? present.reduce((a, b) => a + b, 0) : null },
           };
@@ -251,22 +249,10 @@ describe("run/result read-back", () => {
     expect((errored.scores as unknown[]).length).toBe(0);
   });
 
-  it("surfaces structured run provenance in the read model", async () => {
-    (db.run as Record<string, unknown>).provenance = {
-      git_repository: "github.com/acme/agent",
-      git_commit: "4a91c02",
-      git_dirty: false,
-      ci_provider: "github-actions",
-      sdk_language: "python",
-      sdk_version: "0.4.1",
-      declared_model: "gpt-4o-2024-08-06",
-      declared_prompt_version: "router-v7",
-    };
+  it("does not surface an SDK-identity provenance block on the read model", async () => {
     const run = (await read()).body.run as Record<string, unknown>;
-    const prov = run.provenance as Record<string, unknown>;
-    expect(prov.git_commit).toBe("4a91c02");
-    expect(prov.declared_model).toBe("gpt-4o-2024-08-06");
-    expect(prov.sdk_language).toBe("python");
+    // Evaluation identity is SDK-agnostic: a run carries no git/CI/SDK provenance.
+    expect("provenance" in run).toBe(false);
     // The dropped orphan `model` column no longer appears on the read model.
     expect("model" in run).toBe(false);
   });

@@ -393,6 +393,9 @@ export function useDeleteRuns(projectId: string) {
 export interface ScorerRegistryRow {
   name: string;
   version: string;
+  /** Stable SEMANTIC identity across SDK languages (manifest `key`, or `name` when absent).
+   *  Lets the UI group Python + TypeScript implementations of the same scorer. */
+  key: string;
   scoreCount: number;
   errorCount: number;
   errorRate: number;
