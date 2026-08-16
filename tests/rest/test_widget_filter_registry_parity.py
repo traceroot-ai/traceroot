@@ -60,3 +60,18 @@ def test_membership_filter_fields_are_widget_span_dimensions():
         # Same physical column: the widget expr is the bare column name the filter
         # semi-join scans, so both read identical stored values.
         assert widget_field.expr == col.name
+
+
+def test_keyed_fields_are_a_separate_level_so_they_never_enter_the_dimension_check():
+    """A keyed field has no single physical column to be a dimension over: its values
+    live behind a user-supplied key inside a Map, so the widget equivalent would be one
+    dimension per key — the same reason the filter registry holds one parameterized
+    entry rather than a row per key. It carries its own level rather than an exemption
+    inside the membership contract above, so a future unkeyed membership field is still
+    caught by that contract without anyone remembering to narrow a guard."""
+    keyed = [c for c in filter_reg.FILTER_COLUMNS if c.requires_key]
+    assert keyed, "no keyed field left to distinguish from the membership tier"
+    for col in keyed:
+        assert col.level is filter_reg.FilterLevel.KEYED_MAP
+        assert col.level is not filter_reg.FilterLevel.SPAN_MEMBERSHIP
+        assert col.name not in WIDGET_SPANS_FIELDS

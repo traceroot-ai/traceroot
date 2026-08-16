@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/public/detectors", tags=["Detectors (Public)"])
 
 
-@router.get("", response_model=PublicDetectorListResponse)
+@router.get("", response_model=PublicDetectorListResponse, operation_id="list_detectors")
 @limiter.shared_limit(
     resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
 )
@@ -70,7 +70,7 @@ async def list_detectors(
     )
 
 
-@router.get("/findings", response_model=PublicFindingListResponse)
+@router.get("/findings", response_model=PublicFindingListResponse, operation_id="list_findings")
 @limiter.shared_limit(
     resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
 )
@@ -112,7 +112,7 @@ async def list_findings(
     )
 
 
-@router.get("/findings/{finding_id}", response_model=FindingDetail)
+@router.get("/findings/{finding_id}", response_model=FindingDetail, operation_id="get_finding")
 @limiter.shared_limit(
     resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
 )
@@ -129,7 +129,9 @@ async def get_finding(
     )
 
 
-@router.get("/traces/{trace_id}/finding", response_model=FindingDetail)
+@router.get(
+    "/traces/{trace_id}/finding", response_model=FindingDetail, operation_id="get_finding_by_trace"
+)
 @limiter.shared_limit(
     resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
 )

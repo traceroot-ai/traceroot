@@ -4,6 +4,7 @@ import time
 from datetime import UTC, datetime, timedelta
 
 from db.clickhouse import get_clickhouse_client
+from db.clickhouse.query_settings import READ_QUERY_SETTINGS
 from rest.services.filters.translate import Predicate, build_conditions
 from rest.sql_utils import escape_ilike, to_utc_naive
 from shared.span_attributes import (
@@ -22,14 +23,6 @@ from worker.tokens.pricing import cost_breakdown_from_buckets, get_model_price
 # month with toYYYYMM(span_start_time), values under about a month usually skip
 # the same old monthly partitions.
 TRACE_SPAN_LOOKBACK_HOURS = 1
-
-# Distinct-values endpoint: cap the option list and cache briefly. The dropdown only
-# needs the frequent values, and the GROUP BY over spans is the heavy part — a short
-# TTL absorbs repeated opens of the same filter without staleness mattering.
-DISTINCT_VALUES_LIMIT = 100
-DISTINCT_VALUES_CACHE_TTL_SECONDS = 30
-# Bound the in-process cache so it can't grow without limit across projects/windows.
-DISTINCT_VALUES_CACHE_MAX = 256
 
 # Default lookback for a span scan that arrives with no lower time bound (the filtered
 # trace list AND the categorical distinct-values dropdown). Those scan spans, so an
@@ -122,12 +115,13 @@ def _floor_minute(dt: datetime | None) -> datetime | None:
     return dt.replace(second=0, microsecond=0) if dt is not None else None
 
 
-def _default_lookback_start(normalized_end: datetime | None) -> datetime:
+def default_lookback_start(normalized_end: datetime | None) -> datetime:
     """Default lower bound for an otherwise-unbounded span scan.
 
     A fixed lookback before the window's end (``normalized_end``) — or before now when
-    the window is open-ended — so the filtered list and the distinct-values query share
-    one symmetric default and neither ever scans spans all-time.
+    the window is open-ended — so the filtered list and the discovery scans share one
+    symmetric default and neither ever scans spans all-time. Public for the discovery
+    module, which defaults its own window to the same bound.
 
     Args:
         normalized_end (datetime | None): Naive-UTC upper bound of the active window,
@@ -193,8 +187,6 @@ class TraceReaderService:
 
     def __init__(self):
         self._client = get_clickhouse_client()
-        # Per-(project, column, window) cache of distinct values: key -> (expiry, rows).
-        self._distinct_cache: dict[tuple, tuple[float, list[dict]]] = {}
         # has_traces cache: project_id -> (expiry, result). True results use a
         # long TTL (1 hour); False results expire after 10s so the onboarding
         # poll doesn't scan all partitions every 3s. Bounded to 1024 entries.
@@ -310,7 +302,7 @@ class TraceReaderService:
         # lower bound was given, default one — symmetric with the filtered trace list. The UI
         # always sends a window; this bounds a direct API caller that omits one.
         if normalized_start is None:
-            normalized_start = _default_lookback_start(normalized_end)
+            normalized_start = default_lookback_start(normalized_end)
         # Quantize the cache key to whole minutes so per-render jitter in the window
         # bounds (the UI recomputes "now - duration" every render) can't trivially
         # bypass the cache and force a fresh full-project GROUP BY on every open. The
@@ -497,7 +489,7 @@ class TraceReaderService:
         # Default a lookback window so those sub-queries prune monthly partitions, and bound
         # the trace query to the same window so the page, count, and span scans stay consistent.
         if filters and start_after is None:
-            params["start_after"] = _default_lookback_start(normalized_end)
+            params["start_after"] = default_lookback_start(normalized_end)
             conditions.append("t.trace_start_time >= {start_after:DateTime64(3)}")
 
         # Registry-driven attribute filters (model/cost/errors/...). Appended to the
@@ -523,11 +515,15 @@ class TraceReaderService:
                 -- THEN order by start time for pagination.
                 SELECT
                     trace_id, project_id, name, trace_start_time,
-                    user_id, session_id, input, output
+                    user_id, session_id, input, output, metadata_map
                 FROM (
+                    -- metadata_map is the TRACE row's metadata, and it is what the list's
+                    -- single default-off Metadata cell renders. A metadata FILTER also
+                    -- matches span-level keys, so a matched row can still show a blank
+                    -- cell here; the span detail panel is the reconciliation point.
                     SELECT
                         t.trace_id, t.project_id, t.name, t.trace_start_time,
-                        t.user_id, t.session_id, t.input, t.output
+                        t.user_id, t.session_id, t.input, t.output, t.metadata_map
                     FROM traces AS t
                     WHERE {where_clause}
                     ORDER BY t.ch_update_time DESC
@@ -574,13 +570,21 @@ class TraceReaderService:
                 p.output,
                 sa.total_input_tokens,
                 sa.total_output_tokens,
-                sa.total_cost
+                sa.total_cost,
+                p.metadata_map
             FROM page AS p
             LEFT JOIN span_agg AS sa ON p.trace_id = sa.trace_id
             ORDER BY p.trace_start_time DESC
         """
 
-        result = self._client.query(query, parameters=params)
+        # Bounded by the shared read settings, page and count alike. Most span-level
+        # filters project cleanly through the spans no-I/O projection, but a keyed
+        # metadata predicate cannot: metadata_map is deliberately absent from that
+        # projection (see migrations/009_add_metadata_map.sql), so the predicate falls
+        # back to the base table, whose ordering prunes by time only weakly — and it runs
+        # twice per request, here and in the count below. A scan that wide must hit an
+        # execution cap rather than run until the client gives up.
+        result = self._client.query(query, parameters=params, settings=READ_QUERY_SETTINGS)
         rows = result.result_rows
 
         # Get total count (count(DISTINCT) dedupes ReplacingMergeTree rows; no FINAL).
@@ -590,7 +594,9 @@ class TraceReaderService:
             FROM traces AS t
             WHERE {where_clause}
         """
-        count_result = self._client.query(count_query, parameters=params)
+        count_result = self._client.query(
+            count_query, parameters=params, settings=READ_QUERY_SETTINGS
+        )
         total = count_result.result_rows[0][0] if count_result.result_rows else 0
 
         # Convert rows to dicts
@@ -612,6 +618,7 @@ class TraceReaderService:
                     "total_input_tokens": int(row[11]) if row[11] is not None else 0,
                     "total_output_tokens": int(row[12]) if row[12] is not None else 0,
                     "total_cost": float(row[13]) if row[13] is not None else 0.0,
+                    "metadata_map": dict(row[14]) if row[14] else {},
                 }
             )
 

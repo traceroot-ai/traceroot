@@ -309,6 +309,7 @@ _EVAL_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
 
 @router.post(
     "/evaluation-runs",
+    operation_id="register_run",
     response_model=RegisterRunResponse,
     status_code=status.HTTP_201_CREATED,
     responses=_EVAL_ERROR_RESPONSES,
@@ -329,6 +330,7 @@ async def register_run(
 
 @router.post(
     "/evaluation-runs/{run_id}/results",
+    operation_id="upsert_result",
     response_model=UpsertResultResponse,
     responses=_EVAL_ERROR_RESPONSES,
     summary="Upsert one test-case result with scores",
@@ -349,6 +351,7 @@ async def upsert_result(
 
 @router.post(
     "/evaluation-runs/{run_id}/complete",
+    operation_id="complete_run",
     response_model=CompleteRunResponse,
     responses=_EVAL_ERROR_RESPONSES,
     summary="Complete/finalize an evaluation run",

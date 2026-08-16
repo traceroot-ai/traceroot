@@ -97,6 +97,16 @@ def ensure_frontend_deps():
         ["pnpm", "db:generate"],
         cwd="frontend/packages/core",
     )
+    # The agent service imports @traceroot-ai/tools, which resolves through its
+    # compiled dist (the package ships dist-only exports for npm publishing, so
+    # unlike @traceroot/core it can't be consumed from source in dev). Build it
+    # here so `make dev` mirrors the Dockerfile's build-tools-before-agent step;
+    # without it the Agent window crashes on startup with ERR_MODULE_NOT_FOUND.
+    print("Building shared tools package (@traceroot-ai/tools)...")
+    _run(
+        ["pnpm", "build"],
+        cwd="frontend/packages/tools",
+    )
 
 
 def ensure_migrations():

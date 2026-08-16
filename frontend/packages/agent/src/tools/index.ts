@@ -1,7 +1,6 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { Executor } from "../executors/interface.js";
-import { createQueryTracesTool } from "./query-traces.js";
-import { createQuerySessionsTool } from "./query-sessions.js";
+import { createRegistryReadTools } from "./registry-tools.js";
 import { createDownloadTracesTool } from "./download-traces.js";
 import { createDownloadSessionTool } from "./download-session.js";
 import { createBashTool, createReadTool, createWriteTool } from "./sandbox.js";
@@ -26,8 +25,7 @@ export function createTools(params: {
   const tools: AgentTool<any>[] = [];
 
   // Host-side tools (run on host, call FastAPI directly)
-  tools.push(createQueryTracesTool(params.projectId, params.userId));
-  tools.push(createQuerySessionsTool(params.projectId, params.userId));
+  tools.push(...createRegistryReadTools(params.projectId, params.userId));
   tools.push(createDownloadTracesTool(params.projectId, params.userId, params.executor));
   tools.push(createDownloadSessionTool(params.projectId, params.userId, params.executor));
 

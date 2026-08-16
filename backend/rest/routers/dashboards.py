@@ -21,7 +21,7 @@ from rest.retention import clamp_retention_window
 from rest.routers.deps import RateLimitedProjectAccess
 from rest.schemas.dashboards import WidgetQueryRequest, WidgetQueryResponse
 from rest.schemas.traces import FilterValuesResponse
-from rest.services.trace_reader import get_trace_reader_service
+from rest.services.trace_discovery import get_trace_discovery_service
 from rest.services.widget_query import WidgetSpecError, run_widget_query
 from rest.services.widget_registry import REGISTRY, registry_schema
 
@@ -92,7 +92,7 @@ async def get_widget_field_values(
     # (mirrors the list endpoints; unlimited plans pass through unchanged).
     start_time, end_time = clamp_retention_window(_access.billing_plan, start_time, end_time)
 
-    service = get_trace_reader_service()
+    service = get_trace_discovery_service()
     # String dims declare their expr as the bare physical column name on the
     # view's source table, so it feeds the distinct scan directly.
     if view == "spans":

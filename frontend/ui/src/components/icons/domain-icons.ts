@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   ArrowRight,
   Bot,
+  Braces,
   BotMessageSquare,
   Box,
   CircleAlert,
@@ -68,6 +69,8 @@ export const DOMAIN_ICONS = {
   workspace: LayoutGrid,
   detector: Eye,
   environment: Globe,
+  // Free-form key/value data the user attached to a trace, not a traceroot field.
+  metadata: Braces,
   dashboard: LayoutDashboard,
   // Collapsing rows into a lineage/roll-up (e.g. "Group by evaluation").
   group: Layers,

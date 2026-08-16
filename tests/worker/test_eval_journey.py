@@ -108,7 +108,7 @@ class TestEvaluationBrowsingSeparation:
         queries: list[str] = []
         params_seen: list[dict] = []
 
-        def side_effect(query, parameters=None):
+        def side_effect(query, parameters=None, **kwargs):
             queries.append(query)
             params_seen.append(parameters or {})
             if "count()" in query:

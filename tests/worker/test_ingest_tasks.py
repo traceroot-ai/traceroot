@@ -120,6 +120,20 @@ class TestProcessS3Traces:
         # Only the root-bearing trace is passed; the child-only late_trace is not.
         assert traces_with_root == {root_trace}
 
+    def test_missing_root_probe_is_scoped_to_the_project(self, mock_s3, mock_ch):
+        """The probe names project_id, the sort-key prefix it needs to prune on."""
+        late_trace = "cc" * 16
+        mock_s3.download_json.return_value = make_otel_payload(
+            [make_span(late_trace, "44" * 8, name="child", parent_span_id_hex="55" * 8)]
+        )
+        mock_ch.query.return_value = MagicMock(result_rows=[])
+
+        process_s3_traces(s3_key="test/key.json", project_id="proj-1")
+
+        args, kwargs = mock_ch.query.call_args
+        assert "project_id" in args[0]
+        assert kwargs["parameters"]["project_id"] == "proj-1"
+
     def test_detector_enqueue_not_called_for_empty_batch(
         self, mock_s3, mock_ch, mock_detector_enqueue
     ):

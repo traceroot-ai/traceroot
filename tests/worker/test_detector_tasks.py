@@ -66,7 +66,9 @@ def _patch_detectors(monkeypatch, detectors):
 
 
 def _patch_summaries(monkeypatch, summaries):
-    monkeypatch.setattr(dt, "_get_trace_summaries", lambda project_id, trace_ids: summaries)
+    monkeypatch.setattr(
+        dt, "_get_trace_summaries", lambda project_id, trace_ids, **kwargs: summaries
+    )
 
 
 def _lock_state(fake_redis, project_id=PROJECT, trace_id=TRACE):
@@ -485,11 +487,13 @@ class TestTraceSummaryEvaluationFlag:
         monkeypatch.setattr(
             "db.clickhouse.client.get_clickhouse_client", lambda: FakeCH(), raising=False
         )
-        summaries = dt._get_trace_summaries(PROJECT, [TRACE])
+        summaries = dt._get_trace_summaries(PROJECT, [TRACE], include_trace_metadata=False)
         return summaries, captured
 
     def test_flag_comes_from_is_evaluation_not_environment(self, monkeypatch):
-        summaries, captured = self._summaries(monkeypatch, [(TRACE, "production", 1)])
+        summaries, captured = self._summaries(
+            monkeypatch, [(TRACE, ["production"], [], 0.0, 0, None, 0, [{}], None, 1)]
+        )
 
         assert summaries[TRACE]["is_evaluation"] is True
         sql = captured["sql"]
@@ -503,9 +507,11 @@ class TestTraceSummaryEvaluationFlag:
         assert "environment = 'evaluation'" not in sql
 
     def test_unflagged_trace_yields_false_even_when_named_evaluation(self, monkeypatch):
-        summaries, _ = self._summaries(monkeypatch, [(TRACE, "evaluation", 0)])
+        summaries, _ = self._summaries(
+            monkeypatch, [(TRACE, ["evaluation"], [], 0.0, 0, None, 0, [{}], None, 0)]
+        )
 
         # environment says "evaluation" (a customer's own deployment naming) but the
         # ingest flag does not — the trace is NOT an evaluation trace.
         assert summaries[TRACE]["is_evaluation"] is False
-        assert summaries[TRACE]["environment"] == "evaluation"
+        assert summaries[TRACE]["environment"] == ["evaluation"]

@@ -76,7 +76,7 @@ class IngestResponse(BaseModel):
     file_key: str
 
 
-@router.post("", response_model=IngestResponse)
+@router.post("", response_model=IngestResponse, operation_id="ingest_traces")
 @limiter.limit(resolve_limit, key_func=key_ingest)
 async def ingest_traces(
     request: Request,
