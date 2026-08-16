@@ -126,7 +126,7 @@ describe("RunEvaluationDrawer", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "TypeScript" }));
     await waitFor(() => expect(panel().textContent).toContain("await evaluate"));
-    expect(panel().textContent).toContain('new Dataset("Billing routing")');
+    expect(panel().textContent).toContain('await pullDataset("ds_billing")');
     expect(panel().textContent).not.toContain("pull_dataset");
 
     fireEvent.click(screen.getByRole("button", { name: "Python" }));

@@ -94,8 +94,9 @@ print(result.to_dict())`;
   }
 
   const tsName = tsStringLiteral(name);
+  const tsDatasetId = tsStringLiteral(datasetId);
   return `import * as traceroot from "traceroot";
-import { Dataset, evaluate } from "traceroot";
+import { evaluate, pullDataset } from "traceroot";
 
 // 1. Your application. Point this at your own entry point.
 import { handleTicket } from "./src/support";
@@ -105,10 +106,10 @@ import { routingAccuracy } from "./evals/scorers";
 
 traceroot.initialize();
 
-// 3. The dataset this run measures.
+// 3. Pull the dataset this run measures (its current published version).
 //    datasetId:        ${commentDatasetId}
 //    datasetVersionId: ${commentVersionId}
-const dataset = new Dataset(${tsName});
+const dataset = await pullDataset(${tsDatasetId});
 
 // 4. The task receives EvalCase.input and returns your application's output.
 async function runCandidate(ticket) {
