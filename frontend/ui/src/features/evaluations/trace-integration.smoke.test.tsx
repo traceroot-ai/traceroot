@@ -340,6 +340,9 @@ describe("SpanDatasetChip", () => {
   const CASE = {
     testCaseId: "tc_1",
     datasetId: "ds1",
+    // The SDK-addressable id (the "ds_…" the SDK chose). Deliberately NOT a slug
+    // of the name — the snippet must emit this, not slugify("Billing routing").
+    datasetClientId: "ds_billing_9f2c",
     datasetName: "Billing routing",
     sourceSpanId: "root",
     review: "ready",
@@ -383,13 +386,32 @@ describe("SpanDatasetChip", () => {
       .closest("[data-radix-popper-content-wrapper], [role='dialog']") as HTMLElement;
     expect(card.textContent).toContain("v12");
     expect(card.textContent).toContain("8 cases");
-    // The snippet slugifies the dataset name and uses the real project name.
+    // The snippet addresses the dataset by its real SDK id and uses the real
+    // project name — NEVER a slug of the display name, which would target a
+    // wrong/non-existent dataset (regression guard for the W3 bug).
     expect(card.textContent).toContain('traceroot.init_dataset("support-bot"');
-    expect(card.textContent).toContain('"dataset": "billing-routing"');
+    expect(card.textContent).toContain('"dataset": "ds_billing_9f2c"');
+    expect(card.textContent).not.toContain("billing-routing");
 
     fireEvent.click(screen.getAllByRole("button", { name: "TypeScript" })[0]);
     await waitFor(() => expect(card.textContent).toContain("traceroot.initDataset"));
-    expect(card.textContent).toContain('dataset: "billing-routing"');
+    expect(card.textContent).toContain('dataset: "ds_billing_9f2c"');
+  });
+
+  it("addresses a UI-authored dataset (no SDK id) by its cuid, not a name slug", async () => {
+    // clientDatasetId is null for a dataset created in the UI; the snippet must
+    // fall back to the addressable cuid `datasetId`, which the public dataset
+    // endpoint also resolves — still never a slug of the display name.
+    traceTestCases = [{ ...CASE, datasetClientId: null }];
+    mount(<SpanDatasetChip projectId="p1" traceId="t1" spanId="root" />);
+    fireEvent.click(await screen.findByTitle("In dataset Billing routing"));
+
+    await screen.findAllByRole("button", { name: "Python" });
+    const card = screen
+      .getAllByRole("button", { name: "Python" })[0]
+      .closest("[data-radix-popper-content-wrapper], [role='dialog']") as HTMLElement;
+    expect(card.textContent).toContain('"dataset": "ds1"');
+    expect(card.textContent).not.toContain("billing-routing");
   });
 
   it("a single-case dataset is described in the singular", async () => {

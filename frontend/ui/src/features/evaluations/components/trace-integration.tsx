@@ -460,35 +460,32 @@ export function TraceEvaluationChip({
 
 type Lang = "python" | "typescript";
 
-/** e.g. "Billing routing" → "billing-routing". */
-function slugify(name: string): string {
-  return name.trim().toLowerCase().replace(/\s+/g, "-");
-}
-
 /**
  * A 4-line initDataset snippet for one language — identical in shape to the
  * DatasetInfoChip. Indents differ on purpose: 4 spaces for
- * Python (PEP 8), 2 for TypeScript (Prettier).
+ * Python (PEP 8), 2 for TypeScript (Prettier). `datasetId` is the dataset's
+ * real addressable id (`clientDatasetId ?? id`) the public API resolves — never
+ * a slug of the display name, which addresses a wrong or non-existent dataset.
  */
-function sdkSnippet(lang: Lang, projectName: string, datasetSlug: string, version: string): string {
+function sdkSnippet(lang: Lang, projectName: string, datasetId: string, version: string): string {
   if (lang === "python") {
-    return `traceroot.init_dataset("${projectName}", {\n    "dataset": "${datasetSlug}",\n    "version": "${version}",\n})`;
+    return `traceroot.init_dataset("${projectName}", {\n    "dataset": "${datasetId}",\n    "version": "${version}",\n})`;
   }
-  return `traceroot.initDataset("${projectName}", {\n  dataset: "${datasetSlug}",\n  version: "${version}",\n});`;
+  return `traceroot.initDataset("${projectName}", {\n  dataset: "${datasetId}",\n  version: "${version}",\n});`;
 }
 
 /** SDK init snippet with a Python / TypeScript toggle — one shown at a time. */
 function DatasetSdkSnippet({
   projectName,
-  datasetName,
+  datasetId,
   version,
 }: {
   projectName: string;
-  datasetName: string;
+  datasetId: string;
   version: string;
 }) {
   const [lang, setLang] = React.useState<Lang>("python");
-  const code = sdkSnippet(lang, projectName, slugify(datasetName), version);
+  const code = sdkSnippet(lang, projectName, datasetId, version);
   return (
     <div className="overflow-hidden rounded border border-border">
       <div className="flex items-center justify-between border-b border-border bg-muted/50 px-1.5 py-1">
@@ -595,7 +592,10 @@ export function SpanDatasetChip({
             </div>
             <DatasetSdkSnippet
               projectName={projectName}
-              datasetName={c.datasetName}
+              // Address the dataset by its real id (the "ds_…" the SDK chose, or
+              // the cuid for a UI-authored one) — both resolve server-side; a slug
+              // of the display name would target the wrong or a missing dataset.
+              datasetId={c.datasetClientId ?? c.datasetId}
               version={c.datasetVersionLabel}
             />
           </PopoverContent>

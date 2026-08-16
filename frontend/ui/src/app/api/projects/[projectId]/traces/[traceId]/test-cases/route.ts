@@ -28,7 +28,9 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
         select: {
           label: true,
           _count: { select: { testCases: true } },
-          dataset: { select: { name: true, currentVersionId: true, updateTime: true } },
+          dataset: {
+            select: { name: true, clientDatasetId: true, currentVersionId: true, updateTime: true },
+          },
         },
       },
     },
@@ -40,6 +42,11 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     .map((c) => ({
       testCaseId: c.testCaseId,
       datasetId: c.datasetId,
+      // The SDK-addressable id (the "ds_…" the SDK chose), null for UI-authored
+      // datasets. The SDK snippet must target this — the public dataset endpoint
+      // resolves `clientDatasetId` OR the cuid `id` (resolvePublicDataset), never
+      // a slug of the display name, so the chip falls back to `datasetId` when null.
+      datasetClientId: c.version.dataset.clientDatasetId,
       datasetName: c.version.dataset.name,
       sourceSpanId: c.sourceSpanId,
       review: c.review,

@@ -330,6 +330,9 @@ export function useTraceEvaluationResults(projectId: string, traceId: string) {
 export interface TraceTestCaseRow {
   testCaseId: string;
   datasetId: string;
+  /** SDK-addressable dataset id ("ds_…"); null for UI-authored datasets, which
+   *  are addressed by the cuid `datasetId` instead (both resolve server-side). */
+  datasetClientId: string | null;
   datasetName: string;
   sourceSpanId: string | null;
   review: string;

@@ -41,7 +41,12 @@ function caseRow(over: Record<string, unknown> = {}, versionOver: Record<string,
     version: {
       label: "v2",
       _count: { testCases: 12 },
-      dataset: { name: "support", currentVersionId: "dv2", updateTime: UPDATED },
+      dataset: {
+        name: "support",
+        clientDatasetId: "ds_support_a1b2",
+        currentVersionId: "dv2",
+        updateTime: UPDATED,
+      },
       ...versionOver,
     },
     ...over,
@@ -66,6 +71,9 @@ it("returns a chip row per current-version case captured from this trace", async
   expect((await rows(res))[0]).toEqual({
     testCaseId: "case-1",
     datasetId: "ds1",
+    // The SDK-addressable id, so the chip's snippet can target the real dataset
+    // rather than a slug of its display name.
+    datasetClientId: "ds_support_a1b2",
     datasetName: "support",
     sourceSpanId: "sp_1",
     review: "ready",
@@ -73,6 +81,24 @@ it("returns a chip row per current-version case captured from this trace", async
     datasetUpdatedAt: UPDATED.toISOString(),
     caseCount: 12,
   });
+});
+
+it("passes through a null client id for a UI-authored dataset", async () => {
+  prismaMock.testCase.findMany.mockResolvedValue([
+    caseRow(
+      {},
+      {
+        dataset: {
+          name: "support",
+          clientDatasetId: null,
+          currentVersionId: "dv2",
+          updateTime: UPDATED,
+        },
+      },
+    ),
+  ]);
+  const data = await rows(await GET({} as never, params));
+  expect(data[0].datasetClientId).toBeNull();
 });
 
 it("drops a case that only lives in a historical snapshot", async () => {
