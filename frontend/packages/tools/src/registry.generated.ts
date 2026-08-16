@@ -262,6 +262,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
           type: "string",
           description: "Only traces that started before this time (exclusive, ISO 8601)",
         },
+        include_evaluations: {
+          default: false,
+          description:
+            "Include traces produced by offline-evaluation runs. Excluded by default so evaluation runs do not appear in the production trace list.",
+          type: "boolean",
+        },
         name: {
           type: "string",
           description: "Filter by trace name (substring match)",
