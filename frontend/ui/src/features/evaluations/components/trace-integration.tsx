@@ -254,6 +254,12 @@ export function SaveTestCaseDrawer({
           input,
           expected: output.trim() || null,
           metadata: metadataObj,
+          // Provenance so the API can dedupe repeat captures and the trace's
+          // SpanDatasetChip can link this case back to the span it came from.
+          source_trace_id: traceId,
+          source_span_id: span.span_id,
+          source_span_name: span.name,
+          source_span_kind: span.span_kind,
         },
       });
       if (res.duplicate) {

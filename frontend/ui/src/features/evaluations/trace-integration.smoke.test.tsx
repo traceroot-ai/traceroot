@@ -209,13 +209,18 @@ describe("SaveTestCaseDrawer — save round trip", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(savePayload()).toBeDefined());
-    // Only the three fields the drawer captures — no recorded output, review,
-    // capture-reason, or source.
+    // The edited fields plus the source-span provenance the drawer captures, so
+    // the case can be deduped and linked back from the trace's "Dataset:" chip —
+    // still no recorded output, review, or capture-reason.
     expect(savePayload()).toMatchObject({
       input: "I was charged twice for my July invoice",
       // Untouched, the Output field is still the expected outcome.
       expected: "billing",
       metadata: null,
+      source_trace_id: "t1",
+      source_span_id: "root",
+      source_span_name: "support-ticket-triage",
+      source_span_kind: "AGENT",
     });
 
     expect(await screen.findByText(/Saved — published as a new dataset version/)).toBeDefined();
