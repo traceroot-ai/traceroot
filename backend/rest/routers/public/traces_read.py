@@ -65,6 +65,11 @@ async def list_traces(
         None,
         description="Only traces that started before this time (exclusive, ISO 8601)",
     ),
+    include_evaluations: bool = Query(
+        False,
+        description="Include traces produced by offline-evaluation runs. Excluded by "
+        "default so evaluation runs do not appear in the production trace list.",
+    ),
     name: str | None = Query(None, description="Filter by trace name (substring match)"),
     user_id: str | None = Query(None, description="Filter by the user id recorded on the trace"),
     search_query: str | None = Query(
@@ -78,7 +83,11 @@ async def list_traces(
         ),
     ),
 ):
-    """List recent traces for the API key's project (newest first)."""
+    """List recent traces for the API key's project (newest first).
+
+    Offline-evaluation traces are excluded by default; pass
+    ``include_evaluations=true`` to include them.
+    """
     # Parse + validate filters before the DB try-block so a bad predicate
     # surfaces as a 400 with an actionable message, not a 500.
     try:
@@ -93,6 +102,7 @@ async def list_traces(
             limit=limit,
             start_after=start_after,
             end_before=end_before,
+            include_evaluations=include_evaluations,
             name=name,
             user_id=user_id,
             search_query=search_query,

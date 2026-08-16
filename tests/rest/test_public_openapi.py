@@ -163,6 +163,94 @@ def test_detectors_list_route_documents_error_responses():
     assert set(responses) >= {"200", "401", "500"}
 
 
+# --- Phase-4 evaluation reporting routes ------------------------------------
+
+
+def test_eval_reporting_routes_are_published():
+    """The three typed reporting endpoints appear as explicit POST operations."""
+    paths = _schema()["paths"]
+    assert "post" in paths["/api/v1/public/evaluation-runs"]
+    assert "post" in paths["/api/v1/public/evaluation-runs/{run_id}/results"]
+    assert "post" in paths["/api/v1/public/evaluation-runs/{run_id}/complete"]
+
+
+def test_eval_reporting_routes_document_request_and_response_schemas():
+    schema = _schema()
+    paths = schema["paths"]
+    components = schema["components"]["schemas"]
+    cases = {
+        "/api/v1/public/evaluation-runs": ("RegisterRunRequest", "RegisterRunResponse", "201"),
+        "/api/v1/public/evaluation-runs/{run_id}/results": (
+            "UpsertResultRequest",
+            "UpsertResultResponse",
+            "200",
+        ),
+        "/api/v1/public/evaluation-runs/{run_id}/complete": (
+            "CompleteRunRequest",
+            "CompleteRunResponse",
+            "200",
+        ),
+    }
+    for path, (req_model, resp_model, ok) in cases.items():
+        op = paths[path]["post"]
+        req_ref = op["requestBody"]["content"]["application/json"]["schema"]["$ref"]
+        assert req_ref.endswith(f"/{req_model}"), (path, req_ref)
+        resp_ref = op["responses"][ok]["content"]["application/json"]["schema"]["$ref"]
+        assert resp_ref.endswith(f"/{resp_model}"), (path, resp_ref)
+        assert req_model in components
+        assert resp_model in components
+    # Nested request models are pulled in transitively.
+    for nested in ("ScorerRef", "ScoreInput"):
+        assert nested in components
+
+
+def test_eval_reporting_routes_document_path_params():
+    paths = _schema()["paths"]
+    for path in (
+        "/api/v1/public/evaluation-runs/{run_id}/results",
+        "/api/v1/public/evaluation-runs/{run_id}/complete",
+    ):
+        params = paths[path]["post"].get("parameters", [])
+        run_id = next((p for p in params if p.get("name") == "run_id"), None)
+        assert run_id is not None, path
+        assert run_id["in"] == "path"
+        assert run_id["required"] is True
+    # The collection endpoint has no path parameter.
+    assert paths["/api/v1/public/evaluation-runs"]["post"].get("parameters", []) == []
+
+
+def test_eval_reporting_routes_document_error_and_auth_contract():
+    paths = _schema()["paths"]
+    for path in (
+        "/api/v1/public/evaluation-runs",
+        "/api/v1/public/evaluation-runs/{run_id}/results",
+        "/api/v1/public/evaluation-runs/{run_id}/complete",
+    ):
+        op = paths[path]["post"]
+        # Validation (422), domain 400/404, plus the shared auth 401/503.
+        assert set(op["responses"]) >= {"400", "404", "422", "401", "503"}
+        assert op["security"] == [{"BearerAuth": []}]
+        # Error bodies use the canonical {detail} envelope.
+        for code in ("400", "404"):
+            ref = op["responses"][code]["content"]["application/json"]["schema"]["$ref"]
+            assert ref.endswith("/ErrorResponse")
+
+
+def test_untyped_dataset_catch_alls_stay_hidden():
+    """Dataset + dataset-version catch-alls remain unpublished until a later phase."""
+    paths = _schema()["paths"]
+    assert not any(p.startswith("/api/v1/public/datasets") for p in paths), paths
+    assert not any(p.startswith("/api/v1/public/dataset-versions") for p in paths), paths
+    # The additive per-scorer scores / human-score run subpaths also stay hidden:
+    # only the three explicit reporting paths are published under evaluation-runs.
+    eval_paths = {p for p in paths if p.startswith("/api/v1/public/evaluation-runs")}
+    assert eval_paths == {
+        "/api/v1/public/evaluation-runs",
+        "/api/v1/public/evaluation-runs/{run_id}/results",
+        "/api/v1/public/evaluation-runs/{run_id}/complete",
+    }
+
+
 def test_session_read_routes_document_error_responses():
     paths = _schema()["paths"]
     assert set(paths["/api/v1/public/sessions"]["get"]["responses"]) >= {"200", "401", "500"}
@@ -185,6 +273,9 @@ EXPECTED_OPERATION_IDS = {
     "/api/v1/public/traces/{trace_id}": {"get": "get_trace"},
     "/api/v1/public/traces/{trace_id}/export": {"get": "export_trace"},
     "/api/v1/public/whoami": {"get": "whoami"},
+    "/api/v1/public/evaluation-runs": {"post": "register_run"},
+    "/api/v1/public/evaluation-runs/{run_id}/results": {"post": "upsert_result"},
+    "/api/v1/public/evaluation-runs/{run_id}/complete": {"post": "complete_run"},
 }
 
 
@@ -232,7 +323,7 @@ def test_x_tool_enabled_set_and_shape():
                 enabled[tool["name"]] = tool
             else:
                 disabled.add(op["operationId"])
-    assert disabled == {"ingest_traces"}
+    assert disabled == {"ingest_traces", "register_run", "upsert_result", "complete_run"}
     assert set(enabled) == {
         "whoami",
         "list_traces",

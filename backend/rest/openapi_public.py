@@ -321,6 +321,10 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         "description": "Fetch the detector finding attached to a specific trace, if any.",
         "enabled": True,
     },
+    # Evaluation reporting endpoints are SDK-facing writes, not agent tools (like ingest_traces).
+    "register_run": {"enabled": False},
+    "upsert_result": {"enabled": False},
+    "complete_run": {"enabled": False},
 }
 
 
