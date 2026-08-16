@@ -11,7 +11,12 @@ import { ResultUsageSummary } from "./result-usage-summary";
 
 afterEach(() => cleanup());
 
-function span(id: string, parent: string | null, kind: string, u: Partial<UsageSpan> = {}): UsageSpan {
+function span(
+  id: string,
+  parent: string | null,
+  kind: string,
+  u: Partial<UsageSpan> = {},
+): UsageSpan {
   return {
     span_id: id,
     parent_span_id: parent,
@@ -28,7 +33,10 @@ function rowText(label: string): string {
   return screen.getByText(label).parentElement?.textContent ?? "";
 }
 
-function renderUsage(spans: UsageSpan[] | null, opts: { durationMs?: number | null; taskCost?: number | null } = {}) {
+function renderUsage(
+  spans: UsageSpan[] | null,
+  opts: { durationMs?: number | null; taskCost?: number | null } = {},
+) {
   render(
     <ResultUsageSummary
       usage={attributeTraceUsage(spans)}
@@ -43,7 +51,13 @@ describe("ResultUsageSummary", () => {
     renderUsage([
       span("r", null, "EVALUATION"),
       span("t", "r", "TASK"),
-      span("tl", "t", "LLM", { input_tokens: 100, output_tokens: 20, total_tokens: 120, cost: 0.003, model_name: "claude-sonnet-4" }),
+      span("tl", "t", "LLM", {
+        input_tokens: 100,
+        output_tokens: 20,
+        total_tokens: 120,
+        cost: 0.003,
+        model_name: "claude-sonnet-4",
+      }),
       span("s", "r", "SCORER"),
       span("jl", "s", "LLM", { total_tokens: 45, cost: 0.001, model_name: "gpt-4o" }),
     ]);
@@ -60,7 +74,9 @@ describe("ResultUsageSummary", () => {
 
     // The ONLY combined figure, and it is explicitly labelled — 120 + 45 = 165.
     expect(screen.getByText(/Total including evaluation/)).toBeDefined();
-    expect(screen.getByText(/Total including evaluation/).parentElement?.textContent).toMatch(/165/);
+    expect(screen.getByText(/Total including evaluation/).parentElement?.textContent).toMatch(
+      /165/,
+    );
   });
 
   it("never folds judge cost into the candidate's task cost", () => {

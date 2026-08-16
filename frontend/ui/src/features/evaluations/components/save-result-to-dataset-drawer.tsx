@@ -29,10 +29,7 @@ import { useDatasets } from "../hooks";
 const noop = () => {};
 
 /** The three result→dataset actions the backend `dataset-case` route accepts. */
-export type ResultDatasetAction =
-  | "update_existing_case"
-  | "save_new_case"
-  | "duplicate_as_variant";
+export type ResultDatasetAction = "update_existing_case" | "save_new_case" | "duplicate_as_variant";
 
 export interface ResultForDataset {
   id: string;

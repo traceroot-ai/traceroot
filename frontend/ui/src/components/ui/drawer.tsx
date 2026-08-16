@@ -17,10 +17,7 @@ import { cn } from "@/lib/utils";
  * instead of overloading DialogContent with a side variant.
  */
 
-const Drawer = ({
-  modal = false,
-  ...props
-}: React.ComponentProps<typeof DialogPrimitive.Root>) => (
+const Drawer = ({ modal = false, ...props }: React.ComponentProps<typeof DialogPrimitive.Root>) => (
   <DialogPrimitive.Root modal={modal} {...props} />
 );
 const DrawerTrigger = DialogPrimitive.Trigger;

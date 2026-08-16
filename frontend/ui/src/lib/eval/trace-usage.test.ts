@@ -146,10 +146,18 @@ describe("attributeTraceUsage", () => {
     const spans = [
       span("root", null, "EVALUATION"),
       span("task", "root", "TASK"),
-      span("task-llm", "task", "LLM", { total_tokens: 100, cost: 0.003, model_name: "claude-sonnet-4" }),
+      span("task-llm", "task", "LLM", {
+        total_tokens: 100,
+        cost: 0.003,
+        model_name: "claude-sonnet-4",
+      }),
       span("task-llm2", "task", "LLM", { total_tokens: 50, cost: 0.001, model_name: "gpt-4o" }),
       span("scorer", "root", "SCORER"),
-      span("judge-llm", "scorer", "LLM", { total_tokens: 40, cost: 0.001, model_name: "gpt-4o-judge" }),
+      span("judge-llm", "scorer", "LLM", {
+        total_tokens: 40,
+        cost: 0.001,
+        model_name: "gpt-4o-judge",
+      }),
     ];
     const u = attributeTraceUsage(spans);
     // Observed task models are distinct + sorted; the judge model is kept separate.

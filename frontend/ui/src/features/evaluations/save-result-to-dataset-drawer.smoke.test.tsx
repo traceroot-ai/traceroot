@@ -137,7 +137,9 @@ describe("SaveResultToDatasetDrawer", () => {
     fireEvent.change(expected, { target: { value: "A concise Q2 summary." } });
     fireEvent.click(screen.getByRole("button", { name: /Publish update/i }));
 
-    await waitFor(() => expect(fetchMock.mock.calls.some((c) => (c[1] as RequestInit)?.method === "POST")).toBe(true));
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some((c) => (c[1] as RequestInit)?.method === "POST")).toBe(true),
+    );
     const { url, body } = await lastPost(fetchMock);
     expect(url).toBe("/api/projects/p1/evaluations/results/res1/dataset-case");
     expect(body.action).toBe("update_existing_case");
@@ -155,7 +157,9 @@ describe("SaveResultToDatasetDrawer", () => {
     expect(screen.getByText(RESULT.candidateOutput)).toBeDefined();
     fireEvent.click(screen.getByRole("button", { name: /Publish update/i }));
 
-    await waitFor(() => expect(fetchMock.mock.calls.some((c) => (c[1] as RequestInit)?.method === "POST")).toBe(true));
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.some((c) => (c[1] as RequestInit)?.method === "POST")).toBe(true),
+    );
     const { body } = await lastPost(fetchMock);
     expect(body.use_candidate_as_expected).toBe(true);
     // `expected` is NOT sent — the server derives it from the candidate under the flag.

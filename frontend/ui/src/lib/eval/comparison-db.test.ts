@@ -79,7 +79,9 @@ describe("parseScorers", () => {
           emitted_metrics: [{ name: "score", direction: "lower_is_better", threshold: 0.9 }],
         },
       ]),
-    ).toEqual([{ name: "score", version: "v1", valueType: null, direction: null, threshold: null }]);
+    ).toEqual([
+      { name: "score", version: "v1", valueType: null, direction: null, threshold: null },
+    ]);
   });
 
   it("returns [] for null / non-array / malformed entries", () => {

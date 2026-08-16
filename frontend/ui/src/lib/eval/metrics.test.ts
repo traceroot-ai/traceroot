@@ -26,10 +26,16 @@ describe("scorerManifestsEqual", () => {
     // jsonb reorders object keys on read-back; the merged copy uses the schema's declaration
     // order. These are the SAME manifest and must compare EQUAL.
     const a = [
-      { name: "grade", emitted_metrics: [{ name: "quality", direction: "higher_is_better", threshold: 0.8 }] },
+      {
+        name: "grade",
+        emitted_metrics: [{ name: "quality", direction: "higher_is_better", threshold: 0.8 }],
+      },
     ];
     const b = [
-      { name: "grade", emitted_metrics: [{ threshold: 0.8, name: "quality", direction: "higher_is_better" }] },
+      {
+        name: "grade",
+        emitted_metrics: [{ threshold: 0.8, name: "quality", direction: "higher_is_better" }],
+      },
     ];
     expect(scorerManifestsEqual(a, b)).toBe(true);
   });
@@ -41,9 +47,9 @@ describe("scorerManifestsEqual", () => {
   });
 
   it("is array-order sensitive and handles null", () => {
-    expect(scorerManifestsEqual([{ name: "a" }, { name: "b" }], [{ name: "b" }, { name: "a" }])).toBe(
-      false,
-    );
+    expect(
+      scorerManifestsEqual([{ name: "a" }, { name: "b" }], [{ name: "b" }, { name: "a" }]),
+    ).toBe(false);
     expect(scorerManifestsEqual(null, [])).toBe(false);
     expect(scorerManifestsEqual(null, null)).toBe(true);
   });
