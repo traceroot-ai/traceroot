@@ -36,6 +36,12 @@ DEFAULT_SPAN_SCAN_LOOKBACK_HOURS = 24
 USER_SOURCE = "user"
 DETECTOR_SOURCE = "detector"
 
+# Distinct-value dropdown scan: cap the returned options, and briefly cache each
+# (column, window) so repeatedly opening the same filter does not re-scan spans.
+DISTINCT_VALUES_LIMIT = 100
+DISTINCT_VALUES_CACHE_MAX = 256
+DISTINCT_VALUES_CACHE_TTL_SECONDS = 30
+
 
 def customer_traffic_only(alias: str = "") -> str:
     """WHERE condition restricting a spans/traces scan to customer traffic.
@@ -194,6 +200,9 @@ class TraceReaderService:
         # Trace start time cache: "project:trace" -> (expiry, datetime|None).
         # Immutable once written, so 1-hour TTL is safe. Bounded to 1024 entries.
         self._trace_start_cache: dict[str, tuple[float, datetime | None]] = {}
+        # Distinct-value dropdown cache: (table, project, column, floor(start), floor(end))
+        # -> (expiry, rows). Short TTL; bounded to DISTINCT_VALUES_CACHE_MAX entries.
+        self._distinct_cache: dict[tuple, tuple[float, list[dict]]] = {}
 
     def get_distinct_span_values(
         self,
