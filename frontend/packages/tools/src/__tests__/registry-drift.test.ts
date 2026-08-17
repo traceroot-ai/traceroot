@@ -30,4 +30,11 @@ describe("committed registry", () => {
       "whoami",
     ]);
   });
+
+  it("exposes the pagination cursor on the detector list tools", () => {
+    const findings = REGISTRY.find((entry) => entry.name === "list_findings")!;
+    expect(findings.inputSchema.properties).toHaveProperty("cursor");
+    const detectors = REGISTRY.find((entry) => entry.name === "list_detectors")!;
+    expect(detectors.inputSchema.properties).toHaveProperty("cursor");
+  });
 });

@@ -90,7 +90,7 @@ export function formatSessionList(data: unknown): string {
 export function formatDetectorList(data: unknown): string {
   const body = (data ?? {}) as { data?: unknown; meta?: unknown };
   const detectors = (body.data || []) as any[];
-  const meta = (body.meta || {}) as { total?: number };
+  const meta = (body.meta || {}) as { total?: number; next_cursor?: string };
 
   if (!Array.isArray(detectors) || detectors.length === 0) {
     return "No detectors found.";
@@ -102,8 +102,11 @@ export function formatDetectorList(data: unknown): string {
   });
 
   const totalInfo = meta.total ? ` (${meta.total} total, showing ${detectors.length})` : "";
+  const more = meta.next_cursor
+    ? `\nMore results available — call again with cursor="${meta.next_cursor}" to continue.`
+    : "";
 
-  return `Found ${detectors.length} detectors${totalInfo}:\n${lines.join("\n")}`;
+  return `Found ${detectors.length} detectors${totalInfo}:\n${lines.join("\n")}${more}`;
 }
 
 /** Render one detector's full configuration for the model. */
@@ -144,7 +147,7 @@ export function formatDetectorDetail(data: unknown): string {
 export function formatFindingList(data: unknown): string {
   const body = (data ?? {}) as { data?: unknown; meta?: unknown };
   const findings = (body.data || []) as any[];
-  const meta = (body.meta || {}) as { total?: number };
+  const meta = (body.meta || {}) as { total?: number; next_cursor?: string };
 
   if (!Array.isArray(findings) || findings.length === 0) {
     return "No detector findings found matching the given filters.";
@@ -159,8 +162,11 @@ export function formatFindingList(data: unknown): string {
   });
 
   const totalInfo = meta.total ? ` (${meta.total} total, showing ${findings.length})` : "";
+  const more = meta.next_cursor
+    ? `\nMore results available — call again with cursor="${meta.next_cursor}" to continue.`
+    : "";
 
-  return `Found ${findings.length} findings${totalInfo}:\n${lines.join("\n")}`;
+  return `Found ${findings.length} findings${totalInfo}:\n${lines.join("\n")}${more}`;
 }
 
 /** Render a finding detail: header, per-detector results, then the RCA text. */

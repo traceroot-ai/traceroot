@@ -341,6 +341,24 @@ describe("formatters", () => {
     );
   });
 
+  it("formatDetectorList appends the pagination hint only when next_cursor is set", () => {
+    const row = {
+      detector_id: "det-1",
+      name: "Error spike",
+      template: "error-rate",
+      enabled: true,
+      created_at: "2026-08-01T12:00:00Z",
+    };
+    expect(formatDetectorList({ data: [row], meta: { total: 9, next_cursor: "abc123" } })).toBe(
+      "Found 1 detectors (9 total, showing 1):\n" +
+        "- det-1 | Error spike | template: error-rate | enabled | created 2026-08-01T12:00:00Z\n" +
+        'More results available — call again with cursor="abc123" to continue.',
+    );
+    expect(formatDetectorList({ data: [row], meta: { total: 9 } })).not.toContain(
+      "More results available",
+    );
+  });
+
   it("formatDetectorDetail renders the full config", () => {
     expect(
       formatDetectorDetail({
@@ -419,6 +437,25 @@ describe("formatters", () => {
     );
     expect(text).toContain("y".repeat(200));
     expect(text).not.toContain("y".repeat(201));
+  });
+
+  it("formatFindingList appends the pagination hint only when next_cursor is set", () => {
+    const row = {
+      finding_id: "f-1",
+      trace_id: "t-1",
+      timestamp: "2026-08-11T09:00:00Z",
+      detectors: ["Error spike"],
+      summary: "Elevated error rate",
+    };
+    expect(formatFindingList({ data: [row], meta: { total: 9, next_cursor: "abc123" } })).toBe(
+      "Found 1 findings (9 total, showing 1):\n" +
+        "- f-1 | trace t-1 | 2026-08-11T09:00:00Z | detectors: Error spike\n" +
+        "  Elevated error rate\n" +
+        'More results available — call again with cursor="abc123" to continue.',
+    );
+    expect(formatFindingList({ data: [row], meta: { total: 9 } })).not.toContain(
+      "More results available",
+    );
   });
 
   it("formatFindingDetail renders header, per-detector results, and RCA text", () => {

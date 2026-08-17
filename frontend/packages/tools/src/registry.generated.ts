@@ -147,6 +147,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
           type: "string",
           description: "Only detectors created before this time (exclusive, ISO 8601)",
         },
+        cursor: {
+          type: "string",
+          description:
+            "Opaque pagination cursor from meta.next_cursor; repeat the request unchanged except this param to fetch the next page",
+        },
       },
       required: [],
       additionalProperties: false,
@@ -185,6 +190,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
         trace_id: {
           type: "string",
           description: "Filter to a single trace",
+        },
+        cursor: {
+          type: "string",
+          description:
+            "Opaque pagination cursor from meta.next_cursor; repeat the request unchanged except this param to fetch the next page",
         },
       },
       required: [],

@@ -50,6 +50,7 @@ matching template in the Detectors page — don't propose external tooling for g
 Use this to browse detector findings — issues detectors identified on traces.
 Parameters: optional detector (id, name, or template), trace_id, limit, start_after, end_before.
 Each row includes the finding_id to pass to get_finding.
+Lists return at most \`limit\` rows; when the result says more are available, repeat the same call with the given cursor value to fetch the next page.
 
 ### Finding Detail: get_finding and get_finding_by_trace
 Use get_finding with a finding_id, or get_finding_by_trace with a trace_id (findings are 1-per-trace),

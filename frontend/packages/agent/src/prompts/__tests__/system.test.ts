@@ -33,6 +33,11 @@ describe("getSystemPrompt", () => {
     expect(prompt).toContain("root-cause analysis");
   });
 
+  it("teaches cursor pagination for the list tools", () => {
+    const prompt = getSystemPrompt({ projectId: "proj-123" });
+    expect(prompt).toContain("repeat the same call with the given cursor");
+  });
+
   it("lists the detector templates so coverage gaps get template recommendations", () => {
     const prompt = getSystemPrompt({ projectId: "proj-123" });
     expect(prompt).toContain("failure, hallucination, logic, task, safety");
