@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from rest.main import app
+from rest.pagination import encode_cursor
 from rest.routers.public.deps import AuthResult, authenticate_api_key
 from rest.schemas.public import (
     DetectorDetail,
@@ -151,7 +152,7 @@ def test_list_detectors_returns_items_with_pagination_meta(client, reader):
     resp = client.get("/api/v1/public/detectors")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["meta"] == {"page": 0, "limit": 50, "total": 1}
+    assert body["meta"] == {"page": 0, "limit": 50, "total": 1, "next_cursor": None}
     assert body["data"][0]["detector_id"] == "d1"
     assert body["data"][0]["template"] == "hallucination"
     assert body["data"][0]["enabled"] is True
@@ -197,7 +198,7 @@ def test_list_returns_findings_with_pagination_meta(client, reader):
     resp = client.get("/api/v1/public/detectors/findings")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["meta"] == {"page": 0, "limit": 50, "total": 1}
+    assert body["meta"] == {"page": 0, "limit": 50, "total": 1, "next_cursor": None}
     assert body["data"][0]["finding_id"] == "f1"
     assert body["data"][0]["detectors"] == ["hallucination"]
 
@@ -208,7 +209,7 @@ def test_list_empty_returns_200_with_empty_data(client, reader):
     assert resp.status_code == 200
     body = resp.json()
     assert body["data"] == []
-    assert body["meta"] == {"page": 0, "limit": 50, "total": 0}
+    assert body["meta"] == {"page": 0, "limit": 50, "total": 0, "next_cursor": None}
 
 
 def test_list_forwards_filters_and_project_scope(client, reader):
@@ -237,6 +238,62 @@ def test_list_reader_failure_returns_sanitized_500(client, reader):
     assert resp.status_code == 500
     assert resp.json()["detail"] == "Failed to list findings"
     assert "boom" not in resp.text
+
+
+class TestListFindingsPagination:
+    def test_full_page_emits_next_cursor_of_last_row(self, client, reader):
+        ts = datetime(2026, 8, 17, 19, 3, 46, 820000)
+        rows = [_summary(finding_id=f"f-{i}", timestamp=ts) for i in range(3)]
+        reader.list_return = (rows, 10)
+        resp = client.get("/api/v1/public/detectors/findings", params={"limit": 3})
+        expected = encode_cursor(ts, "f-2")
+        assert resp.json()["meta"]["next_cursor"] == expected
+
+    def test_partial_page_has_no_next_cursor(self, client, reader):
+        reader.list_return = ([_summary()], 10)
+        resp = client.get("/api/v1/public/detectors/findings", params={"limit": 3})
+        assert resp.json()["meta"]["next_cursor"] is None
+
+    def test_cursor_param_is_decoded_and_passed_to_reader(self, client, reader):
+        ts = datetime(2026, 8, 17, 19, 3, 46, 820000)
+        token = encode_cursor(ts, "f-5")
+        resp = client.get("/api/v1/public/detectors/findings", params={"cursor": token})
+        assert resp.status_code == 200
+        assert reader.list_args["cursor"] == (ts, "f-5")
+
+    def test_invalid_cursor_is_422(self, client, reader):
+        resp = client.get("/api/v1/public/detectors/findings", params={"cursor": "garbage!!"})
+        assert resp.status_code == 422
+        assert resp.json()["detail"] == "Invalid cursor"
+        assert reader.list_args is None  # rejected before the reader ran
+
+
+class TestListDetectorsPagination:
+    def test_full_page_emits_next_cursor_of_last_row(self, client, reader):
+        created = datetime(2026, 6, 29, 10, 42)
+        rows = [_detector(detector_id=f"d-{i}", created_at=created) for i in range(3)]
+        reader.detectors_return = (rows, 10)
+        resp = client.get("/api/v1/public/detectors", params={"limit": 3})
+        expected = encode_cursor(created, "d-2")
+        assert resp.json()["meta"]["next_cursor"] == expected
+
+    def test_partial_page_has_no_next_cursor(self, client, reader):
+        reader.detectors_return = ([_detector()], 10)
+        resp = client.get("/api/v1/public/detectors", params={"limit": 3})
+        assert resp.json()["meta"]["next_cursor"] is None
+
+    def test_cursor_param_is_decoded_and_passed_to_reader(self, client, reader):
+        ts = datetime(2026, 8, 17, 19, 3, 46, 820000)
+        token = encode_cursor(ts, "d-5")
+        resp = client.get("/api/v1/public/detectors", params={"cursor": token})
+        assert resp.status_code == 200
+        assert reader.detectors_args["cursor"] == (ts, "d-5")
+
+    def test_invalid_cursor_is_422(self, client, reader):
+        resp = client.get("/api/v1/public/detectors", params={"cursor": "garbage!!"})
+        assert resp.status_code == 422
+        assert resp.json()["detail"] == "Invalid cursor"
+        assert reader.detectors_args is None  # rejected before the reader ran
 
 
 def test_detail_by_finding_id_returns_results_and_rca(client, reader):

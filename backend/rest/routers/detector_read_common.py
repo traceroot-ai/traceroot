@@ -15,9 +15,10 @@ from datetime import datetime
 
 from fastapi import HTTPException, status
 
+from rest.pagination import decode_cursor, encode_cursor
 from rest.retention import clamp_retention_window, enforce_retention_by_time
-from rest.schemas.common import PaginationMeta
 from rest.schemas.public import (
+    CursorPaginationMeta,
     DetectorDetail,
     FindingDetail,
     PublicDetectorListResponse,
@@ -28,12 +29,35 @@ from rest.services.detector_reader import DetectorReaderService
 logger = logging.getLogger(__name__)
 
 
+def _decode_cursor_param(cursor: str | None) -> tuple[datetime, str] | None:
+    """Decode an opaque cursor query param, mapping a bad token to a 422.
+
+    Runs before the reader call so a malformed cursor is rejected as a client
+    error instead of being swallowed by the reader-error -> 500 mapping.
+
+    Args:
+        cursor (str | None): Opaque token from ``meta.next_cursor``, if any.
+
+    Returns:
+        tuple[datetime, str] | None: The decoded keyset position, or None.
+    """
+    if cursor is None:
+        return None
+    try:
+        return decode_cursor(cursor)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Invalid cursor"
+        ) from e
+
+
 async def list_detectors_page(
     service: DetectorReaderService,
     project_id: str,
     limit: int,
     start_after: datetime | None,
     end_before: datetime | None,
+    cursor: str | None,
 ) -> PublicDetectorListResponse:
     """List a project's detectors, mapping reader errors to a clean 500.
 
@@ -46,10 +70,13 @@ async def list_detectors_page(
         limit (int): Max items in the returned page.
         start_after (datetime | None): Inclusive lower bound on creation time.
         end_before (datetime | None): Exclusive upper bound on creation time.
+        cursor (str | None): Opaque keyset cursor from a prior page's
+            ``meta.next_cursor``; malformed tokens 422 before the reader runs.
 
     Returns:
         PublicDetectorListResponse: The page plus pagination meta.
     """
+    cursor_key = _decode_cursor_param(cursor)
     try:
         items, total = await asyncio.to_thread(
             service.list_detectors,
@@ -57,6 +84,7 @@ async def list_detectors_page(
             limit=limit,
             start_after=start_after,
             end_before=end_before,
+            cursor=cursor_key,
         )
     except Exception as e:
         logger.exception(f"Error listing detectors: {e}")
@@ -65,8 +93,12 @@ async def list_detectors_page(
             detail="Failed to list detectors",
         ) from e
 
+    next_cursor = (
+        encode_cursor(items[-1].created_at, items[-1].detector_id) if len(items) == limit else None
+    )
     return PublicDetectorListResponse(
-        data=items, meta=PaginationMeta(page=0, limit=limit, total=total)
+        data=items,
+        meta=CursorPaginationMeta(page=0, limit=limit, total=total, next_cursor=next_cursor),
     )
 
 
@@ -79,6 +111,7 @@ async def list_findings_page(
     end_before: datetime | None,
     detector: str | None,
     trace_id: str | None,
+    cursor: str | None,
 ) -> PublicFindingListResponse:
     """List a project's findings with the plan's retention clamp applied.
 
@@ -91,10 +124,13 @@ async def list_findings_page(
         end_before (datetime | None): Exclusive upper bound on ``timestamp``.
         detector (str | None): Optional detector id/name/template filter.
         trace_id (str | None): Optional single-trace filter.
+        cursor (str | None): Opaque keyset cursor from a prior page's
+            ``meta.next_cursor``; malformed tokens 422 before the reader runs.
 
     Returns:
         PublicFindingListResponse: The page plus pagination meta.
     """
+    cursor_key = _decode_cursor_param(cursor)
     start_after, end_before = clamp_retention_window(billing_plan, start_after, end_before)
     try:
         items, total = await asyncio.to_thread(
@@ -105,6 +141,7 @@ async def list_findings_page(
             end_before=end_before,
             detector=detector,
             trace_id=trace_id,
+            cursor=cursor_key,
         )
     except Exception as e:
         logger.exception(f"Error listing detector findings: {e}")
@@ -113,8 +150,12 @@ async def list_findings_page(
             detail="Failed to list findings",
         ) from e
 
+    next_cursor = (
+        encode_cursor(items[-1].timestamp, items[-1].finding_id) if len(items) == limit else None
+    )
     return PublicFindingListResponse(
-        data=items, meta=PaginationMeta(page=0, limit=limit, total=total)
+        data=items,
+        meta=CursorPaginationMeta(page=0, limit=limit, total=total, next_cursor=next_cursor),
     )
 
 

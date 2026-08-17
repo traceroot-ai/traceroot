@@ -85,6 +85,12 @@ class PublicTraceExportResponse(BaseModel):
     git_context: GitContext
 
 
+class CursorPaginationMeta(PaginationMeta):
+    """Pagination meta plus ``next_cursor``, present only while more pages exist."""
+
+    next_cursor: str | None = None
+
+
 class DetectorResultItem(BaseModel):
     """One detector's result within a finding, normalized from the stored payload.
 
@@ -133,7 +139,7 @@ class PublicFindingListResponse(BaseModel):
     """Paginated list of detector findings for the public API."""
 
     data: list[FindingSummary]
-    meta: PaginationMeta
+    meta: CursorPaginationMeta
 
 
 class DetectorItem(BaseModel):
@@ -173,4 +179,4 @@ class PublicDetectorListResponse(BaseModel):
     """Paginated list of the project's detectors for the public API."""
 
     data: list[DetectorItem]
-    meta: PaginationMeta
+    meta: CursorPaginationMeta

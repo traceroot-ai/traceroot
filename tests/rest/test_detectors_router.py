@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from rest.main import app
+from rest.pagination import encode_cursor
 from rest.retention import get_retention_cutoff
 from rest.routers.deps import ProjectAccessInfo, get_project_access
 from rest.schemas.public import (
@@ -13,6 +14,7 @@ from rest.schemas.public import (
     DetectorItem,
     DetectorResultItem,
     FindingDetail,
+    FindingSummary,
     RCAResult,
 )
 from rest.services.detector_reader import get_detector_reader_service
@@ -78,6 +80,17 @@ def _detector(i: int = 1) -> DetectorItem:
         template="error-rate",
         enabled=True,
         created_at=datetime(2026, 8, 1, 12, 0, 0),
+    )
+
+
+def _finding_summary(finding_id: str = "f-1", timestamp: datetime | None = None) -> FindingSummary:
+    return FindingSummary(
+        finding_id=finding_id,
+        project_id="proj-A",
+        trace_id="t-1",
+        summary="Elevated error rate",
+        timestamp=timestamp or _now_naive(),
+        detectors=["Detector 1"],
     )
 
 
@@ -202,6 +215,68 @@ class TestListFindings:
         resp = client.get("/api/v1/projects/proj-A/detectors/findings")
         assert resp.status_code == 500
         assert resp.json()["detail"] == "Failed to list findings"
+
+
+class TestListFindingsPagination:
+    def test_full_page_emits_next_cursor_of_last_row(self, client, reader):
+        rows = [
+            _finding_summary(
+                finding_id=f"f-{i}", timestamp=datetime(2026, 8, 17, 19, 3, 46, 820000)
+            )
+            for i in range(3)
+        ]
+        reader.list_return = (rows, 10)
+        resp = client.get("/api/v1/projects/proj-A/detectors/findings", params={"limit": 3})
+        meta = resp.json()["meta"]
+        expected = encode_cursor(datetime(2026, 8, 17, 19, 3, 46, 820000), "f-2")
+        assert meta["next_cursor"] == expected
+
+    def test_partial_page_has_no_next_cursor(self, client, reader):
+        reader.list_return = ([_finding_summary(finding_id="f-1")], 10)
+        resp = client.get("/api/v1/projects/proj-A/detectors/findings", params={"limit": 3})
+        assert resp.json()["meta"]["next_cursor"] is None
+
+    def test_cursor_param_is_decoded_and_passed_to_reader(self, client, reader):
+        ts = datetime(2026, 8, 17, 19, 3, 46, 820000)
+        token = encode_cursor(ts, "f-5")
+        resp = client.get("/api/v1/projects/proj-A/detectors/findings", params={"cursor": token})
+        assert resp.status_code == 200
+        assert reader.list_args["cursor"] == (ts, "f-5")
+
+    def test_invalid_cursor_is_422(self, client, reader):
+        resp = client.get(
+            "/api/v1/projects/proj-A/detectors/findings", params={"cursor": "garbage!!"}
+        )
+        assert resp.status_code == 422
+        assert resp.json()["detail"] == "Invalid cursor"
+        assert reader.list_args is None  # rejected before the reader ran
+
+
+class TestListDetectorsPagination:
+    def test_full_page_emits_next_cursor_of_last_row(self, client, reader):
+        reader.detectors_return = ([_detector(i) for i in range(3)], 10)
+        resp = client.get("/api/v1/projects/proj-A/detectors", params={"limit": 3})
+        meta = resp.json()["meta"]
+        expected = encode_cursor(datetime(2026, 8, 1, 12, 0, 0), "det-2")
+        assert meta["next_cursor"] == expected
+
+    def test_partial_page_has_no_next_cursor(self, client, reader):
+        reader.detectors_return = ([_detector()], 10)
+        resp = client.get("/api/v1/projects/proj-A/detectors", params={"limit": 3})
+        assert resp.json()["meta"]["next_cursor"] is None
+
+    def test_cursor_param_is_decoded_and_passed_to_reader(self, client, reader):
+        ts = datetime(2026, 8, 17, 19, 3, 46, 820000)
+        token = encode_cursor(ts, "det-5")
+        resp = client.get("/api/v1/projects/proj-A/detectors", params={"cursor": token})
+        assert resp.status_code == 200
+        assert reader.detectors_args["cursor"] == (ts, "det-5")
+
+    def test_invalid_cursor_is_422(self, client, reader):
+        resp = client.get("/api/v1/projects/proj-A/detectors", params={"cursor": "garbage!!"})
+        assert resp.status_code == 422
+        assert resp.json()["detail"] == "Invalid cursor"
+        assert reader.detectors_args is None  # rejected before the reader ran
 
 
 class TestGetFinding:

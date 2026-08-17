@@ -4,6 +4,7 @@ from datetime import datetime
 
 from rest.schemas.common import PaginationMeta
 from rest.schemas.public import (
+    CursorPaginationMeta,
     DetectorDetail,
     DetectorItem,
     DetectorResultItem,
@@ -13,6 +14,15 @@ from rest.schemas.public import (
     PublicFindingListResponse,
     RCAResult,
 )
+
+
+def test_cursor_pagination_meta_defaults_to_none_and_dumps_the_field():
+    meta = CursorPaginationMeta(page=0, limit=50, total=1)
+    assert isinstance(meta, PaginationMeta)
+    assert meta.next_cursor is None
+    assert meta.model_dump() == {"page": 0, "limit": 50, "total": 1, "next_cursor": None}
+    full = CursorPaginationMeta(page=0, limit=50, total=10, next_cursor="abc")
+    assert full.model_dump()["next_cursor"] == "abc"
 
 
 def test_detector_item_fields_are_snake_case():
@@ -41,9 +51,10 @@ def test_public_detector_list_response_wraps_items_with_pagination():
                 created_at=datetime(2026, 6, 29),
             )
         ],
-        meta=PaginationMeta(page=0, limit=50, total=1),
+        meta=CursorPaginationMeta(page=0, limit=50, total=1),
     )
     assert resp.meta.total == 1
+    assert resp.meta.next_cursor is None
     assert resp.data[0].detector_id == "d1"
     assert resp.data[0].enabled is False
 
@@ -122,7 +133,7 @@ def test_public_finding_list_response_wraps_summaries_with_pagination():
                 detectors=["failure", "logic"],
             )
         ],
-        meta=PaginationMeta(page=0, limit=50, total=1),
+        meta=CursorPaginationMeta(page=0, limit=50, total=1),
     )
     assert resp.meta.page == 0
     assert resp.data[0].detectors == ["failure", "logic"]

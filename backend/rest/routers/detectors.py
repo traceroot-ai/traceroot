@@ -55,9 +55,14 @@ async def list_detectors(
     end_before: datetime | None = Query(
         None, description="Only detectors created before this time (exclusive, ISO 8601)"
     ),
+    cursor: str | None = Query(
+        None,
+        description="Opaque pagination cursor from meta.next_cursor; repeat the request "
+        "unchanged except this param to fetch the next page",
+    ),
 ):
     """List the project's detectors (newest first)."""
-    return await list_detectors_page(service, project_id, limit, start_after, end_before)
+    return await list_detectors_page(service, project_id, limit, start_after, end_before, cursor)
 
 
 @router.get("/findings", response_model=PublicFindingListResponse)
@@ -79,6 +84,11 @@ async def list_findings(
     ),
     detector: str | None = Query(None, description="Filter by detector id, name, or template"),
     trace_id: str | None = Query(None, description="Filter to a single trace"),
+    cursor: str | None = Query(
+        None,
+        description="Opaque pagination cursor from meta.next_cursor; repeat the request "
+        "unchanged except this param to fetch the next page",
+    ),
 ):
     """List recent detector findings for the project (newest first)."""
     return await list_findings_page(
@@ -90,6 +100,7 @@ async def list_findings(
         end_before,
         detector,
         trace_id,
+        cursor,
     )
 
 
