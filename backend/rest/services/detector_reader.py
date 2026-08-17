@@ -81,6 +81,7 @@ class DetectorReaderService:
         limit: int,
         start_after: datetime | None = None,
         end_before: datetime | None = None,
+        cursor: tuple[datetime, str] | None = None,
     ) -> tuple[list[DetectorItem], int]:
         """List the project's detectors from the Postgres catalog, newest first.
 
@@ -93,11 +94,15 @@ class DetectorReaderService:
             limit (int): Max items in the returned page (already validated by the router).
             start_after (datetime | None): Inclusive lower bound on ``create_time``.
             end_before (datetime | None): Exclusive upper bound on ``create_time``.
+            cursor (tuple[datetime, str] | None): Decoded keyset cursor
+                ``(create_time, id)`` of the previous page's last row; when set,
+                only strictly-older rows are returned. Applied to the list query
+                only, so ``total`` stays the filter-wide count across pages.
 
         Returns:
             tuple[list[DetectorItem], int]: The page of :class:`DetectorItem` ordered
-            by ``create_time`` DESC, plus the total number of catalog rows matching
-            the filters (for pagination).
+            by ``(create_time, id)`` DESC, plus the total number of catalog rows
+            matching the filters (for pagination).
         """
         conditions = ["project_id = %s"]
         params: list[Any] = [project_id]
@@ -112,10 +117,19 @@ class DetectorReaderService:
         count_rows = self._pg_rows(f"SELECT count(*) FROM detectors WHERE {where}", tuple(params))
         total = count_rows[0][0] if count_rows else 0
 
+        # The keyset cursor narrows the LIST query only: `total` stays the
+        # filter-wide count so it is constant across pages.
+        list_conditions = list(conditions)
+        list_params = list(params)
+        if cursor is not None:
+            list_conditions.append("(create_time, id) < (%s, %s)")
+            list_params.extend((to_utc_naive(cursor[0]), cursor[1]))
+        list_where = " AND ".join(list_conditions)
+
         rows = self._pg_rows(
             f"SELECT id, name, template, enabled, create_time FROM detectors "
-            f"WHERE {where} ORDER BY create_time DESC LIMIT %s",
-            (*params, limit),
+            f"WHERE {list_where} ORDER BY create_time DESC, id DESC LIMIT %s",
+            (*list_params, limit),
         )
         items = [
             DetectorItem(
@@ -184,6 +198,7 @@ class DetectorReaderService:
         end_before: datetime | None,
         detector: str | None,
         trace_id: str | None,
+        cursor: tuple[datetime, str] | None = None,
     ) -> tuple[list[FindingSummary], int]:
         """List a project's detector findings, newest first, with the total match count.
 
@@ -199,7 +214,10 @@ class DetectorReaderService:
         * ``end_before`` and the payload-based ``detector`` predicate are
           version-sensitive and applied AFTER the dedup; on raw pre-merge rows an
           older version ``< end_before`` (or an outdated payload) could otherwise
-          resurface a finding whose latest version no longer matches.
+          resurface a finding whose latest version no longer matches. The keyset
+          ``cursor`` predicate is version-sensitive in the same way and also
+          applied after the dedup, so an older re-ingested version cannot
+          resurrect a finding at a page boundary.
 
         Args:
             project_id (str): Owning project; every query is scoped to it.
@@ -210,11 +228,16 @@ class DetectorReaderService:
                 server-side to the matching detector names+ids and matched against
                 the stored payload. An unresolved token simply matches nothing.
             trace_id (str | None): Optional restriction to a single trace's finding.
+            cursor (tuple[datetime, str] | None): Decoded keyset cursor
+                ``(timestamp, finding_id)`` of the previous page's last row; when
+                set, only strictly-older findings are returned. Applied to the
+                list query only, so ``total`` stays the filter-wide count across
+                pages.
 
         Returns:
             tuple[list[FindingSummary], int]: The page of :class:`FindingSummary`
-            ordered by ``timestamp`` DESC, plus the total number of distinct findings
-            matching the filters.
+            ordered by ``(timestamp, finding_id)`` DESC, plus the total number of
+            distinct findings matching the filters.
         """
         params: dict[str, Any] = {"project_id": project_id, "limit": limit}
 
@@ -262,10 +285,23 @@ class DetectorReaderService:
         count_result = self._client.query(count_query, parameters=params)
         total = count_result.result_rows[0][0] if count_result.result_rows else 0
 
+        # The keyset cursor is post-dedup like end_before (see the docstring) but
+        # narrows the LIST query only: `total` stays the filter-wide count.
+        list_outer_conditions = list(outer_conditions)
+        if cursor is not None:
+            list_outer_conditions.append(
+                "(timestamp, finding_id) < ({cursor_ts:DateTime64(6)}, {cursor_id:String})"
+            )
+            params["cursor_ts"] = to_utc_naive(cursor[0])
+            params["cursor_id"] = cursor[1]
+        list_outer_where = (
+            (" WHERE " + " AND ".join(list_outer_conditions)) if list_outer_conditions else ""
+        )
+
         list_query = f"""
             SELECT finding_id, project_id, trace_id, summary, payload, timestamp
-            FROM ({deduped}){outer_where}
-            ORDER BY timestamp DESC
+            FROM ({deduped}){list_outer_where}
+            ORDER BY timestamp DESC, finding_id DESC
             LIMIT {{limit:UInt32}}
         """
         result = self._client.query(list_query, parameters=params)

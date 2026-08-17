@@ -299,6 +299,65 @@ def test_list_detectors_applies_create_time_window(reader, monkeypatch):
         assert "create_time < %s" in sql
 
 
+def test_list_detectors_cursor_adds_keyset_predicate_and_tiebreak_order(reader, monkeypatch):
+    captured = {}
+
+    def fake_pg_rows(sql, params):
+        captured.setdefault("calls", []).append((sql, params))
+        return []
+
+    monkeypatch.setattr(reader, "_pg_rows", fake_pg_rows)
+    ts = datetime(2026, 8, 17, 19, 3, 46, 820000)
+    reader.list_detectors(project_id="p", limit=5, cursor=(ts, "det-9"))
+
+    list_sql, list_params = captured["calls"][-1]
+    assert "(create_time, id) < (%s, %s)" in list_sql
+    assert "ORDER BY create_time DESC, id DESC" in list_sql
+    assert ts in list_params and "det-9" in list_params
+
+    count_sql, _ = captured["calls"][0]
+    assert "(create_time, id)" not in count_sql  # total ignores the cursor
+
+
+def test_list_detectors_without_cursor_keeps_plain_query(reader, monkeypatch):
+    captured = {}
+
+    def fake_pg_rows(sql, params):
+        captured.setdefault("calls", []).append((sql, params))
+        return []
+
+    monkeypatch.setattr(reader, "_pg_rows", fake_pg_rows)
+    reader.list_detectors(project_id="p", limit=5)
+    list_sql, _ = captured["calls"][-1]
+    assert "(create_time, id) <" not in list_sql
+    assert "ORDER BY create_time DESC, id DESC" in list_sql
+
+
+def test_list_findings_cursor_applies_post_dedup(reader):
+    ts = datetime(2026, 8, 17, 19, 3, 46, 820000)
+    reader.list_findings(
+        project_id="p",
+        limit=5,
+        start_after=None,
+        end_before=None,
+        detector=None,
+        trace_id=None,
+        cursor=(ts, "f-9"),
+    )
+    ch = reader._client
+    list_query, params = ch.calls[-1]
+    # predicate lands in the OUTER where (post-dedup), with the tie-break order
+    inner, outer = list_query.split("LIMIT 1 BY finding_id", 1)
+    assert "(timestamp, finding_id) < ({cursor_ts:DateTime64(6)}, {cursor_id:String})" in outer
+    assert "(timestamp, finding_id)" not in inner
+    assert "ORDER BY timestamp DESC, finding_id DESC" in outer
+    assert params["cursor_ts"] == ts and params["cursor_id"] == "f-9"
+
+    count_query, _ = ch.calls[0]
+    assert "count(" in count_query.lower()
+    assert "(timestamp, finding_id)" not in count_query  # total ignores the cursor
+
+
 def test_get_detector_reader_service_is_singleton(monkeypatch):
     import rest.services.detector_reader as mod
 
