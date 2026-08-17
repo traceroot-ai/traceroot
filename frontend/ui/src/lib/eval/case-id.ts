@@ -1,0 +1,49 @@
+import { createHash } from "crypto";
+
+/**
+ * A lone UTF-16 surrogate: a high surrogate not followed by a low one, or a low
+ * one not preceded by a high one. Such a string is not valid Unicode text and
+ * cannot be UTF-8 encoded — Python raises while hashing it, so we reject it here
+ * too rather than silently hashing Node's replacement form and diverging cross-SDK.
+ * Kept byte-identical to the SDK's `rejectLoneSurrogate` (traceroot-ts
+ * `src/eval/canonical.ts`, traceroot-py `traceroot/eval/canonical.py`).
+ */
+const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
+function rejectLoneSurrogate(s: string): void {
+  if (LONE_SURROGATE.test(s)) {
+    throw new Error(
+      "string contains an unpaired UTF-16 surrogate and cannot be canonicalized; " +
+        "it is not valid Unicode text",
+    );
+  }
+}
+
+/**
+ * Derive a dataset case's stable, CONTENT-addressed id (`tc_…`).
+ *
+ * MUST stay byte-identical to the SDK derivation (traceroot-ts
+ * `src/eval/ids.ts::stableCaseId`, traceroot-py
+ * `traceroot/eval/ids.py::stable_case_id`):
+ *   `"tc_" + sha256(`${datasetKey}\x00${inputCanonical}\x00${occurrence}`, utf-8).hex[:20]`,
+ * lowercase hex, first 20 chars, NUL (`\x00`) separators, occurrence rendered as
+ * a base-10 integer.
+ *
+ * A case's identity is its INPUT content, not its position: re-authoring the same
+ * input — in the UI, in TypeScript, or in Python — yields the SAME id, so the
+ * platform matches it on re-publish (upsert on id) instead of duplicating it, and
+ * inserting/removing/reordering other cases never shifts this case's id.
+ * `occurrence` disambiguates duplicate inputs (0 for the first case with a given
+ * input, 1 for the next, ...). `inputCanonical` is the canonical-JSON of the input
+ * (recursively sorted keys); the caller must produce it with the SAME canonicalizer
+ * the SDK uses so the pre-image — and therefore the id — is byte-for-byte identical.
+ */
+export function stableCaseId(datasetKey: string, inputCanonical: string, occurrence = 0): string {
+  // `inputCanonical` already went through canonicalization; the raw `datasetKey` has
+  // not, so guard it (parity with the SDK, which would raise UTF-8-encoding it).
+  rejectLoneSurrogate(datasetKey);
+  const digest = createHash("sha256")
+    .update(`${datasetKey}\x00${inputCanonical}\x00${occurrence}`, "utf8")
+    .digest("hex");
+  return `tc_${digest.slice(0, 20)}`;
+}

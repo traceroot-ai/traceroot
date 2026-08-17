@@ -1,5 +1,4 @@
 import { prisma, type Prisma, type TestCase } from "@traceroot/core";
-import { randomUUID } from "crypto";
 import { versionSnowflakeFromMs } from "./snowflake";
 import { decodeJsonValue } from "./json-value";
 
@@ -67,13 +66,16 @@ function toSeed(c: TestCase): TestCaseSeed {
   };
 }
 
-export function newTestCaseId(): string {
-  return `tc_${randomUUID().replace(/-/g, "").slice(0, 20)}`;
-}
-
 /** Deterministic JSON with recursively sorted object keys — so two structurally equal
- *  values compare equal regardless of key order (JSONB round-trips don't preserve it). */
-function canonicalJson(v: unknown): string {
+ *  values compare equal regardless of key order (JSONB round-trips don't preserve it).
+ *
+ *  Also the canonicalizer for content-addressed case ids (`stableCaseId`): the id
+ *  hashes this exact string, so it must match the SDK's `canonicalJson` byte-for-byte
+ *  for the inputs the UI actually authors. UI case inputs are always genuine strings
+ *  (see `CreateTestCaseRequestSchema.input`), and for a string value this reduces to
+ *  `JSON.stringify(value)` in both this helper and the SDK's — so a UI-authored case
+ *  and an SDK-authored case for the same input converge on the same `tc_` id. */
+export function canonicalJson(v: unknown): string {
   if (v === null || typeof v !== "object") return JSON.stringify(v) ?? "null";
   if (Array.isArray(v)) return `[${v.map(canonicalJson).join(",")}]`;
   const o = v as Record<string, unknown>;
