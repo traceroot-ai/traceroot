@@ -251,6 +251,7 @@ class TestGetFindingByTrace:
         assert resp.status_code == 500
         assert resp.json()["detail"] == "Failed to read finding"
 
+
 def _detector_detail() -> DetectorDetail:
     return DetectorDetail(
         detector_id="det-1",
