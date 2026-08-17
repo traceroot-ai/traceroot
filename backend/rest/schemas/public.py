@@ -86,7 +86,7 @@ class PublicTraceExportResponse(BaseModel):
 
 
 class CursorPaginationMeta(PaginationMeta):
-    """Pagination meta plus ``next_cursor``, present only while more pages exist."""
+    """Pagination meta plus ``next_cursor``, set when the page came back full; the following page may be empty."""
 
     next_cursor: str | None = None
 

@@ -7,7 +7,6 @@ treat it as opaque — the encoding may change.
 """
 
 import base64
-import binascii
 import json
 from datetime import datetime
 
@@ -43,5 +42,5 @@ def decode_cursor(token: str) -> tuple[datetime, str]:
         padded = token + "=" * (-len(token) % 4)
         payload = json.loads(base64.urlsafe_b64decode(padded.encode()).decode())
         return datetime.fromisoformat(payload["t"]), str(payload["i"])
-    except (binascii.Error, json.JSONDecodeError, KeyError, TypeError, UnicodeDecodeError) as e:
+    except (KeyError, TypeError, UnicodeDecodeError, ValueError) as e:
         raise ValueError("invalid cursor") from e

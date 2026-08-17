@@ -117,7 +117,7 @@
         "type": "object"
       },
       "CursorPaginationMeta": {
-        "description": "Pagination meta plus ``next_cursor``, present only while more pages exist.",
+        "description": "Pagination meta plus ``next_cursor``, set when the page came back full; the following page may be empty.",
         "properties": {
           "limit": {
             "title": "Limit",
