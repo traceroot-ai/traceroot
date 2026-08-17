@@ -12,6 +12,30 @@
  * re-decoding strings, otherwise a genuine JSON-looking string would be double-decoded.
  */
 
+/** Deterministic JSON with recursively sorted object keys — so two structurally equal
+ *  values compare equal regardless of key order (JSONB round-trips don't preserve it).
+ *  Shared by dataset content-signing (versions.ts) and cross-dataset run comparison. */
+export function canonicalJson(v: unknown): string {
+  if (v === null || typeof v !== "object") return JSON.stringify(v) ?? "null";
+  if (Array.isArray(v)) return `[${v.map(canonicalJson).join(",")}]`;
+  const o = v as Record<string, unknown>;
+  return `{${Object.keys(o)
+    .sort()
+    .map((k) => `${JSON.stringify(k)}:${canonicalJson(o[k])}`)
+    .join(",")}}`;
+}
+
+/**
+ * A dataset-independent alignment key for a stored `input` value: decode the stored
+ * (JSON-encoded) text back to its native value, then canonicalize it. Two datasets
+ * holding the same input — regardless of object key order or encoding — produce the
+ * same key, even though their `testCaseId`s (which are dataset-scoped) differ. This
+ * is what lets a run comparison line up cases across datasets by shared input.
+ */
+export function canonicalInputKey(input: string): string {
+  return canonicalJson(decodeJsonValue(input));
+}
+
 /** Encode a native JSON value for text storage so its type round-trips on read. */
 export function encodeJsonValue(value: unknown): string {
   // JSON.stringify(undefined) is `undefined`; callers guard undefined separately,

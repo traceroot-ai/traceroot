@@ -1,7 +1,7 @@
 import { prisma, type Prisma, type TestCase } from "@traceroot/core";
 import { randomUUID } from "crypto";
 import { versionSnowflakeFromMs } from "./snowflake";
-import { decodeJsonValue } from "./json-value";
+import { decodeJsonValue, canonicalJson } from "./json-value";
 
 /** Deterministic read order for a version's cases (see the ordering note where
  *  it's used): every case a publish writes shares one `create_time` (Postgres'
@@ -69,18 +69,6 @@ function toSeed(c: TestCase): TestCaseSeed {
 
 export function newTestCaseId(): string {
   return `tc_${randomUUID().replace(/-/g, "").slice(0, 20)}`;
-}
-
-/** Deterministic JSON with recursively sorted object keys — so two structurally equal
- *  values compare equal regardless of key order (JSONB round-trips don't preserve it). */
-function canonicalJson(v: unknown): string {
-  if (v === null || typeof v !== "object") return JSON.stringify(v) ?? "null";
-  if (Array.isArray(v)) return `[${v.map(canonicalJson).join(",")}]`;
-  const o = v as Record<string, unknown>;
-  return `{${Object.keys(o)
-    .sort()
-    .map((k) => `${JSON.stringify(k)}:${canonicalJson(o[k])}`)
-    .join(",")}}`;
 }
 
 /** A stable signature of a version's semantic CONTENT — the per-case (id, input, expected,

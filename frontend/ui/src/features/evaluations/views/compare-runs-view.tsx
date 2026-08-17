@@ -10,11 +10,14 @@ import { EmptyState } from "@/features/offline-eval/components";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { pctFraction, changeSentiment, SENTIMENT_CLASS } from "@/features/offline-eval/utils";
 import { cn } from "@/lib/utils";
+import { canonicalInputKey } from "@/lib/eval/json-value";
 import { useEvaluationRunDetails } from "../hooks";
 import type { ResultRow, RunDetail, ScoreRow } from "../types";
 
-// A run comparison is N runs (2+) measured on the SAME dataset, lined up by
-// dataset-row id (fixed once the dataset is created). Each metric column stacks one
+// A run comparison is N runs (2+) lined up case-by-case. Within one dataset cases
+// align by dataset-row id (fixed once the dataset is created); when the runs span
+// datasets — whose case ids are dataset-scoped and never match — they align by shared
+// (canonical) input instead. Each metric column stacks one
 // value per run, colour-keyed to the baseline picker; against the chosen baseline
 // every other run also shows a green/red improvement/regression delta — à la a
 // side-by-side experiment diff. Row drill-in is postponed (cells expand to full text).
@@ -203,40 +206,62 @@ export function CompareRunsView({
     [runIds],
   );
 
-  // Bundles in display order: baseline first, then by run number ascending.
+  // The loaded run+results (no alignment key yet — it depends on whether the runs
+  // span datasets, which we derive from these first).
+  const loaded = React.useMemo(
+    () =>
+      queries
+        .map((q) => q.data)
+        .filter((d): d is NonNullable<typeof d> => !!d)
+        .map((d) => ({ run: d.run, results: d.results })),
+    [queries],
+  );
+
+  // The distinct dataset names across the compared runs.
+  const datasetNames = React.useMemo(
+    () => [...new Set(loaded.map((b) => b.run.datasetName ?? "—"))],
+    [loaded],
+  );
+  // When the runs span more than one dataset, their `testCaseId`s (which are
+  // dataset-scoped) can never intersect, so alignment falls back to a
+  // dataset-independent canonical-input key. Within one dataset we keep the exact
+  // `testCaseId` intersection — the common path is byte-for-byte unchanged.
+  const crossDataset = datasetNames.length > 1;
+  const keyOf = React.useCallback(
+    (r: ResultRow) => (crossDataset ? canonicalInputKey(r.input) : r.testCaseId),
+    [crossDataset],
+  );
+
+  // Bundles in display order: baseline first, then by run number ascending. `byCase`
+  // is keyed by the alignment key chosen above (testCaseId, or canonical input).
   const ordered = React.useMemo<Bundle[]>(() => {
-    const bundles = queries
-      .map((q) => q.data)
-      .filter((d): d is NonNullable<typeof d> => !!d)
-      .map((d) => ({
-        run: d.run,
-        results: d.results,
-        byCase: new Map(d.results.map((r) => [r.testCaseId, r])),
-      }));
+    const bundles = loaded.map((b) => ({
+      run: b.run,
+      results: b.results,
+      byCase: new Map(b.results.map((r) => [keyOf(r), r])),
+    }));
     return bundles.sort((a, b) => {
       if (a.run.id === baselineId) return -1;
       if (b.run.id === baselineId) return 1;
       return a.run.runNumber - b.run.runNumber;
     });
-  }, [queries, baselineId]);
+  }, [loaded, keyOf, baselineId]);
 
   const baseline = ordered.find((b) => b.run.id === baselineId) ?? ordered[0];
 
-  // Same dataset NAME is required — rows line up by dataset-row id, meaningful only
-  // within one dataset (versions may differ).
-  const datasetNames = React.useMemo(
-    () => [...new Set(ordered.map((b) => b.run.datasetName ?? "—"))],
-    [ordered],
-  );
   const crossExperiment = new Set(ordered.map((b) => b.run.evaluationName)).size > 1;
 
-  // Rows = intersection of dataset-row ids present in EVERY run (in baseline order).
+  // Rows = intersection of alignment keys present in EVERY run (in baseline order).
+  // Deduped: a run can repeat an input, and the canonical-input key (unlike
+  // testCaseId) is not unique per run, so the same key would otherwise list twice.
   const intersection = React.useMemo(() => {
     if (ordered.length === 0) return [];
+    const seen = new Set<string>();
     return ordered[0].results
-      .map((r) => r.testCaseId)
-      .filter((id) => ordered.every((b) => b.byCase.has(id)));
-  }, [ordered]);
+      .map(keyOf)
+      .filter((id) => ordered.every((b) => b.byCase.has(id)))
+      .filter((id) => (seen.has(id) ? false : (seen.add(id), true)));
+  }, [ordered, keyOf]);
 
   // Union of scorer names across the compared runs.
   const scorerNames = React.useMemo(() => {
@@ -388,21 +413,24 @@ export function CompareRunsView({
           <div className="p-3">
             <EmptyState>Couldn’t load one or more of these runs.</EmptyState>
           </div>
-        ) : datasetNames.length > 1 ? (
-          <div className="p-3">
-            <EmptyState>
-              These runs are on different datasets ({datasetNames.join(", ")}). A run comparison
-              needs the same dataset.
-            </EmptyState>
-          </div>
         ) : intersection.length === 0 ? (
           <div className="p-3">
             <EmptyState>
-              These runs share no dataset rows — their dataset versions have no rows in common.
+              {crossDataset
+                ? `These runs are on different datasets (${datasetNames.join(", ")}) and share no inputs in common.`
+                : "These runs share no dataset rows — their dataset versions have no rows in common."}
             </EmptyState>
           </div>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
+            {/* Cross-dataset runs don't share dataset-scoped case ids, so cases are
+                lined up by their (canonical) input instead — say so, don't block. */}
+            {crossDataset && (
+              <div className="border-b border-border bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground">
+                These runs are on different datasets ({datasetNames.join(", ")}), so cases are
+                aligned by shared input rather than by dataset row.
+              </div>
+            )}
             {/* Some runs exceeded the run-detail result cap, so their columns are
                 computed on a partial set — say so rather than imply full coverage. */}
             {truncatedRuns.length > 0 && (
