@@ -30,6 +30,12 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
   const searchParams = useSearchParams();
   // Attacker-suppliable query param; only same-origin destinations may pass.
   const callbackUrl = safeCallbackUrl(searchParams.get("callbackUrl"));
+  // Preserve the callback when switching to sign-up so a new user finishes the
+  // same round-trip (e.g. a device login returns to /device to approve).
+  const signUpHref =
+    callbackUrl && callbackUrl !== "/"
+      ? `/auth/sign-up?callbackUrl=${encodeURIComponent(callbackUrl)}`
+      : "/auth/sign-up";
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
@@ -156,7 +162,7 @@ function SignInContent({ googleAuthConfigured }: SignInContentProps) {
 
           <p className="text-center text-[12px] text-muted-foreground">
             Don&apos;t have an account?{" "}
-            <Link href="/auth/sign-up" className="font-medium text-primary hover:underline">
+            <Link href={signUpHref} className="font-medium text-primary hover:underline">
               Sign up
             </Link>
           </p>

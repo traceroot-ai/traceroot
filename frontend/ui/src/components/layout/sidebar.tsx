@@ -13,6 +13,7 @@ import {
   Sun,
   Moon,
   Monitor,
+  MonitorSmartphone,
   Settings,
   UserRoundSearch,
   Database,
@@ -459,6 +460,15 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                     </button>
                   </PopoverContent>
                 </Popover>
+
+                {/* Active sessions — the revoke control for CLI/device logins */}
+                <Link
+                  href="/account/settings/sessions"
+                  className="flex w-full items-center justify-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
+                >
+                  <span>Active Sessions</span>
+                  <MonitorSmartphone className="h-4 w-4" />
+                </Link>
 
                 {/* Sign out */}
                 <button

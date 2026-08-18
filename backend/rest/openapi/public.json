@@ -2410,7 +2410,7 @@
   "paths": {
     "/api/v1/public/detectors": {
       "get": {
-        "description": "List the detectors in the API key's project (newest first).",
+        "description": "List the detectors in the caller's project (newest first).",
         "operationId": "list_detectors",
         "parameters": [
           {
@@ -2569,7 +2569,7 @@
     },
     "/api/v1/public/detectors/findings": {
       "get": {
-        "description": "List recent detector findings for the API key's project (newest first).",
+        "description": "List recent detector findings for the caller's project (newest first).",
         "operationId": "list_findings",
         "parameters": [
           {
@@ -3378,7 +3378,7 @@
     },
     "/api/v1/public/projects": {
       "get": {
-        "description": "List the projects the authenticated user can access, across workspaces.\n\nA user-credential-only discovery op (no ``project_id``). Projects are\nflattened across the user's workspaces and tagged with their owning\nworkspace; the answer is what you pass as ``project_id`` to a project-scoped\nrequest.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth; also stamps the\n        per-user rate-limit identity.\n    authorization (str | None): The bearer header, re-read to forward the\n        already-authenticated token to the internal listing call.\n    workspace_id (str | None): Optional filter; when given, only projects in\n        that workspace are returned.\n\nReturns:\n    PublicProjectListResponse: The accessible projects (id, name,\n        workspace_id, workspace_name).",
+        "description": "List the projects the authenticated user can access, across workspaces.\n\nA user-credential-only discovery op (no ``project_id``). Projects are\nflattened across the user's workspaces and tagged with their owning\nworkspace; the answer is what you pass as ``project_id`` to a project-scoped\nrequest.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or CLI\n        access JWT); carries the resolved ``user_id`` and stamps the per-user\n        rate-limit identity.\n    workspace_id (str | None): Optional filter; when given, only projects in\n        that workspace are returned.\n\nReturns:\n    PublicProjectListResponse: The accessible projects (id, name,\n        workspace_id, workspace_name).",
         "operationId": "list_projects",
         "parameters": [
           {
@@ -3470,7 +3470,7 @@
     },
     "/api/v1/public/sessions": {
       "get": {
-        "description": "List unique sessions for the API key's project with trace counts.\n\nArgs:\n    auth (DualStampedAuth): Resolved credential context (API key or user\n        session token); scopes the read to its project and stamps the\n        rate-limit identity.\n    limit (int): Items per page (1-200).\n    search_query (str | None): Substring match on session id.\n    start_after (datetime | None): Inclusive lower bound on trace time.\n    end_before (datetime | None): Exclusive upper bound on trace time.\n\nReturns:\n    SessionListResponse: Session summaries, newest first.\n\nRaises:\n    HTTPException: 500 on a reader failure.",
+        "description": "List unique sessions for the caller's project with trace counts.\n\nArgs:\n    auth (DualStampedAuth): Resolved credential context (API key or user\n        session token); scopes the read to its project and stamps the\n        rate-limit identity.\n    limit (int): Items per page (1-200).\n    search_query (str | None): Substring match on session id.\n    start_after (datetime | None): Inclusive lower bound on trace time.\n    end_before (datetime | None): Exclusive upper bound on trace time.\n\nReturns:\n    SessionListResponse: Session summaries, newest first.\n\nRaises:\n    HTTPException: 500 on a reader failure.",
         "operationId": "list_sessions",
         "parameters": [
           {
@@ -3816,7 +3816,7 @@
     },
     "/api/v1/public/traces": {
       "get": {
-        "description": "List recent traces for the API key's project (newest first).\n\nOffline-evaluation traces are excluded by default; pass\n``include_evaluations=true`` to include them.",
+        "description": "List recent traces for the caller's project (newest first).\n\nOffline-evaluation traces are excluded by default; pass\n``include_evaluations=true`` to include them.",
         "operationId": "list_traces",
         "parameters": [
           {
@@ -4613,7 +4613,7 @@
     },
     "/api/v1/public/traces/{trace_id}": {
       "get": {
-        "description": "Get a single trace for the key's project.\n\nDefaults to the lightweight `skeleton` projection (no per-span I/O); pass\n`fields=full` (or `fields=io,metadata`) for per-span input/output/metadata.\n\nArgs:\n    auth (DualStampedAuth): Resolved credential context (API key or user\n        session token); scopes the read to its project and stamps the\n        rate-limit identity.\n    trace_id (str): Trace to fetch.\n    fields (str | None): Comma-separated projection groups (e.g. ``io``,\n        ``metadata``) or an alias (``skeleton``/``full``). ``None`` selects\n        the default `skeleton` projection.\n\nReturns:\n    PublicTraceDetailResponse: The trace with span skeletons, plus per-span\n        I/O when the projection requests it.\n\nRaises:\n    HTTPException: 400 if `fields` is invalid, 404 if the trace is missing\n        or outside the key's project, 500 on a reader failure.",
+        "description": "Get a single trace for the caller's project.\n\nDefaults to the lightweight `skeleton` projection (no per-span I/O); pass\n`fields=full` (or `fields=io,metadata`) for per-span input/output/metadata.\n\nArgs:\n    auth (DualStampedAuth): Resolved credential context (API key or user\n        session token); scopes the read to its project and stamps the\n        rate-limit identity.\n    trace_id (str): Trace to fetch.\n    fields (str | None): Comma-separated projection groups (e.g. ``io``,\n        ``metadata``) or an alias (``skeleton``/``full``). ``None`` selects\n        the default `skeleton` projection.\n\nReturns:\n    PublicTraceDetailResponse: The trace with span skeletons, plus per-span\n        I/O when the projection requests it.\n\nRaises:\n    HTTPException: 400 if `fields` is invalid, 404 if the trace is missing\n        or outside the key's project, 500 on a reader failure.",
         "operationId": "get_trace",
         "parameters": [
           {
@@ -4777,7 +4777,7 @@
     },
     "/api/v1/public/traces/{trace_id}/export": {
       "get": {
-        "description": "Export the V1 bundle (trace + spans + git_context + manifest) for the key's project.\n\nDefaults to the `full` projection \u2014 an export is explicit intent to take the\ncomplete trace, so per-span input/output/metadata are included unless the\ncaller narrows `fields`. `bundle.trace` equals the `traces get` payload at the\nsame projection.\n\nRate limited on its own `export` bucket because it builds and serializes the\nfull bundle.\n\nArgs:\n    auth (DualStampedAuth): Resolved credential context (API key or user\n        session token); scopes the read to its project and stamps the\n        rate-limit identity.\n    trace_id (str): Trace to export.\n    fields (str | None): Comma-separated projection groups or an alias\n        (``skeleton``/``full``). ``None`` selects the default `full`\n        projection.\n\nReturns:\n    PublicTraceExportResponse: The V1 export bundle (manifest, trace, spans,\n        git_context) at the requested projection.\n\nRaises:\n    HTTPException: 400 if `fields` is invalid, 404 if the trace is missing\n        or outside the key's project, 500 on a reader failure.",
+        "description": "Export the V1 bundle (trace + spans + git_context + manifest) for the caller's project.\n\nDefaults to the `full` projection \u2014 an export is explicit intent to take the\ncomplete trace, so per-span input/output/metadata are included unless the\ncaller narrows `fields`. `bundle.trace` equals the `traces get` payload at the\nsame projection.\n\nRate limited on its own `export` bucket because it builds and serializes the\nfull bundle.\n\nArgs:\n    auth (DualStampedAuth): Resolved credential context (API key or user\n        session token); scopes the read to its project and stamps the\n        rate-limit identity.\n    trace_id (str): Trace to export.\n    fields (str | None): Comma-separated projection groups or an alias\n        (``skeleton``/``full``). ``None`` selects the default `full`\n        projection.\n\nReturns:\n    PublicTraceExportResponse: The V1 export bundle (manifest, trace, spans,\n        git_context) at the requested projection.\n\nRaises:\n    HTTPException: 400 if `fields` is invalid, 404 if the trace is missing\n        or outside the key's project, 500 on a reader failure.",
         "operationId": "export_trace",
         "parameters": [
           {
@@ -5013,7 +5013,7 @@
     },
     "/api/v1/public/workspaces": {
       "get": {
-        "description": "List the workspaces the authenticated user belongs to.\n\nA user-credential-only discovery op (no ``project_id``). Use it, then\n``list_projects``, to resolve the project a subsequent request scopes to.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth; also stamps the\n        per-user rate-limit identity.\n    authorization (str | None): The bearer header, re-read to forward the\n        already-authenticated token to the internal listing call.\n\nReturns:\n    PublicWorkspaceListResponse: The user's workspaces (id, name, role).",
+        "description": "List the workspaces the authenticated user belongs to.\n\nA user-credential-only discovery op (no ``project_id``). Use it, then\n``list_projects``, to resolve the project a subsequent request scopes to.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or CLI\n        access JWT); carries the resolved ``user_id`` and stamps the per-user\n        rate-limit identity.\n\nReturns:\n    PublicWorkspaceListResponse: The user's workspaces (id, name, role).",
         "operationId": "list_workspaces",
         "responses": {
           "200": {

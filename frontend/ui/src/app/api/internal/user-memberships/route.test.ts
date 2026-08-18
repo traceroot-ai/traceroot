@@ -24,11 +24,6 @@ vi.mock("@/lib/auth-helpers", () => ({
   verifyInternalSecret: (...args: unknown[]) => verifyInternalSecretMock(...args),
 }));
 
-const getSessionMock = vi.fn();
-vi.mock("@/lib/auth", () => ({
-  auth: { api: { getSession: (...args: unknown[]) => getSessionMock(...args) } },
-}));
-
 import { POST } from "./route";
 
 function makeRequest(body: unknown) {
@@ -39,19 +34,17 @@ beforeEach(() => {
   memberFindManyMock.mockReset();
   verifyInternalSecretMock.mockReset();
   verifyInternalSecretMock.mockReturnValue(true);
-  getSessionMock.mockReset();
 });
 
 describe("POST /api/internal/user-memberships", () => {
-  it("rejects an unauthorized caller before touching auth or the database", async () => {
+  it("rejects an unauthorized caller before touching the database", async () => {
     verifyInternalSecretMock.mockReturnValue(false);
 
-    const res = await POST(makeRequest({ token: "tok" }));
+    const res = await POST(makeRequest({ userId: "user-1" }));
     const body = await res.json();
 
     expect(res.status).toBe(401);
     expect(body).toEqual({ error: "Unauthorized" });
-    expect(getSessionMock).not.toHaveBeenCalled();
     expect(memberFindManyMock).not.toHaveBeenCalled();
   });
 
@@ -69,37 +62,22 @@ describe("POST /api/internal/user-memberships", () => {
     expect(typeof body.error).toBe("string");
   });
 
-  it("returns 400 when token is missing", async () => {
+  it("returns 400 when userId is missing", async () => {
     const res = await POST(makeRequest({}));
     const body = await res.json();
 
     expect(res.status).toBe(400);
     expect(typeof body.error).toBe("string");
-  });
-
-  it("returns 401 when getSession resolves no session", async () => {
-    getSessionMock.mockResolvedValue(null);
-
-    const res = await POST(makeRequest({ token: "tok" }));
-    const body = await res.json();
-
-    expect(res.status).toBe(401);
-    expect(body).toEqual({ error: "invalid or expired token" });
     expect(memberFindManyMock).not.toHaveBeenCalled();
   });
 
-  it("treats a getSession throw as an invalid token, not a 500", async () => {
-    getSessionMock.mockRejectedValue(new Error("boom"));
+  it("propagates a database error instead of masking it", async () => {
+    memberFindManyMock.mockRejectedValue(new Error("db down"));
 
-    const res = await POST(makeRequest({ token: "tok" }));
-    const body = await res.json();
-
-    expect(res.status).toBe(401);
-    expect(body).toEqual({ error: "invalid or expired token" });
+    await expect(POST(makeRequest({ userId: "user-1" }))).rejects.toThrow("db down");
   });
 
-  it("returns the workspace/project graph for a live session", async () => {
-    getSessionMock.mockResolvedValue({ user: { id: "user-1", email: "user@example.com" } });
+  it("returns the workspace/project graph for the given user", async () => {
     memberFindManyMock.mockResolvedValue([
       {
         role: "admin",
@@ -118,7 +96,7 @@ describe("POST /api/internal/user-memberships", () => {
       },
     ]);
 
-    const res = await POST(makeRequest({ token: "tok" }));
+    const res = await POST(makeRequest({ userId: "user-1" }));
     const body = await res.json();
 
     expect(res.status).toBe(200);
@@ -136,17 +114,16 @@ describe("POST /api/internal/user-memberships", () => {
         { id: "ws-2", name: "Beta", role: "viewer", projects: [] },
       ],
     });
-    // scoped to the session user and ordered by workspace name
+    // scoped to the forwarded user and ordered by workspace name
     const args = memberFindManyMock.mock.calls[0][0];
     expect(args.where).toEqual({ userId: "user-1" });
     expect(args.orderBy).toEqual({ workspace: { name: "asc" } });
   });
 
   it("returns an empty list when the user has no memberships", async () => {
-    getSessionMock.mockResolvedValue({ user: { id: "user-1" } });
     memberFindManyMock.mockResolvedValue([]);
 
-    const res = await POST(makeRequest({ token: "tok" }));
+    const res = await POST(makeRequest({ userId: "user-1" }));
     const body = await res.json();
 
     expect(res.status).toBe(200);

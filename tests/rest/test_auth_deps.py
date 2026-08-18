@@ -21,6 +21,7 @@ from rest.routers.deps import get_project_access
 from rest.routers.public.deps import (
     authenticate_account_caller,
     authenticate_and_stamp_account_caller,
+    authenticate_and_stamp_identity,
     authenticate_and_stamp_public_caller,
     authenticate_public_caller,
     authenticate_user_token,
@@ -274,6 +275,32 @@ class TestAuthenticateApiKey:
         with caplog.at_level(logging.DEBUG), pytest.raises(HTTPException):
             await authenticate_api_key("Bearer tr_supersecrettoken")
         assert "tr_supersecrettoken" not in caplog.text
+
+    @respx.mock
+    async def test_empty_token_after_bearer_hits_validator(self):
+        """`Bearer ` (empty key) has NO local guard here: the empty key is hashed
+        and POSTed to validate-api-key, which rejects it as invalid → 401. Unlike
+        the dual caller, this path reaches the validator (documented by call_count).
+        """
+        route = respx.post(f"{BASE_URL}/api/internal/validate-api-key").mock(
+            return_value=Response(200, json={"valid": False})
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_api_key("Bearer ")
+        assert exc_info.value.status_code == 401
+        # It reached the validator (no short-circuit empty-token guard).
+        assert route.call_count == 1
+
+    @respx.mock
+    async def test_200_non_dict_body_returns_503(self):
+        """A 200 whose JSON body is a non-object (array) is malformed → 503."""
+        respx.post(f"{BASE_URL}/api/internal/validate-api-key").mock(
+            return_value=Response(200, json=["not", "an", "object"])
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_api_key("Bearer test-key")
+        assert exc_info.value.status_code == 503
+        assert exc_info.value.detail == "Authentication service error"
 
 
 # ── get_project_access ──────────────────────────────────────────────────
@@ -577,6 +604,16 @@ class TestAuthenticatePublicCaller:
             await authenticate_public_caller("Bearer ")
         assert exc_info.value.status_code == 401
 
+    async def test_jwt_shaped_token_without_project_returns_400(self):
+        """A JWT-shaped user credential is still a user credential: absent
+        project_id is a 400 pointing at list_projects, returned before any
+        validator (JWKS or user-project-access) is touched — so no respx needed.
+        """
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_public_caller("Bearer a.b.c", project_id=None)
+        assert exc_info.value.status_code == 400
+        assert "list_projects" in exc_info.value.detail
+
     @respx.mock
     async def test_uppercase_prefix_routes_to_key_validator(self):
         """A `TR-` (uppercase) value is key-shaped: route to the key validator,
@@ -811,3 +848,34 @@ class TestAuthenticateAndStampAccountCaller:
         assert request.state.rl_workspace_id == ""
         assert request.state.rl_user_id == "user-789"
         assert request.state.rl_billing_plan == normalize_plan("free")
+
+
+class TestAuthenticateAndStampIdentity:
+    """The KeyStampedAuth-backing wrapper (API-key ingest/read stamping)."""
+
+    @staticmethod
+    def _bare_request() -> Request:
+        return Request({"type": "http", "headers": [], "state": {}})
+
+    async def test_stamps_workspace_plan_and_clears_exempt(self):
+        """A key AuthResult clears the exempt flag and stamps workspace+plan.
+
+        The key path carries no user dimension, so rl_user_id stays "" —
+        keeping the key byte-identical to the pre-per-user format.
+        """
+        # Poison the exempt flag first so we prove the wrapper clears it.
+        mark_request_rate_limit_exempt()
+        request = self._bare_request()
+        auth = AuthResult(
+            kind="api_key",
+            project_id="p",
+            workspace_id="ws-456",
+            billing_plan="pro",
+            ingestion_blocked=False,
+        )
+        result = await authenticate_and_stamp_identity(request, auth)
+        assert result is auth
+        assert is_request_rate_limit_exempt() is False
+        assert request.state.rl_workspace_id == "ws-456"
+        assert request.state.rl_billing_plan == normalize_plan("pro")
+        assert request.state.rl_user_id == ""
