@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@traceroot/core";
 import { auth } from "@/lib/auth";
 import { resolveSessionFromToken } from "@/lib/internal-session";
 import { checkMintRateLimit, rateLimitClientKey } from "@/lib/mint-rate-limit";
+import { SESSION_EXPIRES_IN_SECONDS, SESSION_UPDATE_AGE_SECONDS } from "@/lib/session-config";
 
 // POST /api/cli/token
 //
@@ -24,6 +26,15 @@ const ACCESS_TOKEN_TTL_SECONDS = 10 * 60;
 const ACCESS_TOKEN_ISSUER = "traceroot";
 const ACCESS_TOKEN_AUDIENCE = "traceroot-api";
 
+// Slide the session on mint so a CLI-only credential expires after a window of
+// *inactivity*, not a fixed time from login. The mint path resolves the token by
+// a direct DB lookup and never touches better-auth's request machinery, so its
+// built-in rolling refresh never fires for the CLI — without this, active daily
+// CLI use would still hard-expire the session. Derived from the shared session
+// config so the slide can't drift from better-auth's own expiresIn/updateAge.
+const SESSION_EXPIRES_IN_MS = SESSION_EXPIRES_IN_SECONDS * 1000;
+const SESSION_UPDATE_AGE_MS = SESSION_UPDATE_AGE_SECONDS * 1000;
+
 export async function POST(request: NextRequest) {
   if (!checkMintRateLimit(rateLimitClientKey(request.headers), 60, 60_000)) {
     return NextResponse.json({ error: "rate limited" }, { status: 429 });
@@ -40,6 +51,20 @@ export async function POST(request: NextRequest) {
   const session = await resolveSessionFromToken(sessionToken);
   if (!session?.user?.id) {
     return NextResponse.json({ error: "invalid or expired session" }, { status: 401 });
+  }
+
+  // Roll the session's expiry forward, but only when it's older than updateAge —
+  // an active CLI mints every ~10 min, so this writes at most once/day per
+  // session. Best-effort: a refresh failure must never deny an otherwise-valid
+  // mint, so we log and continue rather than surfacing a 500.
+  const nowMs = Date.now();
+  try {
+    await prisma.session.updateMany({
+      where: { token: sessionToken, updatedAt: { lt: new Date(nowMs - SESSION_UPDATE_AGE_MS) } },
+      data: { expiresAt: new Date(nowMs + SESSION_EXPIRES_IN_MS), updatedAt: new Date(nowMs) },
+    });
+  } catch (e) {
+    console.error("cli/token: session expiry refresh failed (non-fatal)", e);
   }
 
   // Build the claims explicitly: auth.api.signJWT signs the payload verbatim and
