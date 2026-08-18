@@ -1,6 +1,6 @@
 import { prisma } from "@traceroot/core";
 import { publishDatasetVersion, canonicalJson, type TestCaseSeed } from "./versions";
-import { stableCaseId } from "./case-id";
+import { nextCaseId } from "./case-id";
 import { encodeEditedText, decodeJsonValue } from "./json-value";
 
 /**
@@ -194,11 +194,10 @@ export async function saveResultToDataset(opts: {
       // CONTENT-addressed id (parity with the SDK's `stableCaseId`): the same input saved
       // here and pushed from the SDK under the same dataset key converge on one `tc_` id,
       // so re-publishing matches (upsert on id) instead of duplicating. `occurrence` is the
-      // first free slot after the cases already present with this exact canonical input.
-      const occurrence = current.filter(
-        (s) => canonicalJson(decodeJsonValue(s.input)) === canonicalInput,
-      ).length;
-      const testCaseId = stableCaseId(targetDatasetKey, canonicalInput, occurrence);
+      // first slot whose id is still free, mirroring the SDK so a gap left by a delete
+      // never re-mints a live id.
+      const existingIds = new Set(current.map((s) => s.testCaseId));
+      const { testCaseId } = nextCaseId(existingIds, targetDatasetKey, canonicalInput);
       const newSeed: TestCaseSeed = { testCaseId, ...newSeedBase };
       return { cases: [...current, newSeed], focusTestCaseId: testCaseId };
     },

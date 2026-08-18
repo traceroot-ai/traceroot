@@ -10,7 +10,7 @@ import { createHash } from "crypto";
  */
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 
-function rejectLoneSurrogate(s: string): void {
+export function rejectLoneSurrogate(s: string): void {
   if (LONE_SURROGATE.test(s)) {
     throw new Error(
       "string contains an unpaired UTF-16 surrogate and cannot be canonicalized; " +
@@ -46,4 +46,30 @@ export function stableCaseId(datasetKey: string, inputCanonical: string, occurre
     .update(`${datasetKey}\x00${inputCanonical}\x00${occurrence}`, "utf8")
     .digest("hex");
   return `tc_${digest.slice(0, 20)}`;
+}
+
+/**
+ * Pick the content-addressed id for a NEW case with the given canonical input: the
+ * first `occurrence` whose id is not already present in `existingIds` (the ids of the
+ * cases already in the version). This mirrors the SDK's `Dataset._content_id` probe
+ * (`occurrence = 0; while cid in cases: occurrence += 1`), so it is robust to gaps
+ * left by deletes and never collides with a legacy random id — the same input placed
+ * in the same version by the UI, TypeScript, or Python lands in the same slot.
+ *
+ * A plain count of same-input cases only equals this when the existing occurrences
+ * are a contiguous `0..n-1` range; a delete leaves a gap, and a count would then
+ * re-mint an id that is already taken.
+ */
+export function nextCaseId(
+  existingIds: Set<string>,
+  datasetKey: string,
+  inputCanonical: string,
+): { testCaseId: string; occurrence: number } {
+  let occurrence = 0;
+  let testCaseId = stableCaseId(datasetKey, inputCanonical, occurrence);
+  while (existingIds.has(testCaseId)) {
+    occurrence += 1;
+    testCaseId = stableCaseId(datasetKey, inputCanonical, occurrence);
+  }
+  return { testCaseId, occurrence };
 }

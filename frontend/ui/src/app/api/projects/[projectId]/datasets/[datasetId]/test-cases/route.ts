@@ -12,7 +12,7 @@ import {
   DatasetNotFound,
   VersionConflict,
 } from "@/lib/eval/versions";
-import { stableCaseId } from "@/lib/eval/case-id";
+import { nextCaseId } from "@/lib/eval/case-id";
 import { encodeJsonValue, decodeJsonValue } from "@/lib/eval/json-value";
 
 type RouteParams = { params: Promise<{ projectId: string; datasetId: string }> };
@@ -88,12 +88,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         // CONTENT-addressed id (parity with the SDK's `stableCaseId`): the same input
         // authored in the UI and pushed from the SDK under the same dataset key converge
         // on one `tc_` id, so re-publishing matches (upsert on id) instead of duplicating.
-        // `occurrence` disambiguates duplicate inputs — the first free slot after the
-        // cases already present with this exact canonical input.
-        const occurrence = current.filter(
-          (s) => canonicalJson(decodeJsonValue(s.input)) === canonicalInput,
-        ).length;
-        const testCaseId = stableCaseId(datasetKey, canonicalInput, occurrence);
+        // `occurrence` disambiguates duplicate inputs — the first slot whose id is still
+        // free, mirroring the SDK so a gap left by a delete never re-mints a live id.
+        const existingIds = new Set(current.map((s) => s.testCaseId));
+        const { testCaseId } = nextCaseId(existingIds, datasetKey, canonicalInput);
         return {
           focusTestCaseId: testCaseId,
           cases: [

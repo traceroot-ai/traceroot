@@ -13,7 +13,7 @@
  */
 import { createHash } from "crypto";
 import { describe, it, expect } from "vitest";
-import { stableCaseId } from "./case-id";
+import { stableCaseId, nextCaseId } from "./case-id";
 import { canonicalJson } from "./versions";
 
 // dataset_key from the fixture. add()-ing these inputs IN ORDER yields these ids.
@@ -101,5 +101,39 @@ describe("UI ↔ SDK convergence for the inputs the UI actually authors", () => 
     expect(stableCaseId("weather", canonicalJson({ q: "a", n: 1 }), 0)).toBe(
       "tc_0d4a8155fd3d8a4615da",
     );
+  });
+});
+
+describe("nextCaseId picks the first FREE occurrence, not a count", () => {
+  const key = "capitals-qa";
+  const input = '{"country":"X"}'; // already-canonical input
+  const id0 = stableCaseId(key, input, 0);
+  const id1 = stableCaseId(key, input, 1);
+
+  it("a brand-new input takes occurrence 0", () => {
+    const r = nextCaseId(new Set<string>(), key, input);
+    expect(r).toEqual({ testCaseId: id0, occurrence: 0 });
+  });
+
+  it("a duplicate of a contiguous group takes the next slot", () => {
+    const r = nextCaseId(new Set([id0]), key, input);
+    expect(r).toEqual({ testCaseId: id1, occurrence: 1 });
+  });
+
+  it("re-adding after the occurrence-0 case was deleted REUSES slot 0, not a collision", () => {
+    // The delete-gap that a count-based occurrence gets wrong: add "X" twice (id0, id1),
+    // delete id0, then add "X" again. A count would see one "X" case and mint occurrence 1
+    // = id1 — a duplicate testCaseId in the same version. First-free-slot picks id0.
+    const afterDeletingId0 = new Set([id1]);
+    const r = nextCaseId(afterDeletingId0, key, input);
+    expect(r).toEqual({ testCaseId: id0, occurrence: 0 });
+    expect(afterDeletingId0.has(r.testCaseId)).toBe(false); // no collision
+  });
+
+  it("skips a legacy random id and converges on occurrence 0 (the SDK slot)", () => {
+    // A legacy UI case for the same input carries a random tc_ id, never a content id.
+    // The content id must still be occurrence 0 so a later SDK push of "X" upserts onto it.
+    const r = nextCaseId(new Set(["tc_legacyrandomxxxxxx"]), key, input);
+    expect(r).toEqual({ testCaseId: id0, occurrence: 0 });
   });
 });
