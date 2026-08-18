@@ -330,7 +330,7 @@ export function SaveTestCaseDrawer({
                     </SelectItem>
                   ))
                 ) : (
-                  <SelectEmpty>No datasets yet</SelectEmpty>
+                  <SelectEmpty>No datasets found</SelectEmpty>
                 )}
               </SelectContent>
             </Select>

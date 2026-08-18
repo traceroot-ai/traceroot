@@ -156,16 +156,16 @@ describe("RunEvaluationDrawer", () => {
     datasets = [];
     await openDrawer();
     await waitFor(() => expect(panel().textContent).toContain('pull_dataset("ds_...")'));
-    expect(screen.getByText("No datasets yet")).toBeDefined();
+    expect(screen.getByText("No datasets found")).toBeDefined();
   });
 
-  it("opens to a non-selectable 'No datasets yet' row when the project has no datasets", async () => {
+  it("opens to a non-selectable 'No datasets found' row when the project has no datasets", async () => {
     datasets = [];
     await openDrawer();
 
     fireEvent.click(screen.getByRole("combobox"));
     // The popover shows the empty-state copy and offers nothing to pick.
-    await waitFor(() => expect(screen.getAllByText("No datasets yet").length).toBeGreaterThan(1));
+    await waitFor(() => expect(screen.getAllByText("No datasets found").length).toBeGreaterThan(1));
     expect(screen.queryByRole("option")).toBeNull();
   });
 

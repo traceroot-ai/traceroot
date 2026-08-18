@@ -193,7 +193,9 @@ export function RunEvaluationDrawer({
           ) : (
             <Select value={chosen} onValueChange={setChosen}>
               <SelectTrigger className="h-7 text-[13px]">
-                <SelectValue placeholder={datasets.length ? "Select dataset" : "No datasets yet"} />
+                <SelectValue
+                  placeholder={datasets.length ? "Select dataset" : "No datasets found"}
+                />
               </SelectTrigger>
               <SelectContent>
                 {datasets.length ? (
@@ -203,7 +205,7 @@ export function RunEvaluationDrawer({
                     </SelectItem>
                   ))
                 ) : (
-                  <SelectEmpty>No datasets yet</SelectEmpty>
+                  <SelectEmpty>No datasets found</SelectEmpty>
                 )}
               </SelectContent>
             </Select>
