@@ -600,6 +600,35 @@
         "title": "PaginationMeta",
         "type": "object"
       },
+      "ProjectListItem": {
+        "description": "A project the user can access, tagged with its owning workspace.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          },
+          "workspace_name": {
+            "title": "Workspace Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "workspace_id",
+          "workspace_name"
+        ],
+        "title": "ProjectListItem",
+        "type": "object"
+      },
       "PublicDetectorListResponse": {
         "description": "Paginated list of the project's detectors for the public API.",
         "properties": {
@@ -640,6 +669,23 @@
           "meta"
         ],
         "title": "PublicFindingListResponse",
+        "type": "object"
+      },
+      "PublicProjectListResponse": {
+        "description": "Account-scope discovery: the projects the user can access.\n\nReturned by ``list_projects`` \u2014 a user-credential-only op. Projects are\nflattened across the user's workspaces; an optional ``workspace_id`` query\nnarrows the result to one workspace.",
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectListItem"
+            },
+            "title": "Data",
+            "type": "array"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "PublicProjectListResponse",
         "type": "object"
       },
       "PublicTraceDetailResponse": {
@@ -966,6 +1012,23 @@
           "meta"
         ],
         "title": "PublicTraceListResponse",
+        "type": "object"
+      },
+      "PublicWorkspaceListResponse": {
+        "description": "Account-scope discovery: the workspaces the user can access.\n\nReturned by ``list_workspaces`` \u2014 a user-credential-only op that needs no\n``project_id``. Not paginated: a user's workspace membership is small and\nbounded.",
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceListItem"
+            },
+            "title": "Data",
+            "type": "array"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "PublicWorkspaceListResponse",
         "type": "object"
       },
       "RCAResult": {
@@ -2306,6 +2369,30 @@
         ],
         "title": "WhoamiResponse",
         "type": "object"
+      },
+      "WorkspaceListItem": {
+        "description": "A workspace the authenticated user belongs to, with their role in it.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "role"
+        ],
+        "title": "WorkspaceListItem",
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -3286,6 +3373,98 @@
         ],
         "x-tool": {
           "enabled": false
+        }
+      }
+    },
+    "/api/v1/public/projects": {
+      "get": {
+        "description": "List the projects the authenticated user can access, across workspaces.\n\nA user-credential-only discovery op (no ``project_id``). Projects are\nflattened across the user's workspaces and tagged with their owning\nworkspace; the answer is what you pass as ``project_id`` to a project-scoped\nrequest.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth; also stamps the\n        per-user rate-limit identity.\n    authorization (str | None): The bearer header, re-read to forward the\n        already-authenticated token to the internal listing call.\n    workspace_id (str | None): Optional filter; when given, only projects in\n        that workspace are returned.\n\nReturns:\n    PublicProjectListResponse: The accessible projects (id, name,\n        workspace_id, workspace_name).",
+        "operationId": "list_projects",
+        "parameters": [
+          {
+            "description": "Restrict the result to projects in this workspace.",
+            "in": "query",
+            "name": "workspace_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Restrict the result to projects in this workspace.",
+              "title": "Workspace Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicProjectListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List Projects",
+        "tags": [
+          "Account (Public)"
+        ],
+        "x-tool": {
+          "description": "List the projects the logged-in user can access, across workspaces (id, name, workspace). User-credential-only account discovery: use it to resolve the project_id a project-scoped request needs. Optionally filter by workspace_id.",
+          "enabled": true,
+          "name": "list_projects"
         }
       }
     },
@@ -4829,6 +5008,78 @@
           "description": "Identify the project and workspace the current credential belongs to.",
           "enabled": true,
           "name": "whoami"
+        }
+      }
+    },
+    "/api/v1/public/workspaces": {
+      "get": {
+        "description": "List the workspaces the authenticated user belongs to.\n\nA user-credential-only discovery op (no ``project_id``). Use it, then\n``list_projects``, to resolve the project a subsequent request scopes to.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth; also stamps the\n        per-user rate-limit identity.\n    authorization (str | None): The bearer header, re-read to forward the\n        already-authenticated token to the internal listing call.\n\nReturns:\n    PublicWorkspaceListResponse: The user's workspaces (id, name, role).",
+        "operationId": "list_workspaces",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicWorkspaceListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List Workspaces",
+        "tags": [
+          "Account (Public)"
+        ],
+        "x-tool": {
+          "description": "List the workspaces the logged-in user belongs to (id, name, role). User-credential-only account discovery: it needs no project_id and is not available to project-scoped API keys.",
+          "enabled": true,
+          "name": "list_workspaces"
         }
       }
     }

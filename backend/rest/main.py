@@ -27,6 +27,7 @@ from rest.rate_limit import limiter, rate_limit_exceeded_handler
 from rest.routers.dashboards import router as dashboards_router
 from rest.routers.internal import router as internal_router
 from rest.routers.live import router as live_router
+from rest.routers.public.account_read import router as public_account_read_router
 from rest.routers.public.detectors_read import router as public_detectors_read_router
 from rest.routers.public.eval import router as public_eval_router
 from rest.routers.public.sessions_read import router as public_sessions_read_router
@@ -118,6 +119,9 @@ app.include_router(public_detectors_read_router, prefix="/api/v1")
 # Public offline-eval API (dataset authoring + run reporting). Thin authenticated
 # proxy to the Next.js control-plane routes so the SDK stays single-host.
 app.include_router(public_eval_router, prefix="/api/v1")
+
+# Account-scope discovery API for user credentials (the CLI login flow)
+app.include_router(public_account_read_router, prefix="/api/v1")
 
 # Internal API for worker/service communication (protected by secret)
 app.include_router(internal_router, prefix="/api/v1")

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma, PlanType } from "@traceroot/core";
 import { verifyInternalSecret } from "@/lib/auth-helpers";
-import { auth } from "@/lib/auth";
+import { resolveSessionFromToken } from "@/lib/internal-session";
 
 const validateUserTokenSchema = z.object({
   token: z.string().min(1, "Token is required"),
@@ -34,16 +34,7 @@ export async function POST(request: NextRequest) {
 
   const { token, projectId } = result.data;
 
-  // Resolve the session via the bearer plugin, which accepts the session token as an
-  // Authorization header in place of the cookie. Never log the token or these headers.
-  let session: Awaited<ReturnType<typeof auth.api.getSession>>;
-  try {
-    session = await auth.api.getSession({
-      headers: new Headers({ Authorization: `Bearer ${token}` }),
-    });
-  } catch {
-    session = null;
-  }
+  const session = await resolveSessionFromToken(token);
 
   if (!session?.user?.id) {
     return NextResponse.json({ valid: false, error: "invalid or expired token" }, { status: 401 });

@@ -8,4 +8,3 @@
  */
 export * as projectSettings from "./project";
 export * as workspaceSettings from "./workspace";
-export * as accountSettings from "./account";

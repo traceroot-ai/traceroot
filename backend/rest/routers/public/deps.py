@@ -1,10 +1,27 @@
-"""Shared dependencies for the public, API-key-authenticated API.
+"""Shared authentication dependencies for the public API.
 
-The API-key auth dependency lives here (not inside any one endpoint module) so
-every public route — ingestion plus the read endpoints (whoami, traces) — can
-depend on it without importing from a sibling endpoint. Authentication is
-delegated to the Next.js internal ``validate-api-key`` route, which owns the
-Postgres/Prisma control-plane data.
+Every public route authenticates through one of three flows defined here (not
+inside any one endpoint module, so read routes never import from a sibling
+endpoint). Authentication is delegated to the Next.js internal routes, which own
+the Postgres/Prisma control-plane data. Pick the annotation that matches the
+scope the route needs:
+
+- ``KeyStampedAuth`` — API-key, project-scoped. The ingest credential: requires an
+  ``Authorization: Bearer tr-<key>`` API key and resolves the key's fixed
+  project/workspace. Use for ingestion and any strictly key-only route.
+- ``DualStampedAuth`` — key-or-user, project-scoped reads. Accepts either an API
+  key or a user session token; a user credential additionally requires a
+  ``project_id`` query parameter (a user login is only meaningful once scoped to
+  a project, whereas a key already fixes its project). Use for project-scoped
+  read endpoints (traces, detectors, sessions).
+- ``AccountStampedAuth`` — user-only, account-scoped. Rejects API keys (403) and
+  authenticates a user session token WITHOUT a project. Use for the discovery
+  surface that answers "which project?" before one is known —
+  ``list_workspaces`` / ``list_projects``.
+
+Each ``*StampedAuth`` annotation stamps the rate-limit identity onto the request
+during dependency resolution, so always depend on the stamped variant on a
+rate-limited route — never on the unstamped intermediates.
 """
 
 import hashlib
@@ -21,6 +38,27 @@ from shared.config import settings
 logger = logging.getLogger(__name__)
 
 
+def _is_api_key_token(token: str) -> bool:
+    """Return whether a bearer token is an API key (not a user session token).
+
+    API keys are ``tr-<uuid>``; user session tokens never carry that prefix. The
+    check is the security discriminator that keeps a raw API key off the
+    user-token endpoint, so it lives in exactly one place. It is case-insensitive
+    and ignores surrounding whitespace, so any key-shaped value (``"TR-…"``, a
+    stray-space ``" tr-…"``) routes to the API-key validator — where the raw key
+    is hashed before it leaves this process — and never to the user endpoint,
+    which would POST the raw key unhashed.
+
+    Args:
+        token (str): The raw bearer token, already stripped of the ``Bearer``
+            scheme.
+
+    Returns:
+        bool: ``True`` if the token is API-key-shaped, ``False`` otherwise.
+    """
+    return token.strip().lower().startswith("tr-")
+
+
 @dataclass
 class AuthResult:
     """Result of API key authentication.
@@ -34,6 +72,21 @@ class AuthResult:
     (``"api_key"``, the default so every existing construction stays valid) or a
     user session token (``"user"``). ``user_id``/``role`` are populated only on
     the user path; they are ``None`` for API-key results.
+
+    Which fields are meaningful depends on how the result was constructed:
+
+    - **API key** (``kind="api_key"``): ``project_id``/``workspace_id``/
+      ``billing_plan``/``ingestion_blocked`` all resolve to the key's real
+      project; the identity fields may be set; ``user_id``/``role`` are ``None``.
+    - **User, project-scoped** (``kind="user"`` from a project read):
+      ``project_id``/``workspace_id``/``billing_plan``/``user_id``/``role`` are
+      real; ``ingestion_blocked`` is always ``True`` (a user token must never
+      ingest).
+    - **User, account-scoped** (``kind="user"`` from account discovery): only
+      ``user_id`` is real. ``project_id``/``workspace_id`` are fabricated empty
+      strings and ``billing_plan`` is a fabricated ``"free"`` (an account has no
+      single project/workspace/plan); they exist only to satisfy the rate-limit
+      keying, which buckets account ops per user.
     """
 
     project_id: str
@@ -46,6 +99,8 @@ class AuthResult:
     key_hint: str | None = None
     kind: Literal["api_key", "user"] = "api_key"
     user_id: str | None = None
+    # Reserved for the Epic B guardrails layer (role-based authorization); no
+    # consumer reads it yet, so a new reader need not hunt for one.
     role: str | None = None
 
 
@@ -172,10 +227,10 @@ async def authenticate_api_key(
     )
 
 
-Auth = Annotated[AuthResult, Depends(authenticate_api_key)]
+KeyAuth = Annotated[AuthResult, Depends(authenticate_api_key)]
 
 
-async def authenticate_and_stamp_identity(request: Request, auth: Auth) -> AuthResult:
+async def authenticate_and_stamp_identity(request: Request, auth: KeyAuth) -> AuthResult:
     """Authenticate, then stamp the workspace/plan onto the request for limiting.
 
     A thin wrapper over the API-key auth so the rate limiter can key the bucket
@@ -189,7 +244,7 @@ async def authenticate_and_stamp_identity(request: Request, auth: Auth) -> AuthR
     Args:
         request (Request): Incoming request; its ``state`` is stamped with the
             resolved rate-limit identity.
-        auth (Auth): API-key auth dependency resolving the workspace and plan.
+        auth (KeyAuth): API-key auth dependency resolving the workspace and plan.
 
     Returns:
         AuthResult: The authenticated result, passed through to the route handler.
@@ -199,42 +254,57 @@ async def authenticate_and_stamp_identity(request: Request, auth: Auth) -> AuthR
     return auth
 
 
-StampedAuth = Annotated[AuthResult, Depends(authenticate_and_stamp_identity)]
+KeyStampedAuth = Annotated[AuthResult, Depends(authenticate_and_stamp_identity)]
 
 
-async def authenticate_user_token(token: str, project_id: str) -> AuthResult:
-    """Authenticate a user session token against the internal validate-user-token route.
+async def _post_internal_auth(
+    path: str,
+    payload: dict,
+    *,
+    log_label: str,
+    invalid_detail: str,
+    forbidden_detail: str | None = None,
+) -> dict:
+    """POST to an internal auth route and return its validated response body.
 
-    Mirrors :func:`authenticate_api_key`'s httpx structure and fail-closed 503
-    mapping. The token is a better-auth session token (the CLI's credential), not
-    an API key; it is POSTed to the internal route for introspection and is never
-    logged. A non-empty ``project_id`` is required — the caller guarantees it.
+    Centralises the fail-closed introspection block shared by the user-token
+    flows: it performs the httpx POST with the internal secret and maps every
+    failure mode to the same controlled status the callers produced inline — a
+    network error or any unexpected/malformed 200 becomes 503 (never an uncaught
+    500), a 401 becomes 401, and a ``valid: false`` body becomes 401. The raw
+    token lives in ``payload`` and is never logged.
+
+    The API-key flow (:func:`authenticate_api_key`) deliberately keeps its own
+    copy and does not route through here, so the key path stays byte-identical.
 
     Args:
-        token (str): The raw user session token to validate. Never logged.
-        project_id (str): The project the caller is scoping the request to; sent
-            to the internal route so it can check membership and access.
+        path (str): Internal route path (appended to the UI base URL), e.g.
+            ``"/api/internal/validate-user-token"``.
+        payload (dict): JSON body to POST (carries the raw token; never logged).
+        log_label (str): Human-readable label for error logs (e.g. ``"user token"``).
+        invalid_detail (str): Fallback ``detail`` for the ``valid: false`` 401 when
+            the response body carries no ``error`` string.
+        forbidden_detail (str | None): When set, a 403 from the route is mapped to
+            a 403 with this detail (the project-scoped "no access" case). When
+            ``None``, a 403 is treated as an unexpected status → 503.
 
     Returns:
-        AuthResult: A ``kind="user"`` result carrying the resolved project,
-            workspace, plan, role, and user id. ``ingestion_blocked`` is always
-            ``True`` for user credentials (see below).
+        dict: The parsed ``valid: true`` response body, for the caller to read
+            its scope-specific fields from.
 
     Raises:
-        HTTPException: 401 for an invalid/expired token, 403 when the token is
-            valid but has no access to ``project_id``, and 503 (fail closed) for
-            any introspection ambiguity — network error, unexpected status, or a
-            malformed/incomplete 200 body.
+        HTTPException: 401 (auth failed / invalid), 403 (``forbidden_detail``
+            when provided), or 503 (fail closed) per the mapping above.
     """
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(
-                f"{settings.traceroot_ui_url}/api/internal/validate-user-token",
-                json={"token": token, "projectId": project_id},
+                f"{settings.traceroot_ui_url}{path}",
+                json=payload,
                 headers={"X-Internal-Secret": settings.internal_api_secret},
             )
     except httpx.RequestError as e:
-        logger.error(f"Failed to validate user token: {e}")
+        logger.error(f"Failed to validate {log_label}: {e}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication service unavailable",
@@ -247,10 +317,10 @@ async def authenticate_user_token(token: str, project_id: str) -> AuthResult:
         )
 
     # A valid token that simply lacks access to this project — instructive, not a 503.
-    if response.status_code == 403:
+    if forbidden_detail is not None and response.status_code == 403:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"No access to project '{project_id}'",
+            detail=forbidden_detail,
         )
 
     if response.status_code != 200:
@@ -281,8 +351,43 @@ async def authenticate_user_token(token: str, project_id: str) -> AuthResult:
     if not data.get("valid"):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=data.get("error", "Invalid token"),
+            detail=data.get("error", invalid_detail),
         )
+
+    return data
+
+
+async def authenticate_user_token(token: str, project_id: str) -> AuthResult:
+    """Authenticate a user session token against the internal validate-user-token route.
+
+    Mirrors :func:`authenticate_api_key`'s httpx structure and fail-closed 503
+    mapping. The token is a better-auth session token (the CLI's credential), not
+    an API key; it is POSTed to the internal route for introspection and is never
+    logged. A non-empty ``project_id`` is required — the caller guarantees it.
+
+    Args:
+        token (str): The raw user session token to validate. Never logged.
+        project_id (str): The project the caller is scoping the request to; sent
+            to the internal route so it can check membership and access.
+
+    Returns:
+        AuthResult: A ``kind="user"`` result carrying the resolved project,
+            workspace, plan, role, and user id. ``ingestion_blocked`` is always
+            ``True`` for user credentials (see below).
+
+    Raises:
+        HTTPException: 401 for an invalid/expired token, 403 when the token is
+            valid but has no access to ``project_id``, and 503 (fail closed) for
+            any introspection ambiguity — network error, unexpected status, or a
+            malformed/incomplete 200 body.
+    """
+    data = await _post_internal_auth(
+        "/api/internal/validate-user-token",
+        {"token": token, "projectId": project_id},
+        log_label="user token",
+        invalid_detail="Invalid token",
+        forbidden_detail=f"No access to project '{project_id}'",
+    )
 
     # A valid:true (200) response missing required project fields is malformed → 503.
     try:
@@ -383,11 +488,10 @@ async def authenticate_public_caller(
             detail="Invalid Authorization header. Expected: Bearer <token>",
         )
 
-    # Discriminate case-insensitively and ignoring surrounding whitespace so any
-    # key-shaped value (e.g. "TR-…", or a stray-space " tr-…") routes to the key
-    # validator — where the raw key is hashed before it leaves this process — and
+    # Discriminate on the shared API-key predicate: a key-shaped value routes to
+    # the key validator (which hashes the raw key before it leaves this process),
     # never to the user endpoint, which would POST the raw key unhashed.
-    if token.strip().lower().startswith("tr-"):
+    if _is_api_key_token(token):
         # Key path: reuse the existing validator verbatim (do not duplicate it).
         result = await authenticate_api_key(authorization)
         # An API key already fixes its project; a provided project_id may only
@@ -411,30 +515,166 @@ async def authenticate_public_caller(
     return await authenticate_user_token(token, project_id)
 
 
-DualAuth = Annotated[AuthResult, Depends(authenticate_public_caller)]
+_DualAuth = Annotated[AuthResult, Depends(authenticate_public_caller)]
 
 
-async def authenticate_and_stamp_public_caller(request: Request, auth: DualAuth) -> AuthResult:
-    """Authenticate a public caller, then stamp workspace/plan for rate limiting.
+async def authenticate_and_stamp_public_caller(request: Request, auth: _DualAuth) -> AuthResult:
+    """Authenticate a public caller, then stamp workspace/plan(/user) for rate limiting.
 
     The dual-credential analog of :func:`authenticate_and_stamp_identity`: both
     credential kinds carry ``workspace_id`` and ``billing_plan`` for
-    project-scoped requests, so the stamping is identical. It runs during
-    dependency resolution — before slowapi evaluates the limit — so ``key_func``
-    sees the identity on ``request.state``.
+    project-scoped requests. A user-credential result also carries a
+    ``user_id``, which is passed through so the bucket gains a per-user
+    dimension (one user's CLI cannot starve a teammate's within the workspace's
+    read budget); an API-key result passes ``None`` so its key stays
+    byte-identical to before per-user keys existed. It runs during dependency
+    resolution — before slowapi evaluates the limit — so ``key_func`` sees the
+    identity on ``request.state``.
 
     Args:
         request (Request): Incoming request; its ``state`` is stamped with the
             resolved rate-limit identity.
-        auth (DualAuth): Dual-credential auth dependency resolving the workspace
-            and plan.
+        auth (_DualAuth): Dual-credential auth dependency resolving the
+            workspace, plan, and (for user credentials) user id.
 
     Returns:
         AuthResult: The authenticated result, passed through to the route handler.
     """
     clear_request_rate_limit_exempt()
-    set_rate_limit_identity(request, auth.workspace_id, auth.billing_plan)
+    set_rate_limit_identity(
+        request,
+        auth.workspace_id,
+        auth.billing_plan,
+        auth.user_id if auth.kind == "user" else None,
+    )
     return auth
 
 
 DualStampedAuth = Annotated[AuthResult, Depends(authenticate_and_stamp_public_caller)]
+
+
+async def authenticate_account_caller(
+    authorization: Annotated[str | None, Header()] = None,
+) -> AuthResult:
+    """Authenticate an account-scope caller by a user session token only.
+
+    The discovery surface (``list_workspaces`` / ``list_projects``) answers
+    "which project?" *before* a project is known, so it cannot require a
+    ``project_id`` the way :func:`authenticate_public_caller` does. It is a
+    user-credential-only entry point: an API key (``tr-`` prefix) is
+    project-scoped and cannot enumerate an account, so it is rejected with 403.
+
+    The token is validated against the internal ``validate-user-token`` route
+    WITHOUT a ``projectId`` — the account scope, where a live session alone is
+    sufficient and the route returns ``{valid, userId, email}``. The resulting
+    :class:`AuthResult` carries the user identity only; workspace/project fields
+    are empty because an account has no single one. The raw token is never logged.
+
+    Args:
+        authorization (str | None): The ``Authorization: Bearer <token>`` header.
+
+    Returns:
+        AuthResult: A ``kind="user"`` result with ``user_id`` set and
+            ``project_id``/``workspace_id`` empty. ``ingestion_blocked`` is
+            always ``True`` (a user credential must never ingest).
+
+    Raises:
+        HTTPException: 401 for a missing/malformed header or an invalid/expired
+            token, 403 when an API key is presented (account ops are user-only),
+            and 503 (fail closed) for any introspection ambiguity — network
+            error, unexpected status, or a malformed/incomplete 200 body.
+    """
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing Authorization header",
+        )
+
+    parts = authorization.split(" ", 1)
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Authorization header format. Expected: Bearer <token>",
+        )
+
+    token = parts[1]
+
+    # An empty/whitespace-only token is a malformed credential, not an outage.
+    if not token.strip():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Authorization header. Expected: Bearer <token>",
+        )
+
+    # Account ops are user-credential-only. A key-shaped value (per the shared
+    # discriminator) is a project-scoped credential and can never enumerate an
+    # account → 403.
+    if _is_api_key_token(token):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="this operation requires a user login; API keys are project-scoped",
+        )
+
+    # Account scope introspects the token WITHOUT a projectId (no 403 access
+    # branch here — a live session alone is sufficient).
+    data = await _post_internal_auth(
+        "/api/internal/validate-user-token",
+        {"token": token},
+        log_label="user token",
+        invalid_detail="Invalid token",
+    )
+
+    # A valid:true account response must carry the user identity; its absence is
+    # malformed → 503 (fail closed rather than authenticating an anonymous user).
+    user_id = data.get("userId")
+    if not user_id:
+        logger.error("Auth service response missing userId for account scope")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service error",
+        )
+
+    return AuthResult(
+        kind="user",
+        # Account scope has no single project/workspace — the user_id is the
+        # identity, and these stay empty by design.
+        project_id="",
+        workspace_id="",
+        # The account-scope introspection returns no plan; account discovery ops
+        # are not plan-gated, so default to the free tier for rate-limit keying.
+        billing_plan="free",
+        # A user session token must never be usable to ingest (parity with the
+        # project-scoped user path).
+        ingestion_blocked=True,
+        user_id=user_id,
+    )
+
+
+_AccountAuth = Annotated[AuthResult, Depends(authenticate_account_caller)]
+
+
+async def authenticate_and_stamp_account_caller(request: Request, auth: _AccountAuth) -> AuthResult:
+    """Authenticate an account-scope caller, then stamp a per-user rate-limit id.
+
+    Account ops have no workspace, so the bucket is keyed per user: an empty
+    ``workspace_id`` plus ``auth.user_id`` in the dedicated user slot of
+    :func:`set_rate_limit_identity`, which yields the clean key
+    ``rl:read:{plan}:{user_id}``. It runs during dependency resolution, before
+    slowapi evaluates the limit, so ``key_func`` sees the identity on
+    ``request.state``.
+
+    Args:
+        request (Request): Incoming request; its ``state`` is stamped with the
+            resolved (per-user) rate-limit identity.
+        auth (_AccountAuth): Account-scope auth dependency resolving the user id.
+
+    Returns:
+        AuthResult: The authenticated result, passed through to the route handler.
+    """
+    clear_request_rate_limit_exempt()
+    # Account-scope ops have no workspace; bucket per user via the user slot.
+    set_rate_limit_identity(request, "", auth.billing_plan, auth.user_id)
+    return auth
+
+
+AccountStampedAuth = Annotated[AuthResult, Depends(authenticate_and_stamp_account_caller)]

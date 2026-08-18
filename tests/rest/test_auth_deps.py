@@ -4,6 +4,7 @@ Tests authenticate_api_key (public API auth) and get_project_access (user auth)
 with mocked httpx calls.
 """
 
+import json
 import logging
 
 import httpx
@@ -18,6 +19,8 @@ from rest.rate_limit import (
 )
 from rest.routers.deps import get_project_access
 from rest.routers.public.deps import (
+    authenticate_account_caller,
+    authenticate_and_stamp_account_caller,
     authenticate_and_stamp_public_caller,
     authenticate_public_caller,
     authenticate_user_token,
@@ -610,7 +613,11 @@ class TestAuthenticateAndStampPublicCaller:
         return Request({"type": "http", "headers": [], "state": {}})
 
     async def test_key_result_clears_exempt_and_stamps_identity(self):
-        """A KEY AuthResult clears the exempt flag and stamps workspace+plan."""
+        """A KEY AuthResult clears the exempt flag and stamps workspace+plan.
+
+        No user_id is stamped (rl_user_id == "") so key_read/key_export stay
+        byte-identical to the pre-per-user-key format for API-key callers.
+        """
         # Poison the exempt flag first so we prove the wrapper clears it.
         mark_request_rate_limit_exempt()
         request = self._bare_request()
@@ -626,9 +633,14 @@ class TestAuthenticateAndStampPublicCaller:
         assert is_request_rate_limit_exempt() is False
         assert request.state.rl_workspace_id == "ws-456"
         assert request.state.rl_billing_plan == normalize_plan("pro")
+        assert request.state.rl_user_id == ""
 
     async def test_user_result_clears_exempt_and_stamps_identity(self):
-        """A USER AuthResult (project-scoped) stamps the same identity fields."""
+        """A USER AuthResult (project-scoped) also stamps the user_id.
+
+        Unlike the key path, a user-credential request carries a user_id so the
+        bucket gains the per-user dimension.
+        """
         mark_request_rate_limit_exempt()
         request = self._bare_request()
         auth = AuthResult(
@@ -645,3 +657,157 @@ class TestAuthenticateAndStampPublicCaller:
         assert is_request_rate_limit_exempt() is False
         assert request.state.rl_workspace_id == "ws-456"
         assert request.state.rl_billing_plan == normalize_plan("pro")
+        assert request.state.rl_user_id == "user-789"
+
+
+# ── authenticate_account_caller (account-scope, user-only) ───────────────
+
+
+def _mock_valid_account_token(user_id: str = "user-789"):
+    """Mock validate-user-token returning the account-scope 200 shape (no project)."""
+    return respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+        return_value=Response(
+            200, json={"valid": True, "userId": user_id, "email": "u@example.com"}
+        )
+    )
+
+
+class TestAuthenticateAccountCaller:
+    @respx.mock
+    async def test_valid_user_token_returns_account_result(self):
+        route = _mock_valid_account_token()
+        result = await authenticate_account_caller("Bearer sess-token-abc")
+        assert result.kind == "user"
+        assert result.user_id == "user-789"
+        # Account scope has no single project/workspace.
+        assert result.project_id == ""
+        assert result.workspace_id == ""
+        assert result.billing_plan == "free"
+        assert result.ingestion_blocked is True
+        # The account introspection is called WITHOUT a projectId.
+        sent = json.loads(route.calls.last.request.content)
+        assert "projectId" not in sent
+
+    @respx.mock
+    async def test_api_key_rejected_with_403(self):
+        """A tr- (API key) value is project-scoped and cannot enumerate an account."""
+        user_route = respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+            return_value=Response(200, json={"valid": True, "userId": "u"})
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_account_caller("Bearer tr-abc123")
+        assert exc_info.value.status_code == 403
+        assert "user login" in exc_info.value.detail
+        # It must never reach the token validator.
+        assert user_route.call_count == 0
+
+    @respx.mock
+    async def test_uppercase_key_prefix_rejected_with_403(self):
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_account_caller("Bearer TR-abc123")
+        assert exc_info.value.status_code == 403
+
+    async def test_missing_header_returns_401(self):
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_account_caller(None)
+        assert exc_info.value.status_code == 401
+
+    async def test_bad_format_returns_401(self):
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_account_caller("BadFormat token123")
+        assert exc_info.value.status_code == 401
+
+    async def test_empty_token_returns_401(self):
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_account_caller("Bearer ")
+        assert exc_info.value.status_code == 401
+
+    @respx.mock
+    async def test_invalid_token_401_returns_401(self):
+        respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+            return_value=Response(401, json={"valid": False, "error": "invalid or expired token"})
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_account_caller("Bearer bad-token")
+        assert exc_info.value.status_code == 401
+
+    @respx.mock
+    async def test_valid_false_returns_401(self):
+        respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+            return_value=Response(200, json={"valid": False, "error": "nope"})
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_account_caller("Bearer sess-token")
+        assert exc_info.value.status_code == 401
+
+    @respx.mock
+    async def test_network_error_returns_503(self):
+        respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+            side_effect=httpx.ConnectError("Connection refused")
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_account_caller("Bearer sess-token")
+        assert exc_info.value.status_code == 503
+
+    @respx.mock
+    async def test_unexpected_status_returns_503(self):
+        respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(return_value=Response(500))
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_account_caller("Bearer sess-token")
+        assert exc_info.value.status_code == 503
+
+    @respx.mock
+    async def test_malformed_json_returns_503(self):
+        respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+            return_value=Response(200, content=b"<html>not json</html>")
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_account_caller("Bearer sess-token")
+        assert exc_info.value.status_code == 503
+        assert exc_info.value.detail == "Authentication service error"
+
+    @respx.mock
+    async def test_200_missing_user_id_returns_503(self):
+        """A valid:true account response without userId is malformed → 503 (fail closed)."""
+        respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+            return_value=Response(200, json={"valid": True})
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await authenticate_account_caller("Bearer sess-token")
+        assert exc_info.value.status_code == 503
+        assert exc_info.value.detail == "Authentication service error"
+
+    @respx.mock
+    async def test_token_not_logged_on_malformed_response(self, caplog):
+        respx.post(f"{BASE_URL}/api/internal/validate-user-token").mock(
+            return_value=Response(200, content=b"oops")
+        )
+        with caplog.at_level(logging.DEBUG), pytest.raises(HTTPException):
+            await authenticate_account_caller("Bearer supersecretsessiontoken")
+        assert "supersecretsessiontoken" not in caplog.text
+
+
+class TestAuthenticateAndStampAccountCaller:
+    @staticmethod
+    def _bare_request() -> Request:
+        return Request({"type": "http", "headers": [], "state": {}})
+
+    async def test_stamps_per_user_identity_and_clears_exempt(self):
+        """Account ops have no workspace: the bucket is keyed per user_id."""
+        mark_request_rate_limit_exempt()
+        request = self._bare_request()
+        auth = AuthResult(
+            kind="user",
+            project_id="",
+            workspace_id="",
+            billing_plan="free",
+            ingestion_blocked=True,
+            user_id="user-789",
+        )
+        result = await authenticate_and_stamp_account_caller(request, auth)
+        assert result is auth
+        assert is_request_rate_limit_exempt() is False
+        # Empty workspace + user_id in the dedicated user slot => rl:read:{plan}:{user_id}.
+        assert request.state.rl_workspace_id == ""
+        assert request.state.rl_user_id == "user-789"
+        assert request.state.rl_billing_plan == normalize_plan("free")
