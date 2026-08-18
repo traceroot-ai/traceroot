@@ -1,0 +1,16 @@
+# Trident Surface verification checklist
+# Generated for finding webapp_7a36dbd6cc03659d3c3172bf on 2026-08-18T22:39:17.130Z.
+# This is not a promptfoo agent-redteam test. Use it as the security
+# verification checklist for the code/web-app vulnerability described in
+# REMEDIATE.md.
+
+finding_id: "webapp_7a36dbd6cc03659d3c3172bf"
+source: "WEBAPP_PENTEST"
+severity: "HIGH"
+title: "Agent Git clone tool injects model-controlled values into `sh -c`"
+verification:
+  - Reproduce the issue with the proof-of-concept or request path in REMEDIATE.md.
+  - Apply the fix in application code or configuration.
+  - Re-run the exact same proof-of-concept and confirm it no longer works.
+  - Re-run the relevant automated test suite.
+  - Re-run the Trident Surface scan or an equivalent DAST/SAST/secret scan.

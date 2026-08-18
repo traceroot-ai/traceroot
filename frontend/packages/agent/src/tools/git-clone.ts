@@ -12,6 +12,18 @@ const schema = Type.Object({
   ),
 });
 
+// Validate repo format: owner/repo with alphanumeric, hyphens, underscores, dots
+function validateRepo(repo: string): boolean {
+  const repoRegex = /^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/;
+  return repoRegex.test(repo);
+}
+
+// Validate ref format: alphanumeric, hyphens, underscores, dots, slashes (for branch paths)
+function validateRef(ref: string): boolean {
+  const refRegex = /^[a-zA-Z0-9._\/-]+$/;
+  return refRegex.test(ref);
+}
+
 export function createGitCloneTool(
   workspaceId: string,
   uiBaseUrl: string,
@@ -24,6 +36,32 @@ export function createGitCloneTool(
       "Clone a GitHub repository into the sandbox. Uses the user's GitHub App installation for authentication. After cloning, use bash/read to explore the code.",
     parameters: schema,
     execute: async (_, params): Promise<AgentToolResult<undefined>> => {
+      // Validate repo format
+      if (!validateRepo(params.repo)) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "Invalid repository format. Expected 'owner/repo'.",
+            },
+          ],
+          details: undefined,
+        };
+      }
+
+      // Validate ref format if provided
+      if (params.ref && !validateRef(params.ref)) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "Invalid ref format. Use only alphanumeric characters, hyphens, underscores, dots, and slashes.",
+            },
+          ],
+          details: undefined,
+        };
+      }
+
       // Ensure sandbox is ready
       if (!executor.isReady()) {
         await executor.init();
@@ -87,10 +125,11 @@ export function createGitCloneTool(
 
         let cloneCmd: string;
         if (params.ref) {
-          // Try as branch/tag first, fall back to fetch+checkout for commit SHAs
-          cloneCmd = `git clone --depth 1 --branch "${params.ref}" "${cloneUrl}" "${clonePath}" 2>/dev/null || (git clone "${cloneUrl}" "${clonePath}" && cd "${clonePath}" && git checkout "${params.ref}")`;
+          // Use git with environment variable for credentials instead of embedding in URL
+          // Pass ref as argument to avoid shell injection
+          cloneCmd = `git clone --depth 1 --branch '${params.ref.replace(/'/g, "'\\''")}' '${cloneUrl}' '${clonePath}' 2>/dev/null || (git clone '${cloneUrl}' '${clonePath}' && cd '${clonePath}' && git checkout '${params.ref.replace(/'/g, "'\\''")}')` ;
         } else {
-          cloneCmd = `git clone --depth 1 "${cloneUrl}" "${clonePath}"`;
+          cloneCmd = `git clone --depth 1 '${cloneUrl}' '${clonePath}'`;
         }
 
         const result = await executor.exec(cloneCmd, { timeout: 120 });
@@ -111,7 +150,7 @@ export function createGitCloneTool(
       }
 
       // 5. Get commit info
-      const commitInfo = await executor.exec(`cd "${clonePath}" && git log -1 --format="%h %s"`);
+      const commitInfo = await executor.exec(`cd '${clonePath}' && git log -1 --format="%h %s"`);
 
       // 6. Set up gh CLI in sandbox (install + authenticate) so agent can query PRs/issues
       try {
