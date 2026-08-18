@@ -5,6 +5,7 @@ import { prisma } from "@traceroot/core";
 import { env } from "@/env";
 import { DEVICE_CLIENT_IDS } from "@/lib/auth-clients";
 import { generateUserCode } from "@/lib/device-user-code";
+import { SESSION_EXPIRES_IN_SECONDS, SESSION_UPDATE_AGE_SECONDS } from "@/lib/session-config";
 
 export const auth = betterAuth({
   database: prismaAdapter(prisma, {
@@ -34,7 +35,12 @@ export const auth = betterAuth({
   },
 
   session: {
-    expiresIn: 30 * 24 * 60 * 60, // 30 days
+    // Rolling idle-timeout window (see session-config.ts). updateAge is set
+    // explicitly rather than left to better-auth's default so the CLI mint
+    // route can track the exact same slide cadence. Applies to every session,
+    // browser included — a session unused for expiresIn must re-authenticate.
+    expiresIn: SESSION_EXPIRES_IN_SECONDS,
+    updateAge: SESSION_UPDATE_AGE_SECONDS,
   },
 
   rateLimit: {
