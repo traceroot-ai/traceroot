@@ -3,6 +3,7 @@
 import { Suspense, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
+import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
@@ -27,7 +28,8 @@ type SignInContentProps = {
 function SignInContent({ googleAuthConfigured }: SignInContentProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get("callbackUrl") || "/";
+  // Attacker-suppliable query param; only same-origin destinations may pass.
+  const callbackUrl = safeCallbackUrl(searchParams.get("callbackUrl"));
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
