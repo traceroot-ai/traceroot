@@ -5,12 +5,6 @@ description: Map a case's output to one or more metrics — from plain functions
 
 A scorer maps a case's `(input, output, expected, metadata)` to one or more metrics. There are three escalating forms; reach for the simplest one that does the job.
 
-Before anything else, the rule that governs how scores are read:
-
-<Warning>
-  **Metric-first.** A run has **no single headline score**. Each scorer emits a metric, and pass/fail is decided **per metric** by that scorer's declared `threshold` + `direction`. A case's status is `errored` or `not_scored` — never a fabricated "passed". Never collapse a run to one number. See [Reading results](/evals/reading-results).
-</Warning>
-
 ## 1. Plain function — the simplest form
 
 The simplest scorer is an ordinary function. The metric is named after the function.

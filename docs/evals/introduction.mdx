@@ -21,10 +21,6 @@ The SDK is available in **Python** and **TypeScript**, and the two are byte-for-
 
 A scorer maps a case's `(input, output, expected, metadata)` to one or more named metrics. There are three escalating forms — a plain function for the happy path, `Scorer.code(...)` when you want a declared pass/fail policy, and `Scorer.llm_judge(...)` when the model and prompt *are* the definition. See [Scorers](/evals/scorers).
 
-<Note>
-**Tokens and cost are platform-derived.** They come from the priced spans of a run, so they show up in the TraceRoot UI — not in the local `summary()`. Don't expect a dollar figure in offline output.
-</Note>
-
 ## Where to start
 
 <CardGroup cols={2}>

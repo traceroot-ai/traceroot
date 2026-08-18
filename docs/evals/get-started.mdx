@@ -5,10 +5,6 @@ description: Author a dataset, write a task and a scorer, and run your first eva
 
 An eval in TraceRoot is a trace: each case runs as its own `evaluation-item → task → scorer` trace you can open and drill into. Authoring a dataset and running an eval are free and offline — you only report to the platform when you opt in. This guide takes you end to end with `local=True`, so no credentials are needed.
 
-<Note>
-  There is **no single headline score** for a run. Each scorer emits a metric, and pass/fail is decided **per metric** by that scorer's declared threshold and direction. A case's status is `errored` or `not_scored` — never a fabricated pass. See [Reading results](/evals/reading-results).
-</Note>
-
 ## Install
 
 <Tabs>
@@ -197,9 +193,7 @@ Reporting is opt-in and off in this quickstart because of `local=True`. To repor
   </Tab>
 </Tabs>
 
-<Note>
-  `candidate_version` / `candidateVersion` labels the thing under test (a model id, prompt version, or git sha). It's what the platform groups and compares runs by. See [Running an eval](/evals/running-evals) for the rest of `evaluate()`'s options and [Transports](/evals/transports) for self-host and custom sinks.
-</Note>
+`candidate_version` / `candidateVersion` labels the thing under test (a model id, prompt version, or git sha). It's what the platform groups and compares runs by. See [Running an eval](/evals/running-evals) for the rest of `evaluate()`'s options and [Transports](/evals/transports) for self-host and custom sinks.
 
 ## Next steps
 
