@@ -19,6 +19,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
           description:
             "Comma-separated field groups to include: 'core' (tree/timing/status, always included), 'usage' (tokens/cost), 'io' (per-span input/output), 'metadata' (per-span metadata). Aliases: 'skeleton' (core,usage), 'full' (everything). Unknown groups return 400.",
         },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
       },
       required: ["trace_id"],
       additionalProperties: false,
@@ -35,6 +40,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
         finding_id: {
           type: "string",
         },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
       },
       required: ["finding_id"],
       additionalProperties: false,
@@ -50,6 +60,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
       properties: {
         trace_id: {
           type: "string",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
         },
       },
       required: ["trace_id"],
@@ -78,6 +93,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
           type: "string",
           description: "Only traces before this time (exclusive, ISO 8601)",
         },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
       },
       required: ["session_id"],
       additionalProperties: false,
@@ -99,6 +119,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
           type: "string",
           description:
             "Comma-separated field groups to include: 'core' (tree/timing/status, always included), 'usage' (tokens/cost), 'io' (per-span input/output), 'metadata' (per-span metadata). Aliases: 'skeleton' (core,usage), 'full' (everything). Unknown groups return 400.",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
         },
       },
       required: ["trace_id"],
@@ -129,6 +154,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
           format: "date-time",
           type: "string",
           description: "Only detectors created before this time (exclusive, ISO 8601)",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
         },
       },
       required: [],
@@ -169,6 +199,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
           type: "string",
           description: "Filter to a single trace",
         },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
       },
       required: [],
       additionalProperties: false,
@@ -204,6 +239,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
           type: "string",
           description: "Only sessions with traces before this time (exclusive, ISO 8601)",
         },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
       },
       required: [],
       additionalProperties: false,
@@ -230,6 +270,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
           format: "date-time",
           type: "string",
           description: "Only consider spans starting before this timestamp",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
         },
       },
       required: ["field"],
@@ -453,6 +498,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
           type: "array",
           description:
             "JSON array of typed filter predicates ({field, op, value}); the field catalog and per-field operators are defined in the schema",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
         },
       },
       required: [],

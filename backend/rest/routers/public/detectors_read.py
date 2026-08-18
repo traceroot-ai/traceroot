@@ -19,7 +19,7 @@ from rest.rate_limit import (
     resolve_limit,
 )
 from rest.retention import clamp_retention_window, enforce_retention_by_time
-from rest.routers.public.deps import StampedAuth
+from rest.routers.public.deps import DualStampedAuth
 from rest.schemas.common import PaginationMeta
 from rest.schemas.public import (
     FindingDetail,
@@ -40,7 +40,7 @@ router = APIRouter(prefix="/public/detectors", tags=["Detectors (Public)"])
 async def list_detectors(
     request: Request,
     response: Response,
-    auth: StampedAuth,
+    auth: DualStampedAuth,
     service: DetectorReaderService = Depends(get_detector_reader_service),
     limit: int = Query(50, ge=1, le=200, description="Items per page"),
     start_after: datetime | None = Query(
@@ -77,7 +77,7 @@ async def list_detectors(
 async def list_findings(
     request: Request,
     response: Response,
-    auth: StampedAuth,
+    auth: DualStampedAuth,
     service: DetectorReaderService = Depends(get_detector_reader_service),
     limit: int = Query(50, ge=1, le=200, description="Items per page"),
     start_after: datetime | None = Query(
@@ -119,7 +119,7 @@ async def list_findings(
 async def get_finding(
     request: Request,
     response: Response,
-    auth: StampedAuth,
+    auth: DualStampedAuth,
     finding_id: str,
     service: DetectorReaderService = Depends(get_detector_reader_service),
 ):
@@ -138,7 +138,7 @@ async def get_finding(
 async def get_finding_by_trace(
     request: Request,
     response: Response,
-    auth: StampedAuth,
+    auth: DualStampedAuth,
     trace_id: str,
     service: DetectorReaderService = Depends(get_detector_reader_service),
 ):
