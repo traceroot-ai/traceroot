@@ -133,9 +133,7 @@
               "evals/datasets",
               "evals/scorers",
               "evals/running-evals",
-              "evals/reading-results",
-              "evals/pulling-data",
-              "evals/transports"
+              "evals/reading-results"
             ]
           },
           {

@@ -66,7 +66,7 @@ Python exposes both `evaluate` and `evaluate_async`. In TypeScript, `evaluate` i
 - **`task`** — the system under evaluation, an `input -> output` function. It may be async.
 - **`scorers`** — a list of any [scorer](/evals/scorers) form (plain function, `Scorer.code`, or `Scorer.llm_judge`).
 - **`local=True` / `local: true`** — run in full, but report **nowhere**: no credentials are read, no HTTP is made, no dataset is published, and no spans are exported (a no-op tracer). The ergonomic "just run it." **Mutually exclusive with `transport=`.**
-- **`transport=`** — an explicit reporting sink (self-host, custom, or [`FakeTransport`](/evals/transports)). Omit both `local` and `transport` and the run defaults to reporting when a key resolves.
+- **`transport=`** — an explicit reporting sink (self-host, custom, or [`FakeTransport`](#unit-testing-with-faketransport)). Omit both `local` and `transport` and the run defaults to reporting when a key resolves.
 - **`candidate_version` / `candidateVersion`** — labels the thing under test (model id, prompt version, git sha). **This is what the UI groups and compares runs by.**
 - **`select`** — run a subset (by id or predicate) without editing the dataset.
 - **`timeout`** — bounds each case (task plus its scorers). A timeout is an **isolated per-case error**, not a run failure.
@@ -139,13 +139,97 @@ Python exposes both `evaluate` and `evaluate_async`. In TypeScript, `evaluate` i
   `local=True` truly leaks nothing — no spans are exported — so it's safe on a laptop or in CI without a key. Reporting to the platform is the default only when credentials resolve and neither `local` nor `transport` overrides it.
 </Note>
 
+## Reporting sinks
+
+A run reports through a **transport**. By default, when a key resolves, it reports through `PlatformTransport`. Point a run at an explicit sink with `transport=`, or suppress reporting entirely with `local=True` — the two are mutually exclusive.
+
+| Type | Role |
+|---|---|
+| `PlatformTransport` | Reporting sink; the **default** when a key resolves. |
+| `FakeTransport` | In-memory sink — **0 HTTP calls**. Records the exact call sequence in `.calls` (`create_run → register_item×N → record_item_result×N → record_scores×N → finish_run`). The recommended way to unit-test an eval. Not interchangeable with `local=True`: `local` additionally swaps in a non-exporting tracer and suppresses global auto-init, so no spans leave the process; `FakeTransport` runs the normal exporting tracer. |
+| `PlatformDatasetSync` | The real dataset publisher — what `evaluate()` uses under the hood to auto-provision a version. |
+| `LocalDatasetSync` | No-op sync; stay local. |
+| `DatasetPublishAborted` | Raised when a publish confirmation is declined. |
+| `DatasetConflictError` | Raised on an optimistic-concurrency conflict; carries `base_version_id` / `current_version_id`. |
+
+<Note>
+  In Python, import all of these from `traceroot.eval` (for example `from traceroot.eval import FakeTransport, PlatformTransport, PlatformDatasetSync, LocalDatasetSync`). TypeScript exports the whole surface from the package root.
+</Note>
+
+## Unit-testing with `FakeTransport`
+
+`FakeTransport` makes no HTTP calls and records every wire call in `.calls`. Pass it as `transport=` and assert on the sequence — this is the recommended way to test an eval without a backend. Reach for `transport=FakeTransport()` when you want to assert on the exact call sequence, and `local=True` when you just want the run to happen and report nowhere.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import Dataset, evaluate
+    from traceroot.eval import FakeTransport
+
+    ds = Dataset("weather", key="weather")
+    ds.add({"city": "SF"}, expected="68°F")
+
+    def task(input):
+        return "68°F"
+
+    def reports_temp(input, output, expected=None):
+        return expected in (output or "")
+
+    fake = FakeTransport()
+    result = evaluate(
+        name="weather",
+        dataset=ds,
+        task=task,
+        scorers=[reports_temp],
+        transport=fake,          # 0 HTTP; records everything
+    )
+
+    # No backend was touched. `fake.calls` holds the ordered wire calls —
+    # create_run, register_item×N, record_item_result×N, record_scores×N,
+    # finish_run — so a test can assert the exact sequence the SDK would send.
+    assert len(fake.calls) > 0
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { Dataset, evaluate, FakeTransport } from "@traceroot-ai/traceroot";
+
+    const ds = new Dataset("weather", null, { key: "weather" });
+    ds.add({ city: "SF" }, { expected: "68°F" });
+
+    const task = (input) => "68°F";
+    function reportsTemp({ output, expected }) {
+      return (output ?? "").includes(expected);
+    }
+
+    const fake = new FakeTransport();
+    const result = await evaluate({
+      name: "weather",
+      dataset: ds,
+      task,
+      scorers: [reportsTemp],
+      transport: fake,           // 0 HTTP; records everything
+    });
+
+    // No backend was touched. `fake.calls` holds the ordered wire calls —
+    // create_run, register_item×N, record_item_result×N, record_scores×N,
+    // finish_run — so a test can assert the exact sequence the SDK would send.
+    expect(fake.calls.length).toBeGreaterThan(0);
+    ```
+  </Tab>
+</Tabs>
+
+## Dataset sync and conflicts
+
+`PlatformDatasetSync` and `LocalDatasetSync` are the sync objects passed to [`Dataset.push()`](/evals/datasets) — `PlatformDatasetSync` really publishes, `LocalDatasetSync` is a no-op. A declined publish confirmation raises `DatasetPublishAborted`. An optimistic-concurrency conflict raises `DatasetConflictError`, which carries `base_version_id` and `current_version_id` so you can resolve which version you diverged from.
+
 ## Next
 
 <CardGroup cols={2}>
   <Card title="Reading results" icon="table" href="/evals/reading-results">
     Read the per-metric summary and the per-case results `evaluate()` returns.
   </Card>
-  <Card title="Transports" icon="plug" href="/evals/transports">
-    Point a run at a specific sink, or unit-test it with `FakeTransport`.
+  <Card title="Datasets" icon="database" href="/evals/datasets">
+    Author, version, publish, and pull the datasets you run against.
   </Card>
 </CardGroup>

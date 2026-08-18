@@ -38,9 +38,9 @@ dataset_id = "ds_" + sha256(key)
 
 `key` defaults to `name`. That default is risky for any dataset you intend to re-run: if you rename the dataset without a `key`, the id changes and you have silently **forked** it into a new dataset — the platform can no longer reconcile the new runs against the old ones. Set `key` explicitly and the id stays stable no matter how the display name drifts.
 
-<Warning>
+<Note>
   Always set `key` on a dataset you'll re-run. Renaming a dataset with a fixed `key` keeps its identity; renaming one without a `key` forks it.
-</Warning>
+</Note>
 
 ## Author cases
 
@@ -134,7 +134,7 @@ The revision is **order-independent**: the same set of cases always produces the
 
 ## Publish a version
 
-`push(transport, *, on_existing=?)` publishes **one immutable version** of the dataset. The `transport` argument is a dataset-sync transport (see [Transports](/evals/transports)): `PlatformDatasetSync()` really publishes; `LocalDatasetSync()` is a no-op that keeps everything local.
+`push(transport, *, on_existing=?)` publishes **one immutable version** of the dataset. The `transport` argument is a dataset-sync transport (see [Reporting sinks](/evals/running-evals#reporting-sinks)): `PlatformDatasetSync()` really publishes; `LocalDatasetSync()` is a no-op that keeps everything local.
 
 - Re-pushing **unchanged** content is an **idempotent no-op** — it reuses the current version.
 - Pushing **changed** content publishes a **new version of the same dataset**, not a fork.
@@ -205,6 +205,105 @@ A single case. Its fields are `input` (any JSON), `expected` (optional ground tr
 </Tabs>
 
 You'll mostly create cases through `Dataset.add` / `Dataset.upsert`. Direct construction matters for `upsert` and for building datasets programmatically.
+
+## Pull a dataset back down
+
+Datasets you publish can be pulled back down as ordinary local `Dataset` objects — iterate, edit, save, re-publish, or evaluate against them. You pull **data, not runs**: a run is task + scorers + data, and only the data lives on the platform, so there is deliberately no `pull_run`. Pull the **current** version of a dataset, or **one exact** immutable version.
+
+### Pull the current version
+
+`pull_dataset(dataset_id)` returns the dataset's **current** version as a local `Dataset`. Pass `version_id=` to resolve a specific version instead. The returned dataset carries `dataset_version_id` — the version it resolved to.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import pull_dataset
+
+    ds = pull_dataset("ds_…")                     # current version
+    print(ds.dataset_version_id)                  # the version it resolved to
+    print(len(ds))
+
+    # or resolve a specific version by id:
+    ds = pull_dataset("ds_…", version_id="…")
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { pullDataset } from "@traceroot-ai/traceroot";
+
+    const ds = await pullDataset("ds_…");         // current version
+    console.log(ds.datasetVersionId);             // the version it resolved to
+    console.log(ds.size);
+
+    // or resolve a specific version by id:
+    const dsAt = await pullDataset("ds_…", { versionId: "…" });
+    ```
+  </Tab>
+</Tabs>
+
+### Pull one exact version
+
+`pull_dataset_version(version_id)` returns one exact immutable version as a local `Dataset`. Passing `dataset_id=` **validates** that the version belongs to that dataset — a foreign version id raises instead of returning the wrong data.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import pull_dataset_version
+
+    version = pull_dataset_version("…")                              # exact version
+    owned   = pull_dataset_version("…", dataset_id="ds_…")           # validates ownership
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { pullDatasetVersion } from "@traceroot-ai/traceroot";
+
+    const version = await pullDatasetVersion("…");                   // exact version
+    const owned   = await pullDatasetVersion("…", { datasetId: "ds_…" }); // validates ownership
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+  Passing a `version_id` that doesn't belong to the given `dataset_id` raises rather than returning data from a different dataset. Use `dataset_id=` whenever you want that ownership guarantee.
+</Note>
+
+## Reproduce a run
+
+Because only the data is stored, reproducing a past run is a two-part move: pull the exact `dataset_version_id` the run recorded, then bring your own task and scorers and re-run. Use `local=True` on the replay so the reproduction doesn't pollute run history.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import evaluate, pull_dataset_version
+
+    # 1. A reported run records the exact dataset version it scored.
+    reported = evaluate(name="x", dataset=ds, task=task, scorers=[s])
+    version = reported.dataset.dataset_version_id
+
+    # 2. Pull that exact version back down (validated against the dataset).
+    replay_data = pull_dataset_version(version, dataset_id=ds.dataset_id)
+
+    # 3. Bring your own task + scorers and re-run locally.
+    evaluate(name="x-replay", dataset=replay_data, task=task, scorers=[s], local=True)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { evaluate, pullDatasetVersion } from "@traceroot-ai/traceroot";
+
+    // 1. A reported run records the exact dataset version it scored.
+    const reported = await evaluate({ name: "x", dataset: ds, task, scorers: [s] });
+    const version = reported.dataset.datasetVersionId;
+
+    // 2. Pull that exact version back down (validated against the dataset).
+    const replayData = await pullDatasetVersion(version, { datasetId: ds.datasetId });
+
+    // 3. Bring your own task + scorers and re-run locally.
+    await evaluate({ name: "x-replay", dataset: replayData, task, scorers: [s], local: true });
+    ```
+  </Tab>
+</Tabs>
 
 ## Next
 
