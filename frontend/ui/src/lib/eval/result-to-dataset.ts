@@ -1,5 +1,5 @@
 import { prisma } from "@traceroot/core";
-import { publishDatasetVersion, canonicalJson, type TestCaseSeed } from "./versions";
+import { publishDatasetVersion, canonicalJson, DatasetNotFound, type TestCaseSeed } from "./versions";
 import { nextCaseId } from "./case-id";
 import { encodeEditedText, decodeJsonValue } from "./json-value";
 
@@ -161,7 +161,10 @@ export async function saveResultToDataset(opts: {
     where: { id: targetDatasetId, projectId: opts.projectId },
     select: { key: true, name: true },
   });
-  const targetDatasetKey = targetDataset?.key ?? targetDataset?.name ?? targetDatasetId;
+  // Fail fast rather than fabricating a key from the id: a made-up key would hash a
+  // `tc_` id no SDK author could reproduce. (publishDatasetVersion re-validates too.)
+  if (!targetDataset) throw new DatasetNotFound();
+  const targetDatasetKey = targetDataset.key ?? targetDataset.name;
 
   const newSeedBase: Omit<TestCaseSeed, "testCaseId"> = {
     // No prior stored value, so encode the raw text as-is (a JSON-looking string like

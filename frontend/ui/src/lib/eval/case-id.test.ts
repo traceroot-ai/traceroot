@@ -137,3 +137,19 @@ describe("nextCaseId picks the first FREE occurrence, not a count", () => {
     expect(r).toEqual({ testCaseId: id0, occurrence: 0 });
   });
 });
+
+describe("canonicalJson stays parity with the SDK canonicalizer", () => {
+  it("orders object keys by Unicode code point, not UTF-16 code unit", () => {
+    // U+E000 (BMP private-use) sorts BEFORE U+1D11E (astral) by code point, but AFTER it
+    // by UTF-16 code unit (0xD834 < 0xE000). The SDK uses code-point order; a JS `.sort()`
+    // would put the astral key first and diverge from the SDK's pre-image.
+    const s = canonicalJson({ "\u{1D11E}": 1, "\uE000": 2 });
+    expect(s.indexOf("\uE000")).toBeLessThan(s.indexOf("\u{1D11E}"));
+  });
+
+  it("rejects a lone surrogate the way the SDK does", () => {
+    // The SDK's canonicalizer raises on a value the UI must not silently accept and hash.
+    expect(() => canonicalJson("\uD800")).toThrow();
+    expect(() => canonicalJson("ok")).not.toThrow();
+  });
+});
