@@ -9,6 +9,7 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectEmpty,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -322,11 +323,15 @@ export function SaveTestCaseDrawer({
                 <SelectValue placeholder="Select dataset" />
               </SelectTrigger>
               <SelectContent>
-                {datasets.map((item) => (
-                  <SelectItem key={item.id} value={item.id} className="text-[12px]">
-                    {item.name}
-                  </SelectItem>
-                ))}
+                {datasets.length ? (
+                  datasets.map((item) => (
+                    <SelectItem key={item.id} value={item.id} className="text-[12px]">
+                      {item.name}
+                    </SelectItem>
+                  ))
+                ) : (
+                  <SelectEmpty>No datasets yet</SelectEmpty>
+                )}
               </SelectContent>
             </Select>
             {duplicate && (
