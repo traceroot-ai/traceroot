@@ -189,6 +189,53 @@ async function main() {
 main().catch(console.error);
 ```
 
+## Offline Evals Quickstart
+
+Author a dataset, run your system against it, and read a **metric-first** summary — fully offline, no key required. Each case runs as its own trace; reporting to the platform is opt-in (drop `local=True` once `initialize(...)` credentials resolve). The same dataset and scorers produce identical identity and output in Python and TypeScript.
+
+```python
+from traceroot import Dataset, evaluate
+
+ds = Dataset("capitals", key="capitals")   # identity is the key, not the name
+ds.add({"country": "France"}, expected="Paris")
+ds.add({"country": "Japan"}, expected="Tokyo")
+
+def task(input):                     # your system under test
+    return look_up_capital(input["country"])
+
+def is_correct(input, output, expected=None):
+    return expected == output
+
+result = evaluate(
+    name="capitals",
+    dataset=ds,
+    task=task,
+    scorers=[is_correct],
+    candidate_version="capitals-v1",  # what the UI groups + compares runs by
+    local=True,                       # run fully offline; report nowhere
+)
+# summary() auto-prints per-metric mean + pass=k/n — never a single run score
+```
+
+```typescript
+import { Dataset, evaluate } from '@traceroot-ai/traceroot';
+
+const ds = new Dataset('capitals', null, { key: 'capitals' });
+ds.add({ country: 'France' }, { expected: 'Paris' });
+ds.add({ country: 'Japan' }, { expected: 'Tokyo' });
+
+const result = await evaluate({
+  name: 'capitals',
+  dataset: ds,
+  task: (input) => lookUpCapital(input.country),
+  scorers: [({ output, expected }) => output === expected],
+  candidateVersion: 'capitals-v1',
+  local: true,
+});
+```
+
+See the [Evaluations docs](https://traceroot.ai/docs/evals/introduction) for datasets, scorers (including LLM judges), reading results, and pulling data.
+
 ## Security & Privacy
 
 Your data security and privacy are our top priorities. Learn more in our [Security and Privacy](SECURITY.md) documentation.

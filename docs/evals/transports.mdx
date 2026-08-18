@@ -1,0 +1,103 @@
+---
+title: Transports
+description: Where an eval reports — the platform, a fake in-memory sink, or nowhere
+---
+
+A transport is the sink an eval reports to. By default, when a key resolves, a run reports through `PlatformTransport`. You can point a run at an explicit sink with `transport=`, or suppress reporting entirely with [`local=True`](/evals/running-evals). Dataset publishing has its own sync objects.
+
+## Types
+
+| Type | Role |
+|---|---|
+| `PlatformTransport` | Reporting sink; the **default** when a key resolves. |
+| `FakeTransport` | In-memory sink — **0 HTTP calls**. Records the exact call sequence in `.calls` (`create_run → register_item×N → record_item_result×N → record_scores×N → finish_run`). The recommended way to unit-test an eval. Not interchangeable with `local=True`: `local` additionally swaps in a non-exporting tracer and suppresses global auto-init, so no spans leave the process; `FakeTransport` runs the normal exporting tracer. |
+| `PlatformDatasetSync` | The real dataset publisher — what `evaluate()` uses under the hood to auto-provision a version. |
+| `LocalDatasetSync` | No-op sync; stay local. |
+| `DatasetPublishAborted` | Raised when a publish confirmation is declined. |
+| `DatasetConflictError` | Raised on an optimistic-concurrency conflict; carries `base_version_id` / `current_version_id`. |
+
+<Note>
+  In Python, import all of these from `traceroot.eval` (for example `from traceroot.eval import FakeTransport, PlatformTransport, PlatformDatasetSync, LocalDatasetSync`). TypeScript exports the whole surface from the package root.
+</Note>
+
+## Unit-testing an eval with `FakeTransport`
+
+`FakeTransport` makes no HTTP calls and records every wire call in `.calls`. Pass it as `transport=` and assert on the sequence — this is the recommended way to test an eval without a backend.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import Dataset, evaluate
+    from traceroot.eval import FakeTransport
+
+    ds = Dataset("weather", key="weather")
+    ds.add({"city": "SF"}, expected="68°F")
+
+    def task(input):
+        return "68°F"
+
+    def reports_temp(input, output, expected=None):
+        return expected in (output or "")
+
+    fake = FakeTransport()
+    result = evaluate(
+        name="weather",
+        dataset=ds,
+        task=task,
+        scorers=[reports_temp],
+        transport=fake,          # 0 HTTP; records everything
+    )
+
+    # No backend was touched. `fake.calls` holds the ordered wire calls —
+    # create_run, register_item×N, record_item_result×N, record_scores×N,
+    # finish_run — so a test can assert the exact sequence the SDK would send.
+    assert len(fake.calls) > 0
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { Dataset, evaluate, FakeTransport } from "@traceroot-ai/traceroot";
+
+    const ds = new Dataset("weather", null, { key: "weather" });
+    ds.add({ city: "SF" }, { expected: "68°F" });
+
+    const task = (input) => "68°F";
+    function reportsTemp({ output, expected }) {
+      return (output ?? "").includes(expected);
+    }
+
+    const fake = new FakeTransport();
+    const result = await evaluate({
+      name: "weather",
+      dataset: ds,
+      task,
+      scorers: [reportsTemp],
+      transport: fake,           // 0 HTTP; records everything
+    });
+
+    // No backend was touched. `fake.calls` holds the ordered wire calls —
+    // create_run, register_item×N, record_item_result×N, record_scores×N,
+    // finish_run — so a test can assert the exact sequence the SDK would send.
+    expect(fake.calls.length).toBeGreaterThan(0);
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+  `transport=` and `local=True` are mutually exclusive. Use `transport=FakeTransport()` when you want to assert on the exact call sequence; use `local=True` when you just want the run to happen and report nowhere.
+</Note>
+
+## Dataset sync and conflicts
+
+`PlatformDatasetSync` and `LocalDatasetSync` are the sync objects passed to [`Dataset.push()`](/evals/datasets) — `PlatformDatasetSync` really publishes, `LocalDatasetSync` is a no-op. A declined publish confirmation raises `DatasetPublishAborted`. An optimistic-concurrency conflict raises `DatasetConflictError`, which carries `base_version_id` and `current_version_id` so you can resolve which version you diverged from.
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Running evals" icon="play" href="/evals/running-evals">
+    Pass a transport to a run, or suppress reporting with `local=True`.
+  </Card>
+  <Card title="Datasets" icon="database" href="/evals/datasets">
+    Publish dataset versions with `push()` and the dataset-sync objects.
+  </Card>
+</CardGroup>

@@ -1,0 +1,111 @@
+---
+title: Reading Results
+description: Read the per-metric summary and per-case results an eval run returns
+---
+
+`evaluate()` returns an `EvalRunResult`. It carries a per-metric summary, one result per case, the counts, and the reporting state — plus enough retained policy to upload the run later.
+
+A run has **no single headline score**. `summary()` reports one line per metric, and each case's status is `errored` or `not_scored` — never a synthesized pass. Reading a run means reading metrics, not a number.
+
+## `summary()`
+
+`summary()` returns a head line followed by **one line per metric**:
+
+```
+name: mean=… pass=k/n count=…
+```
+
+The output is **byte-identical between Python and TypeScript**. `pass=k/n` is resolved from the scorer's declared threshold exactly as the platform resolves it. **`pass` is omitted when a metric has no threshold** — a plain function scorer records a mean but no pass/fail.
+
+<Warning>
+  Never collapse `summary()` to a single number. Pass/fail is **per metric**, decided by that scorer's threshold and direction; a case's status is `errored` or `not_scored`. Presenting one run score is the mistake to avoid.
+</Warning>
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    result = evaluate(name="weather", dataset=ds, task=task, scorers=[...], local=True)
+    print(result.summary())
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    const result = await evaluate({ name: "weather", dataset: ds, task, scorers: [...], local: true });
+    console.log(result.summary());
+    ```
+  </Tab>
+</Tabs>
+
+<Warning>
+  Tokens and cost are **platform-derived** — priced by the backend from the judge's own span attributes. They are **not** in the local `summary()`. Don't expect tokens or cost in local output; they're a platform/UI feature.
+</Warning>
+
+## Per-case results
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import case_status
+
+    for item in result.results:
+        print(item.case_id, case_status(item))
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { caseStatus } from "@traceroot-ai/traceroot";
+
+    for (const item of result.itemResults) {
+      console.log(item.caseId, caseStatus(item));
+    }
+    ```
+  </Tab>
+</Tabs>
+
+- **`results` / `itemResults`** → a list of `EvalItemResult`, each with: `case_id` / `caseId`, `input` / `output` / `expected`, `scores`, `scorer_errors`, `error`, `trace_id`, and `duration_ms`.
+- **`case_status(item)` / `caseStatus(item)`** (module-level functions, not methods) → `"errored" | "not_scored"`. There is no synthesized "passed" case status.
+- **Counts** → `errored`, `not_scored` / `notScored`, `task_error_count`, `scorer_error_count`, `case_count`.
+
+## Reporting state and retained policy
+
+- **`upload_state` / `uploadState`** → `status`, `dashboard_url` / `dashboardUrl`, and `failed_result_count` / `failedResultCount`.
+- **`candidate_version`** → the label the run was tagged with (what the UI groups and compares by).
+- **`scorer_specs`** → the retained scorer policy, so a later `upload()` re-declares the same thresholds.
+- **`emitted_metrics`** → the ownership manifest, so a re-upload stays consistent.
+- **`dataset`** → after a reported run, a reference to the exact dataset version the run measured: `dataset_id` / `datasetId`, `revision`, `dataset_version_id` / `datasetVersionId`, and `case_count` / `caseCount`. Pull that version to reproduce the run — see [Pulling data](/evals/pulling-data).
+
+## Deferred reporting
+
+Save a run and upload it later — useful when the run happens somewhere without credentials.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    result.save("run.json")
+
+    later = EvalRunResult.load("run.json")
+    later.upload(transport=PlatformTransport())   # report a retained/loaded run later
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    await result.save("run.json");
+
+    const later = await EvalRunResult.load("run.json");
+    await later.upload({ transport: new PlatformTransport() });
+    ```
+  </Tab>
+</Tabs>
+
+The retained `scorer_specs` and `emitted_metrics` are what make a deferred `upload()` re-declare the same thresholds and metric ownership as the original run.
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Transports" icon="plug" href="/evals/transports">
+    Choose the sink an upload reports to, or record calls with `FakeTransport`.
+  </Card>
+  <Card title="Pulling data" icon="download" href="/evals/pulling-data">
+    Pull an exact dataset version to reproduce a past run.
+  </Card>
+</CardGroup>

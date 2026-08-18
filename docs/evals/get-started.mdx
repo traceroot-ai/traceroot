@@ -1,0 +1,219 @@
+---
+title: Get Started
+description: Author a dataset, write a task and a scorer, and run your first eval — fully offline
+---
+
+An eval in TraceRoot is a trace: each case runs as its own `evaluation-item → task → scorer` trace you can open and drill into. Authoring a dataset and running an eval are free and offline — you only report to the platform when you opt in. This guide takes you end to end with `local=True`, so no credentials are needed.
+
+<Note>
+  There is **no single headline score** for a run. Each scorer emits a metric, and pass/fail is decided **per metric** by that scorer's declared threshold and direction. A case's status is `errored` or `not_scored` — never a fabricated pass. See [Reading results](/evals/reading-results).
+</Note>
+
+## Install
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```bash
+    npm i @traceroot-ai/traceroot
+    ```
+  </Tab>
+</Tabs>
+
+## Build and run an eval
+
+<Steps>
+  <Step title="Define a dataset with a key">
+    A `Dataset` is a named, versioned bag of cases. Its identity is the `key` (not the name), so set `key` explicitly on any dataset you'll re-run — renaming it then won't fork its history.
+
+    <Tabs>
+      <Tab title="Python">
+        ```python
+        from traceroot import Dataset, evaluate
+
+        ds = Dataset("Capitals QA", key="capitals-qa")
+        ```
+      </Tab>
+      <Tab title="TypeScript">
+        ```typescript
+        import { Dataset, evaluate } from "@traceroot-ai/traceroot";
+
+        const ds = new Dataset("Capitals QA", null, { key: "capitals-qa" });
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Add a case or two with expected values">
+    Each case carries an `input` and an optional `expected` ground truth. Case ids are content-derived from the dataset key plus the input, so they're insert- and reorder-safe and identical across SDKs.
+
+    <Tabs>
+      <Tab title="Python">
+        ```python
+        ds.add({"country": "France"}, expected="Paris")
+        ds.add({"country": "Japan"}, expected="Tokyo")
+        ```
+      </Tab>
+      <Tab title="TypeScript">
+        ```typescript
+        ds.add({ country: "France" }, { expected: "Paris" });
+        ds.add({ country: "Japan" }, { expected: "Tokyo" });
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Write a task">
+    The task is the system under evaluation: it maps an `input` to an `output` (it may be async).
+
+    <Tabs>
+      <Tab title="Python">
+        ```python
+        CAPITALS = {"France": "Paris", "Japan": "Tokyo"}
+
+        def task(input):
+            return CAPITALS.get(input["country"], "")
+        ```
+      </Tab>
+      <Tab title="TypeScript">
+        ```typescript
+        const CAPITALS: Record<string, string> = { France: "Paris", Japan: "Tokyo" };
+
+        function task(input: { country: string }) {
+          return CAPITALS[input.country] ?? "";
+        }
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Write a scorer">
+    A plain function is the zero-ceremony scorer: it receives the case's `(input, output, expected, metadata)` and returns a scalar. The metric is named after the function. (With no declared threshold there's no pass/fail — just a recorded mean. Declare a policy with [`Scorer.code`](/evals/scorers) when you want pass/fail.)
+
+    <Tabs>
+      <Tab title="Python">
+        ```python
+        def matches_expected(input, output, expected=None):
+            return output == expected
+        ```
+      </Tab>
+      <Tab title="TypeScript">
+        ```typescript
+        function matchesExpected({ output, expected }) {
+          return output === expected;
+        }
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Run it offline">
+    Pass `local=True` to run in full and report nowhere: no credentials read, no HTTP, no spans exported. On an interactive terminal, `evaluate()` prints its `summary()` on completion — no manual print needed.
+
+    <Tabs>
+      <Tab title="Python">
+        ```python
+        result = evaluate(
+            name="capitals",
+            dataset=ds,
+            task=task,
+            scorers=[matches_expected],
+            candidate_version="capitals-v1",
+            local=True,          # run fully offline; report nowhere
+        )
+        ```
+      </Tab>
+      <Tab title="TypeScript">
+        ```typescript
+        const result = await evaluate({
+          name: "capitals",
+          dataset: ds,
+          task,
+          scorers: [matchesExpected],
+          candidateVersion: "capitals-v1",
+          local: true,           // run fully offline; report nowhere
+        });
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Read the summary">
+    `summary()` prints a head line plus **one line per metric** — `name: mean=… pass=k/n count=…`. It's byte-identical across Python and TypeScript. `pass=k/n` appears only when the metric has a declared threshold; the plain-function scorer above has none, so you'll see its mean and count.
+
+    <Tabs>
+      <Tab title="Python">
+        ```python
+        print(result.summary())   # already auto-printed on a TTY
+        ```
+      </Tab>
+      <Tab title="TypeScript">
+        ```typescript
+        console.log(result.summary());  // already auto-printed on a TTY
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+</Steps>
+
+## Report to the platform
+
+Reporting is opt-in and off in this quickstart because of `local=True`. To report a run, drop `local=True` and let credentials resolve through the same `initialize(...)` call the tracing SDK uses. When a key resolves, reporting to the platform is the default.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    import traceroot
+    traceroot.initialize(api_key="…", host_url="…")
+
+    result = evaluate(
+        name="capitals",
+        dataset=ds,
+        task=task,
+        scorers=[matches_expected],
+        candidate_version="capitals-v1",
+        # no local=True → reports to the platform when the key resolves
+    )
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { initialize } from "@traceroot-ai/traceroot";
+    initialize({ apiKey: "…", hostUrl: "…" });
+
+    const result = await evaluate({
+      name: "capitals",
+      dataset: ds,
+      task,
+      scorers: [matchesExpected],
+      candidateVersion: "capitals-v1",
+      // no local:true → reports to the platform when the key resolves
+    });
+    ```
+  </Tab>
+</Tabs>
+
+<Note>
+  `candidate_version` / `candidateVersion` labels the thing under test (a model id, prompt version, or git sha). It's what the platform groups and compares runs by. See [Running an eval](/evals/running-evals) for the rest of `evaluate()`'s options and [Transports](/evals/transports) for self-host and custom sinks.
+</Note>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Datasets" icon="table" href="/evals/datasets">
+    Author, version, persist, and publish datasets.
+  </Card>
+  <Card title="Scorers" icon="ruler" href="/evals/scorers">
+    Plain functions, declared-policy code scorers, and LLM judges.
+  </Card>
+  <Card title="Running an eval" icon="play" href="/evals/running-evals">
+    Every parameter of `evaluate()` and how runs report.
+  </Card>
+  <Card title="Reading results" icon="chart-bar" href="/evals/reading-results">
+    Metric-first summaries, per-case status, and counts.
+  </Card>
+</CardGroup>

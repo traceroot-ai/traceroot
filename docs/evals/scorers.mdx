@@ -1,0 +1,219 @@
+---
+title: Scorers
+description: Map a case's output to one or more metrics — from plain functions to LLM judges
+---
+
+A scorer maps a case's `(input, output, expected, metadata)` to one or more metrics. There are three escalating forms; reach for the simplest one that does the job.
+
+Before anything else, the rule that governs how scores are read:
+
+<Warning>
+  **Metric-first.** A run has **no single headline score**. Each scorer emits a metric, and pass/fail is decided **per metric** by that scorer's declared `threshold` + `direction`. A case's status is `errored` or `not_scored` — never a fabricated "passed". Never collapse a run to one number. See [Reading results](/evals/reading-results).
+</Warning>
+
+## 1. Plain function — the simplest form
+
+The simplest scorer is an ordinary function. The metric is named after the function.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    def reports_temp(input, output, expected=None, metadata=None):
+        return expected in (output or "")
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    const reportsTemp = ({ input, output, expected }) =>
+      typeof output === "string" && output.includes(expected);
+    ```
+  </Tab>
+</Tabs>
+
+A plain function may return a `bool`, a `float`/`number`, or any of the shapes in [Return shapes](#return-shapes). Because it declares **no policy**, there is no threshold — so there is **no pass/fail and no comparison metadata**, just a recorded mean. This is the happy path when you only want to watch a number move.
+
+## 2. `Scorer.code(...)` — a declared policy
+
+When you want the platform to decide pass/fail and to compare runs, declare a policy with `Scorer.code`.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import Scorer, Score
+
+    @Scorer.code(
+        key="covers_cities",           # stable cross-language identity
+        value_type="numeric",          # "numeric" | "boolean" | "categorical"
+        direction="higher_is_better",  # "higher_is_better" | "lower_is_better" | "none"
+        threshold=1.0,                 # the ONLY source of pass/fail
+        name=None, description=None, metadata=None,
+    )
+    def covers_cities(ctx):            # ctx: ScorerContext
+        hit = all(c.lower() in (ctx.output or "").lower() for c in ctx.input["cities"])
+        return Score(name="coverage", value=1.0 if hit else 0.0, comment="…")
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { Scorer } from "@traceroot-ai/traceroot";
+
+    const coversCities = Scorer.code(
+      {
+        key: "covers_cities",         // stable cross-language identity
+        valueType: "numeric",         // "numeric" | "boolean" | "categorical"
+        direction: "higher_is_better",// "higher_is_better" | "lower_is_better" | "none"
+        threshold: 1.0,               // the ONLY source of pass/fail
+      },
+      (ctx) => {
+        const hit = ctx.input.cities.every((c) =>
+          (ctx.output ?? "").toLowerCase().includes(c.toLowerCase()));
+        return { name: "coverage", value: hit ? 1.0 : 0.0, comment: "…" };
+      },
+    );
+    ```
+  </Tab>
+</Tabs>
+
+- **`key`** is the stable semantic identity. It must match across Python and TypeScript for a scorer to converge.
+- **`value_type`** is `"numeric"`, `"boolean"`, or `"categorical"`.
+- **`threshold` + `direction` are the entire pass/fail rule.** Pass comes from here and nowhere else — a scorer with no threshold records a mean but never a pass/fail.
+
+## 3. `Scorer.llm_judge(...)` — the model and prompt are the scorer
+
+For an LLM judge, the model plus the prompt *are* the scorer. Its `version` is a deterministic **`cfg_` hash** of the config — model, messages, output type, threshold, direction, value type, metadata — so there is no fabricated source to drift from. The `cfg_` is identical across Python and TypeScript.
+
+Judge prompts use `{{input}}`, `{{output}}`, and `{{expected}}` placeholders. The judge's **`required_inputs` are derived** from the placeholders in `messages` — you don't declare them.
+
+### Static form
+
+Declarative config only, no body:
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import Scorer
+
+    no_conclusion = Scorer.llm_judge(
+        key="no_conclusion", name="no_conclusion", model="claude-opus-4-8",
+        messages=[
+            {"role": "system", "content": "Reply 1.0 if NO concluding paragraph, else 0.0."},
+            {"role": "user", "content": "ANSWER:\n{{output}}"},  # {{input}}/{{output}}/{{expected}}
+        ],
+        value_type="numeric", direction="higher_is_better", threshold=1.0,
+        description="…",
+    )
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { Scorer } from "@traceroot-ai/traceroot";
+
+    const noConclusion = Scorer.llmJudge({
+      key: "no_conclusion", name: "no_conclusion", model: "claude-opus-4-8",
+      messages: [
+        { role: "system", content: "Reply 1.0 if NO concluding paragraph, else 0.0." },
+        { role: "user", content: "ANSWER:\n{{output}}" }, // {{input}}/{{output}}/{{expected}}
+      ],
+      valueType: "numeric", direction: "higher_is_better", threshold: 1.0,
+      description: "…",
+    });
+    ```
+  </Tab>
+</Tabs>
+
+A **`rubric=`** shorthand exists as an alternative to spelling out full `messages`.
+
+### Dynamic form
+
+Wrap a builder that returns the judge's **template variables per case** — never a score:
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    @Scorer.llm_judge(
+        key="comparison_present", name="comparison_present", model="claude-opus-4-8",
+        messages=[
+            {"role": "system", "content": "… {{answer}} …"},
+            {"role": "user", "content": "… {{cities}} …"},
+        ],
+        value_type="numeric", direction="higher_is_better", threshold=1.0,
+    )
+    def comparison_present(ctx):
+        return {"answer": ctx.output, "cities": " and ".join(ctx.input["cities"])}
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    const comparisonPresent = Scorer.llmJudge(
+      {
+        key: "comparison_present", name: "comparison_present", model: "claude-opus-4-8",
+        messages: [
+          { role: "system", content: "… {{answer}} …" },
+          { role: "user", content: "… {{cities}} …" },
+        ],
+        valueType: "numeric", direction: "higher_is_better", threshold: 1.0,
+      },
+      (ctx) => ({ answer: ctx.output, cities: ctx.input.cities.join(" and ") }),
+    );
+    ```
+  </Tab>
+</Tabs>
+
+In TypeScript, `Scorer.llmJudge(opts)` is the static form and `Scorer.llmJudge(opts, builder)` is the dynamic form. TypeScript opts additionally accept `outputType: "score"`.
+
+### Offline / deterministic stub
+
+Pass `complete=(model, messages) -> str` (Python) / a `complete` in opts (TypeScript) to stub the model. The judge then renders and parses without a network call — use this in examples and CI so judge scorers run without any API keys.
+
+<Note>
+  The `complete=` stub is what keeps judge-based examples runnable offline. Combine it with `local=True` for a fully self-contained run.
+</Note>
+
+## Aliases and introspection
+
+- The bare imports **`scorer`** (equivalent to `Scorer.code`) and **`llm_judge`** (equivalent to `Scorer.llm_judge`) still work as legacy aliases. Prefer the `Scorer.*` namespace in new code.
+- **`describe_scorers([...])`** / **`describeScorers([...])`** returns the descriptors the platform receives — absent fields are **omitted, never invented**. Useful for a "what does the platform see?" snippet.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot.eval import describe_scorers
+
+    print(describe_scorers([covers_cities, no_conclusion]))
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { describeScorers } from "@traceroot-ai/traceroot";
+
+    console.log(describeScorers([coversCities, noConclusion]));
+    ```
+  </Tab>
+</Tabs>
+
+## Supporting types
+
+**`ScorerContext(input, output, expected, metadata)`** is what a scorer body receives.
+
+**`Score(name, value, comment=None, metadata=None, version=None)`** is a single named metric value.
+
+### Return shapes
+
+A scorer may return any of:
+
+- a **scalar** (`bool` / `float` / `number`),
+- a single **`Score`**,
+- a **`list[Score]`** / `Score[]`,
+- a **`{metric: value}` map** — one `Score` per entry, or
+- a **`DeferredScore`** — a pending human or async score. It is represented as pending, **never** as a numeric `0`.
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Running evals" icon="play" href="/evals/running-evals">
+    Point a task and your scorers at a dataset and run the eval.
+  </Card>
+  <Card title="Reading results" icon="table" href="/evals/reading-results">
+    Per-metric means, `pass=k/n`, and case status — read metric-first.
+  </Card>
+</CardGroup>
