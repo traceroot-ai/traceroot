@@ -24,8 +24,9 @@ The simplest scorer is an ordinary function. The metric is named after the funct
   </Tab>
   <Tab title="TypeScript">
     ```typescript
-    const reportsTemp = ({ input, output, expected }) =>
-      typeof output === "string" && output.includes(expected);
+    function reportsTemp({ input, output, expected }) {
+      return typeof output === "string" && output.includes(expected);
+    }
     ```
   </Tab>
 </Tabs>

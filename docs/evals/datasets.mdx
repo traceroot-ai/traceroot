@@ -134,7 +134,7 @@ The revision is **order-independent**: the same set of cases always produces the
 
 ## Publish a version
 
-`push(sync, *, on_existing=?)` publishes **one immutable version** of the dataset. The `sync` argument is a dataset-sync transport (see [Transports](/evals/transports)): `PlatformDatasetSync()` really publishes; `LocalDatasetSync()` is a no-op that keeps everything local.
+`push(transport, *, on_existing=?)` publishes **one immutable version** of the dataset. The `transport` argument is a dataset-sync transport (see [Transports](/evals/transports)): `PlatformDatasetSync()` really publishes; `LocalDatasetSync()` is a no-op that keeps everything local.
 
 - Re-pushing **unchanged** content is an **idempotent no-op** — it reuses the current version.
 - Pushing **changed** content publishes a **new version of the same dataset**, not a fork.
@@ -177,7 +177,7 @@ The revision is **order-independent**: the same set of cases always produces the
     console.log(ds.snapshot().revision);       // rev_… (byte-identical to Python)
     await ds.save("capitals-qa.jsonl");
 
-    const push = await ds.push(new PlatformDatasetSync(), { onExisting: () => true });
+    const push = await ds.push(new PlatformDatasetSync(), undefined, { onExisting: () => true });
     console.log(push.status, push.datasetVersionId, push.versionNumber);
     ```
   </Tab>

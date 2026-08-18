@@ -224,11 +224,15 @@ const ds = new Dataset('capitals', null, { key: 'capitals' });
 ds.add({ country: 'France' }, { expected: 'Paris' });
 ds.add({ country: 'Japan' }, { expected: 'Tokyo' });
 
+function isCorrect({ output, expected }) {
+  return output === expected;
+}
+
 const result = await evaluate({
   name: 'capitals',
   dataset: ds,
   task: (input) => lookUpCapital(input.country),
-  scorers: [({ output, expected }) => output === expected],
+  scorers: [isCorrect],
   candidateVersion: 'capitals-v1',
   local: true,
 });
