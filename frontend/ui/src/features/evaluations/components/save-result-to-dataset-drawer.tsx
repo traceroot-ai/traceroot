@@ -177,8 +177,19 @@ export function SaveResultToDatasetDrawer({
     },
   });
 
+  const hasChanges =
+    action === "update_existing_case"
+      ? (meta.picksDataset && targetDatasetId !== sourceDatasetId) ||
+        input.trim() !== result.input.trim() ||
+        (useCandidateAsExpected
+          ? (result.candidateOutput ?? "").trim() !== (result.expectedOutput ?? "").trim()
+          : expected.trim() !== (result.expectedOutput ?? "").trim())
+      : true;
+
   const canSave =
-    !save.isPending && (!meta.picksDataset || datasets.some((d) => d.id === targetDatasetId));
+    !save.isPending &&
+    (!meta.picksDataset || datasets.some((d) => d.id === targetDatasetId)) &&
+    hasChanges;
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
@@ -302,7 +313,7 @@ export function SaveResultToDatasetDrawer({
             Cancel
           </Button>
           <Button size="sm" disabled={!canSave} onClick={() => save.mutate()}>
-            {save.isPending ? "Saving…" : meta.cta}
+            {save.isPending ? "Saving…" : "Save"}
           </Button>
         </DrawerFooter>
       </DrawerContent>
