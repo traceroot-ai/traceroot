@@ -1,13 +1,11 @@
 ---
 title: Datasets
-description: A named, versioned bag of cases with content-addressed identity
+description: A named, versioned collection of the cases you evaluate against
 ---
 
-A dataset is a named collection of **cases** — one `input`, an optional `expected` ground truth, and optional `metadata`. Authoring a dataset is free and offline: you build it in code, snapshot it, save it to disk, and — as a separate, deliberate step — publish an immutable version to the platform.
+A dataset is a named collection of **cases** — each with an `input`, an optional `expected` answer, and optional `metadata`. You build it in code, save it to disk, and publish it to the platform when you're ready.
 
-Everything about a dataset's identity is **content-addressed**. The dataset id, the case ids, and the snapshot revision are all hashes, and they are **byte-identical in Python and TypeScript**, so the same dataset reconciles across both SDKs and across machines.
-
-## Construct
+## Create a dataset
 
 <Tabs>
   <Tab title="Python">
@@ -26,96 +24,39 @@ Everything about a dataset's identity is **content-addressed**. The dataset id, 
   </Tab>
 </Tabs>
 
-The signatures are `Dataset(name, description=None, *, key=None)` (Python) and `new Dataset(name, description = null, opts?: { key })` (TypeScript).
+`key` is what identifies the dataset — it defaults to the name. Set it explicitly on any dataset you'll re-run, so you can rename the dataset later without starting a new history.
 
-### Identity is the `key`, not the name
-
-The dataset id is a hash of the **`key`**:
-
-```
-dataset_id = "ds_" + sha256(key)
-```
-
-`key` defaults to `name`. That default is risky for any dataset you intend to re-run: if you rename the dataset without a `key`, the id changes and you have silently **forked** it into a new dataset — the platform can no longer reconcile the new runs against the old ones. Set `key` explicitly and the id stays stable no matter how the display name drifts.
-
-<Note>
-  Always set `key` on a dataset you'll re-run. Renaming a dataset with a fixed `key` keeps its identity; renaming one without a `key` forks it.
-</Note>
-
-## Author cases
+## Add cases
 
 <Tabs>
   <Tab title="Python">
     ```python
-    from traceroot import Dataset, EvalCase
-
-    ds = Dataset("Capitals QA", key="capitals-qa")
     ds.add({"country": "France"}, expected="Paris")
-    ds.add({"country": "Japan"}, expected="Tokyo", id="case-japan")  # bring-your-own id
-    ds.upsert(EvalCase(input={"country": "Italy"}, expected="Rome"))  # idempotent
+    ds.add({"country": "Japan"}, expected="Tokyo", id="case-japan")
 
     print(len(ds))
     ```
   </Tab>
   <Tab title="TypeScript">
     ```typescript
-    import { Dataset } from "@traceroot-ai/traceroot";
-
-    const ds = new Dataset("Capitals QA", null, { key: "capitals-qa" });
     ds.add({ country: "France" }, { expected: "Paris" });
-    ds.add({ country: "Japan" }, { expected: "Tokyo", id: "case-japan" }); // bring-your-own id
-    ds.upsert({ input: { country: "Italy" }, expected: "Rome" }); // idempotent
+    ds.add({ country: "Japan" }, { expected: "Tokyo", id: "case-japan" });
 
     console.log(ds.size);
     ```
   </Tab>
 </Tabs>
 
-- **`add(input, *, expected=None, metadata=None, id=None)`** (Python) / **`add(input, opts?)`** (TypeScript) — append a case, returns the `EvalCase`.
-- **`upsert(EvalCase(...))`** — add-or-replace by id. It is idempotent: re-running your authoring script is a no-op, not a duplicate.
-- **`update(id, *, input=?, expected=?, metadata=?)`** — edit a case in place; validates the new payload.
-- A dataset is iterable, with `len(dataset)` (Python) / `dataset.size` (TypeScript). Each case's `metadata` rides along untouched.
+- **`add(input, …)`** — add a case and return it.
+- **`upsert(case)`** — add or replace by id, so re-running your authoring script never duplicates a case.
+- **`update(id, …)`** — edit a case in place.
+- **`archive(id)`** / **`remove(id)`** — retire a case, or delete it outright.
 
-### Case ids are content-derived
+A case's id is derived from its content, so adding or reordering cases never renumbers the others. Pass `id=` to use your own identifier instead — a ticket number, or a row id from your warehouse.
 
-By default, a case's id is a hash of the dataset key plus the case input:
+## Save and load
 
-```
-id = "tc_" + hash
-```
-
-Because the id comes from content and not from position, case ids are **insert- and reorder-safe** — adding or shuffling cases never renumbers the others — and they are **identical across SDKs**. This is what lets the same case converge whether it was authored in Python or TypeScript.
-
-Passing an explicit `id=` is the manual override: it pins a case to an external identifier (a ticket number, a warehouse row id) and trades away that automatic convergence. Use it as the exception, not the default.
-
-## Snapshot and revision
-
-`snapshot()` freezes the current cases into an immutable `DatasetSnapshot`. The snapshot's `.revision` is a content fingerprint of all its cases:
-
-```
-revision = "rev_" + hash
-```
-
-The revision is **order-independent**: the same set of cases always produces the same `rev_`, and any content edit — including a metadata change — produces a new one. This is exactly what the platform compares to decide whether a `push()` reuses the current version or publishes a new one.
-
-<Tabs>
-  <Tab title="Python">
-    ```python
-    print(ds.dataset_id)            # ds_… (stable function of key)
-    print(ds.snapshot().revision)   # rev_… (content address; identical in TS)
-    ```
-  </Tab>
-  <Tab title="TypeScript">
-    ```typescript
-    console.log(ds.datasetId);            // ds_… (identical to Python)
-    console.log(ds.snapshot().revision);  // rev_… (byte-identical to Python)
-    ```
-  </Tab>
-</Tabs>
-
-## Persist locally
-
-`save(path)` writes JSONL — one header line (name, key, description) followed by one line per case. `Dataset.load(path)` reads it back. The format is diffable in a PR, greppable, and hand-editable.
+`save(path)` writes the dataset to disk and `load(path)` reads it back. Use a `.jsonl` path for a format that diffs cleanly in a pull request.
 
 <Tabs>
   <Tab title="Python">
@@ -126,192 +67,71 @@ The revision is **order-independent**: the same set of cases always produces the
   </Tab>
   <Tab title="TypeScript">
     ```typescript
-    await ds.save("capitals-qa.jsonl");
-    const ds2 = await Dataset.load("capitals-qa.jsonl");
+    ds.save("capitals-qa.jsonl");
+    const ds2 = Dataset.load("capitals-qa.jsonl");
     ```
   </Tab>
 </Tabs>
 
 ## Publish a version
 
-`push(transport, *, on_existing=?)` publishes **one immutable version** of the dataset. The `transport` argument is a dataset-sync transport (see [Reporting sinks](/evals/running-evals#reporting-sinks)): `PlatformDatasetSync()` really publishes; `LocalDatasetSync()` is a no-op that keeps everything local.
-
-- Re-pushing **unchanged** content is an **idempotent no-op** — it reuses the current version.
-- Pushing **changed** content publishes a **new version of the same dataset**, not a fork.
-- Publishing into an **already-existing** dataset asks for confirmation on an interactive terminal (a `[y/N]` prompt). You can answer yes non-interactively with `on_existing=lambda info: True` (Python) / `{ onExisting: () => true }` (TypeScript), or set `TRACEROOT_ASSUME_YES=1` to bypass. A declined confirmation raises **`DatasetPublishAborted`**.
-- `push()` returns a **`PushResult`** carrying `status`, `dataset_version_id` (an opaque snowflake string), and `version_number`.
-
-<Note>
-  Only an explicit `.push()` can prompt for confirmation. **`evaluate()` never prompts** — it auto-provisions and auto-approves the exact dataset version it scores. See [Running evals](/evals/running-evals).
-</Note>
+`push()` publishes the dataset to the platform as one immutable version. Re-pushing unchanged cases is a no-op; changed cases publish a new version of the same dataset.
 
 <Tabs>
   <Tab title="Python">
     ```python
-    from traceroot import Dataset, EvalCase
     from traceroot.eval import PlatformDatasetSync
 
-    ds = Dataset("Capitals QA", key="capitals-qa")
-    ds.add({"country": "France"}, expected="Paris")
-    ds.add({"country": "Japan"}, expected="Tokyo", id="case-japan")   # bring-your-own id
-    ds.upsert(EvalCase(input={"country": "Italy"}, expected="Rome"))  # idempotent
-
-    print(ds.dataset_id)                 # ds_… (stable fn of key)
-    print(ds.snapshot().revision)        # rev_… (content address; identical in TS)
-    ds.save("capitals-qa.jsonl")
-
-    # publishing is a deliberate, separate step:
-    push = ds.push(PlatformDatasetSync(), on_existing=lambda info: True)
-    print(push.status, push.dataset_version_id, push.version_number)
+    push = ds.push(PlatformDatasetSync())
+    print(push.status, push.version_number)
     ```
   </Tab>
   <Tab title="TypeScript">
     ```typescript
-    import { Dataset, PlatformDatasetSync } from "@traceroot-ai/traceroot";
+    import { PlatformDatasetSync } from "@traceroot-ai/traceroot";
 
-    const ds = new Dataset("Capitals QA", null, { key: "capitals-qa" });
-    ds.add({ country: "France" }, { expected: "Paris" });
-    ds.add({ country: "Japan" }, { expected: "Tokyo", id: "case-japan" });
-
-    console.log(ds.datasetId);                 // ds_… (identical to Python)
-    console.log(ds.snapshot().revision);       // rev_… (byte-identical to Python)
-    await ds.save("capitals-qa.jsonl");
-
-    const push = await ds.push(new PlatformDatasetSync(), undefined, { onExisting: () => true });
-    console.log(push.status, push.datasetVersionId, push.versionNumber);
+    const push = await ds.push(new PlatformDatasetSync());
+    console.log(push.status, push.versionNumber);
     ```
   </Tab>
 </Tabs>
 
-## `EvalCase`
+Publishing into a dataset that already exists asks for confirmation on an interactive terminal. Pass `on_existing=lambda info: True` (Python) / `{ onExisting: () => true }` (TypeScript), or set `TRACEROOT_ASSUME_YES=1`, to skip the prompt in CI. A declined prompt raises `DatasetPublishAborted`.
 
-A single case. Its fields are `input` (any JSON), `expected` (optional ground truth), `metadata` (optional), and `id` (content-derived unless you supply one).
+You don't need to publish before running an eval — `evaluate()` publishes a local dataset for you and never prompts. See [Running evals](/evals/running-evals).
+
+## Pull a dataset
+
+Pull a published dataset back down as an ordinary local `Dataset` — iterate it, edit it, save it, or evaluate against it.
 
 <Tabs>
   <Tab title="Python">
     ```python
-    from traceroot import EvalCase
+    from traceroot import pull_dataset, pull_dataset_version
 
-    EvalCase(input={"country": "France"}, expected="Paris", metadata=None, id=None)
+    ds = pull_dataset("ds_…")                      # the current version
+    old = pull_dataset_version("…")                # one exact version
     ```
   </Tab>
   <Tab title="TypeScript">
     ```typescript
-    import type { EvalCase } from "@traceroot-ai/traceroot";
+    import { pullDataset, pullDatasetVersion } from "@traceroot-ai/traceroot";
 
-    const frCase: EvalCase = { input: { country: "France" }, expected: "Paris" };
+    const ds = await pullDataset("ds_…");          // the current version
+    const old = await pullDatasetVersion("…");     // one exact version
     ```
   </Tab>
 </Tabs>
 
-You'll mostly create cases through `Dataset.add` / `Dataset.upsert`. Direct construction matters for `upsert` and for building datasets programmatically.
+To reproduce a past run, pull the version that run recorded (`result.dataset.dataset_version_id`) and re-run it with your own task and scorers.
 
-## Pull a dataset back down
-
-Datasets you publish can be pulled back down as ordinary local `Dataset` objects — iterate, edit, save, re-publish, or evaluate against them. You pull **data, not runs**: a run is task + scorers + data, and only the data lives on the platform, so there is deliberately no `pull_run`. Pull the **current** version of a dataset, or **one exact** immutable version.
-
-### Pull the current version
-
-`pull_dataset(dataset_id)` returns the dataset's **current** version as a local `Dataset`. Pass `version_id=` to resolve a specific version instead. The returned dataset carries `dataset_version_id` — the version it resolved to.
-
-<Tabs>
-  <Tab title="Python">
-    ```python
-    from traceroot import pull_dataset
-
-    ds = pull_dataset("ds_…")                     # current version
-    print(ds.dataset_version_id)                  # the version it resolved to
-    print(len(ds))
-
-    # or resolve a specific version by id:
-    ds = pull_dataset("ds_…", version_id="…")
-    ```
-  </Tab>
-  <Tab title="TypeScript">
-    ```typescript
-    import { pullDataset } from "@traceroot-ai/traceroot";
-
-    const ds = await pullDataset("ds_…");         // current version
-    console.log(ds.datasetVersionId);             // the version it resolved to
-    console.log(ds.size);
-
-    // or resolve a specific version by id:
-    const dsAt = await pullDataset("ds_…", { versionId: "…" });
-    ```
-  </Tab>
-</Tabs>
-
-### Pull one exact version
-
-`pull_dataset_version(version_id)` returns one exact immutable version as a local `Dataset`. Passing `dataset_id=` **validates** that the version belongs to that dataset — a foreign version id raises instead of returning the wrong data.
-
-<Tabs>
-  <Tab title="Python">
-    ```python
-    from traceroot import pull_dataset_version
-
-    version = pull_dataset_version("…")                              # exact version
-    owned   = pull_dataset_version("…", dataset_id="ds_…")           # validates ownership
-    ```
-  </Tab>
-  <Tab title="TypeScript">
-    ```typescript
-    import { pullDatasetVersion } from "@traceroot-ai/traceroot";
-
-    const version = await pullDatasetVersion("…");                   // exact version
-    const owned   = await pullDatasetVersion("…", { datasetId: "ds_…" }); // validates ownership
-    ```
-  </Tab>
-</Tabs>
-
-<Note>
-  Passing a `version_id` that doesn't belong to the given `dataset_id` raises rather than returning data from a different dataset. Use `dataset_id=` whenever you want that ownership guarantee.
-</Note>
-
-## Reproduce a run
-
-Because only the data is stored, reproducing a past run is a two-part move: pull the exact `dataset_version_id` the run recorded, then bring your own task and scorers and re-run. Use `local=True` on the replay so the reproduction doesn't pollute run history.
-
-<Tabs>
-  <Tab title="Python">
-    ```python
-    from traceroot import evaluate, pull_dataset_version
-
-    # 1. A reported run records the exact dataset version it scored.
-    reported = evaluate(name="x", dataset=ds, task=task, scorers=[s])
-    version = reported.dataset.dataset_version_id
-
-    # 2. Pull that exact version back down (validated against the dataset).
-    replay_data = pull_dataset_version(version, dataset_id=ds.dataset_id)
-
-    # 3. Bring your own task + scorers and re-run locally.
-    evaluate(name="x-replay", dataset=replay_data, task=task, scorers=[s], local=True)
-    ```
-  </Tab>
-  <Tab title="TypeScript">
-    ```typescript
-    import { evaluate, pullDatasetVersion } from "@traceroot-ai/traceroot";
-
-    // 1. A reported run records the exact dataset version it scored.
-    const reported = await evaluate({ name: "x", dataset: ds, task, scorers: [s] });
-    const version = reported.dataset.datasetVersionId;
-
-    // 2. Pull that exact version back down (validated against the dataset).
-    const replayData = await pullDatasetVersion(version, { datasetId: ds.datasetId });
-
-    // 3. Bring your own task + scorers and re-run locally.
-    await evaluate({ name: "x-replay", dataset: replayData, task, scorers: [s], local: true });
-    ```
-  </Tab>
-</Tabs>
-
-## Next
+## Next steps
 
 <CardGroup cols={2}>
   <Card title="Scorers" icon="ruler" href="/evals/scorers">
-    Turn a case's output into one or more metrics — plain functions, declared policies, and LLM judges.
+    Turn a case's output into a metric.
   </Card>
-  <Card title="Running evals" icon="play" href="/evals/running-evals">
-    Point a task and scorers at a dataset and run it — locally or reported to the platform.
+  <Card title="Running Evals" icon="play" href="/evals/running-evals">
+    Point a task and scorers at a dataset and run it.
   </Card>
 </CardGroup>

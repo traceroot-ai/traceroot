@@ -1,42 +1,38 @@
 ---
 title: Introduction
-description: Trace-native, metric-first offline evaluations for your AI system
+description: Run your AI system against a dataset and score every case
 ---
 
-An **evaluation** runs your system under test against a dataset of cases and scores each result. In TraceRoot every case runs as its own trace, so you inspect an eval with the same span timeline, token, and cost views you already use for tracing. You author datasets and run evals **for free, offline**, and opt in to reporting when you want the results on the platform.
+An **evaluation** runs your system against a dataset of cases and scores each result.
 
-The SDK is available in **Python** and **TypeScript**, and the two are byte-for-byte identical on identity and output — the same eval reconciles across languages, machines, and processes.
+In TraceRoot every case runs as its own trace, so you inspect an eval with the same span timeline, token, and cost views you already use for tracing. Each scorer emits a metric, and you read a run per metric — there is no single headline score.
 
-## Concepts
+The SDK is available in **Python** and **TypeScript**, with the same API in both.
 
-**1. Trace-native.** Each case runs as its own trace: `evaluation-item → task → scorer` spans. An eval *is* a trace you can open and drill into — the model calls your task makes, the tokens they cost, and the scorer's own work are all spans under the case. Nothing new to learn to inspect a run.
+## What you write
 
-**2. Metric-first.** A run has **no single headline score**. Each scorer emits a metric; pass/fail is decided **per score**, from that scorer's declared `threshold` and `direction`. A case's status is `errored` or `not_scored` — never a fabricated "passed". You read a run as *per-metric* means and pass rates, never as one number.
+- A **dataset** — the cases to run, each with an `input` and an optional `expected` answer.
+- A **task** — your system under evaluation, mapping an `input` to an `output`.
+- One or more **scorers** — functions that turn a case's result into a metric.
 
-**3. Local-first.** Authoring a dataset and running an eval need no account, no key, and no network. Reporting to the platform is opt-in — it's the default once credentials resolve, and fully suppressible with `local=True` (which exports nothing at all, spans included). Safe to run on a laptop or in CI.
-
-**4. One identity across languages.** A dataset's `dataset_id`, its case ids, its content `revision`, and a scorer or judge's `version` are all **content-hashed** — and identical in Python and TypeScript. Set a stable `key` on a dataset and the same eval converges no matter who runs it, in which language, from which machine.
-
-## What a scorer is
-
-A scorer maps a case's `(input, output, expected, metadata)` to one or more named metrics. There are three escalating forms — a plain function for the happy path, `Scorer.code(...)` when you want a declared pass/fail policy, and `Scorer.llm_judge(...)` when the model and prompt *are* the definition. See [Scorers](/evals/scorers).
+Then `evaluate()` runs the task over every case, scores each result, and reports the run.
 
 ## Where to start
 
 <CardGroup cols={2}>
   <Card title="Get Started" icon="rocket" href="/evals/get-started">
-    Author a dataset, write a scorer, and run your first eval fully offline.
+    Author a dataset, write a scorer, and run your first eval.
   </Card>
   <Card title="Datasets" icon="table" href="/evals/datasets">
-    Named, versioned bags of cases with content-addressed identity.
+    Author, version, and publish the cases you run against.
   </Card>
   <Card title="Scorers" icon="ruler" href="/evals/scorers">
-    Plain functions, declared-policy code scorers, and LLM judges.
+    Code scorers and LLM-as-a-judge.
   </Card>
-  <Card title="Running an eval" icon="play" href="/evals/running-evals">
-    <code>evaluate()</code> — the task, the scorers, local vs. reported.
+  <Card title="Running Evals" icon="play" href="/evals/running-evals">
+    <code>evaluate()</code> — the task, the scorers, and where a run reports.
   </Card>
-  <Card title="Reading results" icon="list-check" href="/evals/reading-results">
-    Metric-first summaries, per-case status, and deferred upload.
+  <Card title="Reading Results" icon="list-check" href="/evals/reading-results">
+    Per-metric summaries and per-case results.
   </Card>
 </CardGroup>

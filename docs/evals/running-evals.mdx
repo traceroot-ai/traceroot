@@ -1,86 +1,35 @@
 ---
 title: Running Evals
-description: Run a dataset against your system with evaluate() and score every case
+description: Run a dataset against your system with evaluate()
 ---
 
-`evaluate()` runs your system under test against a dataset, scores every case, and reports the run. Each case runs as its own trace — `evaluation-item → task → scorer` spans — so an eval *is* a trace you can open and drill into.
+`evaluate()` runs your system against a dataset, scores every case, and reports the run. Each case runs as its own trace, so you can open any case and see exactly what your system did.
 
-A run has **no single headline score**. Each scorer emits a metric, and pass/fail is decided per metric by that scorer's declared threshold. A case's status is `errored` or `not_scored` — never a fabricated pass. See [Reading results](/evals/reading-results) for how to read what comes back.
+## Parameters
 
-## Signature
+Call `evaluate()` with keyword arguments. TypeScript takes the same names in camelCase (`candidateVersion`, `maxConcurrency`) as a single options object.
 
-<Tabs>
-  <Tab title="Python">
-    ```python
-    from traceroot import evaluate  # also: evaluate_async
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `name` | `str` | required | The evaluation's name |
+| `dataset` | `Dataset` or `list` | required | The [dataset](/evals/datasets) to run against, or an inline list of cases |
+| `task` | `callable` | required | Your system, mapping an input to an output. May be async |
+| `scorers` | `list` | required | The [scorers](/evals/scorers) to grade each case with |
+| `candidate_version` | `str` | `None` | Labels what you're testing (model id, prompt version, git sha). The UI groups and compares runs by this |
+| `local` | `bool` | `False` | Run in full but report nowhere. Cannot be combined with `transport` |
+| `transport` | `EvalTransport` | `None` | An explicit destination for the run. Pass `FakeTransport()` to record what would have been sent, without any HTTP |
+| `select` | `callable` | `None` | A predicate to run a subset of cases without editing the dataset |
+| `timeout` | `float` | `None` | Seconds allowed per case. A timeout fails that case only, not the run |
+| `progress` | `bool` | auto | The live progress bar. On for an interactive terminal; pass `False` to silence it in CI |
+| `max_concurrency` | `int` | `10` | How many cases run in parallel |
 
-    evaluate(
-        *,
-        name,
-        dataset=None,      # a Dataset  — or —
-        data=None,         # an inline list of cases
-        task,              # your system under test: input -> output
-        scorers,           # list of scorers
-        local=False,       # run fully; report nowhere
-        transport=None,    # explicit reporting sink (mutually exclusive with local)
-        candidate_version=None,
-        select=None,
-        timeout=None,
-        evaluation_key=None,
-        environment="evaluation",
-        progress=None,
-        max_concurrency=10,
-    ) -> EvalRunResult
-    ```
-  </Tab>
-  <Tab title="TypeScript">
-    ```typescript
-    import { evaluate } from "@traceroot-ai/traceroot";
+An inline list of cases runs fine, but only a `Dataset` can be reported to the platform — pass `local=True` when running against a list.
 
-    await evaluate({
-      name,
-      dataset,            // a Dataset  — or —
-      data,               // an inline list of cases
-      task,               // your system under test: input -> output
-      scorers,            // list of scorers
-      local,              // run fully; report nowhere
-      transport,          // explicit reporting sink (mutually exclusive with local)
-      candidateVersion,
-      select,
-      timeout,
-      evaluationKey,
-      environment,        // defaults to "evaluation"
-      progress,
-      maxConcurrency,
-      signal,
-    }): Promise<EvalRunResult>
-    ```
-  </Tab>
-</Tabs>
+Leave `local` and `transport` unset and the run reports to TraceRoot when credentials resolve.
 
-Python exposes both `evaluate` and `evaluate_async`. In TypeScript, `evaluate` is already async — always `await` it.
+Python has both `evaluate` and `evaluate_async`. In TypeScript, `evaluate` is async — always `await` it.
 
-## Key parameters
-
-- **`dataset` vs `data`** — supply exactly one. `dataset` is a [`Dataset`](/evals/datasets); `data` is an inline list of cases when you don't want a named, versioned dataset.
-- **`task`** — the system under evaluation, an `input -> output` function. It may be async.
-- **`scorers`** — a list of any [scorer](/evals/scorers) form (plain function, `Scorer.code`, or `Scorer.llm_judge`).
-- **`local=True` / `local: true`** — run in full, but report **nowhere**: no credentials are read, no HTTP is made, no dataset is published, and no spans are exported (a no-op tracer). The ergonomic "just run it." **Mutually exclusive with `transport=`.**
-- **`transport=`** — an explicit reporting sink (self-host, custom, or [`FakeTransport`](#unit-testing-with-faketransport)). Omit both `local` and `transport` and the run defaults to reporting when a key resolves.
-- **`candidate_version` / `candidateVersion`** — labels the thing under test (model id, prompt version, git sha). **This is what the UI groups and compares runs by.**
-- **`select`** — run a subset (by id or predicate) without editing the dataset.
-- **`timeout`** — bounds each case (task plus its scorers). A timeout is an **isolated per-case error**, not a run failure.
-- **`evaluation_key` / `evaluationKey`** — the grouping identity on the wire: how repeated runs of the same eval are grouped server-side.
-- **`environment`** — defaults to `"evaluation"`.
-- **`progress`** — controls the live progress render. It's on automatically for an interactive TTY; pass `False` / `false` to silence it in scripts and CI.
-
-## Behaviors
-
-**Auto-provision.** A local `Dataset` with no server version is published for you — silently — as the version the run scored. Re-running is silent too: `evaluate()` auto-approves and **never prompts**. The `[y/N]` confirmation applies only to an explicit [`Dataset.push()`](/evals/datasets), never to an eval run.
-
-**It prints itself.** On an interactive terminal (progress shown), `evaluate()` prints `summary()` on completion — no manual print needed. This is gated to interactive terminals; piped, CI, and programmatic stdout stays clean, so it won't corrupt captured output.
-
-## Minimal example
+## Example
 
 <Tabs>
   <Tab title="Python">
@@ -90,11 +39,11 @@ Python exposes both `evaluate` and `evaluate_async`. In TypeScript, `evaluate` i
     ds = Dataset("weather", key="weather")
     ds.add({"city": "SF"}, expected="68°F")
 
-    def task(input):        # your system under test
+    def task(input):
         return look_up_weather(input["city"])
 
     def reports_temp(input, output, expected=None):
-        return expected in (output or "")
+        return expected is not None and expected in (output or "")
 
     result = evaluate(
         name="weather",
@@ -102,24 +51,22 @@ Python exposes both `evaluate` and `evaluate_async`. In TypeScript, `evaluate` i
         task=task,
         scorers=[reports_temp],
         candidate_version="weather-v1",
-        local=True,          # run fully offline; report nowhere
     )
-    # summary() auto-prints on a TTY; result is also returned for programmatic use
     ```
   </Tab>
   <Tab title="TypeScript">
     ```typescript
-    import { Dataset, evaluate } from "@traceroot-ai/traceroot";
+    import { Dataset, evaluate, type ScorerContext } from "@traceroot-ai/traceroot";
 
     const ds = new Dataset("weather", null, { key: "weather" });
     ds.add({ city: "SF" }, { expected: "68°F" });
 
-    async function task(input) {           // your system under test
+    async function task(input: { city: string }) {
       return lookUpWeather(input.city);
     }
 
-    function reportsTemp({ input, output, expected }) {
-      return (output ?? "").includes(expected);
+    function reportsTemp({ output, expected }: ScorerContext) {
+      return String(output ?? "").includes(String(expected));
     }
 
     const result = await evaluate({
@@ -128,108 +75,20 @@ Python exposes both `evaluate` and `evaluate_async`. In TypeScript, `evaluate` i
       task,
       scorers: [reportsTemp],
       candidateVersion: "weather-v1",
-      local: true,           // run fully offline; report nowhere
     });
-    // summary() auto-prints on a TTY; result is also returned for programmatic use
     ```
   </Tab>
 </Tabs>
 
-<Note>
-  `local=True` truly leaks nothing — no spans are exported — so it's safe on a laptop or in CI without a key. Reporting to the platform is the default only when credentials resolve and neither `local` nor `transport` overrides it.
-</Note>
+A local `Dataset` is published for you as part of the run, so you don't need a separate publish step. On an interactive terminal the summary prints itself; piped and CI output stays clean.
 
-## Reporting sinks
-
-A run reports through a **transport**. By default, when a key resolves, it reports through `PlatformTransport`. Point a run at an explicit sink with `transport=`, or suppress reporting entirely with `local=True` — the two are mutually exclusive.
-
-| Type | Role |
-|---|---|
-| `PlatformTransport` | Reporting sink; the **default** when a key resolves. |
-| `FakeTransport` | In-memory sink — **0 HTTP calls**. Records the exact call sequence in `.calls` (`create_run → register_item×N → record_item_result×N → record_scores×N → finish_run`). The recommended way to unit-test an eval. Not interchangeable with `local=True`: `local` additionally swaps in a non-exporting tracer and suppresses global auto-init, so no spans leave the process; `FakeTransport` runs the normal exporting tracer. |
-| `PlatformDatasetSync` | The real dataset publisher — what `evaluate()` uses under the hood to auto-provision a version. |
-| `LocalDatasetSync` | No-op sync; stay local. |
-| `DatasetPublishAborted` | Raised when a publish confirmation is declined. |
-| `DatasetConflictError` | Raised on an optimistic-concurrency conflict; carries `base_version_id` / `current_version_id`. |
-
-<Note>
-  In Python, import all of these from `traceroot.eval` (for example `from traceroot.eval import FakeTransport, PlatformTransport, PlatformDatasetSync, LocalDatasetSync`). TypeScript exports the whole surface from the package root.
-</Note>
-
-## Unit-testing with `FakeTransport`
-
-`FakeTransport` makes no HTTP calls and records every wire call in `.calls`. Pass it as `transport=` and assert on the sequence — this is the recommended way to test an eval without a backend. Reach for `transport=FakeTransport()` when you want to assert on the exact call sequence, and `local=True` when you just want the run to happen and report nowhere.
-
-<Tabs>
-  <Tab title="Python">
-    ```python
-    from traceroot import Dataset, evaluate
-    from traceroot.eval import FakeTransport
-
-    ds = Dataset("weather", key="weather")
-    ds.add({"city": "SF"}, expected="68°F")
-
-    def task(input):
-        return "68°F"
-
-    def reports_temp(input, output, expected=None):
-        return expected in (output or "")
-
-    fake = FakeTransport()
-    result = evaluate(
-        name="weather",
-        dataset=ds,
-        task=task,
-        scorers=[reports_temp],
-        transport=fake,          # 0 HTTP; records everything
-    )
-
-    # No backend was touched. `fake.calls` holds the ordered wire calls —
-    # create_run, register_item×N, record_item_result×N, record_scores×N,
-    # finish_run — so a test can assert the exact sequence the SDK would send.
-    assert len(fake.calls) > 0
-    ```
-  </Tab>
-  <Tab title="TypeScript">
-    ```typescript
-    import { Dataset, evaluate, FakeTransport } from "@traceroot-ai/traceroot";
-
-    const ds = new Dataset("weather", null, { key: "weather" });
-    ds.add({ city: "SF" }, { expected: "68°F" });
-
-    const task = (input) => "68°F";
-    function reportsTemp({ output, expected }) {
-      return (output ?? "").includes(expected);
-    }
-
-    const fake = new FakeTransport();
-    const result = await evaluate({
-      name: "weather",
-      dataset: ds,
-      task,
-      scorers: [reportsTemp],
-      transport: fake,           // 0 HTTP; records everything
-    });
-
-    // No backend was touched. `fake.calls` holds the ordered wire calls —
-    // create_run, register_item×N, record_item_result×N, record_scores×N,
-    // finish_run — so a test can assert the exact sequence the SDK would send.
-    expect(fake.calls.length).toBeGreaterThan(0);
-    ```
-  </Tab>
-</Tabs>
-
-## Dataset sync and conflicts
-
-`PlatformDatasetSync` and `LocalDatasetSync` are the sync objects passed to [`Dataset.push()`](/evals/datasets) — `PlatformDatasetSync` really publishes, `LocalDatasetSync` is a no-op. A declined publish confirmation raises `DatasetPublishAborted`. An optimistic-concurrency conflict raises `DatasetConflictError`, which carries `base_version_id` and `current_version_id` so you can resolve which version you diverged from.
-
-## Next
+## Next steps
 
 <CardGroup cols={2}>
-  <Card title="Reading results" icon="table" href="/evals/reading-results">
-    Read the per-metric summary and the per-case results `evaluate()` returns.
+  <Card title="Reading Results" icon="list-check" href="/evals/reading-results">
+    Read the summary and the per-case results `evaluate()` returns.
   </Card>
-  <Card title="Datasets" icon="database" href="/evals/datasets">
-    Author, version, publish, and pull the datasets you run against.
+  <Card title="Datasets" icon="table" href="/evals/datasets">
+    Author, version, publish, and pull datasets.
   </Card>
 </CardGroup>
