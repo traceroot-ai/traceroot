@@ -16,8 +16,25 @@ export function useAiChat({
   traceSessionId,
   initialSessionId,
 }: UseAiChatOptions) {
-  const { messages, isStreaming, sendMessage, abort, setMessages } = useAIStream();
-  const sessionIdRef = useRef<string | null>(null);
+  const {
+    messagesBySession,
+    streamingSessions,
+    isSessionStreaming,
+    sendMessage,
+    setSessionMessages,
+    abortSession,
+    abortAll,
+    clearAll,
+    removeSession,
+  } = useAIStream();
+
+  // The session the panel is currently displaying. Streams for OTHER sessions
+  // keep running into their own buckets; only this one is rendered.
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(initialSessionId ?? null);
+  // Ref mirror for reads inside async callbacks without re-binding them.
+  const activeSessionIdRef = useRef(activeSessionId);
+  activeSessionIdRef.current = activeSessionId;
+
   // Set so concurrent ensureSession calls don't cancel each other; handleClose
   // aborts all in-flight POST /sessions to prevent post-close resurrection.
   const ensureSessionAbortersRef = useRef<Set<AbortController>>(new Set());
@@ -28,29 +45,30 @@ export function useAiChat({
   // setIsStreaming(true) and setIsStreaming(false) into a single frame, hiding the button.
   const [isSending, setIsSending] = useState(false);
 
-  // Reset session + messages when the user navigates to a different project so
-  // a session ID from project A can never be replayed against project B's chat
-  // route. Within the same project, traceSessionId / traceId can change while
-  // the chat is active (the user navigates between traces with the panel
-  // open) — those don't reset; the latest values flow into handleSend below
-  // so subsequent messages get the new context. handleNewSession /
-  // handleSelectSession remain the explicit reset paths within a project.
-  // When initialSessionId is set, the loading useEffect below owns session
-  // ownership, so we bail here to avoid clobbering its fetched messages.
+  // Reset chat state when the user navigates to a different project so a
+  // session ID from project A can never be replayed against project B's chat
+  // route. Aborting all runs is deliberate: a project switch is a hard
+  // boundary, unlike session switches within a project which keep streams
+  // alive. Within the same project, traceSessionId / traceId can change while
+  // the chat is active — those don't reset; the latest values flow into
+  // handleSend below. When initialSessionId is set, the loading useEffect
+  // below owns session selection, so we bail here to avoid clobbering it.
   useEffect(() => {
     if (initialSessionId) return;
-    sessionIdRef.current = null;
-    setMessages([]);
+    setActiveSessionId(null);
+    abortAll();
+    clearAll();
   }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // When initialSessionId is provided, load that session's messages on mount / change.
-  // AbortController guards against stale fetches: if the user switches between
-  // RCA sessions quickly, an older fetch resolving after a newer one would
-  // otherwise overwrite the current session's messages.
+  // When initialSessionId is provided, load that session's messages on mount /
+  // change — unless it is currently streaming, in which case its live bucket
+  // is more complete than the DB (which only gets the assistant row at run
+  // end). Stale fetches can't clobber other sessions: the response is written
+  // to the bucket of the session it was fetched for.
   useEffect(() => {
     if (!initialSessionId || !projectId) return;
-    sessionIdRef.current = initialSessionId;
-    setMessages([]);
+    setActiveSessionId(initialSessionId);
+    if (isSessionStreaming(initialSessionId)) return;
 
     const ac = new AbortController();
     fetch(`/api/projects/${projectId}/ai/sessions/${initialSessionId}/messages`, {
@@ -59,7 +77,7 @@ export function useAiChat({
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (ac.signal.aborted || !data) return;
-        const all = (data.messages || []).map(
+        const all: AIMessage[] = (data.messages || []).map(
           (m: { id: string; role: string; content: string; createTime: string }) => ({
             id: m.id,
             role: m.role as "user" | "assistant",
@@ -67,7 +85,7 @@ export function useAiChat({
             timestamp: m.createTime,
           }),
         );
-        setMessages(all);
+        setSessionMessages(initialSessionId, all);
       })
       .catch((err) => {
         if (err?.name !== "AbortError")
@@ -78,9 +96,9 @@ export function useAiChat({
 
   // Lazy session creation — only when first message is sent. The fetch is
   // cancellable so handleClose can prevent a pending response from resurrecting
-  // sessionIdRef after we've cleared it. Caller commits the id on success.
+  // the active session after we've cleared it. Caller commits the id on success.
   const ensureSession = useCallback(async (): Promise<string | null> => {
-    if (sessionIdRef.current) return sessionIdRef.current;
+    if (activeSessionIdRef.current) return activeSessionIdRef.current;
     if (!projectId) return null;
     const ac = new AbortController();
     ensureSessionAbortersRef.current.add(ac);
@@ -109,7 +127,10 @@ export function useAiChat({
       try {
         const sessionId = await ensureSession();
         if (!sessionId) return;
-        sessionIdRef.current = sessionId;
+        // Commit to the ref synchronously so a second send arriving before
+        // the next render sees the session and doesn't create a duplicate.
+        activeSessionIdRef.current = sessionId;
+        setActiveSessionId(sessionId);
         sendMessage({
           sessionId,
           message,
@@ -127,27 +148,25 @@ export function useAiChat({
     [projectId, traceId, traceSessionId, ensureSession, sendMessage],
   );
 
+  // Start a fresh chat. A still-running stream from the previous session keeps
+  // reading in the background into its own bucket — it is never rendered here,
+  // and the user can return to it via history to watch it live.
   const handleNewSession = useCallback(() => {
-    // Note: a still-running stream from the previous session keeps reading
-    // in the background. Its SSE deltas may briefly bleed into this fresh
-    // chat view until the backend turn completes — tracked separately as a
-    // follow-up (see the linked discussion / issue on #784).
-    sessionIdRef.current = null;
-    setMessages([]);
-  }, [setMessages]);
+    setActiveSessionId(null);
+  }, []);
 
-  // Closing the panel ends the conversation: any in-flight run is aborted,
-  // and the session id + messages are dropped so the next reopen starts
-  // fresh. History list remains the way back to past sessions (server-side).
+  // Closing the panel ends the conversation: every in-flight run is aborted,
+  // and all cached sessions are dropped so the next reopen starts fresh.
+  // History list remains the way back to past sessions (server-side).
   // Switching traces within the same page does NOT trigger this — the panel
   // stays open in that case.
   const handleClose = useCallback(() => {
     for (const ac of ensureSessionAbortersRef.current) ac.abort();
     ensureSessionAbortersRef.current.clear();
-    abort();
-    sessionIdRef.current = null;
-    setMessages([]);
-  }, [abort, setMessages]);
+    abortAll();
+    clearAll();
+    setActiveSessionId(null);
+  }, [abortAll, clearAll]);
 
   const handleOpenHistory = useCallback(async () => {
     if (!projectId) return;
@@ -163,55 +182,70 @@ export function useAiChat({
 
   const handleSelectSession = useCallback(
     async (session: AISession) => {
-      sessionIdRef.current = session.id;
-      setMessages([]);
+      setActiveSessionId(session.id);
       setHistoryOpen(false);
 
       if (!projectId) return;
+      // A streaming session's live bucket is authoritative — the DB won't have
+      // the in-flight assistant response until the run completes, so loading
+      // history here would make the chat appear frozen.
+      if (isSessionStreaming(session.id)) return;
       try {
         const res = await fetch(`/api/projects/${projectId}/ai/sessions/${session.id}/messages`);
         if (res.ok) {
           const data = await res.json();
-          const loaded = (data.messages || []).map((m: any) => ({
-            id: m.id,
-            role: m.role as "user" | "assistant",
-            content: m.content,
-            timestamp: m.createTime,
-          }));
-          setMessages(loaded);
+          // A run may have started in this session while the fetch was in
+          // flight — the stale load must not wipe the live turn.
+          if (isSessionStreaming(session.id)) return;
+          const loaded: AIMessage[] = (data.messages || []).map(
+            (m: { id: string; role: string; content: string; createTime: string }) => ({
+              id: m.id,
+              role: m.role as "user" | "assistant",
+              content: m.content,
+              timestamp: m.createTime,
+            }),
+          );
+          setSessionMessages(session.id, loaded);
         }
       } catch (err) {
         console.error("[AI Chat] Failed to load session messages:", err);
       }
     },
-    [projectId, setMessages],
+    [projectId, setSessionMessages, isSessionStreaming],
   );
 
   const handleDeleteSession = useCallback(
     (sessionId: string) => {
       setSessions((prev) => prev.filter((s) => s.id !== sessionId));
-      if (sessionIdRef.current === sessionId) {
-        sessionIdRef.current = null;
-        setMessages([]);
+      removeSession(sessionId);
+      if (activeSessionIdRef.current === sessionId) {
+        setActiveSessionId(null);
       }
     },
-    [setMessages],
+    [removeSession],
   );
+
+  const handleAbort = useCallback(() => {
+    if (activeSessionIdRef.current) abortSession(activeSessionIdRef.current);
+  }, [abortSession]);
+
+  const messages: AIMessage[] = activeSessionId ? (messagesBySession[activeSessionId] ?? []) : [];
+  const activeStreaming = activeSessionId ? !!streamingSessions[activeSessionId] : false;
 
   return {
     // State
     messages,
-    isStreaming: isSending || isStreaming || messages.some((m) => m.isStreaming),
+    isStreaming: isSending || activeStreaming || messages.some((m) => m.isStreaming),
     sessions,
     historyOpen,
-    currentSessionId: sessionIdRef.current,
+    currentSessionId: activeSessionId,
 
     // Setters
     setHistoryOpen,
 
     // Actions
     handleSend,
-    handleAbort: abort,
+    handleAbort,
     handleNewSession,
     handleClose,
     handleOpenHistory,

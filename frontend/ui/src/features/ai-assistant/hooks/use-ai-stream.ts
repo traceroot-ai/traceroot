@@ -15,16 +15,109 @@ function generateId(): string {
   });
 }
 
+/** Freeze any still-streaming bubbles in a message list. */
+function frozen(messages: AIMessage[]): AIMessage[] {
+  return messages.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m));
+}
+
+interface SessionRun {
+  /** Monotonic id — a bucket write is valid only while this run is still the
+   * session's registered run with the same generation. */
+  gen: number;
+  abortController: AbortController;
+  reader: ReadableStreamDefaultReader<Uint8Array> | null;
+}
+
+/**
+ * Streams agent responses into per-session message buckets.
+ *
+ * Every state element is keyed by sessionId so an in-flight SSE run keeps
+ * writing to the session it belongs to — switching the visible session can
+ * never make another session's deltas bleed into the current view, and a
+ * still-running session shows its accumulated progress when the user returns
+ * to it.
+ */
 export function useAIStream() {
-  const [messages, setMessages] = useState<AIMessage[]>([]);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const abortRef = useRef<AbortController | null>(null);
-  const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
-  // Bumped on send AND on abort — invalidates in-flight setMessages from prior streams.
-  const generationRef = useRef(0);
-  // Bumped only on send — finally checks this to distinguish "I was aborted"
-  // from "a newer send superseded me" (only the latter must skip cleanup).
-  const latestSendRef = useRef(0);
+  const [messagesBySession, setMessagesBySession] = useState<Record<string, AIMessage[]>>({});
+  const [streamingSessions, setStreamingSessions] = useState<Record<string, boolean>>({});
+  const runsRef = useRef<Map<string, SessionRun>>(new Map());
+  const genRef = useRef(0);
+
+  const updateBucket = useCallback(
+    (sessionId: string, updater: (prev: AIMessage[]) => AIMessage[]) => {
+      setMessagesBySession((prev) => ({ ...prev, [sessionId]: updater(prev[sessionId] ?? []) }));
+    },
+    [],
+  );
+
+  /** Cancel a session's in-flight run (reader + fetch). State cleanup is the caller's job. */
+  const stopRun = useCallback((sessionId: string) => {
+    const run = runsRef.current.get(sessionId);
+    if (!run) return;
+    runsRef.current.delete(sessionId);
+    run.reader?.cancel().catch(() => {});
+    run.abortController.abort();
+  }, []);
+
+  const clearStreamingFlag = useCallback((sessionId: string) => {
+    setStreamingSessions((prev) => {
+      if (!(sessionId in prev)) return prev;
+      const next = { ...prev };
+      delete next[sessionId];
+      return next;
+    });
+  }, []);
+
+  const abortSession = useCallback(
+    (sessionId: string) => {
+      stopRun(sessionId);
+      clearStreamingFlag(sessionId);
+      updateBucket(sessionId, frozen);
+    },
+    [stopRun, clearStreamingFlag, updateBucket],
+  );
+
+  const abortAll = useCallback(() => {
+    for (const sessionId of [...runsRef.current.keys()]) stopRun(sessionId);
+    setStreamingSessions({});
+    setMessagesBySession((prev) =>
+      Object.fromEntries(Object.entries(prev).map(([id, msgs]) => [id, frozen(msgs)])),
+    );
+  }, [stopRun]);
+
+  const clearAll = useCallback(() => {
+    setMessagesBySession({});
+    setStreamingSessions({});
+  }, []);
+
+  /** Replace a session's cached messages (history loads). */
+  const setSessionMessages = useCallback((sessionId: string, messages: AIMessage[]) => {
+    setMessagesBySession((prev) => ({ ...prev, [sessionId]: messages }));
+  }, []);
+
+  /**
+   * Synchronous truth for "does this session have a live run?". Unlike the
+   * streamingSessions state (which lags until the next render), runsRef is
+   * registered before sendMessage's first await, so callers racing a send —
+   * e.g. a history fetch resolving after the user sent a message — get an
+   * exact answer.
+   */
+  const isSessionStreaming = useCallback((sessionId: string) => runsRef.current.has(sessionId), []);
+
+  /** Drop a session entirely (delete): cancel its run and forget its bucket. */
+  const removeSession = useCallback(
+    (sessionId: string) => {
+      stopRun(sessionId);
+      clearStreamingFlag(sessionId);
+      setMessagesBySession((prev) => {
+        if (!(sessionId in prev)) return prev;
+        const next = { ...prev };
+        delete next[sessionId];
+        return next;
+      });
+    },
+    [stopRun, clearStreamingFlag],
+  );
 
   const sendMessage = useCallback(
     async (params: {
@@ -37,16 +130,23 @@ export function useAIStream() {
       traceId?: string;
       traceSessionId?: string;
     }) => {
-      const myGen = ++generationRef.current;
-      latestSendRef.current = myGen;
-      const safeSetMessages: typeof setMessages = (updater) => {
-        if (generationRef.current !== myGen) return;
-        setMessages(updater);
-      };
+      const { sessionId } = params;
+      const myGen = ++genRef.current;
 
-      // Cancel any prior in-flight stream so its tail chunks can't race with this run.
-      readerRef.current?.cancel();
-      abortRef.current?.abort();
+      // Single-flight per session: cancel a prior run in THIS session only.
+      // Runs in other sessions keep streaming into their own buckets.
+      stopRun(sessionId);
+
+      const abortController = new AbortController();
+      const run: SessionRun = { gen: myGen, abortController, reader: null };
+      runsRef.current.set(sessionId, run);
+
+      // Valid only while this run is still the session's registered run —
+      // superseded/aborted runs' buffered chunks become no-ops.
+      const safeUpdate = (updater: (prev: AIMessage[]) => AIMessage[]) => {
+        if (runsRef.current.get(sessionId)?.gen !== myGen) return;
+        updateBucket(sessionId, updater);
+      };
 
       // Bubble tracking is local to this run so superseded streams cannot
       // mutate the live run's state via shared refs.
@@ -59,16 +159,17 @@ export function useAIStream() {
         content: params.message,
         timestamp: new Date().toISOString(),
       };
-      safeSetMessages((prev) => [...prev, userMsg]);
+      // Freeze any bubble a superseded run left open, then append the user turn.
+      safeUpdate((prev) => [...frozen(prev), userMsg]);
 
-      setIsStreaming(true);
+      setStreamingSessions((prev) => ({ ...prev, [sessionId]: true }));
 
       // Opens a new streaming assistant text bubble and returns its id.
       // Subsequent text deltas append to this bubble until it is frozen.
       const openTextBubble = (): string => {
         const id = generateId();
         currentTextId = id;
-        safeSetMessages((prev) => [
+        safeUpdate((prev) => [
           ...prev,
           {
             id,
@@ -87,7 +188,7 @@ export function useAIStream() {
         const frozenId = currentTextId;
         lastFrozenId = frozenId;
         currentTextId = null;
-        safeSetMessages((prev) =>
+        safeUpdate((prev) =>
           prev.map((m) => (m.id === frozenId ? { ...m, isStreaming: false } : m)),
         );
       };
@@ -95,7 +196,7 @@ export function useAIStream() {
       // Helper: show an error in the current bubble or open a new one.
       const showError = (errorMessage: string) => {
         const targetId = currentTextId ?? openTextBubble();
-        safeSetMessages((prev) =>
+        safeUpdate((prev) =>
           prev.map((m) =>
             m.id === targetId ? { ...m, content: `Error: ${errorMessage}`, isStreaming: false } : m,
           ),
@@ -103,12 +204,9 @@ export function useAIStream() {
         currentTextId = null;
       };
 
-      const abortController = new AbortController();
-      abortRef.current = abortController;
-
       try {
         // Goes through Next.js proxy which handles auth + adds headers
-        const url = `/api/projects/${params.projectId}/ai/sessions/${params.sessionId}/messages`;
+        const url = `/api/projects/${params.projectId}/ai/sessions/${sessionId}/messages`;
         const response = await fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -131,7 +229,7 @@ export function useAIStream() {
         if (!response.body) throw new Error("No response body");
 
         const reader = response.body.getReader();
-        readerRef.current = reader;
+        run.reader = reader;
         const decoder = new TextDecoder();
         let buffer = "";
 
@@ -155,7 +253,7 @@ export function useAIStream() {
                     // Open a new bubble if there isn't one (first text, or post-tool text)
                     if (!currentTextId) openTextBubble();
                     const targetId = currentTextId!;
-                    safeSetMessages((prev) =>
+                    safeUpdate((prev) =>
                       prev.map((msg) =>
                         msg.id === targetId ? { ...msg, content: msg.content + delta.delta } : msg,
                       ),
@@ -165,7 +263,7 @@ export function useAIStream() {
                   if (delta?.type === "thinking_delta" && delta.delta) {
                     if (!currentTextId) openTextBubble();
                     const targetId = currentTextId!;
-                    safeSetMessages((prev) =>
+                    safeUpdate((prev) =>
                       prev.map((msg) =>
                         msg.id === targetId
                           ? { ...msg, thinking: (msg.thinking ?? "") + delta.delta }
@@ -186,7 +284,7 @@ export function useAIStream() {
                   if (msg?.usage) {
                     const lastId = currentTextId ?? lastFrozenId;
                     if (lastId) {
-                      safeSetMessages((prev) =>
+                      safeUpdate((prev) =>
                         prev.map((m) =>
                           m.id === lastId
                             ? {
@@ -219,11 +317,11 @@ export function useAIStream() {
                       status: "running",
                     },
                   };
-                  safeSetMessages((prev) => [...prev, toolStepMsg]);
+                  safeUpdate((prev) => [...prev, toolStepMsg]);
                 }
 
                 if (eventData.type === "tool_execution_end") {
-                  safeSetMessages((prev) =>
+                  safeUpdate((prev) =>
                     prev.map((m) =>
                       m.id === eventData.toolCallId
                         ? {
@@ -259,33 +357,39 @@ export function useAIStream() {
       } finally {
         // Freeze the last open bubble (if streaming was cut short).
         freezeCurrentBubble();
-        // Skip cleanup if a newer send already began — would clobber its state.
-        if (latestSendRef.current === myGen) {
-          setIsStreaming(false);
-          abortRef.current = null;
-          readerRef.current = null;
+        // Skip cleanup if a newer run owns this session — would clobber its state.
+        if (runsRef.current.get(sessionId)?.gen === myGen) {
+          runsRef.current.delete(sessionId);
+          clearStreamingFlag(sessionId);
         }
       }
     },
-    [],
+    [stopRun, updateBucket, clearStreamingFlag],
   );
 
-  const abort = useCallback(() => {
-    // Bump first so chunks still buffered in the stream loop noop via safeSetMessages.
-    generationRef.current++;
-    readerRef.current?.cancel();
-    abortRef.current?.abort();
-  }, []);
-
   // Defensive cleanup: if the host component truly unmounts (logout, tab
-  // close, hard route swap), abort any in-flight stream so we don't leak the
-  // SSE connection or keep burning LLM tokens after the UI is gone.
+  // close, hard route swap), abort every in-flight stream so we don't leak
+  // SSE connections or keep burning LLM tokens after the UI is gone.
   useEffect(() => {
+    const runs = runsRef.current;
     return () => {
-      readerRef.current?.cancel();
-      abortRef.current?.abort();
+      for (const run of runs.values()) {
+        run.reader?.cancel().catch(() => {});
+        run.abortController.abort();
+      }
+      runs.clear();
     };
   }, []);
 
-  return { messages, isStreaming, sendMessage, abort, setMessages };
+  return {
+    messagesBySession,
+    streamingSessions,
+    isSessionStreaming,
+    sendMessage,
+    setSessionMessages,
+    abortSession,
+    abortAll,
+    clearAll,
+    removeSession,
+  };
 }
