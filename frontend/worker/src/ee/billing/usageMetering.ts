@@ -624,22 +624,31 @@ type MessageKind = "chat" | "rca" | "detector";
 
 /**
  * Aggregate `aIMessage` rows for one `kind` over a billing window. Returns:
- *   - runsUsedCount: total assistant rows (chat uses this for run-count meter;
- *     rca/detector get their canonical counts from elsewhere)
+ *   - runsUsedCount: usage-carrying assistant rows (chat uses this for the
+ *     run-count meter; rca/detector get their canonical counts from elsewhere)
  *   - systemAgg / byokAgg: cost + token sums split by inference source
  *   - systemByModel / byokByModel: per-(model, provider) breakdowns for UI
  *
- * `inputTokens: { not: null }` filters out incomplete writes; rows with null
- * tokens have null cost too, so this is a no-op for cost sums.
+ * `inputTokens: { not: null }` matters everywhere here: a run persists one
+ * assistant row per text segment (segments are split at tool boundaries) and
+ * only the FINAL segment carries usage, so counting raw assistant rows would
+ * bill each tool boundary as an extra run. Rows with null tokens have null
+ * cost too, so the filter is also a no-op for cost sums.
  */
-async function aggregateMessagesForKind(
+export async function aggregateMessagesForKind(
   workspaceId: string,
   kind: MessageKind,
   periodWindow: { createTime: { gte: Date; lt: Date } },
 ) {
-  const baseWhere = { workspaceId, kind, role: "assistant", ...periodWindow };
-  const systemWhere = { ...baseWhere, isByok: false, inputTokens: { not: null } };
-  const byokWhere = { ...baseWhere, isByok: true, inputTokens: { not: null } };
+  const baseWhere = {
+    workspaceId,
+    kind,
+    role: "assistant",
+    inputTokens: { not: null },
+    ...periodWindow,
+  };
+  const systemWhere = { ...baseWhere, isByok: false };
+  const byokWhere = { ...baseWhere, isByok: true };
 
   const [runsUsedCount, systemAgg, byokAgg, systemByModel, byokByModel] = await Promise.all([
     prisma.aIMessage.count({ where: baseWhere }),
@@ -677,21 +686,23 @@ async function aggregateMessagesForKind(
  * 1. Find the cutoff timestamp (createTime of the first overage message)
  * 2. Aggregate system model cost from that timestamp onward
  */
-async function getOverageSystemModelCost(
+export async function getOverageSystemModelCost(
   workspaceId: string,
   includedRuns: number,
   start: Date,
   end: Date,
 ): Promise<number> {
   // Step 1: Find the cutoff timestamp — the createTime of the first chat
-  // message after the included quota (e.g., the 101st message for Starter/Pro).
+  // run after the included quota (e.g., the 101st run for Starter/Pro).
   // kind="chat" so RCA/detector turns living in the same table don't shift
-  // the cutoff or inflate the cost sum.
+  // the cutoff or inflate the cost sum; inputTokens NOT NULL so the skip
+  // walks over runs (final segments), not every persisted text segment.
   const cutoff = await prisma.aIMessage.findMany({
     where: {
       workspaceId,
       kind: "chat",
       role: "assistant",
+      inputTokens: { not: null },
       createTime: { gte: start, lt: end },
     },
     orderBy: { createTime: "asc" },
