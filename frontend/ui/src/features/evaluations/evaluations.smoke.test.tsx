@@ -402,10 +402,11 @@ describe("loading / error / empty states", () => {
     expect(screen.getByText("Loading runs...")).toBeDefined();
   });
 
-  it("Evaluations Runs tab shows an error state when the fetch fails", async () => {
+  it("Evaluations Runs tab shows an error state with a retry button when the fetch fails", async () => {
     global.fetch = failingFetch();
     mount(<EvaluationsView projectId="p1" />);
     expect(await screen.findByText("Error loading runs")).toBeDefined();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeDefined();
   });
 
   it("Run detail shows a loading state, then a not-found state on error", async () => {

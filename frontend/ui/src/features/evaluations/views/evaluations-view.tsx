@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Inbox } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -19,7 +19,8 @@ import { DateFilterSelect } from "@/components/date-filter-select";
 import { DATE_FILTER_OPTIONS, toTimestampBounds, type DateFilterOption } from "@/lib/date-filter";
 import { useKeywordSearch } from "@/lib/hooks/use-keyword-search";
 import { Table, TBody, Td, Th, THead, TR, TRHead } from "@/components/ui/table";
-import { DatasetActionsMenu, EmptyState, Timestamp } from "@/features/offline-eval/components";
+import { ListState, ListLoading, TableStateRow } from "@/components/ui/list-state";
+import { DatasetActionsMenu, Timestamp } from "@/features/offline-eval/components";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { useEvaluationRuns, useDeleteRuns } from "../hooks";
 import { DeleteRunDialog } from "../components/delete-run-dialog";
@@ -133,7 +134,14 @@ function RunTableRow({
         >
           {r.datasetName}
         </Link>{" "}
-        {datasetVersion && <span className="font-mono text-[11px]">{datasetVersion}</span>}
+        {datasetVersion && (
+          <span
+            className="inline-block max-w-[200px] truncate align-bottom font-mono text-[11px]"
+            title={datasetVersion}
+          >
+            {datasetVersion}
+          </span>
+        )}
       </Td>
       <Td className="text-right tabular-nums text-muted-foreground">{formatCost(r.cost)}</Td>
       <Td className="text-right tabular-nums text-muted-foreground">{formatCost(avgCost)}</Td>
@@ -179,7 +187,7 @@ function RunsTab({ projectId }: { projectId: string }) {
     () => toTimestampBounds(dateFilter.id, customStart ?? undefined, customEnd ?? undefined),
     [dateFilter.id, customStart, customEnd],
   );
-  const { data, isLoading, error } = useEvaluationRuns(projectId, {
+  const { data, isLoading, error, refetch } = useEvaluationRuns(projectId, {
     search_query: searchQuery,
     started_after: startAfter,
     started_before: endBefore,
@@ -347,21 +355,35 @@ function RunsTab({ projectId }: { projectId: string }) {
           </THead>
           <TBody>
             {isLoading ? (
-              <Cell colSpan={RUNS_COLUMN_COUNT}>
-                <EmptyState>Loading runs...</EmptyState>
-              </Cell>
+              <TableStateRow colSpan={RUNS_COLUMN_COUNT}>
+                <ListLoading label="Loading runs..." />
+              </TableStateRow>
             ) : error ? (
-              <Cell colSpan={RUNS_COLUMN_COUNT}>
-                <EmptyState>Error loading runs</EmptyState>
-              </Cell>
+              <TableStateRow colSpan={RUNS_COLUMN_COUNT}>
+                <ListState
+                  icon={<AlertTriangle className="h-8 w-8 text-destructive/50" />}
+                  title="Error loading runs"
+                  description="Make sure the API server is running and you have API keys configured."
+                  action={
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-[12px]"
+                      onClick={() => refetch()}
+                    >
+                      Try again
+                    </Button>
+                  }
+                />
+              </TableStateRow>
             ) : runs.length === 0 ? (
-              <Cell colSpan={RUNS_COLUMN_COUNT}>
-                <EmptyState>
-                  {filtered
-                    ? "No runs match these filters."
-                    : "No evaluation runs yet. Report a run from your SDK and it appears here."}
-                </EmptyState>
-              </Cell>
+              <TableStateRow colSpan={RUNS_COLUMN_COUNT}>
+                <ListState
+                  icon={<Inbox className="h-8 w-8 text-muted-foreground/40" />}
+                  title={filtered ? "No runs match these filters." : "No evaluation runs yet"}
+                  description={filtered ? undefined : "Report a run from your SDK and it appears here."}
+                />
+              </TableStateRow>
             ) : (
               runs.map((r) => (
                 <RunTableRow
@@ -427,13 +449,5 @@ function RunsTab({ projectId }: { projectId: string }) {
         />
       )}
     </>
-  );
-}
-
-function Cell({ colSpan, children }: { colSpan: number; children: React.ReactNode }) {
-  return (
-    <tr>
-      <td colSpan={colSpan}>{children}</td>
-    </tr>
   );
 }
