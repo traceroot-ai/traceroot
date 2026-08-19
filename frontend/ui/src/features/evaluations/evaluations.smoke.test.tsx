@@ -383,10 +383,11 @@ describe("loading / error / empty states", () => {
     expect(screen.getByText("Loading datasets...")).toBeDefined();
   });
 
-  it("Datasets shows an error state when the fetch fails", async () => {
+  it("Datasets shows an error state with a retry button when the fetch fails", async () => {
     global.fetch = failingFetch();
     mount(<DatasetsView projectId="p1" />);
     expect(await screen.findByText(withText(/Error loading datasets/))).toBeDefined();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeDefined();
   });
 
   it("Datasets shows an empty state pointing at saving a trace/span as a test case", async () => {
