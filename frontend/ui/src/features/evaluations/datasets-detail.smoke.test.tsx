@@ -356,7 +356,7 @@ describe("Dataset detail — filtering and adding rows", () => {
     const input = screen.getByLabelText("Input") as HTMLTextAreaElement;
     expect(input.value).toContain("charged twice");
     fireEvent.change(input, { target: { value: "edited question" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByText(/Row saved/)).toBeDefined();
     const patch = requests.find((r) => r.method === "PATCH");
     expect(patch?.url).toContain("/datasets/ds1/test-cases/tc_1");

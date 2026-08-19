@@ -182,6 +182,20 @@ describe("New dataset panel", () => {
 });
 
 describe("Edit dataset panel", () => {
+  it("disables Save until a field is edited", async () => {
+    mount();
+    await rowAction("Edit");
+    const save = await screen.findByRole("button", { name: "Save" });
+    expect(save.hasAttribute("disabled")).toBe(true);
+
+    const name = screen.getByLabelText("Name") as HTMLInputElement;
+    fireEvent.change(name, { target: { value: "Billing routing v2" } });
+    expect(save.hasAttribute("disabled")).toBe(false);
+
+    fireEvent.change(name, { target: { value: "Billing routing" } });
+    expect(save.hasAttribute("disabled")).toBe(true);
+  });
+
   it("opens seeded from the row and PATCHes the edited name", async () => {
     mount();
     await rowAction("Edit");
@@ -206,7 +220,9 @@ describe("Edit dataset panel", () => {
     writesFail = true;
     mount();
     await rowAction("Edit");
-    fireEvent.click(await screen.findByRole("button", { name: "Save" }));
+    const name = await screen.findByLabelText("Name");
+    fireEvent.change(name, { target: { value: "Billing routing error" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(await screen.findByText("Could not save dataset")).toBeDefined();
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
