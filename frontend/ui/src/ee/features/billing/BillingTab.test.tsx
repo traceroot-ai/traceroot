@@ -95,4 +95,49 @@ describe("BillingTab", () => {
     expect(screen.queryByText("unknown")).toBeNull();
     expect(screen.getByText("claude-opus-4-8")).toBeTruthy();
   });
+
+  it("shows Last updated once above usage sections", () => {
+    const usage: UsageStats = {
+      traces: 0,
+      spans: 0,
+      tokens: 0,
+      updatedAt: "2026-07-01T00:00:00.000Z",
+    };
+
+    render(<BillingTab workspaceId="ws_1" currentPlan={PlanType.PRO} currentUsage={usage} />);
+
+    expect(screen.getAllByText(/Last updated:/)).toHaveLength(1);
+  });
+
+  it("labels the usage window as all-time on the free plan", () => {
+    const usage: UsageStats = {
+      traces: 0,
+      spans: 0,
+      tokens: 0,
+      updatedAt: "2026-07-01T00:00:00.000Z",
+    };
+
+    render(<BillingTab workspaceId="ws_1" currentPlan={PlanType.FREE} currentUsage={usage} />);
+
+    expect(screen.getByText(/Covers: all-time/)).toBeTruthy();
+  });
+
+  it("labels the usage window as this billing period on paid plans", () => {
+    const usage: UsageStats = {
+      traces: 0,
+      spans: 0,
+      tokens: 0,
+      updatedAt: "2026-07-01T00:00:00.000Z",
+    };
+
+    render(<BillingTab workspaceId="ws_1" currentPlan={PlanType.PRO} currentUsage={usage} />);
+
+    expect(screen.getByText(/Covers: this billing period/)).toBeTruthy();
+  });
+
+  it("hides Last updated when usage has no updatedAt", () => {
+    render(<BillingTab workspaceId="ws_1" currentPlan={PlanType.PRO} currentUsage={null} />);
+
+    expect(screen.queryByText(/Last updated:/)).toBeNull();
+  });
 });
