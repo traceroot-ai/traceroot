@@ -81,7 +81,9 @@ describe("getModelPricing + calculateCost (prisma-backed)", () => {
     (prisma.standardModel.findMany as ReturnType<typeof vi.fn>).mockResolvedValue([
       {
         modelName: "claude-opus-4-7",
-        matchPattern: "^claude-opus-4-7$",
+        // Real patterns are shared with the Python worker and start with the
+        // "(?i)" inline flag, which JS RegExp rejects — the case this guards.
+        matchPattern: "(?i)^(anthropic\\/)?claude-opus-4-7(-[\\d-]+)?$",
         prices: [
           { usageType: "input", price: 0.000005 },
           { usageType: "output", price: 0.000025 },
@@ -110,5 +112,20 @@ describe("getModelPricing + calculateCost (prisma-backed)", () => {
   it("returns 0 when the model is not in the pricing table", async () => {
     const cost = await calculateCost("totally-unknown-model-2099", 100, 50);
     expect(cost).toBe(0);
+  });
+
+  // Regression for the "(?i)" inline flag: a gateway-prefixed id is not an exact
+  // modelName match, so it must resolve through the regex fallback. Before the
+  // fix, `new RegExp("(?i)...")` threw and the fallback silently matched nothing.
+  it("matches a gateway-prefixed id via the regex fallback", async () => {
+    const pricing = await getModelPricing("anthropic/claude-opus-4-7");
+    expect(pricing).not.toBeNull();
+    expect(pricing!.input).toBe(0.000005);
+  });
+
+  it("matches a versioned id via the regex fallback", async () => {
+    const pricing = await getModelPricing("claude-opus-4-7-20260514");
+    expect(pricing).not.toBeNull();
+    expect(pricing!.output).toBe(0.000025);
   });
 });

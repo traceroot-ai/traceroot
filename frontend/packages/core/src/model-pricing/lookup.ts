@@ -68,10 +68,14 @@ export async function getModelPricing(modelId: string): Promise<ModelPricing | n
   const exact = models.find((m) => m.modelName === modelId);
   if (exact) return exact.prices;
 
-  // Regex fallback
+  // Regex fallback. The patterns are authored for Python's re (shared with the
+  // worker) and begin with the inline flag `(?i)`, which JS RegExp does not
+  // support — `new RegExp("(?i)...")` throws `Invalid group`, so without
+  // stripping it every pattern hit the catch below and the regex path never
+  // matched. Drop the leading `(?i)` and pass the equivalent "i" flag instead.
   for (const m of models) {
     try {
-      const re = new RegExp(m.matchPattern, "i");
+      const re = new RegExp(m.matchPattern.replace(/^\(\?i\)/, ""), "i");
       if (re.test(modelId)) return m.prices;
     } catch {
       // Invalid regex — skip
