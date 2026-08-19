@@ -3,6 +3,7 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { CopyButton } from "@/components/ui/copy-button";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ListPagination } from "@/components/list-pagination";
 import { useUrlPagination } from "@/lib/hooks/use-url-pagination";
@@ -136,10 +137,17 @@ export function DatasetsView({ projectId }: { projectId: string }) {
                         so there's no competing name link. */}
                     <Td className="text-foreground">{dataset.name}</Td>
                     <Td
-                      className="max-w-[240px] truncate font-mono text-[11px] text-muted-foreground"
+                      className="max-w-[240px] font-mono text-[11px] text-muted-foreground"
                       title={dataset.clientDatasetId ?? dataset.id}
                     >
-                      {dataset.clientDatasetId ?? dataset.id}
+                      <div className="flex items-center gap-1">
+                        <span className="truncate">{dataset.clientDatasetId ?? dataset.id}</span>
+                        <CopyButton
+                          value={dataset.clientDatasetId ?? dataset.id}
+                          className="h-5 w-5 shrink-0 text-muted-foreground hover:text-foreground"
+                          title="Copy dataset ID"
+                        />
+                      </div>
                     </Td>
                     <Td className="text-right tabular-nums text-muted-foreground">
                       {dataset.caseCount}
