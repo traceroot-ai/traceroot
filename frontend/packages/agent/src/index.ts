@@ -15,6 +15,7 @@ import { getSystemPrompt } from "./prompts/system.js";
 import { createExecutor } from "./executors/index.js";
 import { createTools } from "./tools/index.js";
 import type { Executor } from "./executors/interface.js";
+import { createToolResultRecorder } from "./tool-result-recorder.js";
 
 const app = new Hono();
 
@@ -182,6 +183,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
   return streamSSE(c, async (stream) => {
     let assistantText = "";
     let loggedFirstUpdate = false;
+    const toolResultRecorder = createToolResultRecorder(sessionManager);
 
     // Accumulate token usage across all message_end events (tool-use loops)
     let totalInputTokens = 0;
@@ -232,6 +234,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
             if (msg?.model) responseModel = msg.model;
             if (msg?.provider) responseProvider = msg.provider;
           }
+          toolResultRecorder.handleEvent(event);
           // Forward all events to the frontend
           stream.writeSSE({
             event: event.type,
@@ -257,6 +260,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
         },
         onDone: async () => {
           console.log(`[Agent] Done. Assistant text length: ${assistantText.length}`);
+          await toolResultRecorder.flush();
           // Persist assistant response to DB via SessionManager
           if (assistantText) {
             // Use our pricing table if pi-ai returned 0 cost
