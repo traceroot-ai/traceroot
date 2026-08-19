@@ -182,18 +182,99 @@ describe("CompareRunsView — N-run diff table", () => {
     expect(screen.queryByTestId("trace-panel")).toBeNull();
   });
 
-  it("guards against comparing runs on different datasets", () => {
+  it("compares runs across datasets by shared input (no refusal)", () => {
+    // The other run is on a DIFFERENT dataset, so its cases carry different
+    // (dataset-scoped) testCaseIds — but the same inputs. Old behaviour refused; the
+    // new behaviour aligns on the shared inputs.
+    const OTHER = {
+      run: { ...SONNET.run, datasetId: "ds2", datasetName: "tickets-v2", datasetVersionId: "dv2" },
+      results: [
+        // Same inputs as OPUS, but different testCaseIds (a different dataset).
+        result("tc_other_01", "Ticket 1: my invoice looks wrong", "billing", {
+          routing_accuracy: 1,
+          is_known_category: 1,
+        }),
+        result(
+          "tc_other_05",
+          "Ticket 5: my card was double-charged and I want a refund",
+          "account_management",
+          { routing_accuracy: 0, is_known_category: 1 },
+        ),
+      ],
+    };
     hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
       ids.map((id) => ({
-        data:
-          id === "sonnet"
-            ? { ...SONNET, run: { ...SONNET.run, datasetName: "a-different-dataset" } }
-            : RESP[id],
+        data: id === "sonnet" ? OTHER : RESP[id],
         isLoading: false,
         isError: false,
       })),
     );
     mount();
-    expect(screen.getByText(/different datasets/)).toBeTruthy();
+    // Not blocked: no "needs the same dataset" refusal.
+    expect(screen.queryByText(/needs the same dataset/)).toBeNull();
+    // An informational banner explains the cross-dataset alignment.
+    expect(screen.getByText(/aligned by shared input/)).toBeTruthy();
+    // Both shared inputs align into rows despite disjoint testCaseIds.
+    expect(screen.getByText(/my invoice looks wrong/)).toBeTruthy();
+    const row = screen
+      .getByText(/double-charged and I want a refund/)
+      .closest("tr") as HTMLTableRowElement;
+    // Aligned pair still produces the regression delta against the baseline.
+    expect(within(row).getByText("−100.0%")).toBeTruthy();
+  });
+
+  it("shows the shared-input empty state when cross-dataset runs share no inputs", () => {
+    const OTHER = {
+      run: { ...SONNET.run, datasetId: "ds2", datasetName: "tickets-v2", datasetVersionId: "dv2" },
+      results: [
+        result("tc_other_99", "A wholly unrelated question about API keys", "billing", {
+          routing_accuracy: 1,
+          is_known_category: 1,
+        }),
+      ],
+    };
+    hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
+      ids.map((id) => ({
+        data: id === "sonnet" ? OTHER : RESP[id],
+        isLoading: false,
+        isError: false,
+      })),
+    );
+    mount();
+    expect(screen.getByText(/share no inputs in common/)).toBeTruthy();
+  });
+
+  it("still aligns same-dataset runs by testCaseId, not input", () => {
+    // Same dataset, IDENTICAL testCaseIds, but the inputs were edited to differ. The
+    // rows must still line up (by id) — proving the common path did not switch to
+    // input-keying.
+    const EDITED = {
+      run: SONNET.run,
+      results: [
+        result("ticket-01", "EDITED input text one", "billing", {
+          routing_accuracy: 1,
+          is_known_category: 1,
+        }),
+        result("ticket-05", "EDITED input text five", "account_management", {
+          routing_accuracy: 0,
+          is_known_category: 1,
+        }),
+      ],
+    };
+    hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
+      ids.map((id) => ({
+        data: id === "sonnet" ? EDITED : RESP[id],
+        isLoading: false,
+        isError: false,
+      })),
+    );
+    mount();
+    // No cross-dataset banner (same dataset name).
+    expect(screen.queryByText(/aligned by shared input/)).toBeNull();
+    // Both ids intersect → ticket-05 aligns and its regression delta is computed,
+    // even though the two runs now carry different input text for that id.
+    expect(screen.getByText("−100.0%")).toBeTruthy();
+    // Both runs' (now-differing) inputs are shown for the edited case.
+    expect(screen.getByText("EDITED input text five")).toBeTruthy();
   });
 });
