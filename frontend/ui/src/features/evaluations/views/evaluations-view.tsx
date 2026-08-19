@@ -381,7 +381,9 @@ function RunsTab({ projectId }: { projectId: string }) {
                 <ListState
                   icon={<Inbox className="h-8 w-8 text-muted-foreground/40" />}
                   title={filtered ? "No runs match these filters." : "No evaluation runs yet"}
-                  description={filtered ? undefined : "Report a run from your SDK and it appears here."}
+                  description={
+                    filtered ? undefined : "Report a run from your SDK and it appears here."
+                  }
                 />
               </TableStateRow>
             ) : (

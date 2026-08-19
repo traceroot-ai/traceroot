@@ -4,13 +4,7 @@
 // same column list, so they cannot disagree about column order.
 import type { ReactElement } from "react";
 import type { TraceListItem } from "@/types/api";
-import {
-  formatDuration,
-  formatCost,
-  formatTokenFlow,
-  formatExactTokens,
-  cn,
-} from "@/lib/utils";
+import { formatDuration, formatCost, formatTokenFlow, formatExactTokens } from "@/lib/utils";
 import { formatContentPreview } from "../utils";
 import { traceMetadataEntries } from "../utils/metadata";
 import { TraceMetadataCell } from "./TraceMetadataCell";
@@ -156,9 +150,7 @@ const FIXED_CELLS: Record<FixedColumnId, (props: FixedCellProps) => ReactElement
       )}
     </Td>
   ),
-  spans: ({ trace }) => (
-    <Td className="text-center text-muted-foreground">{trace.span_count}</Td>
-  ),
+  spans: ({ trace }) => <Td className="text-center text-muted-foreground">{trace.span_count}</Td>,
   input: ({ trace }) => <PreviewCell value={formatContentPreview(trace.input)} />,
   output: ({ trace }) => <PreviewCell value={formatContentPreview(trace.output)} />,
   // The whole payload, shaped like Input and Output. Display-only: a blob is not a value the
@@ -193,9 +185,7 @@ const FIXED_CELLS: Record<FixedColumnId, (props: FixedCellProps) => ReactElement
     </Td>
   ),
   latency: ({ trace }) => (
-    <Td className="whitespace-nowrap text-foreground">
-      {formatDuration(trace.duration_ms)}
-    </Td>
+    <Td className="whitespace-nowrap text-foreground">{formatDuration(trace.duration_ms)}</Td>
   ),
 };
 

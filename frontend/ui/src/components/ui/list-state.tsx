@@ -18,10 +18,7 @@ export interface ListStateProps {
 export function ListState({ icon, title, description, action, className }: ListStateProps) {
   return (
     <div
-      className={cn(
-        "flex h-64 flex-col items-center justify-center gap-3 text-center",
-        className,
-      )}
+      className={cn("flex h-64 flex-col items-center justify-center gap-3 text-center", className)}
     >
       {icon}
       <p className="text-[13px] text-muted-foreground">{title}</p>
