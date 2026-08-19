@@ -112,6 +112,12 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
             "500", _error_response("Failed to list detectors")
         )
 
+    # Detector detail read error contract (matches the route code).
+    detector_get_op = schema["paths"].get("/api/v1/public/detectors/{detector_id}", {}).get("get")
+    if detector_get_op is not None:
+        detector_get_op["responses"].setdefault("404", _error_response("Detector not found"))
+        detector_get_op["responses"].setdefault("500", _error_response("Failed to read detector"))
+
     # Detector findings read error contract (matches the route code).
     findings_list_op = schema["paths"].get("/api/v1/public/detectors/findings", {}).get("get")
     if findings_list_op is not None:
@@ -319,6 +325,14 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
     "get_finding_by_trace": {
         "name": "get_finding_by_trace",
         "description": "Fetch the detector finding attached to a specific trace, if any.",
+        "enabled": True,
+    },
+    "get_detector": {
+        "name": "get_detector",
+        "description": (
+            "Fetch one detector's full configuration by id: prompt, output schema, "
+            "sample rate, RCA and detection settings, and trigger conditions."
+        ),
         "enabled": True,
     },
     # Evaluation reporting endpoints are SDK-facing writes, not agent tools (like ingest_traces).

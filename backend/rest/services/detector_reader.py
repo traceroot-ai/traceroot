@@ -20,6 +20,7 @@ import psycopg2
 
 from db.clickhouse import get_clickhouse_client
 from rest.schemas.public import (
+    DetectorDetail,
     DetectorItem,
     DetectorResultItem,
     FindingDetail,
@@ -127,6 +128,50 @@ class DetectorReaderService:
             for row in rows
         ]
         return items, total
+
+    def get_detector(self, project_id: str, detector_id: str) -> DetectorDetail | None:
+        """Fetch one detector's full configuration, with its optional trigger.
+
+        Like :meth:`list_detectors`, a Postgres failure here propagates so the
+        router returns a controlled 500 (this is a primary read, not
+        best-effort enrichment).
+
+        Args:
+            project_id (str): Owning project; scopes the lookup.
+            detector_id (str): Detector id (``detectors.id``).
+
+        Returns:
+            DetectorDetail | None: The detector with trigger conditions when
+            the row exists in the project, else None (router maps to 404).
+        """
+        rows = self._pg_rows(
+            "SELECT d.id, d.name, d.template, d.enabled, d.create_time, d.prompt, "
+            "d.output_schema, d.sample_rate, d.enable_rca, d.detection_model, "
+            "d.detection_provider, d.detection_source, d.update_time, t.conditions "
+            "FROM detectors d "
+            "LEFT JOIN detector_triggers t ON t.detector_id = d.id "
+            "WHERE d.project_id = %s AND d.id = %s",
+            (project_id, detector_id),
+        )
+        if not rows:
+            return None
+        row = rows[0]
+        return DetectorDetail(
+            detector_id=row[0],
+            name=row[1],
+            template=row[2],
+            enabled=row[3],
+            created_at=row[4],
+            prompt=row[5],
+            output_schema=row[6],
+            sample_rate=row[7],
+            enable_rca=row[8],
+            detection_model=row[9],
+            detection_provider=row[10],
+            detection_source=row[11],
+            updated_at=row[12],
+            trigger_conditions=row[13],
+        )
 
     # ------------------------------------------------------------------ #
     # list

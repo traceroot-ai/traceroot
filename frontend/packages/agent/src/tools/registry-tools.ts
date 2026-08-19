@@ -6,7 +6,15 @@ import {
   internalAuth,
   toPiAgentTool,
 } from "@traceroot-ai/tools";
-import { formatSessionDetail, formatSessionList, formatTraceList } from "./formatters.js";
+import {
+  formatDetectorDetail,
+  formatDetectorList,
+  formatFindingDetail,
+  formatFindingList,
+  formatSessionDetail,
+  formatSessionList,
+  formatTraceList,
+} from "./formatters.js";
 
 function requireEntry(name: string) {
   const entry = REGISTRY.find((e) => e.name === name);
@@ -37,5 +45,10 @@ export function createRegistryReadTools(projectId: string, userId: string): Agen
     bind("list_traces", formatTraceList),
     bind("list_sessions", formatSessionList),
     bind("get_session", formatSessionDetail),
+    bind("list_detectors", formatDetectorList),
+    bind("get_detector", formatDetectorDetail),
+    bind("list_findings", formatFindingList),
+    bind("get_finding", formatFindingDetail),
+    bind("get_finding_by_trace", formatFindingDetail),
   ];
 }
