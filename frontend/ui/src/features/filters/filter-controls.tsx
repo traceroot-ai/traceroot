@@ -254,7 +254,9 @@ export function MetadataKeyCombobox({
   endBefore?: string;
   value: string;
   onValue: (v: string) => void;
-  onEnter: () => void;
+  // Optional: the trace-list builder submits its row on Enter; a row that applies
+  // as it is edited has nothing to submit and passes none.
+  onEnter?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const textSize = useTextSize();
@@ -289,7 +291,7 @@ export function MetadataKeyCombobox({
               // complete; the typed key needs no confirmation, it is already the key.
               if (e.key === "Enter") {
                 setOpen(false);
-                onEnter();
+                onEnter?.();
               }
             }}
             className={cn(

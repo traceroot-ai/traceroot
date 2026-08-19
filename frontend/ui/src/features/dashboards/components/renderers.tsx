@@ -241,15 +241,16 @@ const seriesOpacity = (hovered: string | null, key: string, base = 1) =>
 
 /**
  * Per-series aggregates for the legend, from the same pivot the charts draw.
- * Additive measures sum across buckets (a true window total); non-additive
- * ones average their non-null buckets — an approximation (bucketed
- * percentiles can't be re-aggregated), so those get no Total row.
+ * Summable measures sum across buckets (a true window total); the rest average
+ * their non-null buckets — an approximation (bucketed percentiles and distinct
+ * counts can't be re-aggregated), so those get no Total row.
  * No-breakdown charts return null: their only series is the synthetic
  * "value" key, and a legend row would just echo the widget title.
  */
 function legendFor(
   result: WidgetQueryResult,
   additive: boolean,
+  summable: boolean,
 ): { entries: LegendEntry[]; total: number | null } | null {
   // Guard the result's shape, not just the display: keepPreviousData serves
   // the previous spec's result for a beat after a display/spec switch, and
@@ -267,17 +268,17 @@ function legendFor(
       .map((r) => (r as Record<string, unknown>)[k])
       .filter((v): v is number => typeof v === "number");
     const sum = nums.reduce((a, b) => a + b, 0);
-    const value = nums.length === 0 ? null : additive ? sum : sum / nums.length;
+    const value = nums.length === 0 ? null : summable ? sum : sum / nums.length;
     return { key: k, label: k, color: seriesColor(i), value };
   });
-  const total = additive ? entries.reduce((a, e) => a + (e.value ?? 0), 0) : null;
+  const total = summable ? entries.reduce((a, e) => a + (e.value ?? 0), 0) : null;
   return { entries, total };
 }
 
 /** Categorical charts (bar/pie): one legend entry per category row. */
 function categoricalLegend(
   result: WidgetQueryResult,
-  additive: boolean,
+  summable: boolean,
 ): { entries: LegendEntry[]; total: number | null } | null {
   // Categorical results are exactly [dim, value]; anything else is a stale
   // mismatched shape (see legendFor) whose rows have no `name` and would
@@ -296,7 +297,7 @@ function categoricalLegend(
       value: typeof v === "number" ? v : null,
     };
   });
-  const total = additive ? entries.reduce((a, e) => a + (e.value ?? 0), 0) : null;
+  const total = summable ? entries.reduce((a, e) => a + (e.value ?? 0), 0) : null;
   return { entries, total };
 }
 
@@ -601,12 +602,20 @@ function HistogramView({
   );
 }
 
-// Aggs whose empty buckets have no value (no average or percentile of
-// nothing): their series shows a gap instead of a false drop to 0. Mirrors
-// the backend's _NON_ADDITIVE_AGGS — same polarity, so an agg added to one
-// list but not the other degrades to the additive (zero-filled) treatment on
-// both sides rather than diverging. Absent agg = additive (legacy callers).
-const NON_ADDITIVE_AGGS = new Set<string>(["avg", "min", "max", "p50", "p95", "p99"]);
+// Mirrors the backend's _NON_ADDITIVE_AGGS at the same polarity: an agg missing
+// from either list degrades to zero-fill on both sides rather than diverging.
+const NON_ADDITIVE_AGGS = new Set<string>(["avg", "min", "max", "p50", "p75", "p90", "p95", "p99"]);
+
+/** Empty buckets are 0 for an additive agg; the rest have no value and draw a gap. */
+export function isAdditiveAgg(agg: string | undefined): boolean {
+  return agg === undefined || !NON_ADDITIVE_AGGS.has(agg);
+}
+
+/** Whether summing this agg across buckets or categories is honest. uniq gap-fills
+ * as additive, but its per-bucket counts overlap, so their sum overstates. */
+export function isSummableAgg(agg: string | undefined): boolean {
+  return isAdditiveAgg(agg) && agg !== "uniq";
+}
 
 export function QueryWidgetRenderer({
   display,
@@ -623,16 +632,17 @@ export function QueryWidgetRenderer({
   /** Aggregation from the widget spec; decides how empty buckets render. */
   agg?: (typeof AGGS)[number];
 }) {
-  const additive = agg === undefined || !NON_ADDITIVE_AGGS.has(agg);
+  const additive = isAdditiveAgg(agg);
+  const summable = isSummableAgg(agg);
   const [hoveredKey, setHoveredKey] = useState<string | null>(null);
   // Breakdown charts get a legend under the plot; everything else
   // (no-breakdown series, stat tiles, tables, histograms) stays legend-free.
   const legend = useMemo(() => {
     if (result.rows.length === 0) return null;
-    if (display === "line" || display === "area") return legendFor(result, additive);
-    if (display === "bar" || display === "pie") return categoricalLegend(result, additive);
+    if (display === "line" || display === "area") return legendFor(result, additive, summable);
+    if (display === "bar" || display === "pie") return categoricalLegend(result, summable);
     return null;
-  }, [display, result, additive]);
+  }, [display, result, additive, summable]);
   // A background refresh can drop the hovered series between renders; a stale
   // key matches nothing and would dim EVERY series — treat it as no hover.
   const hoveredInLegend =
