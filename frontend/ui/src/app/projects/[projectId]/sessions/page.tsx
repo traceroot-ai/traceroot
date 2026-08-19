@@ -3,27 +3,24 @@
 import { useMemo, useLayoutEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
+import { AlertTriangle } from "lucide-react";
 import { useLayout } from "@/components/layout/app-layout";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
-import { LoadingState } from "@/components/ui/loading-state";
+import { Button } from "@/components/ui/button";
+import { ListState, ListLoading } from "@/components/ui/list-state";
+import { Table, TBody, Td, Th, THead, TR, TRHead } from "@/components/ui/table";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { SessionDetailPanel } from "@/features/traces/components/SessionDetailPanel";
+import { Timestamp } from "@/features/offline-eval/components";
 import { useSessions } from "@/features/traces/hooks";
 import { useRetention } from "@/lib/hooks/use-retention";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
 import { PlanType } from "@traceroot/core";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useSession as useAuthSession } from "@/lib/auth-client";
-import {
-  formatDate,
-  formatCost,
-  formatTokens,
-  formatExactTokens,
-  cn,
-  buildUrlWithFilters,
-} from "@/lib/utils";
+import { formatCost, formatTokens, formatExactTokens, cn, buildUrlWithFilters } from "@/lib/utils";
 import type { SessionListItem, SessionQueryOptions } from "@/types/api";
 
 const tabs = [
@@ -72,7 +69,12 @@ export default function SessionsPage() {
     setHideAiButton(false);
   }, [setHideAiButton]);
 
-  const { data, isPending: dataPending, error } = useSessions(projectId, sessionQueryOptions);
+  const {
+    data,
+    isPending: dataPending,
+    error,
+    refetch,
+  } = useSessions(projectId, sessionQueryOptions);
   // Auth-gated React Query reports isLoading: false while disabled (TanStack v5).
   // Use isPending OR'd with auth pending so the loading branch shows during the
   // auth-resolution window instead of falling through to the empty state.
@@ -136,74 +138,69 @@ export default function SessionsPage() {
         {/* Content */}
         <div className="flex-1 overflow-auto bg-background">
           {checking ? (
-            <div className="flex h-64 items-center justify-center">
-              <LoadingState label="Loading sessions..." />
-            </div>
+            <ListLoading label="Loading sessions..." />
           ) : error && !data ? (
-            <div className="flex h-64 flex-col items-center justify-center gap-3">
-              <p className="text-[13px] text-destructive">Error loading sessions</p>
-              <p className="text-[12px] text-muted-foreground">
-                Make sure the API server is running.
-              </p>
-            </div>
+            <ListState
+              icon={<AlertTriangle className="h-8 w-8 text-destructive/50" />}
+              title="Error loading sessions"
+              description="Make sure the API server is running and you have API keys configured."
+              action={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-[12px]"
+                  onClick={() => refetch()}
+                >
+                  Try again
+                </Button>
+              }
+            />
           ) : sessions.length === 0 ? (
-            <div className="flex h-64 flex-col items-center justify-center gap-3">
-              <DOMAIN_ICONS.session className="h-10 w-10 text-muted-foreground" />
-              <p className="text-[13px] text-muted-foreground">No sessions found</p>
-              <p className="text-[12px] text-muted-foreground">
-                Sessions will appear here when traces include session_id.
-              </p>
-            </div>
+            <ListState
+              icon={<DOMAIN_ICONS.session className="h-8 w-8 text-muted-foreground/40" />}
+              title="No sessions found"
+              description="Sessions will appear here when traces include session_id."
+            />
           ) : (
             <div className="flex h-full flex-col">
               <div className="flex-1 overflow-auto">
-                <table className="w-full">
-                  <thead className="sticky top-0 bg-background">
-                    <tr className="border-b border-border bg-muted/50">
-                      <th className="w-[140px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Timestamp
-                      </th>
-                      <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Session ID
-                      </th>
-                      <th className="w-[140px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        User ID
-                      </th>
-                      <th className="w-[110px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Tokens
-                      </th>
-                      <th className="w-[100px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Cost
-                      </th>
-                      <th className="w-[70px] px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Traces
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
+                <Table>
+                  <THead>
+                    <TRHead>
+                      <Th className="w-[140px]">Timestamp</Th>
+                      <Th>Session ID</Th>
+                      <Th className="w-[140px]">User ID</Th>
+                      <Th className="w-[110px]">Tokens</Th>
+                      <Th className="w-[100px]">Cost</Th>
+                      <Th className="w-[70px]">Traces</Th>
+                    </TRHead>
+                  </THead>
+                  <TBody>
                     {sessions.map((session: SessionListItem) => (
-                      <tr
+                      <TR
                         key={session.session_id}
+                        interactive
                         onClick={() => {
                           setSelectedSessionId(session.session_id);
                         }}
-                        className={cn(
-                          "cursor-pointer border-b border-border/50 transition-colors last:border-0",
-                          selectedSessionId === session.session_id
-                            ? "bg-muted"
-                            : "hover:bg-muted/50",
-                        )}
                       >
-                        <td className="whitespace-nowrap border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
-                          {formatDate(session.first_trace_time)}
-                        </td>
-                        <td className="border-r border-border/50 px-3 py-1.5 text-[12px] font-medium text-foreground">
+                        <Td className="whitespace-nowrap text-muted-foreground">
+                          {session.first_trace_time ? (
+                            <Timestamp iso={session.first_trace_time} />
+                          ) : (
+                            "-"
+                          )}
+                        </Td>
+                        <Td
+                          className="max-w-[300px] truncate font-medium text-foreground"
+                          title={session.session_id}
+                        >
                           {session.session_id}
-                        </td>
-                        <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                        </Td>
+                        <Td className="text-muted-foreground">
                           {session.user_ids.length > 0 ? session.user_ids.join(", ") : "-"}
-                        </td>
-                        <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                        </Td>
+                        <Td className="text-muted-foreground">
                           {(session.total_input_tokens ?? 0) + (session.total_output_tokens ?? 0) >
                           0 ? (
                             <span
@@ -215,17 +212,15 @@ export default function SessionsPage() {
                           ) : (
                             "-"
                           )}
-                        </td>
-                        <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                        </Td>
+                        <Td className="text-muted-foreground">
                           {formatCost(getTotalCost(session))}
-                        </td>
-                        <td className="px-3 py-1.5 text-[12px] text-muted-foreground">
-                          {session.trace_count}
-                        </td>
-                      </tr>
+                        </Td>
+                        <Td className="text-muted-foreground">{session.trace_count}</Td>
+                      </TR>
                     ))}
-                  </tbody>
-                </table>
+                  </TBody>
+                </Table>
               </div>
 
               <ListPagination
