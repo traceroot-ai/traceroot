@@ -6,6 +6,8 @@ const serverSchema = z.object({
   INTERNAL_API_SECRET: z.string().min(1),
   AUTH_GOOGLE_CLIENT_ID: z.string().default(""),
   AUTH_GOOGLE_CLIENT_SECRET: z.string().default(""),
+  AUTH_GITHUB_CLIENT_ID: z.string().default(""),
+  AUTH_GITHUB_CLIENT_SECRET: z.string().default(""),
   TRACEROOT_SMTP_URL: z.string().optional(),
   TRACEROOT_SMTP_MAIL_FROM: z.string().optional(),
   NEXT_PUBLIC_APP_URL: z.string().default("http://localhost:3000"),
