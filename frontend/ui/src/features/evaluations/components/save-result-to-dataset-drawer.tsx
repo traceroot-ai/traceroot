@@ -172,7 +172,13 @@ export function SaveResultToDatasetDrawer({
     },
   });
 
-  const canSave = !save.isPending && (!meta.picksDataset || !!targetDatasetId);
+  const hasChanges =
+    (meta.picksDataset && targetDatasetId !== sourceDatasetId) ||
+    input !== result.input ||
+    useCandidateAsExpected ||
+    (!useCandidateAsExpected && expected !== (result.expectedOutput ?? ""));
+
+  const canSave = !save.isPending && (!meta.picksDataset || !!targetDatasetId) && hasChanges;
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
@@ -283,7 +289,7 @@ export function SaveResultToDatasetDrawer({
             Cancel
           </Button>
           <Button size="sm" disabled={!canSave} onClick={() => save.mutate()}>
-            {save.isPending ? "Saving…" : meta.cta}
+            {save.isPending ? "Saving…" : "Save"}
           </Button>
         </DrawerFooter>
       </DrawerContent>

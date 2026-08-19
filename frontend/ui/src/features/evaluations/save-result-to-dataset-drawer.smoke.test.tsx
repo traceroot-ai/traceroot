@@ -129,13 +129,30 @@ describe("SaveResultToDatasetDrawer", () => {
     expect(screen.getByLabelText("Dataset")).toBeDefined();
   });
 
+  it("disables Save until a field is edited or dataset changes", () => {
+    mount("update_existing_case");
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save.hasAttribute("disabled")).toBe(true);
+
+    const input = screen.getByLabelText("Input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "A different question" } });
+    expect(save.hasAttribute("disabled")).toBe(false);
+
+    fireEvent.change(input, { target: { value: RESULT.input } });
+    expect(save.hasAttribute("disabled")).toBe(true);
+
+    // Toggling the candidate switch enables Save
+    fireEvent.click(screen.getByRole("switch"));
+    expect(save.hasAttribute("disabled")).toBe(false);
+  });
+
   it("never copies the candidate output into expected unless explicitly toggled on", async () => {
     const fetchMock = stubFetch();
     mount("update_existing_case");
     // Type a real reference answer; the candidate output is a DIFFERENT string.
     const expected = screen.getByLabelText("Expected answer") as HTMLTextAreaElement;
     fireEvent.change(expected, { target: { value: "A concise Q2 summary." } });
-    fireEvent.click(screen.getByRole("button", { name: /Publish update/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() =>
       expect(fetchMock.mock.calls.some((c) => (c[1] as RequestInit)?.method === "POST")).toBe(true),
@@ -155,7 +172,7 @@ describe("SaveResultToDatasetDrawer", () => {
     // Flipping the toggle hides the free-text field and shows the candidate output.
     fireEvent.click(screen.getByRole("switch"));
     expect(screen.getByText(RESULT.candidateOutput)).toBeDefined();
-    fireEvent.click(screen.getByRole("button", { name: /Publish update/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() =>
       expect(fetchMock.mock.calls.some((c) => (c[1] as RequestInit)?.method === "POST")).toBe(true),
@@ -173,9 +190,11 @@ describe("SaveResultToDatasetDrawer", () => {
       body: { error: "This result already came from this case — use update instead." },
     });
     mount("save_new_case");
+    // Change input so Save enables while still targeting ds1 (originating dataset)
+    fireEvent.change(screen.getByLabelText("Input"), { target: { value: "Different question" } });
     // ds1 is the source dataset (default); saving a new case that recreates the source
     // is what the backend rejects.
-    fireEvent.click(screen.getByRole("button", { name: /Save new case/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() =>
       expect(screen.getByRole("alert").textContent).toMatch(/use update instead/i),

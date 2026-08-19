@@ -183,7 +183,7 @@ export function TestCaseEditorModal({
             Cancel
           </Button>
           <Button size="sm" className="h-7 text-[12px]" onClick={handleSave} disabled={!canSave}>
-            {pending ? "Saving…" : isEdit ? "Save changes" : "Save"}
+            {pending ? "Saving…" : "Save"}
           </Button>
         </div>
       </div>
