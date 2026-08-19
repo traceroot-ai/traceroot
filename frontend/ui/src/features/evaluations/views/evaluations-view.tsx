@@ -237,17 +237,9 @@ function RunsTab({ projectId }: { projectId: string }) {
       .filter((r) => selectedIds.has(r.id))
       .sort((a, b) => a.runNumber - b.runNumber);
     if (chosen.length < 2) return;
-    // Rows line up by dataset-row id, which only means something within ONE dataset
-    // (versions may differ). Refuse a cross-dataset selection here — before leaving the
-    // page — rather than landing on an empty comparison.
-    if (new Set(chosen.map((r) => r.datasetName ?? r.datasetId)).size > 1) {
-      toast({
-        title: "Pick runs from the same dataset",
-        description: "Runs can only be compared within a single dataset.",
-        tone: "warning",
-      });
-      return;
-    }
+    // Cross-dataset selections are allowed: within one dataset the compare view lines
+    // rows up by dataset-row id, and when the runs span datasets it falls back to
+    // aligning by shared (canonical) input — so a mixed-dataset selection compares fine.
     const ids = chosen.map((r) => r.id).join(",");
     router.push(`/projects/${projectId}/evaluations/compare?runs=${ids}&baseline=${chosen[0].id}`);
   };
