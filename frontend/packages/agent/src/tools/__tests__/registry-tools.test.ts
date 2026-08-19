@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Executor } from "../../executors/interface.js";
-import { formatSessionDetail, formatSessionList, formatTraceList } from "../formatters.js";
+import {
+  formatMetadataKeys,
+  formatSessionDetail,
+  formatSessionList,
+  formatTraceList,
+} from "../formatters.js";
 import { createTools } from "../index.js";
 import { createRegistryReadTools } from "../registry-tools.js";
 
@@ -17,9 +22,14 @@ describe("createRegistryReadTools", () => {
     return impl;
   }
 
-  it("exposes exactly the three internally-bound read tools", () => {
+  it("exposes exactly the internally-bound read tools", () => {
     const names = createRegistryReadTools("p1", "u1").map((t) => t.name);
-    expect(names).toEqual(["list_traces", "list_sessions", "get_session"]);
+    expect(names).toEqual([
+      "list_traces",
+      "list_sessions",
+      "get_session",
+      "list_trace_metadata_keys",
+    ]);
   });
 
   it("hides the fixed project_id from every tool's model-facing schema", () => {
@@ -135,6 +145,7 @@ describe("createTools", () => {
       "list_traces",
       "list_sessions",
       "get_session",
+      "list_trace_metadata_keys",
       "download_traces",
       "download_session",
       "check_github_access",
@@ -147,6 +158,21 @@ describe("createTools", () => {
 });
 
 describe("formatters", () => {
+  it("formatMetadataKeys reports the empty state and lists keys by frequency", () => {
+    expect(formatMetadataKeys({})).toBe(
+      "No metadata keys found on this project's traces or spans.",
+    );
+    const text = formatMetadataKeys({
+      keys: [
+        { value: "customer_tier", count: 15 },
+        { value: "pipeline_stage", count: 30 },
+      ],
+    });
+    expect(text).toContain("- customer_tier (15 occurrences)");
+    expect(text).toContain("- pipeline_stage (30 occurrences)");
+    expect(text).toContain('as the "key" of a metadata filter');
+  });
+
   it("formatTraceList reports the empty state and tolerates missing fields", () => {
     expect(formatTraceList({})).toBe("No traces found matching the given filters.");
     expect(formatTraceList({ data: [], meta: {} })).toBe(

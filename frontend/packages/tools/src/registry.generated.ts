@@ -237,6 +237,30 @@ export const REGISTRY: readonly RegistryEntry[] = [
     },
   },
   {
+    name: "list_trace_metadata_keys",
+    description:
+      "Discover which metadata keys exist on the project's traces and spans (by frequency) — use before filtering the trace list with a keyed metadata predicate, instead of guessing key names.",
+    method: "get",
+    path: "/api/v1/public/traces/metadata-keys",
+    inputSchema: {
+      type: "object",
+      properties: {
+        start_after: {
+          format: "date-time",
+          type: "string",
+          description: "Only consider traces and spans starting at or after this timestamp",
+        },
+        end_before: {
+          format: "date-time",
+          type: "string",
+          description: "Only consider traces and spans starting before this timestamp",
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "list_traces",
     description:
       "List recent traces for the project (newest first). Filter by time range, trace name, user id, or a free-text search across trace/session/user ids and names. Use this for discovery before fetching a specific trace. Structured filters (model, environment, cost, tokens, latency, error count, keyed metadata) are available via the typed filters parameter.",
@@ -424,6 +448,8 @@ export const REGISTRY: readonly RegistryEntry[] = [
               },
               {
                 additionalProperties: false,
+                description:
+                  "Matches traces where the metadata key/value pair is attached at the trace level or on any span within the trace. Use list_trace_metadata_keys to discover which keys exist.",
                 properties: {
                   field: {
                     const: "metadata",

@@ -14,7 +14,7 @@ describe("committed registry", () => {
     expect(REGISTRY).toEqual(generateRegistry(doc));
   });
 
-  it("pins the curated 11-tool surface", () => {
+  it("pins the curated 12-tool surface", () => {
     expect(REGISTRY.map((entry) => entry.name)).toEqual([
       "export_trace",
       "get_finding",
@@ -25,6 +25,7 @@ describe("committed registry", () => {
       "list_findings",
       "list_sessions",
       "list_trace_filter_values",
+      "list_trace_metadata_keys",
       "list_traces",
       "whoami",
     ]);

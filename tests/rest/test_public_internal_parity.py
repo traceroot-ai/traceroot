@@ -13,6 +13,7 @@ BINDINGS = {
     "/api/v1/public/traces": "/api/v1/projects/{project_id}/traces",
     "/api/v1/public/sessions": "/api/v1/projects/{project_id}/sessions",
     "/api/v1/public/sessions/{session_id}": "/api/v1/projects/{project_id}/sessions/{session_id}",
+    "/api/v1/public/traces/metadata-keys": "/api/v1/projects/{project_id}/traces/metadata-keys",
 }
 
 

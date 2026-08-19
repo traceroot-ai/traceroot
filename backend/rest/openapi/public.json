@@ -576,6 +576,23 @@
         "title": "IngestResponse",
         "type": "object"
       },
+      "MetadataKeysResponse": {
+        "description": "Metadata keys observed in a window, by frequency \u2014 the discovery answer.\n\nFeeds the metadata filter's key combobox and the public metadata-keys\nroute (the agent's key-discovery tool). The trace list's column picker\nis not a consumer \u2014 it offers fixed fields only, and metadata reaches the list as a\nsingle blob cell rather than a column per key. Rows reuse ``FilterValueCount``\n(``value``/``count``) because a key with an occurrence count is the same shape as a\ncategorical value with one, and both are rendered by the same suggestion list.",
+        "properties": {
+          "keys": {
+            "items": {
+              "$ref": "#/components/schemas/FilterValueCount"
+            },
+            "title": "Keys",
+            "type": "array"
+          }
+        },
+        "required": [
+          "keys"
+        ],
+        "title": "MetadataKeysResponse",
+        "type": "object"
+      },
       "PaginationMeta": {
         "description": "Pagination metadata for list responses.",
         "properties": {
@@ -3856,6 +3873,7 @@
                       },
                       {
                         "additionalProperties": false,
+                        "description": "Matches traces where the metadata key/value pair is attached at the trace level or on any span within the trace. Use list_trace_metadata_keys to discover which keys exist.",
                         "properties": {
                           "field": {
                             "const": "metadata",
@@ -4285,6 +4303,133 @@
           "description": "Discover the current values of a categorical trace filter field (e.g. model_name, environment) for the project \u2014 use before filtering the trace list by that field.",
           "enabled": true,
           "name": "list_trace_filter_values"
+        }
+      }
+    },
+    "/api/v1/public/traces/metadata-keys": {
+      "get": {
+        "description": "Metadata keys seen on the window's traces and spans, by descending frequency.\n\nThe key-discovery companion to the typed ``filters`` parameter's keyed\n``metadata`` field: the key catalog is dynamic per project, so callers\n(agents, generated CLIs) list it here instead of guessing key names. Both\nscopes are covered \u2014 a key set on the trace and a key set on a span are\ndisjoint key spaces, and a metadata filter matches either. The list only\nsuggests: an unlisted key stays filterable by naming it.\n\nArgs:\n    auth (StampedAuth): Resolved API-key context; scopes the read to its\n        project and stamps the rate-limit identity.\n    start_after (datetime | None): Lower bound on trace and span start time\n        (active window). An omitted bound is defaulted to a fixed lookback,\n        never scanned all-time.\n    end_before (datetime | None): Upper bound on trace and span start time\n        (active window), symmetric with ``start_after``.\n\nReturns:\n    MetadataKeysResponse: Keys with occurrence counts, by descending frequency.\n\nRaises:\n    HTTPException: 500 on a reader failure.",
+        "operationId": "list_trace_metadata_keys",
+        "parameters": [
+          {
+            "description": "Only consider traces and spans starting at or after this timestamp",
+            "in": "query",
+            "name": "start_after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only consider traces and spans starting at or after this timestamp",
+              "title": "Start After"
+            }
+          },
+          {
+            "description": "Only consider traces and spans starting before this timestamp",
+            "in": "query",
+            "name": "end_before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only consider traces and spans starting before this timestamp",
+              "title": "End Before"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetadataKeysResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Failed to list metadata keys"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List Trace Metadata Keys",
+        "tags": [
+          "Traces (Public)"
+        ],
+        "x-tool": {
+          "description": "Discover which metadata keys exist on the project's traces and spans (by frequency) \u2014 use before filtering the trace list with a keyed metadata predicate, instead of guessing key names.",
+          "enabled": true,
+          "name": "list_trace_metadata_keys"
         }
       }
     },

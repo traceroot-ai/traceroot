@@ -11,7 +11,7 @@ import copy
 import json
 from typing import Any
 
-from rest.services.filters.columns import FILTER_COLUMNS, FilterType
+from rest.services.filters.columns import FILTER_COLUMNS, FilterLevel, FilterType
 from rest.services.filters.translate import (
     MAX_FILTERS,
     MAX_KEY_LENGTH,
@@ -105,6 +105,13 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
             "500", _error_response("Failed to list filter values")
         )
 
+    # Metadata-key discovery error contract (matches the route code).
+    metadata_keys_op = schema["paths"].get("/api/v1/public/traces/metadata-keys", {}).get("get")
+    if metadata_keys_op is not None:
+        metadata_keys_op["responses"].setdefault(
+            "500", _error_response("Failed to list metadata keys")
+        )
+
     # Detector catalog list error contract (matches the route code).
     detectors_list_op = schema["paths"].get("/api/v1/public/detectors", {}).get("get")
     if detectors_list_op is not None:
@@ -190,14 +197,22 @@ def _filter_predicate_variants() -> list[dict[str, Any]]:
                 "description": f"Which {col.name} key the value is compared against",
             }
             required = ["field", "key", "op", "value"]
-        variants.append(
-            {
-                "type": "object",
-                "properties": properties,
-                "required": required,
-                "additionalProperties": False,
-            }
-        )
+        variant: dict[str, Any] = {
+            "type": "object",
+            "properties": properties,
+            "required": required,
+            "additionalProperties": False,
+        }
+        if col.level == FilterLevel.KEYED_MAP:
+            # A keyed-map predicate matches at either scope; without this a
+            # consumer reasonably assumes trace-level metadata only and routes
+            # around the filter for span-attached keys.
+            variant["description"] = (
+                f"Matches traces where the {col.name} key/value pair is attached "
+                "at the trace level or on any span within the trace. Use "
+                "list_trace_metadata_keys to discover which keys exist."
+            )
+        variants.append(variant)
     return variants
 
 
@@ -262,6 +277,15 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
             "Discover the current values of a categorical trace filter field "
             "(e.g. model_name, environment) for the project — use before "
             "filtering the trace list by that field."
+        ),
+        "enabled": True,
+    },
+    "list_trace_metadata_keys": {
+        "name": "list_trace_metadata_keys",
+        "description": (
+            "Discover which metadata keys exist on the project's traces and "
+            "spans (by frequency) — use before filtering the trace list with "
+            "a keyed metadata predicate, instead of guessing key names."
         ),
         "enabled": True,
     },

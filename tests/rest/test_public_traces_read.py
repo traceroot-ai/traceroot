@@ -86,16 +86,24 @@ def mock_reader():
 
 
 @pytest.fixture()
-def client(mock_reader):
-    """TestClient with mocked API-key auth and trace reader."""
+def mock_discovery():
+    return MagicMock()
+
+
+@pytest.fixture()
+def client(mock_reader, mock_discovery):
+    """TestClient with mocked API-key auth, trace reader, and trace discovery."""
     app.dependency_overrides[authenticate_api_key] = lambda: make_auth()
 
     import rest.routers.public.traces_read as mod
 
     original = mod.get_trace_reader_service
+    original_discovery = mod.get_trace_discovery_service
     mod.get_trace_reader_service = lambda: mock_reader
+    mod.get_trace_discovery_service = lambda: mock_discovery
     yield TestClient(app)
     mod.get_trace_reader_service = original
+    mod.get_trace_discovery_service = original_discovery
 
 
 AUTH_HEADER = {"Authorization": "Bearer tr_sometoken"}
@@ -303,6 +311,36 @@ class TestPublicListTraceFilterValues:
         resp = client.get("/api/v1/public/traces/filter-values/model_name", headers=AUTH_HEADER)
         assert resp.status_code == 500
         assert resp.json()["detail"] == "Failed to list filter values"
+
+
+class TestPublicListTraceMetadataKeys:
+    def test_returns_keys_scoped_to_project(self, client, mock_discovery):
+        mock_discovery.get_distinct_metadata_keys.return_value = [
+            {"value": "customer_tier", "count": 15},
+            {"value": "pipeline_stage", "count": 30},
+        ]
+        resp = client.get("/api/v1/public/traces/metadata-keys", headers=AUTH_HEADER)
+        assert resp.status_code == 200
+        assert resp.json()["keys"] == [
+            {"value": "customer_tier", "count": 15},
+            {"value": "pipeline_stage", "count": 30},
+        ]
+        call = mock_discovery.get_distinct_metadata_keys.call_args
+        assert call.kwargs["project_id"] == "proj-A"
+
+    def test_literal_segment_not_captured_as_trace_id(self, client, mock_reader, mock_discovery):
+        # Guards the route-declaration order: /metadata-keys must win over
+        # /{trace_id}. If ordering regresses, this 404s via get_trace.
+        mock_discovery.get_distinct_metadata_keys.return_value = []
+        resp = client.get("/api/v1/public/traces/metadata-keys", headers=AUTH_HEADER)
+        assert resp.status_code == 200
+        mock_reader.get_trace.assert_not_called()
+
+    def test_500_on_reader_failure(self, client, mock_discovery):
+        mock_discovery.get_distinct_metadata_keys.side_effect = RuntimeError("boom")
+        resp = client.get("/api/v1/public/traces/metadata-keys", headers=AUTH_HEADER)
+        assert resp.status_code == 500
+        assert resp.json()["detail"] == "Failed to list metadata keys"
 
 
 class TestPublicGetTrace:

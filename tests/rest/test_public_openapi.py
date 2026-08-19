@@ -156,6 +156,12 @@ def test_read_endpoints_document_error_responses():
         assert responses["404"]["description"] == "Trace not found"
 
 
+def test_metadata_keys_route_documents_error_responses():
+    responses = _schema()["paths"]["/api/v1/public/traces/metadata-keys"]["get"]["responses"]
+    assert set(responses) >= {"200", "401", "500"}
+    assert responses["500"]["description"] == "Failed to list metadata keys"
+
+
 def test_detectors_list_route_documents_error_responses():
     paths = _schema()["paths"]
     assert "get" in paths["/api/v1/public/detectors"]
@@ -270,6 +276,7 @@ EXPECTED_OPERATION_IDS = {
     "/api/v1/public/sessions/{session_id}": {"get": "get_session"},
     "/api/v1/public/traces": {"get": "list_traces", "post": "ingest_traces"},
     "/api/v1/public/traces/filter-values/{field}": {"get": "list_trace_filter_values"},
+    "/api/v1/public/traces/metadata-keys": {"get": "list_trace_metadata_keys"},
     "/api/v1/public/traces/{trace_id}": {"get": "get_trace"},
     "/api/v1/public/traces/{trace_id}/export": {"get": "export_trace"},
     "/api/v1/public/whoami": {"get": "whoami"},
@@ -328,6 +335,7 @@ def test_x_tool_enabled_set_and_shape():
         "whoami",
         "list_traces",
         "list_trace_filter_values",
+        "list_trace_metadata_keys",
         "get_trace",
         "export_trace",
         "list_sessions",
@@ -378,6 +386,11 @@ def test_filters_param_is_json_content_with_registry_variants():
             assert key_schema["type"] == "string"
             assert key_schema["minLength"] == 1
             assert key_schema["maxLength"] == MAX_KEY_LENGTH
+            # The either-scope semantics travel in the contract: without this a
+            # consumer assumes trace-level metadata only and skips the filter
+            # for span-attached keys.
+            assert "any span" in v["description"]
+            assert "list_trace_metadata_keys" in v["description"]
         else:
             assert v["required"] == ["field", "op", "value"]
             assert "key" not in v["properties"]
