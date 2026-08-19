@@ -89,14 +89,3 @@ export function Th({ className, ...props }: React.ThHTMLAttributes<HTMLTableCell
 export function Td({ className, ...props }: React.TdHTMLAttributes<HTMLTableCellElement>) {
   return <td className={cn(TD, className)} {...props} />;
 }
-
-/** Centered empty-state row spanning the whole table. */
-export function TableEmpty({ colSpan, children }: { colSpan: number; children: React.ReactNode }) {
-  return (
-    <tr>
-      <td colSpan={colSpan} className="px-3 py-10 text-center text-[12px] text-muted-foreground">
-        {children}
-      </td>
-    </tr>
-  );
-}
