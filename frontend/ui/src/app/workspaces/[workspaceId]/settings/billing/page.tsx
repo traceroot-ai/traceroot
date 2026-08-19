@@ -34,6 +34,7 @@ export default function WorkspaceSettingsBillingPage() {
             currentPlan={(workspace?.billingPlan as PlanType) || PlanType.FREE}
             hasSubscription={!!workspace?.billingSubscriptionId}
             currentUsage={workspace?.currentUsage}
+            billingEnabled={workspace?.billingEnabled ?? true}
           />
         )}
       </SettingsLayout>
