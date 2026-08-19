@@ -15,12 +15,15 @@ const prismaMock = vi.hoisted(() => ({
 const publishMock = vi.hoisted(() => vi.fn(async (_opts: unknown) => ({}) as unknown));
 
 vi.mock("@traceroot/core", () => ({ prisma: prismaMock }));
-vi.mock("./versions", () => ({
-  publishDatasetVersion: publishMock,
-  newTestCaseId: () => "tc_new",
-}));
+// Mock only the network-bound publish; keep the REAL `canonicalJson` so the
+// content-addressed id derivation (and its occurrence counting) runs for real.
+vi.mock("./versions", async () => {
+  const actual = await vi.importActual<typeof import("./versions")>("./versions");
+  return { ...actual, publishDatasetVersion: publishMock };
+});
 
 import { saveResultToDataset } from "./result-to-dataset";
+import { stableCaseId } from "./case-id";
 
 type Seed = { testCaseId: string; input: string; expected: string | null; metadata: unknown };
 /** Run the transform the code handed to publishDatasetVersion over a given current set. */
@@ -108,5 +111,65 @@ describe("saveResultToDataset — values are JSON-encoded on write", () => {
       { testCaseId: "tc_src", input: '"old"', expected: null, metadata: null },
     ]).find((c) => c.testCaseId === "tc_src")!;
     expect(updated.input).toBe('"99"');
+  });
+});
+
+describe("saveResultToDataset — new cases get content-addressed ids", () => {
+  it("derives a stable tc_ id from the target dataset key + canonical input", async () => {
+    prismaMock.evaluationResult.findFirst.mockResolvedValue({
+      id: "r1",
+      runId: "run1",
+      testCaseId: "tc_src",
+      traceId: "t1",
+      input: "hello",
+      candidateOutput: null,
+    });
+    // Target dataset carries an explicit key (the pre-image the SDK hashes).
+    prismaMock.dataset.findFirst.mockResolvedValue({ currentVersionId: null, key: "support" });
+
+    await saveResultToDataset({
+      projectId: "p1",
+      resultId: "r1",
+      action: "save_new_case",
+      datasetId: "ds2",
+    });
+
+    // input "hello" is stored as the string '"hello"'; its canonical form is the same
+    // string a canonical-JSON of the string value produces (JSON.stringify("hello")).
+    const added = casesFrom([]).at(-1)!;
+    // Deterministic content-addressed id — not the old random UUID slice.
+    expect(added.testCaseId).toBe(stableCaseId("support", '"hello"', 0));
+  });
+
+  it("disambiguates a duplicate input with the next occurrence", async () => {
+    prismaMock.evaluationResult.findFirst.mockResolvedValue({
+      id: "r1",
+      runId: "run1",
+      testCaseId: "tc_src",
+      traceId: null,
+      input: "dup",
+      candidateOutput: null,
+    });
+    prismaMock.dataset.findFirst.mockResolvedValue({ currentVersionId: null, key: "support" });
+
+    await saveResultToDataset({
+      projectId: "p1",
+      resultId: "r1",
+      action: "save_new_case",
+      datasetId: "ds2",
+    });
+
+    // No existing case with this input → occurrence 0.
+    expect(casesFrom([]).at(-1)!.testCaseId).toBe(stableCaseId("support", '"dup"', 0));
+    // One existing case already has the identical canonical input → occurrence 1.
+    const withDup = casesFrom([
+      {
+        testCaseId: stableCaseId("support", '"dup"', 0),
+        input: '"dup"',
+        expected: null,
+        metadata: null,
+      },
+    ]).at(-1)!;
+    expect(withDup.testCaseId).toBe(stableCaseId("support", '"dup"', 1));
   });
 });

@@ -1,6 +1,12 @@
 import { prisma } from "@traceroot/core";
-import { publishDatasetVersion, newTestCaseId, type TestCaseSeed } from "./versions";
-import { encodeEditedText } from "./json-value";
+import {
+  publishDatasetVersion,
+  canonicalJson,
+  DatasetNotFound,
+  type TestCaseSeed,
+} from "./versions";
+import { nextCaseId } from "./case-id";
+import { encodeEditedText, decodeJsonValue } from "./json-value";
 
 /**
  * Save an evaluation result into a dataset — the three explicit result-driven
@@ -152,8 +158,20 @@ export async function saveResultToDataset(opts: {
     throw new CircularSaveConflict(result.testCaseId);
   }
 
-  const newSeed: TestCaseSeed = {
-    testCaseId: newTestCaseId(),
+  // The pre-image the case id is hashed from — the target dataset's stable key, which
+  // by convention defaults to its display name (the SDK's `key = key ?? name`). Legacy
+  // rows with a null key fall back to the name so the derivation still matches an SDK
+  // author using the same key. (publishDatasetVersion re-validates the dataset exists.)
+  const targetDataset = await prisma.dataset.findFirst({
+    where: { id: targetDatasetId, projectId: opts.projectId },
+    select: { key: true, name: true },
+  });
+  // Fail fast rather than fabricating a key from the id: a made-up key would hash a
+  // `tc_` id no SDK author could reproduce. (publishDatasetVersion re-validates too.)
+  if (!targetDataset) throw new DatasetNotFound();
+  const targetDatasetKey = targetDataset.key ?? targetDataset.name;
+
+  const newSeedBase: Omit<TestCaseSeed, "testCaseId"> = {
     // No prior stored value, so encode the raw text as-is (a JSON-looking string like
     // "42" stays the string "42" instead of decoding to the number 42 on pull).
     input: encodeEditedText(null, inputProvided ? (opts.input ?? "") : result.input),
@@ -170,15 +188,26 @@ export async function saveResultToDataset(opts: {
     sourceResultId: result.id,
     addedBy: opts.addedBy ?? null,
   };
+  // Canonical-JSON of the case's input, computed on the DECODED value — what the id is
+  // hashed from, matching an SDK author (whose SDK canonicalizes the native input) and
+  // the occurrence comparison against existing cases below.
+  const canonicalInput = canonicalJson(decodeJsonValue(newSeedBase.input));
 
   return publishDatasetVersion({
     datasetId: targetDatasetId,
     projectId: opts.projectId,
     createdBy: opts.addedBy ?? null,
     idempotencyKey: opts.idempotencyKey ?? null,
-    transform: (current) => ({
-      cases: [...current, newSeed],
-      focusTestCaseId: newSeed.testCaseId,
-    }),
+    transform: (current) => {
+      // CONTENT-addressed id (parity with the SDK's `stableCaseId`): the same input saved
+      // here and pushed from the SDK under the same dataset key converge on one `tc_` id,
+      // so re-publishing matches (upsert on id) instead of duplicating. `occurrence` is the
+      // first slot whose id is still free, mirroring the SDK so a gap left by a delete
+      // never re-mints a live id.
+      const existingIds = new Set(current.map((s) => s.testCaseId));
+      const { testCaseId } = nextCaseId(existingIds, targetDatasetKey, canonicalInput);
+      const newSeed: TestCaseSeed = { testCaseId, ...newSeedBase };
+      return { cases: [...current, newSeed], focusTestCaseId: testCaseId };
+    },
   });
 }

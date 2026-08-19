@@ -1,7 +1,7 @@
 import { prisma, type Prisma, type TestCase } from "@traceroot/core";
-import { randomUUID } from "crypto";
 import { versionSnowflakeFromMs } from "./snowflake";
 import { decodeJsonValue } from "./json-value";
+import { rejectLoneSurrogate } from "./case-id";
 
 /** Deterministic read order for a version's cases (see the ordering note where
  *  it's used): every case a publish writes shares one `create_time` (Postgres'
@@ -67,20 +67,46 @@ function toSeed(c: TestCase): TestCaseSeed {
   };
 }
 
-export function newTestCaseId(): string {
-  return `tc_${randomUUID().replace(/-/g, "").slice(0, 20)}`;
-}
-
 /** Deterministic JSON with recursively sorted object keys — so two structurally equal
- *  values compare equal regardless of key order (JSONB round-trips don't preserve it). */
-function canonicalJson(v: unknown): string {
+ *  values compare equal regardless of key order (JSONB round-trips don't preserve it).
+ *
+ *  Also the canonicalizer for content-addressed case ids (`stableCaseId`): the id
+ *  hashes this exact string, so it must match the SDK's `canonicalJson` byte-for-byte
+ *  for the inputs the UI actually authors. UI case inputs are always genuine strings
+ *  (see `CreateTestCaseRequestSchema.input`), and for a string value this reduces to
+ *  `JSON.stringify(value)` in both this helper and the SDK's — so a UI-authored case
+ *  and an SDK-authored case for the same input converge on the same `tc_` id. */
+export function canonicalJson(v: unknown): string {
+  if (typeof v === "string") {
+    // A lone UTF-16 surrogate cannot be UTF-8 encoded; the SDK's canonicalizer raises
+    // on it, so reject it here too rather than silently hashing JS's escaped form and
+    // diverging cross-SDK. (The reachable id path is always a string value.)
+    rejectLoneSurrogate(v);
+    return JSON.stringify(v);
+  }
   if (v === null || typeof v !== "object") return JSON.stringify(v) ?? "null";
   if (Array.isArray(v)) return `[${v.map(canonicalJson).join(",")}]`;
   const o = v as Record<string, unknown>;
   return `{${Object.keys(o)
-    .sort()
+    .sort(compareCodePoints)
     .map((k) => `${JSON.stringify(k)}:${canonicalJson(o[k])}`)
     .join(",")}}`;
+}
+
+/** Order strings by Unicode code POINT (Python `sorted()` order), not by UTF-16 code
+ *  unit (JS default `.sort()`); they differ only when an astral-plane character meets a
+ *  BMP one in U+E000..U+FFFF. Keeps object-key order byte-parity with the SDK canonicalizer. */
+function compareCodePoints(a: string, b: string): number {
+  const ai = a[Symbol.iterator]();
+  const bi = b[Symbol.iterator]();
+  for (;;) {
+    const x = ai.next();
+    const y = bi.next();
+    if (x.done || y.done) return x.done ? (y.done ? 0 : -1) : 1;
+    const cx = x.value.codePointAt(0) as number;
+    const cy = y.value.codePointAt(0) as number;
+    if (cx !== cy) return cx - cy;
+  }
 }
 
 /** A stable signature of a version's semantic CONTENT — the per-case (id, input, expected,

@@ -8,11 +8,12 @@ import {
 } from "@/lib/auth-helpers";
 import {
   publishDatasetVersion,
-  newTestCaseId,
+  canonicalJson,
   DatasetNotFound,
   VersionConflict,
 } from "@/lib/eval/versions";
-import { encodeJsonValue } from "@/lib/eval/json-value";
+import { nextCaseId } from "@/lib/eval/case-id";
+import { encodeJsonValue, decodeJsonValue } from "@/lib/eval/json-value";
 
 type RouteParams = { params: Promise<{ projectId: string; datasetId: string }> };
 
@@ -39,9 +40,15 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
 
   const dataset = await prisma.dataset.findFirst({
     where: { id: datasetId, projectId },
-    select: { id: true, currentVersionId: true },
+    select: { id: true, currentVersionId: true, key: true, name: true },
   });
   if (!dataset) return errorResponse("Dataset not found", 404);
+
+  // The pre-image the case id is hashed from — the dataset's stable key, which by
+  // convention defaults to its display name (see the SDK's `key = key ?? name`).
+  // A UI-created dataset stores `key = name`; legacy rows with a null key fall back
+  // to the name so the derivation still matches an SDK author using the same key.
+  const datasetKey = dataset.key ?? dataset.name;
 
   // Explicit duplicate handling: same source span already in the current version.
   if (dataset.currentVersionId && c.source_trace_id && c.source_span_id) {
@@ -62,38 +69,52 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     }
   }
 
-  const testCaseId = newTestCaseId();
+  // Stored JSON-ENCODED, the one on-disk encoding for these columns (the public
+  // publish path and the pull path agree on it). Written raw, a case authored here
+  // as the text "123" would come back from the public API as the number 123 — a type
+  // change inside a snapshot a run scores against.
+  const encodedInput = encodeJsonValue(c.input);
+  // The canonical-JSON of the case's input is what the id is hashed from — computed on
+  // the DECODED value so it matches an SDK author (whose SDK canonicalizes the native
+  // input) and matches the occurrence comparison against existing cases below.
+  const canonicalInput = canonicalJson(decodeJsonValue(encodedInput));
   try {
     const result = await publishDatasetVersion({
       datasetId,
       projectId,
       createdBy: authResult.user.email ?? null,
       note: "Added a test case from a trace",
-      transform: (current) => ({
-        focusTestCaseId: testCaseId,
-        cases: [
-          ...current,
-          {
-            testCaseId,
-            // Stored JSON-ENCODED, the one on-disk encoding for these columns
-            // (the public publish path and the pull path agree on it). Written
-            // raw, a case authored here as the text "123" would come back from
-            // the public API as the number 123 — a type change inside a snapshot
-            // a run scores against.
-            input: encodeJsonValue(c.input),
-            expected:
-              c.expected === null || c.expected === undefined ? null : encodeJsonValue(c.expected),
-            metadata: (c.metadata ?? null) as Record<string, unknown> | null,
-            review: c.review,
-            captureReason: c.capture_reason,
-            sourceTraceId: c.source_trace_id ?? null,
-            sourceSpanId: c.source_span_id ?? null,
-            sourceSpanName: c.source_span_name ?? null,
-            sourceSpanKind: c.source_span_kind ?? null,
-            addedBy: authResult.user.email ?? null,
-          },
-        ],
-      }),
+      transform: (current) => {
+        // CONTENT-addressed id (parity with the SDK's `stableCaseId`): the same input
+        // authored in the UI and pushed from the SDK under the same dataset key converge
+        // on one `tc_` id, so re-publishing matches (upsert on id) instead of duplicating.
+        // `occurrence` disambiguates duplicate inputs — the first slot whose id is still
+        // free, mirroring the SDK so a gap left by a delete never re-mints a live id.
+        const existingIds = new Set(current.map((s) => s.testCaseId));
+        const { testCaseId } = nextCaseId(existingIds, datasetKey, canonicalInput);
+        return {
+          focusTestCaseId: testCaseId,
+          cases: [
+            ...current,
+            {
+              testCaseId,
+              input: encodedInput,
+              expected:
+                c.expected === null || c.expected === undefined
+                  ? null
+                  : encodeJsonValue(c.expected),
+              metadata: (c.metadata ?? null) as Record<string, unknown> | null,
+              review: c.review,
+              captureReason: c.capture_reason,
+              sourceTraceId: c.source_trace_id ?? null,
+              sourceSpanId: c.source_span_id ?? null,
+              sourceSpanName: c.source_span_name ?? null,
+              sourceSpanKind: c.source_span_kind ?? null,
+              addedBy: authResult.user.email ?? null,
+            },
+          ],
+        };
+      },
     });
     return successResponse({ duplicate: false, ...result }, 201);
   } catch (err) {

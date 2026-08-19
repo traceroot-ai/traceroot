@@ -544,6 +544,11 @@ model TestCase {
 
   version DatasetVersion @relation(fields: [datasetVersionId], references: [id], onDelete: Cascade)
 
+  // A stable case id is unique within a version: ids are content-addressed and assigned
+  // by first-free-slot, so a regression that re-mints a live id must fail at write time
+  // rather than silently inserting a duplicate row (which would corrupt upsert-by-id,
+  // comparison alignment, and the TEST_CASE_ORDER tiebreak).
+  @@unique([datasetVersionId, testCaseId], map: "uq_test_case_version_test_case_id")
   @@index([datasetVersionId], map: "ix_test_case_version_id")
   @@index([projectId], map: "ix_test_case_project_id")
   @@index([sourceTraceId], map: "ix_test_case_source_trace_id")
