@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { Loader2, Plus, Search, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { CopyButton } from "@/components/ui/copy-button";
 import { Input } from "@/components/ui/input";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { Table, TBody, THead, TR, TRHead, Td, Th } from "@/components/ui/table";
@@ -372,8 +373,17 @@ function PendingTracePanel({
         <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden />
         <p className="text-[13px] font-medium">Trace is still being ingested</p>
         <p className="max-w-[360px] leading-relaxed text-muted-foreground">
-          This result reported a trace (<span className="font-mono">{traceId.slice(0, 12)}…</span>),
-          but its telemetry hasn&apos;t finished ingesting yet. It will appear here once it lands.
+          This result reported a trace (
+          <span className="inline-flex items-center gap-1 font-mono">
+            <span>{traceId.slice(0, 12)}…</span>
+            <CopyButton
+              value={traceId}
+              className="h-4 w-4 text-muted-foreground hover:text-foreground"
+              title="Copy trace ID"
+            />
+          </span>
+          ), but its telemetry hasn&apos;t finished ingesting yet. It will appear here once it
+          lands.
         </p>
         <Button
           size="sm"

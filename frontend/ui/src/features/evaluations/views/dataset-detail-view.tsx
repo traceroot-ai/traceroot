@@ -238,6 +238,14 @@ export function DatasetDetailView({
             onSearchChange={setKeyword}
             searchPlaceholder="Search..."
           >
+            <div className="flex items-center gap-1 font-mono text-[11px] text-muted-foreground">
+              <span className="truncate">{dataset.clientDatasetId ?? dataset.id}</span>
+              <CopyButton
+                value={dataset.clientDatasetId ?? dataset.id}
+                className="h-5 w-5 text-muted-foreground hover:text-foreground"
+                title="Copy dataset ID"
+              />
+            </div>
             <div className="ml-auto flex items-center gap-2">
               <Button
                 variant="outline"
@@ -279,6 +287,15 @@ export function DatasetDetailView({
                       ))}
                     </SelectContent>
                   </Select>
+                  {(selectedVersion?.id ?? dataset.currentVersionId ?? versions[0]?.id) && (
+                    <CopyButton
+                      value={
+                        selectedVersion?.id ?? dataset.currentVersionId ?? versions[0]?.id ?? ""
+                      }
+                      className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                      title="Copy version ID"
+                    />
+                  )}
                 </div>
               )}
             </div>

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { X, ArrowUp, ArrowDown, ExternalLink, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { CopyButton } from "@/components/ui/copy-button";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { LoadingState } from "@/components/ui/loading-state";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
@@ -52,6 +53,11 @@ function TraceCard({
             </span>
             <ExternalLink className="ml-1 inline h-3 w-3 text-muted-foreground" />
           </Link>
+          <CopyButton
+            value={trace.trace_id}
+            className="h-5 w-5 text-muted-foreground hover:text-foreground"
+            title="Copy trace ID"
+          />
         </div>
       </div>
 
@@ -151,6 +157,11 @@ export function SessionDetailPanel({
           <DOMAIN_ICONS.session className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm font-medium">Session</span>
           <span className="truncate font-mono text-xs text-muted-foreground">{sessionId}</span>
+          <CopyButton
+            value={sessionId}
+            className="h-6 w-6 text-muted-foreground hover:text-foreground"
+            title="Copy session ID"
+          />
         </div>
         <div className="flex items-center gap-1">
           <Button

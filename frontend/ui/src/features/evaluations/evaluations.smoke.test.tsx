@@ -6,7 +6,7 @@
  * against a stubbed fetch (server-shaped payloads) is how the browser path is
  * checked, exactly like offline-eval.smoke.test.tsx.
  */
-import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach, beforeAll } from "vitest";
 import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@/components/ui/toast";
@@ -267,6 +267,10 @@ function payloadFor(url: string): unknown {
   return {};
 }
 
+beforeAll(() => {
+  Object.assign(navigator, { clipboard: { writeText: vi.fn(async () => {}) } });
+});
+
 beforeEach(() => {
   global.fetch = vi.fn(async (url: RequestInfo | URL) => ({
     ok: true,
@@ -296,6 +300,13 @@ describe("real Datasets + Evaluations views render server data", () => {
   it("Evaluations Runs tab shows a run with its candidate version", async () => {
     mount(<EvaluationsView projectId="p1" />);
     expect((await screen.findAllByText("git:4a91c02")).length).toBeGreaterThan(0);
+  });
+
+  it("Evaluations Runs tab provides a CopyButton for the dataset version id", async () => {
+    mount(<EvaluationsView projectId="p1" />);
+    const copyBtn = (await screen.findAllByTitle("Copy version ID"))[0];
+    fireEvent.click(copyBtn);
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("dv1");
   });
 
   it("Evaluations shows an empty state that points at the SDK (no Run evaluation CTA)", async () => {

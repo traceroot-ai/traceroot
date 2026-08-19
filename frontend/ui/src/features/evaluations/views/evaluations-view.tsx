@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { CopyButton } from "@/components/ui/copy-button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   DropdownMenu,
@@ -133,7 +134,16 @@ function RunTableRow({
         >
           {r.datasetName}
         </Link>{" "}
-        {datasetVersion && <span className="font-mono text-[11px]">{datasetVersion}</span>}
+        {datasetVersion && (
+          <span className="inline-flex items-center gap-0.5 font-mono text-[11px]">
+            <span>{datasetVersion}</span>
+            <CopyButton
+              value={datasetVersion}
+              className="h-5 w-5 text-muted-foreground hover:text-foreground"
+              title="Copy version ID"
+            />
+          </span>
+        )}
       </Td>
       <Td className="text-right tabular-nums text-muted-foreground">{formatCost(r.cost)}</Td>
       <Td className="text-right tabular-nums text-muted-foreground">{formatCost(avgCost)}</Td>
