@@ -28,11 +28,56 @@ function clearCache(): void {
 // Register with sync module so cache is invalidated after sync
 registerCacheClear(clearCache);
 
+/**
+ * Gateway / router prefixes that wrap an underlying model id. `usage.inferenceModel`
+ * comes from pi-ai's `response.model`, which carries these for OpenRouter / LiteLLM /
+ * Vertex setups — so the raw id matches no catalog pattern and cost silently resolves to
+ * 0 on metered paths. Stripping them is the NORMALISE step of the resolution contract;
+ * keep this list identical to the Python resolver (`_GATEWAY_PREFIXES` in pricing.py).
+ */
+const GATEWAY_PREFIXES = [
+  "vertex_ai/",
+  "openrouter/",
+  "litellm/",
+  "azure/",
+  "bedrock/",
+  "anthropic_vertex/",
+  "gemini/",
+];
+
+/**
+ * Strip gateway/router prefixes from a model id (repeatedly — they can nest).
+ * Conservative: only the known prefixes above, so a legitimate id containing a slash
+ * (`anthropic/claude-...`, which real patterns already match) is left untouched.
+ */
+export function normalizeModelId(modelId: string): string {
+  if (!modelId) return modelId;
+  let out = modelId.trim();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    const low = out.toLowerCase();
+    for (const prefix of GATEWAY_PREFIXES) {
+      if (low.startsWith(prefix)) {
+        out = out.slice(prefix.length);
+        changed = true;
+        break;
+      }
+    }
+  }
+  return out;
+}
+
 async function loadCache(): Promise<CachedModel[]> {
   if (cache) return cache;
 
+  // orderBy is REQUIRED, not cosmetic: without it Prisma returns rows in arbitrary
+  // order, so two overlapping patterns could resolve differently between processes
+  // (Python sorts via `ORDER BY m.model_name`). Sorting here makes the two engines
+  // agree on WHICH entry matched, given identical data.
   const models = await prisma.standardModel.findMany({
     include: { prices: true },
+    orderBy: { modelName: "asc" },
   });
 
   cache = models.map((m) => {
@@ -58,27 +103,54 @@ async function loadCache(): Promise<CachedModel[]> {
 
 /**
  * Look up pricing for a model by name.
- * Tries exact match on modelName first, then regex matchPattern fallback.
+ *
+ * Resolution contract — MUST stay identical to the Python `get_model_price`
+ * (backend/worker/tokens/pricing.py), because both price billable inference and a
+ * divergence means the same model costs two different amounts depending on which
+ * service computed it:
+ *   1. exact match on `modelName`
+ *   2. exact match on the NORMALISED id (gateway prefixes stripped)
+ *   3. regex fallback over `matchPattern` — MOST SPECIFIC match wins, evaluated
+ *      against both the raw and normalised id
+ *
  * Returns prices in USD per token, or null if not found.
  */
 export async function getModelPricing(modelId: string): Promise<ModelPricing | null> {
   const models = await loadCache();
+  const normalized = normalizeModelId(modelId);
+  const candidates = normalized === modelId ? [modelId] : [modelId, normalized];
 
-  // Exact match
-  const exact = models.find((m) => m.modelName === modelId);
-  if (exact) return exact.prices;
+  // 1 + 2. Exact match on the raw id, then on the normalised id.
+  for (const candidate of candidates) {
+    const exact = models.find((m) => m.modelName === candidate);
+    if (exact) return exact.prices;
+  }
 
-  // Regex fallback
+  // 3. Regex fallback — collect EVERY match and keep the most specific, so the result no
+  //    longer depends on row order. `claude-sonnet-4`'s pattern also matches
+  //    `claude-sonnet-4-5`/`-4-6` (optional version tails subsume successors); first-
+  //    match-wins would price a successor at its predecessor's rates the day they differ.
+  //    Longest modelName = most specific; modelName breaks ties deterministically.
+  let best: CachedModel | null = null;
   for (const m of models) {
+    let matched = false;
     try {
       const re = new RegExp(m.matchPattern, "i");
-      if (re.test(modelId)) return m.prices;
+      matched = candidates.some((c) => re.test(c));
     } catch {
-      // Invalid regex — skip
+      continue; // Invalid regex — skip
+    }
+    if (!matched) continue;
+    if (
+      best === null ||
+      m.modelName.length > best.modelName.length ||
+      (m.modelName.length === best.modelName.length && m.modelName > best.modelName)
+    ) {
+      best = m;
     }
   }
 
-  return null;
+  return best ? best.prices : null;
 }
 
 /**

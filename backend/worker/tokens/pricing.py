@@ -81,28 +81,92 @@ def _load_cache() -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
+# Gateway / router prefixes that wrap an underlying model id. pi-ai's `response.model`
+# (and LiteLLM / OpenRouter / Vertex setups) carries these, so the raw id never matches a
+# catalog pattern and cost silently resolves to $0 on metered paths. Stripping them is the
+# NORMALISE step of the resolution contract; keep this list identical to the TS resolver.
+_GATEWAY_PREFIXES = (
+    "vertex_ai/",
+    "openrouter/",
+    "litellm/",
+    "azure/",
+    "bedrock/",
+    "anthropic_vertex/",
+    "gemini/",
+)
+
+
+def normalize_model_id(model: str) -> str:
+    """Strip gateway/router prefixes from a model id (repeatedly — they can nest).
+
+    Deliberately conservative: only strips the known prefixes above, so a legitimate id
+    containing a slash (``anthropic/claude-...``, which real patterns already match) is
+    left alone.
+    """
+    if not model:
+        return model
+    out = model.strip()
+    changed = True
+    while changed:
+        changed = False
+        low = out.lower()
+        for prefix in _GATEWAY_PREFIXES:
+            if low.startswith(prefix):
+                out = out[len(prefix) :]
+                changed = True
+                break
+    return out
+
+
+def _match_specificity(entry: dict, model: str) -> tuple[int, str]:
+    """Rank a regex match so the MOST SPECIFIC entry wins, not merely the first.
+
+    ``claude-sonnet-4``'s pattern also matches ``claude-sonnet-4-5``/``-4-6`` (their
+    optional version tails subsume successors). First-match-wins therefore depends on row
+    order and can price a successor at its predecessor's rates the day they differ.
+    Longest model_name = most specific; model_name breaks ties deterministically.
+    """
+    return (len(entry["model_name"]), entry["model_name"])
+
+
 def get_model_price(model: str) -> dict[str, float] | None:
-    """Lookup price for model. Tries exact match, then regex fallback.
+    """Lookup price for model.
+
+    Resolution contract (must stay identical to the TS ``getModelPricing``):
+      1. exact match on ``model_name``
+      2. exact match on the NORMALISED id (gateway prefixes stripped)
+      3. regex fallback over ``match_pattern`` — most-specific match wins, evaluated
+         against both the raw and normalised id
 
     Returns dict with keys like ``input``, ``output``, ``cacheRead``, ``cacheWrite``
     (values in USD per token), or None if not found.
     """
     cache = _load_cache()
+    normalized = normalize_model_id(model)
+    candidates = [model] if normalized == model else [model, normalized]
 
-    # Exact match on model_name
-    for entry in cache:
-        if entry["model_name"] == model:
-            return entry["prices"]
+    # 1 + 2. Exact match on the raw id, then on the normalised id.
+    for candidate in candidates:
+        for entry in cache:
+            if entry["model_name"] == candidate:
+                return entry["prices"]
 
-    # Regex fallback using match_pattern
+    # 3. Regex fallback — collect EVERY match and take the most specific one, so the
+    #    result no longer depends on row order (see _match_specificity).
+    best: dict | None = None
+    best_rank: tuple[int, str] | None = None
     for entry in cache:
         try:
-            if re.search(entry["match_pattern"], model, re.IGNORECASE):
-                return entry["prices"]
+            pattern = entry["match_pattern"]
+            if not any(re.search(pattern, c, re.IGNORECASE) for c in candidates):
+                continue
         except re.error:
             continue
+        rank = _match_specificity(entry, model)
+        if best_rank is None or rank > best_rank:
+            best, best_rank = entry, rank
 
-    return None
+    return best["prices"] if best else None
 
 
 def _rate(prices: dict[str, float], key: str, *fallbacks: str) -> Decimal:
