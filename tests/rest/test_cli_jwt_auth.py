@@ -6,6 +6,7 @@ audience/issuer/expiry, unknown kid, JWKS fail-closed). The session-token and
 API-key paths are covered by test_auth_deps.py / test_public_dual_auth.py.
 """
 
+import base64
 import json
 import time
 from types import SimpleNamespace
@@ -203,6 +204,32 @@ class TestJwtRejections:
 
     async def test_no_kid_rejected(self, signer):
         token = _mint(signer.priv, kid=None)
+        with pytest.raises(HTTPException) as exc:
+            await authenticate_account_caller(authorization=f"Bearer {token}")
+        assert exc.value.status_code == 401
+
+    async def test_non_string_kid_rejected(self, signer):
+        # The header is attacker-controlled JSON, and jwt.encode refuses to mint
+        # a non-string kid — so hand-craft the token the way an attacker would.
+        # A list kid must be a clean 401, never a TypeError-turned-500 from the
+        # JWKS lookup (pyjwt's header parse rejects it today; the explicit type
+        # guard in _verify_access_jwt keeps that true if pyjwt's behavior moves).
+        def b64(part: dict) -> str:
+            return base64.urlsafe_b64encode(json.dumps(part).encode()).rstrip(b"=").decode()
+
+        token = b64({"alg": "EdDSA", "kid": ["kid-1"]}) + "." + b64({"sub": "user-1"}) + ".AAAA"
+        with pytest.raises(HTTPException) as exc:
+            await authenticate_account_caller(authorization=f"Bearer {token}")
+        assert exc.value.status_code == 401
+
+    async def test_non_string_kid_guard_holds_without_pyjwt(self, signer, monkeypatch):
+        # Pin OUR guard, not pyjwt's: bypass pyjwt's header validation so the
+        # isinstance check is the only thing standing between a list kid and the
+        # JWKS lookup. Deleting the guard must fail this test.
+        monkeypatch.setattr(
+            deps.jwt, "get_unverified_header", lambda _token: {"alg": "EdDSA", "kid": ["kid-1"]}
+        )
+        token = _mint(signer.priv)
         with pytest.raises(HTTPException) as exc:
             await authenticate_account_caller(authorization=f"Bearer {token}")
         assert exc.value.status_code == 401

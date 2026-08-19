@@ -103,7 +103,7 @@ async def _verify_access_jwt(token: str) -> str:
 
     Raises:
         HTTPException: 401 for any verification failure (bad signature, expired,
-            wrong issuer/audience, missing claims, unknown/absent ``kid``); 503
+            wrong issuer/audience, missing claims, unknown/absent/malformed ``kid``); 503
             (fail closed) if the JWKS cannot be fetched.
     """
     invalid = HTTPException(
@@ -116,8 +116,11 @@ async def _verify_access_jwt(token: str) -> str:
     except jwt.InvalidTokenError:
         raise invalid from None
 
+    # The header is attacker-controlled JSON, so pin the type too: a non-string
+    # kid (e.g. a list) would raise inside the JWKS lookup and turn a bad token
+    # into a 500 on the public auth path instead of a 401.
     kid = header.get("kid")
-    if not kid:
+    if not kid or not isinstance(kid, str):
         raise invalid
 
     try:
