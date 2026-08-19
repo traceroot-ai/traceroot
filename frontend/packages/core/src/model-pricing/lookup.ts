@@ -28,11 +28,135 @@ function clearCache(): void {
 // Register with sync module so cache is invalidated after sync
 registerCacheClear(clearCache);
 
+/**
+ * Gateway / router prefixes that SDKs prepend to the bare model id
+ * (LiteLLM, OpenRouter, Vercel AI Gateway, cloud provider SDKs), e.g.
+ * `openrouter/anthropic/claude-opus-4-8`, `vertex_ai/gemini-2.5-pro`,
+ * `litellm/openai/gpt-5`.
+ *
+ * Kept in sync with the Python worker's `_GATEWAY_PREFIXES`
+ * (`backend/worker/tokens/pricing.py`, added in #1566) so the two price
+ * resolvers agree on prefixed ids instead of one returning a price and the
+ * other `null` → `$0` (issue #1597).
+ */
+const GATEWAY_PREFIXES: ReadonlySet<string> = new Set([
+  "openai",
+  "azure",
+  "google",
+  "googleai",
+  "vertex_ai",
+  "anthropic",
+  "bedrock",
+  "openrouter",
+  "litellm",
+  "models",
+  "deepseek",
+  "xai",
+  "moonshot",
+  "zai",
+]);
+
+/**
+ * Strip one or more leading gateway/router prefixes separated by `/`.
+ *
+ * Iterates so chained prefixes (`openrouter/anthropic/claude-opus-4-8`) are
+ * fully reduced, and stops at the first segment that is not a recognised
+ * gateway name — so Bedrock dot-format (`us.anthropic.claude-...`) and Vertex
+ * `@date` variants are left untouched. Mirrors the worker's
+ * `_strip_gateway_prefix`.
+ */
+export function stripGatewayPrefix(modelId: string): string {
+  let id = modelId;
+  for (;;) {
+    const slash = id.indexOf("/");
+    if (slash === -1) break;
+    if (!GATEWAY_PREFIXES.has(id.slice(0, slash).toLowerCase())) break;
+    id = id.slice(slash + 1);
+  }
+  return id;
+}
+
+/**
+ * Compile a stored `matchPattern` into a JavaScript `RegExp`.
+ *
+ * The catalog patterns are authored with a leading Python-style inline flag
+ * `(?i)` (see standard-model-prices.json). JavaScript's `RegExp` does NOT support
+ * inline flags and throws "Invalid group" on them — so a raw
+ * `new RegExp(matchPattern, "i")` fails for EVERY catalog entry. The previous
+ * resolver swallowed that in a `try/catch`, which meant its regex fallback never
+ * fired at all: only exact `modelName` matches resolved, and any non-exact id
+ * (dated snapshot, gateway-prefixed, version variant) fell through to `null` →
+ * `$0`. The Python worker's `re` accepts `(?i)`, so it matched these fine — this
+ * is a concrete driver of the Python/TS divergence in #1597.
+ *
+ * Strip a leading inline-flag group and apply the native `i` flag (the catalog
+ * only uses `(?i)`; case-insensitive is the intent everywhere). Returns `null`
+ * for a pattern that still won't compile, so a single bad entry can't throw.
+ */
+export function compileMatchPattern(matchPattern: string): RegExp | null {
+  const body = matchPattern.replace(/^\(\?[a-z]+\)/, "");
+  try {
+    return new RegExp(body, "i");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Pure price resolution over an in-memory catalog — no DB, so it is unit-testable
+ * against the shipped `standard-model-prices.json` directly (mirrors how
+ * `calculateCostFromPricing` is pure).
+ *
+ * Resolution order:
+ *   1. gateway-prefix normalisation, then exact match (raw id first, then stripped),
+ *   2. regex fallback that returns the MOST SPECIFIC match — the entry with the
+ *      longest `modelName` — with an alphabetical tiebreak.
+ *
+ * The specificity ranking (vs. the previous first-match-wins) fixes two things at
+ * once (issue #1597): a shorter entry whose pattern subsumes a longer sibling
+ * (e.g. `claude-sonnet-4` matching `claude-sonnet-4-5`) no longer wins, and the
+ * result no longer depends on catalog row order — the old loop returned whatever
+ * `findMany` happened to yield first.
+ */
+export function resolveModelPricing<P>(
+  models: ReadonlyArray<{ modelName: string; matchPattern: string; prices: P }>,
+  modelId: string,
+): P | null {
+  const stripped = stripGatewayPrefix(modelId);
+
+  // Exact match — raw id first, then the prefix-stripped form.
+  for (const candidate of stripped === modelId ? [modelId] : [modelId, stripped]) {
+    const exact = models.find((m) => m.modelName === candidate);
+    if (exact) return exact.prices;
+  }
+
+  // Most-specific regex match. Longest modelName wins; alphabetical tiebreak keeps
+  // it deterministic regardless of the catalog's iteration order.
+  let best: { modelName: string; prices: P } | null = null;
+  for (const m of models) {
+    const re = compileMatchPattern(m.matchPattern);
+    if (re === null) continue; // uncompilable pattern — skip
+    if (!re.test(modelId) && !re.test(stripped)) continue;
+    if (
+      best === null ||
+      m.modelName.length > best.modelName.length ||
+      (m.modelName.length === best.modelName.length && m.modelName < best.modelName)
+    ) {
+      best = m;
+    }
+  }
+  return best ? best.prices : null;
+}
+
 async function loadCache(): Promise<CachedModel[]> {
   if (cache) return cache;
 
   const models = await prisma.standardModel.findMany({
     include: { prices: true },
+    // Deterministic order so results never depend on DB row order. The
+    // specificity ranking in resolveModelPricing makes this redundant for
+    // correctness, but a stable order keeps the cache reproducible.
+    orderBy: { modelName: "asc" },
   });
 
   cache = models.map((m) => {
@@ -63,22 +187,7 @@ async function loadCache(): Promise<CachedModel[]> {
  */
 export async function getModelPricing(modelId: string): Promise<ModelPricing | null> {
   const models = await loadCache();
-
-  // Exact match
-  const exact = models.find((m) => m.modelName === modelId);
-  if (exact) return exact.prices;
-
-  // Regex fallback
-  for (const m of models) {
-    try {
-      const re = new RegExp(m.matchPattern, "i");
-      if (re.test(modelId)) return m.prices;
-    } catch {
-      // Invalid regex — skip
-    }
-  }
-
-  return null;
+  return resolveModelPricing(models, modelId);
 }
 
 /**
