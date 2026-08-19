@@ -1,6 +1,6 @@
 import { prisma } from "@traceroot/core";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { UserMessage, Message } from "@earendil-works/pi-ai";
+import type { AssistantMessage, UserMessage, Message } from "@earendil-works/pi-ai";
 
 // ============================================================
 // SessionManager — follows Mom's SessionManager pattern
@@ -25,10 +25,11 @@ export class SessionManager {
    * Like Mom's sessionManager.buildSessionContext() — loads persisted
    * messages from DB and converts them to AgentMessage format.
    *
-   * We only restore user messages from DB. Assistant messages are not
-   * restored because they require full LLM metadata (api, provider, model,
-   * usage, stopReason). The agent will see user messages as context and
-   * generate fresh responses.
+   * User turns are restored verbatim. Assistant turns are restored as plain
+   * text messages with synthesized LLM metadata (zero usage, "stop") — enough
+   * for the model to see what it previously said, which it cannot infer.
+   * tool_step rows are UI-only and skipped: replaying stale tool results is
+   * worse than letting the agent re-invoke the tool when it needs the data.
    */
   async buildContext(): Promise<AgentMessage[]> {
     const session = await prisma.aISession.findUnique({
@@ -40,15 +41,35 @@ export class SessionManager {
       return [];
     }
 
-    // Only restore user messages — assistant messages lack required LLM metadata
+    const zeroUsage: AssistantMessage["usage"] = {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    };
+
     return session.messages
-      .filter((m) => m.role === "user")
+      .filter((m) => m.role === "user" || m.role === "assistant")
       .map(
-        (m): UserMessage => ({
-          role: "user",
-          content: [{ type: "text", text: m.content }],
-          timestamp: m.createTime.getTime(),
-        }),
+        (m): Message =>
+          m.role === "user"
+            ? ({
+                role: "user",
+                content: [{ type: "text", text: m.content }],
+                timestamp: m.createTime.getTime(),
+              } satisfies UserMessage)
+            : ({
+                role: "assistant",
+                content: [{ type: "text", text: m.content }],
+                api: "restored",
+                provider: m.provider ?? "unknown",
+                model: m.model ?? "unknown",
+                usage: zeroUsage,
+                stopReason: "stop",
+                timestamp: m.createTime.getTime(),
+              } satisfies AssistantMessage),
       );
   }
 

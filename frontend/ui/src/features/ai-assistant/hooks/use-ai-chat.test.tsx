@@ -117,6 +117,15 @@ describe("useAiChat session switching", () => {
     );
   };
 
+  it("loads an initialSessionId's history into its bucket on mount", async () => {
+    const { result } = renderHook(() => useAiChat({ projectId: "p1", initialSessionId: "rca-1" }));
+    expect(result.current.currentSessionId).toBe("rca-1");
+    await waitFor(() =>
+      expect(result.current.messages.some((m) => m.content === "history of rca-1")).toBe(true),
+    );
+    expect(historyFetches).toContain("rca-1");
+  });
+
   it("keeps a still-streaming session's deltas out of another session's view", async () => {
     const { result } = renderChat();
     await startStreamInA(result);

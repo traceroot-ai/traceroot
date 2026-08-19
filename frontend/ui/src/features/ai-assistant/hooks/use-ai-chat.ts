@@ -2,6 +2,7 @@
 
 import { useRef, useState, useCallback, useEffect } from "react";
 import { useAIStream } from "./use-ai-stream";
+import { mapDbMessages } from "../utils/map-db-messages";
 import type { AISession, AIMessage, AiTraceContext } from "../types";
 import type { ModelSelection } from "../components/model-selector";
 
@@ -77,15 +78,7 @@ export function useAiChat({
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (ac.signal.aborted || !data) return;
-        const all: AIMessage[] = (data.messages || []).map(
-          (m: { id: string; role: string; content: string; createTime: string }) => ({
-            id: m.id,
-            role: m.role as "user" | "assistant",
-            content: m.content,
-            timestamp: m.createTime,
-          }),
-        );
-        setSessionMessages(initialSessionId, all);
+        setSessionMessages(initialSessionId, mapDbMessages(data.messages || []));
       })
       .catch((err) => {
         if (err?.name !== "AbortError")
@@ -197,15 +190,7 @@ export function useAiChat({
           // A run may have started in this session while the fetch was in
           // flight — the stale load must not wipe the live turn.
           if (isSessionStreaming(session.id)) return;
-          const loaded: AIMessage[] = (data.messages || []).map(
-            (m: { id: string; role: string; content: string; createTime: string }) => ({
-              id: m.id,
-              role: m.role as "user" | "assistant",
-              content: m.content,
-              timestamp: m.createTime,
-            }),
-          );
-          setSessionMessages(session.id, loaded);
+          setSessionMessages(session.id, mapDbMessages(data.messages || []));
         }
       } catch (err) {
         console.error("[AI Chat] Failed to load session messages:", err);
