@@ -2,16 +2,18 @@
 
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { AlertTriangle, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 import { Button } from "@/components/ui/button";
-import { LoadingState } from "@/components/ui/loading-state";
+import { ListState, ListLoading } from "@/components/ui/list-state";
+import { Table, TBody, Td, Th, THead, TR, TRHead } from "@/components/ui/table";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
-import { formatDate, cn, buildUrlWithFilters } from "@/lib/utils";
+import { Timestamp } from "@/features/offline-eval/components";
+import { buildUrlWithFilters } from "@/lib/utils";
 import {
   useDetectorList,
   useDetectorCounts,
@@ -81,7 +83,7 @@ export default function DetectorsPage() {
       customEndDate: state.customEndDate,
     });
 
-  const { data, isLoading, error } = useDetectorList(projectId, {
+  const { data, isLoading, error, refetch } = useDetectorList(projectId, {
     page: queryOptions.page,
     limit: queryOptions.limit,
     search_query: queryOptions.search_query,
@@ -158,122 +160,108 @@ export default function DetectorsPage() {
         {/* Table */}
         <div className="flex-1 overflow-auto bg-background">
           {isLoading ? (
-            <div className="flex h-64 items-center justify-center">
-              <LoadingState label="Loading detectors..." />
-            </div>
+            <ListLoading label="Loading detectors..." />
           ) : error ? (
-            <div className="flex h-64 flex-col items-center justify-center gap-3">
-              <p className="text-[13px] text-destructive">Error loading detectors</p>
-            </div>
+            <ListState
+              icon={<AlertTriangle className="h-8 w-8 text-destructive/50" />}
+              title="Error loading detectors"
+              description="Make sure the API server is running and you have API keys configured."
+              action={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-[12px]"
+                  onClick={() => refetch()}
+                >
+                  Try again
+                </Button>
+              }
+            />
           ) : isEmptyProject ? (
-            <div className="flex h-64 flex-col items-center justify-center gap-3">
-              <DOMAIN_ICONS.detector className="h-8 w-8 text-muted-foreground/40" />
-              <p className="text-[13px] text-muted-foreground">No detectors yet</p>
-              <p className="text-[12px] text-muted-foreground">
-                Create a detector to automatically analyze your traces.
-              </p>
-              <Button
-                size="sm"
-                className="mt-1 h-7 text-[12px]"
-                onClick={() => router.push(`/projects/${projectId}/detectors/new`)}
-              >
-                New Detector
-              </Button>
-            </div>
+            <ListState
+              icon={<DOMAIN_ICONS.detector className="h-8 w-8 text-muted-foreground/40" />}
+              title="No detectors yet"
+              description="Create a detector to automatically analyze your traces."
+              action={
+                <Button
+                  size="sm"
+                  className="h-7 text-[12px]"
+                  onClick={() => router.push(`/projects/${projectId}/detectors/new`)}
+                >
+                  New Detector
+                </Button>
+              }
+            />
           ) : isEmptySearch ? (
-            <div className="flex h-64 flex-col items-center justify-center gap-3">
-              <p className="text-[13px] text-muted-foreground">
-                No detectors match &ldquo;{state.keyword}&rdquo;
-              </p>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 text-[12px]"
-                onClick={() => updateKeyword("")}
-              >
-                Clear search
-              </Button>
-            </div>
+            <ListState
+              title={`No detectors match “${state.keyword}”`}
+              action={
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 text-[12px]"
+                  onClick={() => updateKeyword("")}
+                >
+                  Clear search
+                </Button>
+              }
+            />
           ) : (
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border bg-muted/50">
-                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                    Name
-                  </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                    Template
-                  </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                    Model
-                  </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                    Sampling
-                  </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
-                    Findings
-                  </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
-                    Runs
-                  </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                    Created At
-                  </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                    Updated At
-                  </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                    Detector ID
-                  </th>
-                  <th className="w-[56px] px-2 py-1.5 text-right text-[12px] font-medium text-muted-foreground">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table>
+              <THead>
+                <TRHead>
+                  <Th>Name</Th>
+                  <Th>Template</Th>
+                  <Th>Model</Th>
+                  <Th>Sampling</Th>
+                  <Th className="text-right">Findings</Th>
+                  <Th className="text-right">Runs</Th>
+                  <Th>Created At</Th>
+                  <Th>Updated At</Th>
+                  <Th>Detector ID</Th>
+                  <Th className="w-[56px] text-right">Actions</Th>
+                </TRHead>
+              </THead>
+              <TBody>
                 {detectors.map((detector) => {
                   const template = getTemplate(detector.template);
                   const modelLabel = formatDetectorModel(detector);
                   const c = counts?.[detector.id];
                   const findingCount = c?.finding_count ?? 0;
                   const runCount = c?.run_count ?? 0;
-                  const countClass =
-                    "border-r border-border/50 px-3 py-1.5 text-right text-[12px] text-muted-foreground tabular-nums";
                   return (
-                    <tr
+                    <TR
                       key={detector.id}
+                      interactive
                       onClick={() =>
                         router.push(buildUrl(`/projects/${projectId}/detectors/${detector.id}`))
                       }
-                      className={cn(
-                        "cursor-pointer border-b border-border/50 transition-colors last:border-0",
-                        selectedDetectorId === detector.id ? "bg-muted" : "hover:bg-muted/50",
-                      )}
                     >
-                      <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-foreground">
-                        {detector.name}
-                      </td>
-                      <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
+                      <Td className="text-foreground">{detector.name}</Td>
+                      <Td className="text-muted-foreground">
                         {template?.label ?? detector.template}
-                      </td>
-                      <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
-                        {modelLabel}
-                      </td>
-                      <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
-                        {detector.sampleRate}%
-                      </td>
-                      <td className={countClass}>{countsLoading ? "—" : findingCount}</td>
-                      <td className={countClass}>{countsLoading ? "—" : runCount}</td>
-                      <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
-                        {formatDate(detector.createTime)}
-                      </td>
-                      <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
-                        {formatDate(detector.updateTime)}
-                      </td>
-                      <td className="border-r border-border/50 px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
+                      </Td>
+                      <Td className="text-muted-foreground">{modelLabel}</Td>
+                      <Td className="text-muted-foreground">{detector.sampleRate}%</Td>
+                      <Td className="text-right tabular-nums text-muted-foreground">
+                        {countsLoading ? "—" : findingCount}
+                      </Td>
+                      <Td className="text-right tabular-nums text-muted-foreground">
+                        {countsLoading ? "—" : runCount}
+                      </Td>
+                      <Td className="whitespace-nowrap text-muted-foreground">
+                        <Timestamp iso={detector.createTime} />
+                      </Td>
+                      <Td className="whitespace-nowrap text-muted-foreground">
+                        <Timestamp iso={detector.updateTime} />
+                      </Td>
+                      <Td
+                        className="max-w-[240px] truncate font-mono text-[11px] text-muted-foreground"
+                        title={detector.id}
+                      >
                         {detector.id}
-                      </td>
-                      <td className="px-2 text-right">
+                      </Td>
+                      <Td className="text-right">
                         <Popover
                           open={actionsOpen === detector.id}
                           onOpenChange={(open) => setActionsOpen(open ? detector.id : null)}
@@ -313,12 +301,12 @@ export default function DetectorsPage() {
                             </button>
                           </PopoverContent>
                         </Popover>
-                      </td>
-                    </tr>
+                      </Td>
+                    </TR>
                   );
                 })}
-              </tbody>
-            </table>
+              </TBody>
+            </Table>
           )}
         </div>
 
