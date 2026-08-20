@@ -22,8 +22,8 @@ import {
   PROVIDER_PRIORITY,
   ADAPTER_TO_PI_AI,
   ADAPTER_DEFAULT_BASE_URL,
-  ADAPTER_API_PROTOCOL,
   ADAPTER_MODELS,
+  defaultApiProtocol,
 } from "./llm-providers.ts";
 
 /** Workspace BYOK row (decrypted key). Same shape as agent's private ProviderConfig. */
@@ -139,15 +139,11 @@ export function resolvePiModel(
         );
       }
 
-      // Per-model `apiProtocol` overrides — checked in order:
-      //   1. BYOK row's `config.modelProtocols` (user-overridable per workspace)
-      //   2. Catalog's per-model `apiProtocol`, when an entry sets one
-      //   3. Adapter-level default
-      const catalogProtocol = catalog?.find((m) => m.id === fallbackModelId)?.apiProtocol;
+      // The BYOK row's `config.modelProtocols` (user-overridable per workspace)
+      // wins over the catalog/adapter default the provider dialog displays.
       const apiProtocol =
         modelProtocols?.[fallbackModelId] ||
-        catalogProtocol ||
-        ADAPTER_API_PROTOCOL[providerConfig.adapter] ||
+        defaultApiProtocol(providerConfig.adapter, fallbackModelId) ||
         "openai-completions";
       const model = buildFallbackModel(fallbackModelId, apiProtocol, piAIProvider);
       const baseUrl = providerConfig.baseUrl || ADAPTER_DEFAULT_BASE_URL[providerConfig.adapter];

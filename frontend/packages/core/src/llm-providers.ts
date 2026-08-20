@@ -222,6 +222,18 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
   ],
 };
 
+/**
+ * The protocol a model runs on under an adapter when the workspace has not
+ * overridden it: the catalog entry's own `apiProtocol` when it sets one, else
+ * the adapter default. Shared by the resolver and the provider dialog so what
+ * the dialog shows as the default is what the resolver will use.
+ */
+export function defaultApiProtocol(adapter: string, modelId?: string): string {
+  const catalog = ADAPTER_MODELS[adapter as LLMAdapter];
+  const perModel = modelId ? catalog?.find((m) => m.id === modelId)?.apiProtocol : undefined;
+  return perModel ?? ADAPTER_API_PROTOCOL[adapter] ?? "";
+}
+
 // Available API protocols per adapter — shown in provider settings UI
 // When multiple protocols are available, user can choose; otherwise the default is used.
 export const ADAPTER_AVAILABLE_PROTOCOLS: Record<string, { value: string; label: string }[]> = {
