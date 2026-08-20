@@ -16,6 +16,10 @@ const NUMERIC_BOUND_KEYS = new Set([
   "multipleOf",
 ]);
 
+// Keywords whose values are data, not schema: copied as-is so a data field
+// that happens to be named like a bound keyword is never touched.
+const INSTANCE_KEYS = new Set(["default", "const", "enum", "examples", "example"]);
+
 /**
  * Deep-clone `value` (any JSON-schema fragment), dropping numeric range keywords
  * whose magnitude exceeds the JS safe-integer range, wherever they are nested
@@ -36,7 +40,9 @@ export function stripOversizedNumericBounds<T>(value: T): T {
       ) {
         continue;
       }
-      out[key] = stripOversizedNumericBounds(child);
+      out[key] = INSTANCE_KEYS.has(key)
+        ? structuredClone(child)
+        : stripOversizedNumericBounds(child);
     }
     return out as T;
   }

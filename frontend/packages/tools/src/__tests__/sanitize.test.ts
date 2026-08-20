@@ -41,6 +41,26 @@ describe("stripOversizedNumericBounds", () => {
     expect(cleaned.anyOf[0]!.properties.value).toEqual({ type: "integer", minimum: 0 });
   });
 
+  it("leaves instance values (default/const/enum/examples) untouched", () => {
+    // A data value may legitimately contain a field named like a bound keyword.
+    const data = { maximum: INT64_MAX, minimum: -INT64_MAX };
+    const cleaned = stripOversizedNumericBounds({
+      type: "object",
+      maximum: INT64_MAX,
+      default: data,
+      const: data,
+      enum: [data, 1],
+      examples: [data],
+      properties: { n: { type: "integer", maximum: INT64_MAX } },
+    }) as Record<string, unknown>;
+    expect(cleaned).not.toHaveProperty("maximum");
+    expect(cleaned.default).toEqual(data);
+    expect(cleaned.const).toEqual(data);
+    expect(cleaned.enum).toEqual([data, 1]);
+    expect(cleaned.examples).toEqual([data]);
+    expect((cleaned.properties as Record<string, unknown>).n).toEqual({ type: "integer" });
+  });
+
   it("does not mutate the input", () => {
     const input = { maximum: INT64_MAX, type: "integer" };
     stripOversizedNumericBounds(input);
