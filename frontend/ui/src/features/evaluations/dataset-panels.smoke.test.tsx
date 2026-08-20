@@ -12,10 +12,11 @@ import { ToastProvider } from "@/components/ui/toast";
 
 const mockPush = vi.fn();
 
+const searchParams = new URLSearchParams();
 vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "p1" }),
   useRouter: () => ({ push: mockPush, replace: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => searchParams,
   usePathname: () => "/projects/p1/datasets",
 }));
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));

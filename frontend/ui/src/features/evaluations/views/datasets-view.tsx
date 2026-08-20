@@ -5,8 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ListPagination } from "@/components/list-pagination";
-import { useUrlPagination } from "@/lib/hooks/use-url-pagination";
-import { useKeywordSearch } from "@/lib/hooks/use-keyword-search";
+import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useToast } from "@/components/ui/toast";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { DatasetActionsMenu, Timestamp } from "@/features/offline-eval/components";
@@ -25,17 +24,14 @@ export function DatasetsView({ projectId }: { projectId: string }) {
   const router = useRouter();
   const { toast } = useToast();
 
-  const { page, limit, goToPage, setLimit, resetPage } = useUrlPagination(50);
-  // Reset to page 0 whenever the (debounced) search changes, so a match on page 0 isn't
-  // hidden behind a stale page carried over from before the search — matching the
-  // traces list. `searchQuery` is the debounced value the API should use.
-  const { keyword, setKeyword, searchQuery } = useKeywordSearch(resetPage);
+  const { page, limit, goToPage, updateLimit, keyword, updateKeyword, queryOptions } =
+    useListPageState({ defaultLimit: 50 });
   const [newOpen, setNewOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<DatasetRow | null>(null);
   const [deleteTarget, setDeleteTarget] = React.useState<DatasetRow | null>(null);
 
   const { data, isLoading, error, refetch } = useDatasets(projectId, {
-    search_query: searchQuery,
+    search_query: queryOptions.search_query,
     page,
     limit,
   });
@@ -83,7 +79,7 @@ export function DatasetsView({ projectId }: { projectId: string }) {
           falsely read as an applied constraint. */}
       <SearchFilterBar
         searchValue={keyword}
-        onSearchChange={setKeyword}
+        onSearchChange={updateKeyword}
         searchPlaceholder="Search..."
       >
         <span className="flex-1" aria-hidden />
@@ -170,7 +166,7 @@ export function DatasetsView({ projectId }: { projectId: string }) {
           limit={meta.limit}
           total={meta.total}
           onPageChange={goToPage}
-          onLimitChange={setLimit}
+          onLimitChange={updateLimit}
         />
       )}
 
