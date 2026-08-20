@@ -393,7 +393,6 @@ export const REGISTRY: readonly RegistryEntry[] = [
                     enum: ["eq", "gt", "gte", "lt", "lte"],
                   },
                   value: {
-                    maximum: 9223372036854776000,
                     minimum: 0,
                     type: "integer",
                   },
@@ -412,7 +411,6 @@ export const REGISTRY: readonly RegistryEntry[] = [
                     enum: ["eq", "gt", "gte", "lt", "lte"],
                   },
                   value: {
-                    maximum: 9223372036854776000,
                     minimum: 0,
                     type: "integer",
                   },
@@ -431,7 +429,6 @@ export const REGISTRY: readonly RegistryEntry[] = [
                     enum: ["eq", "gt", "gte", "lt", "lte"],
                   },
                   value: {
-                    maximum: 18446744073709552000,
                     minimum: 0,
                     type: "integer",
                   },
