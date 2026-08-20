@@ -8,6 +8,7 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectEmpty,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -192,14 +193,20 @@ export function RunEvaluationDrawer({
           ) : (
             <Select value={chosen} onValueChange={setChosen}>
               <SelectTrigger className="h-7 text-[13px]">
-                <SelectValue placeholder={datasets.length ? "Select dataset" : "No datasets yet"} />
+                <SelectValue
+                  placeholder={datasets.length ? "Select dataset" : "No datasets found"}
+                />
               </SelectTrigger>
               <SelectContent>
-                {datasets.map((item) => (
-                  <SelectItem key={item.id} value={item.id} className="text-[12px]">
-                    {item.name}
-                  </SelectItem>
-                ))}
+                {datasets.length ? (
+                  datasets.map((item) => (
+                    <SelectItem key={item.id} value={item.id} className="text-[12px]">
+                      {item.name}
+                    </SelectItem>
+                  ))
+                ) : (
+                  <SelectEmpty>No datasets found</SelectEmpty>
+                )}
               </SelectContent>
             </Select>
           )}

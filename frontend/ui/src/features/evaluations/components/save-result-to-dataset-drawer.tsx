@@ -9,6 +9,7 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectEmpty,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -195,11 +196,15 @@ export function SaveResultToDatasetDrawer({
                   <SelectValue placeholder="Choose a dataset" />
                 </SelectTrigger>
                 <SelectContent>
-                  {datasets.map((d) => (
-                    <SelectItem key={d.id} value={d.id} className="text-[12px]">
-                      {d.name}
-                    </SelectItem>
-                  ))}
+                  {datasets.length ? (
+                    datasets.map((d) => (
+                      <SelectItem key={d.id} value={d.id} className="text-[12px]">
+                        {d.name}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectEmpty>No datasets found</SelectEmpty>
+                  )}
                 </SelectContent>
               </Select>
             ) : (
