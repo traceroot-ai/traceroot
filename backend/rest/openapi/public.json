@@ -3886,13 +3886,15 @@
                         "properties": {
                           "field": {
                             "const": "trace_id",
-                            "title": "Trace ID"
+                            "title": "Trace ID",
+                            "type": "string"
                           },
                           "op": {
                             "enum": [
                               "eq",
                               "contains"
-                            ]
+                            ],
+                            "type": "string"
                           },
                           "value": {
                             "maxLength": 1024,
@@ -3912,12 +3914,14 @@
                         "properties": {
                           "field": {
                             "const": "model_name",
-                            "title": "Model"
+                            "title": "Model",
+                            "type": "string"
                           },
                           "op": {
                             "enum": [
                               "in"
-                            ]
+                            ],
+                            "type": "string"
                           },
                           "value": {
                             "items": {
@@ -3940,12 +3944,14 @@
                         "properties": {
                           "field": {
                             "const": "environment",
-                            "title": "Environment"
+                            "title": "Environment",
+                            "type": "string"
                           },
                           "op": {
                             "enum": [
                               "in"
-                            ]
+                            ],
+                            "type": "string"
                           },
                           "value": {
                             "items": {
@@ -3968,7 +3974,8 @@
                         "properties": {
                           "field": {
                             "const": "cost",
-                            "title": "Cost"
+                            "title": "Cost",
+                            "type": "string"
                           },
                           "op": {
                             "enum": [
@@ -3977,7 +3984,8 @@
                               "gte",
                               "lt",
                               "lte"
-                            ]
+                            ],
+                            "type": "string"
                           },
                           "value": {
                             "maximum": 999999999,
@@ -3997,7 +4005,8 @@
                         "properties": {
                           "field": {
                             "const": "total_tokens",
-                            "title": "Tokens"
+                            "title": "Tokens",
+                            "type": "string"
                           },
                           "op": {
                             "enum": [
@@ -4006,7 +4015,8 @@
                               "gte",
                               "lt",
                               "lte"
-                            ]
+                            ],
+                            "type": "string"
                           },
                           "value": {
                             "maximum": 9223372036854775807,
@@ -4026,7 +4036,8 @@
                         "properties": {
                           "field": {
                             "const": "duration_ms",
-                            "title": "Latency"
+                            "title": "Latency",
+                            "type": "string"
                           },
                           "op": {
                             "enum": [
@@ -4035,7 +4046,8 @@
                               "gte",
                               "lt",
                               "lte"
-                            ]
+                            ],
+                            "type": "string"
                           },
                           "value": {
                             "maximum": 9223372036854775807,
@@ -4055,7 +4067,8 @@
                         "properties": {
                           "field": {
                             "const": "errors",
-                            "title": "Errors"
+                            "title": "Errors",
+                            "type": "string"
                           },
                           "op": {
                             "enum": [
@@ -4064,7 +4077,8 @@
                               "gte",
                               "lt",
                               "lte"
-                            ]
+                            ],
+                            "type": "string"
                           },
                           "value": {
                             "maximum": 18446744073709551615,
@@ -4084,7 +4098,8 @@
                         "properties": {
                           "field": {
                             "const": "metadata",
-                            "title": "Metadata"
+                            "title": "Metadata",
+                            "type": "string"
                           },
                           "key": {
                             "description": "Which metadata key the value is compared against",
@@ -4096,7 +4111,8 @@
                             "enum": [
                               "eq",
                               "contains"
-                            ]
+                            ],
+                            "type": "string"
                           },
                           "value": {
                             "maxLength": 1024,
