@@ -31,4 +31,13 @@ describe("ManualTab", () => {
     expect(screen.getByTestId("github-connect")).toBeDefined();
     expect(screen.getByTestId("slack-connect")).toBeDefined();
   });
+
+  // #1796: the bare word "providers" reads as implying BYOK support, which this
+  // list doesn't carry — every provider here is auto-traced instrumentation,
+  // a separate, independent feature from BYOK model providers.
+  it("labels the provider picker group as auto-traced, not implying BYOK support", () => {
+    render(<ManualTab projectId="proj_1" />);
+    expect(screen.getByText("Model providers (traced automatically)")).toBeDefined();
+    expect(screen.queryByText("Model providers", { exact: true })).toBeNull();
+  });
 });
