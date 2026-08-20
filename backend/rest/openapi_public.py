@@ -180,9 +180,11 @@ def _filter_predicate_variants() -> list[dict[str, Any]]:
             # A new FilterType member must get an explicit value schema here;
             # failing the build beats silently typing it as free text.
             raise ValueError(f"unhandled filter type for schema generation: {col.type!r}")
+        # Explicit `type` alongside const/enum: the schema also feeds model tool
+        # definitions, and some providers reject properties without one.
         properties: dict[str, Any] = {
-            "field": {"const": col.name, "title": col.label},
-            "op": {"enum": [str(o) for o in col.operators]},
+            "field": {"type": "string", "const": col.name, "title": col.label},
+            "op": {"type": "string", "enum": [str(o) for o in col.operators]},
             "value": value_schema,
         }
         required = ["field", "op", "value"]

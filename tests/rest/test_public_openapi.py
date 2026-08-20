@@ -392,6 +392,22 @@ def test_filters_param_is_json_content_with_registry_variants():
             assert "key" not in v["properties"]
 
 
+def test_filters_param_properties_all_declare_a_type():
+    """Every predicate property carries an explicit ``type``.
+
+    ``const``/``enum`` alone are valid JSON Schema, but the registry feeds
+    model tool schemas and some providers reject properties without a type.
+    """
+    param = _filters_param(_schema())
+    variants = param["content"]["application/json"]["schema"]["items"]["anyOf"]
+    for v in variants:
+        field = v["properties"]["field"]["const"]
+        for name, prop in v["properties"].items():
+            assert prop.get("type"), f"{field}.{name} declares no type"
+        assert v["properties"]["field"]["type"] == "string"
+        assert v["properties"]["op"]["type"] == "string"
+
+
 def test_filters_param_value_types_match_field_kinds():
     from rest.services.filters.translate import MAX_VALUE_LENGTH
 
