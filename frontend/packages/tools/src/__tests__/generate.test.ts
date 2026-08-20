@@ -171,6 +171,69 @@ describe("generateRegistry", () => {
     expect(listTraces.inputSchema.required).toEqual([]);
   });
 
+  it("removes unsafe numeric bounds recursively while preserving safe bounds", () => {
+    const doc = fakeDoc();
+    doc.paths["/api/v1/public/whoami"].get.parameters = [
+      {
+        name: "filters",
+        in: "query",
+        content: {
+          "application/json": {
+            schema: {
+              type: "array",
+              items: {
+                anyOf: [
+                  {
+                    type: "object",
+                    properties: {
+                      too_large: {
+                        type: "integer",
+                        minimum: 0,
+                        maximum: Number.MAX_SAFE_INTEGER + 1,
+                      },
+                      too_small: {
+                        type: "integer",
+                        minimum: Number.MIN_SAFE_INTEGER - 1,
+                        maximum: 200,
+                      },
+                      safe_integer: {
+                        type: "integer",
+                        minimum: Number.MIN_SAFE_INTEGER,
+                        maximum: Number.MAX_SAFE_INTEGER,
+                      },
+                      safe_decimal: {
+                        type: "number",
+                        minimum: -0.25,
+                        maximum: 3.5,
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+    ];
+
+    const registry = generateRegistry(doc);
+    const whoami = registry.find((entry) => entry.name === "whoami")!;
+    const filters = whoami.inputSchema.properties.filters as {
+      items: { anyOf: Array<{ properties: Record<string, unknown> }> };
+    };
+
+    expect(filters.items.anyOf[0]!.properties).toEqual({
+      too_large: { type: "integer", minimum: 0 },
+      too_small: { type: "integer", maximum: 200 },
+      safe_integer: {
+        type: "integer",
+        minimum: Number.MIN_SAFE_INTEGER,
+        maximum: Number.MAX_SAFE_INTEGER,
+      },
+      safe_decimal: { type: "number", minimum: -0.25, maximum: 3.5 },
+    });
+  });
+
   it("normalizes multi-variant anyOf params (null variant and titles dropped) and tolerates schema-less params", () => {
     const doc = fakeDoc();
     doc.paths["/api/v1/public/whoami"].get.parameters = [

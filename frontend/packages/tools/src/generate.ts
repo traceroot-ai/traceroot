@@ -1,3 +1,4 @@
+import { sanitizeSchemaForModel } from "./schema.js";
 import type { InputSchema, ParamSchema, RegistryEntry } from "./types.js";
 
 interface OpenApiParameter {
@@ -78,7 +79,12 @@ function buildInputSchema(op: OpenApiOperation): InputSchema {
       required.push(param.name);
     }
   }
-  return { type: "object", properties, required, additionalProperties: false };
+  return sanitizeSchemaForModel({
+    type: "object",
+    properties,
+    required,
+    additionalProperties: false,
+  });
 }
 
 /**

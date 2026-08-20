@@ -64,6 +64,52 @@ describe("toPiAgentTool", () => {
     );
   });
 
+  it("removes unsafe bounds from model parameters without mutating the registry entry", () => {
+    const entry = structuredClone(listTracesEntry);
+    entry.inputSchema.properties.filters = {
+      type: "array",
+      items: {
+        anyOf: [
+          {
+            type: "object",
+            properties: {
+              too_large: {
+                type: "integer",
+                minimum: 0,
+                maximum: Number.MAX_SAFE_INTEGER + 1,
+              },
+              too_small: {
+                type: "integer",
+                minimum: Number.MIN_SAFE_INTEGER - 1,
+                maximum: 200,
+              },
+              safe: { type: "number", minimum: -0.5, maximum: Number.MAX_SAFE_INTEGER },
+            },
+          },
+        ],
+      },
+    };
+    const before = structuredClone(entry);
+    const client = new ApiClient({
+      baseUrl: "http://x",
+      headers: {},
+      fetchImpl: fakeFetch(200, {}),
+    });
+
+    const tool = toPiAgentTool(entry, { client });
+    const filters = tool.parameters.properties.filters as {
+      items: { anyOf: Array<{ properties: Record<string, unknown> }> };
+    };
+
+    expect(filters.items.anyOf[0]!.properties).toEqual({
+      too_large: { type: "integer", minimum: 0 },
+      too_small: { type: "integer", maximum: 200 },
+      safe: { type: "number", minimum: -0.5, maximum: Number.MAX_SAFE_INTEGER },
+    });
+    expect(entry).toEqual(before);
+    expect(tool.parameters.properties.filters).not.toBe(entry.inputSchema.properties.filters);
+  });
+
   it("hides fixedArgs from the model schema but sends them, honoring pathOverride", async () => {
     const fetchImpl = fakeFetch(200, { data: [] });
     const client = new ApiClient({ baseUrl: "http://x", headers: {}, fetchImpl });

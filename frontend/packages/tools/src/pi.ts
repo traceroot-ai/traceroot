@@ -1,5 +1,6 @@
 import type { ApiClient } from "./client.js";
 import { dispatch } from "./dispatch.js";
+import { sanitizeSchemaForModel } from "./schema.js";
 import type { ParamSchema, RegistryEntry } from "./types.js";
 
 /** One text block of a pi tool result. */
@@ -67,7 +68,7 @@ export function toPiAgentTool(entry: RegistryEntry, options: ToPiAgentToolOption
     if (name in fixedArgs) {
       continue;
     }
-    properties[name] = schema;
+    properties[name] = sanitizeSchemaForModel(schema);
   }
   const required = ["label", ...entry.inputSchema.required.filter((name) => !(name in fixedArgs))];
 
