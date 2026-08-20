@@ -35,8 +35,7 @@ export interface ProviderModelConfig {
 }
 
 // Build system model lookup from SYSTEM_MODELS.
-// Per-model apiProtocol overrides the provider-level default
-// (e.g. gpt-5.3-codex → openai-responses).
+// A model's own apiProtocol, when set, overrides the provider-level default.
 const systemModelLookup = new Map<string, { piAIProvider: string; apiProtocol: string }>();
 for (const sys of SYSTEM_MODELS) {
   for (const m of sys.models) {
@@ -142,7 +141,7 @@ export function resolvePiModel(
 
       // Per-model `apiProtocol` overrides — checked in order:
       //   1. BYOK row's `config.modelProtocols` (user-overridable per workspace)
-      //   2. Catalog's per-model `apiProtocol` (e.g. gpt-5.3-codex → openai-responses)
+      //   2. Catalog's per-model `apiProtocol`, when an entry sets one
       //   3. Adapter-level default
       const catalogProtocol = catalog?.find((m) => m.id === fallbackModelId)?.apiProtocol;
       const apiProtocol =
