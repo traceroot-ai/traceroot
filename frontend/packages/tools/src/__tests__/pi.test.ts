@@ -122,6 +122,35 @@ describe("toPiAgentTool", () => {
     expect(result.content[0]!.text).toContain("list_traces");
     expect(result.content[0]!.text).toContain("Forbidden");
   });
+
+  it("customizes error rendering with formatError when defined", async () => {
+    const client = new ApiClient({
+      baseUrl: "http://x",
+      headers: {},
+      fetchImpl: fakeFetch(404, { detail: "Not found" }),
+    });
+    const tool = toPiAgentTool(listTracesEntry, {
+      client,
+      formatError: (error) => (error.status === 404 ? "Custom 404 message" : undefined),
+    });
+
+    const result404 = await tool.execute("call-1", { label: "x" });
+    expect(result404.content[0]!.text).toBe("Custom 404 message");
+
+    const client500 = new ApiClient({
+      baseUrl: "http://x",
+      headers: {},
+      fetchImpl: fakeFetch(500, { detail: "Server error" }),
+    });
+    const tool500 = toPiAgentTool(listTracesEntry, {
+      client: client500,
+      formatError: (error) => (error.status === 404 ? "Custom 404 message" : undefined),
+    });
+    const result500 = await tool500.execute("call-1", { label: "x" });
+    expect(result500.content[0]!.text).toBe(
+      "Error calling list_traces: API error 500: Server error",
+    );
+  });
 });
 
 describe("INTERNAL_BINDINGS", () => {
