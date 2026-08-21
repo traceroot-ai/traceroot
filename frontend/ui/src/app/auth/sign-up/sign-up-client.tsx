@@ -38,10 +38,14 @@ type SignUpClientProps = {
 // telling it (via ?next) to continue to onboarding once approved. Anything else
 // goes straight to onboarding; a new user shouldn't be dropped deep in the app.
 function postSignUpDestination(callbackUrl: string): string {
-  if (!callbackUrl.startsWith("/device")) {
+  // Match the /device path exactly, not by prefix: a startsWith check would also
+  // catch an unrelated future route like /device-settings and wrongly funnel a
+  // new account into the device-authorization flow.
+  const [path, query] = callbackUrl.split("?");
+  if (path !== "/device") {
     return "/onboarding";
   }
-  const params = new URLSearchParams(callbackUrl.split("?")[1] ?? "");
+  const params = new URLSearchParams(query ?? "");
   params.set("next", "/onboarding");
   return `/device?${params.toString()}`;
 }

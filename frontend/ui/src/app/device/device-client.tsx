@@ -49,6 +49,26 @@ type Phase =
   // (get a fresh code from the CLI) with no looping retry button.
   | { kind: "error"; message: string; recoverable: boolean };
 
+// Build the sign-in URL that returns to the device consent screen. Carries the
+// user_code so the return lands on consent, client_id so it still names the
+// client, and any onboarding `next` so a brand-new account continues to
+// onboarding after approving (better-auth stores the full callbackUrl — query
+// included — in the OAuth state and redirects to it verbatim, so all three
+// survive the Google hop). Same-origin-guarded, since user_code comes from the
+// entry field. Shared by the effect's signed-out redirect and "Not you? Sign
+// out" so the two can't drift.
+function deviceSignInUrl(userCode: string, clientId: string | null, next: string | null): string {
+  const params = new URLSearchParams({ user_code: userCode });
+  if (clientId) {
+    params.set("client_id", clientId);
+  }
+  if (next) {
+    params.set("next", next);
+  }
+  const target = safeCallbackUrl(`/device?${params.toString()}`, "/device");
+  return `/auth/sign-in?callbackUrl=${encodeURIComponent(target)}`;
+}
+
 function errorPhase(err: Parameters<typeof mapDeviceErrorMessage>[0]): Phase {
   return {
     kind: "error",
@@ -107,19 +127,10 @@ function DeviceContent() {
     }
 
     if (!sessionData?.user) {
-      // Not signed in yet: go straight to sign-in, carrying the code back in
-      // the callbackUrl so the return lands on consent. better-auth stores the
-      // full callbackUrl (query included) in the OAuth state and redirects to
-      // it verbatim, so the code survives the Google hop. Carry client_id too so
-      // the returning consent screen still names the client. The target is built
-      // from user input (the entry field), so run it through the same
-      // same-origin guard used elsewhere before handing it to the router.
-      const params = new URLSearchParams({ user_code: activeCode });
-      if (clientId) {
-        params.set("client_id", clientId);
-      }
-      const target = safeCallbackUrl(`/device?${params.toString()}`, "/device");
-      router.push(`/auth/sign-in?callbackUrl=${encodeURIComponent(target)}`);
+      // Not signed in yet: go to sign-in, carrying the code (+ client_id + any
+      // onboarding `next`) back so the return lands on consent and a new account
+      // still continues to onboarding.
+      router.push(deviceSignInUrl(activeCode, clientId, searchParams.get("next")));
       return;
     }
 
@@ -214,12 +225,7 @@ function DeviceContent() {
       router.push("/auth/sign-in");
       return;
     }
-    const params = new URLSearchParams({ user_code: code });
-    if (clientId) {
-      params.set("client_id", clientId);
-    }
-    const target = safeCallbackUrl(`/device?${params.toString()}`, "/device");
-    router.push(`/auth/sign-in?callbackUrl=${encodeURIComponent(target)}`);
+    router.push(deviceSignInUrl(code, clientId, searchParams.get("next")));
   }
 
   return (

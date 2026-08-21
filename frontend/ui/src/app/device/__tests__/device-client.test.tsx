@@ -85,6 +85,23 @@ describe("DeviceClient", () => {
     );
   });
 
+  it("carries the onboarding `next` through the signed-out redirect (new-user device signup)", async () => {
+    setParams({ user_code: "abcd1234", client_id: "traceroot-cli", next: "/onboarding" });
+    signedOut();
+
+    render(<DeviceClient />);
+
+    await waitFor(() => expect(mocks.push).toHaveBeenCalled());
+    const target = mocks.push.mock.calls[0][0] as string;
+    // next must survive the sign-in round trip or a new account signing up
+    // through the device flow never continues to onboarding.
+    expect(target).toBe(
+      `/auth/sign-in?callbackUrl=${encodeURIComponent(
+        "/device?user_code=ABCD1234&client_id=traceroot-cli&next=%2Fonboarding",
+      )}`,
+    );
+  });
+
   it("auto-advances to consent when signed in with a code in the URL (no Continue)", async () => {
     setParams({ user_code: "abcd1234", client_id: "traceroot-cli" });
     signedIn("kai@example.com");

@@ -99,6 +99,19 @@ describe("SignUpClient", () => {
     await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/onboarding"));
   });
 
+  it("does not funnel a lookalike /device-prefixed path into the device flow", async () => {
+    // Exact-path match: only /device (the consent page) is the device flow, not
+    // a future route like /device-settings.
+    setParams({ callbackUrl: "/device-settings" });
+    mocks.signUpEmail.mockResolvedValue({ error: null });
+
+    render(<SignUpClient googleAuthConfigured={false} />);
+    fillForm();
+    fireEvent.click(screen.getByRole("button", { name: "Sign up" }));
+
+    await waitFor(() => expect(mocks.push).toHaveBeenCalledWith("/onboarding"));
+  });
+
   it("carries the callback to the sign-in link", () => {
     setParams({ callbackUrl: "/device?user_code=ABCD1234" });
 
