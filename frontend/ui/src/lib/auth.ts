@@ -1,8 +1,10 @@
 import { betterAuth } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
-import { admin } from "better-auth/plugins";
+import { admin, deviceAuthorization } from "better-auth/plugins";
 import { prisma } from "@traceroot/core";
 import { env } from "@/env";
+import { DEVICE_CLIENT_IDS } from "@/lib/auth-clients";
+import { generateUserCode } from "@/lib/device-user-code";
 
 export const auth = betterAuth({
   database: prismaAdapter(prisma, {
@@ -38,6 +40,13 @@ export const auth = betterAuth({
   plugins: [
     admin({
       impersonationSessionDuration: 60 * 60 * 24, // 1 day
+    }),
+    deviceAuthorization({
+      expiresIn: "30m", // a sign-up round trip (not just sign-in) needs to fit in the window
+      interval: "5s",
+      generateUserCode,
+      validateClient: (clientId) => DEVICE_CLIENT_IDS.has(clientId),
+      verificationUri: "/device",
     }),
   ],
 });

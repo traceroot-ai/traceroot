@@ -1,0 +1,348 @@
+"use client";
+
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { Loader2 } from "lucide-react";
+import { authClient } from "@/lib/auth-client";
+import { safeCallbackUrl } from "@/lib/safe-callback-url";
+import { formatUserCode } from "@/lib/device-user-code";
+import { DEVICE_CLIENT_IDS, DEVICE_CLIENT_NAMES } from "@/lib/auth-clients";
+import { mapDeviceErrorMessage } from "./device-error-messages";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Logo } from "@/components/Logo";
+
+const FALLBACK_CLIENT_NAME = "A command-line application";
+
+// Only the plugin's own record of a device code is authoritative on who's
+// asking. The `client_id` query param arrives on an unauthenticated GET
+// request and isn't checked against that record, so it's just as
+// attacker-suppliable as any other query string — reflecting it verbatim
+// would let a crafted link put arbitrary text on the consent screen. Only
+// resolve a display name for ids in the known allowlist; anything else falls
+// back to a generic label instead of parroting unverified text back to the
+// user.
+function resolveClientDisplayName(clientId: string | null): string {
+  if (!clientId || !DEVICE_CLIENT_IDS.has(clientId)) {
+    return FALLBACK_CLIENT_NAME;
+  }
+  return DEVICE_CLIENT_NAMES[clientId] ?? clientId;
+}
+
+// The plugin strips hyphens server-side before every lookup, so this is
+// purely for a forgiving input (users may paste the "XXXX-XXXX" display
+// form, or a mix of cases).
+function normalizeCodeInput(raw: string): string {
+  return raw.replace(/-/g, "").trim().toUpperCase();
+}
+
+type Phase =
+  | { kind: "entry" }
+  | { kind: "verifying" }
+  | { kind: "consent" }
+  | { kind: "approved" }
+  | { kind: "denied" }
+  | { kind: "error"; message: string };
+
+function DeviceContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const { data: sessionData, isPending: sessionPending } = authClient.useSession();
+
+  const initialCode = normalizeCodeInput(searchParams.get("user_code") ?? "");
+  const clientId = searchParams.get("client_id");
+
+  const [codeInput, setCodeInput] = useState(initialCode ? formatUserCode(initialCode) : "");
+  const [entryError, setEntryError] = useState<string | null>(null);
+  const [activeCode, setActiveCode] = useState<string | null>(null);
+  const [phase, setPhase] = useState<Phase>({ kind: "entry" });
+  const [actionPending, setActionPending] = useState(false);
+
+  // Resolve the pending request once we have both a code and a signed-in
+  // session. Runs once per (activeCode, session) pair — activeCode only
+  // changes when the user (re)submits the entry form, and session identity
+  // is keyed off the user id rather than the whole object so a re-render
+  // with an equivalent-but-new session object doesn't re-trigger the fetch.
+  useEffect(() => {
+    if (!activeCode || sessionPending) {
+      return;
+    }
+
+    if (!sessionData?.user) {
+      // Round-trip the code through sign-in so it survives the redirect,
+      // including the Google OAuth hop. The target is built from user
+      // input (the entry field), so run it through the same same-origin
+      // guard used elsewhere before handing it to the router.
+      const target = safeCallbackUrl(`/device?user_code=${activeCode}`, "/device");
+      router.push(`/auth/sign-in?callbackUrl=${encodeURIComponent(target)}`);
+      return;
+    }
+
+    let cancelled = false;
+    setPhase({ kind: "verifying" });
+
+    (async () => {
+      const { data, error } = await authClient.device({ query: { user_code: activeCode } });
+      if (cancelled) {
+        return;
+      }
+      if (error) {
+        setPhase({ kind: "error", message: mapDeviceErrorMessage(error) });
+        return;
+      }
+      if (data && data.status !== "pending") {
+        setPhase({
+          kind: "error",
+          message: mapDeviceErrorMessage({
+            error: "invalid_request",
+            error_description: "Device code already processed",
+          }),
+        });
+        return;
+      }
+      setPhase({ kind: "consent" });
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCode, sessionPending, sessionData?.user?.id]);
+
+  function handleSubmitCode() {
+    const cleaned = normalizeCodeInput(codeInput);
+    if (!cleaned) {
+      setEntryError("Enter the code shown in your terminal.");
+      return;
+    }
+    setEntryError(null);
+    setActiveCode(cleaned);
+  }
+
+  async function handleApprove() {
+    if (!activeCode) {
+      return;
+    }
+    setActionPending(true);
+    const { error } = await authClient.device.approve({ userCode: activeCode });
+    setActionPending(false);
+    if (error) {
+      setPhase({ kind: "error", message: mapDeviceErrorMessage(error) });
+      return;
+    }
+    setPhase({ kind: "approved" });
+  }
+
+  async function handleDeny() {
+    if (!activeCode) {
+      return;
+    }
+    setActionPending(true);
+    const { error } = await authClient.device.deny({ userCode: activeCode });
+    setActionPending(false);
+    if (error) {
+      setPhase({ kind: "error", message: mapDeviceErrorMessage(error) });
+      return;
+    }
+    setPhase({ kind: "denied" });
+  }
+
+  function handleStartOver() {
+    setActiveCode(null);
+    setEntryError(null);
+    setCodeInput("");
+    setPhase({ kind: "entry" });
+  }
+
+  return (
+    <div className="flex h-full min-h-screen items-center justify-center bg-background p-4">
+      <Card className="w-full max-w-md">
+        <CardHeader className="text-center">
+          <div className="mb-2 flex justify-center">
+            <Logo size="lg" />
+          </div>
+          <CardTitle className="text-lg font-semibold">Device sign-in</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          {phase.kind === "entry" && (
+            <CodeEntry
+              value={codeInput}
+              onChange={setCodeInput}
+              onSubmit={handleSubmitCode}
+              error={entryError}
+            />
+          )}
+
+          {phase.kind === "verifying" && (
+            <div className="flex flex-col items-center gap-2 py-6 text-[13px] text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <p>Checking your code...</p>
+            </div>
+          )}
+
+          {phase.kind === "consent" && activeCode && (
+            <Consent
+              clientName={resolveClientDisplayName(clientId)}
+              email={sessionData?.user?.email ?? null}
+              code={activeCode}
+              pending={actionPending}
+              onApprove={handleApprove}
+              onDeny={handleDeny}
+            />
+          )}
+
+          {phase.kind === "approved" && <Approved />}
+
+          {phase.kind === "denied" && <Denied />}
+
+          {phase.kind === "error" && (
+            <ErrorState message={phase.message} onStartOver={handleStartOver} />
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+type CodeEntryProps = {
+  value: string;
+  onChange: (value: string) => void;
+  onSubmit: () => void;
+  error: string | null;
+};
+
+function CodeEntry({ value, onChange, onSubmit, error }: CodeEntryProps) {
+  return (
+    <div className="space-y-4">
+      <p className="text-center text-[13px] text-muted-foreground">
+        Enter the code shown in your terminal to sign in on this device.
+      </p>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSubmit();
+        }}
+        className="space-y-3"
+      >
+        <div>
+          <label htmlFor="device-code" className="mb-1 block text-[13px] font-medium">
+            Device code
+          </label>
+          <Input
+            id="device-code"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="XXXX-XXXX"
+            className="h-9 text-center text-[15px] tracking-widest"
+            autoFocus
+          />
+          {error && <p className="mt-1 text-[11px] text-red-500">{error}</p>}
+        </div>
+        <Button type="submit" size="sm" className="h-8 w-full text-[13px]">
+          Continue
+        </Button>
+      </form>
+    </div>
+  );
+}
+
+type ConsentProps = {
+  clientName: string;
+  email: string | null;
+  code: string;
+  pending: boolean;
+  onApprove: () => void;
+  onDeny: () => void;
+};
+
+function Consent({ clientName, email, code, pending, onApprove, onDeny }: ConsentProps) {
+  return (
+    <div className="space-y-4">
+      <div className="space-y-1 text-center">
+        <p className="text-[13px]">
+          <span className="font-medium">{clientName}</span> wants to sign in
+        </p>
+        {email && <p className="text-[12px] text-muted-foreground">as {email}</p>}
+      </div>
+
+      <div className="border bg-muted/50 px-3 py-2 text-center">
+        <p className="text-[11px] uppercase text-muted-foreground">Confirm this code</p>
+        <p className="text-[18px] font-semibold tracking-widest">{formatUserCode(code)}</p>
+      </div>
+
+      <p className="text-[12px] text-muted-foreground">
+        This grants {clientName} read access to your workspaces. You can revoke it any time from{" "}
+        <Link href="/account/settings/sessions" className="underline hover:text-foreground">
+          Active Sessions
+        </Link>{" "}
+        in your account settings.
+      </p>
+
+      <p className="border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-800 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300">
+        Only approve a code you generated yourself just now. If you didn&apos;t start a traceroot
+        login, deny this.
+      </p>
+
+      <div className="flex gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-8 flex-1 text-[13px]"
+          onClick={onDeny}
+          disabled={pending}
+        >
+          Deny
+        </Button>
+        <Button size="sm" className="h-8 flex-1 text-[13px]" onClick={onApprove} disabled={pending}>
+          {pending ? "Working..." : "Approve"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function Approved() {
+  return (
+    <div className="py-4 text-center">
+      <p className="text-[14px] font-medium">Approved</p>
+      <p className="mt-1 text-[13px] text-muted-foreground">You can return to your terminal.</p>
+    </div>
+  );
+}
+
+function Denied() {
+  return (
+    <div className="py-4 text-center">
+      <p className="text-[14px] font-medium">Denied</p>
+      <p className="mt-1 text-[13px] text-muted-foreground">
+        This sign-in request was denied. You can close this page.
+      </p>
+    </div>
+  );
+}
+
+type ErrorStateProps = {
+  message: string;
+  onStartOver: () => void;
+};
+
+function ErrorState({ message, onStartOver }: ErrorStateProps) {
+  return (
+    <div className="space-y-3 py-2 text-center">
+      <p className="text-[13px] text-red-600 dark:text-red-400">{message}</p>
+      <Button variant="outline" size="sm" className="h-8 text-[13px]" onClick={onStartOver}>
+        Try again
+      </Button>
+    </div>
+  );
+}
+
+export function DeviceClient() {
+  return (
+    <Suspense>
+      <DeviceContent />
+    </Suspense>
+  );
+}
