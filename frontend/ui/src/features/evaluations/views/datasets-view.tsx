@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
+import { AlertTriangle, Inbox } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ListPagination } from "@/components/list-pagination";
@@ -10,7 +11,8 @@ import { useKeywordSearch } from "@/lib/hooks/use-keyword-search";
 import { useToast } from "@/components/ui/toast";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { DatasetActionsMenu, Timestamp } from "@/features/offline-eval/components";
-import { Table, TBody, Td, Th, THead, TR, TRHead, TableEmpty } from "@/components/ui/table";
+import { Table, TBody, Td, Th, THead, TR, TRHead } from "@/components/ui/table";
+import { ListState, ListLoading, TableStateRow } from "@/components/ui/list-state";
 import { useDatasets, useDeleteDataset, useEvaluations } from "../hooks";
 import type { DatasetRow } from "../types";
 import { NewDatasetPanel, DatasetEditPanel } from "../components/dataset-panels";
@@ -104,24 +106,37 @@ export function DatasetsView({ projectId }: { projectId: string }) {
           </THead>
           <TBody>
             {isLoading ? (
-              <TableEmpty colSpan={7}>Loading datasets...</TableEmpty>
+              <TableStateRow colSpan={7}>
+                <ListLoading label="Loading datasets..." />
+              </TableStateRow>
             ) : error ? (
-              <TableEmpty colSpan={7}>
-                Error loading datasets.{" "}
-                <button
-                  type="button"
-                  onClick={() => refetch()}
-                  className="underline underline-offset-2"
-                >
-                  Try again
-                </button>
-              </TableEmpty>
+              <TableStateRow colSpan={7}>
+                <ListState
+                  icon={<AlertTriangle className="h-8 w-8 text-destructive/50" />}
+                  title="Error loading datasets"
+                  description="Make sure the API server is running and you have API keys configured."
+                  action={
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-[12px]"
+                      onClick={() => refetch()}
+                    >
+                      Try again
+                    </Button>
+                  }
+                />
+              </TableStateRow>
             ) : datasets.length === 0 ? (
-              <TableEmpty colSpan={7}>
-                {keyword
-                  ? "No datasets match your search."
-                  : "No datasets yet — save a trace or span as a test case to start one."}
-              </TableEmpty>
+              <TableStateRow colSpan={7}>
+                <ListState
+                  icon={<Inbox className="h-8 w-8 text-muted-foreground/40" />}
+                  title={keyword ? "No datasets match your search." : "No datasets yet"}
+                  description={
+                    keyword ? undefined : "Save a trace or span as a test case to start one."
+                  }
+                />
+              </TableStateRow>
             ) : (
               datasets.map((dataset) => {
                 const href = `/projects/${projectId}/datasets/${dataset.id}`;
