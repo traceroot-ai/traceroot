@@ -44,10 +44,18 @@ def signer(respx_mock, monkeypatch):
 
 
 def _mint(
-    priv, *, sub="user-1", aud="traceroot-api", iss="traceroot", exp_delta=900, kid=KID, drop=()
+    priv,
+    *,
+    sub="user-1",
+    aud="traceroot-api",
+    iss="traceroot",
+    exp_delta=900,
+    iat_delta=0,
+    kid=KID,
+    drop=(),
 ):
     now = int(time.time())
-    payload = {"sub": sub, "aud": aud, "iss": iss, "iat": now, "exp": now + exp_delta}
+    payload = {"sub": sub, "aud": aud, "iss": iss, "iat": now + iat_delta, "exp": now + exp_delta}
     for claim in drop:
         payload.pop(claim, None)
     headers = {"kid": kid} if kid else {}
@@ -185,7 +193,9 @@ class TestJwtRejections:
         assert exc.value.status_code == 401
 
     async def test_expired_rejected(self, signer):
-        token = _mint(signer.priv, exp_delta=-10)
+        # Beyond the clock-skew leeway (60s) so this is unambiguously expired,
+        # not merely within the tolerated skew window.
+        token = _mint(signer.priv, exp_delta=-120)
         with pytest.raises(HTTPException) as exc:
             await authenticate_account_caller(authorization=f"Bearer {token}")
         assert exc.value.status_code == 401
@@ -221,6 +231,22 @@ class TestJwtRejections:
         with pytest.raises(HTTPException) as exc:
             await authenticate_account_caller(authorization=f"Bearer {token}")
         assert exc.value.status_code == 401
+
+    async def test_forward_clock_skew_within_leeway_is_accepted(self, signer):
+        # The mint host stamps iat from its own clock; if it runs ahead of this
+        # backend, iat is future-dated and pyjwt rejects with ImmatureSignature
+        # at leeway 0. A token issued 30s in the "future" must still verify
+        # (account scope needs no introspection).
+        token = _mint(signer.priv, iat_delta=30)
+        result = await authenticate_account_caller(authorization=f"Bearer {token}")
+        assert result.user_id == "user-1"
+
+    async def test_expiry_within_leeway_is_accepted(self, signer):
+        # The other half of the same leeway: a token expired 30s ago (backend
+        # clock ahead of the mint host) is still within the 60s tolerance.
+        token = _mint(signer.priv, exp_delta=-30)
+        result = await authenticate_account_caller(authorization=f"Bearer {token}")
+        assert result.user_id == "user-1"
 
     async def test_non_string_kid_guard_holds_without_pyjwt(self, signer, monkeypatch):
         # Pin OUR guard, not pyjwt's: bypass pyjwt's header validation so the

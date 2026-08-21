@@ -46,6 +46,14 @@ logger = logging.getLogger(__name__)
 _ACCESS_TOKEN_ISSUER = "traceroot"
 _ACCESS_TOKEN_AUDIENCE = "traceroot-api"
 
+# The Next app (which mints the JWT and stamps `iat`/`exp`) and this backend run
+# on separate hosts with independent clocks. Without leeway, even a small forward
+# skew on the mint host makes `iat` look future-dated and pyjwt rejects every
+# token with ImmatureSignatureError. Allow a modest skew both directions; it
+# extends the 10-minute token's effective life by at most this much, which is
+# negligible against the offline-verify model.
+_CLOCK_SKEW_LEEWAY_SECONDS = 60
+
 
 def _is_api_key_token(token: str) -> bool:
     """Return whether a bearer token is an API key (not a user session token).
@@ -144,6 +152,7 @@ async def _verify_access_jwt(token: str) -> str:
             algorithms=["EdDSA"],
             audience=_ACCESS_TOKEN_AUDIENCE,
             issuer=_ACCESS_TOKEN_ISSUER,
+            leeway=_CLOCK_SKEW_LEEWAY_SECONDS,
             options={"require": ["exp", "sub"]},
         )
     except jwt.InvalidTokenError:

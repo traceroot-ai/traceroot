@@ -5,7 +5,11 @@ import { prisma } from "@traceroot/core";
 import { env } from "@/env";
 import { DEVICE_CLIENT_IDS } from "@/lib/auth-clients";
 import { generateUserCode } from "@/lib/device-user-code";
-import { SESSION_EXPIRES_IN_SECONDS, SESSION_UPDATE_AGE_SECONDS } from "@/lib/session-config";
+import {
+  SESSION_EXPIRES_IN_SECONDS,
+  SESSION_FRESH_AGE_SECONDS,
+  SESSION_UPDATE_AGE_SECONDS,
+} from "@/lib/session-config";
 
 export const auth = betterAuth({
   database: prismaAdapter(prisma, {
@@ -41,6 +45,10 @@ export const auth = betterAuth({
     // browser included — a session unused for expiresIn must re-authenticate.
     expiresIn: SESSION_EXPIRES_IN_SECONDS,
     updateAge: SESSION_UPDATE_AGE_SECONDS,
+    // Off — otherwise /list-sessions 403s for any session older than freshAge
+    // (default 24h) and the Active Sessions revocation UI can't load. See
+    // session-config.ts.
+    freshAge: SESSION_FRESH_AGE_SECONDS,
   },
 
   rateLimit: {
