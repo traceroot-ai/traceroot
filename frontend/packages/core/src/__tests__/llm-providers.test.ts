@@ -37,6 +37,15 @@ describe("ADAPTER_MODELS", () => {
     }
   });
 
+  it("places grok-4.6 at index 0 in the xAI model catalog", () => {
+    const xaiModels = ADAPTER_MODELS[LLMAdapter.XAI];
+    expect(xaiModels).toBeDefined();
+    expect(xaiModels![0]).toEqual({
+      id: "grok-4.6",
+      label: "grok-4.6",
+    });
+  });
+
   it("label equals id for every model", () => {
     for (const [adapter, models] of Object.entries(ADAPTER_MODELS)) {
       if (!models) continue;
