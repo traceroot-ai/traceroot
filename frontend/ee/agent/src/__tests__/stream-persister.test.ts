@@ -174,7 +174,7 @@ describe("StreamPersister", () => {
     persister.onEvent(toolEnd("t1"));
     const done = persister.finish();
 
-    // drain the microtask queue so a (incorrectly) fire-and-forget second
+    // drain the microtask queue so an (incorrectly) fire-and-forget second
     // insert would have started — deterministic, no wall-clock dependency
     for (let i = 0; i < 10; i += 1) await Promise.resolve();
     expect(order).toEqual(["start:assistant"]);

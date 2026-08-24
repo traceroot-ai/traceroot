@@ -56,7 +56,9 @@ export class SessionManager {
     return (
       session.messages
         // Content-less assistant rows are usage carriers for runs that ended at
-        // a tool boundary — there is no text to restore, so skip them.
+        // a tool boundary — there is no text to restore, so skip them. This
+        // also drops thinking-only segments (empty content, thinking in
+        // metadata), which the UI renders but model context never restored.
         .filter((m) => m.role === "user" || (m.role === "assistant" && m.content !== ""))
         .map(
           (m): Message =>

@@ -59,9 +59,17 @@ export function mapDbMessages(rows: DbAiMessageRow[]): AIMessage[] {
     // A content-less assistant row is the usage carrier of a run that ended at
     // a tool boundary. The live stream pins usage on the last text bubble, so
     // fold it into the previous assistant bubble instead of rendering an
-    // empty one.
+    // empty one — but only within the same run: stop at the user turn so a
+    // carrier can never overwrite an earlier run's usage.
     if (m.role === "assistant" && !m.content && !md?.thinking) {
-      const prev = out.findLast((b) => b.role === "assistant");
+      let prev: AIMessage | undefined;
+      for (let i = out.length - 1; i >= 0; i -= 1) {
+        if (out[i].role === "user") break;
+        if (out[i].role === "assistant") {
+          prev = out[i];
+          break;
+        }
+      }
       if (prev) {
         Object.assign(prev, usage);
         continue;

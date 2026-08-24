@@ -157,6 +157,35 @@ describe("mapDbMessages", () => {
     expect(bubble.costUsd).toBe(0.005);
   });
 
+  it("never folds a carrier across a run boundary onto an earlier run's bubble", () => {
+    const msgs = mapDbMessages([
+      { ...base, id: "u1", role: "user", content: "first question" },
+      {
+        ...base,
+        id: "a1",
+        role: "assistant",
+        content: "First answer.",
+        inputTokens: 100,
+        outputTokens: 40,
+        cost: "0.010000",
+      },
+      { ...base, id: "u2", role: "user", content: "now check the trace" },
+      {
+        ...base,
+        id: "t1",
+        role: "tool_step",
+        content: "",
+        metadata: { toolCallId: "t1", toolName: "get_traces", args: {} },
+      },
+      { ...base, id: "a2", role: "assistant", content: "", inputTokens: 50, outputTokens: 10 },
+    ]);
+    // run 1's usage is untouched; run 2's carrier stays its own row
+    expect(msgs.map((m) => m.id)).toEqual(["u1", "a1", "u2", "t1", "a2"]);
+    expect(msgs[1].inputTokens).toBe(100);
+    expect(msgs[1].costUsd).toBe(0.01);
+    expect(msgs[4].inputTokens).toBe(50);
+  });
+
   it("keeps a usage carrier row when there is no earlier assistant bubble", () => {
     const msgs = mapDbMessages([
       { ...base, id: "u1", role: "user", content: "go" },
