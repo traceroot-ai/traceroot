@@ -71,12 +71,14 @@ describe("DetectorRunsTable", () => {
     expect(screen.queryByRole("button", { name: "finding1" })).toBeNull();
   });
 
-  it("renders a legacy hyphenated finding_id dashless, matching run/trace id shape", () => {
-    const legacyRun: BackendRun = {
+  it("renders a stored hyphenated finding_id dashless, matching run/trace id shape", () => {
+    const hyphenatedRun: BackendRun = {
       ...triggeredRun,
       finding_id: "b3977f86-c96d-f250-b7b5-dd9062a94dfd",
     };
-    render(<DetectorRunsTable rows={[legacyRun]} onTraceClick={vi.fn()} onRunClick={vi.fn()} />);
+    render(
+      <DetectorRunsTable rows={[hyphenatedRun]} onTraceClick={vi.fn()} onRunClick={vi.fn()} />,
+    );
     const cell = screen.getByText("b3977f86c96df250b7b5dd9062a94dfd");
     expect(cell).toBeTruthy();
     expect(cell.getAttribute("title")).toBe("b3977f86c96df250b7b5dd9062a94dfd");

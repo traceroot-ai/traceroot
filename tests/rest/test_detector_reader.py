@@ -236,9 +236,9 @@ def test_get_finding_returns_none_when_missing(reader):
 
 
 def test_get_finding_compares_ids_hyphen_insensitively(reader, monkeypatch):
-    """Ids are dashless 32-hex, but pre-format findings carry a hyphenated uuid
-    shape — the lookup predicate must strip hyphens from BOTH sides so either
-    shape of the id resolves either shape of the stored row."""
+    """Stored ids are uuid-hyphenated but display surfaces render them dashless
+    — the lookup predicate must strip hyphens from BOTH sides so either shape
+    of the id resolves either shape of the stored row."""
     payload = json.dumps([{"detectorId": "d1", "detectorName": "x", "summary": "s", "data": None}])
     stored_id = "b3977f86-c96d-f250-b7b5-dd9062a94dfd"
     reader._client.rows = [(stored_id, "p1", "t1", "sum", payload, datetime(2026, 6, 29))]

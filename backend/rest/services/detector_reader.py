@@ -350,8 +350,8 @@ class DetectorReaderService:
     def get_finding(self, project_id: str, finding_id: str) -> FindingDetail | None:
         """Get one finding by id.
 
-        Finding ids are dashless 32-hex, but findings written before that
-        format carry a hyphenated uuid shape of the same hash — compare
+        Stored finding ids are uuid-hyphenated, but display surfaces render
+        them dashless to match run/trace id shape — compare
         hyphen-insensitively so an id copied from either surface resolves.
 
         Args:
