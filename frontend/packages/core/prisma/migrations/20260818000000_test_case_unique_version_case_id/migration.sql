@@ -3,5 +3,17 @@
 -- write time rather than silently inserting a duplicate row (which would corrupt
 -- upsert-by-id, run comparison alignment, and the deterministic case read order).
 
+-- This index is built NON-concurrently on purpose. `CREATE INDEX CONCURRENTLY` cannot run
+-- inside a transaction block, but Prisma Migrate (`migrate deploy`, run from the Helm
+-- pre-upgrade hook) wraps every migration file in a transaction on PostgreSQL — so a
+-- CONCURRENTLY build here would abort the whole migration and block the upgrade. `test_cases`
+-- was introduced only one migration earlier (20260814000001_offline_eval), so it is small or
+-- empty at any upgrade applying this, and the plain build's ShareLock is held only briefly.
+-- The lock_timeout below is a safety bound: rather than queue behind a long-running writer
+-- transaction and stall writers indefinitely, fail fast (the migrate Job retries per its
+-- backoffLimit). SET (non-LOCAL) still takes effect for the CREATE INDEX in this same
+-- transaction; on commit it lapses with the one-shot migration connection.
+SET lock_timeout = '5s';
+
 -- CreateIndex
 CREATE UNIQUE INDEX "uq_test_case_version_test_case_id" ON "test_cases"("dataset_version_id", "test_case_id");
