@@ -58,13 +58,18 @@ const DEFAULT_LABEL = "Last 14 days";
 
 function mount() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(
+  // A fresh element per render (the same QueryClient, so the cache survives) — React
+  // bails out of re-rendering a referentially identical element, which would make
+  // `rerender` a no-op for the plan-resolves-after-mount test below.
+  const tree = () => (
     <QueryClientProvider client={qc}>
       <ToastProvider>
         <EvaluationsView projectId="p1" />
       </ToastProvider>
-    </QueryClientProvider>,
+    </QueryClientProvider>
   );
+  const result = render(tree());
+  return { ...result, rerender: () => result.rerender(tree()) };
 }
 
 /** The view's default window in days, i.e. what a refused preset must leave behind. */
@@ -179,6 +184,27 @@ describe("Evaluations date range is gated by the plan's retention window", () =>
 
     await pickPreset("Last 90 days");
     await expectApplied("Last 90 days", 90);
+  });
+
+  it("collapses a pick made before the plan resolved once retention lands", async () => {
+    // The gap above is real: nothing is locked while the workspace is in flight, so a
+    // 90-day pick CAN be applied. What must not happen is the control keeping that
+    // label — and that query — for the rest of the session once the plan says 15 days.
+    // The server clamps either way, so this is the control telling the truth about the
+    // window it is actually showing, matching clampDateFilter on the other surfaces.
+    lookups.workspace = { data: undefined, isPending: true };
+    (global.fetch as unknown as Mock).mockClear();
+    const view = mount();
+    fireEvent.click(await screen.findByRole("button", { name: DEFAULT_LABEL }));
+    fireEvent.click(screen.getByRole("button", { name: "Last 90 days" }));
+    await expectApplied("Last 90 days", 90);
+
+    lookups.workspace = { data: { billingPlan: PlanType.FREE }, isPending: false };
+    view.rerender();
+
+    await waitFor(() => expect(screen.getByText(DEFAULT_LABEL)).toBeTruthy());
+    expect(screen.queryByText("Last 90 days")).toBeNull();
+    await waitFor(() => expect(requestedWindowDays()).toBe(DEFAULT_DAYS));
   });
 
   it("routes a locked preset to the upgrade flow", async () => {
