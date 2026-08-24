@@ -27,13 +27,25 @@ export function canonicalJson(v: unknown): string {
 
 /**
  * A dataset-independent alignment key for a stored `input` value: decode the stored
- * (JSON-encoded) text back to its native value, then canonicalize it. Two datasets
- * holding the same input — regardless of object key order or encoding — produce the
- * same key, even though their `testCaseId`s (which are dataset-scoped) differ. This
- * is what lets a run comparison line up cases across datasets by shared input.
+ * text back to its native value, then canonicalize it. Two datasets holding the same
+ * input — regardless of object key order or encoding — produce the same key, even
+ * though their `testCaseId`s (which are dataset-scoped) differ. This is what lets a
+ * run comparison line up cases across datasets by shared input.
+ *
+ * Unlike a dataset test case (whose `input` is encoded through `encodeJsonValue`), a
+ * run RESULT's `input` has no enforced encoding contract: the same logical value can
+ * arrive JSON-encoded (`"123"`, `true`) or as legacy plain text (`123`). Decoding the
+ * two forms yields a string vs a number/boolean, so a raw `canonicalJson(decode(...))`
+ * would key them apart and fail to align. To make a legacy scalar and its JSON-encoded
+ * form converge, every SCALAR is normalized to its string content (`123` and `"123"`
+ * both → `123`); objects/arrays keep their structural, key-order-independent canonical
+ * form. The `s:` / `o:` prefixes keep a genuine string that merely looks like JSON
+ * (e.g. `"{\"a\":1}"`) from colliding with the object it resembles.
  */
 export function canonicalInputKey(input: string): string {
-  return canonicalJson(decodeJsonValue(input));
+  const decoded = decodeJsonValue(input);
+  if (decoded === null || typeof decoded !== "object") return `s:${String(decoded)}`;
+  return `o:${canonicalJson(decoded)}`;
 }
 
 /** Encode a native JSON value for text storage so its type round-trips on read. */
