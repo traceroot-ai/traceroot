@@ -5,7 +5,7 @@ import {
   DatasetNotFound,
   type TestCaseSeed,
 } from "./versions";
-import { nextCaseId } from "./case-id";
+import { nextCaseId, resolveDatasetKey } from "./case-id";
 import { encodeEditedText } from "./json-value";
 
 /**
@@ -158,10 +158,8 @@ export async function saveResultToDataset(opts: {
     throw new CircularSaveConflict(result.testCaseId);
   }
 
-  // The pre-image the case id is hashed from — the target dataset's stable key, which
-  // by convention defaults to its display name (the SDK's `key = key ?? name`). Legacy
-  // rows with a null key fall back to the name so the derivation still matches an SDK
-  // author using the same key. (publishDatasetVersion re-validates the dataset exists.)
+  // The pre-image the case id is hashed from — the target dataset's stable key
+  // (see resolveDatasetKey). (publishDatasetVersion re-validates the dataset exists.)
   const targetDataset = await prisma.dataset.findFirst({
     where: { id: targetDatasetId, projectId: opts.projectId },
     select: { key: true, name: true },
@@ -169,7 +167,7 @@ export async function saveResultToDataset(opts: {
   // Fail fast rather than fabricating a key from the id: a made-up key would hash a
   // `tc_` id no SDK author could reproduce. (publishDatasetVersion re-validates too.)
   if (!targetDataset) throw new DatasetNotFound();
-  const targetDatasetKey = targetDataset.key ?? targetDataset.name;
+  const targetDatasetKey = resolveDatasetKey(targetDataset);
 
   // The raw text of a brand-new case's input: the caller's value, or the result's own.
   const rawInputText = inputProvided ? (opts.input ?? "") : result.input;
@@ -209,8 +207,7 @@ export async function saveResultToDataset(opts: {
       // so re-publishing matches (upsert on id) instead of duplicating. `occurrence` is the
       // first slot whose id is still free, mirroring the SDK so a gap left by a delete
       // never re-mints a live id.
-      const existingIds = new Set(current.map((s) => s.testCaseId));
-      const { testCaseId } = nextCaseId(existingIds, targetDatasetKey, canonicalInput);
+      const { testCaseId } = nextCaseId(current, targetDatasetKey, canonicalInput);
       const newSeed: TestCaseSeed = { testCaseId, ...newSeedBase };
       return { cases: [...current, newSeed], focusTestCaseId: testCaseId };
     },

@@ -63,22 +63,34 @@ export function stableCaseId(datasetKey: string, inputCanonical: string, occurre
 }
 
 /**
- * Pick the content-addressed id for a NEW case with the given canonical input: the
- * first `occurrence` whose id is not already present in `existingIds` (the ids of the
- * cases already in the version). This mirrors the SDK's `Dataset._content_id` probe
- * (`occurrence = 0; while cid in cases: occurrence += 1`), so it is robust to gaps
- * left by deletes and never collides with a legacy random id — the same input placed
- * in the same version by the UI, TypeScript, or Python lands in the same slot.
+ * The stable key a dataset's case ids are hashed from — the SDK convention `key ?? name`.
+ * A UI-created dataset stores `key = name`; a legacy row with a null key falls back to the
+ * name so a `tc_` id derived here still matches an SDK author addressing the same key.
+ * (A rename should freeze a legacy null key to the OLD name before it changes — see the
+ * dataset PATCH route — so this fallback only ever sees a not-yet-renamed legacy row.)
+ */
+export function resolveDatasetKey(dataset: { key: string | null; name: string }): string {
+  return dataset.key ?? dataset.name;
+}
+
+/**
+ * Pick the content-addressed id for a NEW case with the given canonical input: the first
+ * `occurrence` whose id is not already present among `current` (the cases already in the
+ * version). This mirrors the SDK's `Dataset._content_id` probe (`occurrence = 0; while cid
+ * in cases: occurrence += 1`), so it is robust to gaps left by deletes and never collides
+ * with a legacy random id — the same input placed in the same version by the UI, TypeScript,
+ * or Python lands in the same slot.
  *
  * A plain count of same-input cases only equals this when the existing occurrences
  * are a contiguous `0..n-1` range; a delete leaves a gap, and a count would then
  * re-mint an id that is already taken.
  */
 export function nextCaseId(
-  existingIds: Set<string>,
+  current: ReadonlyArray<{ testCaseId: string }>,
   datasetKey: string,
   inputCanonical: string,
 ): { testCaseId: string; occurrence: number } {
+  const existingIds = new Set(current.map((c) => c.testCaseId));
   let occurrence = 0;
   let testCaseId = stableCaseId(datasetKey, inputCanonical, occurrence);
   while (existingIds.has(testCaseId)) {

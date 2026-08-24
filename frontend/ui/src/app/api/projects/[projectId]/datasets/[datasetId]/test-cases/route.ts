@@ -12,7 +12,7 @@ import {
   DatasetNotFound,
   VersionConflict,
 } from "@/lib/eval/versions";
-import { nextCaseId, LoneSurrogateError } from "@/lib/eval/case-id";
+import { nextCaseId, resolveDatasetKey, LoneSurrogateError } from "@/lib/eval/case-id";
 import { encodeJsonValue } from "@/lib/eval/json-value";
 
 type RouteParams = { params: Promise<{ projectId: string; datasetId: string }> };
@@ -44,11 +44,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   });
   if (!dataset) return errorResponse("Dataset not found", 404);
 
-  // The pre-image the case id is hashed from — the dataset's stable key, which by
-  // convention defaults to its display name (see the SDK's `key = key ?? name`).
-  // A UI-created dataset stores `key = name`; legacy rows with a null key fall back
-  // to the name so the derivation still matches an SDK author using the same key.
-  const datasetKey = dataset.key ?? dataset.name;
+  // The pre-image the case id is hashed from — the dataset's stable key (see resolveDatasetKey).
+  const datasetKey = resolveDatasetKey(dataset);
 
   // Explicit duplicate handling: same source span already in the current version.
   if (dataset.currentVersionId && c.source_trace_id && c.source_span_id) {
@@ -100,8 +97,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
         // on one `tc_` id, so re-publishing matches (upsert on id) instead of duplicating.
         // `occurrence` disambiguates duplicate inputs — the first slot whose id is still
         // free, mirroring the SDK so a gap left by a delete never re-mints a live id.
-        const existingIds = new Set(current.map((s) => s.testCaseId));
-        const { testCaseId } = nextCaseId(existingIds, datasetKey, canonicalInput);
+        const { testCaseId } = nextCaseId(current, datasetKey, canonicalInput);
         return {
           focusTestCaseId: testCaseId,
           cases: [
