@@ -153,6 +153,12 @@ export function DatasetDetailView({
       onSuccess: () => {
         toast({ title: "Row deleted", tone: "success" });
         setDeleteRow(null);
+        // The delete published a NEW current version with the row dropped, so drop
+        // any pinned selection and follow it — exactly what the editor's `onSaved`
+        // does after an add/edit. Left pinned, the invalidation re-fetches the now
+        // superseded snapshot: the deleted row stays on screen and the Actions
+        // column vanishes with `isCurrentVersion`, reading as a failed delete.
+        setSelectedVersionId(null);
         // Close the slide-in if it was showing the row we just removed.
         if (openCaseId === target.testCaseId) setOpenCaseId(null);
       },
