@@ -120,6 +120,12 @@ class FindingSummary(BaseModel):
     summary: str
     timestamp: datetime
     detectors: list[str]
+    # The producing detector runs. A finding is per-trace but a run is
+    # per-(trace, detector), so a finding that fired N detectors has N runs —
+    # this lists all of them (parallel to ``detectors``, but as a set: not
+    # index-aligned). Empty when no run row references the finding (e.g.
+    # legacy/manually-created findings that predate run recording).
+    run_ids: list[str] = []
 
 
 class FindingDetail(FindingSummary):

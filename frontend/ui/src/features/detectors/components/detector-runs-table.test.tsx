@@ -36,6 +36,7 @@ describe("DetectorRunsTable", () => {
       "Timestamp",
       "Run ID",
       "Trace ID",
+      "Finding ID",
       "Identified",
       "Summary",
       "Status",
@@ -43,9 +44,6 @@ describe("DetectorRunsTable", () => {
     ]) {
       expect(screen.getByRole("columnheader", { name: header })).toBeTruthy();
     }
-    // The finding id is an opaque internal correlation id — never displayed
-    // (its hyphenated uuid also line-wrapped and doubled the row height).
-    expect(screen.queryByRole("columnheader", { name: "Finding ID" })).toBeNull();
   });
 
   it("shows N/A in the Agent analysis cell for a findingless run", () => {
@@ -57,12 +55,30 @@ describe("DetectorRunsTable", () => {
 
   it("shows the RCA label in the Agent analysis cell for a triggered run", () => {
     render(<DetectorRunsTable rows={[triggeredRun]} onTraceClick={vi.fn()} onRunClick={vi.fn()} />);
-    // describeRcaStatus("done") -> "Done"; Yes surfaces, the raw finding id
-    // itself is never rendered (it only keys the Identified/RCA cells).
+    // describeRcaStatus("done") -> "Done"; Yes surfaces.
     expect(screen.getByText("Done")).toBeTruthy();
-    expect(screen.queryByText("finding-1")).toBeNull();
     expect(screen.getByText("Yes")).toBeTruthy();
     expect(screen.queryByText("N/A")).toBeNull();
+  });
+
+  it("renders the finding_id in the Finding ID cell for a triggered run", () => {
+    render(<DetectorRunsTable rows={[triggeredRun]} onTraceClick={vi.fn()} onRunClick={vi.fn()} />);
+    // The finding id shows as plain (non-clickable) muted mono text.
+    const cell = screen.getByText("finding-1");
+    expect(cell).toBeTruthy();
+    expect(cell.getAttribute("title")).toBe("finding-1");
+    // Unlike trace/run ids, the finding id is not a click target.
+    expect(screen.queryByRole("button", { name: "finding-1" })).toBeNull();
+  });
+
+  it("renders an em dash in the Finding ID cell for a findingless run", () => {
+    render(<DetectorRunsTable rows={[cleanRun]} onTraceClick={vi.fn()} onRunClick={vi.fn()} />);
+    // No finding -> muted em dash in the Finding ID cell (column index 3:
+    // Timestamp, Run ID, Trace ID, Finding ID), and no finding id text.
+    const row = screen.getByText("run-clean").closest("tr")!;
+    const findingCell = row.querySelectorAll("td")[3];
+    expect(findingCell.textContent).toBe("—");
+    expect(screen.queryByText("finding-1")).toBeNull();
   });
 
   it("fires onTraceClick with the run when its trace_id cell is clicked", () => {
