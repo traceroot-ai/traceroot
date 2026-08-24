@@ -69,7 +69,6 @@ const V1 = {
   createTime: "2026-07-16T00:00:00Z",
 };
 const V2 = { ...V1, id: "dv2", versionNumber: 2, label: "v2", createTime: "2026-07-17T00:00:00Z" };
-const V3 = { ...V1, id: "dv3", versionNumber: 3, label: null, createTime: "2026-07-17T12:00:00Z" };
 
 function testCase(over: Partial<Record<string, unknown>> = {}) {
   return {
@@ -381,28 +380,81 @@ describe("Dataset detail — filtering and adding rows", () => {
 });
 
 /**
- * A dataset where DELETE behaves the way the server actually behaves: it
- * publishes a NEW version (dv3) with the case dropped and repoints
- * `currentVersionId` at it, leaving dv2 behind as a still-readable snapshot that
- * keeps the deleted row. Modelling the repoint is what makes a pinned selection
- * observably stale.
+ * A dataset where every write behaves the way the server actually behaves.
+ * `publishDatasetVersion` branches off the CURRENT version, writes a NEW one
+ * with the change applied (fresh per-version row ids and all), and repoints
+ * `currentVersionId` at it — both the add (POST) and the delete (DELETE) routes
+ * go through it. Earlier versions stay readable with their original rows, which
+ * is exactly what makes a pinned selection observably stale after a write.
  */
-function mockDeletePublishesNewVersion() {
+function mockPublishOnWrite() {
+  // Newest first, the order the detail route returns them in. Published versions
+  // carry no label, so widen it off V1's literal type.
+  let versions: (Omit<typeof V1, "label"> & { label: string | null })[] = [V2, V1];
   let currentVersionId = "dv2";
-  const casesOf = (versionId: string) => {
-    if (versionId === "dv1") {
-      return [testCase({ id: "old-1", datasetVersionId: "dv1", input: "seeded ticket" })];
-    }
-    if (versionId === "dv3") return CASES.filter((c) => c.testCaseId !== "tc_1");
-    return CASES;
+  const casesByVersion = new Map<string, ReturnType<typeof testCase>[]>([
+    ["dv1", [testCase({ id: "old-1", datasetVersionId: "dv1", input: "seeded ticket" })]],
+    ["dv2", CASES],
+  ]);
+
+  /** Mirrors publishDatasetVersion: a new version off the current one. */
+  const publish = (
+    transform: (cases: ReturnType<typeof testCase>[]) => ReturnType<typeof testCase>[],
+  ) => {
+    const versionNumber = versions[0].versionNumber + 1;
+    const id = `dv${versionNumber}`;
+    casesByVersion.set(
+      id,
+      // A publish rewrites the rows, so they get fresh row ids; only the
+      // testCaseId lineage carries across versions.
+      transform(casesByVersion.get(currentVersionId)!).map((c) => ({
+        ...c,
+        id: `${c.testCaseId}@${id}`,
+        datasetVersionId: id,
+      })),
+    );
+    versions = [
+      {
+        ...V1,
+        id,
+        versionNumber,
+        label: null,
+        createTime: `2026-07-17T${String(11 + versionNumber).padStart(2, "0")}:00:00Z`,
+      },
+      ...versions,
+    ];
+    currentVersionId = id;
+    return { versionId: id, versionNumber };
   };
+
   global.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
     const s = String(url);
     const method = init?.method ?? "GET";
-    requests.push({ url: s, method, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+    const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+    requests.push({ url: s, method, body });
     if (method === "DELETE") {
-      currentVersionId = "dv3";
-      return { ok: true, status: 201, json: async () => ({ versionId: "dv3", versionNumber: 3 }) };
+      const testCaseId = s.split("/test-cases/")[1];
+      const published = publish((cases) => cases.filter((c) => c.testCaseId !== testCaseId));
+      return { ok: true, status: 201, json: async () => published };
+    }
+    if (method === "POST" && s.includes("/test-cases")) {
+      const testCaseId = `tc_new_${requests.length}`;
+      const added = body as { input: string; expected: string | null; metadata: unknown };
+      const published = publish((cases) => [
+        ...cases,
+        testCase({
+          testCaseId,
+          input: added.input,
+          expected: added.expected ?? null,
+          metadata: added.metadata ?? null,
+          createTime: "2026-07-17T12:00:00Z",
+        }),
+      ]);
+      return {
+        ok: true,
+        status: 201,
+        json: async () => ({ duplicate: false, testCaseId, ...published }),
+      };
     }
     return {
       ok: true,
@@ -413,7 +465,6 @@ function mockDeletePublishesNewVersion() {
         }
         if (s.includes("/test-cases/") && s.endsWith("/runs")) return { data: [] };
         if (!/\/datasets\/ds1(\?|$)/.test(s)) return {};
-        const versions = currentVersionId === "dv3" ? [V3, V2, V1] : [V2, V1];
         const requested = new URL(s, "http://x").searchParams.get("version_id");
         // An unknown or omitted id falls back to the current version — route.ts.
         const selected =
@@ -424,7 +475,7 @@ function mockDeletePublishesNewVersion() {
           currentVersion: versions.find((v) => v.id === currentVersionId),
           selectedVersion: selected,
           isCurrentVersion: selected.id === currentVersionId,
-          testCases: casesOf(selected.id),
+          testCases: casesByVersion.get(selected.id) ?? [],
           versions,
         };
       },
@@ -439,7 +490,7 @@ function detailGets() {
 
 describe("Dataset detail — deleting a row with a version pinned", () => {
   it("follows the delete onto the version it published instead of the pinned snapshot", async () => {
-    mockDeletePublishesNewVersion();
+    mockPublishOnWrite();
     mountDetail();
     await screen.findByText(/charged twice/);
 
@@ -475,7 +526,7 @@ describe("Dataset detail — deleting a row with a version pinned", () => {
   });
 
   it("add-then-delete still lands on the newest version", async () => {
-    mockDeletePublishesNewVersion();
+    mockPublishOnWrite();
     mountDetail();
     await screen.findByText(/charged twice/);
 
@@ -486,21 +537,28 @@ describe("Dataset detail — deleting a row with a version pinned", () => {
     fireEvent.click(await screen.findByRole("option", { name: new RegExp(V2.id) }));
     await screen.findByText(/charged twice/);
 
-    // The add un-pins the selection on its own (`onSaved`)...
+    // The add publishes dv3 and un-pins the selection on its own (`onSaved`)...
     fireEvent.click(screen.getByRole("button", { name: "Row" }));
     fireEvent.change(await screen.findByLabelText("Input"), {
       target: { value: "a new question" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await screen.findByText("Row added");
+    // ...so the page is showing dv3, not the dv2 it was pinned to: the row that
+    // only exists in dv3 is on screen, and the page is still editable. Pinned,
+    // the refetch would return dv2 — no new row, no Actions column.
+    expect(await screen.findByText("a new question")).toBeDefined();
+    expect(screen.getByRole("columnheader", { name: "Actions" })).toBeDefined();
     expect(detailGets().at(-1)!.url).not.toContain("version_id");
 
-    // ...and the following delete keeps it there.
+    // ...and the following delete (publishing dv4) keeps it there.
     fireEvent.click((await screen.findAllByLabelText("Row actions"))[0]);
     fireEvent.click(await screen.findByText("Delete"));
     fireEvent.click(screen.getAllByRole("button", { name: "Delete" }).at(-1)!);
     await screen.findByText("Row deleted");
     await waitFor(() => expect(screen.queryByText(/charged twice/)).toBeNull());
+    // dv4 keeps the row the add introduced and stays editable.
+    expect(screen.getByText("a new question")).toBeDefined();
     expect(screen.getByRole("columnheader", { name: "Actions" })).toBeDefined();
     expect(detailGets().at(-1)!.url).not.toContain("version_id");
   });
