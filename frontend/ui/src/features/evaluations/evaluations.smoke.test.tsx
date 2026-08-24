@@ -6,7 +6,7 @@
  * against a stubbed fetch (server-shaped payloads) is how the browser path is
  * checked, exactly like offline-eval.smoke.test.tsx.
  */
-import { describe, it, expect, vi, afterEach, beforeAll, beforeEach } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@/components/ui/toast";
@@ -269,14 +269,6 @@ function payloadFor(url: string): unknown {
   }
   return {};
 }
-
-// Radix menus/selects drive open via pointer capture + scrollIntoView, which jsdom
-// lacks; stub them so the bulk Actions dropdown can open in the compare test.
-beforeAll(() => {
-  window.HTMLElement.prototype.scrollIntoView = vi.fn();
-  window.HTMLElement.prototype.hasPointerCapture = vi.fn().mockReturnValue(false);
-  window.HTMLElement.prototype.releasePointerCapture = vi.fn();
-});
 
 beforeEach(() => {
   nav.push.mockClear();
