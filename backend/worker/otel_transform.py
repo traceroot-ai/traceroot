@@ -771,6 +771,11 @@ def transform_otel_to_clickhouse(
                         json.dumps(span_output) if not isinstance(span_output, str) else span_output
                     )
 
+                # A call that failed and produced NO response consumed nothing at the
+                # provider. Gates text token estimation below — see the rationale there
+                # for why recorded output, not error status alone, is the discriminator.
+                errored_without_response = span_is_error and not span_record.get("output")
+
                 # Model & token fields — extract API-provided counts whenever a model
                 # name is present, not just for LLM spans. Auto-instrumentors
                 # (OpenInference, GenAI) set model/token attrs on AGENT and CHAIN spans
@@ -989,7 +994,7 @@ def transform_otel_to_clickhouse(
                     elif (
                         not aggregate_wrapper
                         and span_kind == SpanKind.LLM
-                        and not span_is_error
+                        and not errored_without_response
                         and not _scope_skips_text_token_estimation(scope_name)
                     ):
                         # Fall back to text-based estimation — only for LLM (completion)
@@ -1003,18 +1008,25 @@ def transform_otel_to_clickhouse(
                         # text be estimated into fabricated counts.
                         # Scopes in _SKIP_TEXT_TOKEN_ESTIMATION_SCOPES leave even their
                         # LLM spans deliberately unset and are skipped as well.
-                        # Errored spans are excluded too: a rejected call (400, auth
-                        # failure, provider reject) burned nothing upstream, but the
-                        # instrumentor still records the model — it comes from the
-                        # REQUEST — and the prompt, which is exactly the shape this
-                        # branch prices. Estimating it invents an input-token cost for
-                        # a call that never ran. Only ESTIMATION is gated; reported
-                        # usage above is kept on error spans, since a provider that
-                        # does report counts on a failure is reporting real ones.
-                        # Tradeoff: a stream that dies mid-response did burn tokens and
-                        # may carry partial output text, and it now goes uncounted.
-                        # Under-counting rare partials beats over-counting every
-                        # outright rejection.
+                        # Spans that errored WITHOUT producing a response are excluded
+                        # too: a rejected call (400, auth failure, provider reject)
+                        # burned nothing upstream, but the instrumentor still records
+                        # the model — it comes from the REQUEST — and the prompt, which
+                        # is exactly the shape this branch prices. Estimating it invents
+                        # an input-token cost for a call that never ran.
+                        # The gate is deliberately narrower than "span errored". Error
+                        # status alone is a poor proxy for "the provider did nothing":
+                        # a self-instrumented span (the very case this tier serves) can
+                        # wrap the call AND the response handling, so it errors on a
+                        # parse failure long after the provider returned and billed in
+                        # full. Recorded output is the direct evidence a response
+                        # arrived, so once there is output the input WAS consumed and
+                        # estimating is right — including for a stream that died
+                        # mid-response, where the prompt was billed in full and the
+                        # partial output is closer to the truth than zero.
+                        # Only ESTIMATION is gated either way; reported usage above is
+                        # kept on error spans, since a provider that does report counts
+                        # on a failure is reporting real ones.
                         from worker.tokens import calculate_cost
 
                         usage = calculate_cost(

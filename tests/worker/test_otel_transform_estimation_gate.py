@@ -33,7 +33,7 @@ def _span_with(
     attrs: list[dict],
     span_id: str = "00f067aa0ba902b7",
     name: str = "span",
-    status_code: int = 0,
+    status_code: int | str = 0,
 ):
     return make_span(TRACE_ID, span_id, name=name, attributes=attrs, status_code=status_code)
 
@@ -290,10 +290,11 @@ def test_claude_agent_sdk_typescript_scope_llm_span_still_estimated():
 # prices a call the provider never ran: input_tokens = tokenize(prompt), output
 # 0, cost > 0. Real money over-reported on every failed LLM call.
 #
-# Deliberate tradeoff: a STREAMING call that dies mid-stream did burn real
-# tokens and may carry partial output text, and these gates make it uncounted.
-# Under-counting a rare partial beats over-counting every outright rejection.
-# Do not "fix" this back.
+# The gate is "errored WITHOUT a response", not "errored". Error status alone is
+# a poor proxy for "the provider did nothing": a self-instrumented span can cover
+# the call and the response handling, erroring on a parse failure well after the
+# provider billed in full. Recorded output is the direct evidence a response
+# arrived — once it is there the prompt WAS consumed and estimating is correct.
 # ---------------------------------------------------------------------------
 
 
@@ -327,15 +328,48 @@ def test_errored_llm_span_with_string_status_code_gets_no_estimated_tokens():
     _assert_no_fabricated_tokens(spans[0])
 
 
-def test_errored_llm_span_with_partial_output_gets_no_estimated_tokens():
-    """A mid-stream failure carries output text; estimation is still withheld.
+def test_errored_llm_span_with_output_still_gets_estimated_tokens():
+    """Recorded output proves the provider answered — so the input WAS billed.
 
-    Pins the tradeoff documented above so it is a decision, not an accident.
+    The gate is "errored without a response", not "errored". A self-instrumented
+    span can wrap the call AND the response handling and error on a parse failure
+    long after the provider returned and charged in full; a stream that dies
+    mid-response likewise burned its whole prompt. Zeroing those under-reports real
+    money, so estimation must survive an error once there is output to show for it.
     """
     spans = _transform(
         [_span_with(_model_and_text([make_attr("openinference.span.kind", "LLM")]), status_code=2)]
     )
+    assert spans[0]["status"] == "ERROR"
+    _assert_estimated_tokens(spans[0])
+
+
+def test_errored_llm_span_with_empty_output_gets_no_estimated_tokens():
+    """An empty output string is no response — the rejection case, not a partial."""
+    spans = _transform(
+        [
+            _span_with(
+                [
+                    make_attr("openinference.span.kind", "LLM"),
+                    make_attr("llm.model_name", MODEL),
+                    make_attr("input.value", INPUT_TEXT),
+                    make_attr("output.value", ""),
+                ],
+                status_code=2,
+            )
+        ]
+    )
     _assert_no_fabricated_tokens(spans[0])
+
+
+def test_ok_llm_span_with_no_output_still_gets_estimated_tokens():
+    """The response-presence term must only ever apply to errored spans: a healthy
+    call that legitimately returned nothing still prices its prompt."""
+    spans = _transform(
+        [_span_with(_model_and_prompt_only([make_attr("openinference.span.kind", "LLM")]))]
+    )
+    assert spans[0].get("input_tokens")
+    assert spans[0].get("cost")
 
 
 def test_errored_llm_span_keeps_api_reported_counts():
