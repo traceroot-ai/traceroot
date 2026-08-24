@@ -11,9 +11,10 @@
 -- empty at any upgrade applying this, and the plain build's ShareLock is held only briefly.
 -- The lock_timeout below is a safety bound: rather than queue behind a long-running writer
 -- transaction and stall writers indefinitely, fail fast (the migrate Job retries per its
--- backoffLimit). SET (non-LOCAL) still takes effect for the CREATE INDEX in this same
--- transaction; on commit it lapses with the one-shot migration connection.
-SET lock_timeout = '5s';
+-- backoffLimit). SET LOCAL scopes the timeout to this migration's own transaction, so it
+-- applies to the CREATE INDEX below but does not leak into later pending migrations that
+-- `migrate deploy` runs on the same connection.
+SET LOCAL lock_timeout = '5s';
 
 -- CreateIndex
 CREATE UNIQUE INDEX "uq_test_case_version_test_case_id" ON "test_cases"("dataset_version_id", "test_case_id");
