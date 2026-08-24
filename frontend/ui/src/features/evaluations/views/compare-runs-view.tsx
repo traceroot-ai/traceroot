@@ -282,7 +282,13 @@ export function CompareRunsView({
   // runs in the same selection.
   const ordered = React.useMemo<Bundle[]>(() => {
     if (!baselineBundle) return [];
-    const baselineRows = [...baselineBundle.byTestCase.values()];
+    // Cross-dataset alignment keys on canonical input, so a baseline that repeats an input
+    // across dataset rows must be deduped by input first (`byInput`) — otherwise the shared
+    // input renders once per baseline row and double-counts in the aggregates. Same-dataset
+    // comparisons stay on `byTestCase`, preserving exact row identity across input edits.
+    const baselineRows = crossDataset
+      ? [...baselineBundle.byInput.values()]
+      : [...baselineBundle.byTestCase.values()];
     return orderedBundles.map((b) => {
       const sameDataset = b.run.datasetId === baselineBundle.run.datasetId;
       const byCase = new Map<string, ResultRow>();
@@ -294,7 +300,7 @@ export function CompareRunsView({
       }
       return { ...b, byCase };
     });
-  }, [orderedBundles, baselineBundle]);
+  }, [orderedBundles, baselineBundle, crossDataset]);
 
   const baseline = ordered.find((b) => b.run.id === baselineId) ?? ordered[0];
 

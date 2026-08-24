@@ -391,4 +391,37 @@ describe("CompareRunsView — N-run diff table", () => {
     const row = screen.getByText("EDITED-B double-charged").closest("tr") as HTMLTableRowElement;
     expect(within(row).getAllByText("−100.0%").length).toBeGreaterThan(0);
   });
+
+  it("dedupes a baseline's repeated input in cross-dataset mode (renders once, counts once)", () => {
+    // The BASELINE run has TWO dataset rows carrying the SAME input (distinct testCaseIds,
+    // differing scores). A cross-dataset run shares that input. Cross-dataset alignment keys
+    // on canonical input, so the shared input must collapse to a SINGLE row and be counted
+    // ONCE in the aggregates — not once per baseline row (which would double-count).
+    const DUP = "Ticket 9: refund status for order 7788";
+    const BASE = {
+      run: runDetail("opus", 41, "opus"), // ds1
+      results: [
+        result("dup-a", DUP, "billing", { routing_accuracy: 1, is_known_category: 1 }),
+        result("dup-b", DUP, "billing", { routing_accuracy: 0, is_known_category: 1 }),
+      ],
+    };
+    const CROSS = {
+      run: { ...runDetail("sonnet", 42, "sonnet"), datasetId: "ds2", datasetName: "tickets-v2" },
+      results: [result("x1", DUP, "billing", { routing_accuracy: 1, is_known_category: 1 })],
+    };
+    const R: Record<string, unknown> = { opus: BASE, sonnet: CROSS };
+    hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
+      ids.map((id) => ({ data: R[id], isLoading: false, isError: false })),
+    );
+    mount();
+    // Cross-dataset banner confirms input-keyed alignment is in effect.
+    expect(screen.getByText(/aligned by shared input/)).toBeTruthy();
+    // The shared input renders exactly ONE row (deduped by canonical input), not two.
+    expect(screen.getAllByText(DUP)).toHaveLength(1);
+    // Counted once in the totals: baseline Duration total is 2.1s (one row @2100ms), not
+    // 4.2s (two rows). The double-counted mean would also surface as a 50.0% aggregate.
+    expect(screen.queryByText("4.2s")).toBeNull();
+    expect(screen.queryByText("50.0%")).toBeNull();
+    expect(screen.getAllByText("2.1s").length).toBeGreaterThan(0);
+  });
 });
