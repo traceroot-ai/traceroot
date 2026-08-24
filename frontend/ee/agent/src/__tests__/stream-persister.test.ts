@@ -122,10 +122,31 @@ describe("StreamPersister", () => {
     expect(calls[0].metadata).toEqual({ thinking: "hmm..." });
   });
 
-  it("persists nothing for a run with no text and no tools", async () => {
+  it("persists nothing for a run that produced neither output nor usage", async () => {
     const { persister, calls } = makePersister();
-    await persister.finish(USAGE);
+    await persister.finish();
     expect(calls).toHaveLength(0);
+  });
+
+  it("persists a usage-carrying row for a run that ends at a tool boundary", async () => {
+    const { persister, calls } = makePersister();
+    persister.onEvent(textDelta("Checking."));
+    persister.onEvent(toolStart("t1"));
+    persister.onEvent(toolEnd("t1"));
+    await persister.finish(USAGE);
+
+    // no trailing text, but the run's usage must still land so it is billed
+    expect(calls.map((c) => c.role)).toEqual(["assistant", "tool_step", "assistant"]);
+    expect(calls[2]).toMatchObject({ content: "", tokenUsage: USAGE });
+  });
+
+  it("stores the cumulative session total in the final segment's metadata", async () => {
+    const { persister, calls } = makePersister();
+    persister.onEvent(textDelta("Done."));
+    await persister.finish({ ...USAGE, totalTokens: 1234 });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].metadata).toEqual({ totalTokens: 1234 });
   });
 
   it("serializes DB writes: a later row is not inserted until the earlier one lands", async () => {
@@ -153,8 +174,9 @@ describe("StreamPersister", () => {
     persister.onEvent(toolEnd("t1"));
     const done = persister.finish();
 
-    // give the event loop a chance to (incorrectly) start the second insert
-    await new Promise((r) => setTimeout(r, 10));
+    // drain the microtask queue so a (incorrectly) fire-and-forget second
+    // insert would have started — deterministic, no wall-clock dependency
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
     expect(order).toEqual(["start:assistant"]);
 
     releaseFirst();
