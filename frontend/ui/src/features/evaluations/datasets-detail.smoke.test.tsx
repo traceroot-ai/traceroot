@@ -69,6 +69,7 @@ const V1 = {
   createTime: "2026-07-16T00:00:00Z",
 };
 const V2 = { ...V1, id: "dv2", versionNumber: 2, label: "v2", createTime: "2026-07-17T00:00:00Z" };
+const V3 = { ...V1, id: "dv3", versionNumber: 3, label: null, createTime: "2026-07-17T12:00:00Z" };
 
 function testCase(over: Partial<Record<string, unknown>> = {}) {
   return {
@@ -376,6 +377,132 @@ describe("Dataset detail — filtering and adding rows", () => {
     expect(requests.some((r) => r.method === "DELETE" && r.url.includes("/test-cases/tc_1"))).toBe(
       true,
     );
+  });
+});
+
+/**
+ * A dataset where DELETE behaves the way the server actually behaves: it
+ * publishes a NEW version (dv3) with the case dropped and repoints
+ * `currentVersionId` at it, leaving dv2 behind as a still-readable snapshot that
+ * keeps the deleted row. Modelling the repoint is what makes a pinned selection
+ * observably stale.
+ */
+function mockDeletePublishesNewVersion() {
+  let currentVersionId = "dv2";
+  const casesOf = (versionId: string) => {
+    if (versionId === "dv1") {
+      return [testCase({ id: "old-1", datasetVersionId: "dv1", input: "seeded ticket" })];
+    }
+    if (versionId === "dv3") return CASES.filter((c) => c.testCaseId !== "tc_1");
+    return CASES;
+  };
+  global.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    const s = String(url);
+    const method = init?.method ?? "GET";
+    requests.push({ url: s, method, body: init?.body ? JSON.parse(String(init.body)) : undefined });
+    if (method === "DELETE") {
+      currentVersionId = "dv3";
+      return { ok: true, status: 201, json: async () => ({ versionId: "dv3", versionNumber: 3 }) };
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => {
+        if (s.includes("/evaluations/runs")) {
+          return { data: [], meta: { page: 0, limit: 50, total: 0 } };
+        }
+        if (s.includes("/test-cases/") && s.endsWith("/runs")) return { data: [] };
+        if (!/\/datasets\/ds1(\?|$)/.test(s)) return {};
+        const versions = currentVersionId === "dv3" ? [V3, V2, V1] : [V2, V1];
+        const requested = new URL(s, "http://x").searchParams.get("version_id");
+        // An unknown or omitted id falls back to the current version — route.ts.
+        const selected =
+          versions.find((v) => v.id === requested) ??
+          versions.find((v) => v.id === currentVersionId)!;
+        return {
+          dataset: { ...DATASET, currentVersionId },
+          currentVersion: versions.find((v) => v.id === currentVersionId),
+          selectedVersion: selected,
+          isCurrentVersion: selected.id === currentVersionId,
+          testCases: casesOf(selected.id),
+          versions,
+        };
+      },
+    };
+  }) as unknown as typeof fetch;
+}
+
+/** The dataset-detail GETs, excluding the nested /test-cases requests. */
+function detailGets() {
+  return requests.filter((r) => r.method === "GET" && /\/datasets\/ds1(\?|$)/.test(r.url));
+}
+
+describe("Dataset detail — deleting a row with a version pinned", () => {
+  it("follows the delete onto the version it published instead of the pinned snapshot", async () => {
+    mockDeletePublishesNewVersion();
+    mountDetail();
+    await screen.findByText(/charged twice/);
+
+    // Pin the selection to a concrete id the way a user reaches that state: pick a
+    // version from the dropdown. Round-tripping back to the current version leaves
+    // the page fully editable but pinned — indistinguishable on screen from the
+    // unpinned default, and the state the regression turns on.
+    fireEvent.click(screen.getByRole("combobox"));
+    fireEvent.click(await screen.findByRole("option", { name: new RegExp(V1.id) }));
+    await screen.findByText("seeded ticket");
+    // An older snapshot is read-only, so a delete is not even reachable from here.
+    expect(screen.queryByRole("columnheader", { name: "Actions" })).toBeNull();
+    expect(screen.queryAllByLabelText("Row actions")).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("combobox"));
+    fireEvent.click(await screen.findByRole("option", { name: new RegExp(V2.id) }));
+    await screen.findByText(/charged twice/);
+    // Pinned, yet still the current version — the Actions column proves it.
+    expect(await screen.findByRole("columnheader", { name: "Actions" })).toBeDefined();
+
+    fireEvent.click((await screen.findAllByLabelText("Row actions"))[0]);
+    fireEvent.click(await screen.findByText("Delete"));
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete" }).at(-1)!);
+    expect(await screen.findByText("Row deleted")).toBeDefined();
+
+    // The deleted row is gone and the page is still editable. Without the reset the
+    // pinned dv2 snapshot is re-fetched: the row stays and, because dv2 is no longer
+    // current, the Actions column disappears — a silently stale view.
+    await waitFor(() => expect(screen.queryByText(/charged twice/)).toBeNull());
+    expect(screen.getByRole("columnheader", { name: "Actions" })).toBeDefined();
+    // The refetch asked for the current version, not the pinned one.
+    expect(detailGets().at(-1)!.url).not.toContain("version_id");
+  });
+
+  it("add-then-delete still lands on the newest version", async () => {
+    mockDeletePublishesNewVersion();
+    mountDetail();
+    await screen.findByText(/charged twice/);
+
+    fireEvent.click(screen.getByRole("combobox"));
+    fireEvent.click(await screen.findByRole("option", { name: new RegExp(V1.id) }));
+    await screen.findByText("seeded ticket");
+    fireEvent.click(screen.getByRole("combobox"));
+    fireEvent.click(await screen.findByRole("option", { name: new RegExp(V2.id) }));
+    await screen.findByText(/charged twice/);
+
+    // The add un-pins the selection on its own (`onSaved`)...
+    fireEvent.click(screen.getByRole("button", { name: "Row" }));
+    fireEvent.change(await screen.findByLabelText("Input"), {
+      target: { value: "a new question" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("Row added");
+    expect(detailGets().at(-1)!.url).not.toContain("version_id");
+
+    // ...and the following delete keeps it there.
+    fireEvent.click((await screen.findAllByLabelText("Row actions"))[0]);
+    fireEvent.click(await screen.findByText("Delete"));
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete" }).at(-1)!);
+    await screen.findByText("Row deleted");
+    await waitFor(() => expect(screen.queryByText(/charged twice/)).toBeNull());
+    expect(screen.getByRole("columnheader", { name: "Actions" })).toBeDefined();
+    expect(detailGets().at(-1)!.url).not.toContain("version_id");
   });
 });
 
