@@ -15,9 +15,14 @@
  * The label is matched by text rather than by role: a locked click opens the
  * (modal) PricingDialog, which `aria-hidden`s the page behind it, so a role query
  * can no longer see the trigger it is meant to assert on.
+ *
+ * The trigger label alone would not prove the gate does anything, though — a
+ * relabelled button that never reaches the server is still an ungated read. So
+ * every assertion also reads the window the runs request actually asked for, off
+ * the mocked fetch URL's `started_after` bound.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, cleanup, screen, fireEvent } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from "vitest";
+import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@/components/ui/toast";
 import { PlanType } from "@traceroot/core";
@@ -62,22 +67,49 @@ function mount() {
   );
 }
 
+/** The view's default window in days, i.e. what a refused preset must leave behind. */
+const DEFAULT_DAYS = 14;
+
 /** Mount, open the preset popover, and click `label`. */
 async function pickPreset(label: string) {
+  (global.fetch as unknown as Mock).mockClear();
   mount();
   fireEvent.click(await screen.findByRole("button", { name: DEFAULT_LABEL }));
   fireEvent.click(screen.getByRole("button", { name: label }));
 }
 
-/** The preset was applied: the (now closed) trigger carries its label. */
-function expectApplied(label: string) {
-  expect(screen.getByText(label)).toBeTruthy();
+/**
+ * Width, in days, of the window the most recent runs request asked the server
+ * for — decoded from its `started_after` bound. Throws when the view has issued
+ * no runs request at all, so an un-queried preset can never read as applied.
+ */
+function requestedWindowDays(): number {
+  const urls = (global.fetch as unknown as Mock).mock.calls
+    .map((call) => String(call[0]))
+    .filter((url) => url.includes("/evaluations/runs"));
+  if (urls.length === 0) throw new Error("no runs request was issued");
+  const startedAfter = new URL(urls[urls.length - 1], "http://t").searchParams.get("started_after");
+  if (!startedAfter) throw new Error("runs request carried no started_after bound");
+  return Math.round((Date.now() - Date.parse(startedAfter)) / 86_400_000);
 }
 
-/** The preset was refused: the trigger is still on the default window. */
-function expectLocked(label: string) {
+/**
+ * The preset was applied: the (now closed) trigger carries its label AND the
+ * runs query moved to that window.
+ */
+async function expectApplied(label: string, days: number) {
+  expect(screen.getByText(label)).toBeTruthy();
+  await waitFor(() => expect(requestedWindowDays()).toBe(days));
+}
+
+/**
+ * The preset was refused: the trigger is still on the default window and the
+ * runs query never widened past it.
+ */
+async function expectLocked(label: string) {
   expect(screen.getByText(DEFAULT_LABEL)).toBeTruthy();
   expect(screen.queryByText(label)).toBeNull();
+  expect(requestedWindowDays()).toBe(DEFAULT_DAYS);
 }
 
 beforeEach(() => {
@@ -95,26 +127,26 @@ describe("Evaluations date range is gated by the plan's retention window", () =>
   it("FREE (15 days): 30d / 60d / 90d are locked", async () => {
     for (const label of ["Last 30 days", "Last 60 days", "Last 90 days"]) {
       await pickPreset(label);
-      expectLocked(label);
+      await expectLocked(label);
       cleanup();
     }
   });
 
   it("FREE (15 days): a preset inside the window still applies", async () => {
     await pickPreset("Last 7 days");
-    expectApplied("Last 7 days");
+    await expectApplied("Last 7 days", 7);
   });
 
   it("STARTER (30 days): 30d applies, 60d / 90d are locked", async () => {
     lookups.workspace = { data: { billingPlan: PlanType.STARTER }, isPending: false };
 
     await pickPreset("Last 30 days");
-    expectApplied("Last 30 days");
+    await expectApplied("Last 30 days", 30);
     cleanup();
 
     for (const label of ["Last 60 days", "Last 90 days"]) {
       await pickPreset(label);
-      expectLocked(label);
+      await expectLocked(label);
       cleanup();
     }
   });
@@ -123,21 +155,21 @@ describe("Evaluations date range is gated by the plan's retention window", () =>
     lookups.workspace = { data: { billingPlan: PlanType.PRO }, isPending: false };
 
     await pickPreset("Last 90 days");
-    expectApplied("Last 90 days");
+    await expectApplied("Last 90 days", 90);
   });
 
   it("ENTERPRISE (unlimited): nothing is locked", async () => {
     lookups.workspace = { data: { billingPlan: PlanType.ENTERPRISE }, isPending: false };
 
     await pickPreset("Last 90 days");
-    expectApplied("Last 90 days");
+    await expectApplied("Last 90 days", 90);
   });
 
   it("fails closed for an unrecognized plan string (15 days)", async () => {
     lookups.workspace = { data: { billingPlan: "constructor" }, isPending: false };
 
     await pickPreset("Last 30 days");
-    expectLocked("Last 30 days");
+    await expectLocked("Last 30 days");
   });
 
   it("locks nothing while the plan is still loading (retentionDays undefined)", async () => {
@@ -146,7 +178,7 @@ describe("Evaluations date range is gated by the plan's retention window", () =>
     lookups.workspace = { data: undefined, isPending: true };
 
     await pickPreset("Last 90 days");
-    expectApplied("Last 90 days");
+    await expectApplied("Last 90 days", 90);
   });
 
   it("routes a locked preset to the upgrade flow", async () => {
