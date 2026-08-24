@@ -109,7 +109,11 @@ export function SaveResultToDatasetDrawer({
   const meta = ACTION_META[action];
   const qc = useQueryClient();
   const { toast } = useToast();
-  const { data: datasetsData, isLoading: datasetsLoading } = useDatasets(projectId, { limit: 200 });
+  const {
+    data: datasetsData,
+    isLoading: datasetsLoading,
+    isError: datasetsError,
+  } = useDatasets(projectId, { limit: 200 });
   const datasets = datasetsData?.data ?? [];
 
   const [targetDatasetId, setTargetDatasetId] = React.useState(sourceDatasetId);
@@ -173,7 +177,8 @@ export function SaveResultToDatasetDrawer({
     },
   });
 
-  const canSave = !save.isPending && (!meta.picksDataset || !!targetDatasetId);
+  const canSave =
+    !save.isPending && (!meta.picksDataset || datasets.some((d) => d.id === targetDatasetId));
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
@@ -207,7 +212,11 @@ export function SaveResultToDatasetDrawer({
                     ))
                   ) : (
                     <SelectEmpty>
-                      {datasetsLoading ? "Loading datasets…" : "No datasets found"}
+                      {datasetsLoading
+                        ? "Loading datasets…"
+                        : datasetsError
+                          ? "Couldn't load datasets"
+                          : "No datasets found"}
                     </SelectEmpty>
                   )}
                 </SelectContent>

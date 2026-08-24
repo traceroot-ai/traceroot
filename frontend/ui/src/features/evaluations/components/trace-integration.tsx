@@ -66,7 +66,11 @@ export function SaveTestCaseDrawer({
   onOpenChange: (open: boolean) => void;
 }) {
   const qc = useQueryClient();
-  const { data: datasetsData, isLoading: datasetsLoading } = useDatasets(projectId, { limit: 200 });
+  const {
+    data: datasetsData,
+    isLoading: datasetsLoading,
+    isError: datasetsError,
+  } = useDatasets(projectId, { limit: 200 });
   const datasets = datasetsData?.data ?? [];
 
   const { data: trace } = useQuery({
@@ -237,7 +241,12 @@ export function SaveTestCaseDrawer({
     }
   })();
 
-  const canSave = !!span && spanIOReady && !metadataError && datasetId !== "" && !save.isPending;
+  const canSave =
+    !!span &&
+    spanIOReady &&
+    !metadataError &&
+    datasets.some((d) => d.id === datasetId) &&
+    !save.isPending;
 
   const handleSave = async () => {
     if (!span || !canSave) return;
@@ -331,7 +340,11 @@ export function SaveTestCaseDrawer({
                   ))
                 ) : (
                   <SelectEmpty>
-                    {datasetsLoading ? "Loading datasets…" : "No datasets found"}
+                    {datasetsLoading
+                      ? "Loading datasets…"
+                      : datasetsError
+                        ? "Couldn't load datasets"
+                        : "No datasets found"}
                   </SelectEmpty>
                 )}
               </SelectContent>

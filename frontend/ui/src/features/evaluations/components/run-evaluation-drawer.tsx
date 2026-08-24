@@ -139,7 +139,7 @@ export function RunEvaluationDrawer({
   /** Prefills and hides the picker when opened from a dataset. */
   datasetId?: string;
 }) {
-  const { data, isLoading } = useDatasets(projectId, { limit: 200 });
+  const { data, isLoading, isError } = useDatasets(projectId, { limit: 200 });
   const datasets = data?.data ?? [];
   const [lang, setLang] = React.useState<Lang>("python");
   const [chosen, setChosen] = React.useState(datasetId ?? "");
@@ -197,9 +197,11 @@ export function RunEvaluationDrawer({
                   placeholder={
                     isLoading
                       ? "Loading datasets…"
-                      : datasets.length
-                        ? "Select dataset"
-                        : "No datasets found"
+                      : isError
+                        ? "Couldn't load datasets"
+                        : datasets.length
+                          ? "Select dataset"
+                          : "No datasets found"
                   }
                 />
               </SelectTrigger>
@@ -211,7 +213,13 @@ export function RunEvaluationDrawer({
                     </SelectItem>
                   ))
                 ) : (
-                  <SelectEmpty>{isLoading ? "Loading datasets…" : "No datasets found"}</SelectEmpty>
+                  <SelectEmpty>
+                    {isLoading
+                      ? "Loading datasets…"
+                      : isError
+                        ? "Couldn't load datasets"
+                        : "No datasets found"}
+                  </SelectEmpty>
                 )}
               </SelectContent>
             </Select>
