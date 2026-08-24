@@ -108,27 +108,36 @@ export function useAiChat({
   // Lazy session creation — only when first message is sent. The fetch is
   // cancellable so handleClose can prevent a pending response from resurrecting
   // the active session after we've cleared it. Caller commits the id on success.
-  const ensureSession = useCallback(async (): Promise<string | null> => {
-    if (activeSessionIdRef.current) return activeSessionIdRef.current;
-    if (!projectId) return null;
-    const ac = new AbortController();
-    ensureSessionAbortersRef.current.add(ac);
-    try {
-      const res = await fetch(`/api/projects/${projectId}/ai/sessions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ traceId, traceSessionId }),
-        signal: ac.signal,
-      });
-      if (!res.ok) throw new Error(`Failed to create session: ${res.status}`);
-      const data = await res.json();
-      return data.id;
-    } catch (err) {
-      if ((err as Error).name !== "AbortError") console.error(err);
-      return null;
-    } finally {
-      ensureSessionAbortersRef.current.delete(ac);
-    }
+  // The in-flight creation is shared: sends arriving before the first one
+  // resolves await the same promise instead of creating duplicate sessions.
+  const pendingSessionRef = useRef<Promise<string | null> | null>(null);
+  const ensureSession = useCallback((): Promise<string | null> => {
+    if (activeSessionIdRef.current) return Promise.resolve(activeSessionIdRef.current);
+    if (!projectId) return Promise.resolve(null);
+    if (pendingSessionRef.current) return pendingSessionRef.current;
+    const creation = (async () => {
+      const ac = new AbortController();
+      ensureSessionAbortersRef.current.add(ac);
+      try {
+        const res = await fetch(`/api/projects/${projectId}/ai/sessions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ traceId, traceSessionId }),
+          signal: ac.signal,
+        });
+        if (!res.ok) throw new Error(`Failed to create session: ${res.status}`);
+        const data = await res.json();
+        return data.id;
+      } catch (err) {
+        if ((err as Error).name !== "AbortError") console.error(err);
+        return null;
+      } finally {
+        ensureSessionAbortersRef.current.delete(ac);
+        pendingSessionRef.current = null;
+      }
+    })();
+    pendingSessionRef.current = creation;
+    return creation;
   }, [projectId, traceId, traceSessionId]);
 
   const handleSend = useCallback(
