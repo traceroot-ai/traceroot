@@ -6,7 +6,7 @@ import {
   type TestCaseSeed,
 } from "./versions";
 import { nextCaseId } from "./case-id";
-import { encodeEditedText, decodeJsonValue } from "./json-value";
+import { encodeEditedText } from "./json-value";
 
 /**
  * Save an evaluation result into a dataset — the three explicit result-driven
@@ -171,10 +171,13 @@ export async function saveResultToDataset(opts: {
   if (!targetDataset) throw new DatasetNotFound();
   const targetDatasetKey = targetDataset.key ?? targetDataset.name;
 
+  // The raw text of a brand-new case's input: the caller's value, or the result's own.
+  const rawInputText = inputProvided ? (opts.input ?? "") : result.input;
+
   const newSeedBase: Omit<TestCaseSeed, "testCaseId"> = {
     // No prior stored value, so encode the raw text as-is (a JSON-looking string like
     // "42" stays the string "42" instead of decoding to the number 42 on pull).
-    input: encodeEditedText(null, inputProvided ? (opts.input ?? "") : result.input),
+    input: encodeEditedText(null, rawInputText),
     // A brand-new case: expected defaults to null (never the candidate) unless set.
     expected: resolveExpected(null),
     metadata: metadataProvided ? opts.metadata : null,
@@ -188,10 +191,12 @@ export async function saveResultToDataset(opts: {
     sourceResultId: result.id,
     addedBy: opts.addedBy ?? null,
   };
-  // Canonical-JSON of the case's input, computed on the DECODED value — what the id is
-  // hashed from, matching an SDK author (whose SDK canonicalizes the native input) and
-  // the occurrence comparison against existing cases below.
-  const canonicalInput = canonicalJson(decodeJsonValue(newSeedBase.input));
+  // Canonical-JSON of the case's input, computed on the raw string value (identical to the
+  // stored value decoded, without the encode/decode round-trip) — what the id is hashed
+  // from, matching an SDK author whose SDK canonicalizes the native input. A lone UTF-16
+  // surrogate can't be canonicalized; the LoneSurrogateError it throws propagates to the
+  // route, which maps it to a 400 (a caller-fixable input) instead of an uncaught 500.
+  const canonicalInput = canonicalJson(rawInputText);
 
   return publishDatasetVersion({
     datasetId: targetDatasetId,

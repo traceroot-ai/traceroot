@@ -12,8 +12,8 @@ import {
   DatasetNotFound,
   VersionConflict,
 } from "@/lib/eval/versions";
-import { nextCaseId } from "@/lib/eval/case-id";
-import { encodeJsonValue, decodeJsonValue } from "@/lib/eval/json-value";
+import { nextCaseId, LoneSurrogateError } from "@/lib/eval/case-id";
+import { encodeJsonValue } from "@/lib/eval/json-value";
 
 type RouteParams = { params: Promise<{ projectId: string; datasetId: string }> };
 
@@ -74,10 +74,20 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   // as the text "123" would come back from the public API as the number 123 — a type
   // change inside a snapshot a run scores against.
   const encodedInput = encodeJsonValue(c.input);
-  // The canonical-JSON of the case's input is what the id is hashed from — computed on
-  // the DECODED value so it matches an SDK author (whose SDK canonicalizes the native
-  // input) and matches the occurrence comparison against existing cases below.
-  const canonicalInput = canonicalJson(decodeJsonValue(encodedInput));
+  // The canonical-JSON of the case's input is what the id is hashed from. `c.input` is
+  // already the native value (a genuine string), so canonicalize it directly instead of
+  // round-tripping through encode/decode. A lone UTF-16 surrogate can't be canonicalized;
+  // reject it as a 400 here rather than letting it throw an uncaught 500 (this runs before
+  // the publish try below).
+  let canonicalInput: string;
+  try {
+    canonicalInput = canonicalJson(c.input);
+  } catch (e) {
+    if (e instanceof LoneSurrogateError) {
+      return errorResponse("Input contains invalid Unicode", 400);
+    }
+    throw e;
+  }
   try {
     const result = await publishDatasetVersion({
       datasetId,

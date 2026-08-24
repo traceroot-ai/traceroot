@@ -23,7 +23,7 @@ vi.mock("./versions", async () => {
 });
 
 import { saveResultToDataset } from "./result-to-dataset";
-import { stableCaseId } from "./case-id";
+import { stableCaseId, LoneSurrogateError } from "./case-id";
 
 type Seed = { testCaseId: string; input: string; expected: string | null; metadata: unknown };
 /** Run the transform the code handed to publishDatasetVersion over a given current set. */
@@ -171,5 +171,28 @@ describe("saveResultToDataset — new cases get content-addressed ids", () => {
       },
     ]).at(-1)!;
     expect(withDup.testCaseId).toBe(stableCaseId("support", '"dup"', 1));
+  });
+
+  it("rejects an input with a lone UTF-16 surrogate with a typed error (route maps to 400)", async () => {
+    prismaMock.evaluationResult.findFirst.mockResolvedValue({
+      id: "r1",
+      runId: "run1",
+      testCaseId: "tc_src",
+      traceId: null,
+      input: "\uD800", // a lone high surrogate — not canonicalizable into a stable id
+      candidateOutput: null,
+    });
+    prismaMock.dataset.findFirst.mockResolvedValue({ currentVersionId: null, key: "support" });
+
+    await expect(
+      saveResultToDataset({
+        projectId: "p1",
+        resultId: "r1",
+        action: "save_new_case",
+        datasetId: "ds2",
+      }),
+    ).rejects.toBeInstanceOf(LoneSurrogateError);
+    // Rejected before any publish is attempted — nothing is written.
+    expect(publishMock).not.toHaveBeenCalled();
   });
 });
