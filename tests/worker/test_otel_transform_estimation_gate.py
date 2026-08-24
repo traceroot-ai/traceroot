@@ -373,15 +373,64 @@ def test_errored_llm_span_with_empty_output_gets_no_estimated_tokens():
     _assert_no_fabricated_tokens(spans[0])
 
 
-def test_errored_llm_span_with_empty_json_output_gets_no_estimated_tokens():
-    """Serialized "nothing produced" forms are not a response.
+def test_errored_llm_span_with_empty_container_output_gets_no_estimated_tokens():
+    """An empty OTLP container is not a response.
 
-    `extract_attribute_value` turns an empty OTLP arrayValue into `[]`, which
-    `json.dumps` makes truthy — so plain falsiness would read it as a real
-    response. `gen_ai.output.messages` is array-typed in the GenAI semconv, so an
-    emitter encoding "no messages" as `[]` is the natural shape.
+    `extract_attribute_value` turns an empty arrayValue into `[]` and an empty
+    kvlistValue into `{}`, and `json.dumps` makes both truthy — so a falsiness
+    check on the SERIALIZED output would read them as a real response.
+    `gen_ai.output.messages` is array-typed in the GenAI semconv, so an emitter
+    encoding "no messages" as an empty array is the natural shape.
     """
-    for rendered in ("[]", "{}", "null", '""', "   "):
+    for label, raw in (
+        ("empty arrayValue", {"arrayValue": {"values": []}}),
+        ("empty kvlistValue", {"kvlistValue": {"values": []}}),
+        ("empty wrapper", {}),
+    ):
+        spans = _transform(
+            [
+                _span_with(
+                    [
+                        make_attr("openinference.span.kind", "LLM"),
+                        make_attr("llm.model_name", MODEL),
+                        make_attr("input.value", INPUT_TEXT),
+                        {"key": "output.value", "value": raw},
+                    ],
+                    status_code=2,
+                )
+            ]
+        )
+        assert spans[0].get("input_tokens") is None, f"{label} read as a response"
+        assert spans[0].get("cost") is None, f"{label} priced"
+
+
+def test_errored_llm_span_with_whitespace_output_gets_no_estimated_tokens():
+    """A string of only whitespace is no response — the rejection case."""
+    spans = _transform(
+        [
+            _span_with(
+                [
+                    make_attr("openinference.span.kind", "LLM"),
+                    make_attr("llm.model_name", MODEL),
+                    make_attr("input.value", INPUT_TEXT),
+                    make_attr("output.value", "   "),
+                ],
+                status_code=2,
+            )
+        ]
+    )
+    _assert_no_fabricated_tokens(spans[0])
+
+
+def test_errored_llm_span_with_literal_empty_json_text_still_gets_estimated_tokens():
+    """A string that merely LOOKS empty is still a produced response.
+
+    A structured-output call legitimately answering `[]` (no matches), `{}`, or
+    `null` was generated and billed. These arrive as OTLP stringValues, so the
+    raw type separates them from the empty containers above — matching the
+    serialized text against sentinels would withhold real cost from them.
+    """
+    for rendered in ("[]", "{}", "null"):
         spans = _transform(
             [
                 _span_with(
@@ -395,8 +444,27 @@ def test_errored_llm_span_with_empty_json_output_gets_no_estimated_tokens():
                 )
             ]
         )
-        assert spans[0].get("input_tokens") is None, f"{rendered!r} read as a response"
-        assert spans[0].get("cost") is None, f"{rendered!r} priced"
+        assert spans[0]["status"] == "ERROR"
+        assert spans[0].get("input_tokens"), f"literal {rendered!r} response was not priced"
+
+
+def test_errored_llm_span_with_non_string_scalar_output_still_gets_estimated_tokens():
+    """A numeric/boolean output is a produced value, 0 and False included."""
+    for rendered in (0, False):
+        spans = _transform(
+            [
+                _span_with(
+                    [
+                        make_attr("openinference.span.kind", "LLM"),
+                        make_attr("llm.model_name", MODEL),
+                        make_attr("input.value", INPUT_TEXT),
+                        make_attr("output.value", rendered),
+                    ],
+                    status_code=2,
+                )
+            ]
+        )
+        assert spans[0].get("input_tokens"), f"scalar {rendered!r} response was not priced"
 
 
 def test_errored_llm_span_with_error_text_as_output():
@@ -451,10 +519,16 @@ def test_mid_stream_failure_shape_still_gets_estimated_tokens():
 
 def test_ok_llm_span_with_no_output_still_gets_estimated_tokens():
     """The response-presence term must only ever apply to errored spans: a healthy
-    call that legitimately returned nothing still prices its prompt."""
-    spans = _transform(
-        [_span_with(_model_and_prompt_only([make_attr("openinference.span.kind", "LLM")]))]
-    )
+    call that legitimately returned nothing still prices its prompt.
+
+    `get_model_price` reads the pricing tables over PostgreSQL, so cost is only
+    deterministic under a patch — the token estimate is the offline part.
+    """
+    mock_prices = {"input": 0.000003, "output": 0.000015}
+    with patch("worker.tokens.pricing.get_model_price", return_value=mock_prices):
+        spans = _transform(
+            [_span_with(_model_and_prompt_only([make_attr("openinference.span.kind", "LLM")]))]
+        )
     assert spans[0].get("input_tokens")
     assert spans[0].get("cost")
 
