@@ -551,6 +551,13 @@ describe("Dataset detail — deleting a row with a version pinned", () => {
     expect(detailGets().at(-1)!.url).not.toContain("version_id");
   });
 
+  /**
+   * The flow that originally MASKED the bug, pinned so a future change cannot
+   * regress it. It passes with AND without the production reset by design, and
+   * is not a second guard on it: the add's `onSaved` un-pins the selection
+   * first, so by the time the delete runs there is no pin left for the delete's
+   * own reset to clear. The pinned delete is guarded by the test above.
+   */
   it("add-then-delete still lands on the newest version", async () => {
     mockPublishOnWrite();
     mountDetail();
@@ -577,7 +584,9 @@ describe("Dataset detail — deleting a row with a version pinned", () => {
     expect(screen.getByRole("columnheader", { name: "Actions" })).toBeDefined();
     expect(detailGets().at(-1)!.url).not.toContain("version_id");
 
-    // ...and the following delete (publishing dv4) keeps it there.
+    // ...and the following delete (publishing dv4) keeps it there. The selection
+    // is already un-pinned here, so this asserts the add's reset still holds
+    // across a second publish — not that the delete resets anything.
     await openRowActions(/charged twice/);
     fireEvent.click(await screen.findByText("Delete"));
     fireEvent.click(screen.getAllByRole("button", { name: "Delete" }).at(-1)!);
