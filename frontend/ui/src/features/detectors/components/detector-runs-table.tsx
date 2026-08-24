@@ -42,6 +42,11 @@ export function DetectorRunsTable({ rows, onTraceClick, onRunClick }: DetectorRu
       <tbody>
         {rows.map((run) => {
           const rca = describeRcaStatus(run.rca_status);
+          // Findings written before the dashless id format carry a hyphenated
+          // uuid shape; render both shapes dashless so the Finding ID column
+          // matches the run and trace id columns. The finding-detail API
+          // accepts either shape, so a copied display id still resolves.
+          const findingId = run.finding_id?.replaceAll("-", "") ?? null;
           return (
             <tr
               key={run.run_id}
@@ -87,14 +92,14 @@ export function DetectorRunsTable({ rows, onTraceClick, onRunClick }: DetectorRu
                 </button>
               </td>
               <td className={cn(DETECTOR_TD, "font-mono text-[11px]")}>
-                {run.finding_id == null ? (
+                {findingId == null ? (
                   <span className="text-muted-foreground">—</span>
                 ) : (
                   <span
-                    title={run.finding_id}
+                    title={findingId}
                     className="block max-w-full truncate text-muted-foreground"
                   >
-                    {run.finding_id}
+                    {findingId}
                   </span>
                 )}
               </td>

@@ -348,8 +348,21 @@ class DetectorReaderService:
     # detail
     # ------------------------------------------------------------------ #
     def get_finding(self, project_id: str, finding_id: str) -> FindingDetail | None:
+        """Get one finding by id.
+
+        Finding ids are dashless 32-hex, but findings written before that
+        format carry a hyphenated uuid shape of the same hash — compare
+        hyphen-insensitively so an id copied from either surface resolves.
+
+        Args:
+            project_id (str): Project that owns the finding.
+            finding_id (str): The finding id, with or without hyphens.
+
+        Returns:
+            FindingDetail | None: The finding, or None when no row matches.
+        """
         row = self._fetch_finding(
-            "finding_id = {finding_id:String}",
+            "replaceAll(finding_id, '-', '') = replaceAll({finding_id:String}, '-', '')",
             {"project_id": project_id, "finding_id": finding_id},
         )
         return self._build_detail(project_id, row) if row else None

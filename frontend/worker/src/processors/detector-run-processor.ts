@@ -46,11 +46,6 @@ function hash32(input: string): string {
   return createHash("sha256").update(input).digest("hex").slice(0, 32);
 }
 
-/** Hash a string to a uuid-shaped id (first 128 bits of sha256, 8-4-4-4-12). */
-function hashToUuid(input: string): string {
-  return hash32(input).replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
-}
-
 /**
  * Deterministic run id keyed on (projectId, traceId, detectorId).
  * On a BullMQ retry, the same triple lands on the same runId — so re-writes
@@ -84,9 +79,14 @@ export function shouldRunRca(
  * triggers on the same trace maps to the SAME finding, and therefore the SAME
  * RCA job (`rca-${findingId}`): exactly one RCA per trace, and a BullMQ retry
  * lands on the same row instead of duplicating it.
+ *
+ * Dashless 32-hex, the same shape as run and trace ids. Findings written
+ * before this format carry a hyphenated uuid shape of the same hash and are
+ * not backfilled; id lookups compare hyphen-insensitively so both shapes
+ * resolve.
  */
 export function traceFindingId(projectId: string, traceId: string): string {
-  return hashToUuid(`${projectId}:${traceId}`);
+  return hash32(`${projectId}:${traceId}`);
 }
 
 /**

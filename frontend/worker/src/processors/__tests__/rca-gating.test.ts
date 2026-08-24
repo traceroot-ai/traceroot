@@ -141,19 +141,16 @@ describe("traceFindingId: one finding (and one RCA job) per trace", () => {
     expect(traceFindingId("projA", "trace")).not.toBe(traceFindingId("projB", "trace"));
   });
 
-  it("is formatted as a uuid-shaped string", () => {
-    expect(traceFindingId("proj", "trace")).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-    );
+  it("is dashless 32-hex, the same shape as run and trace ids", () => {
+    expect(traceFindingId("proj", "trace")).toMatch(/^[0-9a-f]{32}$/);
   });
 
   it("is order-sensitive: swapping project and trace yields a different id", () => {
     expect(traceFindingId("a", "b")).not.toBe(traceFindingId("b", "a"));
   });
 
-  it("stays uuid-shaped and deterministic even for empty inputs", () => {
-    const uuidShape = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-    expect(traceFindingId("", "")).toMatch(uuidShape);
+  it("stays 32-hex and deterministic even for empty inputs", () => {
+    expect(traceFindingId("", "")).toMatch(/^[0-9a-f]{32}$/);
     expect(traceFindingId("", "")).toBe(traceFindingId("", ""));
   });
 });

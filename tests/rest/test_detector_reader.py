@@ -235,6 +235,26 @@ def test_get_finding_returns_none_when_missing(reader):
     assert reader.get_finding("p1", "missing") is None
 
 
+def test_get_finding_compares_ids_hyphen_insensitively(reader, monkeypatch):
+    """Ids are dashless 32-hex, but pre-format findings carry a hyphenated uuid
+    shape — the lookup predicate must strip hyphens from BOTH sides so either
+    shape of the id resolves either shape of the stored row."""
+    payload = json.dumps([{"detectorId": "d1", "detectorName": "x", "summary": "s", "data": None}])
+    reader._client.rows = [("f1", "p1", "t1", "sum", payload, datetime(2026, 6, 29))]
+    monkeypatch.setattr(reader, "_pg_rows", lambda sql, params: [])
+
+    reader.get_finding("p1", "b3977f86-c96d-f250-b7b5-dd9062a94dfd")
+
+    finding_queries = [
+        (q, p) for q, p in reader._client.calls if "from detector_findings" in q.lower()
+    ]
+    assert finding_queries, "expected a detector_findings lookup"
+    query, params = finding_queries[0]
+    assert "replaceAll(finding_id, '-', '')" in query
+    assert "replaceAll({finding_id:String}, '-', '')" in query
+    assert params["finding_id"] == "b3977f86-c96d-f250-b7b5-dd9062a94dfd"
+
+
 def test_get_finding_absent_rca_yields_none(reader, monkeypatch):
     payload = json.dumps([{"detectorId": "d1", "detectorName": "x", "summary": "s", "data": None}])
     reader._client.rows = [("f1", "p1", "t1", "sum", payload, datetime(2026, 6, 29))]

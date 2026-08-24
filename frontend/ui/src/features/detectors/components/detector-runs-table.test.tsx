@@ -9,7 +9,7 @@ const triggeredRun: BackendRun = {
   detector_id: "det-1",
   project_id: "proj-1",
   trace_id: "trace-triggered",
-  finding_id: "finding-1",
+  finding_id: "finding1",
   status: "completed",
   timestamp: "2026-05-01T12:00:00Z",
   summary: "Something went wrong",
@@ -64,11 +64,23 @@ describe("DetectorRunsTable", () => {
   it("renders the finding_id in the Finding ID cell for a triggered run", () => {
     render(<DetectorRunsTable rows={[triggeredRun]} onTraceClick={vi.fn()} onRunClick={vi.fn()} />);
     // The finding id shows as plain (non-clickable) muted mono text.
-    const cell = screen.getByText("finding-1");
+    const cell = screen.getByText("finding1");
     expect(cell).toBeTruthy();
-    expect(cell.getAttribute("title")).toBe("finding-1");
+    expect(cell.getAttribute("title")).toBe("finding1");
     // Unlike trace/run ids, the finding id is not a click target.
-    expect(screen.queryByRole("button", { name: "finding-1" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "finding1" })).toBeNull();
+  });
+
+  it("renders a legacy hyphenated finding_id dashless, matching run/trace id shape", () => {
+    const legacyRun: BackendRun = {
+      ...triggeredRun,
+      finding_id: "b3977f86-c96d-f250-b7b5-dd9062a94dfd",
+    };
+    render(<DetectorRunsTable rows={[legacyRun]} onTraceClick={vi.fn()} onRunClick={vi.fn()} />);
+    const cell = screen.getByText("b3977f86c96df250b7b5dd9062a94dfd");
+    expect(cell).toBeTruthy();
+    expect(cell.getAttribute("title")).toBe("b3977f86c96df250b7b5dd9062a94dfd");
+    expect(screen.queryByText("b3977f86-c96d-f250-b7b5-dd9062a94dfd")).toBeNull();
   });
 
   it("renders an em dash in the Finding ID cell for a findingless run", () => {
@@ -78,7 +90,7 @@ describe("DetectorRunsTable", () => {
     const row = screen.getByText("run-clean").closest("tr")!;
     const findingCell = row.querySelectorAll("td")[3];
     expect(findingCell.textContent).toBe("—");
-    expect(screen.queryByText("finding-1")).toBeNull();
+    expect(screen.queryByText("finding1")).toBeNull();
   });
 
   it("fires onTraceClick with the run when its trace_id cell is clicked", () => {
