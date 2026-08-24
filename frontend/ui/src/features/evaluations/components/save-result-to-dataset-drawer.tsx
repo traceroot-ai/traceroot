@@ -109,7 +109,7 @@ export function SaveResultToDatasetDrawer({
   const meta = ACTION_META[action];
   const qc = useQueryClient();
   const { toast } = useToast();
-  const { data: datasetsData } = useDatasets(projectId, { limit: 200 });
+  const { data: datasetsData, isLoading: datasetsLoading } = useDatasets(projectId, { limit: 200 });
   const datasets = datasetsData?.data ?? [];
 
   const [targetDatasetId, setTargetDatasetId] = React.useState(sourceDatasetId);
@@ -191,7 +191,10 @@ export function SaveResultToDatasetDrawer({
           <div className="space-y-1.5">
             <div className="text-[11px] font-medium text-muted-foreground">Dataset</div>
             {meta.picksDataset ? (
-              <Select value={targetDatasetId} onValueChange={setTargetDatasetId}>
+              <Select
+                value={datasets.some((d) => d.id === targetDatasetId) ? targetDatasetId : ""}
+                onValueChange={setTargetDatasetId}
+              >
                 <SelectTrigger className="h-8 text-[12px]">
                   <SelectValue placeholder="Choose a dataset" />
                 </SelectTrigger>
@@ -203,7 +206,9 @@ export function SaveResultToDatasetDrawer({
                       </SelectItem>
                     ))
                   ) : (
-                    <SelectEmpty>No datasets found</SelectEmpty>
+                    <SelectEmpty>
+                      {datasetsLoading ? "Loading datasets…" : "No datasets found"}
+                    </SelectEmpty>
                   )}
                 </SelectContent>
               </Select>

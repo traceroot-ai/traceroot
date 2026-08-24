@@ -66,7 +66,7 @@ export function SaveTestCaseDrawer({
   onOpenChange: (open: boolean) => void;
 }) {
   const qc = useQueryClient();
-  const { data: datasetsData } = useDatasets(projectId, { limit: 200 });
+  const { data: datasetsData, isLoading: datasetsLoading } = useDatasets(projectId, { limit: 200 });
   const datasets = datasetsData?.data ?? [];
 
   const { data: trace } = useQuery({
@@ -313,7 +313,7 @@ export function SaveTestCaseDrawer({
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto px-5 py-4">
           <FormCard label="Dataset">
             <Select
-              value={datasetId}
+              value={datasets.some((d) => d.id === datasetId) ? datasetId : ""}
               onValueChange={(value) => {
                 setDatasetId(value);
                 setDuplicate(null);
@@ -330,7 +330,9 @@ export function SaveTestCaseDrawer({
                     </SelectItem>
                   ))
                 ) : (
-                  <SelectEmpty>No datasets found</SelectEmpty>
+                  <SelectEmpty>
+                    {datasetsLoading ? "Loading datasets…" : "No datasets found"}
+                  </SelectEmpty>
                 )}
               </SelectContent>
             </Select>

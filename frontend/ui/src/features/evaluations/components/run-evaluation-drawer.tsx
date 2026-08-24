@@ -139,7 +139,7 @@ export function RunEvaluationDrawer({
   /** Prefills and hides the picker when opened from a dataset. */
   datasetId?: string;
 }) {
-  const { data } = useDatasets(projectId, { limit: 200 });
+  const { data, isLoading } = useDatasets(projectId, { limit: 200 });
   const datasets = data?.data ?? [];
   const [lang, setLang] = React.useState<Lang>("python");
   const [chosen, setChosen] = React.useState(datasetId ?? "");
@@ -191,10 +191,16 @@ export function RunEvaluationDrawer({
           {datasetId ? (
             <p className="text-[13px] font-medium">{dataset?.name ?? chosen}</p>
           ) : (
-            <Select value={chosen} onValueChange={setChosen}>
+            <Select value={dataset ? chosen : ""} onValueChange={setChosen}>
               <SelectTrigger className="h-7 text-[13px]">
                 <SelectValue
-                  placeholder={datasets.length ? "Select dataset" : "No datasets found"}
+                  placeholder={
+                    isLoading
+                      ? "Loading datasets…"
+                      : datasets.length
+                        ? "Select dataset"
+                        : "No datasets found"
+                  }
                 />
               </SelectTrigger>
               <SelectContent>
@@ -205,7 +211,7 @@ export function RunEvaluationDrawer({
                     </SelectItem>
                   ))
                 ) : (
-                  <SelectEmpty>No datasets found</SelectEmpty>
+                  <SelectEmpty>{isLoading ? "Loading datasets…" : "No datasets found"}</SelectEmpty>
                 )}
               </SelectContent>
             </Select>
