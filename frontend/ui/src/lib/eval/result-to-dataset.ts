@@ -108,10 +108,12 @@ export async function saveResultToDataset(opts: {
     return currentExpected;
   };
 
-  // Is the result still backed by a live case in its originating dataset?
+  // Is the result still backed by a live case in its originating dataset? Also pull the
+  // key/name here so a save back into this same dataset reuses this row (the common case)
+  // instead of issuing a second identical lookup for the id-hash key below.
   const dataset = await prisma.dataset.findFirst({
     where: { id: originatingDatasetId, projectId: opts.projectId },
-    select: { currentVersionId: true },
+    select: { currentVersionId: true, key: true, name: true },
   });
   const originatingCaseLive =
     dataset?.currentVersionId != null &&
@@ -159,11 +161,16 @@ export async function saveResultToDataset(opts: {
   }
 
   // The pre-image the case id is hashed from — the target dataset's stable key
-  // (see resolveDatasetKey). (publishDatasetVersion re-validates the dataset exists.)
-  const targetDataset = await prisma.dataset.findFirst({
-    where: { id: targetDatasetId, projectId: opts.projectId },
-    select: { key: true, name: true },
-  });
+  // (see resolveDatasetKey). Reuse the row already fetched above when the target IS the
+  // originating dataset; only a save into a DIFFERENT dataset needs a fresh lookup.
+  // (publishDatasetVersion re-validates the dataset exists.)
+  const targetDataset =
+    targetDatasetId === originatingDatasetId
+      ? dataset
+      : await prisma.dataset.findFirst({
+          where: { id: targetDatasetId, projectId: opts.projectId },
+          select: { key: true, name: true },
+        });
   // Fail fast rather than fabricating a key from the id: a made-up key would hash a
   // `tc_` id no SDK author could reproduce. (publishDatasetVersion re-validates too.)
   if (!targetDataset) throw new DatasetNotFound();
