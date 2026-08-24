@@ -224,9 +224,17 @@ describe("contentSignature — canonicalizes DECODED input/expected", () => {
     const good = seed({ testCaseId: "tcgood", input: '{"a":1}' });
     const bad = seed({ testCaseId: "tcbad", input: "\uD800" });
     expect(() => contentSignature([good, bad])).not.toThrow();
-    // Editing only the bad row still changes the signature; the good row is unaffected.
-    expect(contentSignature([good, bad])).not.toBe(
+    // Editing only the bad row still changes the signature; the good row's own entry is
+    // untouched (sibling corruption must not silently alter a neighbour's signature).
+    const before = JSON.parse(contentSignature([good, bad])) as Array<{ id: string }>;
+    const after = JSON.parse(
       contentSignature([good, seed({ testCaseId: "tcbad", input: "\uDBFF" })]),
+    ) as Array<{ id: string }>;
+    expect(after.find((row) => row.id === "tcgood")).toEqual(
+      before.find((row) => row.id === "tcgood"),
+    );
+    expect(after.find((row) => row.id === "tcbad")).not.toEqual(
+      before.find((row) => row.id === "tcbad"),
     );
   });
 });
