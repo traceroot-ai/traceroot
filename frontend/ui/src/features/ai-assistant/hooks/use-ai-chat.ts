@@ -41,6 +41,9 @@ export function useAiChat({
   // Set so concurrent ensureSession calls don't cancel each other; handleClose
   // aborts all in-flight POST /sessions to prevent post-close resurrection.
   const ensureSessionAbortersRef = useRef<Set<AbortController>>(new Set());
+  // The in-flight session creation, shared so sends arriving before the first
+  // one resolves await the same promise instead of creating duplicate sessions.
+  const pendingSessionRef = useRef<Promise<string | null> | null>(null);
   const [sessions, setSessions] = useState<AISession[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   // isSending covers the gap between user hitting send and isStreaming becoming true
@@ -67,6 +70,11 @@ export function useAiChat({
   useEffect(() => {
     if (initialSessionId) return;
     setActiveSessionId(null);
+    // Discard any in-flight session creation too — a send racing the switch
+    // must not hand the new project a session created for the old one.
+    for (const ac of ensureSessionAbortersRef.current) ac.abort();
+    ensureSessionAbortersRef.current.clear();
+    pendingSessionRef.current = null;
     abortAll();
     clearAll();
   }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -108,9 +116,6 @@ export function useAiChat({
   // Lazy session creation — only when first message is sent. The fetch is
   // cancellable so handleClose can prevent a pending response from resurrecting
   // the active session after we've cleared it. Caller commits the id on success.
-  // The in-flight creation is shared: sends arriving before the first one
-  // resolves await the same promise instead of creating duplicate sessions.
-  const pendingSessionRef = useRef<Promise<string | null> | null>(null);
   const ensureSession = useCallback((): Promise<string | null> => {
     if (activeSessionIdRef.current) return Promise.resolve(activeSessionIdRef.current);
     if (!projectId) return Promise.resolve(null);
@@ -133,10 +138,14 @@ export function useAiChat({
         return null;
       } finally {
         ensureSessionAbortersRef.current.delete(ac);
-        pendingSessionRef.current = null;
       }
     })();
     pendingSessionRef.current = creation;
+    // Only clear our own entry: a project switch may have already discarded
+    // this creation and parked a newer one in the ref.
+    creation.finally(() => {
+      if (pendingSessionRef.current === creation) pendingSessionRef.current = null;
+    });
     return creation;
   }, [projectId, traceId, traceSessionId]);
 

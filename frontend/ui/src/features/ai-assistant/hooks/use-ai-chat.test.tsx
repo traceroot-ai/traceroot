@@ -316,6 +316,49 @@ describe("useAiChat session switching", () => {
     expect(messagePosts).toEqual(["A", "A"]);
   });
 
+  it("a project switch discards an in-flight session creation", async () => {
+    const sessionPosts: string[] = [];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      const createMatch = url.match(/\/api\/projects\/([^/]+)\/ai\/sessions$/);
+      if (method === "POST" && createMatch) {
+        sessionPosts.push(createMatch[1]);
+        if (createMatch[1] === "p1") {
+          // never resolves on its own — only the abort settles it
+          return new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () =>
+              reject(new DOMException("aborted", "AbortError")),
+            );
+          });
+        }
+        return jsonResponse({ id: "B-session" });
+      }
+      const messageMatch = url.match(/\/ai\/sessions\/([^/]+)\/messages$/);
+      if (method === "POST" && messageMatch) return createSSE().response;
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    const { result, rerender } = renderHook(({ projectId }) => useAiChat({ projectId }), {
+      initialProps: { projectId: "p1" },
+    });
+
+    // p1's creation is still in flight when the user switches projects
+    let firstSend!: Promise<void>;
+    act(() => {
+      firstSend = result.current.handleSend("hi", MODEL);
+    });
+    rerender({ projectId: "p2" });
+
+    await act(async () => {
+      await result.current.handleSend("hello", MODEL);
+      await firstSend;
+    });
+
+    // p2 got its own session; the aborted p1 creation never leaked in
+    expect(sessionPosts).toEqual(["p1", "p2"]);
+    expect(result.current.currentSessionId).toBe("B-session");
+  });
+
   it("deleting the active session clears the view and stops its stream", async () => {
     const { result } = renderChat();
     await startStreamInA(result);
