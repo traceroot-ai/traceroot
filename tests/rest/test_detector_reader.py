@@ -240,10 +240,16 @@ def test_get_finding_compares_ids_hyphen_insensitively(reader, monkeypatch):
     shape — the lookup predicate must strip hyphens from BOTH sides so either
     shape of the id resolves either shape of the stored row."""
     payload = json.dumps([{"detectorId": "d1", "detectorName": "x", "summary": "s", "data": None}])
-    reader._client.rows = [("f1", "p1", "t1", "sum", payload, datetime(2026, 6, 29))]
+    stored_id = "b3977f86-c96d-f250-b7b5-dd9062a94dfd"
+    reader._client.rows = [(stored_id, "p1", "t1", "sum", payload, datetime(2026, 6, 29))]
     monkeypatch.setattr(reader, "_pg_rows", lambda sql, params: [])
 
-    reader.get_finding("p1", "b3977f86-c96d-f250-b7b5-dd9062a94dfd")
+    detail = reader.get_finding("p1", "b3977f86c96df250b7b5dd9062a94dfd")
+
+    # The matched row is returned with its stored id untouched. The fake client
+    # cannot evaluate the predicate, so the SQL itself is asserted below.
+    assert detail is not None
+    assert detail.finding_id == stored_id
 
     finding_queries = [
         (q, p) for q, p in reader._client.calls if "from detector_findings" in q.lower()
@@ -252,7 +258,7 @@ def test_get_finding_compares_ids_hyphen_insensitively(reader, monkeypatch):
     query, params = finding_queries[0]
     assert "replaceAll(finding_id, '-', '')" in query
     assert "replaceAll({finding_id:String}, '-', '')" in query
-    assert params["finding_id"] == "b3977f86-c96d-f250-b7b5-dd9062a94dfd"
+    assert params["finding_id"] == "b3977f86c96df250b7b5dd9062a94dfd"
 
 
 def test_get_finding_absent_rca_yields_none(reader, monkeypatch):
