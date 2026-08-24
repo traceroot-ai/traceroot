@@ -7,10 +7,11 @@ export interface DbAiMessageRow {
   content: string;
   createTime: string;
   metadata?: unknown;
-  // usage columns — set only on the final assistant segment of a run
+  // usage columns — set only on the final assistant segment of a run.
+  // cost is a Prisma Decimal, which serializes to a string over JSON.
   inputTokens?: number | null;
   outputTokens?: number | null;
-  cost?: number | null;
+  cost?: number | string | null;
 }
 
 interface ToolStepMetadata {
@@ -28,10 +29,11 @@ interface ToolStepMetadata {
  * their thinking up from metadata.
  */
 export function mapDbMessages(rows: DbAiMessageRow[]): AIMessage[] {
-  return rows.map((m): AIMessage => {
+  const out: AIMessage[] = [];
+  for (const m of rows) {
     if (m.role === "tool_step") {
       const md = (m.metadata ?? {}) as ToolStepMetadata;
-      return {
+      out.push({
         id: m.id,
         role: "tool_step",
         content: "",
@@ -44,18 +46,35 @@ export function mapDbMessages(rows: DbAiMessageRow[]): AIMessage[] {
           isError: md.isError,
           status: md.isError ? "error" : "done",
         },
-      };
+      });
+      continue;
     }
-    const thinking = (m.metadata as { thinking?: string } | null | undefined)?.thinking;
-    return {
+    const md = m.metadata as { thinking?: string; totalTokens?: number } | null | undefined;
+    const usage = {
+      ...(m.inputTokens != null ? { inputTokens: m.inputTokens } : {}),
+      ...(m.outputTokens != null ? { outputTokens: m.outputTokens } : {}),
+      ...(md?.totalTokens != null ? { totalTokens: md.totalTokens } : {}),
+      ...(m.cost != null ? { costUsd: Number(m.cost) } : {}),
+    };
+    // A content-less assistant row is the usage carrier of a run that ended at
+    // a tool boundary. The live stream pins usage on the last text bubble, so
+    // fold it into the previous assistant bubble instead of rendering an
+    // empty one.
+    if (m.role === "assistant" && !m.content && !md?.thinking) {
+      const prev = out.findLast((b) => b.role === "assistant");
+      if (prev) {
+        Object.assign(prev, usage);
+        continue;
+      }
+    }
+    out.push({
       id: m.id,
       role: m.role as "user" | "assistant",
       content: m.content,
       timestamp: m.createTime,
-      ...(thinking ? { thinking } : {}),
-      ...(m.inputTokens != null ? { inputTokens: m.inputTokens } : {}),
-      ...(m.outputTokens != null ? { outputTokens: m.outputTokens } : {}),
-      ...(m.cost != null ? { costUsd: m.cost } : {}),
-    };
-  });
+      ...(md?.thinking ? { thinking: md.thinking } : {}),
+      ...usage,
+    });
+  }
+  return out;
 }
