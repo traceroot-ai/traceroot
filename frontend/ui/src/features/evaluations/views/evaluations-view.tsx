@@ -237,9 +237,11 @@ function RunsTab({ projectId }: { projectId: string }) {
       .filter((r) => selectedIds.has(r.id))
       .sort((a, b) => a.runNumber - b.runNumber);
     if (chosen.length < 2) return;
-    // Cross-dataset selections are allowed: within one dataset the compare view lines
-    // rows up by dataset-row id, and when the runs span datasets it falls back to
-    // aligning by shared (canonical) input — so a mixed-dataset selection compares fine.
+    // Cross-dataset selections are allowed (no pre-flight refusal): the compare view keys
+    // alignment off the stable `datasetId`, lining rows up by dataset-row id within one
+    // dataset and by shared (canonical) input across datasets. It classifies the selection
+    // there — reliably, and with an explicit empty state when runs share nothing — so a
+    // mixed-dataset selection can't land on a silently-confusing empty page.
     const ids = chosen.map((r) => r.id).join(",");
     router.push(`/projects/${projectId}/evaluations/compare?runs=${ids}&baseline=${chosen[0].id}`);
   };

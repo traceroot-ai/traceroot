@@ -1,10 +1,14 @@
 // @vitest-environment jsdom
 /**
- * The N-run "Run Comparison" page: 2+ runs measured on the same dataset, lined up
- * by dataset-row id, one colour-keyed value per run stacked in each metric cell.
- * Asserts the scorer columns, the per-run stacked values, the baseline legend, that
- * Input collapses when the runs agree, and that the removed chrome (swap / main score
- * / status / filter tabs / verdict / row drill-in) is gone.
+ * The N-run "Run Comparison" page: 2+ runs lined up case-by-case, anchored on the
+ * baseline. Runs on the baseline's dataset (compared by the stable `datasetId`) align
+ * by dataset-row id; runs on a different dataset align by shared (canonical) input — so
+ * a mixed selection compares fine and a same-dataset pair keeps exact row identity even
+ * alongside cross-dataset runs. One colour-keyed value per run stacks in each metric
+ * cell. Asserts the scorer columns, the per-run stacked values, the baseline legend,
+ * that Input collapses when the runs agree, cross-dataset (and 3-run mixed) alignment,
+ * and that the removed chrome (swap / main score / status / filter tabs / verdict / row
+ * drill-in) is gone.
  *
  * Fixture: the ticket-routing lab (opus #41 baseline vs sonnet #42) sharing two
  * dataset rows; ticket-05 routes differently between the two runs.
@@ -276,5 +280,115 @@ describe("CompareRunsView — N-run diff table", () => {
     expect(screen.getByText("−100.0%")).toBeTruthy();
     // Both runs' (now-differing) inputs are shown for the edited case.
     expect(screen.getByText("EDITED input text five")).toBeTruthy();
+  });
+
+  it("aligns 3 runs on one dataset by testCaseId even when the dataset was renamed", () => {
+    // Three runs on the SAME dataset (datasetId ds1), but the dataset was renamed between
+    // runs, so they carry different datasetNames. Detection keys off the stable datasetId,
+    // NOT the mutable name — so this stays a same-dataset comparison (testCaseId alignment):
+    // a 3rd run never flips the set to fuzzy input matching, and edited inputs still line up.
+    const B = {
+      run: { ...runDetail("sonnet", 42, "sonnet"), datasetName: "ticket-routing-v2" },
+      results: [
+        result("ticket-01", "Ticket 1: my invoice looks wrong", "billing", {
+          routing_accuracy: 1,
+          is_known_category: 1,
+        }),
+        result("ticket-05", "EDITED five (sonnet)", "account_management", {
+          routing_accuracy: 0,
+          is_known_category: 1,
+        }),
+      ],
+    };
+    const C = {
+      run: { ...runDetail("haiku", 43, "haiku"), datasetName: "ticket-routing-v3" },
+      results: [
+        result("ticket-01", "Ticket 1: my invoice looks wrong", "billing", {
+          routing_accuracy: 1,
+          is_known_category: 1,
+        }),
+        result("ticket-05", "EDITED five (haiku)", "account_management", {
+          routing_accuracy: 0,
+          is_known_category: 1,
+        }),
+      ],
+    };
+    const R: Record<string, unknown> = { opus: OPUS, sonnet: B, haiku: C };
+    hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
+      ids.map((id) => ({ data: R[id], isLoading: false, isError: false })),
+    );
+    render(
+      <CompareRunsView
+        projectId="p1"
+        runIds={["opus", "sonnet", "haiku"]}
+        baselineId="opus"
+        onChangeBaseline={vi.fn()}
+      />,
+    );
+    // Same datasetId across all three → NOT cross-dataset, despite the differing names.
+    expect(screen.queryByText(/aligned by shared input/)).toBeNull();
+    // ticket-05 aligns by row id across all three (its inputs were edited apart) → the
+    // regression delta is computed and BOTH candidates' edited inputs are shown.
+    const row = screen.getByText("EDITED five (sonnet)").closest("tr") as HTMLTableRowElement;
+    expect(within(row).getByText("EDITED five (haiku)")).toBeTruthy();
+    expect(within(row).getAllByText("−100.0%").length).toBeGreaterThan(0);
+  });
+
+  it("keeps a same-dataset pair on testCaseId when a cross-dataset run joins the selection", () => {
+    // A and B are on ds1 (B's ticket-05 input was EDITED, same testCaseId); C is on a
+    // DIFFERENT dataset ds2 with matching inputs. The A/B pair must still align by row id
+    // — so B's edited-input case is NOT dropped by the global switch to input matching —
+    // while C aligns by shared input. (Regression guard for the single-global-flag bug.)
+    const B = {
+      run: SONNET.run, // ds1
+      results: [
+        result("ticket-01", "Ticket 1: my invoice looks wrong", "billing", {
+          routing_accuracy: 1,
+          is_known_category: 1,
+        }),
+        result("ticket-05", "EDITED-B double-charged", "account_management", {
+          routing_accuracy: 0,
+          is_known_category: 1,
+        }),
+      ],
+    };
+    const C = {
+      run: {
+        ...runDetail("haiku", 43, "haiku"),
+        datasetId: "ds2",
+        datasetName: "tickets-v2",
+        datasetVersionId: "dv2",
+      },
+      results: [
+        result("tc_other_01", "Ticket 1: my invoice looks wrong", "billing", {
+          routing_accuracy: 1,
+          is_known_category: 1,
+        }),
+        result(
+          "tc_other_05",
+          "Ticket 5: my card was double-charged and I want a refund",
+          "account_management",
+          { routing_accuracy: 0, is_known_category: 1 },
+        ),
+      ],
+    };
+    const R: Record<string, unknown> = { opus: OPUS, sonnet: B, haiku: C };
+    hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
+      ids.map((id) => ({ data: R[id], isLoading: false, isError: false })),
+    );
+    render(
+      <CompareRunsView
+        projectId="p1"
+        runIds={["opus", "sonnet", "haiku"]}
+        baselineId="opus"
+        onChangeBaseline={vi.fn()}
+      />,
+    );
+    // C spans datasets → the cross-dataset banner shows.
+    expect(screen.getByText(/aligned by shared input/)).toBeTruthy();
+    // The edited-input case survived: B's edited text is shown (aligned to A by row id,
+    // not dropped for differing from A's input), and its regression delta is present.
+    const row = screen.getByText("EDITED-B double-charged").closest("tr") as HTMLTableRowElement;
+    expect(within(row).getAllByText("−100.0%").length).toBeGreaterThan(0);
   });
 });
