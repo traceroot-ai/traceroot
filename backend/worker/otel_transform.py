@@ -49,20 +49,27 @@ logger = logging.getLogger(__name__)
 _SKIP_TEXT_TOKEN_ESTIMATION_SCOPES = frozenset({"traceroot.claude-agent-sdk"})
 
 
-# Serialized stand-ins for "nothing was produced". A recorded output arrives as a
-# string — `extract_attribute_value` turns an empty OTLP arrayValue/kvlistValue into
-# [] / {} and json.dumps makes those truthy — so a plain falsiness check would read
-# them as a real response. Used only to decide whether an ERRORED span produced
-# anything; see the estimation gate below.
-_EMPTY_OUTPUT_SENTINELS = frozenset({"null", "[]", "{}", '""', "''"})
+def _has_recorded_response(output: Any) -> bool:
+    """Whether a span's recorded output represents an actual produced response.
 
-
-def _has_recorded_response(output: str | None) -> bool:
-    """Whether a span's recorded output represents an actual produced response."""
-    if not output:
+    Takes the RAW attribute value, before `json.dumps`. That matters: an empty OTLP
+    arrayValue/kvlistValue arrives from `extract_attribute_value` as [] / {} and
+    serializes to the truthy strings "[]" / "{}" — but a model that literally
+    answered "[]" (an empty structured-output array is a real, billed response)
+    serializes to the same two characters. Only the pre-serialization type tells
+    the two apart, so matching serialized text against sentinels would withhold
+    billed cost from a genuine response. Used only to decide whether an ERRORED
+    span produced anything; see the estimation gate below.
+    """
+    if output is None:
         return False
-    stripped = output.strip()
-    return bool(stripped) and stripped not in _EMPTY_OUTPUT_SENTINELS
+    if isinstance(output, str):
+        return bool(output.strip())
+    if isinstance(output, (list, dict)):
+        return bool(output)
+    # Any other scalar the extractor can yield (int/float/bool) is a produced
+    # value — 0 and False included.
+    return True
 
 
 def _scope_skips_text_token_estimation(scope_name: str | None) -> bool:
@@ -792,9 +799,7 @@ def transform_otel_to_clickhouse(
                 # status alone, is the discriminator. Named for what it observes: the
                 # absence of output is a property of what the instrumentor recorded,
                 # and stands in for "nothing was produced".
-                errored_without_response = span_is_error and not _has_recorded_response(
-                    span_record.get("output")
-                )
+                errored_without_response = span_is_error and not _has_recorded_response(span_output)
 
                 # Model & token fields — extract API-provided counts whenever a model
                 # name is present, not just for LLM spans. Auto-instrumentors
