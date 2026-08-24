@@ -280,7 +280,50 @@ class DetectorReaderService:
             )
             for row in result.result_rows
         ]
+        run_ids = self._run_ids_for_findings(project_id, [it.finding_id for it in items])
+        for it in items:
+            it.run_ids = run_ids.get(it.finding_id, [])
         return items, total
+
+    def _run_ids_for_findings(
+        self, project_id: str, finding_ids: list[str]
+    ) -> dict[str, list[str]]:
+        """Map finding_id -> its producing run_ids.
+
+        A finding is per-trace but a run is per-(trace, detector), so a finding
+        that fired N detectors has N runs, each referencing it via ``finding_id``;
+        this reverses that for a page of findings in one bounded query. Kept
+        separate from the finding SQL so the delicate dedup/version filtering
+        there stays untouched. ``FINAL`` reads canonical (post-merge) run rows so
+        a run re-evaluated back to non-triggering (its current version drops the
+        ``finding_id``) is not attributed from a stale pre-merge row; sorted for a
+        stable list. ``{}`` on missing/failed lookup — run_ids are a display
+        convenience, never a reason to fail the read.
+
+        Args:
+            project_id (str): Owning project; scopes the lookup.
+            finding_ids (list[str]): The finding ids of the current page.
+
+        Returns:
+            dict[str, list[str]]: ``finding_id -> sorted list of run_ids``, for
+            findings that have at least one run.
+        """
+        ids = [f for f in finding_ids if f]
+        if not ids:
+            return {}
+        try:
+            result = self._client.query(
+                "SELECT finding_id, arraySort(groupUniqArray(run_id)) AS run_ids "
+                "FROM detector_runs FINAL "
+                "WHERE project_id = {project_id:String} "
+                "AND finding_id IN {finding_ids:Array(String)} "
+                "GROUP BY finding_id",
+                parameters={"project_id": project_id, "finding_ids": ids},
+            )
+            return {row[0]: list(row[1]) for row in result.result_rows}
+        except Exception:
+            logger.warning("run_id lookup failed; run_ids will be empty", exc_info=True)
+            return {}
 
     def _resolve_detector_names(self, project_id: str, token: str) -> list[str]:
         """Resolve a `--detector` token to the set of matching detector names.
@@ -305,8 +348,21 @@ class DetectorReaderService:
     # detail
     # ------------------------------------------------------------------ #
     def get_finding(self, project_id: str, finding_id: str) -> FindingDetail | None:
+        """Get one finding by id.
+
+        Stored finding ids are uuid-hyphenated, but display surfaces render
+        them dashless to match run/trace id shape — compare
+        hyphen-insensitively so an id copied from either surface resolves.
+
+        Args:
+            project_id (str): Project that owns the finding.
+            finding_id (str): The finding id, with or without hyphens.
+
+        Returns:
+            FindingDetail | None: The finding, or None when no row matches.
+        """
         row = self._fetch_finding(
-            "finding_id = {finding_id:String}",
+            "replaceAll(finding_id, '-', '') = replaceAll({finding_id:String}, '-', '')",
             {"project_id": project_id, "finding_id": finding_id},
         )
         return self._build_detail(project_id, row) if row else None
@@ -355,6 +411,7 @@ class DetectorReaderService:
             detectors=[r.detector_name for r in results],
             results=results,
             rca=self._read_rca(project_id, finding_id),
+            run_ids=self._run_ids_for_findings(project_id, [finding_id]).get(finding_id, []),
         )
 
     def _read_templates(self, project_id: str, detector_ids: list[str]) -> dict[str, str | None]:
