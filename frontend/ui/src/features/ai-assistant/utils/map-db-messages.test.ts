@@ -98,6 +98,74 @@ describe("mapDbMessages", () => {
     expect(msg.costUsd).toBeUndefined();
   });
 
+  it("coerces a Decimal-serialized string cost into a number", () => {
+    const [msg] = mapDbMessages([
+      {
+        ...base,
+        id: "a1",
+        role: "assistant",
+        content: "answer",
+        inputTokens: 120,
+        outputTokens: 45,
+        cost: "0.012300",
+      },
+    ]);
+    expect(msg.costUsd).toBe(0.0123);
+  });
+
+  it("restores the cumulative session total from assistant metadata", () => {
+    const [msg] = mapDbMessages([
+      {
+        ...base,
+        id: "a1",
+        role: "assistant",
+        content: "answer",
+        inputTokens: 120,
+        outputTokens: 45,
+        metadata: { totalTokens: 999 },
+      },
+    ]);
+    expect(msg.totalTokens).toBe(999);
+  });
+
+  it("folds a content-less usage carrier row into the previous assistant bubble", () => {
+    const msgs = mapDbMessages([
+      { ...base, id: "u1", role: "user", content: "check the trace" },
+      { ...base, id: "a1", role: "assistant", content: "Checking." },
+      {
+        ...base,
+        id: "t1",
+        role: "tool_step",
+        content: "",
+        metadata: { toolCallId: "t1", toolName: "get_traces", args: {} },
+      },
+      {
+        ...base,
+        id: "a2",
+        role: "assistant",
+        content: "",
+        inputTokens: 50,
+        outputTokens: 10,
+        cost: "0.005000",
+      },
+    ]);
+    // no empty bubble — the usage lands on the last text bubble, like live
+    expect(msgs.map((m) => m.id)).toEqual(["u1", "a1", "t1"]);
+    const bubble = msgs[1];
+    expect(bubble.inputTokens).toBe(50);
+    expect(bubble.outputTokens).toBe(10);
+    expect(bubble.costUsd).toBe(0.005);
+  });
+
+  it("keeps a usage carrier row when there is no earlier assistant bubble", () => {
+    const msgs = mapDbMessages([
+      { ...base, id: "u1", role: "user", content: "go" },
+      { ...base, id: "a1", role: "assistant", content: "", inputTokens: 5, outputTokens: 1 },
+    ]);
+    expect(msgs).toHaveLength(2);
+    expect(msgs[1].inputTokens).toBe(5);
+  });
+
   it("maps plain user/assistant rows and preserves order", () => {
     const msgs = mapDbMessages([
       { ...base, id: "u1", role: "user", content: "hi" },

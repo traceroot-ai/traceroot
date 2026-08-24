@@ -65,6 +65,29 @@ describe("UsageAccumulator", () => {
     warnSpy.mockRestore();
   });
 
+  it("survives a failing pricing lookup with a zero-cost fallback", async () => {
+    mocks.calculateCost.mockRejectedValueOnce(new Error("pricing db down"));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const acc = new UsageAccumulator();
+    acc.onEvent(messageEnd({ input: 10, output: 5 }));
+
+    const usage = await acc.toTokenUsage(false);
+    expect(usage).toMatchObject({ inputTokens: 10, outputTokens: 5, cost: 0 });
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it("carries the last reported cumulative session total", async () => {
+    const acc = new UsageAccumulator();
+    acc.onEvent(messageEnd({ input: 10, output: 5, totalTokens: 100, cost: { total: 0.01 } }));
+    acc.onEvent(messageEnd({ input: 20, output: 15, totalTokens: 250, cost: { total: 0.02 } }));
+
+    const usage = await acc.toTokenUsage(false);
+    expect(usage?.totalTokens).toBe(250);
+  });
+
   it("returns undefined when the run produced no model (nothing to bill)", async () => {
     const acc = new UsageAccumulator();
     expect(await acc.toTokenUsage(false)).toBeUndefined();

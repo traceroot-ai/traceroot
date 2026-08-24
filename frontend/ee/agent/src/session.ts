@@ -15,6 +15,9 @@ export interface TokenUsageData {
   inputTokens: number;
   outputTokens: number;
   cost: number;
+  // Cumulative session tokens as reported by the stream; persisted in the
+  // final segment's metadata (no dedicated column), not aggregated for billing.
+  totalTokens?: number;
 }
 
 export class SessionManager {
@@ -50,27 +53,31 @@ export class SessionManager {
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
     };
 
-    return session.messages
-      .filter((m) => m.role === "user" || m.role === "assistant")
-      .map(
-        (m): Message =>
-          m.role === "user"
-            ? ({
-                role: "user",
-                content: [{ type: "text", text: m.content }],
-                timestamp: m.createTime.getTime(),
-              } satisfies UserMessage)
-            : ({
-                role: "assistant",
-                content: [{ type: "text", text: m.content }],
-                api: "restored",
-                provider: m.provider ?? "unknown",
-                model: m.model ?? "unknown",
-                usage: zeroUsage,
-                stopReason: "stop",
-                timestamp: m.createTime.getTime(),
-              } satisfies AssistantMessage),
-      );
+    return (
+      session.messages
+        // Content-less assistant rows are usage carriers for runs that ended at
+        // a tool boundary — there is no text to restore, so skip them.
+        .filter((m) => m.role === "user" || (m.role === "assistant" && m.content !== ""))
+        .map(
+          (m): Message =>
+            m.role === "user"
+              ? ({
+                  role: "user",
+                  content: [{ type: "text", text: m.content }],
+                  timestamp: m.createTime.getTime(),
+                } satisfies UserMessage)
+              : ({
+                  role: "assistant",
+                  content: [{ type: "text", text: m.content }],
+                  api: "restored",
+                  provider: m.provider ?? "unknown",
+                  model: m.model ?? "unknown",
+                  usage: zeroUsage,
+                  stopReason: "stop",
+                  timestamp: m.createTime.getTime(),
+                } satisfies AssistantMessage),
+        )
+    );
   }
 
   /**

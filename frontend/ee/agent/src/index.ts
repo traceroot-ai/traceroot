@@ -237,8 +237,12 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
             data: JSON.stringify({ message: error.message }),
           });
           // Persist whatever the run produced before failing (text so far,
-          // completed tool steps) so reloaded history matches what was shown.
-          await persister.finish();
+          // completed tool steps) so reloaded history matches what was shown,
+          // with the usage accumulated before the failure so those tokens
+          // still count toward the run meters.
+          await persister.finish(
+            await usageAccumulator.toTokenUsage(body.source === ModelSource.BYOK),
+          );
           resolve();
         },
         onDone: async () => {

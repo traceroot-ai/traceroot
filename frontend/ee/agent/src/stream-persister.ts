@@ -67,12 +67,25 @@ export class StreamPersister {
   }
 
   private flushTextSegment(tokenUsage?: TokenUsageData): void {
-    if (!this.text && !this.thinking) return;
+    // A run can end at a tool boundary with no trailing text; its usage must
+    // still land in a row, else the run escapes run counting and billing.
+    if (!this.text && !this.thinking && !tokenUsage) return;
     const content = this.text;
     const thinking = this.thinking;
     this.text = "";
     this.thinking = "";
-    this.enqueue("assistant", content, thinking ? { thinking } : undefined, tokenUsage);
+    const metadata = {
+      ...(thinking ? { thinking } : {}),
+      // The cumulative session total only exists in stream events — persist it
+      // with the final segment so the reloaded usage footer can show it.
+      ...(tokenUsage?.totalTokens != null ? { totalTokens: tokenUsage.totalTokens } : {}),
+    };
+    this.enqueue(
+      "assistant",
+      content,
+      Object.keys(metadata).length > 0 ? metadata : undefined,
+      tokenUsage,
+    );
   }
 
   private enqueue(
