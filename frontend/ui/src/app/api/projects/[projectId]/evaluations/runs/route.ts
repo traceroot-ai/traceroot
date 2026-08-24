@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
-import { prisma } from "@traceroot/core";
+import { prisma, PlanType } from "@traceroot/core";
 import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-helpers";
+import { clampStartAfter } from "@/lib/server/retention";
 import { compareRuns } from "@/lib/eval/comparison";
 import { toComparisonRun, toComparisonResults } from "@/lib/eval/comparison-db";
 import { countResultStatuses, passRate, excludedSummary } from "@/lib/eval/pass-rate";
@@ -79,8 +80,24 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   const searchQuery = searchParams.get("search_query")?.trim() || null;
   const sort = parseSort(searchParams.get("sort"));
   const order = parseOrder(searchParams.get("order"));
-  const startedAfter = parseDateParam(searchParams.get("started_after"));
   const startedBefore = parseDateParam(searchParams.get("started_before"));
+
+  // Retention gate. Evaluation runs are plan-windowed telemetry like traces, and this
+  // is their only server-side reader, so the clamp lives here — the same helper the
+  // detector proxies use, mirroring the Python gate (backend/rest/retention.py) that
+  // fronts the ClickHouse-backed routes. Lists clamp silently rather than 403: the
+  // date picker already refuses out-of-window presets, and this is the backstop for a
+  // request that did not come from it. `clampStartAfter` also substitutes the cutoff
+  // for a missing or unparseable bound, so an UNBOUNDED request is windowed too —
+  // omitting `started_after` must not be a wider query than asking for 90 days.
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: accessResult.project.workspaceId },
+    select: { billingPlan: true },
+  });
+  const billingPlan = workspace?.billingPlan || PlanType.FREE;
+  const startedAfter = parseDateParam(
+    clampStartAfter(billingPlan, searchParams.get("started_after")),
+  );
 
   const where = {
     projectId,
