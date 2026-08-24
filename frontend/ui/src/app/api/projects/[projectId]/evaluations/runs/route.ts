@@ -83,9 +83,12 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   const startedBefore = parseDateParam(searchParams.get("started_before"));
 
   // Retention gate. Evaluation runs are plan-windowed telemetry like traces, and this
-  // is their only server-side reader, so the clamp lives here — the same helper the
-  // detector proxies use, mirroring the Python gate (backend/rest/retention.py) that
-  // fronts the ClickHouse-backed routes. Lists clamp silently rather than 403: the
+  // is the only server-side reader that LISTS them, so the clamp lives here — the same
+  // helper the detector proxies use, mirroring the Python gate (backend/rest/retention.py)
+  // that fronts the ClickHouse-backed routes. (The by-id readers — runs/[runId], the
+  // compare route — and the run-derived aggregates on evaluations/ and
+  // evaluations/scorers/ are still ungated; they need the by-id equivalent
+  // (`enforce_retention_by_time`), not this clamp.) Lists clamp silently rather than 403: the
   // date picker already refuses out-of-window presets, and this is the backstop for a
   // request that did not come from it. `clampStartAfter` also substitutes the cutoff
   // for a missing or unparseable bound, so an UNBOUNDED request is windowed too —
