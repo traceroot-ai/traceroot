@@ -380,6 +380,22 @@ describe("Dataset detail — filtering and adding rows", () => {
 });
 
 /**
+ * The detail route's row order — `[createTime desc, testCaseId desc]`, newest
+ * first with the id breaking the tie. Ordering here is not cosmetic: a publish
+ * appends the new case, so served in insertion order the table's TOP row would
+ * be a different case than the one a real user sees there, and a test picking
+ * "the first row" would act on a row the product never puts first.
+ */
+function byNewestFirst(cases: ReturnType<typeof testCase>[]) {
+  return [...cases].sort((a, b) => {
+    const at = String(a.createTime);
+    const bt = String(b.createTime);
+    if (at !== bt) return at < bt ? 1 : -1;
+    return String(a.testCaseId) < String(b.testCaseId) ? 1 : -1;
+  });
+}
+
+/**
  * A dataset where every write behaves the way the server actually behaves.
  * `publishDatasetVersion` branches off the CURRENT version, writes a NEW one
  * with the change applied (fresh per-version row ids and all), and repoints
@@ -388,9 +404,8 @@ describe("Dataset detail — filtering and adding rows", () => {
  * is exactly what makes a pinned selection observably stale after a write.
  */
 function mockPublishOnWrite() {
-  // Newest first, the order the detail route returns them in. Published versions
-  // carry no label, so widen it off V1's literal type.
-  let versions: (Omit<typeof V1, "label"> & { label: string | null })[] = [V2, V1];
+  // Newest first, the order the detail route returns them in.
+  let versions: (typeof V1)[] = [V2, V1];
   let currentVersionId = "dv2";
   const casesByVersion = new Map<string, ReturnType<typeof testCase>[]>([
     ["dv1", [testCase({ id: "old-1", datasetVersionId: "dv1", input: "seeded ticket" })]],
@@ -418,7 +433,8 @@ function mockPublishOnWrite() {
         ...V1,
         id,
         versionNumber,
-        label: null,
+        // publishDatasetVersion labels an unlabelled publish `v<number>`.
+        label: `v${versionNumber}`,
         createTime: `2026-07-17T${String(11 + versionNumber).padStart(2, "0")}:00:00Z`,
       },
       ...versions,
@@ -475,12 +491,22 @@ function mockPublishOnWrite() {
           currentVersion: versions.find((v) => v.id === currentVersionId),
           selectedVersion: selected,
           isCurrentVersion: selected.id === currentVersionId,
-          testCases: casesByVersion.get(selected.id) ?? [],
+          testCases: byNewestFirst(casesByVersion.get(selected.id) ?? []),
           versions,
         };
       },
     };
   }) as unknown as typeof fetch;
+}
+
+/**
+ * Open the action menu of the row whose Input cell matches — addressed by
+ * content, since the table is ordered newest-first and a positional index would
+ * quietly act on a different row than the assertions are written about.
+ */
+async function openRowActions(text: string | RegExp) {
+  const row = (await screen.findAllByText(text))[0].closest("tr")!;
+  fireEvent.click(within(row).getByLabelText("Row actions"));
 }
 
 /** The dataset-detail GETs, excluding the nested /test-cases requests. */
@@ -511,7 +537,7 @@ describe("Dataset detail — deleting a row with a version pinned", () => {
     // Pinned, yet still the current version — the Actions column proves it.
     expect(await screen.findByRole("columnheader", { name: "Actions" })).toBeDefined();
 
-    fireEvent.click((await screen.findAllByLabelText("Row actions"))[0]);
+    await openRowActions(/charged twice/);
     fireEvent.click(await screen.findByText("Delete"));
     fireEvent.click(screen.getAllByRole("button", { name: "Delete" }).at(-1)!);
     expect(await screen.findByText("Row deleted")).toBeDefined();
@@ -552,7 +578,7 @@ describe("Dataset detail — deleting a row with a version pinned", () => {
     expect(detailGets().at(-1)!.url).not.toContain("version_id");
 
     // ...and the following delete (publishing dv4) keeps it there.
-    fireEvent.click((await screen.findAllByLabelText("Row actions"))[0]);
+    await openRowActions(/charged twice/);
     fireEvent.click(await screen.findByText("Delete"));
     fireEvent.click(screen.getAllByRole("button", { name: "Delete" }).at(-1)!);
     await screen.findByText("Row deleted");
