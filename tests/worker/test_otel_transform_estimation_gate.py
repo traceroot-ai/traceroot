@@ -404,6 +404,49 @@ def test_errored_llm_span_with_empty_container_output_gets_no_estimated_tokens()
         assert spans[0].get("cost") is None, f"{label} priced"
 
 
+def test_errored_llm_span_with_populated_container_output_still_gets_estimated_tokens():
+    """A NON-empty OTLP container is a response — the GenAI-semconv mid-stream shape.
+
+    The empty-container test above pins one side of the container branch; this pins
+    the other. `gen_ai.output.messages` is array-typed in the GenAI semconv, so an
+    emitter following it records a partial streamed response as a populated
+    arrayValue rather than the stringified `output.value` openinference uses —
+    meaning the mid-stream case the narrow gate exists for reaches
+    `_has_recorded_response` as a list, not a str. That prompt was billed in full.
+    Without this, only the string shape of a mid-stream failure is covered, and a
+    container check that over-reached to "any container is empty" would silently
+    zero real cost on every GenAI-semconv stream that died mid-response.
+    """
+    message = {
+        "kvlistValue": {
+            "values": [
+                {"key": "role", "value": {"stringValue": "assistant"}},
+                {"key": "content", "value": {"stringValue": OUTPUT_TEXT}},
+            ]
+        }
+    }
+    for label, raw in (
+        ("populated arrayValue", {"arrayValue": {"values": [message]}}),
+        ("populated kvlistValue", message),
+    ):
+        spans = _transform(
+            [
+                _span_with(
+                    [
+                        make_attr("openinference.span.kind", "LLM"),
+                        make_attr("llm.model_name", MODEL),
+                        make_attr("input.value", INPUT_TEXT),
+                        {"key": "gen_ai.output.messages", "value": raw},
+                    ],
+                    status_code=2,
+                )
+            ]
+        )
+        assert spans[0]["status"] == "ERROR", label
+        assert spans[0].get("input_tokens"), f"{label} was not read as a response"
+        assert spans[0].get("output_tokens"), f"{label} produced no output estimate"
+
+
 def test_errored_llm_span_with_whitespace_output_gets_no_estimated_tokens():
     """A string of only whitespace is no response — the rejection case."""
     spans = _transform(
