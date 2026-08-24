@@ -29,8 +29,13 @@ INPUT_TEXT = "What is the weather in Tokyo and San Francisco today? " * 10
 OUTPUT_TEXT = "The weather in Tokyo is sunny and San Francisco is foggy. " * 10
 
 
-def _span_with(attrs: list[dict], span_id: str = "00f067aa0ba902b7", name: str = "span"):
-    return make_span(TRACE_ID, span_id, name=name, attributes=attrs)
+def _span_with(
+    attrs: list[dict],
+    span_id: str = "00f067aa0ba902b7",
+    name: str = "span",
+    status_code: int = 0,
+):
+    return make_span(TRACE_ID, span_id, name=name, attributes=attrs, status_code=status_code)
 
 
 def _transform(spans: list[dict], scope_name: str = "openinference.instrumentation.test"):
@@ -47,6 +52,15 @@ def _model_and_text(kind_attr: list[dict]) -> list[dict]:
         make_attr("llm.model_name", MODEL),
         make_attr("input.value", INPUT_TEXT),
         make_attr("output.value", OUTPUT_TEXT),
+    ]
+
+
+def _model_and_prompt_only(kind_attr: list[dict]) -> list[dict]:
+    """A rejected call's shape: the prompt was recorded, no response ever arrived."""
+    return [
+        *kind_attr,
+        make_attr("llm.model_name", MODEL),
+        make_attr("input.value", INPUT_TEXT),
     ]
 
 
@@ -263,4 +277,133 @@ def test_claude_agent_sdk_typescript_scope_llm_span_still_estimated():
         [_span_with(_model_and_text([make_attr("openinference.span.kind", "LLM")]))],
         scope_name="@traceroot-ai/claude-agent-sdk",
     )
+    _assert_estimated_tokens(spans[0])
+
+
+# ---------------------------------------------------------------------------
+# Errored spans must NOT be estimated
+#
+# A call the provider rejected (400 credit-exhausted, auth failure, a reject
+# before processing) consumed zero tokens upstream, but the instrumentor still
+# records the model name — it comes from the REQUEST — and the prompt text. That
+# is exactly the estimation bait above, so without a status term the fallback
+# prices a call the provider never ran: input_tokens = tokenize(prompt), output
+# 0, cost > 0. Real money over-reported on every failed LLM call.
+#
+# Deliberate tradeoff: a STREAMING call that dies mid-stream did burn real
+# tokens and may carry partial output text, and these gates make it uncounted.
+# Under-counting a rare partial beats over-counting every outright rejection.
+# Do not "fix" this back.
+# ---------------------------------------------------------------------------
+
+
+def test_errored_llm_span_gets_no_estimated_tokens():
+    """The observed bug: a 400-rejected Anthropic call priced off its prompt."""
+    spans = _transform(
+        [
+            _span_with(
+                _model_and_prompt_only([make_attr("openinference.span.kind", "LLM")]),
+                status_code=2,
+            )
+        ]
+    )
+    assert spans[0]["status"] == "ERROR"
+    _assert_no_fabricated_tokens(spans[0])
+    # The model name is still recorded — only counts and cost are withheld.
+    assert spans[0]["model_name"] == MODEL
+
+
+def test_errored_llm_span_with_string_status_code_gets_no_estimated_tokens():
+    """Emitters that send the enum name rather than the int must gate too."""
+    spans = _transform(
+        [
+            _span_with(
+                _model_and_prompt_only([make_attr("openinference.span.kind", "LLM")]),
+                status_code="STATUS_CODE_ERROR",
+            )
+        ]
+    )
+    assert spans[0]["status"] == "ERROR"
+    _assert_no_fabricated_tokens(spans[0])
+
+
+def test_errored_llm_span_with_partial_output_gets_no_estimated_tokens():
+    """A mid-stream failure carries output text; estimation is still withheld.
+
+    Pins the tradeoff documented above so it is a decision, not an accident.
+    """
+    spans = _transform(
+        [_span_with(_model_and_text([make_attr("openinference.span.kind", "LLM")]), status_code=2)]
+    )
+    _assert_no_fabricated_tokens(spans[0])
+
+
+def test_errored_llm_span_keeps_api_reported_counts():
+    """Tier 1 stays ungated: usage a provider genuinely reports on a failed call
+    (partial streaming, some 4xx bodies) is real and must survive."""
+    spans = _transform(
+        [
+            _span_with(
+                [
+                    make_attr("openinference.span.kind", "LLM"),
+                    make_attr("llm.model_name", MODEL),
+                    make_attr("input.value", INPUT_TEXT),
+                    make_attr("llm.token_count.prompt", 120),
+                    make_attr("llm.token_count.completion", 8),
+                ],
+                status_code=2,
+            )
+        ]
+    )
+    assert spans[0]["status"] == "ERROR"
+    assert spans[0]["input_tokens"] == 120
+    assert spans[0]["output_tokens"] == 8
+    assert spans[0]["total_tokens"] == 128
+
+
+def test_errored_llm_span_keeps_api_reported_cost():
+    mock_prices = {"input": 0.000003, "output": 0.000015}
+    with patch("worker.tokens.pricing.get_model_price", return_value=mock_prices):
+        spans = _transform(
+            [
+                _span_with(
+                    [
+                        make_attr("openinference.span.kind", "LLM"),
+                        make_attr("llm.model_name", MODEL),
+                        make_attr("llm.token_count.prompt", 1000),
+                        make_attr("llm.token_count.completion", 100),
+                    ],
+                    status_code=2,
+                )
+            ]
+        )
+    assert spans[0]["cost"] is not None and spans[0]["cost"] > 0
+
+
+def test_errored_llm_span_keeps_manual_usage():
+    """`traceroot.llm.usage` is a reported count, not an estimate — also ungated."""
+    spans = _transform(
+        [
+            _span_with(
+                [
+                    make_attr("openinference.span.kind", "LLM"),
+                    make_attr("llm.model_name", MODEL),
+                    make_attr("input.value", INPUT_TEXT),
+                    make_attr("traceroot.llm.usage", '{"input_tokens": 42, "output_tokens": 7}'),
+                ],
+                status_code=2,
+            )
+        ]
+    )
+    assert spans[0]["input_tokens"] == 42
+    assert spans[0]["output_tokens"] == 7
+
+
+def test_ok_status_llm_span_still_gets_estimated_tokens():
+    """Only STATUS_CODE_ERROR gates. An explicit OK (code 1) must still estimate,
+    guarding against a truthiness check that would swallow every set status."""
+    spans = _transform(
+        [_span_with(_model_and_text([make_attr("openinference.span.kind", "LLM")]), status_code=1)]
+    )
+    assert spans[0].get("status") != "ERROR"
     _assert_estimated_tokens(spans[0])
