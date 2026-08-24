@@ -20,7 +20,7 @@ import { DATE_FILTER_OPTIONS, toTimestampBounds, type DateFilterOption } from "@
 import { useKeywordSearch } from "@/lib/hooks/use-keyword-search";
 import { useRetention } from "@/lib/hooks/use-retention";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
-import { PlanType } from "@traceroot/core";
+import { toPlanType } from "@traceroot/core";
 import { Table, TBody, Td, Th, THead, TR, TRHead } from "@/components/ui/table";
 import { DatasetActionsMenu, EmptyState, Timestamp } from "@/features/offline-eval/components";
 import { ProjectBreadcrumb } from "@/features/projects/components";
@@ -441,7 +441,7 @@ function RunsTab({ projectId }: { projectId: string }) {
         open={retention.showPricing}
         onOpenChange={retention.closePricing}
         workspaceId={retention.workspaceId}
-        currentPlan={(retention.billingPlan as PlanType) || PlanType.FREE}
+        currentPlan={toPlanType(retention.billingPlan)}
       />
     </>
   );

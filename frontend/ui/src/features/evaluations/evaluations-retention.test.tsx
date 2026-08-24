@@ -154,4 +154,17 @@ describe("Evaluations date range is gated by the plan's retention window", () =>
 
     expect(screen.getByText("Choose a plan")).toBeTruthy();
   });
+
+  it("offers the upgrade flow against the free plan when the plan string is unrecognized", async () => {
+    // Same fail-closed rule the window uses: an unknown `billing_plan` (a free-form
+    // TEXT column) must reach the dialog as FREE. Raw, it matches no plan, so no card
+    // is the current one and `isUpgrade` is false for all of them — every CTA reads
+    // "Downgrade", inviting a paying-looking workspace to "downgrade" to Starter.
+    lookups.workspace = { data: { billingPlan: "legacy-team" }, isPending: false };
+
+    await pickPreset("Last 90 days");
+
+    expect(screen.getByText("Current Plan")).toBeTruthy();
+    expect(screen.queryByText("Downgrade")).toBeNull();
+  });
 });
