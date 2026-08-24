@@ -707,6 +707,18 @@ def transform_otel_to_clickhouse(
                 if is_evaluation:
                     span_record["is_evaluation"] = True
 
+                # Check span status for errors. Determined HERE, before anything reads
+                # it, because the token/cost section below gates text estimation on it
+                # — stamping the status further down (as this used to) left the
+                # estimation blind to failures and priced calls that never ran.
+                status = otel_span.get("status", {})
+                status_code = status.get("code", 0)
+                # Handle both int (0, 1, 2) and string ("STATUS_CODE_ERROR") formats
+                span_is_error = status_code == 2 or status_code == "STATUS_CODE_ERROR"
+                if span_is_error:
+                    span_record["status"] = SpanStatus.ERROR
+                    span_record["status_message"] = status.get("message")
+
                 # Extract git source fields for span
                 git_source_file = str_or_none(span_attrs.get("traceroot.git.source_file"))
                 # source_line lands in Nullable(Int32): parse it like any other numeric
@@ -977,6 +989,7 @@ def transform_otel_to_clickhouse(
                     elif (
                         not aggregate_wrapper
                         and span_kind == SpanKind.LLM
+                        and not span_is_error
                         and not _scope_skips_text_token_estimation(scope_name)
                     ):
                         # Fall back to text-based estimation — only for LLM (completion)
@@ -990,6 +1003,18 @@ def transform_otel_to_clickhouse(
                         # text be estimated into fabricated counts.
                         # Scopes in _SKIP_TEXT_TOKEN_ESTIMATION_SCOPES leave even their
                         # LLM spans deliberately unset and are skipped as well.
+                        # Errored spans are excluded too: a rejected call (400, auth
+                        # failure, provider reject) burned nothing upstream, but the
+                        # instrumentor still records the model — it comes from the
+                        # REQUEST — and the prompt, which is exactly the shape this
+                        # branch prices. Estimating it invents an input-token cost for
+                        # a call that never ran. Only ESTIMATION is gated; reported
+                        # usage above is kept on error spans, since a provider that
+                        # does report counts on a failure is reporting real ones.
+                        # Tradeoff: a stream that dies mid-response did burn tokens and
+                        # may carry partial output text, and it now goes uncounted.
+                        # Under-counting rare partials beats over-counting every
+                        # outright rejection.
                         from worker.tokens import calculate_cost
 
                         usage = calculate_cost(
@@ -1048,14 +1073,6 @@ def transform_otel_to_clickhouse(
                     }
                     if extra_attrs:
                         span_record["metadata"] = json.dumps(extra_attrs)
-
-                # Check span status for errors
-                status = otel_span.get("status", {})
-                status_code = status.get("code", 0)
-                # Handle both int (0, 1, 2) and string ("STATUS_CODE_ERROR") formats
-                if status_code == 2 or status_code == "STATUS_CODE_ERROR":
-                    span_record["status"] = SpanStatus.ERROR
-                    span_record["status_message"] = status.get("message")
 
                 spans.append(span_record)
 

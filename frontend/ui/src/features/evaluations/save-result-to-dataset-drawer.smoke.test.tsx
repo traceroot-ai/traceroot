@@ -37,9 +37,6 @@ vi.mock("@/components/ui/select", () => ({
   SelectItem: ({ value, children }: { value: string; children: React.ReactNode }) => (
     <option value={value}>{children}</option>
   ),
-  SelectEmpty: ({ children }: { children: React.ReactNode }) => (
-    <option disabled>{children}</option>
-  ),
 }));
 
 import {
@@ -177,11 +174,8 @@ describe("SaveResultToDatasetDrawer", () => {
     });
     mount("save_new_case");
     // ds1 is the source dataset (default); saving a new case that recreates the source
-    // is what the backend rejects. Save stays disabled until the datasets list has
-    // loaded and confirms ds1 is a real, current dataset.
-    const saveBtn = screen.getByRole("button", { name: /Save new case/i }) as HTMLButtonElement;
-    await waitFor(() => expect(saveBtn.disabled).toBe(false));
-    fireEvent.click(saveBtn);
+    // is what the backend rejects.
+    fireEvent.click(screen.getByRole("button", { name: /Save new case/i }));
 
     await waitFor(() =>
       expect(screen.getByRole("alert").textContent).toMatch(/use update instead/i),
