@@ -285,6 +285,37 @@ describe("useAiChat session switching", () => {
     expect(sessionPosts).toBe(1);
   });
 
+  it("concurrent sends share one in-flight session creation", async () => {
+    let sessionPosts = 0;
+    const messagePosts: string[] = [];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.endsWith("/ai/sessions")) {
+        sessionPosts += 1;
+        return jsonResponse({ id: "A" });
+      }
+      const messageMatch = url.match(/\/ai\/sessions\/([^/]+)\/messages$/);
+      if (method === "POST" && messageMatch) {
+        messagePosts.push(messageMatch[1]);
+        return createSSE().response;
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    const { result } = renderChat();
+
+    // both fired before the first creation resolves — they must share it
+    await act(async () => {
+      await Promise.all([
+        result.current.handleSend("one", MODEL),
+        result.current.handleSend("two", MODEL),
+      ]);
+    });
+
+    expect(sessionPosts).toBe(1);
+    expect(messagePosts).toEqual(["A", "A"]);
+  });
+
   it("deleting the active session clears the view and stops its stream", async () => {
     const { result } = renderChat();
     await startStreamInA(result);
