@@ -72,5 +72,21 @@ describe("SessionManager.buildContext", () => {
   it("returns an empty context for a missing or empty session", async () => {
     mocks.findUnique.mockResolvedValue(null);
     expect(await new SessionManager("s1").buildContext()).toEqual([]);
+
+    mocks.findUnique.mockResolvedValue({ id: "s1", messages: [] });
+    expect(await new SessionManager("s1").buildContext()).toEqual([]);
+  });
+
+  it("skips content-less assistant rows (usage carriers of tool-only runs)", async () => {
+    mocks.findUnique.mockResolvedValue({
+      id: "s1",
+      messages: [
+        row("1", "user", "check the trace"),
+        row("2", "assistant", "", { model: "test-model", provider: "test-provider" }),
+      ],
+    });
+
+    const context = await new SessionManager("s1").buildContext();
+    expect(context.map((m) => m.role)).toEqual(["user"]);
   });
 });
