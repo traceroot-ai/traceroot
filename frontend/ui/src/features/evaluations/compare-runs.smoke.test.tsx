@@ -423,5 +423,11 @@ describe("CompareRunsView — N-run diff table", () => {
     expect(screen.queryByText("4.2s")).toBeNull();
     expect(screen.queryByText("50.0%")).toBeNull();
     expect(screen.getAllByText("2.1s").length).toBeGreaterThan(0);
+    // Keep-FIRST, not last-write-wins: the kept baseline row is the EARLIEST duplicate
+    // (dup-a, routing_accuracy 100%), so its aggregate reads 100% and dup-b's 0% never
+    // surfaces. A last-write-wins map would keep dup-b and render 0.0% here — this
+    // assertion is what fails if the dedup policy silently flips.
+    expect(screen.queryByText("0.0%")).toBeNull();
+    expect(screen.getAllByText("100.0%").length).toBeGreaterThan(0);
   });
 });
