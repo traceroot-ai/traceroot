@@ -359,6 +359,208 @@ describe("useAiChat session switching", () => {
     expect(result.current.currentSessionId).toBe("B-session");
   });
 
+  it("clicking New Session while a session creation is in flight does not restore the old session", async () => {
+    let resolveCreation!: (r: Response) => void;
+    const messagePosts: string[] = [];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.endsWith("/ai/sessions")) {
+        return new Promise<Response>((r) => {
+          resolveCreation = r;
+        });
+      }
+      const messageMatch = url.match(/\/ai\/sessions\/([^/]+)\/messages$/);
+      if (method === "POST" && messageMatch) {
+        messagePosts.push(messageMatch[1]);
+        return createSSE().response;
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    const { result } = renderChat();
+
+    let send!: Promise<void>;
+    act(() => {
+      send = result.current.handleSend("hi", MODEL);
+    });
+    act(() => {
+      result.current.handleNewSession();
+    });
+    await act(async () => {
+      resolveCreation(jsonResponse({ id: "A" }));
+      await send;
+    });
+
+    // the in-flight message still delivers to the session created for it…
+    expect(messagePosts).toEqual(["A"]);
+    // …but it must not snap the panel back to that session
+    expect(result.current.currentSessionId).toBeNull();
+    expect(result.current.messages).toEqual([]);
+  });
+
+  it("a send after New Session creates a fresh session instead of reusing the pending creation", async () => {
+    const creations: Array<(r: Response) => void> = [];
+    const messagePosts: string[] = [];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.endsWith("/ai/sessions")) {
+        return new Promise<Response>((r) => {
+          creations.push(r);
+        });
+      }
+      const messageMatch = url.match(/\/ai\/sessions\/([^/]+)\/messages$/);
+      if (method === "POST" && messageMatch) {
+        messagePosts.push(messageMatch[1]);
+        return createSSE().response;
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    const { result } = renderChat();
+
+    let first!: Promise<void>;
+    act(() => {
+      first = result.current.handleSend("one", MODEL);
+    });
+    act(() => {
+      result.current.handleNewSession();
+    });
+    let second!: Promise<void>;
+    act(() => {
+      second = result.current.handleSend("two", MODEL);
+    });
+
+    // the post-boundary send must have started its own creation
+    expect(creations).toHaveLength(2);
+
+    await act(async () => {
+      creations[1](jsonResponse({ id: "B" }));
+      await second;
+      creations[0](jsonResponse({ id: "A" }));
+      await first;
+    });
+
+    expect(messagePosts).toEqual(["B", "A"]);
+    expect(result.current.currentSessionId).toBe("B");
+  });
+
+  it("selecting a history session while a creation is in flight is not clobbered by its late commit", async () => {
+    let resolveCreation!: (r: Response) => void;
+    const messagePosts: string[] = [];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.endsWith("/ai/sessions")) {
+        return new Promise<Response>((r) => {
+          resolveCreation = r;
+        });
+      }
+      const messageMatch = url.match(/\/ai\/sessions\/([^/]+)\/messages$/);
+      if (method === "POST" && messageMatch) {
+        messagePosts.push(messageMatch[1]);
+        return createSSE().response;
+      }
+      if (method === "GET" && messageMatch) return jsonResponse({ messages: [] });
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    const { result } = renderChat();
+
+    let send!: Promise<void>;
+    act(() => {
+      send = result.current.handleSend("hi", MODEL);
+    });
+    await act(async () => {
+      await result.current.handleSelectSession(sessionB);
+    });
+    await act(async () => {
+      resolveCreation(jsonResponse({ id: "A" }));
+      await send;
+    });
+
+    expect(messagePosts).toEqual(["A"]);
+    expect(result.current.currentSessionId).toBe("B");
+  });
+
+  it("an RCA session arriving via initialSessionId is not clobbered by an in-flight creation's commit", async () => {
+    let resolveCreation!: (r: Response) => void;
+    const messagePosts: string[] = [];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.endsWith("/ai/sessions")) {
+        return new Promise<Response>((r) => {
+          resolveCreation = r;
+        });
+      }
+      const messageMatch = url.match(/\/ai\/sessions\/([^/]+)\/messages$/);
+      if (method === "POST" && messageMatch) {
+        messagePosts.push(messageMatch[1]);
+        return createSSE().response;
+      }
+      if (method === "GET" && messageMatch) return jsonResponse({ messages: [] });
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    const { result, rerender } = renderHook(
+      ({ initialSessionId }: { initialSessionId?: string }) =>
+        useAiChat({ projectId: "p1", initialSessionId }),
+      { initialProps: {} as { initialSessionId?: string } },
+    );
+
+    let send!: Promise<void>;
+    act(() => {
+      send = result.current.handleSend("hi", MODEL);
+    });
+    // the RCA session arrives while the creation is still in flight
+    await act(async () => {
+      rerender({ initialSessionId: "R" });
+    });
+    expect(result.current.currentSessionId).toBe("R");
+
+    await act(async () => {
+      resolveCreation(jsonResponse({ id: "A" }));
+      await send;
+    });
+
+    expect(messagePosts).toEqual(["A"]);
+    expect(result.current.currentSessionId).toBe("R");
+  });
+
+  it("a send immediately after New Session does not reuse the previous active session", async () => {
+    let sessionPosts = 0;
+    const messagePosts: string[] = [];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.endsWith("/ai/sessions")) {
+        sessionPosts += 1;
+        return jsonResponse({ id: `S${sessionPosts}` });
+      }
+      const messageMatch = url.match(/\/ai\/sessions\/([^/]+)\/messages$/);
+      if (method === "POST" && messageMatch) {
+        messagePosts.push(messageMatch[1]);
+        return createSSE().response;
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    const { result } = renderChat();
+
+    // establish an active session the normal way
+    await act(async () => {
+      await result.current.handleSend("old chat", MODEL);
+    });
+    expect(result.current.currentSessionId).toBe("S1");
+
+    // New Session and a send in the same tick — before any rerender can sync refs
+    await act(async () => {
+      result.current.handleNewSession();
+      await result.current.handleSend("fresh chat", MODEL);
+    });
+
+    expect(sessionPosts).toBe(2);
+    expect(messagePosts).toEqual(["S1", "S2"]);
+    expect(result.current.currentSessionId).toBe("S2");
+  });
+
   it("deleting the active session clears the view and stops its stream", async () => {
     const { result } = renderChat();
     await startStreamInA(result);
