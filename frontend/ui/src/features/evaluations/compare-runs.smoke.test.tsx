@@ -494,4 +494,46 @@ describe("CompareRunsView — N-run diff table", () => {
     expect(screen.getAllByText("4.4s").length).toBeGreaterThan(0);
     expect(screen.queryByText("8.8s")).toBeNull();
   });
+
+  it("marks a run's cells 'no matching case' for a duplicate-input row it can't fill", () => {
+    // The BASELINE has two duplicate-input rows (distinct testCaseIds, distinct outputs).
+    // The cross-dataset run has ONE case with that input: consume-once fills the first row
+    // and leaves the second unfilled for that run. The unfilled row must render an explicit
+    // "no matching case" marker for the cross run (naming its dataset) — visually distinct
+    // from a present-but-null "—" — while the filled row still shows the run's real value,
+    // and the baseline's own distinct value survives in BOTH rows.
+    const DUP = "Ticket 9: refund status for order 7788";
+    const BASE = {
+      run: runDetail("opus", 41, "opus"), // ds1
+      results: [
+        result("dup-a", DUP, "base-dup-a", { routing_accuracy: 1, is_known_category: 1 }),
+        result("dup-b", DUP, "base-dup-b", { routing_accuracy: 0, is_known_category: 1 }),
+      ],
+    };
+    const CROSS = {
+      run: { ...runDetail("sonnet", 42, "sonnet"), datasetId: "ds2", datasetName: "tickets-v2" },
+      results: [result("x1", DUP, "cross-out", { routing_accuracy: 1, is_known_category: 1 })],
+    };
+    const R: Record<string, unknown> = { opus: BASE, sonnet: CROSS };
+    hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
+      ids.map((id) => ({ data: R[id], isLoading: false, isError: false })),
+    );
+    mount();
+
+    // The row the cross run DID fill shows its real output — and no "no case" marker.
+    const filled = screen.getByText("base-dup-a").closest("tr") as HTMLTableRowElement;
+    expect(within(filled).getByText("cross-out")).toBeTruthy();
+    expect(within(filled).queryAllByTitle(/No case with this input/)).toHaveLength(0);
+
+    // The duplicate row the cross run could NOT fill: no cross output, and its cells carry
+    // the explicit "no matching case" marker naming the run's dataset (tickets-v2) — not a
+    // plain scored "—". The baseline's distinct value (base-dup-b) still renders.
+    const unfilled = screen.getByText("base-dup-b").closest("tr") as HTMLTableRowElement;
+    expect(within(unfilled).queryByText("cross-out")).toBeNull();
+    const markers = within(unfilled).getAllByTitle("No case with this input in tickets-v2");
+    // Present across the cross run's stacked cells (output, expected, scorers, duration, cost).
+    expect(markers.length).toBeGreaterThan(0);
+    // The marker is visually distinct from a normal missing-score "—" (lighter + italic).
+    expect(markers[0].className).toContain("italic");
+  });
 });

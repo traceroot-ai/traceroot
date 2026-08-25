@@ -149,6 +149,23 @@ function TextValue({ text }: { text: string | null }) {
   );
 }
 
+/**
+ * A run that has NO case aligned to this row — its dataset never carried this input,
+ * or (cross-dataset, consume-once) a duplicate-input row it legitimately can't fill a
+ * second time. Rendered as a lighter, italic marker so it reads as "no matching case"
+ * rather than a present-but-null "—", with a native hover tooltip naming the dataset.
+ */
+function NoCase({ datasetName }: { datasetName: string | null }) {
+  return (
+    <span
+      className="cursor-default italic text-muted-foreground/40"
+      title={`No case with this input in ${datasetName ?? "this run’s dataset"}`}
+    >
+      —
+    </span>
+  );
+}
+
 /** One value per run, stacked and colour-keyed (in baseline-first display order). */
 function RunStack({
   values,
@@ -180,6 +197,7 @@ function NumericStack({
   get,
   fmt,
   higherIsBetter,
+  hasCase,
 }: {
   ordered: Bundle[];
   baseline: Bundle;
@@ -187,12 +205,23 @@ function NumericStack({
   get: (b: Bundle) => number | null;
   fmt: (n: number) => string;
   higherIsBetter: boolean;
+  /** Per-run: does this run have a case aligned to this row? When it returns false the
+   *  run's entry reads as an explicit "no matching case" instead of a bare "—". Omitted
+   *  for the aggregate row, where every run participates. */
+  hasCase?: (b: Bundle) => boolean;
 }) {
   const base = get(baseline);
   return (
     <RunStack
       align="right"
       values={ordered.map((b) => {
+        if (hasCase && !hasCase(b)) {
+          return {
+            runId: b.run.id,
+            dot: dotFor(b.run.id),
+            node: <NoCase datasetName={b.run.datasetName} />,
+          };
+        }
         const v = get(b);
         const isBaseline = b.run.id === baseline.run.id;
         const delta = !isBaseline && v !== null && base !== null ? v - base : null;
@@ -619,6 +648,11 @@ function CaseRow({
   isCategorical: (name: string) => boolean;
 }) {
   const rowOf = (b: Bundle) => b.byCase.get(caseId);
+  // Whether a run actually has a case aligned to this row. A run is absent from `byCase`
+  // when it has no case for the row — cross-dataset, that's a duplicate-input row it can't
+  // fill under consume-once. Such a run's cells render an explicit "no matching case"
+  // marker rather than a bare "—". Same-dataset intersection rows always have every run.
+  const hasCase = (b: Bundle) => b.byCase.has(caseId);
 
   // Collapse a per-run string column to one value when the runs agree. `sameOn` decides
   // agreement (default: the raw text); the displayed value is still the raw text.
@@ -644,7 +678,11 @@ function CaseRow({
       values={ordered.map((b) => ({
         runId: b.run.id,
         dot: dotFor(b.run.id),
-        node: <TextValue text={get(rowOf(b))} />,
+        node: hasCase(b) ? (
+          <TextValue text={get(rowOf(b))} />
+        ) : (
+          <NoCase datasetName={b.run.datasetName} />
+        ),
       }))}
     />
   );
@@ -675,10 +713,12 @@ function CaseRow({
               values={ordered.map((b) => ({
                 runId: b.run.id,
                 dot: dotFor(b.run.id),
-                node: (
+                node: hasCase(b) ? (
                   <span className="whitespace-nowrap">
                     {scoreText(rowOf(b)?.scores.find((s) => s.scorerName === name))}
                   </span>
+                ) : (
+                  <NoCase datasetName={b.run.datasetName} />
                 ),
               }))}
             />
@@ -692,6 +732,7 @@ function CaseRow({
               get={(b) => scoreNumeric(rowOf(b)?.scores.find((s) => s.scorerName === name))}
               fmt={fmtScoreNumber}
               higherIsBetter={higherFor(name)}
+              hasCase={hasCase}
             />
           </Td>
         ),
@@ -704,6 +745,7 @@ function CaseRow({
           get={(b) => rowOf(b)?.durationMs ?? null}
           fmt={fmtMs}
           higherIsBetter={false}
+          hasCase={hasCase}
         />
       </Td>
       <Td className="align-top text-[11px] tabular-nums">
@@ -714,6 +756,7 @@ function CaseRow({
           get={(b) => rowOf(b)?.cost ?? null}
           fmt={fmtCost}
           higherIsBetter={false}
+          hasCase={hasCase}
         />
       </Td>
     </TR>
