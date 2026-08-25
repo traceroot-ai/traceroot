@@ -6,8 +6,8 @@
  * `errored` (the candidate app or a scorer threw) or `not_scored`, and nothing else:
  * a case with several scorers has no single headline verdict, so the SDK records a
  * per-score `passed` and derives no case-level pass/fail. The `passed`/`failed`
- * statuses remain valid on the wire for ingestion from released SDK versions, but no
- * current writer produces them, so nothing here rolls them up.
+ * statuses remain valid on the wire — narrowing an inbound enum is a breaking change —
+ * but no writer produces them, so nothing here rolls them up.
  */
 
 export interface ResultStatusCounts {

@@ -26,9 +26,9 @@ describe("countResultStatuses", () => {
     });
   });
 
-  // `passed`/`failed` stay valid on the wire for ingestion from released SDK versions,
-  // but no current writer emits them and nothing rolls them up. Pinned so a future
-  // reader does not "restore" a rollup that never had a denominator.
+  // `passed`/`failed` stay valid on the wire but no writer emits them and nothing rolls
+  // them up. Pinned so a future reader does not "restore" a rollup that never had a
+  // denominator.
   it("does not count the legacy pass/fail statuses", () => {
     expect(
       countResultStatuses([{ status: "passed" }, { status: "failed" }, { status: "errored" }]),

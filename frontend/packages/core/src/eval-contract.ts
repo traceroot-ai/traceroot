@@ -71,11 +71,12 @@ export const EVAL_RUN_STATUSES = [
 export const EvalRunStatusSchema = z.enum(EVAL_RUN_STATUSES);
 export type EvalRunStatus = (typeof EVAL_RUN_STATUSES)[number];
 
-// `passed`/`failed` are accepted but no longer produced. `caseStatus()` in the current
-// SDKs returns only `errored`/`not_scored`; released versions (through traceroot 0.1.11)
-// still upload the older pair. This enum backs INBOUND request validation, so narrowing
-// it would reject every upload from those versions. Do not remove them — the
-// cross-language parity fixtures pin this.
+// `passed`/`failed` are accepted but never produced: `caseStatus()` returns only
+// `errored`/`not_scored`, and no shipped release has emitted the older pair (the eval
+// SDK first shipped in 0.3.0, already metric-first). They stay because this enum backs
+// INBOUND request validation: narrowing an accepted-value set is a breaking change for
+// any client that sends one — and buys nothing, since an unrolled-up status is simply
+// ignored. The cross-language parity fixtures pin all four.
 export const EVAL_RESULT_STATUSES = ["passed", "failed", "errored", "not_scored"] as const;
 export const EvalResultStatusSchema = z.enum(EVAL_RESULT_STATUSES);
 export type EvalResultStatus = (typeof EVAL_RESULT_STATUSES)[number];

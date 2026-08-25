@@ -248,4 +248,8 @@ it("derives per-status counts from the run's own results", async () => {
   };
   expect(body.run.erroredCount).toBe(1);
   expect(body.run.notScoredCount).toBe(0);
+  // The detail route spreads the same helper as the list route, so it needs the same
+  // absence guard — otherwise a re-added count is caught on one endpoint only.
+  expect(body.run).not.toHaveProperty("passedCount");
+  expect(body.run).not.toHaveProperty("failedCount");
 });
