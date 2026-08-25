@@ -1,0 +1,151 @@
+---
+title: Get Started
+description: Author a dataset, write a task and a scorer, and run your first eval
+---
+
+## 1. Install the SDK
+
+<Tabs>
+  <Tab title="Python">
+    ```bash
+    pip install traceroot
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```bash
+    npm install @traceroot-ai/traceroot
+    ```
+  </Tab>
+</Tabs>
+
+## 2. Define a dataset
+
+A `Dataset` holds your cases. Each case has an `input` and an optional `expected` answer.
+
+Set `key` explicitly on any dataset you'll re-run — it's what identifies the dataset, so you can rename it later without starting a new history.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import Dataset, evaluate
+
+    ds = Dataset("Capitals QA", key="capitals-qa")
+    ds.add({"country": "France"}, expected="Paris")
+    ds.add({"country": "Japan"}, expected="Tokyo")
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { Dataset, evaluate } from "@traceroot-ai/traceroot";
+
+    const ds = new Dataset("Capitals QA", null, { key: "capitals-qa" });
+    ds.add({ country: "France" }, { expected: "Paris" });
+    ds.add({ country: "Japan" }, { expected: "Tokyo" });
+    ```
+  </Tab>
+</Tabs>
+
+## 3. Write a task
+
+The task is the system under evaluation. It maps an `input` to an `output`, and it may be async.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    CAPITALS = {"France": "Paris", "Japan": "Tokyo"}
+
+    def task(input):
+        return CAPITALS.get(input["country"], "")
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    const CAPITALS: Record<string, string> = { France: "Paris", Japan: "Tokyo" };
+
+    function task(input: { country: string }) {
+      return CAPITALS[input.country] ?? "";
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## 4. Write a scorer
+
+A scorer receives the case's `input`, `output`, `expected`, and `metadata`, and returns a value. The metric takes the function's name.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    def matches_expected(input, output, expected=None):
+        return output == expected
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import type { ScorerContext } from "@traceroot-ai/traceroot";
+
+    function matchesExpected({ output, expected }: ScorerContext) {
+      return output === expected;
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## 5. Run it
+
+`local=True` runs the eval in full and reports nowhere, so you can try it without an API key.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    result = evaluate(
+        name="capitals",
+        dataset=ds,
+        task=task,
+        scorers=[matches_expected],
+        candidate_version="capitals-v1",
+        local=True,
+    )
+    print(result.summary())
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    const result = await evaluate({
+      name: "capitals",
+      dataset: ds,
+      task,
+      scorers: [matchesExpected],
+      candidateVersion: "capitals-v1",
+      local: true,
+    });
+    console.log(result.summary());
+    ```
+  </Tab>
+</Tabs>
+
+Drop `local` and the run reports to TraceRoot, using the same credentials as the tracing SDK:
+
+```bash .env
+TRACEROOT_API_KEY=your-api-key
+TRACEROOT_HOST_URL=https://app.traceroot.ai  # or your self-hosted URL
+```
+
+`candidate_version` labels what you're testing — a model id, a prompt version, or a git sha. It's what the UI groups and compares runs by.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Datasets" icon="table" href="/evals/datasets">
+    Author, version, and publish datasets.
+  </Card>
+  <Card title="Scorers" icon="ruler" href="/evals/scorers">
+    Code scorers and LLM-as-a-judge.
+  </Card>
+  <Card title="Running Evals" icon="play" href="/evals/running-evals">
+    Every option of <code>evaluate()</code>.
+  </Card>
+  <Card title="Reading Results" icon="list-check" href="/evals/reading-results">
+    Per-metric summaries and per-case results.
+  </Card>
+</CardGroup>

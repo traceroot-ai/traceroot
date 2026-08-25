@@ -25,6 +25,7 @@ from starlette.responses import Response
 from rest.openapi_public import PUBLIC_PREFIX
 from rest.rate_limit import limiter, rate_limit_exceeded_handler
 from rest.routers.dashboards import router as dashboards_router
+from rest.routers.detectors import router as detectors_router
 from rest.routers.internal import router as internal_router
 from rest.routers.live import router as live_router
 from rest.routers.public.account_read import router as public_account_read_router
@@ -103,6 +104,7 @@ app.include_router(traces_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
 app.include_router(sessions_router, prefix="/api/v1")
 app.include_router(dashboards_router, prefix="/api/v1")
+app.include_router(detectors_router, prefix="/api/v1")
 
 # Live trace streaming (SSE, user auth)
 app.include_router(live_router, prefix="/api/v1")

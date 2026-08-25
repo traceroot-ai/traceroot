@@ -174,21 +174,21 @@ describe("ActiveSessions", () => {
     expect(mocks.listSessions).toHaveBeenCalledTimes(1);
   });
 
-  it("offers no plain revoke on any row while the current session is still resolving", async () => {
+  it("shows loading (no rows, no revoke controls) while the current session is still resolving", async () => {
     // authClient.useSession() pending, same shape as the device-client.tsx
-    // sign-in gate: `data` is present but stale/undefined and isPending is
-    // true until better-auth confirms which session is "this device".
+    // sign-in gate. The list fetch is deliberately gated on the resolved user
+    // (the rows carry raw session tokens, so an unattributed fetch can't be
+    // cached under a user-scoped key) — so nothing token-bearing renders yet:
+    // just the loading state, with no revoke control anywhere.
     mocks.useSession.mockReturnValue({ data: undefined, isPending: true });
     mocks.listSessions.mockResolvedValue({ data: [currentSession, cliSession], error: null });
 
     renderComponent();
 
-    await screen.findByText("TraceRoot CLI");
-    // Neither row's revoke control is offered, and revoke-all is disabled,
-    // until we actually know which session is current.
+    await screen.findByText("Loading sessions...");
+    expect(mocks.listSessions).not.toHaveBeenCalled();
+    expect(screen.queryByText("TraceRoot CLI")).toBeNull();
     expect(screen.queryByRole("button", { name: /^revoke$/i })).toBeNull();
-    const revokeAll = screen.getByRole("button", { name: /revoke all other sessions/i });
-    expect(revokeAll.hasAttribute("disabled")).toBe(true);
   });
 
   it("shows an empty state when there are no sessions", async () => {
