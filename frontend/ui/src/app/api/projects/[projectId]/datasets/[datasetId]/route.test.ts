@@ -71,10 +71,10 @@ beforeEach(() => {
 });
 
 describe("GET", () => {
-  it("returns the current version, its cases (newest first), and the version list", async () => {
+  it("returns the current version, its cases (insertion order), and the version list", async () => {
     prismaMock.dataset.findFirst.mockResolvedValue(dataset());
     prismaMock.testCase.findMany.mockResolvedValue([
-      { id: "row1", testCaseId: "case-1", input: '"a ticket"', expected: '"billing"' },
+      { id: "row1", testCaseId: "case-1", position: 0, input: '"a ticket"', expected: '"billing"' },
     ]);
 
     const res = await GET(getReq(), params);
@@ -84,12 +84,13 @@ describe("GET", () => {
     expect(b.currentVersion).toEqual(v2);
     expect(b.isCurrentVersion).toBe(true);
     expect(b.versions).toEqual([v2, v1]);
-    // Cases are read from the SELECTED version only.
+    // Cases are read from the SELECTED version only, in insertion (position) order —
+    // the order they were added, matching the run-results table (and the SDK array).
     expect(prismaMock.testCase.findMany).toHaveBeenCalledWith({
       where: { datasetVersionId: "dv2" },
-      // Tiebroken on testCaseId: cases pushed in one SDK call share a createTime,
-      // so without it their order is whatever the database happens to return.
-      orderBy: [{ createTime: "desc" }, { testCaseId: "desc" }],
+      // Insertion order (TEST_CASE_ORDER): `position` first; createTime + testCaseId
+      // are fallbacks only for rows written before the column existed (position null).
+      orderBy: [{ position: "asc" }, { createTime: "asc" }, { testCaseId: "asc" }],
     });
   });
 
@@ -115,9 +116,9 @@ describe("GET", () => {
     expect(b.isCurrentVersion).toBe(false);
     expect(prismaMock.testCase.findMany).toHaveBeenCalledWith({
       where: { datasetVersionId: "dv1" },
-      // Tiebroken on testCaseId: cases pushed in one SDK call share a createTime,
-      // so without it their order is whatever the database happens to return.
-      orderBy: [{ createTime: "desc" }, { testCaseId: "desc" }],
+      // Insertion order (TEST_CASE_ORDER): `position` first; createTime + testCaseId
+      // are fallbacks only for rows written before the column existed (position null).
+      orderBy: [{ position: "asc" }, { createTime: "asc" }, { testCaseId: "asc" }],
     });
   });
 

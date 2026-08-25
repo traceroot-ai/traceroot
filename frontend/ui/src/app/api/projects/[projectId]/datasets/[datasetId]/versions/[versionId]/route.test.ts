@@ -40,12 +40,12 @@ beforeEach(() => {
   auth.requireProjectAccess.mockResolvedValue({ project: { id: "p1" } });
 });
 
-it("returns the cases with input/expected decoded for display, oldest first", async () => {
+it("returns the cases with input/expected decoded for display, in insertion (position) order", async () => {
   // Stored values are JSON-ENCODED; the response decodes them so this view matches
   // the current-version view (not the raw quoted form).
   const stored = [
-    { id: "row1", testCaseId: "case-1", input: '"hello"', expected: "42" },
-    { id: "row2", testCaseId: "case-2", input: '{"a":1}', expected: null },
+    { id: "row1", testCaseId: "case-1", position: 0, input: '"hello"', expected: "42" },
+    { id: "row2", testCaseId: "case-2", position: 1, input: '{"a":1}', expected: null },
   ];
   prismaMock.datasetVersion.findFirst.mockResolvedValue({
     id: "dv1",
@@ -64,10 +64,14 @@ it("returns the cases with input/expected decoded for display, oldest first", as
   expect(cases[1]).toMatchObject({ testCaseId: "case-2", input: '{\n  "a": 1\n}', expected: null });
   expect(prismaMock.datasetVersion.findFirst).toHaveBeenCalledWith({
     where: { id: "dv1", datasetId: "ds1", projectId: "p1" },
-    // Tiebroken on testCaseId (TEST_CASE_ORDER): a batch pushed in one SDK call
-    // shares a createTime, so createTime alone leaves their order to the database.
+    // Insertion order (TEST_CASE_ORDER): `position` (assigned in SDK/array order at
+    // publish) drives the order; createTime + testCaseId are fallbacks only for rows
+    // written before the column existed (position null). A batch pushed in one SDK
+    // call shares a createTime, so without position their order fell to the hashed id.
     include: {
-      testCases: { orderBy: [{ createTime: "asc" }, { testCaseId: "asc" }] },
+      testCases: {
+        orderBy: [{ position: "asc" }, { createTime: "asc" }, { testCaseId: "asc" }],
+      },
     },
   });
 });

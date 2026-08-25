@@ -540,6 +540,13 @@ model TestCase {
   sourceRunId      String?  @map("source_run_id") @db.VarChar
   sourceResultId   String?  @map("source_result_id") @db.VarChar
   addedBy          String?  @map("added_by") @db.VarChar
+  // Insertion order within the version, assigned in SDK/array order at publish. Every
+  // case of a publish shares one create_time, so this — not the content-addressed
+  // testCaseId — is what preserves the order cases were added. Nullable for rows written
+  // before this column existed: those still order by create_time then testCaseId, i.e.
+  // legacy datasets keep their prior (content-hash) order and aren't retroactively
+  // reordered until they're next republished.
+  position         Int?     @map("position")
   createTime       DateTime @default(now()) @map("create_time") @db.Timestamp(6)
 
   version DatasetVersion @relation(fields: [datasetVersionId], references: [id], onDelete: Cascade)

@@ -3,11 +3,18 @@ import { randomUUID } from "crypto";
 import { versionSnowflakeFromMs } from "./snowflake";
 import { decodeJsonValue } from "./json-value";
 
-/** Deterministic read order for a version's cases (see the ordering note where
- *  it's used): every case a publish writes shares one `create_time` (Postgres'
- *  `CURRENT_TIMESTAMP` default is the transaction start time), so `testCaseId`
- *  breaks the tie and makes the order total instead of "whatever the plan does". */
-export const TEST_CASE_ORDER = [{ createTime: "asc" as const }, { testCaseId: "asc" as const }];
+/** Insertion order for a version's cases: `position` is assigned in SDK/array order at
+ *  publish, so it preserves the order cases were added (and keeps appends stable, since a
+ *  new version copies the current cases in this order). Every case a publish writes shares
+ *  one `create_time`, so before `position` the tie fell to the content-addressed
+ *  `testCaseId` (a hash) — those two remain as fallbacks for rows written before the
+ *  column existed (`position` null → `create_time` then `testCaseId`), i.e. legacy
+ *  datasets keep that prior hash order until they're next republished. */
+export const TEST_CASE_ORDER = [
+  { position: "asc" as const },
+  { createTime: "asc" as const },
+  { testCaseId: "asc" as const },
+];
 
 /**
  * Dataset-version publishing — the immutability core.
@@ -259,8 +266,13 @@ export async function publishDatasetVersion(opts: {
 
     if (cases.length > 0) {
       await tx.testCase.createMany({
-        data: cases.map(({ createTime, ...c }) => ({
+        data: cases.map(({ createTime, ...c }, index) => ({
           ...c,
+          // Insertion order within the version: `cases` is in SDK/array order (and the
+          // current cases were read in that same order via TEST_CASE_ORDER), so the index
+          // preserves the order cases were added — createTime alone can't, since every
+          // case of this publish shares one timestamp.
+          position: index,
           metadata: (c.metadata ?? undefined) as Prisma.InputJsonValue | undefined,
           // Preserve an existing case's original created date across the copy; a
           // brand-new case (no createTime on the seed) omits it and defaults to now.
