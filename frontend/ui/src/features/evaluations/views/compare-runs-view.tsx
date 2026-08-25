@@ -85,10 +85,15 @@ type RunBundle = {
   byTestCase: Map<string, ResultRow>;
   byInput: Map<string, ResultRow>;
 };
-// A run re-projected against the chosen baseline: `byCase` maps a baseline row key (the
+// A run re-projected against the chosen baseline. `byCase` maps a baseline row key (the
 // baseline's `testCaseId`) to this run's aligned result — by testCaseId when the run is
-// on the baseline's dataset, else by canonical input. This is what the table consumes.
-type Bundle = RunBundle & { byCase: Map<string, ResultRow> };
+// on the baseline's dataset, else by canonical input (and, cross-dataset, a single case
+// fills at most one baseline row so a repeated input isn't counted per duplicate row).
+// `covered` is the set of baseline row keys this run *can* line up with — the whole
+// duplicate-input group is covered even though only one row of it is filled — so the
+// compared population (the row intersection) never drops a duplicate row a cross-dataset
+// run legitimately can't fill twice. This is what the table consumes.
+type Bundle = RunBundle & { byCase: Map<string, ResultRow>; covered: Set<string> };
 
 /** Keep-first insertion into a Map — a duplicate key keeps the earliest row. */
 function keepFirst(rows: ResultRow[], keyOf: (r: ResultRow) => string): Map<string, ResultRow> {
@@ -282,36 +287,58 @@ export function CompareRunsView({
   // runs in the same selection.
   const ordered = React.useMemo<Bundle[]>(() => {
     if (!baselineBundle) return [];
-    // Cross-dataset alignment keys on canonical input, so a baseline that repeats an input
-    // across dataset rows must be deduped by input first (`byInput`) — otherwise the shared
-    // input renders once per baseline row and double-counts in the aggregates. Same-dataset
-    // comparisons stay on `byTestCase`, preserving exact row identity across input edits.
-    const baselineRows = crossDataset
-      ? [...baselineBundle.byInput.values()]
-      : [...baselineBundle.byTestCase.values()];
+    // Baseline rows are ALWAYS one per distinct baseline `testCaseId` (occurrence-distinct) —
+    // never globally collapsed by input. So two dataset rows carrying the same input stay two
+    // rows, and a same-dataset peer can still compare them exactly by id even when another run
+    // in the selection spans datasets. (`crossDataset` no longer picks the baseline row list;
+    // alignment is decided per run, against the baseline's dataset, below.)
+    const baselineRows = [...baselineBundle.byTestCase.values()];
     return orderedBundles.map((b) => {
       const sameDataset = b.run.datasetId === baselineBundle.run.datasetId;
       const byCase = new Map<string, ResultRow>();
+      const covered = new Set<string>();
+      // A cross-dataset run aligns by canonical input, but a single case is consumed by AT
+      // MOST ONE baseline row (keep-first): once an input key fills an earlier duplicate
+      // baseline row, later rows repeating that input stay empty for this run — so the case
+      // counts once, not once per duplicate row. `covered` still marks the whole duplicate
+      // group as part of the compared population, independent of which row got filled.
+      const usedInputKeys = new Set<string>();
       for (const br of baselineRows) {
-        const match = sameDataset
-          ? b.byTestCase.get(br.testCaseId)
-          : b.byInput.get(canonicalInputKey(br.input));
-        if (match) byCase.set(br.testCaseId, match);
+        if (sameDataset) {
+          const match = b.byTestCase.get(br.testCaseId);
+          if (match) {
+            covered.add(br.testCaseId);
+            byCase.set(br.testCaseId, match);
+          }
+        } else {
+          const key = canonicalInputKey(br.input);
+          if (b.byInput.has(key)) covered.add(br.testCaseId);
+          if (!usedInputKeys.has(key)) {
+            const match = b.byInput.get(key);
+            if (match) {
+              usedInputKeys.add(key);
+              byCase.set(br.testCaseId, match);
+            }
+          }
+        }
       }
-      return { ...b, byCase };
+      return { ...b, byCase, covered };
     });
-  }, [orderedBundles, baselineBundle, crossDataset]);
+  }, [orderedBundles, baselineBundle]);
 
   const baseline = ordered.find((b) => b.run.id === baselineId) ?? ordered[0];
 
   const crossExperiment = new Set(ordered.map((b) => b.run.evaluationName)).size > 1;
 
-  // Rows = baseline row keys present in EVERY run's aligned view, in baseline order.
-  // Baseline rows are already keep-first-deduped (byTestCase), and each run's `byCase`
-  // is keyed by that same baseline `testCaseId`, so no further de-duplication is needed.
+  // Rows = baseline row keys EVERY run can line up with, in baseline order. Membership is
+  // `covered`, not `byCase`: a cross-dataset run that fills only one of several duplicate-
+  // input baseline rows still covers the whole group, so the extra duplicate rows stay in
+  // the compared population (empty for that run) instead of being dropped — while a run
+  // that shares no input at all still excludes the row. `ordered[0]` is the baseline, whose
+  // `covered` is every baseline row, so this reads as the intersection across all runs.
   const intersection = React.useMemo(() => {
     if (ordered.length === 0) return [];
-    return [...ordered[0].byCase.keys()].filter((id) => ordered.every((b) => b.byCase.has(id)));
+    return [...ordered[0].covered].filter((id) => ordered.every((b) => b.covered.has(id)));
   }, [ordered]);
 
   // Union of scorer names across the compared runs.

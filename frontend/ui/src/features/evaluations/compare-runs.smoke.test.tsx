@@ -392,11 +392,13 @@ describe("CompareRunsView — N-run diff table", () => {
     expect(within(row).getAllByText("−100.0%").length).toBeGreaterThan(0);
   });
 
-  it("dedupes a baseline's repeated input in cross-dataset mode (renders once, counts once)", () => {
-    // The BASELINE run has TWO dataset rows carrying the SAME input (distinct testCaseIds,
-    // differing scores). A cross-dataset run shares that input. Cross-dataset alignment keys
-    // on canonical input, so the shared input must collapse to a SINGLE row and be counted
-    // ONCE in the aggregates — not once per baseline row (which would double-count).
+  it("keeps a baseline's duplicate-input rows distinct in cross-dataset mode, but counts a cross run once", () => {
+    // The BASELINE run has TWO dataset rows carrying the SAME input (occurrence-distinct
+    // testCaseIds, differing scores). A cross-dataset run shares that input. The two baseline
+    // rows must STAY two rows (they're distinct dataset rows) — never globally collapsed by
+    // input — while the lone cross-dataset case is consumed by AT MOST ONE of them, so it's
+    // counted ONCE in the aggregates, not once per duplicate row. (Supersedes the earlier
+    // "renders once" behaviour, which dropped the second occurrence-distinct baseline row.)
     const DUP = "Ticket 9: refund status for order 7788";
     const BASE = {
       run: runDetail("opus", 41, "opus"), // ds1
@@ -407,7 +409,13 @@ describe("CompareRunsView — N-run diff table", () => {
     };
     const CROSS = {
       run: { ...runDetail("sonnet", 42, "sonnet"), datasetId: "ds2", datasetName: "tickets-v2" },
-      results: [result("x1", DUP, "billing", { routing_accuracy: 1, is_known_category: 1 })],
+      // A distinctive 3300ms duration makes double-counting detectable (6.6s vs 3.3s).
+      results: [
+        {
+          ...result("x1", DUP, "billing", { routing_accuracy: 1, is_known_category: 1 }),
+          durationMs: 3300,
+        },
+      ],
     };
     const R: Record<string, unknown> = { opus: BASE, sonnet: CROSS };
     hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
@@ -416,18 +424,85 @@ describe("CompareRunsView — N-run diff table", () => {
     mount();
     // Cross-dataset banner confirms input-keyed alignment is in effect.
     expect(screen.getByText(/aligned by shared input/)).toBeTruthy();
-    // The shared input renders exactly ONE row (deduped by canonical input), not two.
-    expect(screen.getAllByText(DUP)).toHaveLength(1);
-    // Counted once in the totals: baseline Duration total is 2.1s (one row @2100ms), not
-    // 4.2s (two rows). The double-counted mean would also surface as a 50.0% aggregate.
-    expect(screen.queryByText("4.2s")).toBeNull();
-    expect(screen.queryByText("50.0%")).toBeNull();
-    expect(screen.getAllByText("2.1s").length).toBeGreaterThan(0);
-    // Keep-FIRST, not last-write-wins: the kept baseline row is the EARLIEST duplicate
-    // (dup-a, routing_accuracy 100%), so its aggregate reads 100% and dup-b's 0% never
-    // surfaces. A last-write-wins map would keep dup-b and render 0.0% here — this
-    // assertion is what fails if the dedup policy silently flips.
-    expect(screen.queryByText("0.0%")).toBeNull();
+    // The two occurrence-distinct baseline rows are NOT collapsed away: the duplicate input
+    // renders in BOTH rows (dup-a collapses across runs; dup-b shows the baseline's copy),
+    // so it appears twice — and dup-b's distinct baseline score (0%) survives alongside
+    // dup-a's (100%) rather than being dropped.
+    expect(screen.getAllByText(DUP)).toHaveLength(2);
+    expect(screen.getAllByText("0.0%").length).toBeGreaterThan(0);
     expect(screen.getAllByText("100.0%").length).toBeGreaterThan(0);
+    // The cross run fills ONLY ONE of the two rows and is counted ONCE: its 3.3s duration is
+    // not doubled to 6.6s (which counting it per duplicate row would produce).
+    expect(screen.getAllByText("3.3s").length).toBeGreaterThan(0);
+    expect(screen.queryByText("6.6s")).toBeNull();
+  });
+
+  it("keeps same-dataset duplicate-input cases distinct when a cross-dataset run joins (finding #14)", () => {
+    // A (baseline) and B are BOTH on dataset X (ds1) and each carry two cases with the SAME
+    // input "Hello" but distinct testCaseIds (the SDK disambiguates same-input cases by
+    // occurrence) and distinct outputs/scores. C is on a DIFFERENT dataset Y (ds2) with a
+    // single "Hello" case. C's presence makes the selection cross-dataset — which must NOT
+    // collapse A/B's two "Hello" rows into one: A and B still compare case-2 exactly by
+    // testCaseId, and C's lone case fills only ONE row (counted once).
+    const A = {
+      run: runDetail("opus", 41, "opus"), // ds1 = dataset X
+      results: [
+        result("case-1", "Hello", "A-case1-out", { routing_accuracy: 1, is_known_category: 1 }),
+        result("case-2", "Hello", "A-case2-out", { routing_accuracy: 1, is_known_category: 1 }),
+      ],
+    };
+    const B = {
+      run: runDetail("sonnet", 42, "sonnet"), // ds1 = dataset X (same as A)
+      results: [
+        result("case-1", "Hello", "B-case1-out", { routing_accuracy: 1, is_known_category: 1 }),
+        // Distinct score from A's case-2 (0 vs 1) → a regression delta proves alignment.
+        result("case-2", "Hello", "B-case2-out", { routing_accuracy: 0, is_known_category: 1 }),
+      ],
+    };
+    const C = {
+      run: {
+        ...runDetail("haiku", 43, "haiku"),
+        datasetId: "ds2", // dataset Y
+        datasetName: "tickets-v2",
+        datasetVersionId: "dv2",
+      },
+      // One "Hello" case; a distinctive 4400ms duration makes double-counting detectable.
+      results: [
+        {
+          ...result("tc_y_1", "Hello", "C-out", { routing_accuracy: 1, is_known_category: 1 }),
+          durationMs: 4400,
+        },
+      ],
+    };
+    const R: Record<string, unknown> = { opus: A, sonnet: B, haiku: C };
+    hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
+      ids.map((id) => ({ data: R[id], isLoading: false, isError: false })),
+    );
+    render(
+      <CompareRunsView
+        projectId="p1"
+        runIds={["opus", "sonnet", "haiku"]}
+        baselineId="opus"
+        onChangeBaseline={vi.fn()}
+      />,
+    );
+    // C spans datasets → the cross-dataset banner shows.
+    expect(screen.getByText(/aligned by shared input/)).toBeTruthy();
+    // (a) + (b): TWO rows for the duplicate input — case-2 is NOT dropped, and BOTH A and B
+    // show their case-2 values (they align by testCaseId across the same dataset).
+    const row1 = screen.getByText("A-case1-out").closest("tr") as HTMLTableRowElement;
+    const row2 = screen.getByText("A-case2-out").closest("tr") as HTMLTableRowElement;
+    expect(row1).not.toBe(row2);
+    expect(within(row2).getByText("B-case2-out")).toBeTruthy();
+    // B's case-2 regresses against A's case-2 (0% vs 100%) → the delta proves exact
+    // by-testCaseId alignment survived the cross-dataset run joining.
+    expect(within(row2).getAllByText("−100.0%").length).toBeGreaterThan(0);
+    // (c): C fills only ONE of the two rows (the first), never the duplicate.
+    expect(screen.getAllByText("C-out")).toHaveLength(1);
+    expect(within(row1).getByText("C-out")).toBeTruthy();
+    expect(within(row2).queryByText("C-out")).toBeNull();
+    // (d): C is counted ONCE in the aggregates — 4.4s, not doubled to 8.8s.
+    expect(screen.getAllByText("4.4s").length).toBeGreaterThan(0);
+    expect(screen.queryByText("8.8s")).toBeNull();
   });
 });
