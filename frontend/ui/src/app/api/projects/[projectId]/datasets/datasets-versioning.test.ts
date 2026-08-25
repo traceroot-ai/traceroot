@@ -272,6 +272,11 @@ describe("reading a version's cases is deterministically ordered", () => {
   it("assigns position in array order at publish, so the GET returns cases as they were added", async () => {
     // Drive the REAL publish path (`publishDatasetVersion` → `createMany` with
     // `position: index`) against the fake prisma, then read it back through the route.
+    // All cases share ONE createTime, as a real publish does. That makes the fallback
+    // ordering (createTime then testCaseId) tie on createTime and fall to testCaseId — so
+    // only `position` can produce the added order; a broken position stamp can't hide
+    // behind a per-row createTime that happens to match insertion order.
+    const tie = new Date("2026-02-02T00:00:00.000Z");
     const seed = (testCaseId: string): TestCaseSeed => ({
       testCaseId,
       input: encodeJsonValue(testCaseId),
@@ -284,6 +289,7 @@ describe("reading a version's cases is deterministically ordered", () => {
       sourceSpanName: null,
       sourceSpanKind: null,
       addedBy: null,
+      createTime: tie,
     });
 
     // The added order is deliberately neither ascending nor descending by testCaseId, so
