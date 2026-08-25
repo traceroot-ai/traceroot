@@ -41,6 +41,9 @@ export async function runAgent(input: { question: string }): Promise<AgentResult
     model: openai.chat('gpt-4o-mini'),
     // temperature 0 → the same question yields the same tool calls and answer.
     temperature: 0,
+    // Emit OpenTelemetry model/tool spans so TraceRoot captures the agent's
+    // execution (matches the sibling `examples/typescript/vercel-ai` example).
+    experimental_telemetry: { isEnabled: true },
     stopWhen: stepCountIs(5),
     system: SYSTEM_PROMPT,
     prompt: input.question,
