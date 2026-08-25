@@ -89,3 +89,20 @@ export async function runAgent(input: { question: string }): Promise<AgentResult
 
   return { answer: result.text, toolsUsed, steps: result.steps.length };
 }
+
+// ---------------------------------------------------------------------------
+// Standalone entrypoint — `pnpm agent`
+// ---------------------------------------------------------------------------
+// Runs the agent on a sample question and prints the structured result. Guarded
+// so importing this module (as `main.ts` does) never triggers a run — only
+// executing the file directly does.
+if (require.main === module) {
+  // Load OPENAI_API_KEY (and friends) from .env for the standalone run.
+  require('dotenv/config');
+  runAgent({ question: 'What is the current stock price of NVDA?' })
+    .then((result) => console.log(JSON.stringify(result, null, 2)))
+    .catch((err) => {
+      console.error(err);
+      process.exitCode = 1;
+    });
+}
