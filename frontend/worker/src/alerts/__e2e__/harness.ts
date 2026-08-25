@@ -7,10 +7,10 @@
  * and the Slack client) are stubbed in the test file with `vi.mock`, because
  * module mocks must be declared there.
  *
- * Every scenario works inside one workspace/project pair minted per suite run,
- * so parallel runs on a shared database cannot see each other's rows, and
- * `teardown` removes the pair (Postgres cascades; ClickHouse spans are deleted
- * by project id).
+ * Every scenario works inside a workspace/project pair minted for it, so
+ * scenarios — and parallel runs on a shared database — cannot see each other's
+ * rows, and `teardown` removes the pair (Postgres cascades; ClickHouse spans
+ * are deleted by project id).
  */
 import { randomUUID } from "node:crypto";
 import {

@@ -90,9 +90,10 @@ repository secrets, and the suite must pass for them too.
   minute boundary, so anything seeded outside it is invisible by design.
 - Spans must be customer traffic (`source = 'user'`, which `seedSpans` sets):
   every customer-facing read filters on it.
-- Call `runAlertTick(now)` with the same `now` the window was derived from,
-  read the rule back with `readRule`, and hand the enqueued job to
-  `sendAlertNotification` to get the message.
+- Call `tick(now, tenant)` (the suite's scoped wrapper over `runAlertTick`)
+  with the same `now` the window was derived from, read the rule back with
+  `readRule`, and hand the enqueued job to `sendAlertNotification` to get the
+  message.
 - `makeDue(alertId)` re-arms a rule for another tick without touching its
   state; re-seed (or `deleteSpans`) first to change what that tick sees.
 - Tick through the `tick(now, ...tenants)` helper in the suite, never

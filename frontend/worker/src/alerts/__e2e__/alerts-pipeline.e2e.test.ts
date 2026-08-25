@@ -378,7 +378,13 @@ describe("alerts pipeline", () => {
     await tick(now, tenant);
 
     expect((await readRule(alertId)).severity).toBe("OK");
-    expect(jobFor(alertId)).toMatchObject({ severity: "OK", previousSeverity: "NO_DATA" });
+    const recovery = jobFor(alertId);
+    expect(recovery).toMatchObject({ severity: "OK", previousSeverity: "NO_DATA" });
+    await sendAlertNotification(recovery);
+    const recoveryMessage = lastMessage();
+    expect(recoveryMessage.text).toContain("[OK] e2e silent source");
+    expect(sectionTexts(recoveryMessage)[0]).toMatch(/`avg\(latency\)` recovered to \d+/);
+    expect((await readRule(alertId)).lastNotifyStatus).toBe("DELIVERED");
   });
 
   it("sums cost over the window and compares it with the stored operator", async () => {
