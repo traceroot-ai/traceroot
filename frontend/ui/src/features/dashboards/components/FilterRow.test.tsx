@@ -93,6 +93,28 @@ describe("FilterRow value input", () => {
     expect(onRemove).toHaveBeenCalledWith(0);
   });
 
+  it("says the registry is unavailable, and keeps the row removable, when its request failed", () => {
+    vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
+    const onRemove = vi.fn();
+    render(
+      <FilterRow
+        {...baseProps}
+        filterableFields={[]}
+        fieldsMap={{}}
+        fieldsUnavailable
+        onRemove={onRemove}
+        filter={{ field: "model_name", op: "=", value: "gpt-4o" }}
+      />,
+    );
+    const row = screen.getByRole("alert", { name: "Filter fields unavailable" });
+    expect(row.textContent).toContain("model_name = gpt-4o");
+    expect(row.textContent).toContain("Fields unavailable");
+    // not blamed on the field: the registry never answered
+    expect(row.textContent).not.toContain("Unknown field");
+    fireEvent.click(screen.getByRole("button", { name: "Remove filter" }));
+    expect(onRemove).toHaveBeenCalledWith(0);
+  });
+
   it("names an unknown field even when the resolved registry offers no fields at all", () => {
     vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
     render(

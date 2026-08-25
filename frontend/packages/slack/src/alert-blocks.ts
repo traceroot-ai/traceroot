@@ -84,6 +84,15 @@ export function alertTracesUrl(
   return `${appBaseUrl}/projects/${encodeURIComponent(projectId)}/traces?${query}`;
 }
 
+/**
+ * A mrkdwn code span over user-controlled text. mrkdwn has no escape for a
+ * backtick, so one inside the value would end the span early and let the rest
+ * of the value format the message; it is swapped for a look-alike instead.
+ */
+function codeSpan(text: string): string {
+  return `\`${text.replace(/`/g, "\u02BC")}\``;
+}
+
 function formatNumber(value: number): string {
   if (!Number.isFinite(value)) return String(value);
   if (Number.isInteger(value)) return String(value);
@@ -128,7 +137,7 @@ export function buildAlertBlocks(params: AlertBlockParams): AlertSlackMessage {
   // every filter the evaluator ran.
   const where =
     filters.length > 0
-      ? ` Where ${filters.map((filter) => `\`${describeAlertFilter(filter)}\``).join(" and ")}.`
+      ? ` Where ${filters.map((filter) => codeSpan(describeAlertFilter(filter))).join(" and ")}.`
       : "";
 
   const links = [`<${alertUrl(appBaseUrl, projectId, alertId)}|View alert>`];
@@ -154,6 +163,8 @@ export function buildAlertBlocks(params: AlertBlockParams): AlertSlackMessage {
     color: ALERT_SEVERITY_COLORS[severity],
     // Slack parses the fallback text as mrkdwn, so it needs escaping too:
     // unescaped, an alert named "<!channel>" would broadcast.
-    text: truncate(escapeMrkdwn(`${title} — ${outcome}`), HEADER_LIMIT * 2),
+    // The filters ride on the fallback too: a client that renders no blocks
+    // must still tell two rules on the same measure apart.
+    text: truncate(escapeMrkdwn(`${title} — ${outcome}${where}`), HEADER_LIMIT * 2),
   };
 }

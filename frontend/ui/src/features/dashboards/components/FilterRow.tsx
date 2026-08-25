@@ -34,6 +34,7 @@ export function FilterRow({
   view,
   range,
   fieldsLoading = false,
+  fieldsUnavailable = false,
 }: {
   index: number;
   filter: { field: string; op: string; value: string | number; key?: string };
@@ -55,6 +56,12 @@ export function FilterRow({
    * schema query must pass it, or a row would read as unknown while loading.
    */
   fieldsLoading?: boolean;
+  /**
+   * The field registry request failed. The saved row stays legible and
+   * removable, and says so, rather than spinning until a retry that may
+   * never come or reading as an unknown field.
+   */
+  fieldsUnavailable?: boolean;
 }) {
   const fieldMeta = fieldsMap[filter.field];
   const isNumeric = fieldMeta?.type === "number";
@@ -101,17 +108,19 @@ export function FilterRow({
   // field was retired, or one this view never offered. Rendered through the
   // controls it would read as an empty row, so name it and keep it removable.
   // No gate on the registry being non-empty: an answered-but-empty registry
-  // knows the field no better than a populated one.
-  if (!fieldsLoading && filter.field && !fieldMeta) {
+  // knows the field no better than a populated one. A failed registry request
+  // takes the same row under its own label: the field may well be fine.
+  if (!fieldsLoading && filter.field && (fieldsUnavailable || !fieldMeta)) {
+    const label = fieldsUnavailable ? "Fields unavailable" : "Unknown field";
     return (
       <div
         role="alert"
-        aria-label="Unknown filter field"
+        aria-label={fieldsUnavailable ? "Filter fields unavailable" : "Unknown filter field"}
         className="flex h-7 items-center gap-2 rounded-md border border-dashed border-destructive/60 px-2 text-[12px] text-muted-foreground"
       >
         <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" />
         <span className="truncate font-mono">{predicateText}</span>
-        <span className="ml-auto shrink-0">Unknown field</span>
+        <span className="ml-auto shrink-0">{label}</span>
         <button
           type="button"
           onClick={() => onRemove(index)}

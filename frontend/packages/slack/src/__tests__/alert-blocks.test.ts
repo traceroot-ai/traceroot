@@ -210,7 +210,8 @@ describe("buildAlertBlocks", () => {
     expect(outcome).toContain(
       "Where `span_kind = LLM` and `metadata[tenant] contains acme` and `model_name contains gpt` and `is_root = true`.",
     );
-    expect(filtered.text).not.toContain("Where");
+    // the fallback carries the clause too, for clients that render no blocks
+    expect(filtered.text).toContain("Where `span_kind = LLM` and");
 
     const url = links.match(/<([^|]+)\|View traces>/)![1];
     const filtersParam = new URL(url).searchParams.get("filters");
@@ -220,6 +221,18 @@ describe("buildAlertBlocks", () => {
     ]);
     // the window range still frames the link
     expect(url).toContain("date_filter=custom&start=2026-06-23T12%3A00%3A00.000Z");
+  });
+
+  it("keeps a backtick in a filter value from closing the code span", () => {
+    const message = buildAlertBlocks({
+      ...alertBase,
+      filters: [{ field: "name", op: "=", value: "tick`*bold*`tock" }],
+    });
+    const [outcome] = sectionTexts(message);
+    // exactly one code span, the look-alike standing in for each backtick
+    const where = outcome.slice(outcome.indexOf("Where "));
+    expect(where).toBe("Where `name = tickʼ*bold*ʼtock`.");
+    expect(where.split("`").length - 1).toBe(2);
   });
 
   it("omits the filter clause and the filters param when the rule has none", () => {

@@ -123,7 +123,12 @@ describe("AlertForm", () => {
   const newQueryClient = () => new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
   const renderForm = (
-    props: { alertId?: string; initialDraft?: AlertDraft; schemaPending?: boolean } = {},
+    props: {
+      alertId?: string;
+      initialDraft?: AlertDraft;
+      schemaPending?: boolean;
+      schemaError?: boolean;
+    } = {},
     // One client per render keeps the cases independent.
     queryClient = newQueryClient(),
   ) => {
@@ -132,14 +137,16 @@ describe("AlertForm", () => {
     mocks.useWidgetPreview.mockReturnValue({ isPending: true, error: null, data: undefined });
     mocks.useWidgetSchema.mockReturnValue(
       props.schemaPending
-        ? { data: undefined, isPending: true }
-        : { data: { spans: { fields: SPANS_SCHEMA_FIELDS }, traces: { fields: {} } } },
+        ? { data: undefined, isPending: true, isError: false }
+        : props.schemaError
+          ? { data: undefined, isPending: false, isError: true }
+          : { data: { spans: { fields: SPANS_SCHEMA_FIELDS }, traces: { fields: {} } } },
     );
     mocks.useWidgetFieldValues.mockReturnValue({ values: [], isLoading: false });
     const wrapper = ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     );
-    const { schemaPending: _schemaPending, ...formProps } = props;
+    const { schemaPending: _schemaPending, schemaError: _schemaError, ...formProps } = props;
     return render(<AlertForm projectId="proj-1" {...formProps} />, { wrapper });
   };
 
@@ -432,5 +439,27 @@ describe("AlertForm", () => {
     expect(row.textContent).toContain("span_kind = AGENT");
     // not an empty field dropdown that reads as "no filter"
     expect(screen.queryByRole("button", { name: /^Field/ })).toBeNull();
+  });
+
+  it("keeps a saved filter legible and removable when the field schema request fails", () => {
+    renderForm({
+      alertId: "alert-9",
+      schemaError: true,
+      initialDraft: {
+        view: "SPANS",
+        measureId: "count",
+        aggregation: "count",
+        filters: [{ field: "span_kind", op: "=", value: "AGENT" }],
+        operator: ">",
+        threshold: "1",
+        window: "1m",
+        renotify: { mode: "OFF" },
+        name: "filtered",
+      },
+    });
+    const row = screen.getByRole("alert", { name: "Filter fields unavailable" });
+    expect(row.textContent).toContain("span_kind = AGENT");
+    expect(screen.getByRole("button", { name: "Remove filter" })).toBeTruthy();
+    expect(screen.queryByRole("status")).toBeNull();
   });
 });
