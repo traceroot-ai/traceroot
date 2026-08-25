@@ -82,7 +82,10 @@ const answerIsGrounded = Scorer.llmJudge({
 async function main() {
   try {
     // No TraceRoot key? Run locally — execute every case in full but report
-    // nowhere — so a fresh clone works without a TraceRoot credential.
+    // nowhere — so a fresh clone works without a TraceRoot credential. The
+    // unedited .env.example placeholder counts as "no key" too.
+    const apiKey = (process.env.TRACEROOT_API_KEY ?? '').trim();
+    const local = apiKey === '' || apiKey === 'your_traceroot_api_key_here';
     const result = await evaluate({
       name: 'Agent tool eval',
       dataset: dataset(),
@@ -90,7 +93,7 @@ async function main() {
       scorers: [callsExpectedTools, reportsExpectedFacts, answerIsGrounded],
       candidateVersion: 'gpt-4o-mini',
       evaluationKey: 'agent-tool-eval',
-      local: !process.env.TRACEROOT_API_KEY,
+      local,
     });
     console.log(result.summary());
 

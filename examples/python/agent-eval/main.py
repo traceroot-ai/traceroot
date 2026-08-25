@@ -87,8 +87,10 @@ answer_is_grounded = Scorer.llm_judge(
 
 def main() -> None:
     # No TraceRoot key? Run locally — execute every case in full but report
-    # nowhere — so a fresh clone works without a TraceRoot credential.
-    local = not os.getenv("TRACEROOT_API_KEY")
+    # nowhere — so a fresh clone works without a TraceRoot credential. The
+    # unedited .env.example placeholder counts as "no key" too.
+    api_key = (os.getenv("TRACEROOT_API_KEY") or "").strip()
+    local = api_key in ("", "your_traceroot_api_key_here")
     result = evaluate(
         name="Agent tool eval",
         dataset=dataset(),
