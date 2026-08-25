@@ -259,7 +259,9 @@ jobs:
           diff-cover coverage-frontend.lcov \
             --compare-branch="origin/${{ github.base_ref }}" \
             --exclude "**/*vitest.config.ts" \
+            --exclude "**/*vitest.*.config.ts" \
             --exclude "**/next.config.js" \
+            --exclude "**/__e2e__/**" \
             --fail-under=80 \
             --format markdown:diff-coverage-frontend.md,html:diff-coverage-frontend.html
 

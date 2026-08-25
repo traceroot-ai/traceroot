@@ -109,10 +109,12 @@ jobs:
             | GOOSE_INSTALL="$HOME/.goose" sh -s v3.24.1
           echo "$HOME/.goose/bin" >> "$GITHUB_PATH"
 
+      # URL form: this goose release's ClickHouse driver rejects the
+      # `tcp://host:port?username=…` spelling with "driver: bad connection".
       - name: Apply ClickHouse migrations
         run: |
           goose -dir backend/db/clickhouse/migrations clickhouse \
-            "tcp://localhost:9000?username=${CLICKHOUSE_USER}&password=${CLICKHOUSE_PASSWORD}&database=${CLICKHOUSE_DATABASE}" \
+            "clickhouse://${CLICKHOUSE_USER}:${CLICKHOUSE_PASSWORD}@localhost:9000/${CLICKHOUSE_DATABASE}" \
             up
 
       # --- REST backend ----------------------------------------------------
