@@ -5,15 +5,17 @@ import { decodeJsonValue } from "./json-value";
 
 /** Insertion order for a version's cases: `position` is assigned in SDK/array order at
  *  publish, so it preserves the order cases were added (and keeps appends stable, since a
- *  new version copies the current cases in this order). Every case a publish writes shares
- *  one `create_time`, so before `position` the tie fell to the content-addressed
- *  `testCaseId` (a hash) — those two remain as fallbacks for rows written before the
- *  column existed (`position` null → `create_time` then `testCaseId`), i.e. legacy
- *  datasets keep that prior hash order until they're next republished. */
+ *  new version copies the current cases in this order). The `create_time`/`testCaseId`
+ *  keys are a fallback ONLY for rows written before `position` existed (all null): they
+ *  stay DESCENDING to match the pre-`position` ordering exactly, so a legacy dataset's
+ *  detail view keeps the same order it had before this column — it isn't reversed, just
+ *  not reconstructed into true insertion order until it's next republished. (Within a
+ *  post-`position` version every row has a distinct position, so these tiebreaks never
+ *  fire there.) */
 export const TEST_CASE_ORDER = [
   { position: "asc" as const },
-  { createTime: "asc" as const },
-  { testCaseId: "asc" as const },
+  { createTime: "desc" as const },
+  { testCaseId: "desc" as const },
 ];
 
 /**

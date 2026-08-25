@@ -90,7 +90,7 @@ describe("GET", () => {
       where: { datasetVersionId: "dv2" },
       // Insertion order (TEST_CASE_ORDER): `position` first; createTime + testCaseId
       // are fallbacks only for rows written before the column existed (position null).
-      orderBy: [{ position: "asc" }, { createTime: "asc" }, { testCaseId: "asc" }],
+      orderBy: [{ position: "asc" }, { createTime: "desc" }, { testCaseId: "desc" }],
     });
   });
 
@@ -118,7 +118,7 @@ describe("GET", () => {
       where: { datasetVersionId: "dv1" },
       // Insertion order (TEST_CASE_ORDER): `position` first; createTime + testCaseId
       // are fallbacks only for rows written before the column existed (position null).
-      orderBy: [{ position: "asc" }, { createTime: "asc" }, { testCaseId: "asc" }],
+      orderBy: [{ position: "asc" }, { createTime: "desc" }, { testCaseId: "desc" }],
     });
   });
 

@@ -543,9 +543,10 @@ model TestCase {
   // Insertion order within the version, assigned in SDK/array order at publish. Every
   // case of a publish shares one create_time, so this — not the content-addressed
   // testCaseId — is what preserves the order cases were added. Nullable for rows written
-  // before this column existed: those still order by create_time then testCaseId, i.e.
-  // legacy datasets keep their prior (content-hash) order and aren't retroactively
-  // reordered until they're next republished.
+  // before this column existed: those fall back to create_time then testCaseId DESCENDING
+  // (see TEST_CASE_ORDER), which is exactly the pre-column ordering — so a legacy dataset
+  // keeps the same order it had before, just not reconstructed into true insertion order
+  // until it's next republished.
   position         Int?     @map("position")
   createTime       DateTime @default(now()) @map("create_time") @db.Timestamp(6)
 

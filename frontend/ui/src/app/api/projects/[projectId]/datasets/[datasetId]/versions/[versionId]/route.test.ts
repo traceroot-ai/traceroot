@@ -70,7 +70,7 @@ it("returns the cases with input/expected decoded for display, in insertion (pos
     // call shares a createTime, so without position their order fell to the hashed id.
     include: {
       testCases: {
-        orderBy: [{ position: "asc" }, { createTime: "asc" }, { testCaseId: "asc" }],
+        orderBy: [{ position: "asc" }, { createTime: "desc" }, { testCaseId: "desc" }],
       },
     },
   });
