@@ -46,17 +46,17 @@ database it runs against — it is safe to run beside data you use by hand.
 
 ## Scenarios
 
-| # | What is exercised |
-|---|---|
-| 1 | A `span_kind = AGENT` filter: the count applies it, the message states it, the link carries it, delivery is recorded |
-| 2 | A count rule recovers to OK on an empty window (an honest zero), with no traces link |
-| 3 | A `contains` filter the trace list cannot express stays in the prose, out of the link |
-| 4 | A keyed `metadata[tenant] = acme` filter: the materialized map, the prose, the keyed link predicate |
-| 5 | `p95(latency)` over real durations, then an empty window under HOLD: NO_DATA shown, nothing paged, the breach's clocks kept |
-| 6 | `avg(latency)` under NOTIFY: the empty window pages NO_DATA, the return to data pages OK |
-| 7 | `sum(cost)` with `>=`: Decimal arithmetic and the operator phrase |
-| 8 | Three rules across two projects in one tick: each judged on its own project's spans, one page |
-| 9 | A workspace with no Slack channel: the breach stands, delivery records FAILED / no-channel |
+| #   | What is exercised                                                                                                           |
+| --- | --------------------------------------------------------------------------------------------------------------------------- |
+| 1   | A `span_kind = AGENT` filter: the count applies it, the message states it, the link carries it, delivery is recorded        |
+| 2   | A count rule recovers to OK on an empty window (an honest zero), with no traces link                                        |
+| 3   | A `contains` filter the trace list cannot express stays in the prose, out of the link                                       |
+| 4   | A keyed `metadata[tenant] = acme` filter: the materialized map, the prose, the keyed link predicate                         |
+| 5   | `p95(latency)` over real durations, then an empty window under HOLD: NO_DATA shown, nothing paged, the breach's clocks kept |
+| 6   | `avg(latency)` under NOTIFY: the empty window pages NO_DATA, the return to data pages OK                                    |
+| 7   | `sum(cost)` with `>=`: Decimal arithmetic and the operator phrase                                                           |
+| 8   | Three rules across two projects in one tick: each judged on its own project's spans, one page                               |
+| 9   | A workspace with no Slack channel: the breach stands, delivery records FAILED / no-channel                                  |
 
 Left to the unit suites, which target them directly and without a stack:
 renotify intervals, pause/resume cold start, delivery compensation and revert,
