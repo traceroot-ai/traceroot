@@ -44,6 +44,13 @@ export function useAiChat({
   // The in-flight session creation, shared so sends arriving before the first
   // one resolves await the same promise instead of creating duplicate sessions.
   const pendingSessionRef = useRef<Promise<string | null> | null>(null);
+  // Session-boundary generation. Every action that changes which session the
+  // panel is on (New Session, selecting from history, an externally chosen
+  // initial session, close, project switch) bumps it; a send whose creation
+  // resolves across a boundary must not commit
+  // its session as active — the message still delivers to the session it was
+  // created for, which stays reachable via history.
+  const sessionEpochRef = useRef(0);
   const [sessions, setSessions] = useState<AISession[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   // isSending covers the gap between user hitting send and isStreaming becoming true
@@ -69,6 +76,7 @@ export function useAiChat({
   // below owns session selection, so we bail here to avoid clobbering it.
   useEffect(() => {
     if (initialSessionId) return;
+    sessionEpochRef.current++;
     setActiveSessionId(null);
     // Discard any in-flight session creation too — a send racing the switch
     // must not hand the new project a session created for the old one.
@@ -86,6 +94,9 @@ export function useAiChat({
   // to the bucket of the session it was fetched for.
   useEffect(() => {
     if (!initialSessionId || !projectId) return;
+    // An externally chosen session (e.g. opening an RCA chat) is a session
+    // boundary like any other — fence out commits from in-flight sends.
+    sessionEpochRef.current++;
     setActiveSessionId(initialSessionId);
     if (isSessionStreaming(initialSessionId)) return;
 
@@ -154,12 +165,18 @@ export function useAiChat({
       if (!projectId) return;
       setIsSending(true);
       try {
+        const epoch = sessionEpochRef.current;
         const sessionId = await ensureSession();
         if (!sessionId) return;
         // Commit to the ref synchronously so a second send arriving before
-        // the next render sees the session and doesn't create a duplicate.
-        activeSessionIdRef.current = sessionId;
-        setActiveSessionId(sessionId);
+        // the next render sees the session and doesn't create a duplicate —
+        // unless a session boundary was crossed while the creation was in
+        // flight, in which case the user has moved on and this session must
+        // not be pulled back into view.
+        if (epoch === sessionEpochRef.current) {
+          activeSessionIdRef.current = sessionId;
+          setActiveSessionId(sessionId);
+        }
         sendMessage({
           sessionId,
           message,
@@ -181,6 +198,12 @@ export function useAiChat({
   // reading in the background into its own bucket — it is never rendered here,
   // and the user can return to it via history to watch it live.
   const handleNewSession = useCallback(() => {
+    sessionEpochRef.current++;
+    // Drop the shared in-flight creation (without aborting it — its send still
+    // needs it) so the next send opens a fresh session, and sync the ref now
+    // so a send arriving before the next render doesn't reuse the old id.
+    pendingSessionRef.current = null;
+    activeSessionIdRef.current = null;
     setActiveSessionId(null);
   }, []);
 
@@ -190,6 +213,7 @@ export function useAiChat({
   // Switching traces within the same page does NOT trigger this — the panel
   // stays open in that case.
   const handleClose = useCallback(() => {
+    sessionEpochRef.current++;
     for (const ac of ensureSessionAbortersRef.current) ac.abort();
     ensureSessionAbortersRef.current.clear();
     abortAll();
@@ -211,6 +235,7 @@ export function useAiChat({
 
   const handleSelectSession = useCallback(
     async (session: AISession) => {
+      sessionEpochRef.current++;
       setActiveSessionId(session.id);
       setHistoryOpen(false);
 
