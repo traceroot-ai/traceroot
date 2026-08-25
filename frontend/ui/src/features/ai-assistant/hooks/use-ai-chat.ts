@@ -51,6 +51,10 @@ export function useAiChat({
   // its session as active — the message still delivers to the session it was
   // created for, which stays reachable via history.
   const sessionEpochRef = useRef(0);
+  // Hard boundaries (close, project switch) additionally invalidate the send
+  // itself: unlike a session switch — where the message still delivers in the
+  // background — a send crossing a hard boundary must not start a run at all.
+  const hardBoundaryEpochRef = useRef(0);
   const [sessions, setSessions] = useState<AISession[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   // isSending covers the gap between user hitting send and isStreaming becoming true
@@ -77,6 +81,7 @@ export function useAiChat({
   useEffect(() => {
     if (initialSessionId) return;
     sessionEpochRef.current++;
+    hardBoundaryEpochRef.current++;
     setActiveSessionId(null);
     // Discard any in-flight session creation too — a send racing the switch
     // must not hand the new project a session created for the old one.
@@ -166,8 +171,13 @@ export function useAiChat({
       setIsSending(true);
       try {
         const epoch = sessionEpochRef.current;
+        const hardEpoch = hardBoundaryEpochRef.current;
         const sessionId = await ensureSession();
         if (!sessionId) return;
+        // A hard boundary crossed while the creation was in flight drops the
+        // send entirely — a closed panel or an abandoned project must not
+        // start a new run.
+        if (hardEpoch !== hardBoundaryEpochRef.current) return;
         // Commit to the ref synchronously so a second send arriving before
         // the next render sees the session and doesn't create a duplicate —
         // unless a session boundary was crossed while the creation was in
@@ -214,6 +224,7 @@ export function useAiChat({
   // stays open in that case.
   const handleClose = useCallback(() => {
     sessionEpochRef.current++;
+    hardBoundaryEpochRef.current++;
     for (const ac of ensureSessionAbortersRef.current) ac.abort();
     ensureSessionAbortersRef.current.clear();
     abortAll();

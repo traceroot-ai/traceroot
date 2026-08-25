@@ -359,6 +359,45 @@ describe("useAiChat session switching", () => {
     expect(result.current.currentSessionId).toBe("B-session");
   });
 
+  it("closing the panel drops a send whose creation resolved across the close", async () => {
+    let resolveCreation!: (r: Response) => void;
+    const messagePosts: string[] = [];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.endsWith("/ai/sessions")) {
+        // settles only via resolveCreation — deliberately ignores the abort
+        // signal, modeling a response that was already on the wire at close
+        return new Promise<Response>((r) => {
+          resolveCreation = r;
+        });
+      }
+      const messageMatch = url.match(/\/ai\/sessions\/([^/]+)\/messages$/);
+      if (method === "POST" && messageMatch) {
+        messagePosts.push(messageMatch[1]);
+        return createSSE().response;
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    const { result } = renderChat();
+
+    let send!: Promise<void>;
+    act(() => {
+      send = result.current.handleSend("hi", MODEL);
+    });
+    act(() => {
+      result.current.handleClose();
+    });
+    // the creation succeeds anyway — but the panel is closed: no run may start
+    resolveCreation(jsonResponse({ id: "A" }));
+    await act(async () => {
+      await send;
+    });
+
+    expect(messagePosts).toEqual([]);
+    expect(result.current.currentSessionId).toBeNull();
+  });
+
   it("clicking New Session while a session creation is in flight does not restore the old session", async () => {
     let resolveCreation!: (r: Response) => void;
     const messagePosts: string[] = [];
