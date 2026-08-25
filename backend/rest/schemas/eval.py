@@ -129,6 +129,11 @@ def _check_json_size(value: Any, max_chars: int, field: str) -> Any:
 EvalRunStatus = Literal[
     "running", "completed", "completed_with_errors", "failed", "incomplete", "cancelled"
 ]
+# ``passed``/``failed`` are accepted but no longer produced. ``case_status()`` in the
+# current SDKs returns only ``errored``/``not_scored``; released versions (through
+# traceroot 0.1.11) still upload the older pair. This is INBOUND validation for the
+# public result-upload route, so narrowing it would 422 every upload from those
+# versions. Do not remove them — the cross-language parity fixtures pin this.
 EvalResultStatus = Literal["passed", "failed", "errored", "not_scored"]
 ResultChange = Literal["improved", "regressed", "unchanged"]
 ScorerValueType = Literal["numeric", "boolean", "categorical"]
