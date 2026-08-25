@@ -216,8 +216,6 @@ describe("CompareRunsView — N-run diff table", () => {
     mount();
     // Not blocked: no "needs the same dataset" refusal.
     expect(screen.queryByText(/needs the same dataset/)).toBeNull();
-    // An informational banner explains the cross-dataset alignment.
-    expect(screen.getByText(/aligned by shared input/)).toBeTruthy();
     // Both shared inputs align into rows despite disjoint testCaseIds.
     expect(screen.getByText(/my invoice looks wrong/)).toBeTruthy();
     const row = screen
@@ -273,8 +271,6 @@ describe("CompareRunsView — N-run diff table", () => {
       })),
     );
     mount();
-    // No cross-dataset banner (same dataset name).
-    expect(screen.queryByText(/aligned by shared input/)).toBeNull();
     // Both ids intersect → ticket-05 aligns and its regression delta is computed,
     // even though the two runs now carry different input text for that id.
     expect(screen.getByText("−100.0%")).toBeTruthy();
@@ -326,7 +322,6 @@ describe("CompareRunsView — N-run diff table", () => {
       />,
     );
     // Same datasetId across all three → NOT cross-dataset, despite the differing names.
-    expect(screen.queryByText(/aligned by shared input/)).toBeNull();
     // ticket-05 aligns by row id across all three (its inputs were edited apart) → the
     // regression delta is computed and BOTH candidates' edited inputs are shown.
     const row = screen.getByText("EDITED five (sonnet)").closest("tr") as HTMLTableRowElement;
@@ -384,8 +379,6 @@ describe("CompareRunsView — N-run diff table", () => {
         onChangeBaseline={vi.fn()}
       />,
     );
-    // C spans datasets → the cross-dataset banner shows.
-    expect(screen.getByText(/aligned by shared input/)).toBeTruthy();
     // The edited-input case survived: B's edited text is shown (aligned to A by row id,
     // not dropped for differing from A's input), and its regression delta is present.
     const row = screen.getByText("EDITED-B double-charged").closest("tr") as HTMLTableRowElement;
@@ -422,8 +415,6 @@ describe("CompareRunsView — N-run diff table", () => {
       ids.map((id) => ({ data: R[id], isLoading: false, isError: false })),
     );
     mount();
-    // Cross-dataset banner confirms input-keyed alignment is in effect.
-    expect(screen.getByText(/aligned by shared input/)).toBeTruthy();
     // The two occurrence-distinct baseline rows are NOT collapsed away: the duplicate input
     // renders in BOTH rows (dup-a collapses across runs; dup-b shows the baseline's copy),
     // so it appears twice — and dup-b's distinct baseline score (0%) survives alongside
@@ -486,8 +477,6 @@ describe("CompareRunsView — N-run diff table", () => {
         onChangeBaseline={vi.fn()}
       />,
     );
-    // C spans datasets → the cross-dataset banner shows.
-    expect(screen.getByText(/aligned by shared input/)).toBeTruthy();
     // (a) + (b): TWO rows for the duplicate input — case-2 is NOT dropped, and BOTH A and B
     // show their case-2 values (they align by testCaseId across the same dataset).
     const row1 = screen.getByText("A-case1-out").closest("tr") as HTMLTableRowElement;

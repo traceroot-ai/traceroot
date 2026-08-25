@@ -255,8 +255,8 @@ export function CompareRunsView({
 
   // One alignment descriptor, derived from the STABLE `datasetId` (never the mutable,
   // non-unique `datasetName`). `crossDataset` is true only when the selection genuinely
-  // spans datasets; dataset names are for display copy only. Consumed in three places:
-  // the empty-state copy, the banner, and (via `byCase` below) the alignment itself.
+  // spans datasets; dataset names are for display copy only. Consumed by the empty-state
+  // copy and (via `byCase` below) the alignment itself.
   const alignment = React.useMemo(() => {
     const datasetIds = new Set(loaded.map((b) => b.run.datasetId));
     return {
@@ -501,14 +501,6 @@ export function CompareRunsView({
           </div>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
-            {/* Cross-dataset runs don't share dataset-scoped case ids, so cases are
-                lined up by their (canonical) input instead — say so, don't block. */}
-            {crossDataset && (
-              <div className="border-b border-border bg-muted/40 px-3 py-2 text-[11px] text-muted-foreground">
-                These runs are on different datasets ({datasetNames.join(", ")}), so cases are
-                aligned by shared input rather than by dataset row.
-              </div>
-            )}
             {/* Some runs exceeded the run-detail result cap, so their columns are
                 computed on a partial set — say so rather than imply full coverage. */}
             {truncatedRuns.length > 0 && (
@@ -639,8 +631,8 @@ function CaseRow({
   };
   // Input collapses on the ALIGNING key, not the raw text: rows aligned across datasets
   // by `canonicalInputKey` (differing JSON key order, or legacy plaintext vs JSON-encoded)
-  // are the "same input" and render once — matching the "aligned by shared input" banner —
-  // while genuinely edited same-dataset inputs stay stacked.
+  // are the "same input" and render once, while genuinely edited same-dataset inputs stay
+  // stacked.
   const collapsedInput = collapsed(
     (r) => r?.input ?? null,
     (r) => (r ? canonicalInputKey(r.input) : "—"),
