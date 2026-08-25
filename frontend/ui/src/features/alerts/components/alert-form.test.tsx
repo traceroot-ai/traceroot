@@ -123,21 +123,24 @@ describe("AlertForm", () => {
   const newQueryClient = () => new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
   const renderForm = (
-    props: { alertId?: string; initialDraft?: AlertDraft } = {},
+    props: { alertId?: string; initialDraft?: AlertDraft; schemaPending?: boolean } = {},
     // One client per render keeps the cases independent.
     queryClient = newQueryClient(),
   ) => {
     mocks.useProject.mockReturnValue({ data: { workspace_id: "ws-1" } });
     mocks.useSlackStatus.mockReturnValue({ data: { connected: false } });
     mocks.useWidgetPreview.mockReturnValue({ isPending: true, error: null, data: undefined });
-    mocks.useWidgetSchema.mockReturnValue({
-      data: { spans: { fields: SPANS_SCHEMA_FIELDS }, traces: { fields: {} } },
-    });
+    mocks.useWidgetSchema.mockReturnValue(
+      props.schemaPending
+        ? { data: undefined, isPending: true }
+        : { data: { spans: { fields: SPANS_SCHEMA_FIELDS }, traces: { fields: {} } } },
+    );
     mocks.useWidgetFieldValues.mockReturnValue({ values: [], isLoading: false });
     const wrapper = ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     );
-    return render(<AlertForm projectId="proj-1" {...props} />, { wrapper });
+    const { schemaPending: _schemaPending, ...formProps } = props;
+    return render(<AlertForm projectId="proj-1" {...formProps} />, { wrapper });
   };
 
   async function addFilter(fieldLabel: string, value: string) {
@@ -407,5 +410,27 @@ describe("AlertForm", () => {
       fireEvent.click(save);
       await waitFor(() => expect(writeCalls(fetchMock)).toHaveLength(1));
     });
+  });
+
+  it("shows a saved filter as text with a spinner until the field schema resolves", () => {
+    renderForm({
+      alertId: "alert-9",
+      schemaPending: true,
+      initialDraft: {
+        view: "SPANS",
+        measureId: "count",
+        aggregation: "count",
+        filters: [{ field: "span_kind", op: "=", value: "AGENT" }],
+        operator: ">",
+        threshold: "1",
+        window: "1m",
+        renotify: { mode: "OFF" },
+        name: "filtered",
+      },
+    });
+    const row = screen.getByRole("status", { name: "Loading filter fields" });
+    expect(row.textContent).toContain("span_kind = AGENT");
+    // not an empty field dropdown that reads as "no filter"
+    expect(screen.queryByRole("button", { name: /^Field/ })).toBeNull();
   });
 });

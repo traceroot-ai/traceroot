@@ -56,6 +56,40 @@ describe("FilterRow value input", () => {
   // RTL auto-cleanup needs vitest globals, which this config doesn't enable.
   afterEach(cleanup);
 
+  it("shows a saved row as text with a spinner while the field registry is still loading", () => {
+    vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
+    render(
+      <FilterRow
+        {...baseProps}
+        filterableFields={[]}
+        fieldsMap={{}}
+        fieldsLoading
+        filter={{ field: "metadata", key: "tenant", op: "=", value: "acme" }}
+      />,
+    );
+    const row = screen.getByRole("status", { name: "Loading filter fields" });
+    // the saved predicate is legible as-is: not an empty field dropdown
+    expect(row.textContent).toContain("metadata[tenant] = acme");
+    expect(row.textContent).toContain("Loading fields");
+    expect(screen.queryByRole("button", { name: "Field" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove filter" })).toBeNull();
+  });
+
+  it("renders the controls for an empty row even while the registry is loading", () => {
+    vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
+    render(
+      <FilterRow
+        {...baseProps}
+        filterableFields={[]}
+        fieldsMap={{}}
+        fieldsLoading
+        filter={{ field: "", op: "", value: "" }}
+      />,
+    );
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByRole("button", { name: "Field" })).toBeTruthy();
+  });
+
   it("offers stored values with counts for string equality, and selecting one propagates", () => {
     vi.mocked(useWidgetFieldValues).mockReturnValue({
       values: [{ value: "gpt-4o", count: 3 }],

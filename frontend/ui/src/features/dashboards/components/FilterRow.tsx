@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { X } from "lucide-react";
+import { Loader2, X } from "lucide-react";
 import {
   Dropdown,
   DropdownItem,
@@ -33,6 +33,7 @@ export function FilterRow({
   projectId,
   view,
   range,
+  fieldsLoading = false,
 }: {
   index: number;
   filter: { field: string; op: string; value: string | number; key?: string };
@@ -46,6 +47,12 @@ export function FilterRow({
   projectId: string;
   view: "spans" | "traces" | undefined;
   range: TimeRange;
+  /**
+   * The field registry has not answered yet. A saved row is shown as text with
+   * a spinner until it does: rendered through the controls it would read as an
+   * empty row, which is not the same thing as a row still being resolved.
+   */
+  fieldsLoading?: boolean;
 }) {
   const fieldMeta = fieldsMap[filter.field];
   const isNumeric = fieldMeta?.type === "number";
@@ -70,6 +77,23 @@ export function FilterRow({
   }, [values, filter.value]);
 
   const showValueDropdown = enumerable && (options.length > 0 || isLoading);
+
+  if (fieldsLoading && filter.field) {
+    const subject = filter.key ? `${filter.field}[${filter.key}]` : filter.field;
+    return (
+      <div
+        role="status"
+        aria-label="Loading filter fields"
+        className="flex h-7 items-center gap-2 rounded-md border border-dashed border-border px-2 text-[12px] text-muted-foreground"
+      >
+        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+        <span className="truncate font-mono">
+          {subject} {filter.op} {String(filter.value)}
+        </span>
+        <span className="ml-auto shrink-0">Loading fields…</span>
+      </div>
+    );
+  }
 
   return (
     // Both consumers' config columns run at 12px, so the shared controls
