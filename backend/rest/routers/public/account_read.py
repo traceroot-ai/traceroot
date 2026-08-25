@@ -185,7 +185,7 @@ async def list_projects(
         for ws in workspaces:
             if workspace_id is not None and ws["id"] != workspace_id:
                 continue
-            for project in ws.get("projects", []):
+            for project in ws["projects"]:
                 items.append(
                     ProjectListItem(
                         id=project["id"],
