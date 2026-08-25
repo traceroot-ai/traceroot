@@ -9,9 +9,11 @@ Run:
     uv run --no-project --python 3.13 --with-requirements requirements.txt python main.py
     # or:  pip install -r requirements.txt && python main.py
 
-No creds? Pass local=True to evaluate() (see README) to run in full and report
-nowhere.
+No creds? This runs locally on its own: with no TRACEROOT_API_KEY set, `main()`
+passes local=True to evaluate() so the eval runs in full and reports nowhere.
 """
+
+import os
 
 from dotenv import find_dotenv, load_dotenv
 
@@ -83,6 +85,9 @@ answer_is_grounded = Scorer.llm_judge(
 
 
 def main() -> None:
+    # No TraceRoot key? Run locally — execute every case in full but report
+    # nowhere — so a fresh clone works without a TraceRoot credential.
+    local = not os.getenv("TRACEROOT_API_KEY")
     result = evaluate(
         name="Agent tool eval",
         dataset=dataset(),
@@ -90,6 +95,7 @@ def main() -> None:
         scorers=[calls_expected_tools, reports_expected_facts, answer_is_grounded],
         candidate_version="gpt-4o-mini",
         evaluation_key="agent-tool-eval",
+        local=local,
     )
     print(result.summary())
 

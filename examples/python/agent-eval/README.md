@@ -37,7 +37,7 @@ The dataset (`dataset.py`) has four tool-use cases with exact facts, e.g. NVDA a
 
 By default the run reports to TraceRoot using the same credentials as the tracing SDK (`TRACEROOT_API_KEY`, optional `TRACEROOT_HOST_URL`). `main.py` prints the run's dashboard URL when it's available.
 
-No credentials? Pass `local=True` to `evaluate()` in `main.py` — it runs the eval in full and reports nowhere, so you can try it without an API key (you still need `OPENAI_API_KEY` for the agent and `ANTHROPIC_API_KEY` for the judge).
+No credentials? `main.py` handles it automatically: when `TRACEROOT_API_KEY` is unset it passes `local=True` to `evaluate()` for you, so the eval runs in full and reports nowhere. This lets you clone and run without an API key (you still need `OPENAI_API_KEY` for the agent and `ANTHROPIC_API_KEY` for the judge).
 
 ## Cross-SDK convergence
 
@@ -45,7 +45,7 @@ No credentials? Pass `local=True` to `evaluate()` in `main.py` — it runs the e
 
 ## Environment
 
-- `TRACEROOT_API_KEY` — reports the run (omit when using `local=True`)
+- `TRACEROOT_API_KEY` — reports the run (omit it and `main.py` runs locally instead)
 - `TRACEROOT_HOST_URL` — optional; self-hosted or local dev server
 - `OPENAI_API_KEY` — the agent's model (`gpt-4o-mini`)
 - `ANTHROPIC_API_KEY` — the `answer_is_grounded` judge (`claude-haiku-4-5`)

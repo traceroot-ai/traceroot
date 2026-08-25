@@ -9,8 +9,8 @@
  *   pnpm install
  *   pnpm start
  *
- * No creds? Set `local: true` on evaluate() (see README) to run in full and
- * report nowhere.
+ * No creds? This runs locally on its own: with no TRACEROOT_API_KEY set, `main()`
+ * passes `local: true` to evaluate() so the eval runs in full and reports nowhere.
  */
 
 import 'dotenv/config';
@@ -81,6 +81,8 @@ const answerIsGrounded = Scorer.llmJudge({
 
 async function main() {
   try {
+    // No TraceRoot key? Run locally — execute every case in full but report
+    // nowhere — so a fresh clone works without a TraceRoot credential.
     const result = await evaluate({
       name: 'Agent tool eval',
       dataset: dataset(),
@@ -88,6 +90,7 @@ async function main() {
       scorers: [callsExpectedTools, reportsExpectedFacts, answerIsGrounded],
       candidateVersion: 'gpt-4o-mini',
       evaluationKey: 'agent-tool-eval',
+      local: !process.env.TRACEROOT_API_KEY,
     });
     console.log(result.summary());
 
