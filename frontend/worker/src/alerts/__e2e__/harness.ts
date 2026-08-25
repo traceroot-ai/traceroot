@@ -170,7 +170,8 @@ export async function seedSpans(env: E2EEnv, projectId: string, seeds: SpanSeed[
       usage_details: {},
       // Customer traffic: every customer-facing read asserts `source = 'user'`.
       source: "user",
-      metadata_map: metadata,
+      // `metadata_map` is MATERIALIZED from `metadata`, so it is not written;
+      // JSONEachRow would drop it silently anyway.
       is_evaluation: 0,
     };
   });

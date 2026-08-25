@@ -15,6 +15,10 @@ concurrency:
   group: e2e-${{ github.ref }}
   cancel-in-progress: true
 
+# The job runs pull-request code; nothing here needs to write to the repository.
+permissions:
+  contents: read
+
 env:
   POSTGRES_PASSWORD: postgres
   CLICKHOUSE_USER: clickhouse
@@ -25,10 +29,9 @@ env:
   CLICKHOUSE_PORT: "8123"
   REDIS_URL: redis://localhost:6379/0
   BACKEND_INTERNAL_URL: http://localhost:8000
-  INTERNAL_API_SECRET: e2e-internal-secret
-  # Test-only key; the suite encrypts a fake bot token with it.
-  ENCRYPTION_KEY: 9cf7ec27e77884f3d76dda6312f55317b2b6fff317e5b09d4a9ad7b20eff5e00
   RATE_LIMIT_ENABLED: "false"
+  # INTERNAL_API_SECRET and ENCRYPTION_KEY are minted per run (see below):
+  # throwaway values, but not ones worth committing to the repository.
 
 jobs:
   alerts-e2e:
@@ -73,6 +76,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Mint the run's test-only secrets
+        run: |
+          echo "INTERNAL_API_SECRET=$(openssl rand -hex 24)" >> "$GITHUB_ENV"
+          echo "ENCRYPTION_KEY=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
 
       # --- toolchains -----------------------------------------------------
       - name: Install uv
