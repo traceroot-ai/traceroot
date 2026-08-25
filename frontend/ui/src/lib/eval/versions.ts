@@ -7,11 +7,12 @@ import { decodeJsonValue } from "./json-value";
  *  publish, so it preserves the order cases were added (and keeps appends stable, since a
  *  new version copies the current cases in this order). The `create_time`/`testCaseId`
  *  keys are a fallback ONLY for rows written before `position` existed (all null): they
- *  stay DESCENDING to match the pre-`position` ordering exactly, so a legacy dataset's
- *  detail view keeps the same order it had before this column — it isn't reversed, just
- *  not reconstructed into true insertion order until it's next republished. (Within a
- *  post-`position` version every row has a distinct position, so these tiebreaks never
- *  fire there.) */
+ *  give those legacy rows one consistent (descending, content-hash) order across every
+ *  case-listing surface — NOT their true insertion order, which only returns when the
+ *  dataset is next republished. (Legacy hash order is arbitrary and was inconsistent
+ *  between surfaces before this; a single shared fallback at least makes them agree.
+ *  Within a post-`position` version every row has a distinct position, so these tiebreaks
+ *  never fire there.) */
 export const TEST_CASE_ORDER = [
   { position: "asc" as const },
   { createTime: "desc" as const },
