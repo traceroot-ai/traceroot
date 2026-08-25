@@ -357,6 +357,7 @@ export async function sendAlertNotification(payload: AlertNotificationJob): Prom
     window: payload.window,
     windowStart: new Date(payload.windowStart),
     windowEnd: new Date(payload.windowEnd),
+    filters: payload.filters ?? [],
   });
 
   try {

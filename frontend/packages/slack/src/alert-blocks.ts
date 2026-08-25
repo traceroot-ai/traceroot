@@ -2,6 +2,9 @@
 
 import {
   ALERT_THRESHOLD_OPERATOR_PHRASES,
+  alertFiltersToTracePredicates,
+  describeAlertFilter,
+  type AlertFilter,
   type AlertSeverity,
   type AlertThresholdOperator,
 } from "@traceroot/core";
@@ -39,6 +42,8 @@ export interface AlertBlockParams {
   window: string;
   windowStart: Date;
   windowEnd: Date;
+  /** The rule's span filters; the message states them and the deep link carries what it can. */
+  filters?: readonly AlertFilter[];
 }
 
 export interface AlertSlackMessage {
@@ -56,18 +61,27 @@ export function alertUrl(appBaseUrl: string, projectId: string, alertId: string)
   );
 }
 
-/** `date_filter=custom` is REQUIRED: the list pages only hydrate a custom start/end with it. */
-export function alertSpansUrl(
+/**
+ * The trace list over the evaluated window, narrowed by whichever of the rule's
+ * filters the list can express (see `alertFiltersToTracePredicates`).
+ * `date_filter=custom` is REQUIRED: the list pages only hydrate a custom start/end with it.
+ */
+export function alertTracesUrl(
   appBaseUrl: string,
   projectId: string,
   windowStart: Date,
   windowEnd: Date,
+  filters: readonly AlertFilter[] = [],
 ): string {
-  const range =
+  let query =
     `date_filter=custom` +
     `&start=${encodeURIComponent(windowStart.toISOString())}` +
     `&end=${encodeURIComponent(windowEnd.toISOString())}`;
-  return `${appBaseUrl}/projects/${encodeURIComponent(projectId)}/traces?${range}`;
+  const predicates = alertFiltersToTracePredicates(filters);
+  if (predicates.length > 0) {
+    query += `&filters=${encodeURIComponent(JSON.stringify(predicates))}`;
+  }
+  return `${appBaseUrl}/projects/${encodeURIComponent(projectId)}/traces?${query}`;
 }
 
 function formatNumber(value: number): string {
@@ -105,21 +119,32 @@ function describeOutcome(params: AlertBlockParams): string {
 export function buildAlertBlocks(params: AlertBlockParams): AlertSlackMessage {
   const { appBaseUrl, projectId, alertId, name, severity, previousSeverity } = params;
   const { windowStart, windowEnd } = params;
+  const filters = params.filters ?? [];
 
   const title = `[${severity}] ${name}`;
   const outcome = describeOutcome(params);
+  // The rule's conditions ride in the prose: two rules on the same measure that
+  // differ only by filter must not read identically, and the link cannot carry
+  // every filter the evaluator ran.
+  const where =
+    filters.length > 0
+      ? ` Where ${filters.map((filter) => `\`${describeAlertFilter(filter)}\``).join(" and ")}.`
+      : "";
 
   const links = [`<${alertUrl(appBaseUrl, projectId, alertId)}|View alert>`];
-  // A recovery is within threshold and NO_DATA is empty: a spans link lands on nothing.
+  // A recovery is within threshold and NO_DATA is empty: a traces link lands on nothing.
+  // "Traces", not "spans": the list shows traces containing a matching span.
   if (severity === "ALERT") {
-    links.push(`<${alertSpansUrl(appBaseUrl, projectId, windowStart, windowEnd)}|View spans>`);
+    links.push(
+      `<${alertTracesUrl(appBaseUrl, projectId, windowStart, windowEnd, filters)}|View traces>`,
+    );
   }
 
   const footer = `${formatWindowRange(windowStart, windowEnd)} · ${previousSeverity} to ${severity}`;
 
   const blocks = [
     { type: "header", text: { type: "plain_text", text: truncate(title, HEADER_LIMIT) } },
-    { type: "section", text: { type: "mrkdwn", text: truncate(escapeMrkdwn(outcome)) } },
+    { type: "section", text: { type: "mrkdwn", text: truncate(escapeMrkdwn(outcome + where)) } },
     { type: "section", text: { type: "mrkdwn", text: truncate(links.join(" · ")) } },
     { type: "context", elements: [{ type: "mrkdwn", text: footer }] },
   ];

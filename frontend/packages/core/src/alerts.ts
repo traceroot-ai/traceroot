@@ -344,3 +344,57 @@ export const ALERT_EVALUATION_OFFSET_MS: number = 30_000;
 export function windowToMs(window: AlertWindow): number {
   return ALERT_WINDOWS[window];
 }
+
+/**
+ * The trace-list predicate a Slack deep link carries (`?filters=` on /traces).
+ * Mirrors the list's `Predicate` IR without importing the UI package.
+ */
+export type TraceListPredicate =
+  | { field: string; op: "in"; value: string[] }
+  | { field: string; key: string; op: "eq" | "contains"; value: string };
+
+/**
+ * Alert filter fields the trace list can also filter on, so a notification's
+ * deep link can carry them. The list lowers these as "trace has >=1 span
+ * where ...", which is looser than the span-grain predicate the alert
+ * evaluated, and each is a categorical `in`, so only `=` maps: a `contains`
+ * on them stays in the message prose but not in the link. `is_root` has no
+ * list counterpart.
+ */
+export const TRACE_LIST_ALERT_FILTER_FIELDS: readonly string[] = [
+  "model_name",
+  "environment",
+  "status",
+  "span_kind",
+  "name",
+];
+
+export function alertFiltersToTracePredicates(
+  filters: readonly AlertFilter[],
+): TraceListPredicate[] {
+  const predicates: TraceListPredicate[] = [];
+  for (const filter of filters) {
+    if (!isCompleteAlertFilter(filter)) continue;
+    const value = String(filter.value);
+    if (KEYED_ALERT_FILTER_FIELDS.includes(filter.field)) {
+      if (filter.op !== "=" && filter.op !== "contains") continue;
+      predicates.push({
+        field: filter.field,
+        key: (filter.key ?? "").trim(),
+        op: filter.op === "=" ? "eq" : "contains",
+        value,
+      });
+      continue;
+    }
+    if (filter.op !== "=" || !TRACE_LIST_ALERT_FILTER_FIELDS.includes(filter.field)) continue;
+    predicates.push({ field: filter.field, op: "in", value: [value] });
+  }
+  return predicates;
+}
+
+/** `span_kind = LLM`, `metadata[tenant] contains acme` — one clause per filter. */
+export function describeAlertFilter(filter: AlertFilter): string {
+  const subject =
+    filter.key !== undefined && filter.key !== "" ? `${filter.field}[${filter.key}]` : filter.field;
+  return `${subject} ${filter.op} ${String(filter.value)}`;
+}

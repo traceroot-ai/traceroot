@@ -271,6 +271,8 @@ describe("sendAlertNotification", () => {
     // The builder takes dates back, having been handed epoch ms over the queue.
     const params = buildAlertBlocks.mock.calls[0][0] as { windowStart: Date; windowEnd: Date };
     expect(params.windowStart.getTime()).toBe(job.windowStart);
+    // A job from before filters travelled renders as an unfiltered rule.
+    expect((params as { filters?: unknown }).filters).toEqual([]);
     expect(params.windowEnd.getTime()).toBe(job.windowEnd);
     expect(params).toMatchObject({ alertId: "al_1", measure: "latency", aggregation: "p95" });
   });

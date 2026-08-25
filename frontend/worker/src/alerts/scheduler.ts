@@ -189,6 +189,7 @@ async function settleClaim(
       window: rule.window,
       windowStart,
       windowEnd: tick.windowEnd,
+      filters: rule.filters,
       // Travels with the job so a delivery that provably sent nothing can undo
       // this write however many minutes later, matching on what it wrote.
       emission: {

@@ -225,6 +225,8 @@ describe("runAlertTick — the page a transition produces", () => {
     expect(payload.threshold).toBe(100);
     expect(payload.alertId).toBe("hot-1");
     expect(payload.projectId).toBe("proj-1");
+    // The rule's filters travel with the notification so the message can state them.
+    expect(payload.filters).toEqual([]);
     // The pre-emission state rides along, so a non-delivery can be undone later.
     // No claim token: it is rewritten every minute and the delivery that would
     // match on it retries for half an hour.

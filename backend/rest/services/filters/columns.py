@@ -164,6 +164,37 @@ FILTER_COLUMNS: tuple[FilterColumn, ...] = (
         operators=(FilterOperator.IN,),
         value_source=ValueSource.DISTINCT_QUERY,
     ),
+    # The span-level dimensions an alert rule can filter on, so an alert's
+    # notification link can narrow the list the same way. Membership semantics
+    # here ("has a span where ...") are looser than the alert's span-grain
+    # predicate by design: this is the drill-down, not the evaluation.
+    FilterColumn(
+        name="span_kind",
+        label="Span kind",
+        ch_type="String",
+        level=FilterLevel.SPAN_MEMBERSHIP,
+        type=FilterType.CATEGORICAL,
+        operators=(FilterOperator.IN,),
+        value_source=ValueSource.DISTINCT_QUERY,
+    ),
+    FilterColumn(
+        name="status",
+        label="Status",
+        ch_type="String",
+        level=FilterLevel.SPAN_MEMBERSHIP,
+        type=FilterType.CATEGORICAL,
+        operators=(FilterOperator.IN,),
+        value_source=ValueSource.DISTINCT_QUERY,
+    ),
+    FilterColumn(
+        name="name",
+        label="Span name",
+        ch_type="String",
+        level=FilterLevel.SPAN_MEMBERSHIP,
+        type=FilterType.CATEGORICAL,
+        operators=(FilterOperator.IN,),
+        value_source=ValueSource.DISTINCT_QUERY,
+    ),
     # Aggregate tier — time-bounded GROUP BY trace_id HAVING <agg> <op> <value>.
     FilterColumn(
         name="cost",
