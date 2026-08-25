@@ -31,6 +31,10 @@ dev-lite: install-hooks
 dev-reset:
 	uv run python tmux_tools/launcher.py --reset
 
+## Alerts end-to-end suite against the running dev stack (real Postgres/ClickHouse/REST).
+e2e:
+	cd frontend/worker && pnpm test:e2e
+
 # --- Production (Docker) ---------------------------------------------------
 
 ## Start all services in Docker with tmux log viewer (builds on first run).

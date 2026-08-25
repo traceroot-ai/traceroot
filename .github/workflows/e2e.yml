@@ -1,0 +1,137 @@
+name: E2E
+
+# The alerts end-to-end suite: real Postgres, ClickHouse and REST backend,
+# with the Redis queue and the Slack client stubbed at the process boundary.
+# See frontend/worker/src/alerts/__e2e__/README.md.
+#
+# No repository secrets are used, so the job runs for fork pull requests too.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  POSTGRES_PASSWORD: postgres
+  CLICKHOUSE_USER: clickhouse
+  CLICKHOUSE_PASSWORD: clickhouse
+  CLICKHOUSE_DATABASE: default
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+  CLICKHOUSE_HOST: localhost
+  CLICKHOUSE_PORT: "8123"
+  REDIS_URL: redis://localhost:6379/0
+  BACKEND_INTERNAL_URL: http://localhost:8000
+  INTERNAL_API_SECRET: e2e-internal-secret
+  # Test-only key; the suite encrypts a fake bot token with it.
+  ENCRYPTION_KEY: 9cf7ec27e77884f3d76dda6312f55317b2b6fff317e5b09d4a9ad7b20eff5e00
+  RATE_LIMIT_ENABLED: "false"
+
+jobs:
+  alerts-e2e:
+    name: Alerts E2E
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      clickhouse:
+        image: clickhouse/clickhouse-server:25.2
+        env:
+          CLICKHOUSE_DB: default
+          CLICKHOUSE_USER: clickhouse
+          CLICKHOUSE_PASSWORD: clickhouse
+        ports: ["8123:8123", "9000:9000"]
+        options: >-
+          --health-cmd "wget -qO- http://localhost:8123/ping || exit 1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+          --ulimit nofile=262144:262144
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # --- toolchains -----------------------------------------------------
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install Python dependencies
+        run: uv sync --dev
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        run: cd frontend && pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: cd frontend/packages/core && npx prisma generate
+
+      # --- schemas ---------------------------------------------------------
+      - name: Apply Postgres migrations
+        run: cd frontend/packages/core && npx prisma migrate deploy
+
+      - name: Install goose
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/pressly/goose/master/install.sh \
+            | GOOSE_INSTALL="$HOME/.goose" sh -s v3.24.1
+          echo "$HOME/.goose/bin" >> "$GITHUB_PATH"
+
+      - name: Apply ClickHouse migrations
+        run: |
+          goose -dir backend/db/clickhouse/migrations clickhouse \
+            "tcp://localhost:9000?username=${CLICKHOUSE_USER}&password=${CLICKHOUSE_PASSWORD}&database=${CLICKHOUSE_DATABASE}" \
+            up
+
+      # --- REST backend ----------------------------------------------------
+      - name: Start the REST backend
+        run: |
+          nohup uv run uvicorn rest.main:app --host 127.0.0.1 --port 8000 \
+            > "$RUNNER_TEMP/rest.log" 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:8000/health > /dev/null; then
+              echo "REST backend is up"; exit 0
+            fi
+            sleep 1
+          done
+          echo "REST backend did not become healthy"; cat "$RUNNER_TEMP/rest.log"; exit 1
+
+      # --- the suite -------------------------------------------------------
+      - name: Run the alerts e2e suite
+        run: cd frontend/worker && npx vitest run --config vitest.e2e.config.ts
+
+      - name: REST backend log
+        if: failure()
+        run: cat "$RUNNER_TEMP/rest.log" || true

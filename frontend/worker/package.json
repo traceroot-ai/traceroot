@@ -19,6 +19,7 @@
     "format": "prettier --write \"src/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\"",
     "test": "vitest run",
+    "test:e2e": "dotenv -e ../../.env -- vitest run --config vitest.e2e.config.ts",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest"
   },
