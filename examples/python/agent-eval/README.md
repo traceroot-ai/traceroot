@@ -37,7 +37,7 @@ The dataset (`dataset.py`) has four tool-use cases with exact facts, e.g. NVDA a
 
 By default the run reports to TraceRoot using the same credentials as the tracing SDK (`TRACEROOT_API_KEY`, optional `TRACEROOT_HOST_URL`). `main.py` prints the run's dashboard URL when it's available.
 
-No credentials? `main.py` handles it automatically: when `TRACEROOT_API_KEY` is unset it passes `local=True` to `evaluate()` for you, so the eval runs in full and reports nowhere. This lets you clone and run without an API key (you still need `OPENAI_API_KEY` for the agent and `ANTHROPIC_API_KEY` for the judge).
+No credentials? `main.py` handles it automatically: when `TRACEROOT_API_KEY` is unset it passes `local=True` to `evaluate()` for you, so the eval runs in full and reports nowhere. This lets you clone and run without a TraceRoot API key (you still need `OPENAI_API_KEY` for the agent and `ANTHROPIC_API_KEY` for the judge — `local` only turns off TraceRoot reporting, not the LLM calls).
 
 ## Cross-SDK convergence
 
