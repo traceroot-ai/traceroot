@@ -228,6 +228,17 @@ def test_list_projects_malformed_project_item_is_503_not_500():
     assert resp.status_code == 503
 
 
+@respx.mock
+def test_list_projects_missing_projects_array_is_503():
+    """A workspace item without a ``projects`` array is malformed → 503, not an
+    incomplete 200."""
+    _mock_account_auth()
+    _mock_memberships(body={"workspaces": [{"id": "ws-1", "name": "Alpha", "role": "admin"}]})
+    client = TestClient(app, raise_server_exceptions=False)
+    resp = client.get("/api/v1/public/projects", headers=USER_HEADER)
+    assert resp.status_code == 503
+
+
 # ── _bearer_token (route helper, defensive re-parse) ─────────────────────
 
 
