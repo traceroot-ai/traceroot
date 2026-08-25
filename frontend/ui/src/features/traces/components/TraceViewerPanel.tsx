@@ -239,7 +239,9 @@ export function TraceViewerPanel({
   // copy control must never diverge, so both read from the same two consts.
   const headerLabel = headerIdentity?.label ?? "Trace";
   const headerValue = headerIdentity?.value ?? traceId;
-  const headerCopyTitle = headerIdentity ? `Copy ${headerIdentity.label} id` : "Copy trace id";
+  const headerCopyTitle = headerIdentity
+    ? `Copy ${headerIdentity.label.toLowerCase()} id`
+    : "Copy trace id";
 
   // Auto-open chat with RCA session loaded when arriving from /detectors.
   // Waits for rcaSessionId so the chat opens already pointing at the session,

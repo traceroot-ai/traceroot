@@ -248,7 +248,7 @@ describe("TraceViewerPanel header actions", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it("copies the trace id with no headerIdentity — the default header contract (#1947)", () => {
+  it("copies the trace id with no headerIdentity — the default header contract", () => {
     // This is the production shape: no caller besides offline-eval's
     // run-detail-view ever supplies headerIdentity, so the header falls
     // back to "Trace" + traceId and the copy button must follow the same
@@ -299,7 +299,7 @@ describe("TraceViewerPanel offline-eval extensions", () => {
     renderPanel({ headerIdentity: { label: "Test case", value: "case-1" } });
     expect(screen.getByText("Test case")).toBeTruthy();
     expect(screen.getByText("case-1")).toBeTruthy();
-    const button = screen.getByTitle("Copy Test case id");
+    const button = screen.getByTitle("Copy test case id");
     fireEvent.click(button);
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith("case-1");
   });

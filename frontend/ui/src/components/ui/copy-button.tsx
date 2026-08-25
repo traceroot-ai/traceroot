@@ -19,10 +19,17 @@ const CopyButton = React.forwardRef<HTMLButtonElement, CopyButtonProps>(
     const [copied, setCopied] = React.useState(false);
 
     const handleCopy = async () => {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      onCopy?.();
-      setTimeout(() => setCopied(false), 2000);
+      try {
+        await navigator.clipboard.writeText(value);
+        setCopied(true);
+        onCopy?.();
+        setTimeout(() => setCopied(false), 2000);
+      } catch (err) {
+        // A rejected write (denied permission, insecure context, etc.) must
+        // not become an unhandled promise rejection — and copied must stay
+        // false, since nothing was actually copied.
+        console.error("Failed to copy to clipboard:", err);
+      }
     };
 
     return (
