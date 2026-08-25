@@ -97,6 +97,10 @@ class JwksCache:
                 response = await client.get(self._jwks_url)
             response.raise_for_status()
             jwk_set = PyJWKSet.from_dict(response.json())
+            # Built inside the try: a key set that parses but carries a
+            # malformed key id (e.g. a non-hashable kid) must fail closed like
+            # any other bad JWKS, not escape as an uncaught 500.
+            keys = {key.key_id: key for key in jwk_set.keys if key.key_id}
         # PyJWTError (base of PyJWKSetError) covers a 200 body that parses as JSON
         # but is not a valid JWKS (empty/wrong-shaped key set from a partial deploy
         # or rotation); without it that case would escape as an uncaught 500
@@ -105,7 +109,7 @@ class JwksCache:
             logger.error(f"Failed to fetch JWKS: {e}")
             raise JwksUnavailableError("Could not fetch signing keys") from e
 
-        self._keys = {key.key_id: key for key in jwk_set.keys if key.key_id}
+        self._keys = keys
         self._fetched_at = time.monotonic()
 
 

@@ -108,6 +108,21 @@ class TestJwksCache:
             await cache.get_signing_key("kid-1")
 
     @respx.mock
+    async def test_non_hashable_kid_fails_closed(self):
+        """A JWKS whose key carries a truthy but non-hashable kid survives
+        PyJWKSet.from_dict and would blow up building the kid map; it must fail
+        closed as JwksUnavailableError (-> 503 upstream), not escape as an
+        uncaught TypeError (500)."""
+        priv = Ed25519PrivateKey.generate()
+        body = _jwks("kid-1", priv)
+        body["keys"][0]["kid"] = ["kid-1"]
+        respx.get(JWKS_URL).mock(return_value=Response(200, json=body))
+
+        cache = JwksCache(JWKS_URL)
+        with pytest.raises(JwksUnavailableError):
+            await cache.get_signing_key("kid-1")
+
+    @respx.mock
     async def test_unknown_kid_refetch_allowed_after_interval(self):
         """A zero refetch cooldown lets an unknown kid trigger one refetch, which
         picks up a rotated-in key (kid-2) added after the first load."""
