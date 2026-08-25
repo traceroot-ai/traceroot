@@ -1,13 +1,8 @@
 """
 Tool-using research agent (pydantic-ai) — the system under evaluation.
 
-A trimmed, self-contained version of the Pydantic AI tool agent. It exposes a
-single clean callable, `run_agent`, that answers a question by calling tools and
-returns a structured result. The tools use FIXED data, so every question has an
-exact ground-truth answer (e.g. NVDA is 495.20, and a 10% rise is 544.72).
-
-This module knows NOTHING about evaluation. It is a plain agent that could run in
-production unchanged; `main.py` is what points an eval at it.
+Exposes `run_agent`, which answers a question by calling tools over FIXED data, so
+every question has an exact ground-truth answer (NVDA is 495.20, a 10% rise 544.72).
 """
 
 from pydantic_ai import Agent

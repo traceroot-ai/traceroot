@@ -1,13 +1,8 @@
 /**
  * Tool-using research agent (Vercel AI SDK) — the system under evaluation.
  *
- * A trimmed, self-contained multi-step tool agent. It exposes a single clean
- * callable, `runAgent`, that answers a question by calling tools and returns a
- * structured result. The tools use FIXED data, so every question has an exact
- * ground-truth answer (e.g. NVDA is 495.20, and a 10% rise is 544.72).
- *
- * This module knows NOTHING about evaluation. It is a plain agent that could run
- * in production unchanged; `main.ts` is what points an eval at it.
+ * Exposes `runAgent`, which answers a question by calling tools over FIXED data, so
+ * every question has an exact ground-truth answer (NVDA is 495.20, a 10% rise 544.72).
  */
 
 import { generateText, tool, stepCountIs } from 'ai';

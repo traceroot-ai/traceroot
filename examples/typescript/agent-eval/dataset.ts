@@ -1,24 +1,11 @@
 /**
- * Dataset for the tool-agent eval.
+ * Dataset for the tool-agent eval — four tool-use cases with exact expected facts.
  *
- * A dataset file is a checkable artifact. Each case here is given an EXPLICIT id
- * (`single-stock-lookup`, ...) that is byte-identical to its twin in the Python
- * dataset, so the two SDKs' cases pair one-for-one regardless of any content
- * differences. (Without an explicit id the SDK content-addresses a case as `tc_` +
- * sha256 over the case's INPUT only — not its `expected` — so the camelCase vs
- * snake_case tool names below would NOT have split the ids; pinning explicit ids
- * just makes that pairing guaranteed and obvious rather than incidental.) The
- * dataset's own id is `ds_` + sha256 over its key.
- *
- * This dataset is deliberately kept PARALLEL with the Python one in
- * `examples/python/agent-eval/dataset.py`: the four questions and their expected
- * `facts` are identical; only the `tools` names differ, because each SDK names
- * its tools idiomatically (`getStockPrice` here, `get_stock_price` there).
- * Running both with the same dataset name + key + `evaluationKey` — and the shared
- * explicit case ids — makes the two runs converge into ONE diffable history.
- *
- * (This file is NOT byte-identical to the Python one — different language, and
- * tool names differ — but it is its deliberate mirror, and the case ids match.)
+ * Kept PARALLEL with the Python dataset in
+ * `examples/python/agent-eval/dataset.py`: same questions and `facts`, only the
+ * tool names differ per SDK idiom (`getStockPrice` here, `get_stock_price` there).
+ * Each case has an EXPLICIT id matching its twin one-for-one, so running both under
+ * the same name + key + `evaluationKey` converges into ONE diffable history.
  */
 
 import { Dataset } from '@traceroot-ai/traceroot';
