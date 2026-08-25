@@ -3,7 +3,7 @@ import { prisma } from "@traceroot/core";
 import { requireAuth, requireProjectAccess, successResponse } from "@/lib/auth-helpers";
 import { compareRuns } from "@/lib/eval/comparison";
 import { toComparisonRun, toComparisonResults } from "@/lib/eval/comparison-db";
-import { countResultStatuses, excludedSummary } from "@/lib/eval/pass-rate";
+import { countResultStatuses, excludedSummary } from "@/lib/eval/result-status-counts";
 
 type RouteParams = { params: Promise<{ projectId: string }> };
 

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { countResultStatuses, excludedSummary } from "./pass-rate";
+import { countResultStatuses, excludedSummary } from "./result-status-counts";
 
 describe("countResultStatuses", () => {
   it("counts each emitted status independently", () => {

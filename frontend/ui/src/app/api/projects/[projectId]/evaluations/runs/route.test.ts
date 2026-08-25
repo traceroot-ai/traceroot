@@ -1,6 +1,6 @@
 /**
- * Run-list derivation. Status counts, pass rate, cost and duration come from one
- * grouped aggregate — no result rows cross the wire for them. The restrained
+ * Run-list derivation. Status counts, cost and duration come from one grouped
+ * aggregate — no result rows cross the wire for them. The restrained
  * comparison summary (regressedCaseCount + trustworthy scalar delta) still comes from
  * the SAME engine as run detail, but only for runs that declare a baseline, batched so
  * a page is a bounded number of queries and never a per-row N+1.
@@ -383,7 +383,7 @@ it("reports a running duration for a mid-flight run with no completedAt", async 
   };
   const row = body.data[0];
   expect(row.elapsedMs).toBe(108000);
-  // Partial counts and cost stay coherent beside it.
+  // Cost stays coherent beside it.
   expect(row.cost).toBeCloseTo(0.6);
 });
 
@@ -419,9 +419,10 @@ it("reports zero counts for a run with no results, without extra queries", async
   expect(prismaMock.evaluationResult.groupBy).toHaveBeenCalledTimes(1);
 });
 
-it("prefers the derived counts over a stored scoredCount that disagrees", async () => {
-  // scoredCount says 9, the result rows say 2 judged. The rows win: numerator and
-  // denominator must come from the same source or the fraction can exceed 1.
+it("derives nothing from legacy pass/fail rows and omits the retired fields", async () => {
+  // A run recorded by a released SDK: every result row carries the legacy `passed`/
+  // `failed` status. Those are still accepted on the wire, so such rows exist — but
+  // nothing rolls them up, and the retired fields must not reappear on the response.
   const run = {
     id: "run_c",
     projectId: "p1",
@@ -453,8 +454,18 @@ it("prefers the derived counts over a stored scoredCount that disagrees", async 
   const body = (await (await GET(nextUrl() as never, params)).json()) as {
     data: Record<string, unknown>[];
   };
+  const row = body.data[0];
+  // Legacy rows inflate nothing: they are neither errored nor not-scored.
+  expect(row.erroredCount).toBe(0);
+  expect(row.notScoredCount).toBe(0);
+  expect(row.excludedSummary).toBeNull();
+  // The retired fields are gone from the response, not merely zeroed. Field-wise
+  // assertions elsewhere would pass if they came back; these will not.
+  expect(row).not.toHaveProperty("passedCount");
+  expect(row).not.toHaveProperty("failedCount");
+  expect(row).not.toHaveProperty("passRate");
   // The stored counter is passed through untouched — it is not reconciled in v1.
-  expect(body.data[0].scoredCount).toBe(9);
+  expect(row.scoredCount).toBe(9);
 });
 
 // ── sort/order whitelist + started_after/started_before ────────────────────
