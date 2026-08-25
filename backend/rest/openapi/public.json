@@ -116,6 +116,118 @@
         "title": "CompleteRunResponse",
         "type": "object"
       },
+      "DetectorDetail": {
+        "description": "A detector's full configuration (Postgres ``detectors`` + optional trigger).\n\n``trigger_conditions`` comes from ``detector_triggers.conditions`` and is\nNone when the detector has no trigger row (it then runs on every sampled\ntrace).",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "detection_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detection Model"
+          },
+          "detection_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detection Provider"
+          },
+          "detection_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detection Source"
+          },
+          "detector_id": {
+            "title": "Detector Id",
+            "type": "string"
+          },
+          "enable_rca": {
+            "title": "Enable Rca",
+            "type": "boolean"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "output_schema": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Schema"
+          },
+          "prompt": {
+            "title": "Prompt",
+            "type": "string"
+          },
+          "sample_rate": {
+            "title": "Sample Rate",
+            "type": "integer"
+          },
+          "template": {
+            "title": "Template",
+            "type": "string"
+          },
+          "trigger_conditions": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trigger Conditions"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detector_id",
+          "name",
+          "template",
+          "enabled",
+          "created_at",
+          "prompt",
+          "output_schema",
+          "sample_rate",
+          "enable_rca",
+          "detection_model",
+          "detection_provider",
+          "detection_source",
+          "updated_at",
+          "trigger_conditions"
+        ],
+        "title": "DetectorDetail",
+        "type": "object"
+      },
       "DetectorItem": {
         "description": "A detector from the project's catalog (Postgres ``detectors``).\n\n``detector_id`` is the value to pass to ``findings list --detector`` to filter\nfindings to this detector.",
         "properties": {
@@ -383,6 +495,14 @@
             "title": "Results",
             "type": "array"
           },
+          "run_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Run Ids",
+            "type": "array"
+          },
           "summary": {
             "title": "Summary",
             "type": "string"
@@ -427,6 +547,14 @@
           "project_id": {
             "title": "Project Id",
             "type": "string"
+          },
+          "run_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Run Ids",
+            "type": "array"
           },
           "summary": {
             "title": "Summary",
@@ -2937,6 +3065,137 @@
         }
       }
     },
+    "/api/v1/public/detectors/{detector_id}": {
+      "get": {
+        "description": "Get one detector's full configuration for the key's project.",
+        "operationId": "get_detector",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "detector_id",
+            "required": true,
+            "schema": {
+              "title": "Detector Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DetectorDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Detector not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Failed to read detector"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Detector",
+        "tags": [
+          "Detectors (Public)"
+        ],
+        "x-tool": {
+          "description": "Fetch one detector's full configuration by id: prompt, output schema, sample rate, RCA and detection settings, and trigger conditions.",
+          "enabled": true,
+          "name": "get_detector"
+        }
+      }
+    },
     "/api/v1/public/evaluation-runs": {
       "post": {
         "description": "Register/start a run. Idempotent on ``client_run_id`` within an evaluation.",
@@ -3769,13 +4028,15 @@
                         "properties": {
                           "field": {
                             "const": "trace_id",
-                            "title": "Trace ID"
+                            "title": "Trace ID",
+                            "type": "string"
                           },
                           "op": {
                             "enum": [
                               "eq",
                               "contains"
-                            ]
+                            ],
+                            "type": "string"
                           },
                           "value": {
                             "maxLength": 1024,
@@ -3795,12 +4056,14 @@
                         "properties": {
                           "field": {
                             "const": "model_name",
-                            "title": "Model"
+                            "title": "Model",
+                            "type": "string"
                           },
                           "op": {
                             "enum": [
                               "in"
-                            ]
+                            ],
+                            "type": "string"
                           },
                           "value": {
                             "items": {
@@ -3823,12 +4086,14 @@
                         "properties": {
                           "field": {
                             "const": "environment",
-                            "title": "Environment"
+                            "title": "Environment",
+                            "type": "string"
                           },
                           "op": {
                             "enum": [
                               "in"
-                            ]
+                            ],
+                            "type": "string"
                           },
                           "value": {
                             "items": {
@@ -3851,7 +4116,8 @@
                         "properties": {
                           "field": {
                             "const": "cost",
-                            "title": "Cost"
+                            "title": "Cost",
+                            "type": "string"
                           },
                           "op": {
                             "enum": [
@@ -3860,7 +4126,8 @@
                               "gte",
                               "lt",
                               "lte"
-                            ]
+                            ],
+                            "type": "string"
                           },
                           "value": {
                             "maximum": 999999999,
@@ -3880,7 +4147,8 @@
                         "properties": {
                           "field": {
                             "const": "total_tokens",
-                            "title": "Tokens"
+                            "title": "Tokens",
+                            "type": "string"
                           },
                           "op": {
                             "enum": [
@@ -3889,7 +4157,8 @@
                               "gte",
                               "lt",
                               "lte"
-                            ]
+                            ],
+                            "type": "string"
                           },
                           "value": {
                             "maximum": 9223372036854775807,
@@ -3909,7 +4178,8 @@
                         "properties": {
                           "field": {
                             "const": "duration_ms",
-                            "title": "Latency"
+                            "title": "Latency",
+                            "type": "string"
                           },
                           "op": {
                             "enum": [
@@ -3918,7 +4188,8 @@
                               "gte",
                               "lt",
                               "lte"
-                            ]
+                            ],
+                            "type": "string"
                           },
                           "value": {
                             "maximum": 9223372036854775807,
@@ -3938,7 +4209,8 @@
                         "properties": {
                           "field": {
                             "const": "errors",
-                            "title": "Errors"
+                            "title": "Errors",
+                            "type": "string"
                           },
                           "op": {
                             "enum": [
@@ -3947,7 +4219,8 @@
                               "gte",
                               "lt",
                               "lte"
-                            ]
+                            ],
+                            "type": "string"
                           },
                           "value": {
                             "maximum": 18446744073709551615,
@@ -3967,7 +4240,8 @@
                         "properties": {
                           "field": {
                             "const": "metadata",
-                            "title": "Metadata"
+                            "title": "Metadata",
+                            "type": "string"
                           },
                           "key": {
                             "description": "Which metadata key the value is compared against",
@@ -3979,7 +4253,8 @@
                             "enum": [
                               "eq",
                               "contains"
-                            ]
+                            ],
+                            "type": "string"
                           },
                           "value": {
                             "maxLength": 1024,
