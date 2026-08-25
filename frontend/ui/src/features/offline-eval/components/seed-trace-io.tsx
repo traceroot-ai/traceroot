@@ -6,9 +6,9 @@ import { spanIOQueryKey } from "@/features/traces";
 import type { TraceDetail } from "../types";
 
 /**
- * Seeds the span-IO react-query cache from hardcoded traces, so the real
- * `SpanInfoPanel` (which reads span input/output/metadata from that cache, not
- * from the span object) shows the fixture values. The reading hook is auth-gated
+ * Seeds the span-IO react-query cache from the provided fallback traces, so the
+ * real `SpanInfoPanel` (which reads span input/output/metadata from that cache,
+ * not from the span object) shows those values. The reading hook is auth-gated
  * and disabled here, but a disabled query still returns seeded data.
  *
  * Call once with all traces the page might open.
