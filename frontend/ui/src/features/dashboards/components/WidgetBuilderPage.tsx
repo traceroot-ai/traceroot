@@ -315,6 +315,7 @@ export function WidgetBuilderPage({
                       filter={f as { field: string; op: string; value: string | number }}
                       filterableFields={filterableFields}
                       fieldsMap={viewFields}
+                      fieldsLoading={schema === undefined}
                       onChange={handleFilterChange}
                       onRemove={handleFilterRemove}
                       projectId={projectId}

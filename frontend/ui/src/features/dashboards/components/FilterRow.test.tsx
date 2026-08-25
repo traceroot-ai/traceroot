@@ -93,6 +93,20 @@ describe("FilterRow value input", () => {
     expect(onRemove).toHaveBeenCalledWith(0);
   });
 
+  it("names an unknown field even when the resolved registry offers no fields at all", () => {
+    vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
+    render(
+      <FilterRow
+        {...baseProps}
+        filterableFields={[]}
+        fieldsMap={{}}
+        filter={{ field: "retired_field", op: "=", value: "x" }}
+      />,
+    );
+    expect(screen.getByRole("alert", { name: "Unknown filter field" })).toBeTruthy();
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
   it("renders the controls for an empty row even while the registry is loading", () => {
     vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
     render(

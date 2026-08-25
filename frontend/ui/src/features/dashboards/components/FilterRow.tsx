@@ -48,9 +48,11 @@ export function FilterRow({
   view: "spans" | "traces" | undefined;
   range: TimeRange;
   /**
-   * The field registry has not answered yet. A saved row is shown as text with
-   * a spinner until it does: rendered through the controls it would read as an
-   * empty row, which is not the same thing as a row still being resolved.
+   * The field registry has not answered yet (pending, or failed and so never
+   * answered). A saved row is shown as text with a spinner until it does:
+   * rendered through the controls it would read as an empty row, which is not
+   * the same thing as a row still being resolved. Consumers that own the
+   * schema query must pass it, or a row would read as unknown while loading.
    */
   fieldsLoading?: boolean;
 }) {
@@ -98,7 +100,9 @@ export function FilterRow({
   // The registry answered and does not know this field: a saved filter whose
   // field was retired, or one this view never offered. Rendered through the
   // controls it would read as an empty row, so name it and keep it removable.
-  if (!fieldsLoading && filter.field && !fieldMeta && filterableFields.length > 0) {
+  // No gate on the registry being non-empty: an answered-but-empty registry
+  // knows the field no better than a populated one.
+  if (!fieldsLoading && filter.field && !fieldMeta) {
     return (
       <div
         role="alert"
