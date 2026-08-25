@@ -23,6 +23,30 @@ describe("getSystemPrompt", () => {
     expect(prompt).toContain("spans.jsonl");
   });
 
+  it("describes the detector read tools", () => {
+    const prompt = getSystemPrompt({ projectId: "proj-123" });
+    expect(prompt).toContain("list_detectors");
+    expect(prompt).toContain("get_detector with a detector_id");
+    expect(prompt).toContain("list_findings");
+    expect(prompt).toContain("get_finding");
+    expect(prompt).toContain("get_finding_by_trace");
+    expect(prompt).toContain("root-cause analysis");
+  });
+
+  it("lists the detector templates so coverage gaps get template recommendations", () => {
+    const prompt = getSystemPrompt({ projectId: "proj-123" });
+    expect(prompt).toContain("failure, hallucination, logic, task, safety");
+    expect(prompt).toContain("blank (fully custom prompt)");
+    expect(prompt).toContain("recommend adding a detector with the");
+  });
+
+  it("tells the agent telemetry is live so counts get re-queried, not recalled", () => {
+    const prompt = getSystemPrompt({ projectId: "proj-123" });
+    expect(prompt).toContain("Telemetry is live");
+    expect(prompt).toContain("re-run the query instead of answering from earlier results");
+    expect(prompt).toContain("don't invent filter explanations");
+  });
+
   it("points a session context at get_session and download_session", () => {
     const prompt = getSystemPrompt({ projectId: "proj-123", traceSessionId: "sess-9" });
     expect(prompt).toContain("Currently viewing Session ID: sess-9");
@@ -34,5 +58,11 @@ describe("getSystemPrompt", () => {
     const prompt = getSystemPrompt({ projectId: "proj-123" });
     expect(prompt).toContain("observations table");
     expect(prompt).toContain("GENERATION|SPAN|EVENT");
+  });
+
+  it("includes current date in UTC", () => {
+    const today = new Date().toISOString().split("T")[0];
+    const prompt = getSystemPrompt({ projectId: "proj-123" });
+    expect(prompt).toContain(`- Current date: ${today} (UTC)`);
   });
 });
