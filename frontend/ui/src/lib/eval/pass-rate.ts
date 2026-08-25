@@ -1,16 +1,16 @@
 /**
- * Run pass rate — derived from stored per-result statuses, never from the run's
- * stored counters. See docs/offline-eval-run-pass-rate-design.md.
+ * Per-status result counts for a run, derived from the stored result rows rather
+ * than the run's own counters.
  *
- * The denominator is `passed + failed`, inherited from the SDK's own definition
- * (`traceroot-py/traceroot/eval/results.py`: `scored_count = passed + failed`).
- * `errored` (the candidate app broke) and `not_scored` (no numeric/boolean main
- * score) are excluded from both sides: neither is a bad grade.
+ * Only the two statuses the SDKs actually emit are counted. `case_status()` returns
+ * `errored` (the candidate app or a scorer threw) or `not_scored`, and nothing else:
+ * a case with several scorers has no single headline verdict, so the SDK records a
+ * per-score `passed` and derives no case-level pass/fail. The `passed`/`failed`
+ * statuses remain valid on the wire for ingestion from released SDK versions, but no
+ * current writer produces them, so nothing here rolls them up.
  */
 
 export interface ResultStatusCounts {
-  passedCount: number;
-  failedCount: number;
   erroredCount: number;
   notScoredCount: number;
 }
@@ -25,31 +25,18 @@ export function countResultStatuses(
   results: Array<{ status: string; count?: number }>,
 ): ResultStatusCounts {
   const counts: ResultStatusCounts = {
-    passedCount: 0,
-    failedCount: 0,
     erroredCount: 0,
     notScoredCount: 0,
   };
   for (const r of results) {
     const n = r.count ?? 1;
-    if (r.status === "passed") counts.passedCount += n;
-    else if (r.status === "failed") counts.failedCount += n;
-    else if (r.status === "errored") counts.erroredCount += n;
+    if (r.status === "errored") counts.erroredCount += n;
     else if (r.status === "not_scored") counts.notScoredCount += n;
   }
   return counts;
 }
 
-/**
- * Null when nothing was judged — an all-errored run must render "—", never "0%",
- * which would read as a catastrophic quality regression rather than a broken harness.
- */
-export function passRate(passedCount: number, failedCount: number): number | null {
-  const judged = passedCount + failedCount;
-  return judged === 0 ? null : passedCount / judged;
-}
-
-/** Human phrase for the cases the fraction excludes, or null when it excludes none. */
+/** Human phrase for a run's unscorable cases, or null when it has none. */
 export function excludedSummary(erroredCount: number, notScoredCount: number): string | null {
   const parts: string[] = [];
   if (erroredCount > 0) parts.push(`${erroredCount} errored`);
