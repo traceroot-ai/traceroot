@@ -16,7 +16,14 @@ export interface SessionRow {
   isCurrent: boolean;
 }
 
-const ACTIVE_SESSIONS_QUERY_KEY = ["account-settings", "sessions"] as const;
+// Keyed per user: the rows carry raw session tokens (a session token can mint
+// a short-lived access JWT, so it IS a credential, not just metadata). Under a
+// constant key, an account switch in the same browser tab could render — or
+// leave readable in cache — the previous account's rows. Scoping the key by
+// user id keeps one account's data from ever serving another's view, and
+// gcTime 0 below drops the token-bearing payload as soon as the page unmounts.
+const activeSessionsQueryKey = (userId: string | null) =>
+  ["account-settings", "sessions", userId] as const;
 
 /**
  * Data-fetching + mutation logic for the Active Sessions table, kept out of
@@ -35,9 +42,15 @@ export function useActiveSessions() {
   // revoke (a false negative would let the current session's row show one).
   const { data: currentSessionData, isPending: currentSessionPending } = authClient.useSession();
   const currentToken = currentSessionData?.session?.token ?? null;
+  const currentUserId = currentSessionData?.session?.userId ?? null;
 
   const query = useQuery({
-    queryKey: ACTIVE_SESSIONS_QUERY_KEY,
+    queryKey: activeSessionsQueryKey(currentUserId),
+    // Don't fetch until we know WHO is asking — otherwise the result couldn't
+    // be attributed to a user-scoped cache entry.
+    enabled: currentUserId !== null,
+    // Token-bearing data: never retain it after the page unmounts.
+    gcTime: 0,
     queryFn: async () => {
       const { data, error } = await authClient.listSessions();
       if (error) {
@@ -62,8 +75,8 @@ export function useActiveSessions() {
   }));
 
   const refresh = useCallback(
-    () => queryClient.invalidateQueries({ queryKey: ACTIVE_SESSIONS_QUERY_KEY }),
-    [queryClient],
+    () => queryClient.invalidateQueries({ queryKey: activeSessionsQueryKey(currentUserId) }),
+    [queryClient, currentUserId],
   );
 
   const revokeMutation = useMutation({
@@ -92,7 +105,10 @@ export function useActiveSessions() {
 
   return {
     sessions,
-    isLoading: query.isLoading,
+    // The query is disabled until the current user resolves, and a disabled
+    // query reports isLoading=false — fold the session resolution in so the
+    // table shows "loading" instead of flashing an empty state first.
+    isLoading: query.isLoading || currentSessionPending,
     isError: query.isError,
     currentSessionPending,
     revoke: revokeMutation.mutate,
