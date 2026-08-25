@@ -20,10 +20,11 @@ const CopyButton = React.forwardRef<HTMLButtonElement, CopyButtonProps>(
 
     const handleCopy = async (e: React.MouseEvent<HTMLButtonElement>) => {
       e.stopPropagation();
-      await navigator.clipboard?.writeText(value);
-      setCopied(true);
-      onCopy?.();
-      setTimeout(() => setCopied(false), 2000);
+      try {
+        await navigator.clipboard?.writeText(value);
+      } catch (err) {
+        console.error("Failed to copy text: ", err);
+      }
     };
 
     return (
