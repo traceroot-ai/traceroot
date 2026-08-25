@@ -14,6 +14,7 @@ passes local=True to evaluate() so the eval runs in full and reports nowhere.
 """
 
 import os
+import sys
 
 from dotenv import find_dotenv, load_dotenv
 
@@ -106,4 +107,11 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        # A failed eval run must exit non-zero so CI / shell callers can detect it.
+        import traceback
+
+        traceback.print_exc()
+        sys.exit(1)
