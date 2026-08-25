@@ -191,6 +191,27 @@ describe("runAlertTick — an unsendable spec is that alert's own failure", () =
 });
 
 describe("runAlertTick — the page a transition produces", () => {
+  it("carries the rule's filters on the page, so the message can state them", async () => {
+    const filters = [
+      { field: "span_kind", op: "=", value: "LLM" },
+      { field: "metadata", key: "tenant", op: "contains", value: "acme" },
+    ];
+    claimDueAlerts.mockResolvedValue([
+      claimWith("filtered", {
+        filters,
+        state: { severity: "OK", severityChangedAt: null, alertedAt: null },
+      }),
+    ]);
+    evaluateAlerts.mockImplementation(async (request) =>
+      request.alerts.map((spec) => breachResult(spec.alert_id)),
+    );
+
+    await runAlertTick(NOW);
+
+    expect(enqueueAlertNotification).toHaveBeenCalledTimes(1);
+    expect(enqueueAlertNotification.mock.calls[0][0].filters).toEqual(filters);
+  });
+
   it("pages on the entry into ALERT, carrying the severity it came from", async () => {
     const changedAt = new Date("2026-08-12T09:00:00.000Z");
     claimDueAlerts.mockResolvedValue([

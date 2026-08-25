@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { Loader2, X } from "lucide-react";
+import { AlertTriangle, Loader2, X } from "lucide-react";
 import {
   Dropdown,
   DropdownItem,
@@ -78,8 +78,10 @@ export function FilterRow({
 
   const showValueDropdown = enumerable && (options.length > 0 || isLoading);
 
+  const subject = filter.key ? `${filter.field}[${filter.key}]` : filter.field;
+  const predicateText = `${subject} ${filter.op} ${String(filter.value)}`;
+
   if (fieldsLoading && filter.field) {
-    const subject = filter.key ? `${filter.field}[${filter.key}]` : filter.field;
     return (
       <div
         role="status"
@@ -87,10 +89,33 @@ export function FilterRow({
         className="flex h-7 items-center gap-2 rounded-md border border-dashed border-border px-2 text-[12px] text-muted-foreground"
       >
         <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
-        <span className="truncate font-mono">
-          {subject} {filter.op} {String(filter.value)}
-        </span>
+        <span className="truncate font-mono">{predicateText}</span>
         <span className="ml-auto shrink-0">Loading fields…</span>
+      </div>
+    );
+  }
+
+  // The registry answered and does not know this field: a saved filter whose
+  // field was retired, or one this view never offered. Rendered through the
+  // controls it would read as an empty row, so name it and keep it removable.
+  if (!fieldsLoading && filter.field && !fieldMeta && filterableFields.length > 0) {
+    return (
+      <div
+        role="alert"
+        aria-label="Unknown filter field"
+        className="flex h-7 items-center gap-2 rounded-md border border-dashed border-destructive/60 px-2 text-[12px] text-muted-foreground"
+      >
+        <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+        <span className="truncate font-mono">{predicateText}</span>
+        <span className="ml-auto shrink-0">Unknown field</span>
+        <button
+          type="button"
+          onClick={() => onRemove(index)}
+          className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+          aria-label="Remove filter"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
       </div>
     );
   }

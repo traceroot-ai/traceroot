@@ -369,6 +369,13 @@ export const TRACE_LIST_ALERT_FILTER_FIELDS: readonly string[] = [
   "name",
 ];
 
+/**
+ * `metadata[key]` maps too, one notch wider than the fields above: the alert
+ * matched the pair on spans only, while the trace list also accepts it on the
+ * trace row, so the link can include a trace tagged only at trace scope. It
+ * still describes the rule's tenant/user/flag, which beats an unfiltered list;
+ * a span-grain drill-down is the fix for both widenings.
+ */
 export function alertFiltersToTracePredicates(
   filters: readonly AlertFilter[],
 ): TraceListPredicate[] {

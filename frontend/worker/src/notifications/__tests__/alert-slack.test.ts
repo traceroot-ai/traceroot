@@ -250,6 +250,14 @@ describe("enqueueAlertNotification", () => {
 });
 
 describe("sendAlertNotification", () => {
+  it("hands the rule's filters to the message builder", async () => {
+    const { sendAlertNotification } = await importModule();
+    const filters = [{ field: "span_kind", op: "=", value: "LLM" }];
+    await sendAlertNotification({ ...job, filters });
+    const params = buildAlertBlocks.mock.calls[0][0] as { filters?: unknown };
+    expect(params.filters).toEqual(filters);
+  });
+
   it("posts the built message as a coloured attachment with unfurling off", async () => {
     const { sendAlertNotification } = await importModule();
     await sendAlertNotification(job);

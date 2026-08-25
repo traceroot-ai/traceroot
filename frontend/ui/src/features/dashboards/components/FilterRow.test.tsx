@@ -75,6 +75,24 @@ describe("FilterRow value input", () => {
     expect(screen.queryByRole("button", { name: "Remove filter" })).toBeNull();
   });
 
+  it("names a saved field the resolved registry does not know, and keeps it removable", () => {
+    vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
+    const onRemove = vi.fn();
+    render(
+      <FilterRow
+        {...baseProps}
+        onRemove={onRemove}
+        filter={{ field: "retired_field", op: "=", value: "x" }}
+      />,
+    );
+    const row = screen.getByRole("alert", { name: "Unknown filter field" });
+    expect(row.textContent).toContain("retired_field = x");
+    expect(row.textContent).toContain("Unknown field");
+    expect(screen.queryByRole("status")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Remove filter" }));
+    expect(onRemove).toHaveBeenCalledWith(0);
+  });
+
   it("renders the controls for an empty row even while the registry is loading", () => {
     vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
     render(
