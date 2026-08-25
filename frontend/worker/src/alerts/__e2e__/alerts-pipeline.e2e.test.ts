@@ -8,9 +8,13 @@
  * the delivery worker, the client so the message can be asserted on — or, with
  * E2E_SLACK_BOT_TOKEN / E2E_SLACK_CHANNEL_ID set, posted to a real channel.
  *
+ * Every scenario runs in its own tenant and ticks only that tenant's projects
+ * (`runAlertTick`'s scope), so the suite neither touches nor sees any other
+ * rule on the database it runs against.
+ *
  * Needs the dev stack (`make dev`): see README.md in this directory.
  */
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   connectSlack,
   createRule,
@@ -83,6 +87,12 @@ function enqueuedJobs(): AlertNotificationJob[] {
   return boundary.queueAdd.mock.calls.map(([, job]) => job as AlertNotificationJob);
 }
 
+function jobFor(alertId: string): AlertNotificationJob {
+  const job = enqueuedJobs().find((candidate) => candidate.alertId === alertId);
+  if (!job) throw new Error(`no notification was enqueued for ${alertId}`);
+  return job;
+}
+
 interface PostedMessage {
   channel: string;
   text: string;
@@ -91,6 +101,12 @@ interface PostedMessage {
 
 function postedMessages(): PostedMessage[] {
   return boundary.postMessage.mock.calls.map(([args]) => args as PostedMessage);
+}
+
+function lastMessage(): PostedMessage {
+  const messages = postedMessages();
+  if (messages.length === 0) throw new Error("nothing was posted to Slack");
+  return messages[messages.length - 1];
 }
 
 function sectionTexts(message: PostedMessage): string[] {
@@ -105,6 +121,11 @@ function tracesLink(message: PostedMessage): URL | null {
   return match ? new URL(match[1]) : null;
 }
 
+/** A tick over this scenario's tenants only. */
+function tick(now: Date, ...tenants: Tenant[]): Promise<void> {
+  return runAlertTick(now, { projectIds: tenants.map((tenant) => tenant.projectId) });
+}
+
 // ---------------------------------------------------------------------------
 // Suite
 // ---------------------------------------------------------------------------
@@ -113,24 +134,28 @@ const env = readEnv();
 const slackChannel = boundary.realSlack.channelId ?? "C_E2E_CHANNEL";
 
 describe("alerts pipeline", () => {
+  // Fresh per scenario: a rule claimed by one scenario's tick is due again a
+  // minute later, so a shared tenant would let it leak into a later scenario
+  // that happens to cross the boundary.
   let tenant: Tenant;
+  const extraTenants: Tenant[] = [];
 
   beforeAll(async () => {
     boundary.postMessage.mockResolvedValue({ ok: true });
     boundary.queueAdd.mockResolvedValue(undefined);
     await preflight(env);
-    tenant = await createTenant("pipeline");
-    await connectSlack(tenant, { channelId: slackChannel, botToken: boundary.realSlack.token });
-  });
-
-  afterAll(async () => {
-    await teardown(env, tenant);
   });
 
   beforeEach(async () => {
     boundary.queueAdd.mockClear();
     boundary.postMessage.mockClear();
-    await deleteSpans(env, tenant.projectId);
+    tenant = await createTenant("pipeline");
+    await connectSlack(tenant, { channelId: slackChannel, botToken: boundary.realSlack.token });
+  });
+
+  afterEach(async () => {
+    await teardown(env, tenant);
+    for (const extra of extraTenants.splice(0)) await teardown(env, extra);
   });
 
   it("evaluates a filtered rule against real spans, pages on the breach, and delivers the filters", async () => {
@@ -148,16 +173,15 @@ describe("alerts pipeline", () => {
       ...instantsWithin(window, 5).map((start) => ({ start, spanKind: "SPAN" })),
     ]);
 
-    await runAlertTick(now);
+    await tick(now, tenant);
 
     const rule = await readRule(alertId);
     expect(rule.severity).toBe("ALERT");
     expect(rule.lastError).toBeNull();
     expect(rule.lastEvaluatedAt?.getTime()).toBe(window.boundary.getTime());
 
-    const [job] = enqueuedJobs();
+    const job = jobFor(alertId);
     expect(job).toMatchObject({
-      alertId,
       projectId: tenant.projectId,
       severity: "ALERT",
       previousSeverity: "UNKNOWN",
@@ -170,9 +194,10 @@ describe("alerts pipeline", () => {
     // The delivery worker, fed the job the tick enqueued.
     await sendAlertNotification(job);
 
-    const [message] = postedMessages();
+    const message = lastMessage();
     expect(message.channel).toBe(slackChannel);
     expect(message.text).toContain("[ALERT] e2e agent span count");
+    expect(message.text).toContain("Where `span_kind = AGENT`.");
     const [outcome] = sectionTexts(message);
     expect(outcome).toContain("`count` was 5, above the 1 threshold, over the last 1m.");
     expect(outcome).toContain("Where `span_kind = AGENT`.");
@@ -201,7 +226,7 @@ describe("alerts pipeline", () => {
       tenant.projectId,
       instantsWithin(evaluatedWindow(first), 3).map((start) => ({ start })),
     );
-    await runAlertTick(first);
+    await tick(first, tenant);
     expect((await readRule(alertId)).severity).toBe("ALERT");
     boundary.queueAdd.mockClear();
 
@@ -209,14 +234,14 @@ describe("alerts pipeline", () => {
     // than holding (HOLD applies to measures with no value, not to a zero).
     await deleteSpans(env, tenant.projectId);
     await makeDue(alertId);
-    await runAlertTick(new Date());
+    await tick(new Date(), tenant);
 
     expect((await readRule(alertId)).severity).toBe("OK");
-    const [job] = enqueuedJobs();
-    expect(job).toMatchObject({ alertId, severity: "OK", previousSeverity: "ALERT" });
+    const job = jobFor(alertId);
+    expect(job).toMatchObject({ severity: "OK", previousSeverity: "ALERT" });
 
     await sendAlertNotification(job);
-    const [message] = postedMessages();
+    const message = lastMessage();
     expect(message.text).toContain("[OK] e2e recovery");
     expect(sectionTexts(message)[0]).toContain("recovered to 0");
     expect(tracesLink(message)).toBeNull();
@@ -234,42 +259,201 @@ describe("alerts pipeline", () => {
       tenant.projectId,
       instantsWithin(evaluatedWindow(now), 3).map((start) => ({ start })),
     );
-    await runAlertTick(now);
+    await tick(now, tenant);
     expect((await readRule(alertId)).severity).toBe("ALERT");
 
-    await sendAlertNotification(enqueuedJobs()[0]);
-    const [message] = postedMessages();
+    await sendAlertNotification(jobFor(alertId));
+    const message = lastMessage();
     expect(sectionTexts(message)[0]).toContain("Where `name contains e2e`.");
     const link = tracesLink(message);
     expect(link).not.toBeNull();
     expect(link!.searchParams.has("filters")).toBe(false);
   });
 
+  it("filters on a metadata key end to end: the count, the prose and the keyed link predicate", async () => {
+    const alertId = await createRule(tenant, {
+      name: "e2e acme spans",
+      filters: [{ field: "metadata", key: "tenant", op: "=", value: "acme" }],
+    });
+    const now = new Date();
+    const window = evaluatedWindow(now);
+    // The map ClickHouse materializes from the metadata JSON is what the
+    // evaluator filters on, so the seed writes the JSON and nothing else.
+    await seedSpans(env, tenant.projectId, [
+      ...instantsWithin(window, 4).map((start) => ({ start, metadata: { tenant: "acme" } })),
+      ...instantsWithin(window, 3).map((start) => ({ start, metadata: { tenant: "other" } })),
+      ...instantsWithin(window, 2).map((start) => ({ start })),
+    ]);
+    await tick(now, tenant);
+
+    expect((await readRule(alertId)).severity).toBe("ALERT");
+    const job = jobFor(alertId);
+    expect(job.value).toBe(4);
+
+    await sendAlertNotification(job);
+    const message = lastMessage();
+    expect(sectionTexts(message)[0]).toContain("Where `metadata[tenant] = acme`.");
+    expect(JSON.parse(tracesLink(message)!.searchParams.get("filters")!)).toEqual([
+      { field: "metadata", key: "tenant", op: "eq", value: "acme" },
+    ]);
+  });
+
+  it("measures p95 latency over real durations, then shows NO_DATA without paging under HOLD", async () => {
+    const alertId = await createRule(tenant, {
+      name: "e2e p95 latency",
+      measure: "latency",
+      aggregation: "p95",
+      threshold: 500,
+      noDataMode: "HOLD",
+    });
+    const now = new Date();
+    const window = evaluatedWindow(now);
+    // Durations 100ms..1000ms: the p95 sits in the top decile, well over 500.
+    await seedSpans(
+      env,
+      tenant.projectId,
+      instantsWithin(window, 10).map((start, i) => ({ start, durationMs: (i + 1) * 100 })),
+    );
+    await tick(now, tenant);
+
+    const breached = await readRule(alertId);
+    expect(breached.severity).toBe("ALERT");
+    const job = jobFor(alertId);
+    expect(job.value).toBeGreaterThan(500);
+    expect(job.value).toBeLessThanOrEqual(1000);
+
+    await sendAlertNotification(job);
+    const [outcome] = sectionTexts(lastMessage());
+    expect(outcome).toMatch(/`p95\(latency\)` was \d+(\.\d+)?ms, above the 500ms threshold/);
+
+    // No rows, so p95 has no value (unlike count's honest zero). Under HOLD the
+    // gap shows as NO_DATA on the rule but is not the incident: nothing pages,
+    // and the breach's clocks are kept so the return to data is judged
+    // against the ALERT it interrupted.
+    boundary.queueAdd.mockClear();
+    await deleteSpans(env, tenant.projectId);
+    await makeDue(alertId);
+    await tick(new Date(), tenant);
+
+    const held = await readRule(alertId);
+    expect(held.severity).toBe("NO_DATA");
+    expect(held.lastError).toBeNull();
+    expect(held.alertedAt?.getTime()).toBe(breached.alertedAt?.getTime());
+    expect(enqueuedJobs()).toEqual([]);
+  });
+
+  it("pages NO_DATA on an empty window under NOTIFY, and pages the return to data", async () => {
+    const alertId = await createRule(tenant, {
+      name: "e2e silent source",
+      measure: "latency",
+      aggregation: "avg",
+      threshold: 10_000,
+      noDataMode: "NOTIFY",
+    });
+
+    // A window with nothing in it is the incident for this mode.
+    await tick(new Date(), tenant);
+    expect((await readRule(alertId)).severity).toBe("NO_DATA");
+    const silence = jobFor(alertId);
+    expect(silence).toMatchObject({
+      severity: "NO_DATA",
+      previousSeverity: "UNKNOWN",
+      value: null,
+    });
+    await sendAlertNotification(silence);
+    const silenceMessage = lastMessage();
+    expect(silenceMessage.text).toContain("[NO_DATA] e2e silent source");
+    expect(sectionTexts(silenceMessage)[0]).toContain("No data for `avg(latency)`");
+    expect(tracesLink(silenceMessage)).toBeNull();
+
+    // Data returns, within threshold: that is a transition worth a page too.
+    boundary.queueAdd.mockClear();
+    const now = new Date();
+    await seedSpans(
+      env,
+      tenant.projectId,
+      instantsWithin(evaluatedWindow(now), 3).map((start) => ({ start, durationMs: 100 })),
+    );
+    await makeDue(alertId);
+    await tick(now, tenant);
+
+    expect((await readRule(alertId)).severity).toBe("OK");
+    expect(jobFor(alertId)).toMatchObject({ severity: "OK", previousSeverity: "NO_DATA" });
+  });
+
+  it("sums cost over the window and compares it with the stored operator", async () => {
+    const alertId = await createRule(tenant, {
+      name: "e2e spend",
+      measure: "cost",
+      aggregation: "sum",
+      thresholdOperator: ">=",
+      threshold: 1,
+    });
+    const now = new Date();
+    await seedSpans(
+      env,
+      tenant.projectId,
+      instantsWithin(evaluatedWindow(now), 4).map((start) => ({ start, cost: 0.25 })),
+    );
+    await tick(now, tenant);
+
+    expect((await readRule(alertId)).severity).toBe("ALERT");
+    const job = jobFor(alertId);
+    expect(job.value).toBeCloseTo(1, 6);
+    await sendAlertNotification(job);
+    expect(sectionTexts(lastMessage())[0]).toContain(
+      "`sum(cost)` was 1, at or above the 1 threshold, over the last 1m.",
+    );
+  });
+
+  it("evaluates several rules across projects in one tick, each against its own project's spans", async () => {
+    const other = await createTenant("neighbour");
+    extraTenants.push(other);
+    await connectSlack(other, { channelId: slackChannel, botToken: boundary.realSlack.token });
+
+    // Same window, same measure: only the project decides what each rule sees.
+    const busy = await createRule(tenant, { name: "e2e busy" });
+    const busyTwice = await createRule(tenant, { name: "e2e busy again", threshold: 10 });
+    const quiet = await createRule(other, { name: "e2e quiet" });
+
+    const now = new Date();
+    await seedSpans(
+      env,
+      tenant.projectId,
+      instantsWithin(evaluatedWindow(now), 3).map((start) => ({ start })),
+    );
+    await tick(now, tenant, other);
+
+    expect((await readRule(busy)).severity).toBe("ALERT");
+    expect((await readRule(busyTwice)).severity).toBe("OK");
+    expect((await readRule(quiet)).severity).toBe("OK");
+
+    // One page, for the one rule that breached; the OK rules were never in
+    // ALERT, so their first evaluation is not a transition worth a message.
+    expect(enqueuedJobs().map((job) => job.alertId)).toEqual([busy]);
+    expect(jobFor(busy)).toMatchObject({ projectId: tenant.projectId, value: 3 });
+  });
+
   it("records a rule that breaches while the workspace has no Slack channel as FAILED / no-channel", async () => {
     const lonely = await createTenant("no-slack");
-    try {
-      const alertId = await createRule(lonely, { name: "e2e no channel" });
-      const now = new Date();
-      await seedSpans(
-        env,
-        lonely.projectId,
-        instantsWithin(evaluatedWindow(now), 2).map((start) => ({ start })),
-      );
-      await runAlertTick(now);
-      expect((await readRule(alertId)).severity).toBe("ALERT");
+    extraTenants.push(lonely);
+    const alertId = await createRule(lonely, { name: "e2e no channel" });
+    const now = new Date();
+    await seedSpans(
+      env,
+      lonely.projectId,
+      instantsWithin(evaluatedWindow(now), 2).map((start) => ({ start })),
+    );
+    await tick(now, lonely);
+    expect((await readRule(alertId)).severity).toBe("ALERT");
 
-      const job = enqueuedJobs().find((candidate) => candidate.alertId === alertId);
-      expect(job).toBeDefined();
-      await sendAlertNotification(job!);
+    await sendAlertNotification(jobFor(alertId));
 
-      expect(boundary.postMessage).not.toHaveBeenCalled();
-      const rule = await readRule(alertId);
-      expect(rule.lastNotifyStatus).toBe("FAILED");
-      expect(rule.lastNotifyError).toBe("no-channel");
-      // The breach itself stands: a failed delivery is not an un-evaluation.
-      expect(rule.severity).toBe("ALERT");
-    } finally {
-      await teardown(env, lonely);
-    }
+    expect(boundary.postMessage).not.toHaveBeenCalled();
+    const rule = await readRule(alertId);
+    expect(rule.lastNotifyStatus).toBe("FAILED");
+    expect(rule.lastNotifyError).toBe("no-channel");
+    // The breach itself stands: a failed delivery is not an un-evaluation.
+    expect(rule.severity).toBe("ALERT");
   });
 });

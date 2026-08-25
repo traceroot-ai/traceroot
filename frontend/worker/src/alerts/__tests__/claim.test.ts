@@ -86,6 +86,18 @@ describe("claimDueAlerts — the read that selects candidates", () => {
     expect(args.orderBy).toEqual([{ nextRunAt: "asc" }, { createTime: "asc" }]);
   });
 
+  it("narrows the read to the scope's projects, and reads platform-wide without one", async () => {
+    await claimDueAlerts(TICK, { projectIds: ["proj-a", "proj-b"] });
+    const [scoped] = findMany.mock.calls[0];
+    expect((scoped.where as Record<string, unknown>).projectId).toEqual({
+      in: ["proj-a", "proj-b"],
+    });
+
+    await claimDueAlerts(TICK);
+    const [unscoped] = findMany.mock.calls[1];
+    expect(unscoped.where as Record<string, unknown>).not.toHaveProperty("projectId");
+  });
+
   it("claims no more than the budget, and never all of it for one project", async () => {
     findMany.mockResolvedValue([
       ...rowsFor("proj-noisy", ALERT_CLAIM_SCAN_LIMIT - 100),

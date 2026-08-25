@@ -39,9 +39,29 @@ Configuration comes from the repo's `.env`, the same one the stack reads:
 `ENCRYPTION_KEY`. A preflight names anything missing or unreachable before
 the first scenario runs.
 
-Each run mints its own user, workspace and project (ids prefixed `e2e-`) and
-removes them afterwards, so it is safe to run against a database you also use
-by hand.
+Each scenario mints its own user, workspace and project (ids prefixed `e2e-`)
+and removes them afterwards, and ticks only its own projects (`runAlertTick`'s
+project scope), so the suite neither claims nor pages any other rule on the
+database it runs against — it is safe to run beside data you use by hand.
+
+## Scenarios
+
+| # | What is exercised |
+|---|---|
+| 1 | A `span_kind = AGENT` filter: the count applies it, the message states it, the link carries it, delivery is recorded |
+| 2 | A count rule recovers to OK on an empty window (an honest zero), with no traces link |
+| 3 | A `contains` filter the trace list cannot express stays in the prose, out of the link |
+| 4 | A keyed `metadata[tenant] = acme` filter: the materialized map, the prose, the keyed link predicate |
+| 5 | `p95(latency)` over real durations, then an empty window under HOLD: NO_DATA shown, nothing paged, the breach's clocks kept |
+| 6 | `avg(latency)` under NOTIFY: the empty window pages NO_DATA, the return to data pages OK |
+| 7 | `sum(cost)` with `>=`: Decimal arithmetic and the operator phrase |
+| 8 | Three rules across two projects in one tick: each judged on its own project's spans, one page |
+| 9 | A workspace with no Slack channel: the breach stands, delivery records FAILED / no-channel |
+
+Left to the unit suites, which target them directly and without a stack:
+renotify intervals, pause/resume cold start, delivery compensation and revert,
+overlapping ticks and the claim CAS, the threshold-operator matrix, the
+evaluator's window-width and end-lag guards.
 
 ### Delivering to a real Slack channel
 
@@ -75,3 +95,6 @@ repository secrets, and the suite must pass for them too.
   `sendAlertNotification` to get the message.
 - `makeDue(alertId)` re-arms a rule for another tick without touching its
   state; re-seed (or `deleteSpans`) first to change what that tick sees.
+- Tick through the `tick(now, ...tenants)` helper in the suite, never
+  `runAlertTick(now)` bare: without a scope the tick claims every due rule on
+  the database.

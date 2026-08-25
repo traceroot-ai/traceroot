@@ -6,6 +6,7 @@ import {
   completeAlertEvaluation,
   recordAlertEvaluationFailure,
   type ClaimedAlert,
+  type AlertClaimScope,
 } from "./claim.js";
 import { mapWithConcurrency } from "./concurrency.js";
 import { revertAlertEmission } from "./emission.js";
@@ -306,12 +307,12 @@ function groupTasks(group: AlertGroup, tick: AlertTick): EvaluationTask[] {
   ];
 }
 
-export async function runAlertTick(now: Date): Promise<void> {
+export async function runAlertTick(now: Date, scope?: AlertClaimScope): Promise<void> {
   const tick = computeAlertTick(now);
 
   let claims: ClaimedAlert[];
   try {
-    claims = await claimDueAlerts(tick);
+    claims = await claimDueAlerts(tick, scope);
   } catch (error) {
     logError("claim read failed, skipping this tick", error);
     return;

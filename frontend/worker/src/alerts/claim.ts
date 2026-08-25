@@ -98,14 +98,27 @@ function shareBudgetAcrossProjects<T extends { readonly projectId: string }>(
   return selected;
 }
 
+/**
+ * Narrows a tick to some projects. The scheduler never passes one — a tick is
+ * platform-wide — but a test driving `runAlertTick` against a shared database
+ * must not claim, evaluate and page every due rule on it.
+ */
+export interface AlertClaimScope {
+  readonly projectIds: readonly string[];
+}
+
 /** The conditional update is the mutex: only the claim whose `lastClaimedAt` still holds wins. */
-export async function claimDueAlerts(tick: AlertTick): Promise<ClaimedAlert[]> {
+export async function claimDueAlerts(
+  tick: AlertTick,
+  scope?: AlertClaimScope,
+): Promise<ClaimedAlert[]> {
   const due = await prisma.alert.findMany({
     where: {
       status: ACTIVE,
       OR: [{ nextRunAt: null }, { nextRunAt: { lte: tick.now } }],
       // Deletion is soft, so no cascade fires: without this a deleted project keeps paging.
       project: { deleteTime: null },
+      ...(scope ? { projectId: { in: [...scope.projectIds] } } : {}),
     },
     orderBy: [{ nextRunAt: "asc" }, { createTime: "asc" }],
     take: ALERT_CLAIM_SCAN_LIMIT,

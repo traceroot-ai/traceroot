@@ -13,7 +13,14 @@
  * by project id).
  */
 import { randomUUID } from "node:crypto";
-import { encryptKey, prisma, type AlertFilter } from "@traceroot/core";
+import {
+  encryptKey,
+  prisma,
+  type AlertFilter,
+  type AlertNoDataMode,
+  type AlertThresholdOperator,
+  type AlertWindow,
+} from "@traceroot/core";
 
 // ---------------------------------------------------------------------------
 // Environment
@@ -126,6 +133,10 @@ export interface SpanSeed {
   status?: string;
   modelName?: string | null;
   environment?: string | null;
+  cost?: number | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  /** Stored as the `metadata` JSON; ClickHouse materializes `metadata_map` from it. */
   metadata?: Record<string, string>;
   /** Spans of one trace share it; a fresh trace per span when omitted. */
   traceId?: string;
@@ -154,10 +165,13 @@ export async function seedSpans(env: E2EEnv, projectId: string, seeds: SpanSeed[
       status: seed.status ?? "OK",
       status_message: null,
       model_name: seed.modelName ?? null,
-      cost: null,
-      input_tokens: null,
-      output_tokens: null,
-      total_tokens: null,
+      cost: seed.cost ?? null,
+      input_tokens: seed.inputTokens ?? null,
+      output_tokens: seed.outputTokens ?? null,
+      total_tokens:
+        seed.inputTokens == null && seed.outputTokens == null
+          ? null
+          : (seed.inputTokens ?? 0) + (seed.outputTokens ?? 0),
       input: null,
       output: null,
       metadata: Object.keys(metadata).length > 0 ? JSON.stringify(metadata) : null,
@@ -260,10 +274,10 @@ export interface RuleSeed {
   measure?: string;
   aggregation?: string;
   filters?: AlertFilter[];
-  window?: "1m" | "5m" | "10m" | "30m" | "1h" | "2h";
-  thresholdOperator?: ">" | ">=" | "<" | "<=" | "=";
+  window?: AlertWindow;
+  thresholdOperator?: AlertThresholdOperator;
   threshold?: number;
-  noDataMode?: "HOLD" | "ZERO" | "NO_DATA";
+  noDataMode?: AlertNoDataMode;
 }
 
 /**
@@ -297,6 +311,7 @@ export async function readRule(alertId: string) {
     where: { id: alertId },
     select: {
       severity: true,
+      noDataMode: true,
       status: true,
       severityChangedAt: true,
       alertedAt: true,
@@ -334,7 +349,7 @@ import { ALERT_EVALUATION_OFFSET_MS, windowToMs } from "@traceroot/core";
  * ALERT_EVALUATION_OFFSET_MS behind the minute boundary (spans still arriving
  * are not judged), so seeded spans have to sit inside `[start, end)`.
  */
-export function evaluatedWindow(now: Date, window: RuleSeed["window"] = "1m") {
+export function evaluatedWindow(now: Date, window: AlertWindow = "1m") {
   const boundary = new Date(Math.floor(now.getTime() / 60_000) * 60_000);
   const end = new Date(boundary.getTime() - ALERT_EVALUATION_OFFSET_MS);
   const start = new Date(end.getTime() - windowToMs(window));

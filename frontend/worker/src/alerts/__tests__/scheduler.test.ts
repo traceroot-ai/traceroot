@@ -190,6 +190,18 @@ describe("runAlertTick — an unsendable spec is that alert's own failure", () =
   });
 });
 
+describe("runAlertTick — a scoped tick", () => {
+  it("hands the project scope to the claim, and claims platform-wide without one", async () => {
+    claimDueAlerts.mockResolvedValue([]);
+    await runAlertTick(NOW, { projectIds: ["proj-1", "proj-2"] });
+    expect(claimDueAlerts).toHaveBeenLastCalledWith(expect.anything(), {
+      projectIds: ["proj-1", "proj-2"],
+    });
+    await runAlertTick(NOW);
+    expect(claimDueAlerts).toHaveBeenLastCalledWith(expect.anything(), undefined);
+  });
+});
+
 describe("runAlertTick — the page a transition produces", () => {
   it("carries the rule's filters on the page, so the message can state them", async () => {
     const filters = [
