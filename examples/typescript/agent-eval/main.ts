@@ -1,16 +1,8 @@
 /**
- * Offline eval for the tool agent.
+ * Offline eval for the tool agent: three scorers over the dataset, one run.
  *
- * Points three scorers at the agent from `agent.ts` over the dataset in
- * `dataset.ts`, runs every case, and reports the run to TraceRoot.
- *
- * Run:
- *   cp .env.example .env   # fill in your keys
- *   pnpm install
- *   pnpm start
- *
- * No creds? This runs locally on its own: with no TRACEROOT_API_KEY set, `main()`
- * passes `local: true` to evaluate() so the eval runs in full and reports nowhere.
+ * Run: `cp .env.example .env`, `pnpm install`, `pnpm start`.
+ * With no TRACEROOT_API_KEY set the run stays local and reports nowhere.
  */
 
 import 'dotenv/config';
@@ -20,8 +12,13 @@ import { TraceRoot, Dataset, evaluate, Scorer, type ScorerContext } from '@trace
 import { runAgent, type AgentResult } from './agent';
 import { dataset, mentions } from './dataset';
 
-// Initialize TraceRoot so the agent's AI SDK calls are traced and the run reports.
-TraceRoot.initialize();
+// No TraceRoot key (or the unedited .env.example placeholder)? Run fully local.
+const apiKey = (process.env.TRACEROOT_API_KEY ?? '').trim();
+const LOCAL = apiKey === '' || apiKey === 'your_traceroot_api_key_here';
+
+// Initialize TraceRoot (traces the agent's AI SDK calls + reports the run) only when a
+// real key is present; in local mode it stays off so a keyless clone emits/exports nothing.
+if (!LOCAL) TraceRoot.initialize();
 
 interface Expected {
   tools: string[];
@@ -32,6 +29,7 @@ interface Expected {
 
 const callsExpectedTools = Scorer.code(
   {
+    name: 'calls_expected_tools',
     key: 'calls_expected_tools',
     valueType: 'numeric',
     direction: 'higher_is_better',
@@ -47,6 +45,7 @@ const callsExpectedTools = Scorer.code(
 
 const reportsExpectedFacts = Scorer.code(
   {
+    name: 'reports_expected_facts',
     key: 'reports_expected_facts',
     valueType: 'numeric',
     direction: 'higher_is_better',
@@ -62,7 +61,7 @@ const reportsExpectedFacts = Scorer.code(
 
 const answerIsGrounded = Scorer.llmJudge({
   name: 'answer_is_grounded',
-  model: 'claude-haiku-4-5',
+  model: 'gpt-4o-mini',
   messages: [
     {
       role: 'system',
@@ -81,11 +80,6 @@ const answerIsGrounded = Scorer.llmJudge({
 
 async function main() {
   try {
-    // No TraceRoot key? Run locally — execute every case in full but report
-    // nowhere — so a fresh clone works without a TraceRoot credential. The
-    // unedited .env.example placeholder counts as "no key" too.
-    const apiKey = (process.env.TRACEROOT_API_KEY ?? '').trim();
-    const local = apiKey === '' || apiKey === 'your_traceroot_api_key_here';
     const result = await evaluate({
       name: 'Agent tool eval',
       dataset: dataset(),
@@ -93,7 +87,7 @@ async function main() {
       scorers: [callsExpectedTools, reportsExpectedFacts, answerIsGrounded],
       candidateVersion: 'gpt-4o-mini',
       evaluationKey: 'agent-tool-eval',
-      local,
+      local: LOCAL,
     });
     console.log(result.summary());
 

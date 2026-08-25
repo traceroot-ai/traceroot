@@ -11,6 +11,7 @@
     "@traceroot-ai/traceroot": "^0.3.0",
     "ai": "^6.0.0",
     "dotenv": "^16.0.0",
+    "openai": "^6.0.0",
     "zod": "^4.1.8"
   },
   "devDependencies": {

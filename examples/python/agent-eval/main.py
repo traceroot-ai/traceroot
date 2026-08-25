@@ -1,16 +1,8 @@
 """
-Offline eval for the tool agent.
+Offline eval for the tool agent: three scorers over the dataset, one run.
 
-Points three scorers at the agent from `agent.py` over the dataset in
-`dataset.py`, runs every case, and reports the run to TraceRoot.
-
-Run:
-    cp .env.example .env   # fill in your keys
-    uv run --no-project --python 3.13 --with-requirements requirements.txt python main.py
-    # or:  pip install -r requirements.txt && python main.py
-
-No creds? This runs locally on its own: with no TRACEROOT_API_KEY set, `main()`
-passes local=True to evaluate() so the eval runs in full and reports nowhere.
+Run `cp .env.example .env`, then `python main.py` (or the `uv run` line in the
+README). With no TRACEROOT_API_KEY set the run stays local and reports nowhere.
 """
 
 import os
@@ -64,7 +56,7 @@ def reports_expected_facts(ctx):
 
 answer_is_grounded = Scorer.llm_judge(
     name="answer_is_grounded",
-    model="claude-haiku-4-5",
+    model="gpt-4o-mini",
     messages=[
         {
             "role": "system",
