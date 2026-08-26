@@ -1,0 +1,94 @@
+---
+title: Running Evals
+description: Run a dataset against your system with evaluate()
+---
+
+`evaluate()` runs your system against a dataset, scores every case, and reports the run. Each case runs as its own trace, so you can open any case and see exactly what your system did.
+
+## Parameters
+
+Call `evaluate()` with keyword arguments. TypeScript takes the same names in camelCase (`candidateVersion`, `maxConcurrency`) as a single options object.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `name` | `str` | required | The evaluation's name |
+| `dataset` | `Dataset` or `list` | required | The [dataset](/evals/datasets) to run against, or an inline list of cases |
+| `task` | `callable` | required | Your system, mapping an input to an output. May be async |
+| `scorers` | `list` | required | The [scorers](/evals/scorers) to grade each case with |
+| `candidate_version` | `str` | `None` | Labels what you're testing (model id, prompt version, git sha). The UI groups and compares runs by this |
+| `local` | `bool` | `False` | Run in full but report nowhere. Cannot be combined with `transport` |
+| `transport` | `EvalTransport` | `None` | An explicit destination for the run. Pass `FakeTransport()` to record what would have been sent, without any HTTP |
+| `select` | `callable` | `None` | A predicate to run a subset of cases without editing the dataset |
+| `timeout` | `float` | `None` | Seconds allowed per case. A timeout fails that case only, not the run |
+| `progress` | `bool` | auto | The live progress bar. On for an interactive terminal; pass `False` to silence it in CI |
+| `max_concurrency` | `int` | `10` | How many cases run in parallel |
+
+An inline list of cases runs fine, but only a `Dataset` can be reported to the platform — pass `local=True` when running against a list.
+
+Leave `local` and `transport` unset and the run reports to TraceRoot when credentials resolve.
+
+Python has both `evaluate` and `evaluate_async`. In TypeScript, `evaluate` is async — always `await` it.
+
+## Example
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import Dataset, evaluate
+
+    ds = Dataset("weather", key="weather")
+    ds.add({"city": "SF"}, expected="68°F")
+
+    def task(input):
+        return look_up_weather(input["city"])
+
+    def reports_temp(input, output, expected=None):
+        return expected is not None and expected in (output or "")
+
+    result = evaluate(
+        name="weather",
+        dataset=ds,
+        task=task,
+        scorers=[reports_temp],
+        candidate_version="weather-v1",
+    )
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { Dataset, evaluate, type ScorerContext } from "@traceroot-ai/traceroot";
+
+    const ds = new Dataset("weather", null, { key: "weather" });
+    ds.add({ city: "SF" }, { expected: "68°F" });
+
+    async function task(input: { city: string }) {
+      return lookUpWeather(input.city);
+    }
+
+    function reportsTemp({ output, expected }: ScorerContext) {
+      return String(output ?? "").includes(String(expected));
+    }
+
+    const result = await evaluate({
+      name: "weather",
+      dataset: ds,
+      task,
+      scorers: [reportsTemp],
+      candidateVersion: "weather-v1",
+    });
+    ```
+  </Tab>
+</Tabs>
+
+A local `Dataset` is published for you as part of the run, so you don't need a separate publish step. On an interactive terminal the summary prints itself; piped and CI output stays clean.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Reading Results" icon="list-check" href="/evals/reading-results">
+    Read the summary and the per-case results `evaluate()` returns.
+  </Card>
+  <Card title="Datasets" icon="table" href="/evals/datasets">
+    Author, version, publish, and pull datasets.
+  </Card>
+</CardGroup>

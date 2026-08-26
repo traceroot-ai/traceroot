@@ -186,6 +186,67 @@ describe("PATCH", () => {
     });
   });
 
+  it("backfills key = the OLD name when renaming a legacy UI-only null-key dataset", async () => {
+    // A legacy UI-only dataset (key === null AND clientDatasetId === null) derives its
+    // content-addressed case ids from its name; renaming it must freeze the id pre-image to
+    // the ORIGINAL name so ids stay convergent with an SDK author who addressed it by that name.
+    prismaMock.dataset.findFirst.mockImplementation(
+      async ({ where }: { where: Record<string, unknown> }) =>
+        "name" in where ? null : { id: "ds1", key: null, name: "support", clientDatasetId: null },
+    );
+    prismaMock.dataset.update.mockResolvedValue({ id: "ds1", name: "renamed", key: "support" });
+
+    const res = await PATCH(jsonReq({ name: "renamed" }), params);
+    expect(res.status).toBe(200);
+    expect(prismaMock.dataset.update).toHaveBeenCalledWith({
+      where: { id: "ds1" },
+      data: { name: "renamed", key: "support" },
+    });
+  });
+
+  it("does NOT backfill key when renaming a public SDK null-key dataset", async () => {
+    // A public SDK dataset can carry a null key alongside a non-null clientDatasetId (the
+    // public upsert permits an omitted key and later supplies `c.key`). Writing the display
+    // name as its key would freeze the WRONG hash pre-image and diverge the UI case ids from
+    // the SDK's real key, so the rename must leave key untouched.
+    prismaMock.dataset.findFirst.mockImplementation(
+      async ({ where }: { where: Record<string, unknown> }) =>
+        "name" in where ? null : { id: "ds1", key: null, name: "support", clientDatasetId: "cds1" },
+    );
+    prismaMock.dataset.update.mockResolvedValue({ id: "ds1", name: "renamed" });
+
+    await PATCH(jsonReq({ name: "renamed" }), params);
+    expect(prismaMock.dataset.update).toHaveBeenCalledWith({
+      where: { id: "ds1" },
+      data: { name: "renamed" }, // key left null — the SDK owns the real key
+    });
+  });
+
+  it("does NOT touch key when renaming a dataset that already has one", async () => {
+    prismaMock.dataset.findFirst.mockImplementation(
+      async ({ where }: { where: Record<string, unknown> }) =>
+        "name" in where ? null : { id: "ds1", key: "support", name: "support" },
+    );
+    prismaMock.dataset.update.mockResolvedValue({ id: "ds1", name: "renamed" });
+
+    await PATCH(jsonReq({ name: "renamed" }), params);
+    expect(prismaMock.dataset.update).toHaveBeenCalledWith({
+      where: { id: "ds1" },
+      data: { name: "renamed" }, // key left frozen as-is
+    });
+  });
+
+  it("does not backfill key on a description-only update of a null-key dataset", async () => {
+    prismaMock.dataset.findFirst.mockResolvedValue({ id: "ds1", key: null, name: "support" });
+    prismaMock.dataset.update.mockResolvedValue({ id: "ds1" });
+
+    await PATCH(jsonReq({ description: "d" }), params);
+    expect(prismaMock.dataset.update).toHaveBeenCalledWith({
+      where: { id: "ds1" },
+      data: { description: "d" }, // no rename → identity not touched
+    });
+  });
+
   it("409s a rename onto a name another dataset in the project already uses", async () => {
     prismaMock.dataset.findFirst.mockImplementation(
       async ({ where }: { where: Record<string, unknown> }) =>

@@ -4,3 +4,7 @@
 *.tfvars
 !*.tfvars.example
 .terraform.lock.hcl
+
+# Plan output files may contain resolved variable values
+tfplan*
+*.tfplan

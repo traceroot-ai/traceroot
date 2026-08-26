@@ -126,6 +126,17 @@
             ]
           },
           {
+            "group": "Evaluations",
+            "pages": [
+              "evals/introduction",
+              "evals/get-started",
+              "evals/datasets",
+              "evals/scorers",
+              "evals/running-evals",
+              "evals/reading-results"
+            ]
+          },
+          {
             "group": "CLI",
             "pages": [
               "cli/get-started"

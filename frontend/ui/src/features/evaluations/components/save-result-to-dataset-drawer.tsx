@@ -9,6 +9,7 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectEmpty,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -108,7 +109,11 @@ export function SaveResultToDatasetDrawer({
   const meta = ACTION_META[action];
   const qc = useQueryClient();
   const { toast } = useToast();
-  const { data: datasetsData } = useDatasets(projectId, { limit: 200 });
+  const {
+    data: datasetsData,
+    isLoading: datasetsLoading,
+    isError: datasetsError,
+  } = useDatasets(projectId, { limit: 200 });
   const datasets = datasetsData?.data ?? [];
 
   const [targetDatasetId, setTargetDatasetId] = React.useState(sourceDatasetId);
@@ -172,7 +177,8 @@ export function SaveResultToDatasetDrawer({
     },
   });
 
-  const canSave = !save.isPending && (!meta.picksDataset || !!targetDatasetId);
+  const canSave =
+    !save.isPending && (!meta.picksDataset || datasets.some((d) => d.id === targetDatasetId));
 
   return (
     <Drawer open={open} onOpenChange={onOpenChange}>
@@ -190,16 +196,29 @@ export function SaveResultToDatasetDrawer({
           <div className="space-y-1.5">
             <div className="text-[11px] font-medium text-muted-foreground">Dataset</div>
             {meta.picksDataset ? (
-              <Select value={targetDatasetId} onValueChange={setTargetDatasetId}>
+              <Select
+                value={datasets.some((d) => d.id === targetDatasetId) ? targetDatasetId : ""}
+                onValueChange={setTargetDatasetId}
+              >
                 <SelectTrigger className="h-8 text-[12px]">
                   <SelectValue placeholder="Choose a dataset" />
                 </SelectTrigger>
                 <SelectContent>
-                  {datasets.map((d) => (
-                    <SelectItem key={d.id} value={d.id} className="text-[12px]">
-                      {d.name}
-                    </SelectItem>
-                  ))}
+                  {datasets.length ? (
+                    datasets.map((d) => (
+                      <SelectItem key={d.id} value={d.id} className="text-[12px]">
+                        {d.name}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectEmpty>
+                      {datasetsLoading
+                        ? "Loading datasets…"
+                        : datasetsError
+                          ? "Couldn't load datasets"
+                          : "No datasets found"}
+                    </SelectEmpty>
+                  )}
                 </SelectContent>
               </Select>
             ) : (

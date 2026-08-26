@@ -8,6 +8,7 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectEmpty,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -138,7 +139,7 @@ export function RunEvaluationDrawer({
   /** Prefills and hides the picker when opened from a dataset. */
   datasetId?: string;
 }) {
-  const { data } = useDatasets(projectId, { limit: 200 });
+  const { data, isLoading, isError } = useDatasets(projectId, { limit: 200 });
   const datasets = data?.data ?? [];
   const [lang, setLang] = React.useState<Lang>("python");
   const [chosen, setChosen] = React.useState(datasetId ?? "");
@@ -190,16 +191,36 @@ export function RunEvaluationDrawer({
           {datasetId ? (
             <p className="text-[13px] font-medium">{dataset?.name ?? chosen}</p>
           ) : (
-            <Select value={chosen} onValueChange={setChosen}>
+            <Select value={dataset ? chosen : ""} onValueChange={setChosen}>
               <SelectTrigger className="h-7 text-[13px]">
-                <SelectValue placeholder={datasets.length ? "Select dataset" : "No datasets yet"} />
+                <SelectValue
+                  placeholder={
+                    isLoading
+                      ? "Loading datasets…"
+                      : isError
+                        ? "Couldn't load datasets"
+                        : datasets.length
+                          ? "Select dataset"
+                          : "No datasets found"
+                  }
+                />
               </SelectTrigger>
               <SelectContent>
-                {datasets.map((item) => (
-                  <SelectItem key={item.id} value={item.id} className="text-[12px]">
-                    {item.name}
-                  </SelectItem>
-                ))}
+                {datasets.length ? (
+                  datasets.map((item) => (
+                    <SelectItem key={item.id} value={item.id} className="text-[12px]">
+                      {item.name}
+                    </SelectItem>
+                  ))
+                ) : (
+                  <SelectEmpty>
+                    {isLoading
+                      ? "Loading datasets…"
+                      : isError
+                        ? "Couldn't load datasets"
+                        : "No datasets found"}
+                  </SelectEmpty>
+                )}
               </SelectContent>
             </Select>
           )}

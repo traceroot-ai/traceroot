@@ -208,4 +208,33 @@ describe("contentSignature — canonicalizes DECODED input/expected", () => {
       contentSignature([seed({ input: "42" })]),
     );
   });
+
+  it("does NOT throw on a pre-existing row whose stored content holds a lone surrogate", () => {
+    // A row stored (before the guards, or via another path) with an unpaired UTF-16
+    // surrogate must keep a stable signature — an unrelated publish that never touches
+    // it must not blow up because every row is re-canonicalized on every publish.
+    const bad = seed({ testCaseId: "tcbad", input: "\uD800", expected: "\uDC00" });
+    expect(() => contentSignature([bad])).not.toThrow();
+    // Stable: the same stored bad content signs identically on both sides of the
+    // content-addressed upsert comparison, so unchanged content still short-circuits.
+    expect(contentSignature([bad])).toBe(contentSignature([bad]));
+  });
+
+  it("a lone surrogate in one row does not poison a sibling row's signature", () => {
+    const good = seed({ testCaseId: "tcgood", input: '{"a":1}' });
+    const bad = seed({ testCaseId: "tcbad", input: "\uD800" });
+    expect(() => contentSignature([good, bad])).not.toThrow();
+    // Editing only the bad row still changes the signature; the good row's own entry is
+    // untouched (sibling corruption must not silently alter a neighbour's signature).
+    const before = JSON.parse(contentSignature([good, bad])) as Array<{ id: string }>;
+    const after = JSON.parse(
+      contentSignature([good, seed({ testCaseId: "tcbad", input: "\uDBFF" })]),
+    ) as Array<{ id: string }>;
+    expect(after.find((row) => row.id === "tcgood")).toEqual(
+      before.find((row) => row.id === "tcgood"),
+    );
+    expect(after.find((row) => row.id === "tcbad")).not.toEqual(
+      before.find((row) => row.id === "tcbad"),
+    );
+  });
 });

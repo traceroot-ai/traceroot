@@ -40,7 +40,6 @@ vi.mock("@/features/ai-assistant/components/ai-assistant-panel", () => ({
 }));
 
 import { DatasetDetailView } from "./views/dataset-detail-view";
-import { caseDisplayId } from "@/features/offline-eval/utils";
 
 // ---------------------------------------------------------------------------
 // Server-shaped fixtures
@@ -403,9 +402,10 @@ describe("Dataset detail — the slide-in case panel", () => {
     // First row: up is disabled, down moves to the second case.
     expect(screen.getByTitle("Previous row").hasAttribute("disabled")).toBe(true);
     fireEvent.click(screen.getByTitle("Next row"));
-    expect(await screen.findByText(caseDisplayId("tc_2"))).toBeDefined();
+    // The panel header shows the real, content-addressed testCaseId verbatim.
+    expect(await screen.findByText("tc_2")).toBeDefined();
     fireEvent.click(screen.getByTitle("Previous row"));
-    expect(await screen.findByText(caseDisplayId("tc_1"))).toBeDefined();
+    expect(await screen.findByText("tc_1")).toBeDefined();
   });
 
   it("expands to full screen and opens the row in a new tab", async () => {
@@ -471,7 +471,7 @@ describe("Dataset detail — deep link", () => {
     mountDetail();
     // The panel opens on the matching stable testCaseId, not the per-version row id.
     expect(await screen.findByTitle("Copy ID")).toBeDefined();
-    expect(await screen.findByText(caseDisplayId("tc_2"))).toBeDefined();
+    expect(await screen.findByText("tc_2")).toBeDefined();
   });
   it("ignores a ?case that no row matches", async () => {
     searchParams = new URLSearchParams("case=tc_missing");

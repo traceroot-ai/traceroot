@@ -6,7 +6,26 @@ import {
   ADAPTER_API_PROTOCOL,
   LLMAdapter,
   DETECTOR_SYSTEM_DEFAULT_MODEL_ID,
+  defaultApiProtocol,
 } from "../llm-providers.ts";
+
+describe("defaultApiProtocol", () => {
+  it("prefers the catalog entry's own protocol over the adapter default", () => {
+    expect(defaultApiProtocol("openai", "o3")).toBe("openai-completions");
+    expect(defaultApiProtocol("openai", "o4-mini")).toBe("openai-completions");
+    expect(defaultApiProtocol("openai", "gpt-5")).toBe("openai-responses");
+  });
+
+  it("falls back to the adapter default for unknown models and no model", () => {
+    expect(defaultApiProtocol("openai", "some-future-model")).toBe("openai-responses");
+    expect(defaultApiProtocol("openai")).toBe("openai-responses");
+    expect(defaultApiProtocol("deepseek", "deepseek-chat")).toBe("openai-completions");
+  });
+
+  it("is empty for an unknown adapter", () => {
+    expect(defaultApiProtocol("nope", "x")).toBe("");
+  });
+});
 
 describe("ADAPTER_MODELS", () => {
   it("contains no duplicate model IDs within a single adapter", () => {

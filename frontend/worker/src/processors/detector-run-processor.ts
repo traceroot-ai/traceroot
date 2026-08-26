@@ -84,6 +84,13 @@ export function shouldRunRca(
  * triggers on the same trace maps to the SAME finding, and therefore the SAME
  * RCA job (`rca-${findingId}`): exactly one RCA per trace, and a BullMQ retry
  * lands on the same row instead of duplicating it.
+ *
+ * The stored shape is uuid-hyphenated and must stay stable: a re-evaluation
+ * of a trace at any later time must land on the id its finding and RCA rows
+ * were written under, or it would duplicate both. Surfaces that want the
+ * dashless run/trace-id shape normalize at render, and the finding-detail
+ * lookup compares hyphen-insensitively, so display and copy-paste don't
+ * depend on the stored shape.
  */
 export function traceFindingId(projectId: string, traceId: string): string {
   return hashToUuid(`${projectId}:${traceId}`);

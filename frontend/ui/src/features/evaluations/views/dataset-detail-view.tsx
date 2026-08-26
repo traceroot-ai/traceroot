@@ -36,7 +36,7 @@ import {
 } from "@/features/offline-eval/components";
 import { TraceIOSection } from "@/features/traces/components/TraceIOValue";
 import { formatCost, formatElapsed } from "./evaluations-view";
-import { caseDisplayId, truncate } from "@/features/offline-eval/utils";
+import { truncate } from "@/features/offline-eval/utils";
 import { useDataset, useTestCaseRuns, useDeleteTestCase } from "../hooks";
 import { TestCaseEditorModal, type TestCaseEditorMode } from "../components/test-case-editor-modal";
 import { DeleteTestCaseDialog } from "../components/delete-test-case-dialog";
@@ -397,7 +397,7 @@ export function DatasetDetailView({
 
       {deleteRow && (
         <DeleteTestCaseDialog
-          rowLabel={caseDisplayId(deleteRow.testCaseId)}
+          rowLabel={deleteRow.testCaseId}
           isOpen
           onClose={() => setDeleteRow(null)}
           onConfirm={confirmDelete}
@@ -509,7 +509,7 @@ function CasePanel({
       ref={panelRef}
       role="dialog"
       aria-modal="true"
-      aria-label={`Test case ${caseDisplayId(testCase.testCaseId)}`}
+      aria-label={`Test case ${testCase.testCaseId}`}
       tabIndex={-1}
       className={cn(
         "animate-slide-in-right fixed bottom-0 right-0 z-50 flex flex-col border-l border-border bg-background shadow-xl transition-[width,top] duration-200 focus:outline-none",
@@ -525,8 +525,14 @@ function CasePanel({
         <div className="flex min-w-0 items-center gap-2">
           <Database className="h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="text-sm font-medium">Row</span>
-          <span className="truncate font-mono text-xs text-muted-foreground">
-            {caseDisplayId(testCase.testCaseId)}
+          {/* The real, content-addressed testCaseId — byte-identical to the SDK's
+              stable_case_id and pull_dataset output. CSS truncates for overflow;
+              the title carries the full id and the copy button copies it verbatim. */}
+          <span
+            className="truncate font-mono text-xs text-muted-foreground"
+            title={testCase.testCaseId}
+          >
+            {testCase.testCaseId}
           </span>
           <CopyButton
             value={testCase.testCaseId}

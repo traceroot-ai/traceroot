@@ -127,7 +127,7 @@ services:
       dockerfile: docker/Dockerfile.web
       args:
         APP_VERSION: ${APP_VERSION:-dev}
-        BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-local-dev-secret-change-in-production}
+        BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?required, generate with openssl rand -hex 32}
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
     ports:
@@ -143,7 +143,7 @@ services:
       TRACEROOT_UI_URL: http://web:3000
       # --- Auth ---
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
-      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:-local-dev-secret-change-in-production}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?required, generate with openssl rand -hex 32}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-http://localhost:3000}
       AUTH_GOOGLE_CLIENT_ID: ${AUTH_GOOGLE_CLIENT_ID:-}
       AUTH_GOOGLE_CLIENT_SECRET: ${AUTH_GOOGLE_CLIENT_SECRET:-}
@@ -152,7 +152,7 @@ services:
       # For production, rebuild the image with the correct value or use
       # runtime env rewriting in next.config.js.
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000/api/v1}
-      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-internal-secret}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:?required, generate with openssl rand -hex 32}
       # --- AI keys ---
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -227,7 +227,7 @@ services:
       # web/billing (cloud-on unless the operator opts out).
       ENABLE_BILLING: ${ENABLE_BILLING:-true}
       # --- Secrets ---
-      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-internal-secret}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:?required, generate with openssl rand -hex 32}
       CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3000"]}
     depends_on:
       migrate:
@@ -285,7 +285,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       BACKEND_INTERNAL_URL: http://rest:8000
       # --- Secrets ---
-      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-internal-secret}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:?required, generate with openssl rand -hex 32}
       # --- Billing ---
       ENABLE_BILLING: ${ENABLE_BILLING:-true}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
@@ -331,7 +331,7 @@ services:
       TRACEROOT_SMTP_URL: ${TRACEROOT_SMTP_URL:-}
       TRACEROOT_SMTP_MAIL_FROM: ${TRACEROOT_SMTP_MAIL_FROM:-noreply@traceroot.ai}
       # --- Secrets ---
-      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-internal-secret}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:?required, generate with openssl rand -hex 32}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
       # --- AI keys ---
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -365,7 +365,7 @@ services:
       BACKEND_INTERNAL_URL: http://rest:8000
       TRACEROOT_UI_URL: http://web:3000
       # --- Secrets ---
-      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:-internal-secret}
+      INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:?required, generate with openssl rand -hex 32}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
       # --- Sandbox ---
       SANDBOX_PROVIDER: ${SANDBOX_PROVIDER:-docker}

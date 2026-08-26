@@ -70,7 +70,7 @@ def make_otel_payload(
 # run's spans (traceroot-py `feat/offline-eval-sdk`, engine.py `_set_root_attrs`
 # and the task/scorer child stampers) so backend contract tests exercise the
 # actual cross-surface payload shape rather than an independently invented one.
-# Source of truth for the key names: offline-eval/contract-notes/eval-trace-attributes.md.
+# Source of truth for the key names: backend/worker/otel_transform.py.
 
 
 def eval_root_attributes(

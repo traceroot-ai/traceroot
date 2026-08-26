@@ -18,7 +18,7 @@ TraceRoot is an open-source observability and self-improving platform for AI age
 | **Browser client** | Next.js (TypeScript) | Web UI — trace explorer, debugger, onboarding |
 | **REST API** | FastAPI (Python) | Core backend — trace ingestion, trace reads, and internal service APIs; user-scoped reads are authorised via Next.js session headers |
 | **Celery worker** | Python / Redis | Async task queue — trace ingestion and detector trigger evaluation |
-| **TS agent service** | TypeScript (`frontend/packages/agent/`) | Drives the Daytona sandbox for AI debugging; runs `executors/daytona.ts` and `tools/sandbox.ts` |
+| **TS agent service** | TypeScript (`frontend/ee/agent/`) | Drives the Daytona sandbox for AI debugging; runs `executors/daytona.ts` and `tools/sandbox.ts` |
 | **ClickHouse** | ClickHouse DB | Columnar store for traces and spans |
 | **Redis** | Redis | Task queue broker + short-lived caching |
 | **Object storage** | AWS S3 | Trace payload storage for large spans |
@@ -48,7 +48,7 @@ TraceRoot is an open-source observability and self-improving platform for AI age
         v
 [ Celery Worker ]            (trace ingestion + detector trigger evaluation only)
 
-[ TS Agent Service ]         <-- separate process (frontend/packages/agent/)
+[ TS Agent Service ]         <-- separate process (frontend/ee/agent/)
         |  sandbox API
         v
 [ Daytona Sandbox ]          <-- trust boundary: ephemeral container, no persistent state
@@ -139,7 +139,7 @@ Threats are categorised using **STRIDE**. Each threat maps to a component and a 
 | Threat ID | Gap | Recommended Action | Priority |
 |---|---|---|---|
 | T-03, T-04 | No GitHub Actions pinning — workflows use floating tags (e.g. `@v3`) | Pin all GitHub Actions to commit SHAs (see issue #762) | P1 |
-| T-04 | No systematic sanitisation of trace payloads before they reach the AI prompt | Add a payload sanitisation layer in the TS agent service (`frontend/packages/agent/`) before AI prompt construction | P0 |
+| T-04 | No systematic sanitisation of trace payloads before they reach the AI prompt | Add a payload sanitisation layer in the TS agent service (`frontend/ee/agent/`) before AI prompt construction | P0 |
 | I-01 | No automatic scrubbing of API key patterns in span attributes | Implement regex-based secret scrubbing in the SDK before payloads are sent | P0 |
 | I-03 | Row-level security in ClickHouse not formally verified | Audit all ClickHouse queries for tenant isolation; add integration tests asserting cross-tenant data is unreachable | P0 |
 | R-01 | No audit log table for sensitive operations (debug session start, trace delete, billing change) | Add `audit_log` table in ClickHouse; log actor, action, resource, timestamp | P1 |
