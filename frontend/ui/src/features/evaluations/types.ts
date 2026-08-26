@@ -144,8 +144,7 @@ export interface RunRow {
   scorerErrorCount: number;
   /**
    * Per-status result counts, derived from the stored result rows (not from the
-   * SDK's counters). Only the statuses the SDKs emit are counted — a case is
-   * `errored` or `not_scored`; there is no case-level pass/fail.
+   * SDK's counters).
    */
   erroredCount: number;
   notScoredCount: number;

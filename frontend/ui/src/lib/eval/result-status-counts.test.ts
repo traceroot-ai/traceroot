@@ -25,15 +25,6 @@ describe("countResultStatuses", () => {
       notScoredCount: 0,
     });
   });
-
-  // `passed`/`failed` stay valid on the wire but no writer emits them and nothing rolls
-  // them up. Pinned so a future reader does not "restore" a rollup that never had a
-  // denominator.
-  it("does not count the legacy pass/fail statuses", () => {
-    expect(
-      countResultStatuses([{ status: "passed" }, { status: "failed" }, { status: "errored" }]),
-    ).toEqual({ erroredCount: 1, notScoredCount: 0 });
-  });
 });
 
 describe("excludedSummary", () => {

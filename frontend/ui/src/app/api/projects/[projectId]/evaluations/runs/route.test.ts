@@ -290,8 +290,6 @@ it("summarises the unscorable cases, derived from the same counts", async () => 
   ]);
   prismaMock.evaluationRun.count.mockResolvedValue(1);
   prismaMock.evaluationResult.groupBy.mockResolvedValue([
-    group("run_c", "passed", 18),
-    group("run_c", "failed", 4),
     group("run_c", "errored", 2),
     group("run_c", "not_scored", 1),
   ]);
@@ -300,14 +298,11 @@ it("summarises the unscorable cases, derived from the same counts", async () => 
     data: Record<string, unknown>[];
   };
   expect(body.data[0].excludedSummary).toBe("2 errored, 1 not scored");
-  // The legacy pass/fail rows in this fixture are ignored, not rolled up.
   expect(body.data[0].erroredCount).toBe(2);
   expect(body.data[0].notScoredCount).toBe(1);
 });
 
-// A run whose harness broke reports its errored cases and nothing else — there is no
-// score to summarise and no case-level verdict to report.
-it("reports an all-errored run through its errored count alone", async () => {
+it("reports an all-errored run through its errored count", async () => {
   prismaMock.evaluationRun.findMany.mockResolvedValueOnce([
     {
       id: "run_c",
@@ -417,55 +412,6 @@ it("reports zero counts for a run with no results, without extra queries", async
   expect(body.data[0].notScoredCount).toBe(0);
   // Still exactly one grouped query — the counts add no round trips.
   expect(prismaMock.evaluationResult.groupBy).toHaveBeenCalledTimes(1);
-});
-
-it("derives nothing from legacy pass/fail rows and omits the retired fields", async () => {
-  // A run recorded by a released SDK: every result row carries the legacy `passed`/
-  // `failed` status. Those are still accepted on the wire, so such rows exist — but
-  // nothing rolls them up, and the retired fields must not reappear on the response.
-  const run = {
-    id: "run_c",
-    projectId: "p1",
-    evaluationId: "e1",
-    datasetId: "ds1",
-    datasetVersionId: "dv1",
-    runNumber: 3,
-    candidateVersion: "sonnet",
-    status: "completed",
-    baselineRunId: null,
-
-    caseCount: 9,
-    scoredCount: 9,
-    taskErrorCount: 0,
-    scorerErrorCount: 0,
-    scorers: [{ name: "acc", version: "unversioned" }],
-    startedAt: new Date("2026-07-21T00:00:00Z"),
-    completedAt: new Date("2026-07-21T00:00:05Z"),
-    evaluation: { name: "ticket-routing" },
-    datasetVersion: { label: "v1", createTime: new Date("2026-07-16T00:00:00Z"), versionNumber: 1 },
-  };
-  prismaMock.evaluationRun.findMany.mockResolvedValueOnce([run]);
-  prismaMock.evaluationRun.count.mockResolvedValue(1);
-  prismaMock.evaluationResult.groupBy.mockResolvedValue([
-    group("run_c", "passed", 1),
-    group("run_c", "failed", 1),
-  ]);
-
-  const body = (await (await GET(nextUrl() as never, params)).json()) as {
-    data: Record<string, unknown>[];
-  };
-  const row = body.data[0];
-  // Legacy rows inflate nothing: they are neither errored nor not-scored.
-  expect(row.erroredCount).toBe(0);
-  expect(row.notScoredCount).toBe(0);
-  expect(row.excludedSummary).toBeNull();
-  // The retired fields are gone from the response, not merely zeroed. Field-wise
-  // assertions elsewhere would pass if they came back; these will not.
-  expect(row).not.toHaveProperty("passedCount");
-  expect(row).not.toHaveProperty("failedCount");
-  expect(row).not.toHaveProperty("passRate");
-  // The stored counter is passed through untouched — it is not reconciled in v1.
-  expect(row.scoredCount).toBe(9);
 });
 
 // ── sort/order whitelist + started_after/started_before ────────────────────

@@ -1,13 +1,7 @@
 /**
  * Per-status result counts for a run, derived from the stored result rows rather
- * than the run's own counters.
- *
- * Only the two statuses the SDKs actually emit are counted. `case_status()` returns
- * `errored` (the candidate app or a scorer threw) or `not_scored`, and nothing else:
- * a case with several scorers has no single headline verdict, so the SDK records a
- * per-score `passed` and derives no case-level pass/fail. The `passed`/`failed`
- * statuses remain valid on the wire — narrowing an inbound enum is a breaking change —
- * but no writer produces them, so nothing here rolls them up.
+ * than the run's own counters. A case is `errored` (the candidate app or a scorer
+ * threw) or `not_scored`.
  */
 
 export interface ResultStatusCounts {

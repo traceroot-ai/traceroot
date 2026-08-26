@@ -129,12 +129,8 @@ def _check_json_size(value: Any, max_chars: int, field: str) -> Any:
 EvalRunStatus = Literal[
     "running", "completed", "completed_with_errors", "failed", "incomplete", "cancelled"
 ]
-# ``passed``/``failed`` are accepted but never produced: ``case_status()`` returns only
-# ``errored``/``not_scored``, and no shipped release has emitted the older pair (the
-# eval SDK first shipped in 0.2.0, already metric-first). They stay because this is
-# INBOUND validation on the public result-upload route: narrowing an accepted-value set
-# is a breaking change for any client that sends one — and buys nothing, since an
-# unrolled-up status is simply ignored. The cross-language parity fixtures pin all four.
+# Inbound validation for the public result-upload route: do not narrow this set, and
+# keep it in step with EVAL_RESULT_STATUSES (the parity fixtures pin both).
 EvalResultStatus = Literal["passed", "failed", "errored", "not_scored"]
 ResultChange = Literal["improved", "regressed", "unchanged"]
 ScorerValueType = Literal["numeric", "boolean", "categorical"]
