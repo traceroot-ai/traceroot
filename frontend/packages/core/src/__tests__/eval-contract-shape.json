@@ -1,0 +1,893 @@
+{
+  "_comment": "Structural roster for the eval reporting contract: the language-neutral shape of every model, checked in once and asserted from BOTH layers. tests/rest/test_eval_contract_parity.py derives it from pydantic's model_json_schema() and eval-contract-parity.drift.test.ts from zod's toJSONSchema(); a field added, removed, retyped, re-bounded or made required on ONE layer only fails that layer's comparison, which the accept/reject fixtures in eval-contract-parity-fixtures.json cannot catch for an OPTIONAL field (no fixture sends it, so every verdict is unchanged). Regenerate deliberately, never to make a test pass: a diff here IS the contract change. Both sides normalize away representation-only differences - anyOf [T, null] collapses to `nullable`, a null default is dropped (zod's absent-key undefined and pydantic's None default both mean `the caller omitted it`), and z.number().int()'s Number.MAX_SAFE_INTEGER bounds are dropped (the gateway mirrors that ceiling as JSON_SAFE_INT_MAX).",
+  "_paired_comment": "Defined on both layers and asserted identical on both. `unknown_keys` is zod .strict() / pydantic extra=forbid vs a plain object that strips.",
+  "paired": {
+    "ScorerMessage": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "role": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 50,
+          "required": true,
+          "nullable": false
+        },
+        "content": {
+          "type": "string",
+          "max_length": 20000,
+          "required": true,
+          "nullable": false
+        }
+      }
+    },
+    "EmittedMetric": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "name": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 200,
+          "required": true,
+          "nullable": false
+        },
+        "value_type": {
+          "type": "enum",
+          "enum": ["numeric", "boolean", "categorical"],
+          "required": false,
+          "nullable": true
+        },
+        "direction": {
+          "type": "enum",
+          "enum": ["higher_is_better", "lower_is_better", "none"],
+          "required": false,
+          "nullable": true
+        },
+        "threshold": {
+          "type": "number",
+          "required": false,
+          "nullable": true
+        }
+      }
+    },
+    "ScorerRef": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "name": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 200,
+          "required": true,
+          "nullable": false
+        },
+        "version": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 50,
+          "required": true,
+          "nullable": false
+        },
+        "key": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 200,
+          "required": false,
+          "nullable": true
+        },
+        "value_type": {
+          "type": "enum",
+          "enum": ["numeric", "boolean", "categorical"],
+          "required": false,
+          "nullable": true
+        },
+        "direction": {
+          "type": "enum",
+          "enum": ["higher_is_better", "lower_is_better", "none"],
+          "required": false,
+          "nullable": true
+        },
+        "threshold": {
+          "type": "number",
+          "required": false,
+          "nullable": true
+        },
+        "emitted_metrics": {
+          "type": "array",
+          "items": {
+            "type": "EmittedMetric"
+          },
+          "max_items": 20,
+          "required": false,
+          "nullable": true
+        },
+        "scorer_type": {
+          "type": "enum",
+          "enum": ["llm_judge", "code"],
+          "required": false,
+          "nullable": true
+        },
+        "output_type": {
+          "type": "enum",
+          "enum": ["score", "classification"],
+          "required": false,
+          "nullable": true
+        },
+        "description": {
+          "type": "string",
+          "max_length": 2000,
+          "required": false,
+          "nullable": true
+        },
+        "required_inputs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "min_length": 1,
+            "max_length": 100
+          },
+          "max_items": 20,
+          "required": false,
+          "nullable": true
+        },
+        "metadata": {
+          "type": "any",
+          "required": false,
+          "nullable": true
+        },
+        "model": {
+          "type": "string",
+          "max_length": 200,
+          "required": false,
+          "nullable": true
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "ScorerMessage"
+          },
+          "max_items": 50,
+          "required": false,
+          "nullable": true
+        },
+        "language": {
+          "type": "enum",
+          "enum": ["python", "typescript"],
+          "required": false,
+          "nullable": true
+        },
+        "source": {
+          "type": "string",
+          "max_length": 50000,
+          "required": false,
+          "nullable": true
+        }
+      }
+    },
+    "ScoreInput": {
+      "kind": "object",
+      "unknown_keys": "forbid",
+      "fields": {
+        "scorer_name": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 200,
+          "required": true,
+          "nullable": false
+        },
+        "scorer_version": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 50,
+          "required": true,
+          "nullable": false
+        },
+        "numeric_value": {
+          "type": "number",
+          "required": false,
+          "nullable": true
+        },
+        "bool_value": {
+          "type": "boolean",
+          "required": false,
+          "nullable": true
+        },
+        "string_value": {
+          "type": "string",
+          "max_length": 2000,
+          "required": false,
+          "nullable": true
+        },
+        "passed": {
+          "type": "boolean",
+          "required": false,
+          "nullable": true
+        },
+        "explanation": {
+          "type": "string",
+          "max_length": 5000,
+          "required": false,
+          "nullable": true
+        },
+        "error": {
+          "type": "string",
+          "max_length": 5000,
+          "required": false,
+          "nullable": true
+        }
+      }
+    },
+    "RegisterRunRequest": {
+      "kind": "object",
+      "unknown_keys": "forbid",
+      "fields": {
+        "evaluation_name": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 200,
+          "required": true,
+          "nullable": false
+        },
+        "evaluation_key": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 200,
+          "required": false,
+          "nullable": true
+        },
+        "dataset_id": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 64,
+          "required": true,
+          "nullable": false
+        },
+        "dataset_version_id": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 64,
+          "required": false,
+          "nullable": true
+        },
+        "candidate_version": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 200,
+          "required": true,
+          "nullable": false
+        },
+        "environment": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 64,
+          "required": false,
+          "nullable": false,
+          "default": "evaluation"
+        },
+        "scorers": {
+          "type": "array",
+          "items": {
+            "type": "ScorerRef"
+          },
+          "max_items": 200,
+          "required": false,
+          "nullable": false,
+          "default": []
+        },
+        "client_run_id": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 128,
+          "required": false,
+          "nullable": true
+        },
+        "baseline_run_id": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 64,
+          "required": false,
+          "nullable": true
+        },
+        "case_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": false,
+          "nullable": true
+        },
+        "metadata": {
+          "type": "json_object",
+          "required": false,
+          "nullable": true
+        }
+      }
+    },
+    "RegisterRunResponse": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "evaluation_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "evaluation_run_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "run_number": {
+          "type": "integer",
+          "required": true,
+          "nullable": false
+        },
+        "dataset_version_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "run_path": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "run_url": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        }
+      }
+    },
+    "UpsertResultRequest": {
+      "kind": "object",
+      "unknown_keys": "forbid",
+      "fields": {
+        "test_case_id": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 64,
+          "required": true,
+          "nullable": false
+        },
+        "trace_id": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 64,
+          "required": false,
+          "nullable": true
+        },
+        "input": {
+          "type": "string",
+          "max_length": 1000000,
+          "required": true,
+          "nullable": false
+        },
+        "expected_output": {
+          "type": "string",
+          "max_length": 1000000,
+          "required": false,
+          "nullable": true
+        },
+        "candidate_output": {
+          "type": "string",
+          "max_length": 1000000,
+          "required": false,
+          "nullable": true
+        },
+        "baseline_output": {
+          "type": "string",
+          "max_length": 1000000,
+          "required": false,
+          "nullable": true
+        },
+        "status": {
+          "type": "enum",
+          "enum": ["passed", "failed", "errored", "not_scored"],
+          "required": true,
+          "nullable": false
+        },
+        "change": {
+          "type": "enum",
+          "enum": ["improved", "regressed", "unchanged"],
+          "required": false,
+          "nullable": true
+        },
+        "task_error": {
+          "type": "string",
+          "max_length": 10000,
+          "required": false,
+          "nullable": true
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "required": false,
+          "nullable": true
+        },
+        "cost": {
+          "type": "number",
+          "minimum": 0,
+          "required": false,
+          "nullable": true
+        },
+        "scores": {
+          "type": "array",
+          "items": {
+            "type": "ScoreInput"
+          },
+          "max_items": 200,
+          "required": false,
+          "nullable": false
+        }
+      }
+    },
+    "UpsertResultResponse": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "evaluation_result_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        }
+      }
+    },
+    "CompleteRunRequest": {
+      "kind": "object",
+      "unknown_keys": "forbid",
+      "fields": {
+        "status": {
+          "type": "enum",
+          "enum": [
+            "running",
+            "completed",
+            "completed_with_errors",
+            "failed",
+            "incomplete",
+            "cancelled"
+          ],
+          "required": true,
+          "nullable": false
+        },
+        "case_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": false,
+          "nullable": true
+        },
+        "scored_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": false,
+          "nullable": true
+        },
+        "task_error_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": false,
+          "nullable": true
+        },
+        "scorer_error_count": {
+          "type": "integer",
+          "minimum": 0,
+          "required": false,
+          "nullable": true
+        },
+        "scorers": {
+          "type": "array",
+          "items": {
+            "type": "ScorerRef"
+          },
+          "max_items": 200,
+          "required": false,
+          "nullable": true
+        }
+      }
+    },
+    "CompleteRunResponse": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "evaluation_run_id": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        },
+        "status": {
+          "type": "enum",
+          "enum": [
+            "running",
+            "completed",
+            "completed_with_errors",
+            "failed",
+            "incomplete",
+            "cancelled"
+          ],
+          "required": true,
+          "nullable": false
+        }
+      }
+    }
+  },
+  "_zod_only_comment": "Zod schemas with no gateway model: the dataset + dataset-version routes are untyped catch-alls the gateway forwards without parsing, so there is nothing to compare them to. Their shape is still pinned here so a one-sided edit is red, and the pydantic suite asserts no model by these names exists - adding one is the moment the entry moves to `paired`.",
+  "zod_only": {
+    "CreateDatasetRequest": {
+      "kind": "object",
+      "unknown_keys": "forbid",
+      "fields": {
+        "name": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 200,
+          "required": true,
+          "nullable": false
+        },
+        "description": {
+          "type": "string",
+          "max_length": 2000,
+          "required": false,
+          "nullable": true
+        }
+      }
+    },
+    "UpdateDatasetRequest": {
+      "kind": "object",
+      "unknown_keys": "forbid",
+      "fields": {
+        "name": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 200,
+          "required": false,
+          "nullable": false
+        },
+        "description": {
+          "type": "string",
+          "max_length": 2000,
+          "required": false,
+          "nullable": true
+        }
+      }
+    },
+    "CreateTestCaseRequest": {
+      "kind": "object",
+      "unknown_keys": "forbid",
+      "fields": {
+        "input": {
+          "type": "string",
+          "max_length": 1000000,
+          "required": true,
+          "nullable": false
+        },
+        "expected": {
+          "type": "string",
+          "max_length": 1000000,
+          "required": false,
+          "nullable": true
+        },
+        "metadata": {
+          "type": "json_object",
+          "required": false,
+          "nullable": true
+        },
+        "review": {
+          "type": "enum",
+          "enum": ["needs_review", "ready"],
+          "required": false,
+          "nullable": false,
+          "default": "needs_review"
+        },
+        "capture_reason": {
+          "type": "enum",
+          "enum": ["manual", "error", "failed_tool", "negative_feedback"],
+          "required": false,
+          "nullable": false,
+          "default": "manual"
+        },
+        "source_trace_id": {
+          "type": "string",
+          "max_length": 64,
+          "required": false,
+          "nullable": true
+        },
+        "source_span_id": {
+          "type": "string",
+          "max_length": 64,
+          "required": false,
+          "nullable": true
+        },
+        "source_span_name": {
+          "type": "string",
+          "max_length": 400,
+          "required": false,
+          "nullable": true
+        },
+        "source_span_kind": {
+          "type": "string",
+          "max_length": 32,
+          "required": false,
+          "nullable": true
+        }
+      }
+    },
+    "UpdateTestCaseRequest": {
+      "kind": "object",
+      "unknown_keys": "forbid",
+      "fields": {
+        "input": {
+          "type": "string",
+          "max_length": 1000000,
+          "required": false,
+          "nullable": false
+        },
+        "expected": {
+          "type": "string",
+          "max_length": 1000000,
+          "required": false,
+          "nullable": true
+        },
+        "metadata": {
+          "type": "json_object",
+          "required": false,
+          "nullable": true
+        },
+        "review": {
+          "type": "enum",
+          "enum": ["needs_review", "ready"],
+          "required": false,
+          "nullable": false
+        }
+      }
+    },
+    "PublicUpsertDatasetRequest": {
+      "kind": "object",
+      "unknown_keys": "forbid",
+      "fields": {
+        "dataset_id": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 64,
+          "required": true,
+          "nullable": false
+        },
+        "name": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 200,
+          "required": true,
+          "nullable": false
+        },
+        "description": {
+          "type": "string",
+          "max_length": 2000,
+          "required": false,
+          "nullable": true
+        },
+        "metadata": {
+          "type": "json_object",
+          "required": false,
+          "nullable": true
+        },
+        "key": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 200,
+          "required": false,
+          "nullable": false
+        }
+      }
+    },
+    "PublicUpdateDatasetRequest": {
+      "kind": "object",
+      "unknown_keys": "forbid",
+      "fields": {
+        "name": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 200,
+          "required": false,
+          "nullable": false
+        },
+        "description": {
+          "type": "string",
+          "max_length": 2000,
+          "required": false,
+          "nullable": true
+        },
+        "metadata": {
+          "type": "json_object",
+          "required": false,
+          "nullable": true
+        }
+      }
+    },
+    "DatasetChange": {
+      "kind": "discriminated_union",
+      "discriminator": "op",
+      "variants": {
+        "upsert": {
+          "kind": "object",
+          "unknown_keys": "strip",
+          "fields": {
+            "op": {
+              "type": "literal",
+              "const": "upsert",
+              "required": true,
+              "nullable": false
+            },
+            "test_case_id": {
+              "type": "string",
+              "min_length": 1,
+              "max_length": 64,
+              "required": true,
+              "nullable": false
+            },
+            "input": {
+              "type": "any",
+              "required": true,
+              "nullable": false
+            },
+            "expected": {
+              "type": "any",
+              "required": false,
+              "nullable": false
+            },
+            "metadata": {
+              "type": "json_object",
+              "required": false,
+              "nullable": true
+            },
+            "source_trace_id": {
+              "type": "string",
+              "max_length": 64,
+              "required": false,
+              "nullable": true
+            },
+            "source_span_id": {
+              "type": "string",
+              "max_length": 64,
+              "required": false,
+              "nullable": true
+            }
+          }
+        },
+        "archive": {
+          "kind": "object",
+          "unknown_keys": "strip",
+          "fields": {
+            "op": {
+              "type": "literal",
+              "const": "archive",
+              "required": true,
+              "nullable": false
+            },
+            "test_case_id": {
+              "type": "string",
+              "min_length": 1,
+              "max_length": 64,
+              "required": true,
+              "nullable": false
+            }
+          }
+        },
+        "delete": {
+          "kind": "object",
+          "unknown_keys": "strip",
+          "fields": {
+            "op": {
+              "type": "literal",
+              "const": "delete",
+              "required": true,
+              "nullable": false
+            },
+            "test_case_id": {
+              "type": "string",
+              "min_length": 1,
+              "max_length": 64,
+              "required": true,
+              "nullable": false
+            }
+          }
+        }
+      }
+    },
+    "PublishDatasetVersionRequest": {
+      "kind": "object",
+      "unknown_keys": "forbid",
+      "fields": {
+        "base_version_id": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 64,
+          "required": true,
+          "nullable": true
+        },
+        "label": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 64,
+          "required": false,
+          "nullable": false
+        },
+        "changes": {
+          "type": "array",
+          "items": {
+            "type": "DatasetChange"
+          },
+          "min_items": 1,
+          "required": true,
+          "nullable": false
+        },
+        "idempotency_key": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 128,
+          "required": false,
+          "nullable": true
+        }
+      }
+    },
+    "SaveResultToDatasetRequest": {
+      "kind": "object",
+      "unknown_keys": "forbid",
+      "fields": {
+        "action": {
+          "type": "enum",
+          "enum": ["update_existing_case", "save_new_case", "duplicate_as_variant"],
+          "required": true,
+          "nullable": false
+        },
+        "dataset_id": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 64,
+          "required": false,
+          "nullable": true
+        },
+        "input": {
+          "type": "string",
+          "max_length": 1000000,
+          "required": false,
+          "nullable": true
+        },
+        "expected": {
+          "type": "string",
+          "max_length": 1000000,
+          "required": false,
+          "nullable": true
+        },
+        "use_candidate_as_expected": {
+          "type": "boolean",
+          "required": false,
+          "nullable": false
+        },
+        "metadata": {
+          "type": "json_object",
+          "required": false,
+          "nullable": true
+        },
+        "idempotency_key": {
+          "type": "string",
+          "min_length": 1,
+          "max_length": 128,
+          "required": false,
+          "nullable": true
+        }
+      }
+    }
+  },
+  "_pydantic_only_comment": "Gateway models with no Zod counterpart. ErrorResponse is the gateway's OWN normalized {detail} envelope: the control plane returns {error: ...} and the gateway rewrites it, so a Zod schema for it would assert something the control plane does not emit.",
+  "pydantic_only": {
+    "ErrorResponse": {
+      "kind": "object",
+      "unknown_keys": "strip",
+      "fields": {
+        "detail": {
+          "type": "string",
+          "required": true,
+          "nullable": false
+        }
+      }
+    }
+  }
+}
