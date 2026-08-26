@@ -788,3 +788,23 @@ model Widget {
   @@index([dashboardId], map: "ix_widget_dashboard_id")
   @@map("widgets")
 }
+
+// No relations on purpose: audit rows must survive resource deletion (an FK
+// cascade would erase history).
+model AuditLog {
+  id             String   @id @default(cuid()) @db.VarChar
+  actorUserId    String   @map("actor_user_id") @db.VarChar
+  operation      String   @db.VarChar // e.g. "create_detector"
+  resourceType   String   @map("resource_type") @db.VarChar
+  resourceId     String   @map("resource_id") @db.VarChar
+  workspaceId    String?  @map("workspace_id") @db.VarChar
+  projectId      String?  @map("project_id") @db.VarChar
+  summary        Json     @db.JsonB // payload summary, never secrets
+  transport      String   @db.VarChar // "public-api" | "agent"
+  agentSessionId String?  @map("agent_session_id") @db.VarChar
+  createTime     DateTime @default(now()) @map("create_time") @db.Timestamp(6)
+
+  @@index([workspaceId], map: "ix_audit_workspace_id")
+  @@index([actorUserId], map: "ix_audit_actor_user_id")
+  @@map("audit_logs")
+}
