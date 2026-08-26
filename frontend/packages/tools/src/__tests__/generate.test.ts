@@ -171,6 +171,35 @@ describe("generateRegistry", () => {
     expect(listTraces.inputSchema.required).toEqual([]);
   });
 
+  it("drops column-range (int64/uint64) maxima but keeps small bounds", () => {
+    const doc = fakeDoc();
+    doc.paths["/api/v1/public/whoami"].get.parameters = [
+      {
+        name: "min_tokens",
+        in: "query",
+        schema: { type: "integer", minimum: 0, maximum: 9223372036854776000 },
+      },
+      {
+        name: "filters",
+        in: "query",
+        content: {
+          "application/json": {
+            schema: {
+              type: "array",
+              items: { properties: { value: { type: "integer", maximum: 18446744073709552000 } } },
+            },
+          },
+        },
+      },
+    ];
+    const whoami = generateRegistry(doc).find((entry) => entry.name === "whoami")!;
+    expect(whoami.inputSchema.properties.min_tokens).toEqual({ type: "integer", minimum: 0 });
+    expect(whoami.inputSchema.properties.filters).toEqual({
+      type: "array",
+      items: { properties: { value: { type: "integer" } } },
+    });
+  });
+
   it("normalizes multi-variant anyOf params (null variant and titles dropped) and tolerates schema-less params", () => {
     const doc = fakeDoc();
     doc.paths["/api/v1/public/whoami"].get.parameters = [

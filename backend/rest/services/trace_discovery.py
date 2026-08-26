@@ -9,7 +9,11 @@ from datetime import datetime
 
 from db.clickhouse import get_clickhouse_client
 from db.clickhouse.query_settings import READ_QUERY_SETTINGS
-from rest.services.trace_reader import customer_traffic_only, default_lookback_start
+from rest.services.trace_reader import (
+    _evaluation_exclusion,
+    customer_traffic_only,
+    default_lookback_start,
+)
 from rest.sql_utils import to_utc_naive
 
 # Every discovery answer: cap the option list and cache briefly. A picker only needs the
@@ -293,6 +297,11 @@ class TraceDiscoveryService:
         inner_where, params = _window_scan(
             time_column, project_id, normalized_start, normalized_end
         )
+        # Exclude offline-evaluation traces so eval-only values (models, environments,
+        # names) are never offered as filter options in the production trace explorer,
+        # keyed on is_evaluation like every list read path. The scan is aliased `t` so the
+        # `t.trace_id NOT IN (...)` predicate binds.
+        inner_where = f"{inner_where} AND {_evaluation_exclusion(params)}"
 
         # Dedup ReplacingMergeTree rows to the latest version per logical row BEFORE
         # counting, so a since-updated row can't inflate a value's count or surface a stale
@@ -301,7 +310,7 @@ class TraceDiscoveryService:
             SELECT value, count() AS n
             FROM (
                 SELECT {column} AS value
-                FROM {table}
+                FROM {table} AS t
                 WHERE {inner_where}
                 ORDER BY ch_update_time DESC
                 LIMIT 1 BY {dedup_keys}
