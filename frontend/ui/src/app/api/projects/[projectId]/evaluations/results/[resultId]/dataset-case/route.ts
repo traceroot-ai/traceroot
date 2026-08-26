@@ -13,6 +13,7 @@ import {
   CircularSaveConflict,
 } from "@/lib/eval/result-to-dataset";
 import { DatasetNotFound, VersionConflict } from "@/lib/eval/versions";
+import { LoneSurrogateError } from "@/lib/eval/case-id";
 
 type RouteParams = { params: Promise<{ projectId: string; resultId: string }> };
 
@@ -73,6 +74,10 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     // Actionable conflict: the message directs the client to update_existing_case.
     if (e instanceof CircularSaveConflict) return errorResponse(e.message, 409);
     if (e instanceof VersionConflict) return errorResponse("Dataset version conflict", 409);
+    // A lone UTF-16 surrogate in the case input can't be canonicalized into a stable id;
+    // that's a caller-fixable 400, not an unhandled 500 falling through to `throw e`.
+    if (e instanceof LoneSurrogateError)
+      return errorResponse("Input contains invalid Unicode", 400);
     throw e;
   }
 }

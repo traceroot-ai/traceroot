@@ -40,7 +40,7 @@ function uniqueViolation(constraint: string) {
 
 /**
  * An in-memory prisma covering exactly what the register transaction touches, with
- * uq_evaluation_project_name, uq_run_client_run_id and uq_run_evaluation_run_number
+ * uq_evaluation_project_key, uq_run_client_run_id and uq_run_evaluation_run_number
  * enforced on insert. `hooks` run once, immediately before an insert, and are how a
  * test plants the row a concurrent transaction would have committed by then.
  */
@@ -292,7 +292,7 @@ describe("lineage resolution", () => {
 
   it("converges on the winner's lineage when a concurrent process creates it first", async () => {
     // The competing transaction commits its evaluation between our findUnique and our
-    // create, so our insert is the one that hits uq_evaluation_project_name.
+    // create, so our insert is the one that hits uq_evaluation_project_key.
     db.hooks.beforeEvaluationCreate.push(() => {
       db.rows.evaluation.push({
         id: "eval_winner",
