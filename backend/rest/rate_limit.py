@@ -21,9 +21,10 @@ Design
   ceiling. Limits therefore apply on cloud (billing-enabled) deployments only.
 * **Buckets**  ``ingest`` (POST /public/traces); ``read`` (dashboard GETs plus
   the public list/get/whoami routes, which share one budget via
-  ``shared_limit(scope="read")``); and ``export`` (the public trace-export route,
+  ``shared_limit(scope="read")``); ``export`` (the public trace-export route,
   on its own bucket — never looser than ``read``, tighter on lower plans — because
-  it builds a full bundle).
+  it builds a full bundle); and ``write`` (the public write routes, on their own
+  bucket so a write burst throttles independently of reads).
 * **Response** HTTP 429 with a JSON envelope plus ``Retry-After`` and
   ``X-RateLimit-*`` headers; OTLP exporters honor ``Retry-After`` and back off.
 
@@ -60,6 +61,7 @@ logger = logging.getLogger(__name__)
 BUCKET_INGEST = "ingest"
 BUCKET_READ = "read"
 BUCKET_EXPORT = "export"
+BUCKET_WRITE = "write"
 _KEY_PREFIX = "rl"
 
 # Request-scoped exemption flag, set True by the access dependency for trusted
@@ -175,7 +177,8 @@ def _bucket_key(bucket: str, request: Request) -> str:
       * Account-scope op (user_id, no workspace_id): ``rl:{bucket}:{plan}:{user_id}``.
 
     Args:
-        bucket (str): Bucket name (``BUCKET_READ`` / ``BUCKET_EXPORT``).
+        bucket (str): Bucket name (``BUCKET_READ`` / ``BUCKET_EXPORT`` /
+            ``BUCKET_WRITE``).
         request (Request): Request carrying the stamped rate-limit identity.
 
     Returns:
@@ -220,6 +223,17 @@ def key_export(request: Request) -> str:
     """
     request.state.rl_bucket = BUCKET_EXPORT
     return _bucket_key(BUCKET_EXPORT, request)
+
+
+def key_write(request: Request) -> str:
+    """Bucket key for public write routes: per workspace (+ user), plan embedded.
+
+    Writes ride their own bucket (separate from ``read``) so a write burst
+    throttles independently of list/get on the same identity. Same
+    key/user-dimension rules as :func:`key_read`, via :func:`_bucket_key`.
+    """
+    request.state.rl_bucket = BUCKET_WRITE
+    return _bucket_key(BUCKET_WRITE, request)
 
 
 def resolve_limit(key: str) -> str:

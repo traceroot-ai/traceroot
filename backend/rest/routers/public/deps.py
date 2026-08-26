@@ -95,19 +95,23 @@ def _is_jwt(token: str) -> bool:
     return len(parts) == 3 and all(parts)
 
 
-async def _verify_access_jwt(token: str) -> str:
-    """Verify a CLI access JWT offline and return its subject (the user id).
+async def _verify_access_jwt(token: str) -> tuple[str, str | None]:
+    """Verify a CLI access JWT offline and return its subject and session id.
 
     The trust anchor for the CLI JWT path. Pins ``EdDSA`` (rejecting
     ``alg=none``/HS*/RS* and any algorithm-confusion), validates the issuer,
     audience, and expiry, and requires ``sub``. The signing key is resolved by
-    ``kid`` from the cached JWKS.
+    ``kid`` from the cached JWKS. The ``sid`` claim (the minting session's id)
+    is surfaced alongside so the write path can check the session is still
+    live; it is optional and shape-tolerant — a missing or non-string ``sid``
+    degrades to ``None`` rather than failing an otherwise-valid token.
 
     Args:
         token (str): The raw JWT (already known to be JWT-shaped).
 
     Returns:
-        str: The verified ``sub`` claim (the user id).
+        tuple[str, str | None]: The verified ``sub`` claim (the user id) and
+            the ``sid`` claim, or ``None`` when ``sid`` is absent/malformed.
 
     Raises:
         HTTPException: 401 for any verification failure (bad signature, expired,
@@ -161,7 +165,14 @@ async def _verify_access_jwt(token: str) -> str:
     sub = claims.get("sub")
     if not sub or not isinstance(sub, str):
         raise invalid
-    return sub
+
+    # sid is advisory (it only ever tightens the write path), so never fail a
+    # verified token over its shape — treat anything but a non-empty string as
+    # absent.
+    sid = claims.get("sid")
+    if not sid or not isinstance(sid, str):
+        sid = None
+    return sub, sid
 
 
 @dataclass
@@ -207,6 +218,11 @@ class AuthResult:
     # Reserved for the Epic B guardrails layer (role-based authorization); no
     # consumer reads it yet, so a new reader need not hunt for one.
     role: str | None = None
+    # Populated only for JWT credentials (from the token's ``sid`` claim); the
+    # write-path liveness dependency (require_live_session) keys on it. Stays
+    # None for API keys and for session-token credentials, whose introspection
+    # already proved the session live.
+    session_id: str | None = None
 
 
 async def authenticate_api_key(
@@ -561,7 +577,7 @@ async def authenticate_user_jwt(token: str, project_id: str) -> AuthResult:
             to ``project_id``, and 503 (fail closed) for any JWKS or
             membership-introspection ambiguity.
     """
-    user_id = await _verify_access_jwt(token)
+    user_id, session_id = await _verify_access_jwt(token)
 
     data = await _post_internal_auth(
         "/api/internal/user-project-access",
@@ -609,16 +625,26 @@ async def authenticate_user_jwt(token: str, project_id: str) -> AuthResult:
         ingestion_blocked=True,
         role=role,
         user_id=user_id,
+        session_id=session_id,
     )
 
 
-def _account_result_for_user(user_id: str) -> AuthResult:
+def _account_result_for_user(user_id: str, session_id: str | None = None) -> AuthResult:
     """Build the account-scope AuthResult for a resolved user id.
 
     Account scope has no single project/workspace/plan — the user id is the
     identity, project/workspace stay empty, and the plan defaults to free (used
     only for per-user rate-limit keying). Shared by the session-token and JWT
     account paths.
+
+    Args:
+        user_id (str): The authenticated user's id.
+        session_id (str | None): The JWT's ``sid`` claim on the JWT path;
+            ``None`` on the session-token path, whose introspection already
+            proved the session live.
+
+    Returns:
+        AuthResult: The account-scope result carrying the user identity.
     """
     return AuthResult(
         kind="user",
@@ -627,6 +653,7 @@ def _account_result_for_user(user_id: str) -> AuthResult:
         billing_plan="free",
         ingestion_blocked=True,
         user_id=user_id,
+        session_id=session_id,
     )
 
 
@@ -826,8 +853,8 @@ async def authenticate_account_caller(
     # A JWT-shaped credential is a CLI access token: verified offline against the
     # JWKS, no introspection call needed (identity is all account scope requires).
     if _is_jwt(token):
-        user_id = await _verify_access_jwt(token)
-        return _account_result_for_user(user_id)
+        user_id, sid = await _verify_access_jwt(token)
+        return _account_result_for_user(user_id, session_id=sid)
 
     # Session-token path: introspect WITHOUT a projectId (no 403 access branch
     # here — a live session alone is sufficient).
@@ -879,3 +906,98 @@ async def authenticate_and_stamp_account_caller(request: Request, auth: _Account
 
 
 AccountStampedAuth = Annotated[AuthResult, Depends(authenticate_and_stamp_account_caller)]
+
+
+async def _check_session_live(session_id: str) -> bool:
+    """Ask the internal validate-session-live route whether a session is live.
+
+    A dedicated caller rather than :func:`_post_internal_auth` because the
+    liveness route speaks a ``{live: boolean}`` envelope with HTTP 200 for both
+    verdicts — the shared helper's ``valid``-discriminator handling would read
+    every such body as a 401. Fails closed with a 503 on any ambiguity —
+    network error, non-200 status, or a body without a boolean ``live`` — so an
+    introspection outage can never be read as "still live".
+
+    Args:
+        session_id (str): The session id (the JWT's ``sid`` claim) to check.
+            Never logged.
+
+    Returns:
+        bool: ``True`` when the session row exists and has not expired,
+            ``False`` when it is gone or expired.
+
+    Raises:
+        HTTPException: 503 (fail closed) on a network error, an unexpected
+            status, or a malformed body.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(
+                f"{settings.traceroot_ui_url}/api/internal/validate-session-live",
+                json={"sessionId": session_id},
+                headers={"X-Internal-Secret": settings.internal_api_secret},
+            )
+    except httpx.RequestError as e:
+        logger.error(f"Failed to check session liveness: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service unavailable",
+        ) from e
+
+    if response.status_code != 200:
+        logger.error(f"Unexpected response from auth service: {response.status_code}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service error",
+        )
+
+    try:
+        data = response.json()
+    except ValueError as e:
+        logger.error(f"Malformed JSON from auth service: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service error",
+        ) from e
+
+    live = data.get("live") if isinstance(data, dict) else None
+    if not isinstance(live, bool):
+        logger.error("Auth service returned a session-liveness body without a boolean live")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service error",
+        )
+    return live
+
+
+async def require_live_session(auth: _AccountAuth) -> None:
+    """Block a write when the JWT's minting session has been revoked or expired.
+
+    Reads keep the JWT's offline verification (cheap, no extra hop); writes are
+    higher-stakes, so a JWT credential additionally checks its ``sid`` against
+    the live session row — revoking the session takes effect instantly where it
+    matters. Session-token credentials carry no ``session_id`` (introspection
+    already proved the session live) and skip the hop entirely, as do API keys.
+
+    Depend on this alongside the stamped auth annotation on write routes; the
+    inner account-auth dependency is shared with the stamped variant, so the
+    credential is only resolved once per request.
+
+    Args:
+        auth (AuthResult): The resolved account-scope auth result, supplied by
+            FastAPI via the same inner dependency the stamped annotation uses.
+
+    Returns:
+        None: The write may proceed.
+
+    Raises:
+        HTTPException: 401 when the session row is gone or expired, 503 (fail
+            closed) when liveness cannot be determined.
+    """
+    if auth.session_id is None:
+        return
+    if not await _check_session_live(auth.session_id):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session revoked or expired",
+        )
