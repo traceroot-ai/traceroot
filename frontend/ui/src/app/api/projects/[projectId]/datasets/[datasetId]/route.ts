@@ -84,7 +84,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
 
   const existing = await prisma.dataset.findFirst({
     where: { id: datasetId, projectId },
-    select: { id: true },
+    select: { id: true, key: true, name: true, clientDatasetId: true },
   });
   if (!existing) return errorResponse("Dataset not found", 404);
 
@@ -109,12 +109,25 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     }
   }
 
+  // Freeze identity before a rename changes it: a legacy UI-only dataset with a null key
+  // derives its content-addressed case ids from `key ?? name` (see resolveDatasetKey), so
+  // renaming it would silently shift every future case id away from an SDK author who
+  // addressed the dataset by its ORIGINAL name. Backfill `key` to the current name at the
+  // moment of the rename so the id pre-image stays pinned to that name. Restricted to a
+  // legacy UI-only dataset (null key AND null clientDatasetId): a public SDK dataset can
+  // carry a null key alongside a non-null clientDatasetId (the public upsert permits an
+  // omitted key and later supplies `c.key`), and writing the display name as its key would
+  // freeze the WRONG hash pre-image and diverge the UI case ids from the SDK's real key.
+  const backfillKey =
+    parsed.data.name !== undefined && existing.key === null && existing.clientDatasetId === null;
+
   try {
     const dataset = await prisma.dataset.update({
       where: { id: datasetId },
       data: {
         ...(parsed.data.name !== undefined ? { name: parsed.data.name } : {}),
         ...(parsed.data.description !== undefined ? { description: parsed.data.description } : {}),
+        ...(backfillKey ? { key: existing.name } : {}),
       },
     });
     return successResponse({ dataset });
