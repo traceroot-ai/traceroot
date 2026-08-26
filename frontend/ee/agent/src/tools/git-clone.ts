@@ -18,25 +18,33 @@ const schema = Type.Object({
 const REPO_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
 
 /**
- * Conservative subset of git's ref rules (`git check-ref-format`). We reject
- * rather than escape: refs have no legitimate need for shell metacharacters, so
- * anything outside this set is a user error, not something to sanitize.
+ * Characters git forbids in a ref name (`git check-ref-format`): ASCII control
+ * characters, space, and ~ ^ : ? * [ \\. Everything else — including + = @ ,
+ * which appear in real branch names — is allowed. This is a denylist rather
+ * than an allowlist because the value never reaches a shell: it travels to git
+ * through the environment (see executors/git-clone-command.ts), so the job here
+ * is to reject refs git itself would reject, not to guess at shell safety.
  */
-const REF_RE = /^[A-Za-z0-9._/-]+$/;
+// eslint-disable-next-line no-control-regex
+const REF_FORBIDDEN_RE = /[\x00-\x20\x7f~^:?*[\\]/;
 
 export function isValidRepo(repo: string): boolean {
   return REPO_RE.test(repo);
 }
 
 export function isValidRef(ref: string): boolean {
-  return (
-    REF_RE.test(ref) &&
-    // A leading dash would be parsed by git as an option, not a ref.
-    !ref.startsWith("-") &&
-    !ref.includes("..") &&
-    !ref.endsWith("/") &&
-    !ref.endsWith(".lock")
-  );
+  if (ref.length === 0 || REF_FORBIDDEN_RE.test(ref)) return false;
+  // A leading dash would be parsed by git as an option rather than a ref.
+  if (ref.startsWith("-")) return false;
+  if (ref.includes("..") || ref.includes("@{")) return false;
+  if (ref === "@" || ref.endsWith(".") || ref.endsWith("/")) return false;
+
+  // Each slash-separated component must be non-empty, must not start with a
+  // dot, and must not end with .lock — this is what rejects "/main", "a//b",
+  // "a/.b" and "a/b.lock".
+  return ref
+    .split("/")
+    .every((part) => part.length > 0 && !part.startsWith(".") && !part.endsWith(".lock"));
 }
 
 export function createGitCloneTool(
