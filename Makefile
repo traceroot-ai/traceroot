@@ -22,7 +22,7 @@ dev-autoreload: install-hooks
 
 ## Windows contributors: full dev env without tmux requirement.
 dev-lite: install-hooks
-	@test -f .env || cp .env.example .env
+	@uv run python tmux_tools/launcher.py --env-only
 	@test -d frontend/node_modules || pnpm --dir frontend install
 	@echo "Starting TraceRoot at http://localhost:3000 - Ctrl+C to stop"
 	APP_VERSION=$(APP_VERSION) $(PROD_COMPOSE) up --build
@@ -39,7 +39,7 @@ prod:
 
 ## Self-hosting on any platform (Windows, CI, no tmux). Docker Desktop only.
 prod-lite:
-	@test -f .env || cp .env.example .env
+	@uv run python tmux_tools/launcher.py --env-only
 	@echo "Starting TraceRoot at http://localhost:3000 - Ctrl+C to stop"
 	APP_VERSION=$(APP_VERSION) $(PROD_COMPOSE) up --build
 

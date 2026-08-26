@@ -1,9 +1,29 @@
 import { z } from "zod";
 
+// Values this repository shipped as defaults in .env.example or
+// docker-compose.prod.yml. They are public, so they are not secrets: a
+// deployment still carrying one signs sessions with a key anyone can read.
+const PUBLISHED_PLACEHOLDERS = new Set([
+  "dev-internal-secret",
+  "internal-secret",
+  "your-better-auth-secret",
+  "local-dev-secret-change-in-production",
+  "changeme",
+]);
+
+export const authSecret = () =>
+  z
+    .string()
+    .min(1)
+    .refine((value) => !PUBLISHED_PLACEHOLDERS.has(value.trim().toLowerCase()), {
+      message:
+        "value is a placeholder published in this repository; generate one with `openssl rand -hex 32`",
+    });
+
 const serverSchema = z.object({
-  BETTER_AUTH_SECRET: z.string().min(1),
+  BETTER_AUTH_SECRET: authSecret(),
   BETTER_AUTH_URL: z.string().default("http://localhost:3000"),
-  INTERNAL_API_SECRET: z.string().min(1),
+  INTERNAL_API_SECRET: authSecret(),
   AUTH_GOOGLE_CLIENT_ID: z.string().default(""),
   AUTH_GOOGLE_CLIENT_SECRET: z.string().default(""),
   TRACEROOT_SMTP_URL: z.string().optional(),
