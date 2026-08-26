@@ -378,6 +378,226 @@ describe("Dataset detail — filtering and adding rows", () => {
   });
 });
 
+/**
+ * The detail route's row order — `[createTime desc, testCaseId desc]`, newest
+ * first with the id breaking the tie. Ordering here is not cosmetic: a publish
+ * appends the new case, so served in insertion order the table's TOP row would
+ * be a different case than the one a real user sees there, and a test picking
+ * "the first row" would act on a row the product never puts first.
+ */
+function byNewestFirst(cases: ReturnType<typeof testCase>[]) {
+  return [...cases].sort((a, b) => {
+    const at = String(a.createTime);
+    const bt = String(b.createTime);
+    if (at !== bt) return at < bt ? 1 : -1;
+    return String(a.testCaseId) < String(b.testCaseId) ? 1 : -1;
+  });
+}
+
+/**
+ * A dataset where every write behaves the way the server actually behaves.
+ * `publishDatasetVersion` branches off the CURRENT version, writes a NEW one
+ * with the change applied (fresh per-version row ids and all), and repoints
+ * `currentVersionId` at it — both the add (POST) and the delete (DELETE) routes
+ * go through it. Earlier versions stay readable with their original rows, which
+ * is exactly what makes a pinned selection observably stale after a write.
+ */
+function mockPublishOnWrite() {
+  // Newest first, the order the detail route returns them in.
+  let versions: (typeof V1)[] = [V2, V1];
+  let currentVersionId = "dv2";
+  const casesByVersion = new Map<string, ReturnType<typeof testCase>[]>([
+    ["dv1", [testCase({ id: "old-1", datasetVersionId: "dv1", input: "seeded ticket" })]],
+    ["dv2", CASES],
+  ]);
+
+  /** Mirrors publishDatasetVersion: a new version off the current one. */
+  const publish = (
+    transform: (cases: ReturnType<typeof testCase>[]) => ReturnType<typeof testCase>[],
+  ) => {
+    const versionNumber = versions[0].versionNumber + 1;
+    const id = `dv${versionNumber}`;
+    casesByVersion.set(
+      id,
+      // A publish rewrites the rows, so they get fresh row ids; only the
+      // testCaseId lineage carries across versions.
+      transform(casesByVersion.get(currentVersionId)!).map((c) => ({
+        ...c,
+        id: `${c.testCaseId}@${id}`,
+        datasetVersionId: id,
+      })),
+    );
+    versions = [
+      {
+        ...V1,
+        id,
+        versionNumber,
+        // publishDatasetVersion labels an unlabelled publish `v<number>`.
+        label: `v${versionNumber}`,
+        createTime: `2026-07-17T${String(11 + versionNumber).padStart(2, "0")}:00:00Z`,
+      },
+      ...versions,
+    ];
+    currentVersionId = id;
+    return { versionId: id, versionNumber };
+  };
+
+  global.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+    const s = String(url);
+    const method = init?.method ?? "GET";
+    const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+    requests.push({ url: s, method, body });
+    if (method === "DELETE") {
+      const testCaseId = s.split("/test-cases/")[1];
+      const published = publish((cases) => cases.filter((c) => c.testCaseId !== testCaseId));
+      return { ok: true, status: 201, json: async () => published };
+    }
+    if (method === "POST" && s.includes("/test-cases")) {
+      const testCaseId = `tc_new_${requests.length}`;
+      const added = body as { input: string; expected: string | null; metadata: unknown };
+      const published = publish((cases) => [
+        ...cases,
+        testCase({
+          testCaseId,
+          input: added.input,
+          expected: added.expected ?? null,
+          metadata: added.metadata ?? null,
+          createTime: "2026-07-17T12:00:00Z",
+        }),
+      ]);
+      return {
+        ok: true,
+        status: 201,
+        json: async () => ({ duplicate: false, testCaseId, ...published }),
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => {
+        if (s.includes("/evaluations/runs")) {
+          return { data: [], meta: { page: 0, limit: 50, total: 0 } };
+        }
+        if (s.includes("/test-cases/") && s.endsWith("/runs")) return { data: [] };
+        if (!/\/datasets\/ds1(\?|$)/.test(s)) return {};
+        const requested = new URL(s, "http://x").searchParams.get("version_id");
+        // An unknown or omitted id falls back to the current version — route.ts.
+        const selected =
+          versions.find((v) => v.id === requested) ??
+          versions.find((v) => v.id === currentVersionId)!;
+        return {
+          dataset: { ...DATASET, currentVersionId },
+          currentVersion: versions.find((v) => v.id === currentVersionId),
+          selectedVersion: selected,
+          isCurrentVersion: selected.id === currentVersionId,
+          testCases: byNewestFirst(casesByVersion.get(selected.id) ?? []),
+          versions,
+        };
+      },
+    };
+  }) as unknown as typeof fetch;
+}
+
+/**
+ * Open the action menu of the row whose Input cell matches — addressed by
+ * content, since the table is ordered newest-first and a positional index would
+ * quietly act on a different row than the assertions are written about.
+ */
+async function openRowActions(text: string | RegExp) {
+  const row = (await screen.findAllByText(text))[0].closest("tr")!;
+  fireEvent.click(within(row).getByLabelText("Row actions"));
+}
+
+/** The dataset-detail GETs, excluding the nested /test-cases requests. */
+function detailGets() {
+  return requests.filter((r) => r.method === "GET" && /\/datasets\/ds1(\?|$)/.test(r.url));
+}
+
+describe("Dataset detail — deleting a row with a version pinned", () => {
+  it("follows the delete onto the version it published instead of the pinned snapshot", async () => {
+    mockPublishOnWrite();
+    mountDetail();
+    await screen.findByText(/charged twice/);
+
+    // Pin the selection to a concrete id the way a user reaches that state: pick a
+    // version from the dropdown. Round-tripping back to the current version leaves
+    // the page fully editable but pinned — indistinguishable on screen from the
+    // unpinned default, and the state the regression turns on.
+    fireEvent.click(screen.getByRole("combobox"));
+    fireEvent.click(await screen.findByRole("option", { name: new RegExp(V1.id) }));
+    await screen.findByText("seeded ticket");
+    // An older snapshot is read-only, so a delete is not even reachable from here.
+    expect(screen.queryByRole("columnheader", { name: "Actions" })).toBeNull();
+    expect(screen.queryAllByLabelText("Row actions")).toHaveLength(0);
+
+    fireEvent.click(screen.getByRole("combobox"));
+    fireEvent.click(await screen.findByRole("option", { name: new RegExp(V2.id) }));
+    await screen.findByText(/charged twice/);
+    // Pinned, yet still the current version — the Actions column proves it.
+    expect(await screen.findByRole("columnheader", { name: "Actions" })).toBeDefined();
+
+    await openRowActions(/charged twice/);
+    fireEvent.click(await screen.findByText("Delete"));
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete" }).at(-1)!);
+    expect(await screen.findByText("Row deleted")).toBeDefined();
+
+    // The deleted row is gone and the page is still editable. Without the reset the
+    // pinned dv2 snapshot is re-fetched: the row stays and, because dv2 is no longer
+    // current, the Actions column disappears — a silently stale view.
+    await waitFor(() => expect(screen.queryByText(/charged twice/)).toBeNull());
+    expect(screen.getByRole("columnheader", { name: "Actions" })).toBeDefined();
+    // The refetch asked for the current version, not the pinned one.
+    expect(detailGets().at(-1)!.url).not.toContain("version_id");
+  });
+
+  /**
+   * The flow that originally MASKED the bug, pinned so a future change cannot
+   * regress it. It passes with AND without the production reset by design, and
+   * is not a second guard on it: the add's `onSaved` un-pins the selection
+   * first, so by the time the delete runs there is no pin left for the delete's
+   * own reset to clear. The pinned delete is guarded by the test above.
+   */
+  it("add-then-delete still lands on the newest version", async () => {
+    mockPublishOnWrite();
+    mountDetail();
+    await screen.findByText(/charged twice/);
+
+    fireEvent.click(screen.getByRole("combobox"));
+    fireEvent.click(await screen.findByRole("option", { name: new RegExp(V1.id) }));
+    await screen.findByText("seeded ticket");
+    fireEvent.click(screen.getByRole("combobox"));
+    fireEvent.click(await screen.findByRole("option", { name: new RegExp(V2.id) }));
+    await screen.findByText(/charged twice/);
+
+    // The add publishes dv3 and un-pins the selection on its own (`onSaved`)...
+    fireEvent.click(screen.getByRole("button", { name: "Row" }));
+    fireEvent.change(await screen.findByLabelText("Input"), {
+      target: { value: "a new question" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await screen.findByText("Row added");
+    // ...so the page is showing dv3, not the dv2 it was pinned to: the row that
+    // only exists in dv3 is on screen, and the page is still editable. Pinned,
+    // the refetch would return dv2 — no new row, no Actions column.
+    expect(await screen.findByText("a new question")).toBeDefined();
+    expect(screen.getByRole("columnheader", { name: "Actions" })).toBeDefined();
+    expect(detailGets().at(-1)!.url).not.toContain("version_id");
+
+    // ...and the following delete (publishing dv4) keeps it there. The selection
+    // is already un-pinned here, so this asserts the add's reset still holds
+    // across a second publish — not that the delete resets anything.
+    await openRowActions(/charged twice/);
+    fireEvent.click(await screen.findByText("Delete"));
+    fireEvent.click(screen.getAllByRole("button", { name: "Delete" }).at(-1)!);
+    await screen.findByText("Row deleted");
+    await waitFor(() => expect(screen.queryByText(/charged twice/)).toBeNull());
+    // dv4 keeps the row the add introduced and stays editable.
+    expect(screen.getByText("a new question")).toBeDefined();
+    expect(screen.getByRole("columnheader", { name: "Actions" })).toBeDefined();
+    expect(detailGets().at(-1)!.url).not.toContain("version_id");
+  });
+});
+
 describe("Dataset detail — the slide-in case panel", () => {
   it("opens a case read-only, rendering its content like the trace-detail panel", async () => {
     mountDetail();
