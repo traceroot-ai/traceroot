@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { SpanKind, SpanStatus } from "@traceroot/core";
 import type { Span } from "@/types/api";
 import {
+  compareSpansForStableDisplay,
   buildSpanTree,
   enrichSpansWithPending,
   getSpanDuration,
@@ -17,6 +18,30 @@ import type { TraceDetail } from "@/types/api";
 // "...:30" end parsed as local → 7h skew) are caught regardless of the CI
 // runner's zone. The Z-suffixed fixtures elsewhere in this file are unaffected.
 process.env.TZ = "America/Los_Angeles";
+
+describe("compareSpansForStableDisplay", () => {
+  const s = (id: string, start: string, end: string): Span =>
+    makeSpan({ span_id: id, span_start_time: start, span_end_time: end });
+
+  it("orders by start time first", () => {
+    const a = s("a", "2024-01-01T00:00:00.000Z", "2024-01-01T00:00:02.000Z");
+    const b = s("b", "2024-01-01T00:00:01.000Z", "2024-01-01T00:00:01.500Z");
+    expect(compareSpansForStableDisplay(a, b)).toBeLessThan(0);
+  });
+
+  it("breaks same-ms-start ties by end time, then span_id — deterministic either arg order", () => {
+    // A task (ends quickly) + two scorers that all start in the same millisecond.
+    const task = s("z-task", "2024-01-01T00:00:00.000Z", "2024-01-01T00:00:00.100Z");
+    const scorerA = s("a-scorer", "2024-01-01T00:00:00.000Z", "2024-01-01T00:00:00.400Z");
+    const scorerB = s("b-scorer", "2024-01-01T00:00:00.000Z", "2024-01-01T00:00:00.400Z");
+    // task ends first → sorts first (despite a span_id that would otherwise sort last).
+    expect(compareSpansForStableDisplay(task, scorerA)).toBeLessThan(0);
+    expect(compareSpansForStableDisplay(scorerA, task)).toBeGreaterThan(0);
+    // equal start AND end → span_id tie-break, stable regardless of input order.
+    expect(compareSpansForStableDisplay(scorerA, scorerB)).toBeLessThan(0);
+    expect(compareSpansForStableDisplay(scorerB, scorerA)).toBeGreaterThan(0);
+  });
+});
 
 // Minimal span factory — only fields relevant to enrichSpansWithPending.
 function makeSpan(overrides: Partial<Span> & { span_id: string }): Span {

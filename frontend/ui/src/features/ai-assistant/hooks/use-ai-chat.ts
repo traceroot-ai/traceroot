@@ -1,9 +1,12 @@
 "use client";
 
 import { useRef, useState, useCallback, useEffect } from "react";
+import { useLocalStorage } from "@/lib/hooks/use-local-storage";
 import { useAIStream } from "./use-ai-stream";
 import type { AISession, AIMessage, AiTraceContext } from "../types";
 import type { ModelSelection } from "../components/model-selector";
+
+const EMPTY_SELECTION: ModelSelection = { model: "", provider: "", source: "system", adapter: "" };
 
 interface UseAiChatOptions extends AiTraceContext {
   projectId: string | undefined;
@@ -27,6 +30,14 @@ export function useAiChat({
   // (session creation + first network round-trip). Without this, React 19 can batch
   // setIsStreaming(true) and setIsStreaming(false) into a single frame, hiding the button.
   const [isSending, setIsSending] = useState(false);
+  // Lives here (not in the input) so the pick survives the panel remounting in a
+  // different host, and in localStorage so it survives a reload. Keyed per
+  // project — the only id this hook has; the model catalog itself is
+  // workspace-scoped.
+  const [modelSelection, setModelSelection] = useLocalStorage<ModelSelection>(
+    `traceroot:ai-assistant:model:v1:${projectId ?? ""}`,
+    EMPTY_SELECTION,
+  );
 
   // Reset session + messages when the user navigates to a different project so
   // a session ID from project A can never be replayed against project B's chat
@@ -205,9 +216,11 @@ export function useAiChat({
     sessions,
     historyOpen,
     currentSessionId: sessionIdRef.current,
+    modelSelection,
 
     // Setters
     setHistoryOpen,
+    setModelSelection,
 
     // Actions
     handleSend,
