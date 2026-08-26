@@ -24,8 +24,8 @@ export function DatasetsView({ projectId }: { projectId: string }) {
   const router = useRouter();
   const { toast } = useToast();
 
-  const { page, limit, goToPage, updateLimit, keyword, updateKeyword, queryOptions } =
-    useListPageState({ defaultLimit: 50 });
+  const { page, limit, goToPage, updateLimit, keyword, updateKeyword, queryOptions, resetPageState } =
+  useListPageState({ defaultLimit: 50 });
   const [newOpen, setNewOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<DatasetRow | null>(null);
   const [deleteTarget, setDeleteTarget] = React.useState<DatasetRow | null>(null);
@@ -57,7 +57,8 @@ export function DatasetsView({ projectId }: { projectId: string }) {
       onSuccess: () => {
         toast({ title: `Deleted ${dataset.name}`, tone: "success" });
         setDeleteTarget(null);
-      },
+        resetPageState();
+},
       onError: (e) => toast({ title: "Could not delete", description: String(e), tone: "warning" }),
     });
   };
@@ -162,8 +163,8 @@ export function DatasetsView({ projectId }: { projectId: string }) {
 
       {meta && meta.total > 0 && (
         <ListPagination
-          page={meta.page}
-          limit={meta.limit}
+          page={page}
+          limit={limit}
           total={meta.total}
           onPageChange={goToPage}
           onLimitChange={updateLimit}
