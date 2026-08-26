@@ -4,8 +4,10 @@ import { verifyInternalSecret } from "@/lib/auth-helpers";
 import { createWorkspace } from "@/lib/write-services/workspaces";
 
 const bodySchema = z.object({
-  actorUserId: z.string().min(1, "actorUserId is required"),
-  name: z.string().min(1, "name is required"),
+  // The string-typed error covers missing/wrong-type input too, so the
+  // surfaced message is deterministic whether the field is absent or empty.
+  actorUserId: z.string("actorUserId is required").min(1, "actorUserId is required"),
+  name: z.string("name is required").min(1, "name is required"),
   transport: z.enum(["public-api", "agent"]),
   agentSessionId: z.string().min(1).optional(),
 });
