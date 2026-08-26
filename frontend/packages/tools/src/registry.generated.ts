@@ -25,6 +25,23 @@ export const REGISTRY: readonly RegistryEntry[] = [
     },
   },
   {
+    name: "get_detector",
+    description:
+      "Fetch one detector's full configuration by id: prompt, output schema, sample rate, RCA and detection settings, and trigger conditions.",
+    method: "get",
+    path: "/api/v1/public/detectors/{detector_id}",
+    inputSchema: {
+      type: "object",
+      properties: {
+        detector_id: {
+          type: "string",
+        },
+      },
+      required: ["detector_id"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "get_finding",
     description: "Fetch one detector finding by id, with its full analysis detail.",
     method: "get",
@@ -262,6 +279,12 @@ export const REGISTRY: readonly RegistryEntry[] = [
           type: "string",
           description: "Only traces that started before this time (exclusive, ISO 8601)",
         },
+        include_evaluations: {
+          default: false,
+          description:
+            "Include traces produced by offline-evaluation runs. Excluded by default so evaluation runs do not appear in the production trace list.",
+          type: "boolean",
+        },
         name: {
           type: "string",
           description: "Filter by trace name (substring match)",
@@ -283,9 +306,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
                   field: {
                     const: "trace_id",
                     title: "Trace ID",
+                    type: "string",
                   },
                   op: {
                     enum: ["eq", "contains"],
+                    type: "string",
                   },
                   value: {
                     maxLength: 1024,
@@ -302,9 +327,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
                   field: {
                     const: "model_name",
                     title: "Model",
+                    type: "string",
                   },
                   op: {
                     enum: ["in"],
+                    type: "string",
                   },
                   value: {
                     items: {
@@ -324,9 +351,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
                   field: {
                     const: "environment",
                     title: "Environment",
+                    type: "string",
                   },
                   op: {
                     enum: ["in"],
+                    type: "string",
                   },
                   value: {
                     items: {
@@ -346,9 +375,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
                   field: {
                     const: "cost",
                     title: "Cost",
+                    type: "string",
                   },
                   op: {
                     enum: ["eq", "gt", "gte", "lt", "lte"],
+                    type: "string",
                   },
                   value: {
                     maximum: 999999999,
@@ -365,12 +396,13 @@ export const REGISTRY: readonly RegistryEntry[] = [
                   field: {
                     const: "total_tokens",
                     title: "Tokens",
+                    type: "string",
                   },
                   op: {
                     enum: ["eq", "gt", "gte", "lt", "lte"],
+                    type: "string",
                   },
                   value: {
-                    maximum: 9223372036854776000,
                     minimum: 0,
                     type: "integer",
                   },
@@ -384,12 +416,13 @@ export const REGISTRY: readonly RegistryEntry[] = [
                   field: {
                     const: "duration_ms",
                     title: "Latency",
+                    type: "string",
                   },
                   op: {
                     enum: ["eq", "gt", "gte", "lt", "lte"],
+                    type: "string",
                   },
                   value: {
-                    maximum: 9223372036854776000,
                     minimum: 0,
                     type: "integer",
                   },
@@ -403,12 +436,13 @@ export const REGISTRY: readonly RegistryEntry[] = [
                   field: {
                     const: "errors",
                     title: "Errors",
+                    type: "string",
                   },
                   op: {
                     enum: ["eq", "gt", "gte", "lt", "lte"],
+                    type: "string",
                   },
                   value: {
-                    maximum: 18446744073709552000,
                     minimum: 0,
                     type: "integer",
                   },
@@ -422,6 +456,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
                   field: {
                     const: "metadata",
                     title: "Metadata",
+                    type: "string",
                   },
                   key: {
                     description: "Which metadata key the value is compared against",
@@ -431,6 +466,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
                   },
                   op: {
                     enum: ["eq", "contains"],
+                    type: "string",
                   },
                   value: {
                     maxLength: 1024,
