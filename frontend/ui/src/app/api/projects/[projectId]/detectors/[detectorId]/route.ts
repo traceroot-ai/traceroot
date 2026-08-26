@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { prisma } from "@traceroot/core";
+import { prisma, Role } from "@traceroot/core";
 import { validateTriggerConditions } from "@/features/detectors/trigger-fields";
 import {
   requireAuth,
@@ -39,7 +39,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   const { user } = authResult;
 
   const { projectId, detectorId } = await params;
-  const accessResult = await requireProjectAccess(user.id, projectId);
+  const accessResult = await requireProjectAccess(user.id, projectId, Role.MEMBER);
   if (accessResult.error) return accessResult.error;
 
   const existing = await prisma.detector.findFirst({
@@ -172,7 +172,7 @@ export async function DELETE(_req: NextRequest, { params }: RouteParams) {
   const { user } = authResult;
 
   const { projectId, detectorId } = await params;
-  const accessResult = await requireProjectAccess(user.id, projectId);
+  const accessResult = await requireProjectAccess(user.id, projectId, Role.MEMBER);
   if (accessResult.error) return accessResult.error;
 
   const existing = await prisma.detector.findFirst({
