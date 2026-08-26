@@ -35,11 +35,11 @@ model Invite {
   email           String     @db.VarChar
   workspaceId     String     @map("workspace_id") @db.VarChar
   role            MemberRole
-  invitedByUserId String?   @map("invited_by_user_id") @db.VarChar
-  createTime      DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
-  updateTime      DateTime  @default(now()) @map("update_time") @db.Timestamp(6)
-  invitedBy       User?     @relation(fields: [invitedByUserId], references: [id], onUpdate: NoAction)
-  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  invitedByUserId String?    @map("invited_by_user_id") @db.VarChar
+  createTime      DateTime   @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime      DateTime   @default(now()) @map("update_time") @db.Timestamp(6)
+  invitedBy       User?      @relation(fields: [invitedByUserId], references: [id], onUpdate: NoAction)
+  workspace       Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([email, workspaceId], map: "uq_invite_email_workspace")
   @@index([workspaceId], map: "ix_invite_workspace_id")
@@ -52,10 +52,10 @@ model WorkspaceMember {
   workspaceId String     @map("workspace_id") @db.VarChar
   userId      String     @map("user_id") @db.VarChar
   role        MemberRole
-  createTime  DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
-  updateTime  DateTime  @default(now()) @map("update_time") @db.Timestamp(6)
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  createTime  DateTime   @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime  DateTime   @default(now()) @map("update_time") @db.Timestamp(6)
+  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([workspaceId, userId], map: "uq_workspace_user")
   @@index([workspaceId], map: "ix_workspace_member_workspace_id")
@@ -65,24 +65,24 @@ model WorkspaceMember {
 
 // Workspaces - Top-level container for projects and members
 model Workspace {
-  id         String            @id @db.VarChar
-  name       String            @db.VarChar
-  createTime DateTime          @default(now()) @map("create_time") @db.Timestamp(6)
-  updateTime DateTime          @default(now()) @map("update_time") @db.Timestamp(6)
-  invites    Invite[]
-  members    WorkspaceMember[]
-  projects   Project[]
-  billingCustomerId      String?   @map("billing_customer_id")
-  billingSubscriptionId  String?   @map("billing_subscription_id")
-  billingPriceId         String?   @map("billing_price_id")
-  billingStatus          String?   @map("billing_status") // active, canceled, past_due, trialing
-  billingPeriodStart     DateTime? @map("billing_period_start")
-  billingPeriodEnd       DateTime? @map("billing_period_end")
-  billingPlan            String    @default("free") @map("billing_plan") // free, starter, pro, enterprise
-  ingestionBlocked       Boolean   @default(false) @map("ingestion_blocked") // true when free plan exceeds usage limit
-  aiBlocked              Boolean   @default(false) @map("ai_blocked") // true when free plan exceeds AI token allowance
-  rcaBlocked             Boolean   @default(false) @map("rca_blocked") // true when free plan exceeds 30 RCA runs (mirrors aiBlocked)
-  detectorBlocked        Boolean   @default(false) @map("detector_blocked") // true when free plan exceeds 100 detector runs (any source)
+  id                    String            @id @db.VarChar
+  name                  String            @db.VarChar
+  createTime            DateTime          @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime            DateTime          @default(now()) @map("update_time") @db.Timestamp(6)
+  invites               Invite[]
+  members               WorkspaceMember[]
+  projects              Project[]
+  billingCustomerId     String?           @map("billing_customer_id")
+  billingSubscriptionId String?           @map("billing_subscription_id")
+  billingPriceId        String?           @map("billing_price_id")
+  billingStatus         String?           @map("billing_status") // active, canceled, past_due, trialing
+  billingPeriodStart    DateTime?         @map("billing_period_start")
+  billingPeriodEnd      DateTime?         @map("billing_period_end")
+  billingPlan           String            @default("free") @map("billing_plan") // free, starter, pro, enterprise
+  ingestionBlocked      Boolean           @default(false) @map("ingestion_blocked") // true when free plan exceeds usage limit
+  aiBlocked             Boolean           @default(false) @map("ai_blocked") // true when free plan exceeds AI token allowance
+  rcaBlocked            Boolean           @default(false) @map("rca_blocked") // true when free plan exceeds 30 RCA runs (mirrors aiBlocked)
+  detectorBlocked       Boolean           @default(false) @map("detector_blocked") // true when free plan exceeds 100 detector runs (any source)
   // currentUsage shape:
   //   { traces, spans, tokens, updatedAt,
   //     ai:       { runsUsed, systemUsage, byokUsage, byModel, lastReportedUnits, lastReportedPeriodStart },
@@ -92,13 +92,13 @@ model Workspace {
   // system-source agent/scan calls (BYOK skipped). The hourly billing job bills each
   // at 1.05× pass-through via STRIPE_PRICE_ID_RCA_USAGE / STRIPE_PRICE_ID_DETECTOR_USAGE.
   // detector.scansRun is informational only (BYOK + system; no quota).
-  currentUsage           Json?     @map("current_usage")
+  currentUsage          Json?             @map("current_usage")
 
-  modelProviders ModelProvider[]
+  modelProviders      ModelProvider[]
   githubInstallations GitHubInstallation[]
   aiMessages          AIMessage[]
-  slackIntegration SlackIntegration?
-  usageNotifications WorkspaceUsageNotification[]
+  slackIntegration    SlackIntegration?
+  usageNotifications  WorkspaceUsageNotification[]
 
   @@index([billingCustomerId])
   @@index([billingSubscriptionId])
@@ -128,14 +128,14 @@ model WorkspaceUsageNotification {
 model ModelProvider {
   id                String    @id @default(cuid()) @db.VarChar
   workspaceId       String    @map("workspace_id") @db.VarChar
-  adapter           String    @db.VarChar        // "openai"|"anthropic"|"azure"|"google"|"amazon-bedrock"|"deepseek"|"openrouter"|"xai"|"moonshot"|"zai"
-  provider          String    @db.VarChar        // user-defined label: "My OpenAI", "DeepSeek", etc.
+  adapter           String    @db.VarChar // "openai"|"anthropic"|"azure"|"google"|"amazon-bedrock"|"deepseek"|"openrouter"|"xai"|"moonshot"|"zai"
+  provider          String    @db.VarChar // user-defined label: "My OpenAI", "DeepSeek", etc.
   keyCipher         String    @map("key_cipher") @db.Text
-  keyPreview        String    @map("key_preview") @db.VarChar  // "xxxx...xxxx"
+  keyPreview        String    @map("key_preview") @db.VarChar // "xxxx...xxxx"
   baseUrl           String?   @map("base_url") @db.VarChar
   customModels      String[]  @default([]) @map("custom_models")
   withDefaultModels Boolean   @default(true) @map("with_default_models")
-  config            Json?     @db.JsonB          // adapter-specific (region, apiVersion, etc.)
+  config            Json?     @db.JsonB // adapter-specific (region, apiVersion, etc.)
   enabled           Boolean   @default(true)
   createdBy         String    @map("created_by") @db.VarChar
   createTime        DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
@@ -149,24 +149,26 @@ model ModelProvider {
 
 // Projects - Container for traces and access keys
 model Project {
-  id           String    @id @db.VarChar
-  workspaceId  String    @map("workspace_id") @db.VarChar
-  name         String    @db.VarChar
-  traceTtlDays Int?      @map("trace_ttl_days")
-  deleteTime   DateTime? @map("delete_time") @db.Timestamp(6)
-  createTime   DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
-  updateTime   DateTime  @default(now()) @map("update_time") @db.Timestamp(6)
+  id           String               @id @db.VarChar
+  workspaceId  String               @map("workspace_id") @db.VarChar
+  name         String               @db.VarChar
+  traceTtlDays Int?                 @map("trace_ttl_days")
+  deleteTime   DateTime?            @map("delete_time") @db.Timestamp(6)
+  createTime   DateTime             @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime   DateTime             @default(now()) @map("update_time") @db.Timestamp(6)
   // Agent model for Step 2 deep analysis — project-scoped, shared across all detectors
-  rcaModel     String?   @map("rca_model") @db.VarChar
-  rcaProvider  String?   @map("rca_provider") @db.VarChar
-  rcaSource    String?   @map("rca_source") @db.VarChar
+  rcaModel     String?              @map("rca_model") @db.VarChar
+  rcaProvider  String?              @map("rca_provider") @db.VarChar
+  rcaSource    String?              @map("rca_source") @db.VarChar
   accessKeys   AccessKey[]
   aiSessions   AISession[]
   detectors    Detector[]
   alertConfig  DetectorAlertConfig?
   detectorRcas DetectorRca[]
   dashboards   Dashboard[]
-  workspace    Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  datasets     Dataset[]
+  evaluations  Evaluation[]
+  workspace    Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([workspaceId], map: "ix_project_workspace_id")
   @@map("projects")
@@ -212,22 +214,22 @@ model Account {
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId], map: "ix_account_user_id")
   @@unique([accountId, providerId], map: "uq_account_provider")
+  @@index([userId], map: "ix_account_user_id")
   @@map("accounts")
 }
 
 // Sessions - better-auth session management
 model Session {
-  id             String    @id @default(cuid()) @db.VarChar
-  userId         String    @map("user_id") @db.VarChar
-  token          String    @unique @db.VarChar
-  expiresAt      DateTime  @map("expires_at") @db.Timestamp(6)
-  ipAddress      String?   @map("ip_address") @db.VarChar
-  userAgent      String?   @map("user_agent") @db.VarChar
-  impersonatedBy String?   @map("impersonated_by") @db.VarChar
-  createdAt      DateTime  @default(now()) @db.Timestamp(6)
-  updatedAt      DateTime  @updatedAt @db.Timestamp(6)
+  id             String   @id @default(cuid()) @db.VarChar
+  userId         String   @map("user_id") @db.VarChar
+  token          String   @unique @db.VarChar
+  expiresAt      DateTime @map("expires_at") @db.Timestamp(6)
+  ipAddress      String?  @map("ip_address") @db.VarChar
+  userAgent      String?  @map("user_agent") @db.VarChar
+  impersonatedBy String?  @map("impersonated_by") @db.VarChar
+  createdAt      DateTime @default(now()) @db.Timestamp(6)
+  updatedAt      DateTime @updatedAt @db.Timestamp(6)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -255,16 +257,16 @@ model Verification {
 // No accessToken stored: getInstallationToken signs a JWT with the App private
 // key and exchanges it for a short-lived installation token at request time.
 model GitHubInstallation {
-  id                String   @id @default(cuid()) @db.VarChar
-  workspaceId       String   @map("workspace_id") @db.VarChar
-  workspace         Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  id          String    @id @default(cuid()) @db.VarChar
+  workspaceId String    @map("workspace_id") @db.VarChar
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
-  installationId    String   @map("installation_id") @db.VarChar
-  accountLogin      String   @map("account_login") @db.VarChar  // GitHub org/user that owns the install
-  installedByUserId String?  @map("installed_by_user_id") @db.VarChar  // who clicked Connect
+  installationId    String  @map("installation_id") @db.VarChar
+  accountLogin      String  @map("account_login") @db.VarChar // GitHub org/user that owns the install
+  installedByUserId String? @map("installed_by_user_id") @db.VarChar // who clicked Connect
 
-  createTime        DateTime @default(now()) @map("create_time") @db.Timestamp(6)
-  updateTime        DateTime @updatedAt @map("update_time") @db.Timestamp(6)
+  createTime DateTime @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime DateTime @updatedAt @map("update_time") @db.Timestamp(6)
 
   @@unique([workspaceId, installationId], map: "uq_github_installation")
   @@index([workspaceId], map: "ix_github_installation_workspace_id")
@@ -279,18 +281,18 @@ model SlackIntegration {
   workspaceId String    @unique @map("workspace_id") @db.VarChar
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
-  teamId    String @map("team_id")     @db.VarChar
-  teamName  String @map("team_name")   @db.VarChar
+  teamId    String @map("team_id") @db.VarChar
+  teamName  String @map("team_name") @db.VarChar
   botUserId String @map("bot_user_id") @db.VarChar
-  botToken  String @map("bot_token")   @db.Text
+  botToken  String @map("bot_token") @db.Text
 
-  channelId   String? @map("channel_id")   @db.VarChar
+  channelId   String? @map("channel_id") @db.VarChar
   channelName String? @map("channel_name") @db.VarChar
 
   connectedByUserId String? @map("connected_by_user_id") @db.VarChar
 
   createTime DateTime @default(now()) @map("create_time") @db.Timestamp(6)
-  updateTime DateTime @updatedAt      @map("update_time") @db.Timestamp(6)
+  updateTime DateTime @updatedAt @map("update_time") @db.Timestamp(6)
 
   @@map("slack_integrations")
 }
@@ -300,9 +302,9 @@ model AISession {
   id          String      @id @default(cuid()) @db.VarChar
   projectId   String      @map("project_id") @db.VarChar
   workspaceId String      @map("workspace_id") @db.VarChar
-  userId      String?     @map("user_id") @db.VarChar  // null for system/RCA sessions
+  userId      String?     @map("user_id") @db.VarChar // null for system/RCA sessions
   title       String?     @db.VarChar
-  status      String      @default("active") @db.VarChar  // active, completed, failed
+  status      String      @default("active") @db.VarChar // active, completed, failed
   metadata    Json?       @db.JsonB
   createTime  DateTime    @default(now()) @map("create_time") @db.Timestamp(6)
   updateTime  DateTime    @default(now()) @updatedAt @map("update_time") @db.Timestamp(6)
@@ -367,23 +369,23 @@ model StandardModelPrice {
 // Detectors — automatic production monitoring for AI agents
 
 model Detector {
-  id           String   @id @default(cuid()) @db.VarChar
-  projectId    String   @map("project_id") @db.VarChar
-  name         String   @db.VarChar
-  template     String   @db.VarChar  // "failure"|"hallucination"|"logic"|"task"|"safety"|"intent"|"blank"
-  prompt       String   @db.Text
-  outputSchema       Json     @map("output_schema") @db.JsonB
-  sampleRate         Int      @default(25) @map("sample_rate")  // 0–100
-  enabled            Boolean  @default(true)
-  enableRca          Boolean  @default(true) @map("enable_rca")  // run agent-model RCA on this detector's findings
-  detectionModel     String?  @map("detection_model") @db.VarChar    // model id; null = worker picks default
-  detectionProvider  String?  @map("detection_provider") @db.VarChar // provider label (system: "anthropic"/"openai"; BYOK: ModelProvider.provider row label)
-  detectionSource    String?  @map("detection_source") @db.VarChar   // "system" | "byok" | null (legacy/seeded)
-  createTime   DateTime @default(now()) @map("create_time") @db.Timestamp(6)
-  updateTime   DateTime @updatedAt @map("update_time") @db.Timestamp(6)
+  id                String   @id @default(cuid()) @db.VarChar
+  projectId         String   @map("project_id") @db.VarChar
+  name              String   @db.VarChar
+  template          String   @db.VarChar // "failure"|"hallucination"|"logic"|"task"|"safety"|"intent"|"blank"
+  prompt            String   @db.Text
+  outputSchema      Json     @map("output_schema") @db.JsonB
+  sampleRate        Int      @default(25) @map("sample_rate") // 0–100
+  enabled           Boolean  @default(true)
+  enableRca         Boolean  @default(true) @map("enable_rca") // run agent-model RCA on this detector's findings
+  detectionModel    String?  @map("detection_model") @db.VarChar // model id; null = worker picks default
+  detectionProvider String?  @map("detection_provider") @db.VarChar // provider label (system: "anthropic"/"openai"; BYOK: ModelProvider.provider row label)
+  detectionSource   String?  @map("detection_source") @db.VarChar // "system" | "byok" | null (legacy/seeded)
+  createTime        DateTime @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime        DateTime @updatedAt @map("update_time") @db.Timestamp(6)
 
-  project     Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  trigger     DetectorTrigger?
+  project Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  trigger DetectorTrigger?
 
   @@index([projectId], map: "ix_detector_project_id")
   @@map("detectors")
@@ -393,7 +395,10 @@ model DetectorTrigger {
   id         String   @id @default(cuid()) @db.VarChar
   detectorId String   @unique @map("detector_id") @db.VarChar
   conditions Json     @db.JsonB
-  // [{field: "root_span_finished", op: "=", value: true}, {field: "total_tokens", op: ">", value: 1000}]
+  // [{field: "environment", op: "=", value: "prod"}, {field: "total_tokens", op: ">", value: 1000},
+  //  {field: "metadata", key: "tenant", op: "contains", value: "acme"}]
+  // Fields/ops are whitelisted by features/detectors/trigger-fields.ts (UI + API routes)
+  // and evaluated by backend/worker/detector_tasks.py.
 
   detector Detector @relation(fields: [detectorId], references: [id], onDelete: Cascade)
 
@@ -410,7 +415,7 @@ model DetectorAlertConfig {
 
   // Per-project Slack channel override (no UI in v1).
   // When set, takes precedence over SlackIntegration.channelId.
-  slackChannelId   String? @map("slack_channel_id")   @db.VarChar
+  slackChannelId   String? @map("slack_channel_id") @db.VarChar
   slackChannelName String? @map("slack_channel_name") @db.VarChar
 
   // Project-level alert batching window. One of the ALERT_WINDOWS tokens.
@@ -423,21 +428,293 @@ model DetectorAlertConfig {
 }
 
 model DetectorRca {
-  id              String    @id @default(cuid()) @db.VarChar
-  findingId       String    @unique @map("finding_id") @db.VarChar  // trace-level finding UUID (one per trace)
-  projectId       String    @map("project_id") @db.VarChar
-  sessionId       String?   @map("session_id") @db.VarChar  // AISession id for the system RCA session
-  status          String    @db.VarChar  // "pending"|"running"|"done"|"failed"
-  result          String?   @db.Text
-  completedAt     DateTime? @map("completed_at") @db.Timestamp(6)
-  createTime      DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
+  id          String    @id @default(cuid()) @db.VarChar
+  findingId   String    @unique @map("finding_id") @db.VarChar // trace-level finding UUID (one per trace)
+  projectId   String    @map("project_id") @db.VarChar
+  sessionId   String?   @map("session_id") @db.VarChar // AISession id for the system RCA session
+  status      String    @db.VarChar // "pending"|"running"|"done"|"failed"
+  result      String?   @db.Text
+  completedAt DateTime? @map("completed_at") @db.Timestamp(6)
+  createTime  DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
 
   // Cascade with Project — keeps RCA rows consistent with Detector /
   // DetectorAlertConfig when a project is deleted.
-  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId], map: "ix_detector_rcas_project_id")
   @@map("detector_rcas")
+}
+
+// ---------------------------------------------------------------------------
+// Offline Evaluation
+//
+// Relational control-plane side of the offline-evaluation feature: datasets and
+// their immutable versioned snapshots of test cases, plus evaluation lineages,
+// their immutable runs, per-test-case results, per-scorer scores, and human
+// scores. Traces themselves live in ClickHouse; results link to them by the
+// client-supplied OTel trace_id. Every row carries project_id for isolation.
+// ---------------------------------------------------------------------------
+
+// An editable dataset. Its rows live on immutable DatasetVersion snapshots;
+// `currentVersionId` points at the latest published one.
+model Dataset {
+  id               String   @id @default(cuid()) @db.VarChar
+  // The id the SDK chooses for this dataset (e.g. "regression", "default").
+  // It is deliberately NOT the primary key: as a PK it would put every tenant
+  // in one global keyspace, so any API key could squat a natural id ("prod",
+  // "eval") and permanently block every other project from creating it, and
+  // the create response would leak whether some tenant already owns that id.
+  // Scoping it to the project makes the keyspace per-tenant by construction;
+  // public-API lookups use `projectId_clientDatasetId`, never `id`.
+  clientDatasetId  String?  @map("client_dataset_id") @db.VarChar
+  // The pre-image the SDK hashes into `clientDatasetId` (dataset_id = "ds_" +
+  // sha256(key); by default key == name). Stored and echoed back on reads so a
+  // pulled dataset recovers its true key and keeps case ids convergent even when
+  // key != name (an explicit key, or a UI rename). The platform never interprets
+  // it — it is purely an SDK-side identity anchor.
+  key              String?  @map("key") @db.VarChar
+  projectId        String   @map("project_id") @db.VarChar
+  name             String   @db.VarChar
+  description      String?  @db.Text
+  metadata         Json?    @map("metadata") @db.JsonB // free-form, SDK-authored
+  currentVersionId String?  @map("current_version_id") @db.VarChar
+  createTime       DateTime @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime       DateTime @updatedAt @map("update_time") @db.Timestamp(6)
+
+  project  Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  versions DatasetVersion[]
+
+  @@unique([projectId, clientDatasetId], map: "uq_dataset_project_client_id")
+  @@index([projectId], map: "ix_dataset_project_id")
+  @@map("datasets")
+}
+
+// An immutable snapshot of a dataset's test cases. Editing/adding a test case
+// publishes a new version; historical versions (and any run that pinned them)
+// are never rewritten.
+model DatasetVersion {
+  // A time-sortable snowflake, NOT a cuid: `((createMs - epoch) << 22) | versionNumber`,
+  // minted at publish (see publishDatasetVersion / lib/eval/snowflake.ts) and set
+  // explicitly on create — hence no @default. It IS the value the UI and SDK see.
+  id             String   @id @db.VarChar
+  datasetId      String   @map("dataset_id") @db.VarChar
+  projectId      String   @map("project_id") @db.VarChar
+  versionNumber  Int      @map("version_number") // 1-based
+  label          String   @db.VarChar // human label, e.g. "v12"
+  note           String?  @db.Text
+  createdBy      String?  @map("created_by") @db.VarChar
+  idempotencyKey String?  @map("idempotency_key") @db.VarChar // SDK publish idempotency (A4)
+  createTime     DateTime @default(now()) @map("create_time") @db.Timestamp(6)
+
+  dataset   Dataset         @relation(fields: [datasetId], references: [id], onDelete: Cascade)
+  testCases TestCase[]
+  runs      EvaluationRun[]
+
+  @@unique([datasetId, versionNumber], map: "uq_dataset_version_number")
+  @@unique([datasetId, idempotencyKey], map: "uq_dataset_version_idempotency")
+  @@index([projectId], map: "ix_dataset_version_project_id")
+  @@map("dataset_versions")
+}
+
+// One test case as captured on a specific version. `testCaseId` is the stable
+// lineage id shared across versions (used to match results to their source case
+// and to line runs up for baseline comparison); `id` is the per-version row.
+model TestCase {
+  id               String   @id @default(cuid()) @db.VarChar
+  testCaseId       String   @map("test_case_id") @db.VarChar // stable lineage id
+  datasetVersionId String   @map("dataset_version_id") @db.VarChar
+  datasetId        String   @map("dataset_id") @db.VarChar
+  projectId        String   @map("project_id") @db.VarChar
+  input            String   @db.Text
+  expected         String?  @db.Text
+  metadata         Json?    @map("metadata") @db.JsonB
+  review           String   @default("needs_review") @db.VarChar // "needs_review"|"ready"
+  captureReason    String   @default("manual") @map("capture_reason") @db.VarChar // "manual"|"error"|"failed_tool"|"negative_feedback"
+  sourceTraceId    String?  @map("source_trace_id") @db.VarChar
+  sourceSpanId     String?  @map("source_span_id") @db.VarChar
+  sourceSpanName   String?  @map("source_span_name") @db.VarChar
+  sourceSpanKind   String?  @map("source_span_kind") @db.VarChar // "AGENT"|"LLM"|"TOOL"|"SPAN"|"trace"
+  // Provenance when a case is saved from an evaluation result: the run and result
+  // it was captured from. Distinct from trace/span provenance (a result also carries
+  // a trace id, but the run/result ids are the authoritative eval-side origin).
+  sourceRunId      String?  @map("source_run_id") @db.VarChar
+  sourceResultId   String?  @map("source_result_id") @db.VarChar
+  addedBy          String?  @map("added_by") @db.VarChar
+  createTime       DateTime @default(now()) @map("create_time") @db.Timestamp(6)
+
+  version DatasetVersion @relation(fields: [datasetVersionId], references: [id], onDelete: Cascade)
+
+  // A stable case id is unique within a version: ids are content-addressed and assigned
+  // by first-free-slot, so a regression that re-mints a live id must fail at write time
+  // rather than silently inserting a duplicate row (which would corrupt upsert-by-id,
+  // comparison alignment, and the TEST_CASE_ORDER tiebreak).
+  @@unique([datasetVersionId, testCaseId], map: "uq_test_case_version_test_case_id")
+  @@index([datasetVersionId], map: "ix_test_case_version_id")
+  @@index([projectId], map: "ix_test_case_project_id")
+  @@index([sourceTraceId], map: "ix_test_case_source_trace_id")
+  @@map("test_cases")
+}
+
+// The stable purpose/lineage an evaluation measures. Runs of the same
+// evaluation share this identity; it is never versioned (the run is the record).
+model Evaluation {
+  id            String   @id @default(cuid()) @db.VarChar
+  projectId     String   @map("project_id") @db.VarChar
+  datasetId     String   @map("dataset_id") @db.VarChar
+  name          String   @db.VarChar
+  // Stable semantic identity, decoupled from the display `name`: the grouping key that
+  // lets equivalent Python + TypeScript runs share one definition, and lets two evals
+  // share a display name under different keys. Backfilled from `name` for pre-key rows;
+  // the register route sets it to `evaluation_key ?? evaluation_name`.
+  evaluationKey String   @map("evaluation_key") @db.VarChar
+  createTime    DateTime @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime    DateTime @updatedAt @map("update_time") @db.Timestamp(6)
+
+  project Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  runs    EvaluationRun[]
+
+  // The lineage identity is now the stable `evaluationKey` (not the display `name`), so
+  // equivalent Python + TypeScript runs sharing a key group under one definition and two
+  // evals may share a name under different keys. A duplicate would split an evaluation's
+  // history (run numbers restarting at 1, baselines not lining up), so concurrent
+  // registrations of the same key collide with P2002 instead of both inserting. Leads
+  // with project_id, so it also serves the project-scoped list query.
+  @@unique([projectId, evaluationKey], map: "uq_evaluation_project_key")
+  @@index([datasetId], map: "ix_evaluation_dataset_id")
+  @@map("evaluations")
+}
+
+// One immutable execution of an evaluation against a pinned dataset snapshot.
+model EvaluationRun {
+  id               String    @id @default(cuid()) @db.VarChar
+  evaluationId     String    @map("evaluation_id") @db.VarChar
+  projectId        String    @map("project_id") @db.VarChar
+  datasetId        String    @map("dataset_id") @db.VarChar
+  datasetVersionId String    @map("dataset_version_id") @db.VarChar // pinned snapshot
+  runNumber        Int       @map("run_number") // 1-based within the evaluation
+  candidateVersion String    @map("candidate_version") @db.VarChar // what changed, e.g. "git:4a91c02"
+  environment      String    @default("evaluation") @db.VarChar
+  status           String    @default("running") @db.VarChar // running|completed|completed_with_errors|failed|incomplete
+  baselineRunId    String?   @map("baseline_run_id") @db.VarChar
+  caseCount        Int       @default(0) @map("case_count")
+  scoredCount      Int       @default(0) @map("scored_count")
+  taskErrorCount   Int       @default(0) @map("task_error_count")
+  scorerErrorCount Int       @default(0) @map("scorer_error_count")
+  scorers          Json?     @map("scorers") @db.JsonB // [{name, version, value_type?, direction?, threshold?}]
+  metadata         Json?     @map("metadata") @db.JsonB // free-form user run metadata (arbitrary key/values, kept verbatim)
+  clientRunId      String?   @map("client_run_id") @db.VarChar // SDK idempotency key
+  startedAt        DateTime  @default(now()) @map("started_at") @db.Timestamp(6)
+  completedAt      DateTime? @map("completed_at") @db.Timestamp(6)
+  createTime       DateTime  @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime       DateTime  @updatedAt @map("update_time") @db.Timestamp(6)
+
+  evaluation     Evaluation         @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+  // NoAction rather than the Prisma default (Restrict): both refuse a bare
+  // delete of a version a run pinned, but Restrict is non-deferrable in
+  // Postgres and fires before the rest of the statement settles. Deleting a
+  // project cascades into dataset_versions and evaluation_runs down two
+  // sibling branches of one statement, and under Restrict whether that
+  // succeeds depends on trigger ordering. NoAction is checked at end of
+  // statement, by which point the cascaded runs are gone, so project and
+  // workspace deletion succeed deterministically. Deleting a dataset that has
+  // been evaluated still fails (evaluations are not cascaded by dataset), so
+  // that handler must pre-check and answer 409 instead of surfacing a 500.
+  datasetVersion DatasetVersion     @relation(fields: [datasetVersionId], references: [id], onDelete: NoAction)
+  baselineRun    EvaluationRun?     @relation("Baseline", fields: [baselineRunId], references: [id], onDelete: SetNull)
+  baselinedBy    EvaluationRun[]    @relation("Baseline")
+  results        EvaluationResult[]
+
+  @@unique([evaluationId, clientRunId], map: "uq_run_client_run_id")
+  // runNumber is allocated server-side as max + 1 within the lineage; without
+  // this two concurrent registrations both read N and both insert N + 1,
+  // leaving two runs labelled "Run #N+1". Mirrors uq_dataset_version_number,
+  // turning the race into a retryable P2002. Leads with evaluation_id, so it
+  // also serves the per-evaluation run list.
+  @@unique([evaluationId, runNumber], map: "uq_run_evaluation_run_number")
+  @@index([projectId], map: "ix_evaluation_run_project_id")
+  // The runs list is `where project_id = ? [and evaluation_id = ?] order by
+  // started_at desc` with skip/take. On the single-column indexes alone every page
+  // fetches the whole matching history and top-N-sorts it, so cost grows with the
+  // project's run count rather than the page size. Descending to match the ordering
+  // exactly, so pagination becomes a plain index scan.
+  @@index([projectId, startedAt(sort: Desc)], map: "ix_evaluation_run_project_started_at")
+  @@index([evaluationId, startedAt(sort: Desc)], map: "ix_evaluation_run_evaluation_started_at")
+  // The dataset filter on the same list had no index on this table at all.
+  @@index([datasetId, startedAt(sort: Desc)], map: "ix_evaluation_run_dataset_started_at")
+  @@map("evaluation_runs")
+}
+
+// One test case's outcome within one run. Links to its source test case
+// (`testCaseId`, stable) and the produced trace (`traceId`, may arrive later).
+model EvaluationResult {
+  id              String   @id @default(cuid()) @db.VarChar
+  runId           String   @map("run_id") @db.VarChar
+  evaluationId    String   @map("evaluation_id") @db.VarChar
+  projectId       String   @map("project_id") @db.VarChar
+  testCaseId      String   @map("test_case_id") @db.VarChar // stable source-case id
+  traceId         String?  @map("trace_id") @db.VarChar
+  input           String   @db.Text
+  expectedOutput  String?  @map("expected_output") @db.Text
+  candidateOutput String?  @map("candidate_output") @db.Text // null when the task errored
+  baselineOutput  String?  @map("baseline_output") @db.Text
+  status          String   @db.VarChar // passed|failed|errored|not_scored
+  change          String?  @db.VarChar // improved|regressed|unchanged
+  taskError       String?  @map("task_error") @db.Text // application/task failure
+  durationMs      Int?     @map("duration_ms")
+  cost            Float?
+  // Set whenever cost derivation RUNS for this result, independent of the outcome — a
+  // zero-cost trace legitimately leaves `cost` NULL (via NULLIF), so this marker is what
+  // lets the periodic backfill tell "already derived" from "not yet derived" and settle
+  // instead of re-sweeping cost-less rows forever. The partial index the backfill
+  // probes (`ix_eval_result_cost_backfill`, WHERE cost_derived_at IS NULL AND trace_id IS
+  // NOT NULL) can't be expressed here, so it lives in the migration as raw SQL.
+  costDerivedAt   DateTime? @map("cost_derived_at") @db.Timestamp(6)
+  createTime      DateTime @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime      DateTime @updatedAt @map("update_time") @db.Timestamp(6)
+
+  run         EvaluationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  scores      Score[]
+
+  @@unique([runId, testCaseId], map: "uq_result_run_test_case")
+  @@index([projectId], map: "ix_evaluation_result_project_id")
+  @@index([traceId], map: "ix_evaluation_result_trace_id")
+  // The lineage aggregate sums cost and duration grouped by evaluation_id; without
+  // this it is a project-wide scan of the results table.
+  @@index([evaluationId], map: "ix_evaluation_result_evaluation_id")
+  @@map("evaluation_results")
+}
+
+// One scorer's outcome on one result. `error` set = the scorer failed to judge
+// (distinct from the task failing); when every scorer errors, the result is
+// not_scored. Values cover numeric / boolean / categorical.
+model Score {
+  id            String   @id @default(cuid()) @db.VarChar
+  resultId      String   @map("result_id") @db.VarChar
+  projectId     String   @map("project_id") @db.VarChar
+  scorerName    String   @map("scorer_name") @db.VarChar
+  scorerVersion String   @map("scorer_version") @db.VarChar
+  numericValue  Float?   @map("numeric_value")
+  boolValue     Boolean? @map("bool_value")
+  stringValue   String?  @map("string_value") @db.VarChar
+  passed        Boolean?
+  explanation   String?  @db.Text
+  error         String?  @db.Text // scorer failure
+  createTime    DateTime @default(now()) @map("create_time") @db.Timestamp(6)
+
+  result EvaluationResult @relation(fields: [resultId], references: [id], onDelete: Cascade)
+
+  // One row per scorer per result. Scores arrive incrementally (parallel
+  // scorers, delayed judges, client retries) and are merged read-then-write, so
+  // without this a duplicate slips in — and duplicates are aggregated rather
+  // than deduped by the scorer catalog, double-counting runs and skewing means.
+  // Lets the merge be a real upsert. Leads with result_id, so it also serves
+  // the per-result score fetch.
+  @@unique([resultId, scorerName, scorerVersion], map: "uq_score_result_scorer")
+  // Serves the scorers route's `where project_id order by create_time desc` (and, via
+  // the leading column, plain project_id lookups) so it doesn't scan+sort the whole
+  // project's score history — mirrors EvaluationRun's (projectId, startedAt desc) index.
+  @@index([projectId, createTime(sort: Desc)], map: "ix_score_project_create_time")
+  @@map("scores")
 }
 
 model Dashboard {
