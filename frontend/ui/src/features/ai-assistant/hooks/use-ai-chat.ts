@@ -57,10 +57,14 @@ export function useAiChat({
   const hardBoundaryEpochRef = useRef(0);
   const [sessions, setSessions] = useState<AISession[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
-  // isSending covers the gap between user hitting send and isStreaming becoming true
-  // (session creation + first network round-trip). Without this, React 19 can batch
-  // setIsStreaming(true) and setIsStreaming(false) into a single frame, hiding the button.
-  const [isSending, setIsSending] = useState(false);
+  // activeSends covers the gap between user hitting send and isStreaming
+  // becoming true (session creation + first network round-trip). Without this,
+  // React 19 can batch setIsStreaming(true) and setIsStreaming(false) into a
+  // single frame, hiding the button. A count rather than a boolean: sends can
+  // overlap (a pre-close send settling after a post-reopen send started), and
+  // the first one finishing must not blank the waiting state of the second.
+  // Functional updaters keep the count exact across overlaps.
+  const [activeSends, setActiveSends] = useState(0);
   // Lives here (not in the input) so the pick survives the panel remounting in a
   // different host, and in localStorage so it survives a reload. Keyed per
   // project — the only id this hook has; the model catalog itself is
@@ -168,7 +172,7 @@ export function useAiChat({
   const handleSend = useCallback(
     async (message: string, modelSelection: ModelSelection) => {
       if (!projectId) return;
-      setIsSending(true);
+      setActiveSends((n) => n + 1);
       try {
         const epoch = sessionEpochRef.current;
         const hardEpoch = hardBoundaryEpochRef.current;
@@ -198,7 +202,7 @@ export function useAiChat({
           traceSessionId,
         });
       } finally {
-        setIsSending(false);
+        setActiveSends((n) => n - 1);
       }
     },
     [projectId, traceId, traceSessionId, ensureSession, sendMessage],
@@ -305,7 +309,7 @@ export function useAiChat({
   return {
     // State
     messages,
-    isStreaming: isSending || activeStreaming || messages.some((m) => m.isStreaming),
+    isStreaming: activeSends > 0 || activeStreaming || messages.some((m) => m.isStreaming),
     sessions,
     historyOpen,
     currentSessionId: activeSessionId,
