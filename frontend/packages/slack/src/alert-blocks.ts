@@ -33,7 +33,7 @@ export interface AlertBlockParams {
   name: string;
   severity: AlertSeverity;
   previousSeverity: AlertSeverity;
-  /** Null when the window produced no value (NO_DATA). */
+  /** Null when the window produced no value: NO_DATA, or ZERO mode's measured zero. */
   value: number | null;
   threshold: number;
   thresholdOperator: AlertThresholdOperator;
@@ -114,11 +114,13 @@ function describeOutcome(params: AlertBlockParams): string {
   const label = measureLabel(aggregation, measure);
   const thresholdText = formatMeasureValue(measure, threshold);
 
-  if (severity === "NO_DATA" || value === null) {
+  if (severity === "NO_DATA") {
     return `No data for ${label} over the last ${window}, so the ${thresholdText} threshold could not be evaluated.`;
   }
 
-  const valueText = formatMeasureValue(measure, value);
+  // A null value under ALERT or OK is ZERO mode's reading of an empty window,
+  // so the sentence states the zero the threshold was compared against.
+  const valueText = formatMeasureValue(measure, value ?? 0);
   if (severity === "OK") {
     return `${label} recovered to ${valueText}, back within the ${thresholdText} threshold, over the last ${window}.`;
   }

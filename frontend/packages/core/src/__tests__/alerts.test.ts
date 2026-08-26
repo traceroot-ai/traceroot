@@ -142,7 +142,7 @@ describe("alert vocabulary guards", () => {
     expect(isAlertNoDataMode("NO_DATA")).toBe(false);
   });
 
-  it("defaults a rule to holding its last judgement through a gap", () => {
+  it("defaults a rule to reading a gap as deciding nothing", () => {
     // The mode the database column defaults to, and the one the worker falls
     // back on: changing it changes every rule that never asked for anything.
     expect(DEFAULT_ALERT_NO_DATA_MODE).toBe("HOLD");

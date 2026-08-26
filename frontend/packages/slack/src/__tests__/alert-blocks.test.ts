@@ -95,9 +95,38 @@ describe("buildAlertBlocks", () => {
     expect(noData).toContain("could not be evaluated");
     expect(noData).not.toMatch(/\b(above|below|at or|equal to|back within)\b/);
     expect(noData).not.toContain("null");
+  });
 
-    // a null value is no data even when the severity says otherwise
-    expect(sectionTexts(buildAlertBlocks({ ...alertBase, value: null }))[0]).toContain("No data");
+  it("reads a null value under ALERT or OK as ZERO mode's measured zero, not as no data", () => {
+    // ZERO mode compares an empty window to the threshold as 0 but stores no
+    // value, so the breach sentence must still name the zero it judged
+    const dropped = buildAlertBlocks({
+      ...alertBase,
+      measure: "count",
+      aggregation: "count",
+      value: null,
+      threshold: 10,
+      thresholdOperator: "<" as AlertThresholdOperator,
+    });
+    const [outcome, links] = sectionTexts(dropped);
+    expect(outcome).toContain("`count` was 0, below the 10 threshold, over the last 30m.");
+    expect(outcome).not.toContain("No data");
+    expect(outcome).not.toContain("null");
+    // for a traffic drop the empty window is the evidence, so the spans link stays
+    expect(links).toContain("date_filter=custom");
+    expect(links).toContain("|View spans>");
+
+    // the unit suffix rides on the zero the same way it rides on any value
+    const recovered = buildAlertBlocks({
+      ...alertBase,
+      severity: "OK" as const,
+      previousSeverity: "ALERT" as const,
+      value: null,
+    });
+    expect(sectionTexts(recovered)[0]).toContain(
+      "`p95(latency)` recovered to 0ms, back within the 1500ms threshold, over the last 30m.",
+    );
+    expect(recovered.text).not.toContain("No data");
   });
 
   it("omits the data deep-link whenever the window holds nothing to show", () => {
