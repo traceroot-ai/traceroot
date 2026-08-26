@@ -131,8 +131,6 @@ const RUN = {
   scoredCount: 3,
   taskErrorCount: 0,
   scorerErrorCount: 0,
-  passedCount: 3,
-  failedCount: 0,
   erroredCount: 0,
   notScoredCount: 0,
   scorers: [{ name: "routing-accuracy", version: "v3" }],
