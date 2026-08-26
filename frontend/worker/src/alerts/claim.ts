@@ -7,7 +7,10 @@ import type { AlertTick } from "./tick.js";
 
 const ACTIVE: AlertStatus = "ACTIVE";
 
-/** Overflow is not dropped: the scan is oldest-due first, so leftovers lead the next tick. */
+/**
+ * Leftovers lead the next tick only while the due set fits `ALERT_CLAIM_SCAN_LIMIT`:
+ * a project whose due rules all sort past the scan cap is not seen by the tick at all.
+ */
 export const ALERT_CLAIM_LIMIT = 500;
 
 /** Headroom over the budget: read exactly the budget and one project's backlog fills it. */

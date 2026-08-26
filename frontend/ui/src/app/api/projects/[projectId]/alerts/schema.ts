@@ -20,11 +20,11 @@ import {
 
 const FILTER_TOKEN_MAX = 128;
 const FILTER_VALUE_MAX = 1024;
-const ALERT_FILTERS_MAX = 50;
+export const ALERT_FILTERS_MAX = 50;
 
 // The threshold column is Decimal(65,30), so anything past 35 integer digits is
 // a database error rather than a validation one.
-const THRESHOLD_ABS_MAX = 1e34;
+export const THRESHOLD_ABS_MAX = 1e34;
 
 // `op` and `value` are exactly `WidgetFilter` in
 // backend/rest/schemas/dashboards.py. What that model refuses it refuses for

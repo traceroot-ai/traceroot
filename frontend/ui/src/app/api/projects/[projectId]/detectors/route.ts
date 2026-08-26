@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@traceroot/core";
 import { DEFAULT_DETECTOR_SAMPLE_RATE } from "@/features/detectors/templates";
+import { validateTriggerConditions } from "@/features/detectors/trigger-fields";
 import {
   requireAuth,
   requireProjectAccess,
@@ -116,11 +117,12 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     resolvedSampleRate = sampleRate;
   }
 
-  // Validate triggerConditions and outputSchema are arrays when provided —
-  // a non-array object would otherwise silently produce an empty list and
-  // cause the detector to fire on every trace.
-  if (triggerConditions !== undefined && !Array.isArray(triggerConditions)) {
-    return errorResponse("triggerConditions must be an array", 400);
+  // Validate triggerConditions against the trigger-field registry — an
+  // unknown field or operator would be stored fine but never match at
+  // evaluation time, silently disabling the detector.
+  if (triggerConditions !== undefined) {
+    const conditionsError = validateTriggerConditions(triggerConditions);
+    if (conditionsError) return errorResponse(conditionsError, 400);
   }
   if (outputSchema !== undefined && !Array.isArray(outputSchema)) {
     return errorResponse("outputSchema must be an array", 400);

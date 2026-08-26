@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   detector: undefined as Detector | undefined,
   mutate: vi.fn(),
   selectorProps: null as Record<string, unknown> | null,
+  editedConditions: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock("../hooks/use-detectors", () => ({
@@ -17,8 +18,14 @@ vi.mock("../hooks/use-detectors", () => ({
 vi.mock("@/features/projects/hooks", () => ({
   useProject: () => ({ data: undefined }),
 }));
+// Stands in for the filter editor: the button hands the panel the rows a user
+// would have built, which is all the panel sees of it.
 vi.mock("./trigger-editor", () => ({
-  TriggerEditor: () => null,
+  TriggerEditor: ({ onChange }: { onChange?: (c: Array<Record<string, unknown>>) => void }) => (
+    <button type="button" onClick={() => onChange?.(mocks.editedConditions)}>
+      edit filter
+    </button>
+  ),
 }));
 vi.mock("./agent-model-link", () => ({
   AgentModelLink: () => null,
@@ -80,13 +87,22 @@ function renderPanel(detectorId = "det-1") {
 
 const rcaToggle = () => screen.getByTestId("rca-toggle") as HTMLInputElement;
 const promptBox = () => document.querySelector("textarea") as HTMLTextAreaElement;
-const saveButton = () => screen.getByRole("button", { name: "Save" });
+const saveButton = () => screen.getByRole("button", { name: "Save" }) as HTMLButtonElement;
+const nameBox = () => screen.getByDisplayValue(baseDetector.name) as HTMLInputElement;
+const editFilter = () => fireEvent.click(screen.getByRole("button", { name: "edit filter" }));
+
+/** A detector saved before the trigger registry existed, holding a row it rejects. */
+const legacyDetector: Detector = {
+  ...baseDetector,
+  trigger: { conditions: [{ field: "cost", op: ">", value: "" }] },
+};
 
 afterEach(() => {
   cleanup();
   mocks.detector = undefined;
   mocks.mutate.mockReset();
   mocks.selectorProps = null;
+  mocks.editedConditions = [];
 });
 
 describe("DetectorPanel", () => {
@@ -148,6 +164,54 @@ describe("DetectorPanel", () => {
     mocks.detector = baseDetector;
     renderPanel("det-2");
     expect(promptBox().value).toBe("");
-    expect((saveButton() as HTMLButtonElement).disabled).toBe(true);
+    expect(saveButton().disabled).toBe(true);
+  });
+});
+
+describe("DetectorPanel — a stored filter row the registry now rejects", () => {
+  it("still saves a rename, because the rename does not rewrite the row", () => {
+    mocks.detector = legacyDetector;
+    renderPanel();
+    fireEvent.change(nameBox(), { target: { value: "Renamed" } });
+
+    expect(saveButton().disabled).toBe(false);
+    fireEvent.click(saveButton());
+    expect(mocks.mutate.mock.calls[0][0]).toEqual({ name: "Renamed" });
+  });
+
+  it("blocks the save once that row is edited, and says why on screen", () => {
+    mocks.detector = legacyDetector;
+    renderPanel();
+    mocks.editedConditions = [{ field: "cost", op: ">=", value: "" }];
+    editFilter();
+
+    expect(screen.getByText("condition 1 requires a non-negative number")).toBeDefined();
+    expect(saveButton().disabled).toBe(true);
+  });
+});
+
+describe("DetectorPanel — the conditions it sends", () => {
+  it("sends the metadata key without the whitespace around it", () => {
+    mocks.detector = baseDetector;
+    renderPanel();
+    mocks.editedConditions = [{ field: "metadata", op: "=", value: "acme", key: " tenant " }];
+    editFilter();
+    fireEvent.click(saveButton());
+
+    expect(mocks.mutate.mock.calls[0][0]).toEqual({
+      triggerConditions: [{ field: "metadata", op: "=", value: "acme", key: "tenant" }],
+    });
+  });
+
+  it("sends a typed numeric value as a number", () => {
+    mocks.detector = baseDetector;
+    renderPanel();
+    mocks.editedConditions = [{ field: "duration_ms", op: ">", value: "4500" }];
+    editFilter();
+    fireEvent.click(saveButton());
+
+    expect(mocks.mutate.mock.calls[0][0]).toEqual({
+      triggerConditions: [{ field: "duration_ms", op: ">", value: 4500 }],
+    });
   });
 });
