@@ -112,9 +112,9 @@ describe("buildAlertBlocks", () => {
     expect(outcome).toContain("`count` was 0, below the 10 threshold, over the last 30m.");
     expect(outcome).not.toContain("No data");
     expect(outcome).not.toContain("null");
-    // for a traffic drop the empty window is the evidence, so the spans link stays
+    // for a traffic drop the empty window is the evidence, so the traces link stays
     expect(links).toContain("date_filter=custom");
-    expect(links).toContain("|View spans>");
+    expect(links).toContain("|View traces>");
 
     // the unit suffix rides on the zero the same way it rides on any value
     const recovered = buildAlertBlocks({
