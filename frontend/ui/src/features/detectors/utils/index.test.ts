@@ -89,6 +89,17 @@ describe("buildDetectorPatch", () => {
     });
   });
 
+  it("omits triggerConditions for a name-only edit that rebuilt the conditions array", () => {
+    // The editor hands back a fresh array every render, so a save that only
+    // renamed the detector must still leave its filter rows out of the patch.
+    const patch = buildDetectorPatch(baseForm, {
+      ...baseForm,
+      name: "Renamed",
+      conditions: baseForm.conditions.map((c) => ({ ...c })),
+    });
+    expect(patch).toEqual({ name: "Renamed" });
+  });
+
   it("sends changed trigger conditions as triggerConditions", () => {
     const conditions = [{ field: "status", op: "eq", value: "error" }];
     const patch = buildDetectorPatch(baseForm, { ...baseForm, conditions });

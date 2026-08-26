@@ -84,7 +84,7 @@ function isFilterValue(value: unknown): boolean {
   return typeof value === "string" || (typeof value === "number" && Number.isFinite(value));
 }
 
-function isFilterShaped(entry: unknown): boolean {
+function isFilterShaped(entry: unknown): entry is AlertFilter {
   return (
     isRecord(entry) &&
     typeof entry.field === "string" &&
@@ -101,8 +101,13 @@ function isFilterShaped(entry: unknown): boolean {
  */
 function parseFilters(value: unknown): readonly AlertFilter[] | null {
   if (value === null || value === undefined) return [];
-  if (!Array.isArray(value)) return null;
-  return value.every(isFilterShaped) ? (value as readonly AlertFilter[]) : null;
+  if (!Array.isArray(value) || !value.every(isFilterShaped)) return null;
+  // Rebuilt from the known keys: an extra stored property 422s the whole chunk.
+  return value.map((entry) =>
+    entry.key === undefined
+      ? { field: entry.field, op: entry.op, value: entry.value }
+      : { field: entry.field, key: entry.key, op: entry.op, value: entry.value },
+  );
 }
 
 function parseState(row: AlertRowLike): AlertRuntimeState {
