@@ -149,6 +149,9 @@ FILTER_COLUMNS: tuple[FilterColumn, ...] = (
         type=FilterType.TEXT,
         operators=(FilterOperator.EQ, FilterOperator.CONTAINS),
         value_source=ValueSource.FREE_TEXT,
+        # Detectors evaluate live traces as they complete: pinning one known
+        # trace id is not a meaningful trigger.
+        detector_trigger=False,
     ),
     # Membership tier — "trace has ≥1 span where …" (span semi-join).
     FilterColumn(

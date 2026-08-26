@@ -135,13 +135,13 @@ def test_the_offered_fields_are_the_trace_list_fields_without_trace_id():
     known trace id is not a meaningful trigger for a detector that watches live
     traces. Order is compared too, because it is the field dropdown's order on
     both surfaces."""
-    # Minus the columns the registry marks as list-only: the evaluator does not
-    # fetch them, so offering them would be a trigger that never fires.
-    trace_list = [
-        (c.name, c.label) for c in FILTER_COLUMNS if c.name != "trace_id" and c.detector_trigger
-    ]
+    # The registry says which of its columns are triggers: trace_id is not (a
+    # single known id is not a trigger for live traces), nor are the span
+    # columns the evaluator does not fetch.
+    trace_list = [(c.name, c.label) for c in FILTER_COLUMNS if c.detector_trigger]
     assert _parse_offered_fields() == trace_list
     assert [c.name for c in FILTER_COLUMNS if not c.detector_trigger] == [
+        "trace_id",
         "span_kind",
         "status",
         "name",
