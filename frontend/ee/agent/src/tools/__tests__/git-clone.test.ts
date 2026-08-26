@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Executor } from "../../executors/interface.js";
 import { buildCloneCommand } from "../../executors/git-clone-command.js";
 import { createGitCloneTool, isValidRef, isValidRepo } from "../git-clone.js";
@@ -24,12 +24,25 @@ function stubExecutor() {
     readFile: vi.fn(async () => ""),
     destroy: vi.fn(async () => {}),
     hasNativeGit: () => true,
+    // Mirror the real executors: build the actual command and record it, so
+    // assertions about what reaches the shell exercise the protected path
+    // rather than passing vacuously.
     cloneRepo: vi.fn(async (url, path, options) => {
       clones.push({ url, path, ref: options?.ref, password: options?.password });
+      const { command } = buildCloneCommand({
+        url,
+        dest: path,
+        ref: options?.ref,
+        username: options?.username,
+        password: options?.password,
+      });
+      commands.push(command);
     }),
   };
   return { executor, commands, clones };
 }
+
+afterEach(() => vi.unstubAllGlobals());
 
 function stubTokenFetch() {
   vi.stubGlobal(

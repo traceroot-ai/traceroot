@@ -128,7 +128,7 @@ export function createGitCloneTool(
       // URL, ref, destination and token travel via the environment, never
       // interpolated into a shell command.
       try {
-        await executor.cloneRepo!(`https://github.com/${params.repo}.git`, clonePath, {
+        await executor.cloneRepo(`https://github.com/${params.repo}.git`, clonePath, {
           ref: params.ref,
           username: "x-access-token",
           password: token,
