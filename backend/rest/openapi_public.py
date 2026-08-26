@@ -112,6 +112,12 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
             "500", _error_response("Failed to list detectors")
         )
 
+    # Detector detail read error contract (matches the route code).
+    detector_get_op = schema["paths"].get("/api/v1/public/detectors/{detector_id}", {}).get("get")
+    if detector_get_op is not None:
+        detector_get_op["responses"].setdefault("404", _error_response("Detector not found"))
+        detector_get_op["responses"].setdefault("500", _error_response("Failed to read detector"))
+
     # Detector findings read error contract (matches the route code).
     findings_list_op = schema["paths"].get("/api/v1/public/detectors/findings", {}).get("get")
     if findings_list_op is not None:
@@ -174,9 +180,11 @@ def _filter_predicate_variants() -> list[dict[str, Any]]:
             # A new FilterType member must get an explicit value schema here;
             # failing the build beats silently typing it as free text.
             raise ValueError(f"unhandled filter type for schema generation: {col.type!r}")
+        # Explicit `type` alongside const/enum: the schema also feeds model tool
+        # definitions, and some providers reject properties without one.
         properties: dict[str, Any] = {
-            "field": {"const": col.name, "title": col.label},
-            "op": {"enum": [str(o) for o in col.operators]},
+            "field": {"type": "string", "const": col.name, "title": col.label},
+            "op": {"type": "string", "enum": [str(o) for o in col.operators]},
             "value": value_schema,
         }
         required = ["field", "op", "value"]
@@ -321,6 +329,18 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         "description": "Fetch the detector finding attached to a specific trace, if any.",
         "enabled": True,
     },
+    "get_detector": {
+        "name": "get_detector",
+        "description": (
+            "Fetch one detector's full configuration by id: prompt, output schema, "
+            "sample rate, RCA and detection settings, and trigger conditions."
+        ),
+        "enabled": True,
+    },
+    # Evaluation reporting endpoints are SDK-facing writes, not agent tools (like ingest_traces).
+    "register_run": {"enabled": False},
+    "upsert_result": {"enabled": False},
+    "complete_run": {"enabled": False},
 }
 
 

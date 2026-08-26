@@ -37,7 +37,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-from shared.enums import SpanKind, SpanStatus
+from shared.enums import EVALUATION_SPAN_KINDS, SpanKind, SpanStatus
 from shared.span_attributes import SPAN_IDS_PATH, SPAN_PATH, SPAN_TREE_ATTRIBUTES
 
 logger = logging.getLogger(__name__)
@@ -502,11 +502,18 @@ def get_span_kind(attrs: dict[str, Any], otel_kind: int | str | None) -> str:
         otel_kind: OTEL span kind (int or string like "SPAN_KIND_INTERNAL")
 
     Returns:
-        One of: "LLM", "SPAN", "AGENT", "TOOL"
+        One of: "LLM", "SPAN", "AGENT", "TOOL", "EVALUATION", "TASK", "SCORER"
     """
-    # Check explicit type attribute (handle None values)
+    # Check explicit type attribute (handle None values). EVALUATION_SPAN_KINDS is
+    # included so the SDK's offline-evaluation spans are preserved rather than silently
+    # coerced to SPAN. Preserving SCORER in particular is load-bearing beyond
+    # classification: cost attribution walks the scorer subtree to keep judge cost out
+    # of the candidate's cost.
     explicit_type = str_attr(attrs.get("traceroot.span.type")).upper()
-    if explicit_type in (SpanKind.LLM, SpanKind.SPAN, SpanKind.AGENT, SpanKind.TOOL):
+    if (
+        explicit_type in (SpanKind.LLM, SpanKind.SPAN, SpanKind.AGENT, SpanKind.TOOL)
+        or explicit_type in EVALUATION_SPAN_KINDS
+    ):
         return explicit_type
 
     # Check OpenInference semantic conventions (handle None values)
@@ -606,6 +613,16 @@ def transform_otel_to_clickhouse(
     _trace_name_candidates: dict[str, tuple[int, str]] = {}
     trace_git_attrs: dict[str, dict[str, str | None]] = {}
 
+    # Trace-level fields collected from ANY span in the batch and applied post-loop.
+    # Both are attached to the shallow (eager) trace record as well as the root-upgraded
+    # one: OTel's BatchSpanProcessor exports a span when it ENDS, so children routinely
+    # export in an earlier batch than their parent and the root is usually the LAST span
+    # of a trace to arrive. Reading these only off the root would leave every trace
+    # unclassified until the root lands — and permanently unclassified if the process
+    # dies first, a state nothing reconciles.
+    _trace_is_evaluation: set[str] = set()  # any eval-kind span seen for this trace
+    _trace_environment: dict[str, str] = {}  # first non-null environment seen
+
     # camelCase: resourceSpans
     resource_spans = otel_data.get("resourceSpans", [])
 
@@ -653,8 +670,27 @@ def transform_otel_to_clickhouse(
                         # rather than the proto's own string field.
                         span_name = str_attr(tool_name)
 
-                # Build span record
+                # Build span record.
+                #
+                # `environment` is the user's deployment tag (TRACEROOT_ENVIRONMENT:
+                # production, staging, ...) and is passed through untouched. The
+                # "this is an offline-evaluation run" classification is a SEPARATE
+                # field, never folded into this one: `environment` is a user-namespace
+                # value and a user-namespace value must not double as an internal
+                # control flag. Overloading it would (a) misclassify a customer who
+                # legitimately names their environment "evaluation", hiding their real
+                # traces, and (b) silently fail to classify any eval run in a project
+                # that sets TRACEROOT_ENVIRONMENT — the common case in CI or an
+                # SDK-initialised app, since those spans already carry the attribute.
+                #
+                # The classification is derived from the span kind alone, which the
+                # SDK's eval engine sets and the user cannot influence.
                 environment = span_attrs.get("traceroot.environment")
+                is_evaluation = span_kind in EVALUATION_SPAN_KINDS
+                if is_evaluation:
+                    _trace_is_evaluation.add(trace_id)
+                if isinstance(environment, str):
+                    _trace_environment.setdefault(trace_id, environment)
                 span_record = {
                     "span_id": span_id,
                     "trace_id": trace_id,
@@ -668,6 +704,8 @@ def transform_otel_to_clickhouse(
                 }
                 if isinstance(environment, str):
                     span_record["environment"] = environment
+                if is_evaluation:
+                    span_record["is_evaluation"] = True
 
                 # Extract git source fields for span
                 git_source_file = str_or_none(span_attrs.get("traceroot.git.source_file"))
@@ -1151,6 +1189,23 @@ def transform_otel_to_clickhouse(
         if trace_id in traces:
             traces[trace_id]["name"] = best_name
 
+    # Classify the trace from ANY eval-kind span in the batch, not just the root, so a
+    # batch of {SCORER, TASK} whose EVALUATION root has not been exported yet still
+    # writes a classified trace row. The trace record is then never less classified than
+    # its own spans, and the flag only ever goes 0 -> 1.
+    for trace_id in _trace_is_evaluation:
+        if trace_id in traces:
+            traces[trace_id]["is_evaluation"] = True
+
+    # Same for the user's environment tag: the shallow record would otherwise carry no
+    # environment until the root arrives. The root-upgrade block above already set it
+    # authoritatively when the root IS in this batch, so only fill the gap here.
+    for trace_id, env in _trace_environment.items():
+        if trace_id in traces and not traces[trace_id].get("environment"):
+            traces[trace_id]["environment"] = env
+
+    # Update trace records with user_id/session_id collected from child spans
+    # (in case child spans with these attrs came after the root span was processed)
     # Update trace records with user_id/session_id collected from child spans (in
     # case child spans with these attrs came after the root span was processed).
     for trace_id, attrs in trace_attrs.items():
