@@ -64,7 +64,7 @@ describe("POST /api/internal/write/workspaces", () => {
     const body = await res.json();
 
     expect(res.status).toBe(400);
-    expect(typeof body.error).toBe("string");
+    expect(body.error).toBe("actorUserId is required");
     expect(createWorkspaceMock).not.toHaveBeenCalled();
   });
 
