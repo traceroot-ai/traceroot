@@ -27,6 +27,7 @@ export async function getTraces(
   if (options.start_after) params.set("start_after", options.start_after);
   if (options.end_before) params.set("end_before", options.end_before);
   if (options.search_query) params.set("search_query", options.search_query);
+  if (options.include_evaluations) params.set("include_evaluations", "true");
   const filtersParam = serializeFiltersParam(options.filters);
   if (filtersParam) params.set("filters", filtersParam);
 
