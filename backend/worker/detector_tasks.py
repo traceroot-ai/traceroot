@@ -293,6 +293,13 @@ def _get_trace_summaries(
     question the list filter the user built it in answers. Both reads dedup
     before aggregating because ReplacingMergeTree may still hold an unmerged
     replay of a row at read time. Returns {trace_id: summary_dict}.
+
+    ``is_evaluation`` is the ingest-set flag, NOT ``environment``: ``environment`` is
+    user-controlled free text, so a team that names a deployment "evaluation" must not
+    have its detectors silently switched off. ``max(is_evaluation)`` over the trace's
+    spans keeps the answer monotonic — any span flagged 1 settles it and no later row
+    can clear it, so it does not depend on the ``EVALUATION`` root (the last span to
+    arrive) having landed yet.
     """
     from db.clickhouse.client import get_clickhouse_client
     from rest.sql_utils import to_utc_naive
@@ -318,10 +325,11 @@ def _get_trace_summaries(
             ) AS duration_ms,
             countIf(status = 'ERROR') AS errors,
             groupArray(metadata_map) AS span_metadata_maps,
-            min(span_start_time) AS first_span_start
+            min(span_start_time) AS first_span_start,
+            max(is_evaluation) AS is_evaluation
         FROM (
             SELECT trace_id, span_id, environment, model_name, cost, total_tokens,
-                   span_start_time, span_end_time, status, metadata_map
+                   span_start_time, span_end_time, status, metadata_map, is_evaluation
             FROM spans
             WHERE project_id = {project_id:String}
               AND trace_id IN {trace_ids:Array(String)}
@@ -367,6 +375,7 @@ def _get_trace_summaries(
             "duration_ms": row[5],
             "errors": row[6],
             "metadata": _merge_metadata_values(trace_maps.get(trace_id), row[7]),
+            "is_evaluation": bool(row[9]),
         }
     return summaries
 
@@ -419,6 +428,23 @@ def _get_active_detectors(project_id: str) -> list[dict]:
     return detectors
 
 
+def _detector_runs_on_trace(summary: dict, detector: dict) -> bool:
+    """Whether a detector should run on this trace given its classification.
+
+    Offline-evaluation traces are skipped by default so production detectors do not run
+    on evaluation runs — preventing detector noise and any detector→evaluation→detector
+    recursion. A detector can opt in via ``run_on_evaluation`` (reserved for an explicit
+    future config); until that flag exists on the detector, the default is to skip.
+
+    Keyed on ``is_evaluation`` (the ingest-set flag, see ``_get_trace_summaries``) and never
+    on ``environment``, which is user-controlled free text a customer may legitimately set
+    to "evaluation".
+    """
+    if summary.get("is_evaluation"):
+        return bool(detector.get("run_on_evaluation", False))
+    return True
+
+
 def _claim_and_enqueue(
     redis_client,
     project_id: str,
@@ -466,7 +492,8 @@ def _claim_and_enqueue(
         triggered_ids = [
             d["id"]
             for d in detectors
-            if _passes_trigger(summary, d["conditions"])
+            if _detector_runs_on_trace(summary, d)
+            and _passes_trigger(summary, d["conditions"])
             and _sample_passes(trace_id, d["id"], d["sample_rate"])
         ]
 

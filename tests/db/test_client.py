@@ -79,6 +79,8 @@ class TestInsertTracesBatch:
         # ch_create_time and ch_update_time are auto-set
         assert isinstance(_value(row, columns, "ch_create_time"), datetime)
         assert isinstance(_value(row, columns, "ch_update_time"), datetime)
+        assert _value(row, columns, "environment") == "production"
+        assert _value(row, columns, "is_evaluation") == 0
 
     def test_column_names_are_the_traces_schema_in_order(self):
         """Pin the written column list. The insert is positional, so the order here is
@@ -115,6 +117,7 @@ class TestInsertTracesBatch:
             "ch_create_time",
             "ch_update_time",
             "environment",
+            "is_evaluation",
         ]
 
     def test_empty_batch_no_insert(self):
@@ -222,6 +225,13 @@ class TestInsertSpansBatch:
         assert "usage_details" in columns
         assert "environment" in columns
         assert row[columns.index("environment")] == "production"
+        # 3 fixed breakdown columns collapsed into one usage_details map (net -2),
+        # then source, environment and is_evaluation added.
+        assert len(columns) == 27
+        # Addressed by name, not position: `is_evaluation` extends the row, and a
+        # positional assert would silently follow the wrong column.
+        assert "is_evaluation" in columns
+        assert row[columns.index("is_evaluation")] == 0
 
     def test_column_names_are_the_spans_schema_in_order(self):
         """Pin the written column list, for the same positional reason as the traces
@@ -271,6 +281,7 @@ class TestInsertSpansBatch:
             "ch_create_time",
             "ch_update_time",
             "environment",
+            "is_evaluation",
         ]
 
     def test_optional_fields_none(self):
