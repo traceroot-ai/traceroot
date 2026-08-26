@@ -3990,12 +3990,14 @@
                         "properties": {
                           "field": {
                             "const": "span_kind",
-                            "title": "Span kind"
+                            "title": "Span kind",
+                            "type": "string"
                           },
                           "op": {
                             "enum": [
                               "in"
-                            ]
+                            ],
+                            "type": "string"
                           },
                           "value": {
                             "items": {
@@ -4018,12 +4020,14 @@
                         "properties": {
                           "field": {
                             "const": "status",
-                            "title": "Status"
+                            "title": "Status",
+                            "type": "string"
                           },
                           "op": {
                             "enum": [
                               "in"
-                            ]
+                            ],
+                            "type": "string"
                           },
                           "value": {
                             "items": {
@@ -4046,12 +4050,14 @@
                         "properties": {
                           "field": {
                             "const": "name",
-                            "title": "Span name"
+                            "title": "Span name",
+                            "type": "string"
                           },
                           "op": {
                             "enum": [
                               "in"
-                            ]
+                            ],
+                            "type": "string"
                           },
                           "value": {
                             "items": {

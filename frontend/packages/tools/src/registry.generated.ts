@@ -375,9 +375,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
                   field: {
                     const: "span_kind",
                     title: "Span kind",
+                    type: "string",
                   },
                   op: {
                     enum: ["in"],
+                    type: "string",
                   },
                   value: {
                     items: {
@@ -397,9 +399,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
                   field: {
                     const: "status",
                     title: "Status",
+                    type: "string",
                   },
                   op: {
                     enum: ["in"],
+                    type: "string",
                   },
                   value: {
                     items: {
@@ -419,9 +423,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
                   field: {
                     const: "name",
                     title: "Span name",
+                    type: "string",
                   },
                   op: {
                     enum: ["in"],
+                    type: "string",
                   },
                   value: {
                     items: {
