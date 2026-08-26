@@ -14,6 +14,7 @@ export interface AlertRuleSnapshot {
   window: string;
   thresholdOperator: string;
   threshold: number;
+  noDataMode: string;
 }
 
 /**
@@ -43,6 +44,7 @@ export function toRuleSnapshot(row: AlertRow): AlertRuleSnapshot {
     window: row.window,
     thresholdOperator: row.thresholdOperator,
     threshold: decimalToNumber(row.threshold),
+    noDataMode: row.noDataMode,
   };
 }
 
@@ -67,6 +69,7 @@ export function hasRuleChanged(
     return true;
   }
   if (update.threshold !== undefined && update.threshold !== current.threshold) return true;
+  if (update.noDataMode !== undefined && update.noDataMode !== current.noDataMode) return true;
   if (update.filters !== undefined && !areFiltersEqual(update.filters, current.filters))
     return true;
   return false;
