@@ -87,13 +87,11 @@ type RunBundle = {
 };
 // A run re-projected against the chosen baseline. `byCase` maps a baseline row key (the
 // baseline's `testCaseId`) to this run's aligned result — by testCaseId when the run is
-// on the baseline's dataset, else by canonical input (and, cross-dataset, a single case
-// fills at most one baseline row so a repeated input isn't counted per duplicate row).
-// `covered` is the set of baseline row keys this run *can* line up with — the whole
-// duplicate-input group is covered even though only one row of it is filled — so the
-// compared population (the row intersection) never drops a duplicate row a cross-dataset
-// run legitimately can't fill twice. This is what the table consumes.
-type Bundle = RunBundle & { byCase: Map<string, ResultRow>; covered: Set<string> };
+// on the baseline's dataset, else by a plain canonical-input lookup. Duplicate-input
+// baseline rows stay distinct rows; a cross-dataset run with a single case for a shared
+// input simply fills every baseline row carrying that input. This is what the table
+// consumes.
+type Bundle = RunBundle & { byCase: Map<string, ResultRow> };
 
 /** Keep-first insertion into a Map — a duplicate key keeps the earliest row. */
 function keepFirst(rows: ResultRow[], keyOf: (r: ResultRow) => string): Map<string, ResultRow> {
@@ -149,23 +147,6 @@ function TextValue({ text }: { text: string | null }) {
   );
 }
 
-/**
- * A run that has NO case aligned to this row — its dataset never carried this input,
- * or (cross-dataset, consume-once) a duplicate-input row it legitimately can't fill a
- * second time. Rendered as a lighter, italic marker so it reads as "no matching case"
- * rather than a present-but-null "—", with a native hover tooltip naming the dataset.
- */
-function NoCase({ datasetName }: { datasetName: string | null }) {
-  return (
-    <span
-      className="cursor-default italic text-muted-foreground/40"
-      title={`No case with this input in ${datasetName ?? "this run’s dataset"}`}
-    >
-      —
-    </span>
-  );
-}
-
 /** One value per run, stacked and colour-keyed (in baseline-first display order). */
 function RunStack({
   values,
@@ -197,7 +178,6 @@ function NumericStack({
   get,
   fmt,
   higherIsBetter,
-  hasCase,
 }: {
   ordered: Bundle[];
   baseline: Bundle;
@@ -205,23 +185,12 @@ function NumericStack({
   get: (b: Bundle) => number | null;
   fmt: (n: number) => string;
   higherIsBetter: boolean;
-  /** Per-run: does this run have a case aligned to this row? When it returns false the
-   *  run's entry reads as an explicit "no matching case" instead of a bare "—". Omitted
-   *  for the aggregate row, where every run participates. */
-  hasCase?: (b: Bundle) => boolean;
 }) {
   const base = get(baseline);
   return (
     <RunStack
       align="right"
       values={ordered.map((b) => {
-        if (hasCase && !hasCase(b)) {
-          return {
-            runId: b.run.id,
-            dot: dotFor(b.run.id),
-            node: <NoCase datasetName={b.run.datasetName} />,
-          };
-        }
         const v = get(b);
         const isBaseline = b.run.id === baseline.run.id;
         const delta = !isBaseline && v !== null && base !== null ? v - base : null;
@@ -325,33 +294,19 @@ export function CompareRunsView({
     return orderedBundles.map((b) => {
       const sameDataset = b.run.datasetId === baselineBundle.run.datasetId;
       const byCase = new Map<string, ResultRow>();
-      const covered = new Set<string>();
-      // A cross-dataset run aligns by canonical input, but a single case is consumed by AT
-      // MOST ONE baseline row (keep-first): once an input key fills an earlier duplicate
-      // baseline row, later rows repeating that input stay empty for this run — so the case
-      // counts once, not once per duplicate row. `covered` still marks the whole duplicate
-      // group as part of the compared population, independent of which row got filled.
-      const usedInputKeys = new Set<string>();
+      // A cross-dataset run aligns by canonical input with a PLAIN lookup: a single case for
+      // a shared input fills EVERY baseline row carrying that input (no occurrence pairing).
+      // Duplicate-input baseline rows stay distinct rows either way.
       for (const br of baselineRows) {
         if (sameDataset) {
           const match = b.byTestCase.get(br.testCaseId);
-          if (match) {
-            covered.add(br.testCaseId);
-            byCase.set(br.testCaseId, match);
-          }
+          if (match) byCase.set(br.testCaseId, match);
         } else {
-          const key = canonicalInputKey(br.input);
-          if (b.byInput.has(key)) covered.add(br.testCaseId);
-          if (!usedInputKeys.has(key)) {
-            const match = b.byInput.get(key);
-            if (match) {
-              usedInputKeys.add(key);
-              byCase.set(br.testCaseId, match);
-            }
-          }
+          const match = b.byInput.get(canonicalInputKey(br.input));
+          if (match) byCase.set(br.testCaseId, match);
         }
       }
-      return { ...b, byCase, covered };
+      return { ...b, byCase };
     });
   }, [orderedBundles, baselineBundle]);
 
@@ -359,15 +314,13 @@ export function CompareRunsView({
 
   const crossExperiment = new Set(ordered.map((b) => b.run.evaluationName)).size > 1;
 
-  // Rows = baseline row keys EVERY run can line up with, in baseline order. Membership is
-  // `covered`, not `byCase`: a cross-dataset run that fills only one of several duplicate-
-  // input baseline rows still covers the whole group, so the extra duplicate rows stay in
-  // the compared population (empty for that run) instead of being dropped — while a run
-  // that shares no input at all still excludes the row. `ordered[0]` is the baseline, whose
-  // `covered` is every baseline row, so this reads as the intersection across all runs.
+  // Rows = baseline row keys EVERY run can line up with, in baseline order. A row is in the
+  // compared population iff every run has it in `byCase` (an aligned result). `ordered[0]` is
+  // the baseline, whose `byCase` is every baseline row, so this reads as the intersection
+  // across all runs.
   const intersection = React.useMemo(() => {
     if (ordered.length === 0) return [];
-    return [...ordered[0].covered].filter((id) => ordered.every((b) => b.covered.has(id)));
+    return [...ordered[0].byCase.keys()].filter((id) => ordered.every((b) => b.byCase.has(id)));
   }, [ordered]);
 
   // Union of scorer names across the compared runs.
@@ -648,11 +601,6 @@ function CaseRow({
   isCategorical: (name: string) => boolean;
 }) {
   const rowOf = (b: Bundle) => b.byCase.get(caseId);
-  // Whether a run actually has a case aligned to this row. A run is absent from `byCase`
-  // when it has no case for the row — cross-dataset, that's a duplicate-input row it can't
-  // fill under consume-once. Such a run's cells render an explicit "no matching case"
-  // marker rather than a bare "—". Same-dataset intersection rows always have every run.
-  const hasCase = (b: Bundle) => b.byCase.has(caseId);
 
   // Collapse a per-run string column to one value when the runs agree. `sameOn` decides
   // agreement (default: the raw text); the displayed value is still the raw text.
@@ -678,11 +626,7 @@ function CaseRow({
       values={ordered.map((b) => ({
         runId: b.run.id,
         dot: dotFor(b.run.id),
-        node: hasCase(b) ? (
-          <TextValue text={get(rowOf(b))} />
-        ) : (
-          <NoCase datasetName={b.run.datasetName} />
-        ),
+        node: <TextValue text={get(rowOf(b))} />,
       }))}
     />
   );
@@ -713,12 +657,10 @@ function CaseRow({
               values={ordered.map((b) => ({
                 runId: b.run.id,
                 dot: dotFor(b.run.id),
-                node: hasCase(b) ? (
+                node: (
                   <span className="whitespace-nowrap">
                     {scoreText(rowOf(b)?.scores.find((s) => s.scorerName === name))}
                   </span>
-                ) : (
-                  <NoCase datasetName={b.run.datasetName} />
                 ),
               }))}
             />
@@ -732,7 +674,6 @@ function CaseRow({
               get={(b) => scoreNumeric(rowOf(b)?.scores.find((s) => s.scorerName === name))}
               fmt={fmtScoreNumber}
               higherIsBetter={higherFor(name)}
-              hasCase={hasCase}
             />
           </Td>
         ),
@@ -745,7 +686,6 @@ function CaseRow({
           get={(b) => rowOf(b)?.durationMs ?? null}
           fmt={fmtMs}
           higherIsBetter={false}
-          hasCase={hasCase}
         />
       </Td>
       <Td className="align-top text-[11px] tabular-nums">
@@ -756,7 +696,6 @@ function CaseRow({
           get={(b) => rowOf(b)?.cost ?? null}
           fmt={fmtCost}
           higherIsBetter={false}
-          hasCase={hasCase}
         />
       </Td>
     </TR>

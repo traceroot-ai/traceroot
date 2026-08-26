@@ -385,13 +385,12 @@ describe("CompareRunsView — N-run diff table", () => {
     expect(within(row).getAllByText("−100.0%").length).toBeGreaterThan(0);
   });
 
-  it("keeps a baseline's duplicate-input rows distinct in cross-dataset mode, but counts a cross run once", () => {
+  it("keeps a baseline's duplicate-input rows distinct in cross-dataset mode, filling both with the shared cross case", () => {
     // The BASELINE run has TWO dataset rows carrying the SAME input (occurrence-distinct
     // testCaseIds, differing scores). A cross-dataset run shares that input. The two baseline
     // rows must STAY two rows (they're distinct dataset rows) — never globally collapsed by
-    // input — while the lone cross-dataset case is consumed by AT MOST ONE of them, so it's
-    // counted ONCE in the aggregates, not once per duplicate row. (Supersedes the earlier
-    // "renders once" behaviour, which dropped the second occurrence-distinct baseline row.)
+    // input. Alignment is a PLAIN input lookup: the lone cross-dataset case simply fills BOTH
+    // duplicate rows (no occurrence pairing / consume-once), so its value appears in each.
     const DUP = "Ticket 9: refund status for order 7788";
     const BASE = {
       run: runDetail("opus", 41, "opus"), // ds1
@@ -402,7 +401,8 @@ describe("CompareRunsView — N-run diff table", () => {
     };
     const CROSS = {
       run: { ...runDetail("sonnet", 42, "sonnet"), datasetId: "ds2", datasetName: "tickets-v2" },
-      // A distinctive 3300ms duration makes double-counting detectable (6.6s vs 3.3s).
+      // A distinctive 3300ms duration lets us see the value land in both rows (3.3s per row)
+      // and sum across them in the aggregate (6.6s).
       results: [
         {
           ...result("x1", DUP, "billing", { routing_accuracy: 1, is_known_category: 1 }),
@@ -416,16 +416,15 @@ describe("CompareRunsView — N-run diff table", () => {
     );
     mount();
     // The two occurrence-distinct baseline rows are NOT collapsed away: the duplicate input
-    // renders in BOTH rows (dup-a collapses across runs; dup-b shows the baseline's copy),
-    // so it appears twice — and dup-b's distinct baseline score (0%) survives alongside
-    // dup-a's (100%) rather than being dropped.
+    // renders in BOTH rows, so it appears twice — and dup-b's distinct baseline score (0%)
+    // survives alongside dup-a's (100%) rather than being dropped.
     expect(screen.getAllByText(DUP)).toHaveLength(2);
     expect(screen.getAllByText("0.0%").length).toBeGreaterThan(0);
     expect(screen.getAllByText("100.0%").length).toBeGreaterThan(0);
-    // The cross run fills ONLY ONE of the two rows and is counted ONCE: its 3.3s duration is
-    // not doubled to 6.6s (which counting it per duplicate row would produce).
-    expect(screen.getAllByText("3.3s").length).toBeGreaterThan(0);
-    expect(screen.queryByText("6.6s")).toBeNull();
+    // The single cross case fills BOTH duplicate rows (plain input lookup): its 3.3s per-row
+    // duration shows in each row, and the aggregate sums them to 6.6s.
+    expect(screen.getAllByText("3.3s").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText("6.6s").length).toBeGreaterThan(0);
   });
 
   it("keeps same-dataset duplicate-input cases distinct when a cross-dataset run joins (finding #14)", () => {
@@ -434,7 +433,7 @@ describe("CompareRunsView — N-run diff table", () => {
     // occurrence) and distinct outputs/scores. C is on a DIFFERENT dataset Y (ds2) with a
     // single "Hello" case. C's presence makes the selection cross-dataset — which must NOT
     // collapse A/B's two "Hello" rows into one: A and B still compare case-2 exactly by
-    // testCaseId, and C's lone case fills only ONE row (counted once).
+    // testCaseId, while C's lone case fills BOTH "Hello" rows (plain input lookup).
     const A = {
       run: runDetail("opus", 41, "opus"), // ds1 = dataset X
       results: [
@@ -457,7 +456,7 @@ describe("CompareRunsView — N-run diff table", () => {
         datasetName: "tickets-v2",
         datasetVersionId: "dv2",
       },
-      // One "Hello" case; a distinctive 4400ms duration makes double-counting detectable.
+      // One "Hello" case; a distinctive 4400ms duration lets us see it land in both rows.
       results: [
         {
           ...result("tc_y_1", "Hello", "C-out", { routing_accuracy: 1, is_known_category: 1 }),
@@ -486,54 +485,12 @@ describe("CompareRunsView — N-run diff table", () => {
     // B's case-2 regresses against A's case-2 (0% vs 100%) → the delta proves exact
     // by-testCaseId alignment survived the cross-dataset run joining.
     expect(within(row2).getAllByText("−100.0%").length).toBeGreaterThan(0);
-    // (c): C fills only ONE of the two rows (the first), never the duplicate.
-    expect(screen.getAllByText("C-out")).toHaveLength(1);
+    // (c): C's lone case fills BOTH "Hello" rows (plain input lookup) — its value shows in each.
+    expect(screen.getAllByText("C-out")).toHaveLength(2);
     expect(within(row1).getByText("C-out")).toBeTruthy();
-    expect(within(row2).queryByText("C-out")).toBeNull();
-    // (d): C is counted ONCE in the aggregates — 4.4s, not doubled to 8.8s.
-    expect(screen.getAllByText("4.4s").length).toBeGreaterThan(0);
-    expect(screen.queryByText("8.8s")).toBeNull();
-  });
-
-  it("marks a run's cells 'no matching case' for a duplicate-input row it can't fill", () => {
-    // The BASELINE has two duplicate-input rows (distinct testCaseIds, distinct outputs).
-    // The cross-dataset run has ONE case with that input: consume-once fills the first row
-    // and leaves the second unfilled for that run. The unfilled row must render an explicit
-    // "no matching case" marker for the cross run (naming its dataset) — visually distinct
-    // from a present-but-null "—" — while the filled row still shows the run's real value,
-    // and the baseline's own distinct value survives in BOTH rows.
-    const DUP = "Ticket 9: refund status for order 7788";
-    const BASE = {
-      run: runDetail("opus", 41, "opus"), // ds1
-      results: [
-        result("dup-a", DUP, "base-dup-a", { routing_accuracy: 1, is_known_category: 1 }),
-        result("dup-b", DUP, "base-dup-b", { routing_accuracy: 0, is_known_category: 1 }),
-      ],
-    };
-    const CROSS = {
-      run: { ...runDetail("sonnet", 42, "sonnet"), datasetId: "ds2", datasetName: "tickets-v2" },
-      results: [result("x1", DUP, "cross-out", { routing_accuracy: 1, is_known_category: 1 })],
-    };
-    const R: Record<string, unknown> = { opus: BASE, sonnet: CROSS };
-    hooks.useEvaluationRunDetails.mockImplementation((_p: string, ids: string[]) =>
-      ids.map((id) => ({ data: R[id], isLoading: false, isError: false })),
-    );
-    mount();
-
-    // The row the cross run DID fill shows its real output — and no "no case" marker.
-    const filled = screen.getByText("base-dup-a").closest("tr") as HTMLTableRowElement;
-    expect(within(filled).getByText("cross-out")).toBeTruthy();
-    expect(within(filled).queryAllByTitle(/No case with this input/)).toHaveLength(0);
-
-    // The duplicate row the cross run could NOT fill: no cross output, and its cells carry
-    // the explicit "no matching case" marker naming the run's dataset (tickets-v2) — not a
-    // plain scored "—". The baseline's distinct value (base-dup-b) still renders.
-    const unfilled = screen.getByText("base-dup-b").closest("tr") as HTMLTableRowElement;
-    expect(within(unfilled).queryByText("cross-out")).toBeNull();
-    const markers = within(unfilled).getAllByTitle("No case with this input in tickets-v2");
-    // Present across the cross run's stacked cells (output, expected, scorers, duration, cost).
-    expect(markers.length).toBeGreaterThan(0);
-    // The marker is visually distinct from a normal missing-score "—" (lighter + italic).
-    expect(markers[0].className).toContain("italic");
+    expect(within(row2).getByText("C-out")).toBeTruthy();
+    // (d): C's per-row duration (4.4s) shows in both rows and the aggregate sums them to 8.8s.
+    expect(screen.getAllByText("4.4s").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText("8.8s").length).toBeGreaterThan(0);
   });
 });
