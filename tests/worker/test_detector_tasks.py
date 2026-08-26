@@ -66,7 +66,9 @@ def _patch_detectors(monkeypatch, detectors):
 
 
 def _patch_summaries(monkeypatch, summaries):
-    monkeypatch.setattr(dt, "_get_trace_summaries", lambda project_id, trace_ids: summaries)
+    monkeypatch.setattr(
+        dt, "_get_trace_summaries", lambda project_id, trace_ids, **kwargs: summaries
+    )
 
 
 def _lock_state(fake_redis, project_id=PROJECT, trace_id=TRACE):

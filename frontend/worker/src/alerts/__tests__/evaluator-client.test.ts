@@ -54,6 +54,18 @@ describe("isSendableAlertSpec", () => {
     }
   });
 
+  it("rejects a keyed field carrying no key, which would come back as this rule's error", () => {
+    // Settled locally like the other unsendable shapes; the answer is known without asking.
+    expect(isSendableAlertSpec(specWith([{ field: "metadata", op: "=", value: "prod" }]))).toBe(
+      false,
+    );
+    for (const key of ["", "  "]) {
+      expect(
+        isSendableAlertSpec(specWith([{ field: "metadata", key, op: "=", value: "prod" }])),
+      ).toBe(false);
+    }
+  });
+
   it("rejects the whole spec when only one of its filters is unsendable", () => {
     expect(
       isSendableAlertSpec(

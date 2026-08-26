@@ -107,6 +107,19 @@ describe("claimDueAlerts — the read that selects candidates", () => {
     // Sharing the budget must not reshuffle the scan's oldest-due-first order.
     expect(claims[0].rule.id).toBe("proj-noisy-0");
   });
+
+  it("never sees a project whose due rules all sort past the scan cap", async () => {
+    // The scan is one globally-ordered read, so the budget can only be shared
+    // among projects inside the slice it returns.
+    const due = [...rowsFor("proj-noisy", ALERT_CLAIM_SCAN_LIMIT), ...rowsFor("proj-quiet", 100)];
+    findMany.mockImplementation(async (args) => due.slice(0, args.take as number));
+
+    const claims = await claimDueAlerts(TICK);
+
+    expect(claims).toHaveLength(ALERT_CLAIM_LIMIT);
+    // The budget had room for the quiet project; the scan never showed it.
+    expect(claims.every((claim) => claim.rule.projectId === "proj-noisy")).toBe(true);
+  });
 });
 
 describe("claimDueAlerts — taking ownership", () => {
