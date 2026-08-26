@@ -128,6 +128,8 @@ describe("AlertForm", () => {
       initialDraft?: AlertDraft;
       schemaPending?: boolean;
       schemaError?: boolean;
+      /** A background refetch failed but the cached schema is still there. */
+      schemaStaleError?: boolean;
     } = {},
     // One client per render keeps the cases independent.
     queryClient = newQueryClient(),
@@ -140,13 +142,22 @@ describe("AlertForm", () => {
         ? { data: undefined, isPending: true, isError: false }
         : props.schemaError
           ? { data: undefined, isPending: false, isError: true }
-          : { data: { spans: { fields: SPANS_SCHEMA_FIELDS }, traces: { fields: {} } } },
+          : {
+              data: { spans: { fields: SPANS_SCHEMA_FIELDS }, traces: { fields: {} } },
+              isPending: false,
+              isError: props.schemaStaleError === true,
+            },
     );
     mocks.useWidgetFieldValues.mockReturnValue({ values: [], isLoading: false });
     const wrapper = ({ children }: { children: ReactNode }) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     );
-    const { schemaPending: _schemaPending, schemaError: _schemaError, ...formProps } = props;
+    const {
+      schemaPending: _schemaPending,
+      schemaError: _schemaError,
+      schemaStaleError: _schemaStaleError,
+      ...formProps
+    } = props;
     return render(<AlertForm projectId="proj-1" {...formProps} />, { wrapper });
   };
 
@@ -461,5 +472,26 @@ describe("AlertForm", () => {
     expect(row.textContent).toContain("span_kind = AGENT");
     expect(screen.getByRole("button", { name: "Remove filter" })).toBeTruthy();
     expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("keeps a saved filter editable when a background schema refetch fails but the cache holds", () => {
+    renderForm({
+      alertId: "alert-9",
+      schemaStaleError: true,
+      initialDraft: {
+        view: "SPANS",
+        measureId: "count",
+        aggregation: "count",
+        filters: [{ field: "span_kind", op: "=", value: "AGENT" }],
+        operator: ">",
+        threshold: "1",
+        window: "1m",
+        renotify: { mode: "OFF" },
+        name: "filtered",
+      },
+    });
+    // the cached registry still resolves the field: the normal controls, not a warning row
+    expect(screen.getByRole("button", { name: "Span kind" })).toBeTruthy();
+    expect(screen.queryByRole("alert", { name: /Filter fields unavailable/ })).toBeNull();
   });
 });

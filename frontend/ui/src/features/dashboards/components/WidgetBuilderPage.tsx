@@ -320,7 +320,9 @@ export function WidgetBuilderPage({
                       filterableFields={filterableFields}
                       fieldsMap={viewFields}
                       fieldsLoading={isSchemaPending}
-                      fieldsUnavailable={isSchemaError}
+                      // Unavailable only with nothing cached: a failed refetch
+                      // keeps the schema, and the rows stay editable.
+                      fieldsUnavailable={isSchemaError && schema === undefined}
                       onChange={handleFilterChange}
                       onRemove={handleFilterRemove}
                       projectId={projectId}

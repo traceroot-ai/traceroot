@@ -77,9 +77,11 @@ export function AlertFilters({ projectId, filters, onFiltersChange }: AlertFilte
           view="spans"
           range={range}
           // Pending: a saved row must not read as unknown before the registry
-          // has had its say. Failed: it says so, and stays removable.
+          // has had its say. Failed with nothing cached: it says so, and stays
+          // removable. A failed background refetch keeps the cached schema,
+          // which is still the registry — the rows stay editable.
           fieldsLoading={isSchemaPending}
-          fieldsUnavailable={isSchemaError}
+          fieldsUnavailable={isSchemaError && schema === undefined}
         />
       ))}
       {/* Disabled until the schema answers: an empty field dropdown is a dead
