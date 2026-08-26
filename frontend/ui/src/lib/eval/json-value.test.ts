@@ -154,14 +154,28 @@ describe("canonicalInputKey (cross-dataset input alignment)", () => {
     expect(canonicalInputKey('{"a":1}')).not.toBe(canonicalInputKey('{"a":2}'));
   });
 
-  it("aligns a legacy plain-text scalar with its JSON-encoded form", () => {
-    // A run RESULT's `input` has no enforced encoding: the same value can arrive as
-    // legacy plain text (`123`, `true`) or JSON-encoded (`"123"`, string `"true"`).
-    // Both forms must produce the same alignment key.
-    expect(canonicalInputKey("123")).toBe(canonicalInputKey(encodeJsonValue("123")));
+  it("aligns a legacy plain-text value with its JSON-encoded form of the SAME type", () => {
+    // A run RESULT's `input` has no enforced encoding: the same value can arrive as legacy
+    // plain text or JSON-encoded. Decoding converges them when the type matches — legacy
+    // plain text that isn't valid JSON stays a string and matches a JSON string:
+    expect(canonicalInputKey("hello world")).toBe(
+      canonicalInputKey(encodeJsonValue("hello world")),
+    );
+    // ...and legacy plain text that parses as a number/boolean matches the same-typed value:
     expect(canonicalInputKey("123")).toBe(canonicalInputKey(encodeJsonValue(123)));
-    expect(canonicalInputKey("true")).toBe(canonicalInputKey(encodeJsonValue("true")));
     expect(canonicalInputKey("true")).toBe(canonicalInputKey(encodeJsonValue(true)));
+  });
+
+  it("keeps scalars of different types apart even when their text is equal", () => {
+    // A JSON string and a number/boolean that share the same text are DIFFERENT inputs and
+    // must not be aligned as one row — otherwise a case would compare against the wrong
+    // baseline row, showing misleading scores/outputs/deltas.
+    expect(canonicalInputKey(encodeJsonValue("123"))).not.toBe(
+      canonicalInputKey(encodeJsonValue(123)),
+    );
+    expect(canonicalInputKey(encodeJsonValue("true"))).not.toBe(
+      canonicalInputKey(encodeJsonValue(true)),
+    );
   });
 
   it("does not collide a genuine JSON-looking string with the object it resembles", () => {

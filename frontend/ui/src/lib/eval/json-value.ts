@@ -34,17 +34,18 @@ export function canonicalJson(v: unknown): string {
  *
  * Unlike a dataset test case (whose `input` is encoded through `encodeJsonValue`), a
  * run RESULT's `input` has no enforced encoding contract: the same logical value can
- * arrive JSON-encoded (`"123"`, `true`) or as legacy plain text (`123`). Decoding the
- * two forms yields a string vs a number/boolean, so a raw `canonicalJson(decode(...))`
- * would key them apart and fail to align. To make a legacy scalar and its JSON-encoded
- * form converge, every SCALAR is normalized to its string content (`123` and `"123"`
- * both → `123`); objects/arrays keep their structural, key-order-independent canonical
- * form. The `s:` / `o:` prefixes keep a genuine string that merely looks like JSON
- * (e.g. `"{\"a\":1}"`) from colliding with the object it resembles.
+ * arrive JSON-encoded or as legacy plain text. Decoding both forms of a value converges
+ * them (a legacy plain-text `hello` and JSON `"hello"` both decode to the string
+ * `hello`), so a scalar is keyed by its JSON representation — which keeps the TYPE, so a
+ * string, number, and boolean that merely share the same text stay distinct (`123` →
+ * `s:123`, `"123"` → `s:"123"`, `true` → `s:true`, `"true"` → `s:"true"`). Objects/arrays
+ * keep their structural, key-order-independent canonical form. The `s:` / `o:` prefixes
+ * keep a genuine string that merely looks like JSON (e.g. `"{\"a\":1}"`) from colliding
+ * with the object it resembles.
  */
 export function canonicalInputKey(input: string): string {
   const decoded = decodeJsonValue(input);
-  if (decoded === null || typeof decoded !== "object") return `s:${String(decoded)}`;
+  if (decoded === null || typeof decoded !== "object") return `s:${JSON.stringify(decoded)}`;
   return `o:${canonicalJson(decoded)}`;
 }
 
