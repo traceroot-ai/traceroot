@@ -3,7 +3,6 @@ import {
   REVIEW_STATUS_VARIANT,
   RESULT_STATUS_VARIANT,
   SENTIMENT_CLASS,
-  caseDisplayId,
   changeSentiment,
   datasetInitCode,
   datasetInitCodeTs,
@@ -99,23 +98,6 @@ describe("scoreDisplay", () => {
 describe("formatStamp", () => {
   it("delegates to the app-wide absolute timestamp format", () => {
     expect(formatStamp("2026-07-16T15:41:12Z")).toMatch(/2026-07-16/);
-  });
-});
-
-describe("caseDisplayId", () => {
-  it("produces a stable trace-id-looking id", () => {
-    const id = caseDisplayId("case-001");
-    expect(id).toMatch(/^tc_[0-9a-f]{12}$/);
-    expect(id).toHaveLength(15);
-    expect(caseDisplayId("case-001")).toBe(id);
-  });
-
-  it("distinguishes different case ids", () => {
-    expect(caseDisplayId("case-001")).not.toBe(caseDisplayId("case-002"));
-  });
-
-  it("handles an empty id", () => {
-    expect(caseDisplayId("")).toMatch(/^tc_/);
   });
 });
 
