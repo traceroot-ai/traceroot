@@ -227,6 +227,11 @@ export function useAiChat({
     hardBoundaryEpochRef.current++;
     for (const ac of ensureSessionAbortersRef.current) ac.abort();
     ensureSessionAbortersRef.current.clear();
+    // Don't wait for the aborted creation to settle and self-clear: if its
+    // response is already on the wire, a send after reopen would ride the
+    // pre-close creation (and its stale trace context). The self-clear's
+    // identity check makes the late settle harmless once this is nulled.
+    pendingSessionRef.current = null;
     abortAll();
     clearAll();
     setActiveSessionId(null);

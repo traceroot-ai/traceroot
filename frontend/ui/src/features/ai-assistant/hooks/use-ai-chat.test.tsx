@@ -398,6 +398,57 @@ describe("useAiChat session switching", () => {
     expect(result.current.currentSessionId).toBeNull();
   });
 
+  it("a send after close-and-reopen starts a fresh session instead of reusing the pre-close creation", async () => {
+    const creations: Array<(r: Response) => void> = [];
+    const messagePosts: string[] = [];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.endsWith("/ai/sessions")) {
+        // deliberately ignores the abort signal — the pre-close creation's
+        // response is already on the wire and settles late
+        return new Promise<Response>((r) => {
+          creations.push(r);
+        });
+      }
+      const messageMatch = url.match(/\/ai\/sessions\/([^/]+)\/messages$/);
+      if (method === "POST" && messageMatch) {
+        messagePosts.push(messageMatch[1]);
+        return createSSE().response;
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    const { result } = renderChat();
+
+    let first!: Promise<void>;
+    act(() => {
+      first = result.current.handleSend("pre-close", MODEL);
+    });
+    act(() => {
+      result.current.handleClose();
+    });
+
+    // the user reopens the panel and starts a new conversation
+    let second!: Promise<void>;
+    act(() => {
+      second = result.current.handleSend("post-reopen", MODEL);
+    });
+
+    // the post-reopen send must not ride the pre-close creation
+    expect(creations).toHaveLength(2);
+
+    await act(async () => {
+      creations[1](jsonResponse({ id: "B" }));
+      await second;
+      creations[0](jsonResponse({ id: "A" }));
+      await first;
+    });
+
+    // the reopened chat runs in its own session; the pre-close send stays dropped
+    expect(messagePosts).toEqual(["B"]);
+    expect(result.current.currentSessionId).toBe("B");
+  });
+
   it("clicking New Session while a session creation is in flight does not restore the old session", async () => {
     let resolveCreation!: (r: Response) => void;
     const messagePosts: string[] = [];
