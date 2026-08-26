@@ -13,6 +13,32 @@
     }
   },
   {
+    "id": "tr-claude-opus-5-fast",
+    "modelName": "claude-opus-5-fast",
+    "matchPattern": "(?i)^(anthropic\\/)?claude-opus-5-fast$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 0.00001,
+      "output": 0.00005,
+      "cacheRead": 0.000001,
+      "cacheWrite": 0.0000125,
+      "cacheWrite1h": 0.00002
+    }
+  },
+  {
+    "id": "tr-claude-opus-5",
+    "modelName": "claude-opus-5",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-5(\\[1m\\])?(-[\\d-]+)?(@[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-opus-5(-[\\d-]+)?(-v\\d+:\\d+)?|claude-5-opus(@[\\d-]+)?)$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 0.000005,
+      "output": 0.000025,
+      "cacheRead": 0.0000005,
+      "cacheWrite": 0.00000625,
+      "cacheWrite1h": 0.00001
+    }
+  },
+  {
     "id": "tr-claude-opus-4-8-fast",
     "modelName": "claude-opus-4-8-fast",
     "matchPattern": "(?i)^(anthropic\\/)?claude-opus-4[.-]8-fast$",
