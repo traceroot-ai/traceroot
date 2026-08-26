@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/env";
 import { requireAuth, requireWorkspaceMembership } from "@/lib/auth-helpers";
+import { sanitizeRedirectPath } from "@/lib/safe-redirect";
 import {
   GITHUB_INSTALL_STATE_COOKIE,
   GITHUB_RETURN_TO_COOKIE,
@@ -13,7 +14,7 @@ export async function GET(request: NextRequest) {
     if (authResult.error) return authResult.error;
 
     const state = crypto.randomUUID();
-    const returnTo = request.nextUrl.searchParams.get("returnTo") || "/";
+    const returnTo = sanitizeRedirectPath(request.nextUrl.searchParams.get("returnTo"));
     // Allow workspaceId to come from either the query (button click) or the
     // cookie set by /api/github/login earlier in the flow — callback redirects
     // here without re-passing the param when no install exists yet.

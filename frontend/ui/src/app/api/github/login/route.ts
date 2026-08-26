@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { env } from "@/env";
 import { requireAuth, requireWorkspaceMembership } from "@/lib/auth-helpers";
+import { sanitizeRedirectPath } from "@/lib/safe-redirect";
 import {
   GITHUB_AUTH_STATE_COOKIE,
   GITHUB_RETURN_TO_COOKIE,
@@ -13,7 +14,7 @@ export async function GET(request: NextRequest) {
     if (authResult.error) return authResult.error;
 
     const state = crypto.randomUUID();
-    const returnTo = request.nextUrl.searchParams.get("returnTo") || "/";
+    const returnTo = sanitizeRedirectPath(request.nextUrl.searchParams.get("returnTo"));
     const workspaceId = request.nextUrl.searchParams.get("workspaceId");
 
     // Connecting GitHub mutates a workspace-shared resource — admin only.
