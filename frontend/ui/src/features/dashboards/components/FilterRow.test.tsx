@@ -90,10 +90,14 @@ describe("FilterRow value input", () => {
     expect(vi.mocked(useWidgetFieldValues).mock.lastCall?.[4]).toBe(false);
   });
 
-  it("falls back to free text when no stored values exist", () => {
+  it("keeps the value dropdown for string equality when no stored values exist", () => {
     vi.mocked(useWidgetFieldValues).mockReturnValue({ values: [], isLoading: false });
     render(<FilterRow {...baseProps} filter={{ field: "model_name", op: "=", value: "" }} />);
-    expect(screen.getByRole("textbox")).toBeTruthy();
+    // an empty field must not offer a free input that a first keystroke would
+    // then swap out from under the user
+    expect(screen.queryByRole("textbox")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Enter value" }));
+    expect(screen.getByText("No options")).toBeTruthy();
   });
 
   it("keeps the number input for numeric fields", () => {
