@@ -86,6 +86,7 @@ _SPAN_ROW = (
     2,
     [{"tier": "gold"}],
     datetime(2026, 8, 1, 12, 0),
+    0,  # is_evaluation — a control column, not an offered trigger field
 )
 _TRACE_ROW = ("trace-1", {"tenant": "acme"})
 
@@ -170,6 +171,7 @@ def test_the_fetch_maps_each_column_onto_the_field_the_evaluator_reads(monkeypat
             "errors": 2,
             # Trace scope and span scope merged into one key space.
             "metadata": {"tenant": ["acme"], "tier": ["gold"]},
+            "is_evaluation": False,
         }
     }
 
