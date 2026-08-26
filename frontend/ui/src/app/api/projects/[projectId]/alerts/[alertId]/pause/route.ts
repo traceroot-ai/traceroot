@@ -1,5 +1,4 @@
 import { NextRequest } from "next/server";
-import { Prisma } from "@prisma/client";
 import { prisma, Role } from "@traceroot/core";
 import { errorResponse, successResponse } from "@/lib/auth-helpers";
 import { parseJsonObject, requireProjectAuth } from "@/lib/route-helpers";
@@ -23,12 +22,24 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   const { status } = result.data;
 
   // Pausing keeps the severity it stopped at; resuming is a cold start,
-  // because the gap it was paused for was never evaluated.
-  const data: Prisma.AlertUpdateManyMutationInput =
-    status === "PAUSED" ? { status } : { status, ...alertStateReset() };
+  // because the gap it was paused for was never evaluated. The PAUSED guard
+  // lives in the WHERE so a replayed resume of an already-active rule cannot
+  // reset state it is still alerting on.
+  const resumed =
+    status === "ACTIVE"
+      ? await prisma.alert.updateMany({
+          where: { id: alertId, projectId, status: "PAUSED" },
+          data: { status, ...alertStateReset() },
+        })
+      : { count: 0 };
 
-  const { count } = await prisma.alert.updateMany({ where: { id: alertId, projectId }, data });
-  if (count === 0) return errorResponse("Alert not found", 404);
+  if (resumed.count === 0) {
+    const { count } = await prisma.alert.updateMany({
+      where: { id: alertId, projectId },
+      data: { status },
+    });
+    if (count === 0) return errorResponse("Alert not found", 404);
+  }
 
   const alert = await prisma.alert.findFirst({
     where: { id: alertId, projectId },

@@ -230,7 +230,7 @@ describe("the reading a rule takes of a gap", () => {
   const SEVERITIES: AlertSeverity[] = ["UNKNOWN", "OK", "ALERT", "NO_DATA"];
   const RENOTIFIES: AlertRenotify[] = [OFF, every(1), every(30)];
 
-  it("holds the last judgement when the rule names no mode, and says so under HOLD", () => {
+  it("reads a gap the same when the rule names no mode as under HOLD", () => {
     // The stack's whole history was written against the unnamed call, so HOLD
     // has to be that call and nothing else.
     for (const previousSeverity of SEVERITIES) {

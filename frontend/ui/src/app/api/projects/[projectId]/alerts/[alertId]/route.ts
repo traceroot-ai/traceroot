@@ -100,6 +100,7 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     window: update.window,
     thresholdOperator: update.thresholdOperator,
     threshold: update.threshold,
+    noDataMode: update.noDataMode,
   };
   if (hasRuleChanged(toRuleSnapshot(existing), nextRule)) {
     Object.assign(data, alertStateReset());

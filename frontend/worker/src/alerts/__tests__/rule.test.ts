@@ -111,6 +111,19 @@ describe("parseAlertRule — filters", () => {
     expect(parseAlertRule(rowWith({ filters }))?.filters).toEqual(filters);
   });
 
+  it("strips a stored property the evaluator's filter model would refuse", () => {
+    // The backend model forbids extras, and a violation 422s the whole batch.
+    const stored = [
+      { field: "status", op: "=", value: "error", label: "Status" },
+      { field: "metadata", key: "env", op: "=", value: "prod", origin: "import" },
+    ];
+
+    expect(parseAlertRule(rowWith({ filters: stored }))?.filters).toStrictEqual([
+      { field: "status", op: "=", value: "error" },
+      { field: "metadata", key: "env", op: "=", value: "prod" },
+    ]);
+  });
+
   it("discards a rule whose filter value is a set", () => {
     // A set-valued row is what the old write gate allowed and the evaluator
     // never accepted; parsing it would send a spec that fails the whole batch.
