@@ -17,6 +17,7 @@ const currentRule: AlertRuleSnapshot = {
   window: "10m",
   thresholdOperator: ">",
   threshold: 500,
+  noDataMode: "HOLD",
 };
 
 function alertRow(overrides: Partial<Record<string, unknown>> = {}): AlertRow {
@@ -30,6 +31,7 @@ function alertRow(overrides: Partial<Record<string, unknown>> = {}): AlertRow {
     window: "10m",
     thresholdOperator: ">",
     threshold: new Prisma.Decimal("500.000"),
+    noDataMode: "HOLD",
     renotify: { mode: "OFF" },
     status: "ACTIVE",
     severity: "ALERT",
@@ -53,12 +55,13 @@ function patchUpdate(fields: Partial<AlertRuleSnapshot> = {}): Partial<AlertRule
     window: undefined,
     thresholdOperator: undefined,
     threshold: undefined,
+    noDataMode: undefined,
     ...fields,
   };
 }
 
 describe("toRuleSnapshot", () => {
-  it("reads the seven evaluation-bearing fields off a stored row", () => {
+  it("reads the eight evaluation-bearing fields off a stored row", () => {
     expect(toRuleSnapshot(alertRow())).toEqual(currentRule);
   });
 
@@ -81,7 +84,7 @@ describe("hasRuleChanged", () => {
     expect(hasRuleChanged(currentRule, patchUpdate())).toBe(false);
   });
 
-  it("reports a change for each of the seven evaluation-bearing fields", () => {
+  it("reports a change for each of the eight evaluation-bearing fields", () => {
     const changes: Partial<AlertRuleSnapshot>[] = [
       { view: "TRACES" },
       { measure: "cost" },
@@ -89,6 +92,7 @@ describe("hasRuleChanged", () => {
       { window: "1h" },
       { thresholdOperator: ">=" },
       { threshold: 501 },
+      { noDataMode: "NOTIFY" },
       { filters: [{ field: "model_name", op: "=", value: "claude" }] },
     ];
 
@@ -108,10 +112,16 @@ describe("hasRuleChanged", () => {
           window: "10m",
           thresholdOperator: ">",
           threshold: 500,
+          noDataMode: "HOLD",
           filters: [{ field: "model_name", op: "=", value: "gpt-4o" }],
         }),
       ),
     ).toBe(false);
+  });
+
+  it("resets state for a noDataMode-only edit, whose severity policy the old state was not computed under", () => {
+    expect(hasRuleChanged(currentRule, patchUpdate({ noDataMode: "NOTIFY" }))).toBe(true);
+    expect(hasRuleChanged(currentRule, patchUpdate({ noDataMode: "HOLD" }))).toBe(false);
   });
 
   describe("threshold comparison", () => {
