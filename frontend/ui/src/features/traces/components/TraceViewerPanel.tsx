@@ -369,9 +369,9 @@ export function TraceViewerPanel({
             <DOMAIN_ICONS.trace className="h-4 w-4 shrink-0 text-muted-foreground" />
             <span className="shrink-0 text-sm font-medium">{headerLabel}</span>
             <span className="truncate font-mono text-xs text-muted-foreground">{headerValue}</span>
-            {/* Copy affordance for the header id — always shown (see #1947),
-                reading the same headerLabel/headerValue as the display above
-                so the copied text can never diverge from what's shown. */}
+            {/* Copy affordance for the header id — always shown, reading the
+                same headerLabel/headerValue as the display above so the
+                copied text can never diverge from what's shown. */}
             <CopyButton
               value={headerValue}
               className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"

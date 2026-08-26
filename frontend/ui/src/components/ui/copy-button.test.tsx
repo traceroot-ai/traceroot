@@ -27,7 +27,7 @@ describe("CopyButton", () => {
     Object.assign(navigator, { clipboard: { writeText } });
     const onCopy = vi.fn();
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    render(<CopyButton value="hello" onCopy={onCopy} />);
+    const { container } = render(<CopyButton value="hello" onCopy={onCopy} />);
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button"));
@@ -37,6 +37,8 @@ describe("CopyButton", () => {
     // is logged (caught), not silently treated as a success.
     expect(onCopy).not.toHaveBeenCalled();
     expect(errorSpy).toHaveBeenCalled();
+    // The button must not flip to its "copied" (check icon) state on failure.
+    expect(container.querySelector(".text-green-600")).toBeNull();
     errorSpy.mockRestore();
   });
 });
