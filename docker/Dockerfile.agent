@@ -8,7 +8,7 @@ WORKDIR /app
 
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
 COPY frontend/.npmrc ./.npmrc
-COPY frontend/packages/agent/package.json ./packages/agent/package.json
+COPY frontend/ee/agent/package.json ./ee/agent/package.json
 COPY frontend/packages/core/package.json ./packages/core/package.json
 COPY frontend/packages/tools/package.json ./packages/tools/package.json
 
@@ -18,12 +18,12 @@ FROM base AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/packages/agent/node_modules ./packages/agent/node_modules
+COPY --from=deps /app/ee/agent/node_modules ./ee/agent/node_modules
 COPY --from=deps /app/packages/core/node_modules ./packages/core/node_modules
 COPY --from=deps /app/packages/tools/node_modules ./packages/tools/node_modules
 
 COPY frontend/packages/core ./packages/core
-COPY frontend/packages/agent ./packages/agent
+COPY frontend/ee/agent ./ee/agent
 COPY frontend/packages/tools ./packages/tools
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
 
@@ -42,7 +42,7 @@ RUN cd packages/core && \
 # The agent resolves @traceroot-ai/tools through its compiled dist, so build
 # the tools package first.
 RUN cd packages/tools && pnpm build
-RUN cd packages/agent && pnpm build
+RUN cd ee/agent && pnpm build
 
 FROM node:20-alpine AS runner
 WORKDIR /app
@@ -60,12 +60,12 @@ COPY --from=builder /app/packages/core/node_modules ./packages/core/node_modules
 COPY --from=builder /app/packages/tools/dist ./packages/tools/dist
 COPY --from=builder /app/packages/tools/package.json ./packages/tools/package.json
 # Copy compiled agent
-COPY --from=builder /app/packages/agent/dist ./packages/agent/dist
-COPY --from=builder /app/packages/agent/package.json ./packages/agent/package.json
-COPY --from=builder /app/packages/agent/node_modules ./packages/agent/node_modules
+COPY --from=builder /app/ee/agent/dist ./ee/agent/dist
+COPY --from=builder /app/ee/agent/package.json ./ee/agent/package.json
+COPY --from=builder /app/ee/agent/node_modules ./ee/agent/node_modules
 # Copy Prisma engines
 COPY --from=builder /tmp/prisma-engines/.prisma ./node_modules/.prisma
 
 EXPOSE 8100
 
-CMD ["node", "packages/agent/dist/index.js"]
+CMD ["node", "ee/agent/dist/index.js"]
