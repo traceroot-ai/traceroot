@@ -39,7 +39,10 @@ prod:
 
 ## Self-hosting on any platform (Windows, CI, no tmux). Docker Desktop only.
 prod-lite:
-	@uv run python tmux_tools/launcher.py --env-only
+	@test -f .env || { cp .env.example .env; chmod 600 .env; \
+	  for k in INTERNAL_API_SECRET BETTER_AUTH_SECRET; do \
+	    sed -i.bak "s|^$$k=$$|$$k=$$(openssl rand -hex 32)|" .env; \
+	  done; rm -f .env.bak; }
 	@echo "Starting TraceRoot at http://localhost:3000 - Ctrl+C to stop"
 	APP_VERSION=$(APP_VERSION) $(PROD_COMPOSE) up --build
 

@@ -22,7 +22,6 @@ import socket
 import subprocess
 from pathlib import Path
 
-from db.clickhouse.migrate import run_goose
 from tmux_tools import schema
 
 REST_PORT = 8000
@@ -47,6 +46,7 @@ def _run(
     check: bool = True,
     capture_output: bool = False,
     cwd: str | Path | None = None,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess:
     args = shlex.split(command) if isinstance(command, str) else command
     return subprocess.run(
@@ -55,6 +55,7 @@ def _run(
         capture_output=capture_output,
         text=True,
         cwd=cwd,
+        env=env,
     )
 
 
@@ -84,10 +85,12 @@ PUBLISHED_PLACEHOLDERS = frozenset(
 def is_placeholder(assigned: str) -> bool:
     """True if the text after ``KEY=`` is empty or a string we published.
 
-    Takes everything to the end of the line, so any trailing comment is dropped
+    Takes everything to the end of the line, so a trailing comment is dropped
     before the comparison -- the published lines carried a "# CHANGEME" note.
+    Only whitespace followed by "#" opens a comment, so a secret that merely
+    contains a "#" is compared, and kept, in full.
     """
-    cleaned = assigned.split("#", 1)[0].strip().strip("\"'")
+    cleaned = re.split(r"\s#", assigned, maxsplit=1)[0].strip().strip("\"'")
     return not cleaned or cleaned.lower() in PUBLISHED_PLACEHOLDERS
 
 
@@ -176,6 +179,10 @@ def ensure_migrations():
         cwd="frontend/packages/core",
     )
     print("Running ClickHouse migrations (goose)...")
+    # Imported here, not at module scope: `--env-only` has to run on a machine
+    # that has Python but no backend dependencies installed (make prod-lite).
+    from db.clickhouse.migrate import run_goose
+
     run_goose("up", docker_fallback=True)
 
 
@@ -253,11 +260,24 @@ def reset_dev_environment() -> None:
     print("Done. Run 'make dev' to start fresh.")
 
 
+def _teardown_env() -> dict[str, str]:
+    """Environment for compose commands that only remove things.
+
+    Compose interpolates every required variable even for ``down``, so a reset
+    would otherwise fail before removing anything when .env is missing. Nothing
+    here reaches a container -- the containers are on their way out.
+    """
+    env = dict(os.environ)
+    for key in GENERATED_KEYS:
+        env.setdefault(key, "unused-for-teardown")
+    return env
+
+
 def reset_prod_environment() -> None:
     print("Resetting production environment...")
     _kill_tmux_session("traceroot-prod")
     _remove_sandbox_containers()
-    _run(f"{PROD_COMPOSE} down -v --rmi local")
+    _run(f"{PROD_COMPOSE} down -v --rmi local", env=_teardown_env())
     print("Done. Run 'make prod' to start fresh.")
 
 

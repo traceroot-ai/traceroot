@@ -52,9 +52,9 @@ describe("authSecret", () => {
     expect(authSecret().safeParse("  Local-Dev-Secret-Change-In-Production ").success).toBe(false);
   });
 
-  it("still rejects an empty value", async () => {
+  it.each(["", "   ", "\t\n"])("rejects the blank value %j", async (blank) => {
     const { authSecret } = await loadEnv();
-    expect(authSecret().safeParse("").success).toBe(false);
+    expect(authSecret().safeParse(blank).success).toBe(false);
   });
 
   it("accepts a generated secret", async () => {

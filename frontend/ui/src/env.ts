@@ -14,6 +14,7 @@ const PUBLISHED_PLACEHOLDERS = new Set([
 export const authSecret = () =>
   z
     .string()
+    .trim()
     .min(1)
     .refine((value) => !PUBLISHED_PLACEHOLDERS.has(value.trim().toLowerCase()), {
       message:

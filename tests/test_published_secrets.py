@@ -23,7 +23,13 @@ from pathlib import Path
 import pytest
 
 from shared.config import Settings
-from tmux_tools.launcher import GENERATED_KEYS, ensure_env_file, fill_secrets
+from tmux_tools.launcher import (
+    GENERATED_KEYS,
+    _teardown_env,
+    ensure_env_file,
+    fill_secrets,
+    is_placeholder,
+)
 
 _ROOT = Path(__file__).resolve().parent.parent
 _COMPOSE = _ROOT / "docker-compose.prod.yml"
@@ -145,6 +151,32 @@ def test_missing_key_is_appended_without_joining_lines(env):
     values = _values(env_path)
     assert values["FOO"] == "bar"
     assert all(len(values[key]) == 64 for key in GENERATED_KEYS)
+
+
+@pytest.mark.parametrize(
+    "value", ["changeme#custom-suffix", "internal-secret-but-longer", "a1b2#c3d4"]
+)
+def test_a_secret_that_merely_contains_a_hash_is_kept(value):
+    """Only whitespace before ``#`` opens a comment, so these are real values."""
+    assert not is_placeholder(value)
+    assert fill_secrets(f"INTERNAL_API_SECRET={value}\nBETTER_AUTH_SECRET=x\n").startswith(
+        f"INTERNAL_API_SECRET={value}"
+    )
+
+
+def test_trailing_comment_still_marks_a_placeholder():
+    assert is_placeholder("internal-secret  # CHANGEME in production")
+
+
+def test_teardown_does_not_need_real_secrets():
+    """Compose interpolates required vars even for ``down``; a reset must not fail."""
+    env = _teardown_env()
+    assert all(env[key] for key in GENERATED_KEYS)
+
+
+def test_teardown_prefers_a_value_the_operator_already_set(monkeypatch):
+    monkeypatch.setenv("INTERNAL_API_SECRET", "operator-value")
+    assert _teardown_env()["INTERNAL_API_SECRET"] == "operator-value"
 
 
 def test_fill_secrets_leaves_a_configured_file_alone():
