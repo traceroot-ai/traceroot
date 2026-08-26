@@ -47,6 +47,7 @@ const store = new Map<string, AlertRowStub>();
 function matches(row: AlertRowStub, where: Where): boolean {
   if (typeof where.id === "string" && row.id !== where.id) return false;
   if (typeof where.projectId === "string" && row.projectId !== where.projectId) return false;
+  if (typeof where.status === "string" && row.status !== where.status) return false;
   const name = where.name as { contains?: string } | undefined;
   if (name?.contains !== undefined && !row.name.toLowerCase().includes(name.contains.toLowerCase()))
     return false;
@@ -233,14 +234,17 @@ describe("PATCH /api/projects/[projectId]/alerts/[alertId]", () => {
     expect(row?.nextRunAt).toBeInstanceOf(Date);
   });
 
-  it("changes the no-data mode without voiding what has already been measured", async () => {
-    // How a gap reads is a notification policy, like renotify: it does not
-    // change the number the last window produced.
+  it("resets the alert to a cold start when the no-data mode changes", async () => {
+    // Stored state was computed under the old reading of a gap.
     expect((await patch({ noDataMode: "ZERO" })).status).toBe(200);
+    const row = store.get("alert-1");
 
-    expect(store.get("alert-1")?.noDataMode).toBe("ZERO");
-    expect(store.get("alert-1")?.severity).toBe("ALERT");
-    expect(store.get("alert-1")?.lastClaimedAt).not.toBeNull();
+    expect(row?.noDataMode).toBe("ZERO");
+    expect(row?.severity).toBe("UNKNOWN");
+    expect(row?.severityChangedAt).toBeNull();
+    expect(row?.alertedAt).toBeNull();
+    expect(row?.lastClaimedAt).toBeNull();
+    expect(row?.nextRunAt).toBeInstanceOf(Date);
     expect((await patch({ noDataMode: "SILENT" })).status).toBe(400);
   });
 
@@ -314,6 +318,33 @@ describe("PATCH /api/projects/[projectId]/alerts/[alertId]/pause", () => {
     expect(row?.severityChangedAt).toBeNull();
     expect(row?.alertedAt).toBeNull();
     expect(row?.lastClaimedAt).toBeNull();
+    // The transition is the WHERE, not a prior read the write could race.
+    expect(alertUpdateMany.mock.calls[0][0].where).toEqual({
+      id: "alert-1",
+      projectId: "proj-1",
+      status: "PAUSED",
+    });
+  });
+
+  it("leaves a rule that is already active exactly as it was", async () => {
+    // A double-click or a retried resume must not cold-start a firing rule:
+    // the worker would read the reset as UNKNOWN-to-ALERT and page again.
+    expect((await pause("ACTIVE")).status).toBe(200);
+    const row = store.get("alert-1");
+
+    expect(row?.status).toBe("ACTIVE");
+    expect(row?.severity).toBe("ALERT");
+    expect(row?.severityChangedAt).toEqual(baseAlertRow.severityChangedAt);
+    expect(row?.alertedAt).toEqual(baseAlertRow.alertedAt);
+    expect(row?.lastEvaluatedAt).toEqual(baseAlertRow.lastEvaluatedAt);
+    expect(row?.nextRunAt).toEqual(baseAlertRow.nextRunAt);
+    expect(row?.lastClaimedAt).toEqual(baseAlertRow.lastClaimedAt);
+  });
+
+  it("404s a resume of an id that is missing or in another project", async () => {
+    expect((await pause("ACTIVE", "missing")).status).toBe(404);
+    expect((await pause("ACTIVE", "other-1")).status).toBe(404);
+    expect(store.get("other-1")?.severity).toBe("ALERT");
   });
 
   it("rejects a status outside the pair", async () => {
