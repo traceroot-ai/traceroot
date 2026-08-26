@@ -147,6 +147,20 @@ describe("AlertForm", () => {
     fireEvent.change(screen.getByLabelText("value"), { target: { value } });
   }
 
+  // Enumerable fields (model, span kind, …) render the trace-list value dropdown
+  // rather than a free input, so their value is picked from the stored values.
+  async function addEnumFilter(fieldLabel: string, value: string) {
+    mocks.useWidgetFieldValues.mockReturnValue({
+      values: [{ value, count: 1 }],
+      isLoading: false,
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Add filter/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Field/ }));
+    fireEvent.click(await screen.findByRole("option", { name: fieldLabel }));
+    fireEvent.click(screen.getByRole("button", { name: "Enter value" }));
+    fireEvent.click(await screen.findByRole("option", { name: new RegExp(value) }));
+  }
+
   function openSelect(label: string) {
     fireEvent.pointerDown(screen.getByLabelText(label), { button: 0, pointerType: "mouse" });
   }
@@ -276,8 +290,8 @@ describe("AlertForm", () => {
     fireEvent.click(screen.getByRole("button", { name: /Add filter/ }));
     fireEvent.click(screen.getByRole("button", { name: /^Field/ }));
     fireEvent.click(await screen.findByRole("option", { name: "Model" }));
-    // The row is on screen and empty: the payload drops it.
-    expect((screen.getByLabelText("value") as HTMLInputElement).value).toBe("");
+    // The row is on screen and empty (the dropdown still shows its placeholder): the payload drops it.
+    expect(screen.getByRole("button", { name: "Enter value" })).toBeTruthy();
     fillRequiredFields();
     fireEvent.click(saveButton());
 
@@ -331,7 +345,7 @@ describe("AlertForm", () => {
       DEFAULT_BUCKET_SECONDS,
     );
 
-    await addFilter("Span kind", "LLM");
+    await addEnumFilter("Span kind", "LLM");
     fillRequiredFields();
 
     // The distinct count stops being grain-invariant once spans are filtered.
