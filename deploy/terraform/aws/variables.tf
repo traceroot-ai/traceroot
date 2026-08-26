@@ -238,6 +238,20 @@ variable "google_oauth_client_secret" {
   default     = ""
 }
 
+# --- GitHub OAuth Login ---
+variable "github_oauth_client_id" {
+  description = "GitHub OAuth client ID for user login"
+  type        = string
+  default     = ""
+}
+
+variable "github_oauth_client_secret" {
+  description = "GitHub OAuth client secret for user login"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
 # --- Email / SMTP ---
 variable "smtp_url" {
   description = "SMTP URL (e.g. smtp://user:pass@host:port)"
@@ -294,12 +308,13 @@ variable "alb_scheme" {
 }
 
 # --- Additional environment variables ---
-# Catch-all for any env vars not covered above (Google OAuth, SMTP, Stripe, etc.)
+# Catch-all for any env vars not covered above (OAuth, SMTP, Stripe, etc.)
 # Each entry has either `value` (plain text) or `valueFrom` (secret ref).
 #
 # Example usage in terraform.tfvars:
 #   additional_env = [
 #     { name = "AUTH_GOOGLE_CLIENT_ID",     value = "123456.apps.googleusercontent.com" },
+#     { name = "AUTH_GITHUB_CLIENT_ID",     value = "Ov23li..." },
 #     { name = "ENABLE_BILLING",            value = "true" },
 #     { name = "STRIPE_SECRET_KEY", valueFrom = {
 #       secretKeyRef = { name = "my-stripe-secret", key = "secret-key" }

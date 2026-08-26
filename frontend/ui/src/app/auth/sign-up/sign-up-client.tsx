@@ -12,6 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Logo } from "@/components/Logo";
+import { SocialAuthButtons } from "../social-auth-buttons";
+import type { EnabledSocialAuthProviders } from "@/lib/social-auth";
 
 const signUpSchema = z
   .object({
@@ -28,16 +30,15 @@ const signUpSchema = z
 type SignUpForm = z.infer<typeof signUpSchema>;
 
 type SignUpClientProps = {
-  googleAuthConfigured: boolean;
+  enabledProviders: EnabledSocialAuthProviders;
 };
 
-export function SignUpClient({ googleAuthConfigured }: SignUpClientProps) {
+export function SignUpClient({ enabledProviders }: SignUpClientProps) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   const {
     register,
@@ -69,14 +70,6 @@ export function SignUpClient({ googleAuthConfigured }: SignUpClientProps) {
     } finally {
       setIsLoading(false);
     }
-  }
-
-  async function handleGoogleSignUp() {
-    setIsGoogleLoading(true);
-    await authClient.signIn.social({
-      provider: "google",
-      callbackURL: "/onboarding",
-    });
   }
 
   return (
@@ -166,28 +159,12 @@ export function SignUpClient({ googleAuthConfigured }: SignUpClientProps) {
             </Button>
           </form>
 
-          {googleAuthConfigured && (
-            <>
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <span className="w-full border-t" />
-                </div>
-                <div className="relative flex justify-center text-[11px] uppercase">
-                  <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
-                </div>
-              </div>
-
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-8 w-full text-[13px]"
-                onClick={handleGoogleSignUp}
-                disabled={isGoogleLoading}
-              >
-                {isGoogleLoading ? "Redirecting..." : "Google"}
-              </Button>
-            </>
-          )}
+          <SocialAuthButtons
+            callbackURL="/onboarding"
+            enabledProviders={enabledProviders}
+            onError={setError}
+            verb="sign up"
+          />
 
           <p className="text-center text-[12px] text-muted-foreground">
             Already have an account?{" "}
