@@ -153,6 +153,45 @@ describe("git_clone tool", () => {
     expect(clones[0].ref).toBe("feature/my-branch");
   });
 
+  it("reports a clone failure with the token redacted", async () => {
+    const { executor } = stubExecutor();
+    (executor.cloneRepo as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new Error(`fatal: could not read Username for 'https://x-access-token:${TOKEN}@github.com'`),
+    );
+    stubTokenFetch();
+    const tool = createGitCloneTool("ws_1", "http://ui.test", executor);
+    const result = await tool.execute(
+      {} as never,
+      {
+        label: "x",
+        repo: "traceroot-ai/traceroot",
+      } as never,
+    );
+    const text = result.content.map((c) => ("text" in c ? c.text : "")).join("\n");
+    expect(text).toContain("Clone failed");
+    expect(text).toContain("[REDACTED]");
+    expect(text).not.toContain(TOKEN);
+  });
+
+  it("returns a clear message when no GitHub App is installed", async () => {
+    const { executor, clones } = stubExecutor();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("nope", { status: 404 })),
+    );
+    const tool = createGitCloneTool("ws_1", "http://ui.test", executor);
+    const result = await tool.execute(
+      {} as never,
+      {
+        label: "x",
+        repo: "traceroot-ai/traceroot",
+      } as never,
+    );
+    const text = result.content.map((c) => ("text" in c ? c.text : "")).join("\n");
+    expect(text).toContain("No GitHub App installed");
+    expect(clones).toHaveLength(0);
+  });
+
   it("never puts the token in a shell command", async () => {
     const { commands } = await run({ label: "x", repo: "traceroot-ai/traceroot", ref: "main" });
     for (const command of commands) {
