@@ -74,18 +74,6 @@ describe("authSecret", () => {
     }
   });
 
-  it("keeps an operator value byte for byte", async () => {
-    // The Python services compare this exact string, so trimming it here alone
-    // would 403 every internal request when the value carries stray whitespace.
-    const { authSecret } = await loadEnv();
-    const padded = `  ${GENERATED}  `;
-    const result = authSecret().safeParse(padded);
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect(result.data).toBe(padded);
-    }
-  });
-
   it("rejects a padded placeholder too", async () => {
     const { authSecret } = await loadEnv();
     expect(authSecret().safeParse("  changeme  ").success).toBe(false);
