@@ -13,7 +13,7 @@ export interface DetectorFormValues {
   detectionModel: string;
   detectionProvider: string;
   detectionSource: "system" | "byok";
-  conditions: Array<{ field: string; op: string; value: unknown }>;
+  conditions: Array<{ field: string; op: string; value: unknown; key?: string }>;
 }
 
 export function detectorToFormValues(d: Detector): DetectorFormValues {

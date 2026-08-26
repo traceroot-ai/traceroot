@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@traceroot/core";
+import { validateTriggerConditions } from "@/features/detectors/trigger-fields";
 import {
   requireAuth,
   requireProjectAccess,
@@ -89,8 +90,12 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
       return errorResponse("sampleRate must be an integer between 0 and 100", 400);
     }
   }
-  if (triggerConditions !== undefined && !Array.isArray(triggerConditions)) {
-    return errorResponse("triggerConditions must be an array", 400);
+  if (triggerConditions !== undefined) {
+    // Registry validation, not just an array check: an unknown field or
+    // operator would be stored fine but never match at evaluation time,
+    // silently disabling the detector.
+    const conditionsError = validateTriggerConditions(triggerConditions);
+    if (conditionsError) return errorResponse(conditionsError, 400);
   }
   if (outputSchema !== undefined && !Array.isArray(outputSchema)) {
     return errorResponse("outputSchema must be an array", 400);

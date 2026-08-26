@@ -4,7 +4,7 @@
  * computed there.
  */
 
-import { isAlertFilterOperator, type AlertFilter } from "@traceroot/core";
+import { isAlertFilterOperator, isCompleteAlertFilter, type AlertFilter } from "@traceroot/core";
 
 const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
 const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "";
@@ -58,12 +58,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * Whether the backend's filter model will accept this spec. It refuses a
  * violation as a request-validation error over the whole batch rather than as
  * one alert's `error`, so a rule stored before that vocabulary was enforced
- * would otherwise silence every alert sharing its window.
+ * would otherwise silence every alert sharing its window. A keyless keyed-field
+ * filter would come back as this one rule's error instead; it is settled here
+ * anyway because the answer is already known without asking.
  */
 export function isSendableAlertSpec(spec: AlertEvaluationSpec): boolean {
   return spec.filters.every(
     (filter: AlertFilter) =>
-      filter.field.length > 0 &&
+      isCompleteAlertFilter(filter) &&
       isAlertFilterOperator(filter.op) &&
       (typeof filter.value === "number"
         ? Number.isFinite(filter.value)
