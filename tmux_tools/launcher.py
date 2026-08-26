@@ -22,6 +22,7 @@ import socket
 import subprocess
 from pathlib import Path
 
+from db.clickhouse.migrate import run_goose
 from tmux_tools import schema
 
 REST_PORT = 8000
@@ -179,10 +180,6 @@ def ensure_migrations():
         cwd="frontend/packages/core",
     )
     print("Running ClickHouse migrations (goose)...")
-    # Imported here, not at module scope: `--env-only` has to run on a machine
-    # that has Python but no backend dependencies installed (make prod-lite).
-    from db.clickhouse.migrate import run_goose
-
     run_goose("up", docker_fallback=True)
 
 

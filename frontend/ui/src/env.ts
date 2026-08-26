@@ -11,11 +11,14 @@ const PUBLISHED_PLACEHOLDERS = new Set([
   "changeme",
 ]);
 
+// Deliberately no .trim() transform: this exact string is compared against the
+// Python services' copy, so normalizing it here alone would break every internal
+// request when an operator's value carries stray whitespace. Blankness is
+// checked without changing the value.
 export const authSecret = () =>
   z
     .string()
-    .trim()
-    .min(1)
+    .refine((value) => value.trim().length > 0, { message: "must not be blank" })
     .refine((value) => !PUBLISHED_PLACEHOLDERS.has(value.trim().toLowerCase()), {
       message:
         "value is a placeholder published in this repository; generate one with `openssl rand -hex 32`",
