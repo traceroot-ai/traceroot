@@ -2,7 +2,7 @@
 
 import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { PlanType } from "@traceroot/core";
+import { toPlanType } from "@traceroot/core";
 import { WorkspaceBreadcrumb } from "@/features/workspaces/components";
 import { BillingTab } from "@/ee/features/billing/BillingTab";
 import { getWorkspace } from "@/lib/api";
@@ -31,7 +31,7 @@ export default function WorkspaceSettingsBillingPage() {
         ) : (
           <BillingTab
             workspaceId={workspaceId}
-            currentPlan={(workspace?.billingPlan as PlanType) || PlanType.FREE}
+            currentPlan={toPlanType(workspace?.billingPlan)}
             hasSubscription={!!workspace?.billingSubscriptionId}
             currentUsage={workspace?.currentUsage}
           />
