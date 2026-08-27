@@ -9,10 +9,13 @@ Usage:
     python tmux_tools/launcher.py --reset        # reset the development environment
     python tmux_tools/launcher.py --prod         # production mode (all services in Docker)
     python tmux_tools/launcher.py --prod-reset   # reset the production environment
+    python tmux_tools/launcher.py --env-only     # create/repair .env, then exit
 """
 
 import argparse
 import os
+import re
+import secrets
 import shlex
 import shutil
 import socket
@@ -26,6 +29,8 @@ REST_PORT = 8000
 FRONTEND_PORT = 3000
 AGENT_PORT = 8100
 ROOT = Path(__file__).resolve().parent.parent
+ENV_PATH = ROOT / ".env"
+ENV_EXAMPLE_PATH = ROOT / ".env.example"
 DOCKER_COMPOSE = "docker compose"
 PROD_COMPOSE = "docker compose -f docker-compose.prod.yml"
 DEV_NODE_MODULES = [
@@ -42,6 +47,7 @@ def _run(
     check: bool = True,
     capture_output: bool = False,
     cwd: str | Path | None = None,
+    env: dict[str, str] | None = None,
 ) -> subprocess.CompletedProcess:
     args = shlex.split(command) if isinstance(command, str) else command
     return subprocess.run(
@@ -50,6 +56,7 @@ def _run(
         capture_output=capture_output,
         text=True,
         cwd=cwd,
+        env=env,
     )
 
 
@@ -58,14 +65,70 @@ def _run(
 # ---------------------------------------------------------------------------
 
 
-def ensure_env_file():
-    """Copy .env.example to .env if it doesn't exist."""
-    if not os.path.exists(".env"):
+# Keys that must hold a unique, unguessable value in every install. .env.example
+# ships them empty because a value committed here is a value every install shares.
+GENERATED_KEYS = ("INTERNAL_API_SECRET", "BETTER_AUTH_SECRET")
+
+# Values this repository published at some point in .env.example or
+# docker-compose.prod.yml. Nobody chose them, so replacing them is safe; a value
+# that is not on this list is left alone, however weak it looks.
+PUBLISHED_PLACEHOLDERS = frozenset(
+    {
+        "dev-internal-secret",
+        "internal-secret",
+        "your-better-auth-secret",
+        "local-dev-secret-change-in-production",
+        "changeme",
+    }
+)
+
+
+def is_placeholder(assigned: str) -> bool:
+    """True if the text after ``KEY=`` is empty or a string we published.
+
+    Takes everything to the end of the line, so a trailing comment is dropped
+    before the comparison -- the published lines carried a "# CHANGEME" note.
+    Only whitespace followed by "#" opens a comment, so a secret that merely
+    contains a "#" is compared, and kept, in full.
+    """
+    cleaned = re.split(r"\s#", assigned, maxsplit=1)[0].strip().strip("\"'")
+    return not cleaned or cleaned.lower() in PUBLISHED_PLACEHOLDERS
+
+
+def fill_secrets(text: str) -> str:
+    """Give every key in GENERATED_KEYS a generated value unless one is set.
+
+    Matches the optional ``export`` prefix so a key written that way is repaired
+    in place rather than appended a second time, where it would take precedence
+    over the operator's own value.
+    """
+    for key in GENERATED_KEYS:
+        # Matches to end of line, so substituting drops any trailing comment
+        # along with the placeholder -- "# CHANGEME" stops being true here.
+        pattern = re.compile(rf"^(\s*(?:export\s+)?{key}\s*=)(.*)$", re.MULTILINE)
+        match = pattern.search(text)
+        if match is None:
+            text = text.rstrip("\n") + f"\n{key}={secrets.token_hex(32)}\n"
+        elif is_placeholder(match.group(2)):
+            text = pattern.sub(lambda m: m.group(1) + secrets.token_hex(32), text, count=1)
+    return text
+
+
+def ensure_env_file(env_path: Path = ENV_PATH, example_path: Path = ENV_EXAMPLE_PATH) -> None:
+    """Create .env if absent, then give every placeholder secret a real value."""
+    if not env_path.exists():
         print("Creating .env from .env.example...")
-        shutil.copy(".env.example", ".env")
-        print("  Created .env — edit it if you need to change defaults.")
+        shutil.copy(example_path, env_path)
     else:
         print("Found existing .env file.")
+
+    os.chmod(env_path, 0o600)  # it holds generated secrets, not just defaults
+
+    text = env_path.read_text()
+    filled = fill_secrets(text)
+    if filled != text:
+        print("  Generated a unique value for the local auth secrets.")
+        env_path.write_text(filled)
 
 
 def ensure_infra():
@@ -194,11 +257,24 @@ def reset_dev_environment() -> None:
     print("Done. Run 'make dev' to start fresh.")
 
 
+def _teardown_env() -> dict[str, str]:
+    """Environment for compose commands that only remove things.
+
+    Compose interpolates every required variable even for ``down``, so a reset
+    would otherwise fail before removing anything when .env is missing. Nothing
+    here reaches a container -- the containers are on their way out.
+    """
+    env = dict(os.environ)
+    for key in GENERATED_KEYS:
+        env.setdefault(key, "unused-for-teardown")
+    return env
+
+
 def reset_prod_environment() -> None:
     print("Resetting production environment...")
     _kill_tmux_session("traceroot-prod")
     _remove_sandbox_containers()
-    _run(f"{PROD_COMPOSE} down -v --rmi local")
+    _run(f"{PROD_COMPOSE} down -v --rmi local", env=_teardown_env())
     print("Done. Run 'make prod' to start fresh.")
 
 
@@ -483,6 +559,11 @@ def main() -> None:
         action="store_true",
         help="Reset the production environment and exit",
     )
+    mode.add_argument(
+        "--env-only",
+        action="store_true",
+        help="Create or repair .env and exit (used by the -lite make targets)",
+    )
     args = parser.parse_args()
 
     # Ensure the launcher process itself uses UTC, so inline steps like
@@ -491,6 +572,9 @@ def main() -> None:
 
     os.chdir(ROOT)
 
+    if args.env_only:
+        ensure_env_file()
+        return
     if args.reset:
         reset_dev_environment()
         return
