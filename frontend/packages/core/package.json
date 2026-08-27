@@ -25,6 +25,14 @@
     "./model-resolver": {
       "types": "./src/model-resolver.ts",
       "default": "./src/model-resolver.ts"
+    },
+    "./rca-executions": {
+      "types": "./src/rca-executions.ts",
+      "default": "./src/rca-executions.ts"
+    },
+    "./capture-policy": {
+      "types": "./src/lib/capture-policy.ts",
+      "default": "./src/lib/capture-policy.ts"
     }
   },
   "scripts": {

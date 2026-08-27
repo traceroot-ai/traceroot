@@ -53,3 +53,6 @@ export * from "./types/index.ts";
 // We do NOT re-export it here — pulling pi-ai into the main barrel would bundle
 // Node-only code (`node:fs`, etc.) into the Next.js client. Server-side
 // consumers (agent, detector worker) import explicitly from the subpath.
+// Node-only modules (node:crypto / Buffer) are NOT re-exported here: the UI bundles this
+// barrel for the browser. Import them by subpath: "@traceroot/core/rca-executions",
+// "@traceroot/core/capture-policy".

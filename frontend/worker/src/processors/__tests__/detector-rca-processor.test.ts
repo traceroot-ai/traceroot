@@ -25,6 +25,11 @@ vi.mock("../../queues/digest-queue.js", async (importOriginal) => {
   return { ...actual, createDetectorDigestQueue: () => ({ add: digestAddMock }) };
 });
 
+vi.mock("@traceroot/core/rca-executions", () => ({
+  allocateExecution: (...a: any[]) => allocateExecutionMock(...a),
+  advanceLatest: (...a: any[]) => advanceLatestMock(...a),
+  setExecutionTraceStatus: (...a: any[]) => setExecutionTraceStatusMock(...a),
+}));
 vi.mock("@traceroot/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@traceroot/core")>();
   return {

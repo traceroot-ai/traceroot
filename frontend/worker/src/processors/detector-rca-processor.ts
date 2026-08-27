@@ -7,10 +7,12 @@ import {
   ALERT_WINDOWS,
   DEFAULT_ALERT_WINDOW,
   isAlertWindow,
+} from "@traceroot/core";
+import {
   allocateExecution,
   advanceLatest,
   setExecutionTraceStatus,
-} from "@traceroot/core";
+} from "@traceroot/core/rca-executions";
 import { fetchProviderConfig, resolvePiModel } from "@traceroot/core/model-resolver";
 import type { DetectorRcaJob } from "../queues/detector-run-queue.js";
 import { DETECTOR_RCA_QUEUE, createRedisConnection } from "../queues/detector-run-queue.js";

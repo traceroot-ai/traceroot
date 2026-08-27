@@ -24,6 +24,11 @@ const detectorRcaUpdate = vi.fn();
 const detectorRcaExecutionUpdate = vi.fn();
 const digestQueueAdd = vi.fn();
 
+vi.mock("@traceroot/core/rca-executions", () => ({
+  allocateExecution: (...a: unknown[]) => allocateExecution(...a),
+  advanceLatest: (...a: unknown[]) => advanceLatest(...a),
+  setExecutionTraceStatus: (...a: unknown[]) => setExecutionTraceStatus(...a),
+}));
 vi.mock("@traceroot/core", async (orig) => ({
   ...(await orig<any>()),
   prisma: {
