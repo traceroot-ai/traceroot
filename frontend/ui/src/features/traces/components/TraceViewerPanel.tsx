@@ -51,6 +51,8 @@ interface TraceViewerPanelProps {
   autoOpenRca?: boolean;
   /** When true, the panel mounts already expanded to full width (e.g. opened in a new tab). */
   initialFullscreen?: boolean;
+  /** Span to select once the trace loads — the deep link behind a chat tool step's "Open span". */
+  initialSpanId?: string;
   /**
    * Rendered inside another surface (the agent-trace sheet, which itself lives
    * inside the assistant panel) rather than as the page's own overlay. Drops
@@ -177,6 +179,7 @@ export function TraceViewerPanel({
   autoOpenRca,
   initialFullscreen,
   embedded,
+  initialSpanId,
   newTabPath,
   traceOverride,
   hideDetectors,
@@ -297,6 +300,20 @@ export function TraceViewerPanel({
     enabled: !traceOverride,
   });
   const trace = traceOverride ?? fetchedTrace;
+
+  // Deep link: select `initialSpanId` once its trace has loaded. Applied once
+  // per (trace, span) so a later manual selection isn't overridden by a
+  // re-render, and skipped when the span isn't in this trace.
+  const appliedInitialSpanRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!initialSpanId || !trace?.spans?.length) return;
+    const key = `${trace.trace_id}:${initialSpanId}`;
+    if (appliedInitialSpanRef.current === key) return;
+    const span = trace.spans.find((s) => s.span_id === initialSpanId);
+    if (!span) return;
+    appliedInitialSpanRef.current = key;
+    setSelection({ type: "span", span });
+  }, [initialSpanId, trace]);
   const isLoading = traceOverride ? false : isFetching;
 
   // source must match the query key above, or SSE span merging silently no-ops.
