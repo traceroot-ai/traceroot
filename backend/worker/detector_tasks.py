@@ -280,6 +280,19 @@ def _has_metadata_condition(detectors: list[dict]) -> bool:
     )
 
 
+# The one source detectors may evaluate. Named as an allowlist (not "!= 'detector'")
+# so every internal marker — present or future — is refused the day it is introduced:
+# the same fail-closed shape as Langfuse's isEvalTargetEnvironmentAllowed. Enqueue
+# already only sees public-path traces, but this makes the judge's own read safe even
+# if enqueueing is ever wired to another path.
+DETECTOR_TARGET_SOURCES = frozenset({"user"})
+
+
+def is_detector_target_source(source: str | None) -> bool:
+    """True only for customer traffic. Fails closed on None, '' and unknown values."""
+    return source in DETECTOR_TARGET_SOURCES
+
+
 def _get_trace_summaries(
     project_id: str,
     trace_ids: list[str],
@@ -333,6 +346,7 @@ def _get_trace_summaries(
             FROM spans
             WHERE project_id = {project_id:String}
               AND trace_id IN {trace_ids:Array(String)}
+              AND source = 'user'
             ORDER BY ch_update_time DESC
             LIMIT 1 BY project_id, trace_id, span_id
         )

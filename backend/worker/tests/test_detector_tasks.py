@@ -1,6 +1,15 @@
 """Tests for detector trigger condition evaluation."""
 
-from worker.detector_tasks import _eval_condition, _passes_trigger
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from worker.detector_tasks import (
+    _eval_condition,
+    _get_trace_summaries,
+    _passes_trigger,
+    is_detector_target_source,
+)
 
 # ── Tests for _eval_condition ──────────────────────────────────────
 
@@ -164,3 +173,27 @@ def test_passes_trigger_single_condition_passes():
     trace_summary = {"cost": 100.0}
     conditions = [{"field": "cost", "op": ">", "value": 50.0}]
     assert _passes_trigger(trace_summary, conditions) is True
+
+
+# ── Fail-closed source guard ───────────────────────────────────────
+
+
+@pytest.mark.parametrize("source", ["user"])
+def test_user_source_is_a_detector_target(source):
+    assert is_detector_target_source(source) is True
+
+
+@pytest.mark.parametrize("source", ["detector", "agent", "", None, "USER", "anything"])
+def test_every_other_source_is_refused(source):
+    """Fail closed: a source this code has never heard of is not evaluated."""
+    assert is_detector_target_source(source) is False
+
+
+def test_trace_summaries_query_scopes_to_user_source():
+    ch = MagicMock()
+    ch.query.return_value = MagicMock(result_rows=[])
+    with patch("db.clickhouse.client.get_clickhouse_client", return_value=ch):
+        _get_trace_summaries("p1", ["t1"], include_trace_metadata=False)
+    sql = ch.query.call_args_list[0].args[0]
+    assert "AND source = 'user'" in sql
+    assert "!= 'detector'" not in sql
