@@ -89,7 +89,7 @@ def evaluate_alerts(
         )
     if not alerts:
         return []
-    # Concurrent, not serial: a serial loop cost up to chunk-size × the 10s
+    # Concurrent, not serial: a serial loop cost up to chunk-size x the 10s
     # per-query cap against the caller's 30s abort, and failed hardest on the
     # highest-volume projects. The shared ClickHouse client is sessionless and
     # pooled (see ClickHouseClient.from_settings), so overlapping queries are
