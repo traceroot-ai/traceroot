@@ -4,6 +4,198 @@ import type { RegistryEntry } from "./types.js";
 
 export const REGISTRY: readonly RegistryEntry[] = [
   {
+    name: "create_dashboard",
+    description:
+      "Create a dashboard in a project (idempotent on the dashboard name within the project); add charts to it with create_widget.",
+    method: "post",
+    path: "/api/v1/public/dashboards",
+    inputSchema: {
+      type: "object",
+      properties: {
+        description: {
+          type: "string",
+        },
+        name: {
+          type: "string",
+        },
+        project_id: {
+          type: "string",
+        },
+      },
+      required: ["project_id", "name"],
+      additionalProperties: false,
+    },
+    bodyParams: ["description", "name", "project_id"],
+    policy: {
+      approvalClass: "none",
+      minRole: "MEMBER",
+      tenancy: "project",
+    },
+  },
+  {
+    name: "create_detector",
+    description:
+      "Create a detector (name, template, prompt, optional sampling/RCA settings) in a project — idempotent on the detector name within the project.",
+    method: "post",
+    path: "/api/v1/public/detectors",
+    inputSchema: {
+      type: "object",
+      properties: {
+        detection_model: {
+          type: "string",
+        },
+        detection_provider: {
+          type: "string",
+        },
+        detection_source: {
+          type: "string",
+        },
+        enable_rca: {
+          type: "boolean",
+        },
+        enabled: {
+          type: "boolean",
+        },
+        name: {
+          type: "string",
+        },
+        output_schema: {
+          items: {},
+          type: "array",
+        },
+        project_id: {
+          type: "string",
+        },
+        prompt: {
+          type: "string",
+        },
+        sample_rate: {
+          type: "integer",
+        },
+        template: {
+          type: "string",
+        },
+        trigger_conditions: {
+          items: {},
+          type: "array",
+        },
+      },
+      required: ["project_id", "name", "template", "prompt"],
+      additionalProperties: false,
+    },
+    bodyParams: [
+      "detection_model",
+      "detection_provider",
+      "detection_source",
+      "enable_rca",
+      "enabled",
+      "name",
+      "output_schema",
+      "project_id",
+      "prompt",
+      "sample_rate",
+      "template",
+      "trigger_conditions",
+    ],
+    policy: {
+      approvalClass: "none",
+      minRole: "MEMBER",
+      tenancy: "project",
+    },
+  },
+  {
+    name: "create_project",
+    description:
+      "Create a project in a workspace the logged-in user can write to (idempotent on the project name within the workspace).",
+    method: "post",
+    path: "/api/v1/public/projects",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+        },
+        trace_ttl_days: {
+          type: "integer",
+        },
+        workspace_id: {
+          type: "string",
+        },
+      },
+      required: ["workspace_id", "name"],
+      additionalProperties: false,
+    },
+    bodyParams: ["name", "trace_ttl_days", "workspace_id"],
+    policy: {
+      approvalClass: "none",
+      minRole: "MEMBER",
+      tenancy: "workspace",
+    },
+  },
+  {
+    name: "create_widget",
+    description:
+      "Add a widget (title, type, query spec) to an existing dashboard. Strict create: every call adds a new widget.",
+    method: "post",
+    path: "/api/v1/public/widgets",
+    inputSchema: {
+      type: "object",
+      properties: {
+        dashboard_id: {
+          type: "string",
+        },
+        display_config: {
+          additionalProperties: true,
+          type: "object",
+        },
+        project_id: {
+          type: "string",
+        },
+        spec: {
+          additionalProperties: true,
+          type: "object",
+        },
+        title: {
+          type: "string",
+        },
+        type: {
+          type: "string",
+        },
+      },
+      required: ["project_id", "dashboard_id", "title", "type", "spec"],
+      additionalProperties: false,
+    },
+    bodyParams: ["dashboard_id", "display_config", "project_id", "spec", "title", "type"],
+    policy: {
+      approvalClass: "none",
+      minRole: "MEMBER",
+      tenancy: "project",
+    },
+  },
+  {
+    name: "create_workspace",
+    description:
+      "Create a workspace administered by the logged-in user. Idempotent: re-creating a same-named workspace the caller already administers returns it instead of duplicating.",
+    method: "post",
+    path: "/api/v1/public/workspaces",
+    inputSchema: {
+      type: "object",
+      properties: {
+        name: {
+          type: "string",
+        },
+      },
+      required: ["name"],
+      additionalProperties: false,
+    },
+    bodyParams: ["name"],
+    policy: {
+      approvalClass: "none",
+      minRole: "VIEWER",
+      tenancy: "account",
+    },
+  },
+  {
     name: "export_trace",
     description: "Export the complete bundle (trace, spans, git context, manifest) for one trace.",
     method: "get",

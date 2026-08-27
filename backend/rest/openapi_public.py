@@ -341,13 +341,54 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
     "register_run": {"enabled": False},
     "upsert_result": {"enabled": False},
     "complete_run": {"enabled": False},
-    # Public creates are API-facing writes; enabling them as agent tools is a
-    # deliberate later step.
-    "create_workspace": {"enabled": False},
-    "create_project": {"enabled": False},
-    "create_detector": {"enabled": False},
-    "create_dashboard": {"enabled": False},
-    "create_widget": {"enabled": False},
+    # Account-tenancy ops have no membership to gate; minRole VIEWER is the no-role-floor convention.
+    "create_workspace": {
+        "name": "create_workspace",
+        "description": (
+            "Create a workspace administered by the logged-in user. Idempotent: "
+            "re-creating a same-named workspace the caller already administers "
+            "returns it instead of duplicating."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "none", "minRole": "VIEWER", "tenancy": "account"},
+    },
+    "create_project": {
+        "name": "create_project",
+        "description": (
+            "Create a project in a workspace the logged-in user can write to "
+            "(idempotent on the project name within the workspace)."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "workspace"},
+    },
+    "create_detector": {
+        "name": "create_detector",
+        "description": (
+            "Create a detector (name, template, prompt, optional sampling/RCA "
+            "settings) in a project — idempotent on the detector name within "
+            "the project."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    "create_dashboard": {
+        "name": "create_dashboard",
+        "description": (
+            "Create a dashboard in a project (idempotent on the dashboard name "
+            "within the project); add charts to it with create_widget."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    "create_widget": {
+        "name": "create_widget",
+        "description": (
+            "Add a widget (title, type, query spec) to an existing dashboard. "
+            "Strict create: every call adds a new widget."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+    },
     "list_workspaces": {
         "name": "list_workspaces",
         "description": (
@@ -370,6 +411,56 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
 }
 
 
+# Legal values for each required write-tool policy key. Mirrors the registry
+# generator's validation exactly, so a policy mistake fails the schema build
+# here before the generated artifact can even drift.
+_POLICY_VALUES: dict[str, tuple[str, ...]] = {
+    "approvalClass": ("none", "approval"),
+    "minRole": ("VIEWER", "MEMBER", "ADMIN"),
+    "tenancy": ("account", "workspace", "project"),
+}
+
+
+def _validate_curation_policy(
+    entry: dict[str, Any], method: str, path: str, op_id: str | None
+) -> None:
+    """Enforce the write-only policy contract on one curation entry.
+
+    Args:
+        entry (dict[str, Any]): The ``_TOOL_CURATION`` entry for the operation.
+        method (str): Lowercase HTTP method of the operation.
+        path (str): Public path the operation lives on (for error messages).
+        op_id (str | None): The operation's ``operationId`` (for error messages).
+
+    Raises:
+        ValueError: If a GET entry carries a ``policy`` key (the vocabulary is
+            write-only), or if an enabled non-GET entry's ``policy`` is not a
+            dict with exactly the keys ``{approvalClass, minRole, tenancy}``
+            and legal values.
+    """
+    if method == "get":
+        if "policy" in entry:
+            raise ValueError(
+                f"read tool GET {path} ({op_id}): x-tool entries on GET "
+                "operations must not carry a policy — the vocabulary is write-only"
+            )
+        return
+    if not entry.get("enabled"):
+        return
+    policy = entry.get("policy")
+    valid = (
+        isinstance(policy, dict)
+        and set(policy) == set(_POLICY_VALUES)
+        and all(policy[key] in values for key, values in _POLICY_VALUES.items())
+    )
+    if not valid:
+        raise ValueError(
+            f"enabled write tool {method.upper()} {path} ({op_id}): x-tool policy "
+            "must be a dict with exactly the keys {approvalClass, minRole, tenancy} "
+            "and legal values"
+        )
+
+
 def _apply_tool_curation(schema: dict[str, Any]) -> None:
     """Stamp the per-operation ``x-tool`` block from ``_TOOL_CURATION``.
 
@@ -379,9 +470,10 @@ def _apply_tool_curation(schema: dict[str, Any]) -> None:
 
     Raises:
         ValueError: If a public operation has no curation entry — forces every
-            new endpoint to make an explicit tool decision in the same PR — or
-            if a curation entry matches no public operation (stale after a
-            rename or removal).
+            new endpoint to make an explicit tool decision in the same PR — if
+            a curation entry matches no public operation (stale after a rename
+            or removal), or if an entry violates the write-tool policy contract
+            (see :func:`_validate_curation_policy`).
     """
     consumed: set[str] = set()
     for path, item in schema["paths"].items():
@@ -395,6 +487,7 @@ def _apply_tool_curation(schema: dict[str, Any]) -> None:
                     f"public operation {method.upper()} {path} ({op_id}) has no "
                     "_TOOL_CURATION entry — add one (enabled or disabled)"
                 )
+            _validate_curation_policy(entry, method, path, op_id)
             consumed.add(op_id)
             op["x-tool"] = copy.deepcopy(entry)
     stale = set(_TOOL_CURATION) - consumed

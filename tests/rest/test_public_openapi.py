@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import rest.openapi_public as openapi_public
 from rest.main import app
 from rest.openapi_public import PUBLIC_PREFIX, _apply_tool_curation, build_public_schema, render
 
@@ -340,11 +341,6 @@ def test_x_tool_enabled_set_and_shape():
         "register_run",
         "upsert_result",
         "complete_run",
-        "create_workspace",
-        "create_project",
-        "create_detector",
-        "create_dashboard",
-        "create_widget",
     }
     assert set(enabled) == {
         "whoami",
@@ -361,6 +357,11 @@ def test_x_tool_enabled_set_and_shape():
         "get_finding_by_trace",
         "list_workspaces",
         "list_projects",
+        "create_workspace",
+        "create_project",
+        "create_detector",
+        "create_dashboard",
+        "create_widget",
     }
     for name, tool in enabled.items():
         assert tool["description"], f"{name} needs an agent-facing description"
@@ -514,3 +515,102 @@ def test_stale_curation_entry_fails_build():
     fake = {"paths": {"/api/v1/public/whoami": {"get": {"operationId": "whoami"}}}}
     with pytest.raises(ValueError, match=r"stale _TOOL_CURATION.*list_traces"):
         _apply_tool_curation(fake)
+
+
+# --- Write-tool policy curation ----------------------------------------------
+
+_VALID_CREATE_POLICY = {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "workspace"}
+
+
+def test_enabled_write_entry_missing_policy_fails_build(monkeypatch):
+    monkeypatch.setitem(
+        openapi_public._TOOL_CURATION,
+        "create_project",
+        {"name": "create_project", "description": "Create a project.", "enabled": True},
+    )
+    with pytest.raises(ValueError, match=r"create_project.*policy"):
+        build_public_schema(app)
+
+
+def test_enabled_write_entry_illegal_approval_class_fails_build(monkeypatch):
+    monkeypatch.setitem(
+        openapi_public._TOOL_CURATION,
+        "create_project",
+        {
+            "name": "create_project",
+            "description": "Create a project.",
+            "enabled": True,
+            "policy": {**_VALID_CREATE_POLICY, "approvalClass": "auto"},
+        },
+    )
+    with pytest.raises(ValueError, match=r"create_project.*policy"):
+        build_public_schema(app)
+
+
+def test_enabled_write_entry_extra_policy_key_fails_build(monkeypatch):
+    monkeypatch.setitem(
+        openapi_public._TOOL_CURATION,
+        "create_project",
+        {
+            "name": "create_project",
+            "description": "Create a project.",
+            "enabled": True,
+            "policy": {**_VALID_CREATE_POLICY, "rateLimit": "write"},
+        },
+    )
+    with pytest.raises(ValueError, match=r"create_project.*policy"):
+        build_public_schema(app)
+
+
+def test_get_entry_carrying_policy_fails_build(monkeypatch):
+    # The policy vocabulary is write-only: a read tool carrying one is a
+    # curation mistake, not a harmless extra.
+    monkeypatch.setitem(
+        openapi_public._TOOL_CURATION,
+        "whoami",
+        {
+            "name": "whoami",
+            "description": "Identify the credential.",
+            "enabled": True,
+            "policy": dict(_VALID_CREATE_POLICY),
+        },
+    )
+    with pytest.raises(ValueError, match=r"whoami.*policy"):
+        build_public_schema(app)
+
+
+# The five public creates, pinned to their exact write-tool policy. approvalClass
+# and minRole must match what the write service actually enforces; tenancy names
+# the scope the target resource lives in.
+_CREATE_TOOL_POLICIES = {
+    "create_workspace": (
+        "/api/v1/public/workspaces",
+        {"approvalClass": "none", "minRole": "VIEWER", "tenancy": "account"},
+    ),
+    "create_project": (
+        "/api/v1/public/projects",
+        {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "workspace"},
+    ),
+    "create_detector": (
+        "/api/v1/public/detectors",
+        {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+    ),
+    "create_dashboard": (
+        "/api/v1/public/dashboards",
+        {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+    ),
+    "create_widget": (
+        "/api/v1/public/widgets",
+        {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+    ),
+}
+
+
+@pytest.mark.parametrize("op_id", sorted(_CREATE_TOOL_POLICIES))
+def test_create_ops_are_enabled_tools_with_pinned_policy(op_id):
+    path, policy = _CREATE_TOOL_POLICIES[op_id]
+    tool = _schema()["paths"][path]["post"]["x-tool"]
+    assert tool["enabled"] is True
+    assert tool["name"] == op_id
+    assert tool["description"], f"{op_id} needs an agent-facing description"
+    assert tool["policy"] == policy
