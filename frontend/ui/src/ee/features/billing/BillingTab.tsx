@@ -281,6 +281,31 @@ export function BillingTab({
                   : ` / ${eventQuota.included.toLocaleString()}`}
               </span>
             </div>
+            {currentUsage?.bySource && (
+              <>
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>Your traces</span>
+                  <span>
+                    {(
+                      currentUsage.bySource.user.traces + currentUsage.bySource.user.spans
+                    ).toLocaleString()}
+                  </span>
+                </div>
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span title="Detector scans and agent analyses run by TraceRoot in this project">
+                    Platform runs
+                  </span>
+                  <span>
+                    {(
+                      currentUsage.bySource.detector.traces +
+                      currentUsage.bySource.detector.spans +
+                      currentUsage.bySource.agent.traces +
+                      currentUsage.bySource.agent.spans
+                    ).toLocaleString()}
+                  </span>
+                </div>
+              </>
+            )}
           </div>
           {currentUsage?.updatedAt && (
             <p className="mt-2 text-xs text-muted-foreground">

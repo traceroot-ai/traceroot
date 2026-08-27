@@ -109,6 +109,33 @@ describe("isIngestionBlocked", () => {
   });
 });
 
+// The second argument is the user-source (source='user') event count, not the
+// raw stored-row total: internal telemetry (detector self-traces, agent traces)
+// is billed like any stored row on paid plans but must never consume the Free
+// quota, which exists for the customer's own data.
+describe("isIngestionBlocked counts customer rows only", () => {
+  beforeEach(() => {
+    vi.stubEnv("ENABLE_BILLING", "true");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("does not block a Free workspace whose internal rows push the raw total over the cap", () => {
+    // 49k user events + 5k detector self-trace events: the customer's own data is under the cap.
+    expect(isIngestionBlocked(PlanType.FREE, 49_000)).toBe(false);
+  });
+
+  it("blocks at the cap on user events", () => {
+    expect(isIngestionBlocked(PlanType.FREE, 51_000)).toBe(true);
+  });
+
+  it("never blocks paid plans", () => {
+    expect(isIngestionBlocked(PlanType.PRO, 10_000_000)).toBe(false);
+  });
+});
+
 describe("isDetectorRunBlocked", () => {
   beforeEach(() => {
     vi.stubEnv("ENABLE_BILLING", "true");
