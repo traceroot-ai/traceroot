@@ -7,6 +7,7 @@ reaches the widget query engine over the internal alert-evaluate endpoint.
 import logging
 import math
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from typing import Any, NamedTuple
 
@@ -26,6 +27,13 @@ ALERT_VIEW_SPANS = "SPANS"
 
 # The registry's count(*) sentinel field, on both views.
 COUNT_FIELD = "count"
+
+# Per-batch query concurrency. The worker sends chunks of up to 25 alerts
+# (ALERT_EVALUATION_CHUNK_SIZE) and aborts the request at 30s, while one query
+# may run to its 10s server cap. 13 workers hold the worst case to two 10s
+# waves — inside the client's budget with margin — without letting a single
+# tick monopolize the shared ClickHouse connection pool.
+_MAX_CONCURRENT_QUERIES = 13
 
 
 class _MeasureSource(NamedTuple):
@@ -79,7 +87,17 @@ def evaluate_alerts(
             "window_end must be within "
             f"{int(MAX_ALERT_WINDOW_END_LAG.total_seconds())} seconds of now",
         )
-    return [_evaluate_one(alert, project_id, start_time, end_time) for alert in alerts]
+    if not alerts:
+        return []
+    # Concurrent, not serial: a serial loop cost up to chunk-size × the 10s
+    # per-query cap against the caller's 30s abort, and failed hardest on the
+    # highest-volume projects. The shared ClickHouse client is sessionless and
+    # pooled (see ClickHouseClient.from_settings), so overlapping queries are
+    # its normal operating mode. ``map`` preserves request order.
+    with ThreadPoolExecutor(max_workers=min(_MAX_CONCURRENT_QUERIES, len(alerts))) as pool:
+        return list(
+            pool.map(lambda alert: _evaluate_one(alert, project_id, start_time, end_time), alerts)
+        )
 
 
 def _evaluate_one(
@@ -90,16 +108,12 @@ def _evaluate_one(
 ) -> AlertEvaluationResult:
     try:
         source = _resolve_source(alert)
-        value = _run_scalar(
+        value, row_count = _run_scalar_and_count(
             _build_spec(source.view, source.field, alert.aggregation, alert.filters),
             project_id,
             start_time,
             end_time,
         )
-        if source.field == COUNT_FIELD:
-            row_count = 0 if value is None else int(value)
-        else:
-            row_count = _count_rows(source.view, alert.filters, project_id, start_time, end_time)
         return AlertEvaluationResult(
             alert_id=alert.alert_id,
             value=_measured_value(value, row_count, alert.aggregation),
@@ -149,33 +163,27 @@ def _build_spec(view: str, field: str, agg: AggName, filters: Sequence[WidgetFil
     )
 
 
-def _count_rows(
-    view: str,
-    filters: Sequence[WidgetFilter],
-    project_id: str,
-    start_time: datetime,
-    end_time: datetime,
-) -> int:
-    """Rows the measure aggregated over, via the engine's count(*) sentinel.
-
-    Only the row count separates an empty window from an aggregate that returned null.
-    """
-    value = _run_scalar(
-        _build_spec(view, COUNT_FIELD, "count", filters), project_id, start_time, end_time
-    )
-    return 0 if value is None else int(value)
-
-
-def _run_scalar(
+def _run_scalar_and_count(
     spec: WidgetSpec, project_id: str, start_time: datetime, end_time: datetime
-) -> float | None:
+) -> tuple[float | None, int]:
+    """The scalar and the row count it aggregated over, from one folded query.
+
+    Only the row count separates an empty window from an aggregate that
+    returned null; folding it as a second column halves what evaluation asks
+    of ClickHouse compared to a separate count(*) probe.
+    """
     result = run_widget_query(
-        spec=spec, project_id=project_id, start_time=start_time, end_time=end_time
+        spec=spec,
+        project_id=project_id,
+        start_time=start_time,
+        end_time=end_time,
+        include_row_count=True,
     )
     rows = result["rows"]
     if not rows or not rows[0]:
-        return None
-    return _to_float(rows[0][0])
+        return None, 0
+    row = rows[0]
+    return _to_float(row[0]), int(row[1])
 
 
 def _to_float(raw: Any) -> float | None:
