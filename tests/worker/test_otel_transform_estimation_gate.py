@@ -1,4 +1,8 @@
-"""Regression tests: text-based token estimation only applies to LLM-kind spans.
+"""Regression tests for the three gates on text-based token estimation.
+
+Estimation applies only to spans that are LLM-kind (below), whose instrumentation
+scope is not in the skip-list (below), and which did not error without producing a
+response (see the error-status section at the bottom of this file).
 
 Wrapper spans (AGENT/CHAIN/TOOL kinds) can carry a model name and the conversation
 text without token counts — e.g. the Vercel AI SDK's `ai.generateText` wrapper, which
@@ -29,8 +33,13 @@ INPUT_TEXT = "What is the weather in Tokyo and San Francisco today? " * 10
 OUTPUT_TEXT = "The weather in Tokyo is sunny and San Francisco is foggy. " * 10
 
 
-def _span_with(attrs: list[dict], span_id: str = "00f067aa0ba902b7", name: str = "span"):
-    return make_span(TRACE_ID, span_id, name=name, attributes=attrs)
+def _span_with(
+    attrs: list[dict],
+    span_id: str = "00f067aa0ba902b7",
+    name: str = "span",
+    status_code: int | str = 0,
+):
+    return make_span(TRACE_ID, span_id, name=name, attributes=attrs, status_code=status_code)
 
 
 def _transform(spans: list[dict], scope_name: str = "openinference.instrumentation.test"):
@@ -47,6 +56,15 @@ def _model_and_text(kind_attr: list[dict]) -> list[dict]:
         make_attr("llm.model_name", MODEL),
         make_attr("input.value", INPUT_TEXT),
         make_attr("output.value", OUTPUT_TEXT),
+    ]
+
+
+def _model_and_prompt_only(kind_attr: list[dict]) -> list[dict]:
+    """A rejected call's shape: the prompt was recorded, no response ever arrived."""
+    return [
+        *kind_attr,
+        make_attr("llm.model_name", MODEL),
+        make_attr("input.value", INPUT_TEXT),
     ]
 
 
@@ -263,4 +281,367 @@ def test_claude_agent_sdk_typescript_scope_llm_span_still_estimated():
         [_span_with(_model_and_text([make_attr("openinference.span.kind", "LLM")]))],
         scope_name="@traceroot-ai/claude-agent-sdk",
     )
+    _assert_estimated_tokens(spans[0])
+
+
+# ---------------------------------------------------------------------------
+# Errored spans must NOT be estimated
+#
+# A call the provider rejected (400 credit-exhausted, auth failure, a reject
+# before processing) consumed zero tokens upstream, but the instrumentor still
+# records the model name — it comes from the REQUEST — and the prompt text. That
+# is exactly the estimation bait above, so without a status term the fallback
+# prices a call the provider never ran: input_tokens = tokenize(prompt), output
+# 0, cost > 0. Real money over-reported on every failed LLM call.
+#
+# The gate is "errored WITHOUT a recorded response", not "errored", because the two
+# error shapes differ in what the instrumentor records. Verified against
+# openinference-instrumentation-anthropic: the non-streaming wrappers call a bare
+# `finish_tracing()` on the error path, so a rejected call carries NO output; the
+# streaming wrappers pass `_ResponseExtractor`/`_MessageExtractor` into
+# `_finish_tracing` even on the error path (`_stream.py` `__iter__`/`__aiter__`), so
+# a stream that dies mid-response DOES carry its accumulated partial output. That
+# second case burned its whole prompt, so estimating it is right and gating on error
+# status alone would under-report real money. Recorded output separates them.
+#
+# The narrower gate does carry one residual in exchange, pinned by
+# test_errored_llm_span_with_error_text_as_output.
+# ---------------------------------------------------------------------------
+
+
+def test_errored_llm_span_gets_no_estimated_tokens():
+    """The observed bug: a 400-rejected Anthropic call priced off its prompt."""
+    spans = _transform(
+        [
+            _span_with(
+                _model_and_prompt_only([make_attr("openinference.span.kind", "LLM")]),
+                status_code=2,
+            )
+        ]
+    )
+    assert spans[0]["status"] == "ERROR"
+    _assert_no_fabricated_tokens(spans[0])
+    # The model name is still recorded — only counts and cost are withheld.
+    assert spans[0]["model_name"] == MODEL
+
+
+def test_errored_llm_span_with_string_status_code_gets_no_estimated_tokens():
+    """Emitters that send the enum name rather than the int must gate too."""
+    spans = _transform(
+        [
+            _span_with(
+                _model_and_prompt_only([make_attr("openinference.span.kind", "LLM")]),
+                status_code="STATUS_CODE_ERROR",
+            )
+        ]
+    )
+    assert spans[0]["status"] == "ERROR"
+    _assert_no_fabricated_tokens(spans[0])
+
+
+def test_errored_llm_span_with_output_still_gets_estimated_tokens():
+    """Recorded output proves the provider answered — so the input WAS billed.
+
+    The gate is "errored without a response", not "errored". A self-instrumented
+    span can wrap the call AND the response handling and error on a parse failure
+    long after the provider returned and charged in full; a stream that dies
+    mid-response likewise burned its whole prompt. Zeroing those under-reports real
+    money, so estimation must survive an error once there is output to show for it.
+    """
+    spans = _transform(
+        [_span_with(_model_and_text([make_attr("openinference.span.kind", "LLM")]), status_code=2)]
+    )
+    assert spans[0]["status"] == "ERROR"
+    _assert_estimated_tokens(spans[0])
+
+
+def test_errored_llm_span_with_empty_output_gets_no_estimated_tokens():
+    """An empty output string is no response — the rejection case, not a partial."""
+    spans = _transform(
+        [
+            _span_with(
+                [
+                    make_attr("openinference.span.kind", "LLM"),
+                    make_attr("llm.model_name", MODEL),
+                    make_attr("input.value", INPUT_TEXT),
+                    make_attr("output.value", ""),
+                ],
+                status_code=2,
+            )
+        ]
+    )
+    _assert_no_fabricated_tokens(spans[0])
+
+
+def test_errored_llm_span_with_empty_container_output_gets_no_estimated_tokens():
+    """An empty OTLP container is not a response.
+
+    `extract_attribute_value` turns an empty arrayValue into `[]` and an empty
+    kvlistValue into `{}`, and `json.dumps` makes both truthy — so a falsiness
+    check on the SERIALIZED output would read them as a real response.
+    `gen_ai.output.messages` is array-typed in the GenAI semconv, so an emitter
+    encoding "no messages" as an empty array is the natural shape.
+    """
+    for label, raw in (
+        ("empty arrayValue", {"arrayValue": {"values": []}}),
+        ("empty kvlistValue", {"kvlistValue": {"values": []}}),
+        ("empty wrapper", {}),
+    ):
+        spans = _transform(
+            [
+                _span_with(
+                    [
+                        make_attr("openinference.span.kind", "LLM"),
+                        make_attr("llm.model_name", MODEL),
+                        make_attr("input.value", INPUT_TEXT),
+                        {"key": "output.value", "value": raw},
+                    ],
+                    status_code=2,
+                )
+            ]
+        )
+        assert spans[0].get("input_tokens") is None, f"{label} read as a response"
+        assert spans[0].get("cost") is None, f"{label} priced"
+
+
+def test_errored_llm_span_with_populated_container_output_still_gets_estimated_tokens():
+    """A NON-empty OTLP container is a response — the GenAI-semconv mid-stream shape.
+
+    The empty-container test above pins one side of the container branch; this pins
+    the other. `gen_ai.output.messages` is array-typed in the GenAI semconv, so an
+    emitter following it records a partial streamed response as a populated
+    arrayValue rather than the stringified `output.value` openinference uses —
+    meaning the mid-stream case the narrow gate exists for reaches
+    `_has_recorded_response` as a list, not a str. That prompt was billed in full.
+    Without this, only the string shape of a mid-stream failure is covered, and a
+    container check that over-reached to "any container is empty" would silently
+    zero real cost on every GenAI-semconv stream that died mid-response.
+    """
+    message = {
+        "kvlistValue": {
+            "values": [
+                {"key": "role", "value": {"stringValue": "assistant"}},
+                {"key": "content", "value": {"stringValue": OUTPUT_TEXT}},
+            ]
+        }
+    }
+    for label, raw in (
+        ("populated arrayValue", {"arrayValue": {"values": [message]}}),
+        ("populated kvlistValue", message),
+    ):
+        spans = _transform(
+            [
+                _span_with(
+                    [
+                        make_attr("openinference.span.kind", "LLM"),
+                        make_attr("llm.model_name", MODEL),
+                        make_attr("input.value", INPUT_TEXT),
+                        {"key": "gen_ai.output.messages", "value": raw},
+                    ],
+                    status_code=2,
+                )
+            ]
+        )
+        assert spans[0]["status"] == "ERROR", label
+        assert spans[0].get("input_tokens"), f"{label} was not read as a response"
+        assert spans[0].get("output_tokens"), f"{label} produced no output estimate"
+
+
+def test_errored_llm_span_with_whitespace_output_gets_no_estimated_tokens():
+    """A string of only whitespace is no response — the rejection case."""
+    spans = _transform(
+        [
+            _span_with(
+                [
+                    make_attr("openinference.span.kind", "LLM"),
+                    make_attr("llm.model_name", MODEL),
+                    make_attr("input.value", INPUT_TEXT),
+                    make_attr("output.value", "   "),
+                ],
+                status_code=2,
+            )
+        ]
+    )
+    _assert_no_fabricated_tokens(spans[0])
+
+
+def test_errored_llm_span_with_literal_empty_json_text_still_gets_estimated_tokens():
+    """A string that merely LOOKS empty is still a produced response.
+
+    A structured-output call legitimately answering `[]` (no matches), `{}`, or
+    `null` was generated and billed. These arrive as OTLP stringValues, so the
+    raw type separates them from the empty containers above — matching the
+    serialized text against sentinels would withhold real cost from them.
+    """
+    for rendered in ("[]", "{}", "null"):
+        spans = _transform(
+            [
+                _span_with(
+                    [
+                        make_attr("openinference.span.kind", "LLM"),
+                        make_attr("llm.model_name", MODEL),
+                        make_attr("input.value", INPUT_TEXT),
+                        make_attr("output.value", rendered),
+                    ],
+                    status_code=2,
+                )
+            ]
+        )
+        assert spans[0]["status"] == "ERROR"
+        assert spans[0].get("input_tokens"), f"literal {rendered!r} response was not priced"
+
+
+def test_errored_llm_span_with_non_string_scalar_output_still_gets_estimated_tokens():
+    """A numeric/boolean output is a produced value, 0 and False included."""
+    for rendered in (0, False):
+        spans = _transform(
+            [
+                _span_with(
+                    [
+                        make_attr("openinference.span.kind", "LLM"),
+                        make_attr("llm.model_name", MODEL),
+                        make_attr("input.value", INPUT_TEXT),
+                        make_attr("output.value", rendered),
+                    ],
+                    status_code=2,
+                )
+            ]
+        )
+        assert spans[0].get("input_tokens"), f"scalar {rendered!r} response was not priced"
+
+
+def test_errored_llm_span_with_error_text_as_output():
+    """ACCEPTED RESIDUAL, pinned so it is visible rather than surprising.
+
+    A self-instrumented span that stores an error message as its output — the
+    `except: set_output(str(e))` idiom — reads as a response and IS estimated, even
+    though the provider charged nothing. Separating an error payload from a model
+    response needs heuristics worse than the residual, so it is accepted: the span's
+    own instrumentation asserted there was output. Change this test only alongside a
+    deliberate decision to add such a heuristic.
+    """
+    spans = _transform(
+        [
+            _span_with(
+                [
+                    make_attr("openinference.span.kind", "LLM"),
+                    make_attr("llm.model_name", MODEL),
+                    make_attr("traceroot.span.input", INPUT_TEXT),
+                    make_attr(
+                        "traceroot.span.output",
+                        "AuthenticationError: credit balance too low",
+                    ),
+                ],
+                status_code=2,
+            )
+        ]
+    )
+    assert spans[0].get("input_tokens"), "residual changed — see docstring before editing"
+
+
+def test_mid_stream_failure_shape_still_gets_estimated_tokens():
+    """The real openinference streaming-error shape: ERROR status plus the
+    accumulated partial response in `output.value`. Its prompt was billed in full,
+    so this must keep its estimate — this is the case the narrow gate exists for."""
+    spans = _transform(
+        [
+            _span_with(
+                [
+                    make_attr("openinference.span.kind", "LLM"),
+                    make_attr("llm.model_name", MODEL),
+                    make_attr("input.value", INPUT_TEXT),
+                    make_attr("output.value", '{"content":[{"text":"The weather in Tok"}]}'),
+                ],
+                status_code=2,
+            )
+        ]
+    )
+    assert spans[0]["status"] == "ERROR"
+    _assert_estimated_tokens(spans[0])
+
+
+def test_ok_llm_span_with_no_output_still_gets_estimated_tokens():
+    """The response-presence term must only ever apply to errored spans: a healthy
+    call that legitimately returned nothing still prices its prompt.
+
+    `get_model_price` reads the pricing tables over PostgreSQL, so cost is only
+    deterministic under a patch — the token estimate is the offline part.
+    """
+    mock_prices = {"input": 0.000003, "output": 0.000015}
+    with patch("worker.tokens.pricing.get_model_price", return_value=mock_prices):
+        spans = _transform(
+            [_span_with(_model_and_prompt_only([make_attr("openinference.span.kind", "LLM")]))]
+        )
+    assert spans[0].get("input_tokens")
+    assert spans[0].get("cost")
+
+
+def test_errored_llm_span_keeps_api_reported_counts():
+    """Tier 1 stays ungated: usage a provider genuinely reports on a failed call
+    (partial streaming, some 4xx bodies) is real and must survive."""
+    spans = _transform(
+        [
+            _span_with(
+                [
+                    make_attr("openinference.span.kind", "LLM"),
+                    make_attr("llm.model_name", MODEL),
+                    make_attr("input.value", INPUT_TEXT),
+                    make_attr("llm.token_count.prompt", 120),
+                    make_attr("llm.token_count.completion", 8),
+                ],
+                status_code=2,
+            )
+        ]
+    )
+    assert spans[0]["status"] == "ERROR"
+    assert spans[0]["input_tokens"] == 120
+    assert spans[0]["output_tokens"] == 8
+    assert spans[0]["total_tokens"] == 128
+
+
+def test_errored_llm_span_keeps_api_reported_cost():
+    mock_prices = {"input": 0.000003, "output": 0.000015}
+    with patch("worker.tokens.pricing.get_model_price", return_value=mock_prices):
+        spans = _transform(
+            [
+                _span_with(
+                    [
+                        make_attr("openinference.span.kind", "LLM"),
+                        make_attr("llm.model_name", MODEL),
+                        make_attr("llm.token_count.prompt", 1000),
+                        make_attr("llm.token_count.completion", 100),
+                    ],
+                    status_code=2,
+                )
+            ]
+        )
+    assert spans[0]["cost"] is not None and spans[0]["cost"] > 0
+
+
+def test_errored_llm_span_keeps_manual_usage():
+    """`traceroot.llm.usage` is a reported count, not an estimate — also ungated."""
+    spans = _transform(
+        [
+            _span_with(
+                [
+                    make_attr("openinference.span.kind", "LLM"),
+                    make_attr("llm.model_name", MODEL),
+                    make_attr("input.value", INPUT_TEXT),
+                    make_attr("traceroot.llm.usage", '{"input_tokens": 42, "output_tokens": 7}'),
+                ],
+                status_code=2,
+            )
+        ]
+    )
+    assert spans[0]["input_tokens"] == 42
+    assert spans[0]["output_tokens"] == 7
+
+
+def test_ok_status_llm_span_still_gets_estimated_tokens():
+    """Only STATUS_CODE_ERROR gates. An explicit OK (code 1) must still estimate,
+    guarding against a truthiness check that would swallow every set status."""
+    spans = _transform(
+        [_span_with(_model_and_text([make_attr("openinference.span.kind", "LLM")]), status_code=1)]
+    )
+    assert spans[0].get("status") != "ERROR"
     _assert_estimated_tokens(spans[0])
