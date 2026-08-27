@@ -147,10 +147,10 @@ clickhouse:
   resources:
     requests:
       cpu: "2"
-      memory: "8Gi"
+      memory: "16Gi"
     limits:
       cpu: "2"
-      memory: "8Gi"
+      memory: "16Gi"
   extraEnvVars:
     - name: MALLOC_CONF
       value: "background_thread:true,dirty_decay_ms:1000,muzzy_decay_ms:1000"
