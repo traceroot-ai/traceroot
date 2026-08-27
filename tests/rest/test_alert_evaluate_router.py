@@ -34,7 +34,7 @@ def secret(monkeypatch):
 @pytest.fixture()
 def fake_ch(monkeypatch):
     client = MagicMock()
-    client.query.return_value = MagicMock(column_names=["value"], result_rows=[(7,)])
+    client.query.return_value = MagicMock(column_names=["value", "row_count"], result_rows=[(7, 3)])
     monkeypatch.setattr(wq, "get_clickhouse_client", lambda: client)
     return client
 
