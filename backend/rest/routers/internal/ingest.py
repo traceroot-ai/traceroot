@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from google.protobuf.message import DecodeError
 
 from db.clickhouse.client import get_clickhouse_client
-from rest.routers.internal.auth import verify_internal_secret
+from rest.routers.internal.auth import InternalCaller, verify_internal_secret
 from rest.routers.public.traces import decode_otlp_protobuf
 from worker.detector_transform import UnattributableSpanError, transform_detector_traces
 
@@ -21,10 +21,16 @@ router = APIRouter()
 _TRACE_ID_RE = re.compile(r"^[0-9a-f]{32}$")
 _SPAN_ID_RE = re.compile(r"^[0-9a-f]{16}$")
 
+# Which source a caller's traces are stored under. Fixed on the server: the caller
+# proves who it is with its secret and gets exactly one source — there is no
+# header or payload field that can change it.
+SOURCE_BY_CALLER: dict[InternalCaller, str] = {"platform": "detector", "agent": "agent"}
 
-@router.post("/traces", dependencies=[Depends(verify_internal_secret)])
+
+@router.post("/traces")
 async def ingest_internal_traces(
     request: Request,
+    caller: Annotated[InternalCaller, Depends(verify_internal_secret)],
     project_id: str | None = Query(
         default=None, description="Fallback project for spans without a per-span attribute"
     ),
@@ -38,8 +44,9 @@ async def ingest_internal_traces(
     once per project group), and the rows are inserted in-process — no S3 hop and
     no detection enqueue, so a detector can never scan its own emission. Spans are inserted before the trace row
     so a partial failure cannot leave a trace row that points at missing
-    spans. Every record is force-stamped source='detector' regardless of
-    payload content.
+    spans. Every record is force-stamped with the source that belongs to the
+    authenticated caller (platform → 'detector', agent → 'agent'), regardless
+    of payload content.
 
     Project attribution is per-span and primary: the worker serves every
     project off one queue, so each span carries its own
@@ -49,6 +56,8 @@ async def ingest_internal_traces(
     Args:
         request (Request): Raw request; body is OTLP protobuf, optionally
             gzip-compressed (Content-Encoding: gzip).
+        caller (InternalCaller): Which internal caller authenticated the
+            request — decides the `source` every record is stamped with.
         project_id (str | None): Fallback project for spans without a
             per-span attribute, as a query parameter; trusted because the
             route is secret-gated.
@@ -110,13 +119,11 @@ async def ingest_internal_traces(
                 status_code=400, detail="parent_span_id must be 16 hex chars when present"
             )
 
-    # This route only ever carries detector self-traces, so the marker is a property
-    # of the route, not of the payload: stamp it rather than trusting what was sent.
-    # This is the ONLY place a non-'user' source is written — the transform never sets
-    # one — so a payload that omits or misstates the attribute still lands classified
-    # correctly, and no tenant-supplied value can reach the column.
+    # The marker is a property of WHO called, never of the payload: the transform
+    # never sets one, and this is the only place a non-'user' source is written.
+    source = SOURCE_BY_CALLER[caller]
     for record in (*traces, *spans):
-        record["source"] = "detector"
+        record["source"] = source
 
     ch = get_clickhouse_client()
     ch.insert_spans_batch(spans)
