@@ -51,5 +51,5 @@ export async function dispatch(
     query[name] = typeof value === "object" ? JSON.stringify(value) : String(value);
   }
 
-  return client.request(entry.method, path, query, options.signal);
+  return client.request(entry.method, path, { params: query, signal: options.signal });
 }
