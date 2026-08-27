@@ -3032,7 +3032,14 @@
           "Project (Public)"
         ],
         "x-tool": {
-          "enabled": false
+          "description": "Create a dashboard in a project (idempotent on the dashboard name within the project); add charts to it with create_widget.",
+          "enabled": true,
+          "name": "create_dashboard",
+          "policy": {
+            "approvalClass": "none",
+            "minRole": "MEMBER",
+            "tenancy": "project"
+          }
         }
       }
     },
@@ -3289,7 +3296,14 @@
           "Project (Public)"
         ],
         "x-tool": {
-          "enabled": false
+          "description": "Create a detector (name, template, prompt, optional sampling/RCA settings) in a project \u2014 idempotent on the detector name within the project.",
+          "enabled": true,
+          "name": "create_detector",
+          "policy": {
+            "approvalClass": "none",
+            "minRole": "MEMBER",
+            "tenancy": "project"
+          }
         }
       }
     },
@@ -4419,7 +4433,14 @@
           "Account (Public)"
         ],
         "x-tool": {
-          "enabled": false
+          "description": "Create a project in a workspace the logged-in user can write to (idempotent on the project name within the workspace).",
+          "enabled": true,
+          "name": "create_project",
+          "policy": {
+            "approvalClass": "none",
+            "minRole": "MEMBER",
+            "tenancy": "workspace"
+          }
         }
       }
     },
@@ -6078,7 +6099,14 @@
           "Project (Public)"
         ],
         "x-tool": {
-          "enabled": false
+          "description": "Add a widget (title, type, query spec) to an existing dashboard. Strict create: every call adds a new widget.",
+          "enabled": true,
+          "name": "create_widget",
+          "policy": {
+            "approvalClass": "none",
+            "minRole": "MEMBER",
+            "tenancy": "project"
+          }
         }
       }
     },
@@ -6248,7 +6276,14 @@
           "Account (Public)"
         ],
         "x-tool": {
-          "enabled": false
+          "description": "Create a workspace administered by the logged-in user. Idempotent: re-creating a same-named workspace the caller already administers returns it instead of duplicating.",
+          "enabled": true,
+          "name": "create_workspace",
+          "policy": {
+            "approvalClass": "none",
+            "minRole": "VIEWER",
+            "tenancy": "account"
+          }
         }
       }
     }

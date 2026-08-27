@@ -16,6 +16,11 @@ describe("committed registry", () => {
 
   it("pins the curated tool surface", () => {
     expect(REGISTRY.map((entry) => entry.name)).toEqual([
+      "create_dashboard",
+      "create_detector",
+      "create_project",
+      "create_widget",
+      "create_workspace",
       "export_trace",
       "get_detector",
       "get_finding",
