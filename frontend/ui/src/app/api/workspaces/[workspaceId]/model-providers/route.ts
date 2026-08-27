@@ -6,7 +6,7 @@ import {
   encryptKey,
   maskKey,
   hasEntitlement,
-  type PlanType,
+  toPlanType,
   LLMAdapter,
   BEDROCK_USE_DEFAULT_CREDENTIALS,
 } from "@traceroot/core";
@@ -63,7 +63,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     select: { billingPlan: true },
   });
 
-  const byokEnabled = workspace ? hasEntitlement(workspace.billingPlan as PlanType, "byok") : false;
+  const byokEnabled = workspace ? hasEntitlement(toPlanType(workspace.billingPlan), "byok") : false;
 
   const providers = await prisma.modelProvider.findMany({
     where: { workspaceId },
@@ -102,7 +102,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     where: { id: workspaceId },
     select: { billingPlan: true },
   });
-  if (!workspace || !hasEntitlement(workspace.billingPlan as PlanType, "byok")) {
+  if (!workspace || !hasEntitlement(toPlanType(workspace.billingPlan), "byok")) {
     return errorResponse("BYOK is not available on your current plan", 403);
   }
 
