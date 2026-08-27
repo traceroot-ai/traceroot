@@ -397,7 +397,7 @@ export function TraceViewerPanel({
             <DOMAIN_ICONS.trace className="h-4 w-4 shrink-0 text-muted-foreground" />
             <span className="shrink-0 text-sm font-medium">{headerIdentity?.label ?? "Trace"}</span>
             <span className="truncate font-mono text-xs text-muted-foreground">
-              {headerIdentity?.value ?? traceId}
+              {headerIdentity?.value ?? effectiveTraceId}
             </span>
             {/* Copy affordance for the header id. Only offered when an identity is
                 supplied (offline-eval's test case); the standard trace header is
