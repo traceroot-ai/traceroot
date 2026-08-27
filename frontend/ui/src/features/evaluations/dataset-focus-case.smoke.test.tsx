@@ -96,6 +96,9 @@ let focusTestCaseId = "";
 
 /** Every `scrollIntoView` call, with the element that received it. */
 let scrolled: Array<{ el: HTMLElement; opts: ScrollIntoViewOptions | undefined }> = [];
+/** Delay applied to the dataset GET that follows a publish (0 = answer at once). */
+let refetchDelayMs = 0;
+let publishSeen = false;
 
 beforeAll(() => {
   window.HTMLElement.prototype.scrollIntoView = function (
@@ -113,15 +116,22 @@ beforeEach(() => {
   cases = [...SEED];
   focusTestCaseId = "";
   scrolled = [];
+  refetchDelayMs = 0;
+  publishSeen = false;
   global.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
     const s = String(url);
     const method = init?.method ?? "GET";
     if (method === "POST" && s.includes("/test-cases")) {
       cases = [...cases, testCase("tc_new", "a brand new question")];
+      publishSeen = true;
       return { ok: true, status: 201, json: async () => ({ duplicate: false, ...published() }) };
     }
     if (method === "PATCH" && s.includes("/test-cases/")) {
+      publishSeen = true;
       return { ok: true, status: 201, json: async () => published() };
+    }
+    if (publishSeen && refetchDelayMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, refetchDelayMs));
     }
     return { ok: true, status: 200, json: async () => payloadFor(s) };
   }) as unknown as typeof fetch;
@@ -242,6 +252,23 @@ describe("Dataset detail — revealing the row a publish touched", () => {
     await waitFor(() => expect(scrolledRowIds()).toContain("tc_1"));
     expect(row("tc_1")!.className).toContain("animate-row-flash");
   });
+
+  it("still reveals the row when the refetch outlives the flash", async () => {
+    // The row does not exist until the refetch of the new version lands. Starting
+    // the highlight's expiry at publish time instead would let a refetch slower
+    // than the flash (a big dataset — precisely when the row lands off-screen)
+    // clear the target before its row ever rendered, and the add would read as
+    // the no-op this whole change exists to fix.
+    focusTestCaseId = "tc_new";
+    refetchDelayMs = 2500; // > ROW_FLASH_MS (2000)
+    mountDetail();
+    await screen.findByText("I was charged twice");
+    await addRow();
+
+    await waitFor(() => expect(row("tc_new")).not.toBeNull(), { timeout: 8000 });
+    await waitFor(() => expect(scrolledRowIds()).toContain("tc_new"), { timeout: 8000 });
+    expect(row("tc_new")!.className).toContain("animate-row-flash");
+  }, 20000);
 
   it("clears an active search that would have hidden the row", async () => {
     // The table renders every case of the version (no pagination), so the one way

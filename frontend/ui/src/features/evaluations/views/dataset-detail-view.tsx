@@ -171,16 +171,20 @@ export function DatasetDetailView({
   // Bring the row on screen, then drop the highlight. `block: "nearest"` is a
   // no-op for a row already in view, so editing a visible row never yanks the
   // table out from under the pointer. Re-runs as `cases` settles, because the
-  // row only exists once the refetch of the new version lands; the timer is
-  // reset with it, so a slow refetch can't expire the highlight before the row
-  // it belongs to renders.
+  // row only exists once the refetch of the new version lands.
   React.useEffect(() => {
     if (!focusCaseId) return;
     const row = Array.from(
       tableRef.current?.querySelectorAll<HTMLElement>("tr[data-test-case-id]") ?? [],
     ).find((el) => el.dataset.testCaseId === focusCaseId);
+    // Until that refetch delivers the row there is nothing on screen and nothing
+    // flashing, so its expiry doesn't start either. Armed on the publish instead,
+    // a refetch slower than the flash would clear the highlight before the row it
+    // belongs to ever rendered — and a slow refetch means a big dataset, the exact
+    // case where the row lands off-screen and this reveal is the only signal.
+    if (!row) return;
     const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
-    row?.scrollIntoView({ block: "nearest", behavior: reduceMotion ? "auto" : "smooth" });
+    row.scrollIntoView({ block: "nearest", behavior: reduceMotion ? "auto" : "smooth" });
     const timer = window.setTimeout(() => setFocusCaseId(null), ROW_FLASH_MS);
     return () => window.clearTimeout(timer);
   }, [focusCaseId, cases]);
