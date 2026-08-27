@@ -1,10 +1,25 @@
+import { createHash } from "node:crypto";
 import { Type } from "@earendil-works/pi-ai";
 import type { Message, ProviderStreamOptions, Tool, ToolCall } from "@earendil-works/pi-ai";
-import { complete } from "@earendil-works/pi-ai/compat";
 import { fetchProviderConfig, resolvePiModel } from "@traceroot/core/model-resolver";
 import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 import { formatWindowRange } from "@traceroot/slack";
 import { resolveDetectorApiKey } from "../detection/sandbox-eval.js";
+import { withSelfTrace } from "../detection/self-trace-emitter.js";
+import { tracedComplete } from "../detection/traced-complete.js";
+
+/** Deterministic trace id for one project's digest window — the same window
+ *  flushed twice (a legacy re-enqueue) resolves to the same trace id. */
+export function digestTraceId(
+  projectId: string,
+  windowStartMs: number,
+  windowEndMs: number,
+): string {
+  return createHash("sha256")
+    .update(`${projectId}:${windowStartMs}:${windowEndMs}`)
+    .digest("hex")
+    .slice(0, 32);
+}
 
 export interface DigestSummaryDetectorInput {
   name: string;
@@ -128,6 +143,10 @@ export function parseDigestSummaryTimeoutMs(raw: string | undefined): number {
 }
 
 export interface DigestSummaryModelConfig {
+  // Self-trace root id (see digestTraceId) and project attribution — the
+  // digest-summary LLM call becomes a trace in this project, same as every
+  // other agent-self-trace root.
+  projectId: string;
   workspaceId: string;
   rcaModel: string | null;
   rcaProvider: string | null;
@@ -190,11 +209,31 @@ export async function generateDigestSummary(
         toolChoice: "auto",
         signal: controller.signal,
       };
-      const response = await complete(
-        model,
-        { systemPrompt: prompt.systemPrompt, messages, tools: [buildDigestSummaryTool()] },
-        options,
+      const traced = await withSelfTrace(
+        {
+          traceId: digestTraceId(
+            cfg.projectId,
+            input.windowStart.getTime(),
+            input.windowEnd.getTime(),
+          ),
+          projectId: cfg.projectId,
+          name: "digest-summary",
+          metadata: {
+            kind: "digest",
+            window_start: input.windowStart.getTime(),
+            window_end: input.windowEnd.getTime(),
+            detectors: input.detectors.map((d) => ({ name: d.name, findingCount: d.findingCount })),
+          },
+        },
+        () =>
+          tracedComplete(
+            model,
+            { systemPrompt: prompt.systemPrompt, messages, tools: [buildDigestSummaryTool()] },
+            options,
+          ),
       );
+      if (!traced.ok) throw traced.error;
+      const response = traced.value;
       if (controller.signal.aborted || response.stopReason === "aborted") {
         console.warn(`[DigestSummary] timed out after ${timeoutMs}ms (model=${model.id})`);
         return null;
