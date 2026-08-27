@@ -1,6 +1,7 @@
 import { spawn, execFile } from "child_process";
 import { promisify } from "util";
 import type { Executor, ExecResult, ExecOptions } from "./interface.js";
+import { ASKPASS_PATH, ASKPASS_SCRIPT, buildCloneCommand } from "./git-clone-command.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -49,9 +50,25 @@ export class DockerExecutor implements Executor {
     if (!this.containerId) throw new Error("Container not initialized");
 
     return new Promise((resolve) => {
-      const child = spawn("docker", ["exec", this.containerId!, "sh", "-c", command], {
-        stdio: ["ignore", "pipe", "pipe"],
-      });
+      // Env values are passed to `docker exec` by NAME only (`-e KEY`), so the
+      // value is inherited from this process's environment and never appears in
+      // argv or `ps` output — matching the guarantee ExecOptions.env documents.
+      const envNames = Object.keys(options?.env ?? {});
+      const child = spawn(
+        "docker",
+        [
+          "exec",
+          ...envNames.flatMap((name) => ["-e", name]),
+          this.containerId!,
+          "sh",
+          "-c",
+          command,
+        ],
+        {
+          stdio: ["ignore", "pipe", "pipe"],
+          env: options?.env ? { ...process.env, ...options.env } : process.env,
+        },
+      );
 
       let stdout = "";
       let stderr = "";
@@ -120,6 +137,41 @@ export class DockerExecutor implements Executor {
 
   isReady(): boolean {
     return this.containerId !== null;
+  }
+
+  hasNativeGit(): boolean {
+    return true;
+  }
+
+  /**
+   * Clone via the system `git` CLI. Shares its command construction with the
+   * Daytona executor (see git-clone-command.ts): every caller-supplied value
+   * travels through the environment and is referenced as a quoted "$VAR", so a
+   * hostile ref cannot break quoting or inject shell, and the token never
+   * reaches argv, the clone URL, or .git/config.
+   */
+  async cloneRepo(
+    url: string,
+    path: string,
+    options?: { ref?: string; username?: string; password?: string },
+  ): Promise<void> {
+    if (!this.containerId) throw new Error("Container not initialized");
+
+    await this.writeFile(ASKPASS_PATH, ASKPASS_SCRIPT);
+    await this.exec(`chmod +x ${shellEscape(ASKPASS_PATH)}`);
+
+    const { command, env } = buildCloneCommand({
+      url,
+      dest: path,
+      ref: options?.ref,
+      username: options?.username,
+      password: options?.password,
+    });
+
+    const result = await this.exec(command, { timeout: 180, env });
+    if (result.code !== 0) {
+      throw new Error(result.stdout || result.stderr || "git clone failed");
+    }
   }
 
   async destroy(): Promise<void> {
