@@ -116,6 +116,406 @@
         "title": "CompleteRunResponse",
         "type": "object"
       },
+      "CreateDashboardRequest": {
+        "description": "Body for creating a dashboard in a project.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "name"
+        ],
+        "title": "CreateDashboardRequest",
+        "type": "object"
+      },
+      "CreateDashboardResponse": {
+        "description": "The created (or idempotently matched) dashboard.",
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "project_id",
+          "created"
+        ],
+        "title": "CreateDashboardResponse",
+        "type": "object"
+      },
+      "CreateDetectorRequest": {
+        "description": "Body for creating a detector in a project.",
+        "properties": {
+          "detection_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detection Model"
+          },
+          "detection_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detection Provider"
+          },
+          "detection_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detection Source"
+          },
+          "enable_rca": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enable Rca"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "output_schema": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Schema"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "prompt": {
+            "title": "Prompt",
+            "type": "string"
+          },
+          "sample_rate": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sample Rate"
+          },
+          "template": {
+            "title": "Template",
+            "type": "string"
+          },
+          "trigger_conditions": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trigger Conditions"
+          }
+        },
+        "required": [
+          "project_id",
+          "name",
+          "template",
+          "prompt"
+        ],
+        "title": "CreateDetectorRequest",
+        "type": "object"
+      },
+      "CreateDetectorResponse": {
+        "description": "The created (or idempotently matched) detector.",
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "sample_rate": {
+            "title": "Sample Rate",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "project_id",
+          "enabled",
+          "sample_rate",
+          "created"
+        ],
+        "title": "CreateDetectorResponse",
+        "type": "object"
+      },
+      "CreateProjectRequest": {
+        "description": "Body for creating a project inside a workspace.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "trace_ttl_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trace Ttl Days"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "name"
+        ],
+        "title": "CreateProjectRequest",
+        "type": "object"
+      },
+      "CreateProjectResponse": {
+        "description": "The created (or idempotently matched) project.",
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "workspace_id",
+          "created"
+        ],
+        "title": "CreateProjectResponse",
+        "type": "object"
+      },
+      "CreateWidgetRequest": {
+        "description": "Body for creating a widget on a dashboard.",
+        "properties": {
+          "dashboard_id": {
+            "title": "Dashboard Id",
+            "type": "string"
+          },
+          "display_config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Config"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "spec": {
+            "additionalProperties": true,
+            "title": "Spec",
+            "type": "object"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "dashboard_id",
+          "title",
+          "type",
+          "spec"
+        ],
+        "title": "CreateWidgetRequest",
+        "type": "object"
+      },
+      "CreateWidgetResponse": {
+        "description": "The created widget (widget creation is strict, never idempotent).",
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          },
+          "dashboard_id": {
+            "title": "Dashboard Id",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "dashboard_id",
+          "title",
+          "type",
+          "created"
+        ],
+        "title": "CreateWidgetResponse",
+        "type": "object"
+      },
+      "CreateWorkspaceRequest": {
+        "description": "Body for creating a workspace the caller will administer.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "CreateWorkspaceRequest",
+        "type": "object"
+      },
+      "CreateWorkspaceResponse": {
+        "description": "The created (or idempotently matched) workspace.",
+        "properties": {
+          "created": {
+            "title": "Created",
+            "type": "boolean"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "role",
+          "created"
+        ],
+        "title": "CreateWorkspaceResponse",
+        "type": "object"
+      },
       "DetectorDetail": {
         "description": "A detector's full configuration (Postgres ``detectors`` + optional trigger).\n\n``trigger_conditions`` comes from ``detector_triggers.conditions`` and is\nNone when the detector has no trigger row (it then runs on every sampled\ntrace).",
         "properties": {
@@ -2536,6 +2936,106 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/public/dashboards": {
+      "post": {
+        "description": "Create a dashboard in a project the authenticated user can write to.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides). Idempotent on the dashboard name within the project.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    payload (CreateDashboardRequest): The dashboard to create.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    CreateDashboardResponse: The created (or matched) dashboard.",
+        "operationId": "create_dashboard",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDashboardRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateDashboardResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed or session revoked"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Insufficient role or wrong credential kind"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Write service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Create a dashboard",
+        "tags": [
+          "Project (Public)"
+        ],
+        "x-tool": {
+          "enabled": false
+        }
+      }
+    },
     "/api/v1/public/detectors": {
       "get": {
         "description": "List the detectors in the caller's project (newest first).",
@@ -2692,6 +3192,104 @@
           "description": "List the project's detectors (id, name, template, enabled flag, creation time).",
           "enabled": true,
           "name": "list_detectors"
+        }
+      },
+      "post": {
+        "description": "Create a detector in a project the authenticated user can write to.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides). Idempotent on the detector name within the project.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    payload (CreateDetectorRequest): The detector to create.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    CreateDetectorResponse: The created (or matched) detector.",
+        "operationId": "create_detector",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDetectorRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateDetectorResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed or session revoked"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Insufficient role or wrong credential kind"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Write service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Create a detector",
+        "tags": [
+          "Project (Public)"
+        ],
+        "x-tool": {
+          "enabled": false
         }
       }
     },
@@ -3724,6 +4322,104 @@
           "description": "List the projects the logged-in user can access, across workspaces (id, name, workspace). User-credential-only account discovery: use it to resolve the project_id a project-scoped request needs. Optionally filter by workspace_id.",
           "enabled": true,
           "name": "list_projects"
+        }
+      },
+      "post": {
+        "description": "Create a project in a workspace the authenticated user can write to.\n\nRequires MEMBER role or higher in the workspace (the write service decides).\nIdempotent on the project name within the workspace.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    payload (CreateProjectRequest): The project to create.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    CreateProjectResponse: The created (or matched) project.",
+        "operationId": "create_project",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProjectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateProjectResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed or session revoked"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Insufficient role or wrong credential kind"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Write service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Create a project",
+        "tags": [
+          "Account (Public)"
+        ],
+        "x-tool": {
+          "enabled": false
         }
       }
     },
@@ -5286,6 +5982,106 @@
         }
       }
     },
+    "/api/v1/public/widgets": {
+      "post": {
+        "description": "Create a widget on a dashboard the authenticated user can write to.\n\nRequires MEMBER role or higher in the project's workspace (the write\nservice decides). Strict create \u2014 never idempotent, ``created`` is always\n``true`` on success.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    payload (CreateWidgetRequest): The widget to create.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    CreateWidgetResponse: The created widget.",
+        "operationId": "create_widget",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWidgetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateWidgetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed or session revoked"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Insufficient role or wrong credential kind"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Write service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Create a dashboard widget",
+        "tags": [
+          "Project (Public)"
+        ],
+        "x-tool": {
+          "enabled": false
+        }
+      }
+    },
     "/api/v1/public/workspaces": {
       "get": {
         "description": "List the workspaces the authenticated user belongs to.\n\nA user-credential-only discovery op (no ``project_id``). Use it, then\n``list_projects``, to resolve the project a subsequent request scopes to.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or CLI\n        access JWT); carries the resolved ``user_id`` and stamps the per-user\n        rate-limit identity.\n\nReturns:\n    PublicWorkspaceListResponse: The user's workspaces (id, name, role).",
@@ -5355,6 +6151,104 @@
           "description": "List the workspaces the logged-in user belongs to (id, name, role). User-credential-only account discovery: it needs no project_id and is not available to project-scoped API keys.",
           "enabled": true,
           "name": "list_workspaces"
+        }
+      },
+      "post": {
+        "description": "Create a workspace administered by the authenticated user.\n\nIdempotent: re-creating a workspace the user already administers under the\nsame name returns that workspace with ``created: false``.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or\n        CLI access JWT); its resolved ``user_id`` becomes the actor.\n    payload (CreateWorkspaceRequest): The workspace to create.\n    _live (None): Write-path liveness gate (blocks a revoked JWT session).\n\nReturns:\n    CreateWorkspaceResponse: The created (or matched) workspace.",
+        "operationId": "create_workspace",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWorkspaceRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateWorkspaceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Authentication failed or session revoked"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Insufficient role or wrong credential kind"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Write service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Create a workspace",
+        "tags": [
+          "Account (Public)"
+        ],
+        "x-tool": {
+          "enabled": false
         }
       }
     }
