@@ -113,6 +113,18 @@ function resolveSchemaRef(
   return resolved;
 }
 
+/** True when a `$ref` key survives anywhere in an emitted schema fragment. */
+function containsRef(node: unknown): boolean {
+  if (Array.isArray(node)) {
+    return node.some(containsRef);
+  }
+  if (node === null || typeof node !== "object") {
+    return false;
+  }
+  const record = node as Record<string, unknown>;
+  return "$ref" in record || Object.values(record).some(containsRef);
+}
+
 /**
  * Merge a POST operation's JSON request-body properties into its input schema
  * (flattened like plain params) and append the body's required names. Returns
@@ -131,8 +143,18 @@ function mergeBodySchema(
   const resolved = resolveSchemaRef(bodySchema, doc, path);
   const properties = (resolved.properties ?? {}) as Record<string, Record<string, unknown>>;
   for (const [name, propSchema] of Object.entries(properties)) {
-    const flattened = flattenParamSchema(resolveSchemaRef(propSchema, doc, path));
-    input.properties[name] = stripOversizedNumericBounds(flattened);
+    const flattened = stripOversizedNumericBounds(
+      flattenParamSchema(resolveSchemaRef(propSchema, doc, path)),
+    );
+    // Refs are only resolved one level deep, so a nested $ref (e.g. inside
+    // `items`) would ship a dangling pointer to the model. Fail closed until
+    // the generator learns to resolve the shape an operation actually needs.
+    if (containsRef(flattened)) {
+      throw new Error(
+        `Enabled tool on POST ${path}: body property "${name}" contains an unresolved $ref — extend the generator before enabling this operation`,
+      );
+    }
+    input.properties[name] = flattened;
   }
   if (Array.isArray(resolved.required)) {
     input.required.push(...(resolved.required as string[]));
