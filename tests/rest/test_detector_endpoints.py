@@ -920,6 +920,28 @@ class TestInternalTraceIngest:
         call_order = [name for name, _args, _kw in mock_ch.method_calls]
         assert call_order.index("insert_spans_batch") < call_order.index("insert_traces_batch")
 
+    def test_agent_secret_stamps_agent_source(self, client, secret, mock_ch, monkeypatch):
+        monkeypatch.setattr(settings, "internal_api_secret_agent", "agent-secret")
+        resp = client.post(
+            self.URL, content=_otlp_body(), headers={"X-Internal-Secret": "agent-secret"}
+        )
+        assert resp.status_code == 200
+        spans = mock_ch.insert_spans_batch.call_args[0][0]
+        traces = mock_ch.insert_traces_batch.call_args[0][0]
+        assert spans and all(s["source"] == "agent" for s in spans)
+        assert traces and all(t["source"] == "agent" for t in traces)
+
+    def test_source_header_is_ignored(self, client, secret, mock_ch):
+        """The client cannot choose its source: a header naming another source changes nothing."""
+        resp = client.post(
+            self.URL,
+            content=_otlp_body(),
+            headers={"X-Internal-Secret": secret, "X-Internal-Source": "agent"},
+        )
+        assert resp.status_code == 200
+        spans = mock_ch.insert_spans_batch.call_args[0][0]
+        assert all(s["source"] == "detector" for s in spans)
+
     def test_rejects_corrupt_gzip_body(self, client, secret, mock_ch, caplog):
         with caplog.at_level(logging.WARNING):
             resp = client.post(
