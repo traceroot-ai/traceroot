@@ -11,6 +11,7 @@ COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml 
 COPY frontend/ui/package.json ./ui/package.json
 COPY frontend/packages/core/package.json ./packages/core/package.json
 COPY frontend/packages/github/package.json ./packages/github/package.json
+COPY frontend/vendor ./vendor
 RUN pnpm install --frozen-lockfile
 
 FROM base
