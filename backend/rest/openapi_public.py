@@ -341,6 +341,13 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
     "register_run": {"enabled": False},
     "upsert_result": {"enabled": False},
     "complete_run": {"enabled": False},
+    # Public creates are API-facing writes; enabling them as agent tools is a
+    # deliberate later step.
+    "create_workspace": {"enabled": False},
+    "create_project": {"enabled": False},
+    "create_detector": {"enabled": False},
+    "create_dashboard": {"enabled": False},
+    "create_widget": {"enabled": False},
     "list_workspaces": {
         "name": "list_workspaces",
         "description": (

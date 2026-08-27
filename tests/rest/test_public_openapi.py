@@ -269,9 +269,11 @@ def test_session_read_routes_document_error_responses():
 _METHODS = {"get", "post", "put", "patch", "delete"}
 
 EXPECTED_OPERATION_IDS = {
-    "/api/v1/public/projects": {"get": "list_projects"},
-    "/api/v1/public/workspaces": {"get": "list_workspaces"},
-    "/api/v1/public/detectors": {"get": "list_detectors"},
+    "/api/v1/public/projects": {"get": "list_projects", "post": "create_project"},
+    "/api/v1/public/workspaces": {"get": "list_workspaces", "post": "create_workspace"},
+    "/api/v1/public/dashboards": {"post": "create_dashboard"},
+    "/api/v1/public/widgets": {"post": "create_widget"},
+    "/api/v1/public/detectors": {"get": "list_detectors", "post": "create_detector"},
     "/api/v1/public/detectors/findings": {"get": "list_findings"},
     "/api/v1/public/detectors/findings/{finding_id}": {"get": "get_finding"},
     "/api/v1/public/detectors/traces/{trace_id}/finding": {"get": "get_finding_by_trace"},
@@ -333,7 +335,17 @@ def test_x_tool_enabled_set_and_shape():
                 enabled[tool["name"]] = tool
             else:
                 disabled.add(op["operationId"])
-    assert disabled == {"ingest_traces", "register_run", "upsert_result", "complete_run"}
+    assert disabled == {
+        "ingest_traces",
+        "register_run",
+        "upsert_result",
+        "complete_run",
+        "create_workspace",
+        "create_project",
+        "create_detector",
+        "create_dashboard",
+        "create_widget",
+    }
     assert set(enabled) == {
         "whoami",
         "list_traces",
