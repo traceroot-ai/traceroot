@@ -43,8 +43,13 @@ const daysAgo = (days: number) => agoMs(days * DAY_MS);
 
 const params = (runId = "run-1") => ({ params: Promise.resolve({ projectId: "p1", runId }) });
 
-/** A minimal, baseline-free run — only `startedAt` matters to the gate. */
-function run(startedAt: Date, id = "run-1") {
+/**
+ * A minimal run — only `startedAt` matters to the gate. `baselineRunId` defaults to null
+ * (the common shape), but the route reads the baseline through a second
+ * `evaluationRun.findFirst` only when it is set, so a test counting those calls has to
+ * pass one in or it is asserting against an unreachable branch.
+ */
+function run(startedAt: Date, id = "run-1", baselineRunId: string | null = null) {
   return {
     id,
     projectId: "p1",
@@ -54,7 +59,7 @@ function run(startedAt: Date, id = "run-1") {
     runNumber: 1,
     candidateVersion: "sonnet",
     status: "completed",
-    baselineRunId: null,
+    baselineRunId,
     caseCount: 0,
     taskErrorCount: 0,
     scorerErrorCount: 0,
@@ -69,8 +74,13 @@ function run(startedAt: Date, id = "run-1") {
 }
 
 /** Drive the route for a run started `startedAt` on a workspace holding `plan`. */
-async function read(plan: string | null, startedAt: Date, runId = "run-1") {
-  prismaMock.evaluationRun.findFirst.mockResolvedValue(run(startedAt, runId));
+async function read(
+  plan: string | null,
+  startedAt: Date,
+  runId = "run-1",
+  baselineRunId: string | null = null,
+) {
+  prismaMock.evaluationRun.findFirst.mockResolvedValue(run(startedAt, runId, baselineRunId));
   prismaMock.workspace.findUnique.mockResolvedValue(plan === null ? null : { billingPlan: plan });
   return GET({} as never, params(runId));
 }
@@ -98,7 +108,10 @@ describe("by-id run read, outside the window", () => {
   });
 
   it("does no further reading once it has refused", async () => {
-    await read("free", daysAgo(40));
+    // The run carries a baseline, so the route's second `evaluationRun.findFirst` is
+    // genuinely reachable — the call count below would be 2 if the gate stopped
+    // short-circuiting it. With a baseline-free run that assertion holds either way.
+    await read("free", daysAgo(40), "run-1", "run-0");
     // The baseline lookup shares evaluationRun.findFirst with the candidate: exactly
     // one call means the refusal landed before the rest of the detail assembly.
     expect(prismaMock.evaluationRun.findFirst).toHaveBeenCalledTimes(1);
