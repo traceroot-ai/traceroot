@@ -150,6 +150,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     projectId,
     userId,
     workspaceId: ownedSession.workspaceId,
+    agentSessionId: sessionId,
     executor,
   });
 

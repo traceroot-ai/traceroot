@@ -1,6 +1,8 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
+import { ApiClient, internalAuth } from "@traceroot-ai/tools";
 import type { Executor } from "../executors/interface.js";
 import { createRegistryReadTools } from "./registry-tools.js";
+import { createRegistryWriteTools } from "./registry-write-tools.js";
 import { createDownloadTracesTool } from "./download-traces.js";
 import { createDownloadSessionTool } from "./download-session.js";
 import { createBashTool, createReadTool, createWriteTool } from "./sandbox.js";
@@ -20,12 +22,33 @@ export function createTools(params: {
   projectId: string;
   userId: string;
   workspaceId: string;
+  /** Conversation session recorded as provenance on writes. */
+  agentSessionId: string;
   executor: Executor;
 }): AgentTool<any>[] {
   const tools: AgentTool<any>[] = [];
 
   // Host-side tools (run on host, call FastAPI directly)
   tools.push(...createRegistryReadTools(params.projectId, params.userId));
+
+  // Write tools (host-side, call the UI app's internal write routes). Only
+  // offered when there is an acting user to attribute the write to and a
+  // session to record as provenance — system/RCA sessions get no write tools.
+  if (params.userId && params.agentSessionId) {
+    const client = new ApiClient({
+      baseUrl: UI_BASE_URL,
+      headers: internalAuth(process.env.INTERNAL_API_SECRET || "", params.userId),
+    });
+    tools.push(
+      ...createRegistryWriteTools({
+        client,
+        actorUserId: params.userId,
+        agentSessionId: params.agentSessionId,
+        projectId: params.projectId,
+        workspaceId: params.workspaceId,
+      }),
+    );
+  }
   tools.push(createDownloadTracesTool(params.projectId, params.userId, params.executor));
   tools.push(createDownloadSessionTool(params.projectId, params.userId, params.executor));
 
