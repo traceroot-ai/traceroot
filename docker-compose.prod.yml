@@ -228,6 +228,7 @@ services:
       ENABLE_BILLING: ${ENABLE_BILLING:-true}
       # --- Secrets ---
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:?required, generate with openssl rand -hex 32}
+      INTERNAL_API_SECRET_AGENT: ${INTERNAL_API_SECRET_AGENT:?required, generate with openssl rand -hex 32}
       CORS_ORIGINS: ${CORS_ORIGINS:-["http://localhost:3000"]}
     depends_on:
       migrate:
@@ -366,6 +367,7 @@ services:
       TRACEROOT_UI_URL: http://web:3000
       # --- Secrets ---
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:?required, generate with openssl rand -hex 32}
+      INTERNAL_API_SECRET_AGENT: ${INTERNAL_API_SECRET_AGENT:?required, generate with openssl rand -hex 32}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
       # --- Sandbox ---
       SANDBOX_PROVIDER: ${SANDBOX_PROVIDER:-docker}
