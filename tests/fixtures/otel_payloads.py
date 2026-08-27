@@ -33,7 +33,7 @@ def make_span(
     start_nanos: int = 1705320000000000000,
     end_nanos: int = 1705320001000000000,
     attributes: list[dict] | None = None,
-    status_code: int = 0,
+    status_code: int | str = 0,
 ) -> dict:
     """Build a single OTEL span dict."""
     span = {
