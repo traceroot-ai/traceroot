@@ -65,6 +65,8 @@ async function fetchTraceFindings(
   return res.json() as Promise<{ findings: BackendFinding[] }>;
 }
 
+export type TraceStatus = "disabled" | "pending" | "available" | "failed";
+
 export interface DetectorRca {
   id: string;
   findingId: string;
@@ -73,6 +75,10 @@ export interface DetectorRca {
   result: string | null;
   completedAt: string | null;
   createTime: string;
+  /** Latest execution's agent trace; null on legacy rows. */
+  traceId: string | null;
+  traceStatus: TraceStatus | null;
+  attempt: number | null;
 }
 
 async function fetchRca(

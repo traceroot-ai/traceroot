@@ -1160,8 +1160,19 @@
         "type": "object"
       },
       "RCAResult": {
-        "description": "Free-text root-cause analysis for a finding (Postgres ``detector_rcas``).",
+        "description": "Free-text root-cause analysis for a finding (Postgres ``detector_rcas``).\n\n``trace_id``/``trace_status``/``attempt`` describe the latest\n``detector_rca_executions`` row for this RCA and are ``None`` on legacy rows\ncreated before executions existed.",
         "properties": {
+          "attempt": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempt"
+          },
           "result": {
             "anyOf": [
               {
@@ -1176,6 +1187,34 @@
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "trace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trace Id"
+          },
+          "trace_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "disabled",
+                  "pending",
+                  "available",
+                  "failed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trace Status"
           }
         },
         "required": [

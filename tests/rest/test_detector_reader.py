@@ -211,7 +211,8 @@ def test_get_finding_normalizes_results_and_attaches_rca(reader, monkeypatch):
         if "from detectors" in s:
             return [("d1", "hallucination")]  # id, template
         if "from detector_rcas" in s:
-            return [("done", "root cause text")]  # status, result
+            # status, result, trace_id, trace_status, attempt (joined execution)
+            return [("done", "root cause text", "abc123", "available", 2)]
         return []
 
     monkeypatch.setattr(reader, "_pg_rows", fake_pg)
@@ -227,6 +228,9 @@ def test_get_finding_normalizes_results_and_attaches_rca(reader, monkeypatch):
     assert detail.detectors == ["hallucination"]
     assert detail.rca.status == "done"
     assert detail.rca.result == "root cause text"
+    assert detail.rca.trace_id == "abc123"
+    assert detail.rca.trace_status == "available"
+    assert detail.rca.attempt == 2
     assert detail.run_ids == ["run-9"]
 
 
@@ -270,6 +274,30 @@ def test_get_finding_absent_rca_yields_none(reader, monkeypatch):
 
     assert detail.rca is None
     assert detail.results[0].template is None
+
+
+def test_get_finding_rca_without_execution_yields_null_trace_fields(reader, monkeypatch):
+    """A legacy RCA row (created before detector_rca_executions existed) has no
+    latest_execution_id, so the LEFT JOIN finds nothing and the trace fields are
+    null rather than the lookup failing."""
+    payload = json.dumps([{"detectorId": "d1", "detectorName": "x", "summary": "s", "data": None}])
+    reader._client.rows = [("f1", "p1", "t1", "sum", payload, datetime(2026, 6, 29))]
+
+    def fake_pg(sql, params):
+        s = sql.lower()
+        if "from detector_rcas" in s:
+            return [("done", "root cause text", None, None, None)]
+        return []
+
+    monkeypatch.setattr(reader, "_pg_rows", fake_pg)
+
+    detail = reader.get_finding("p1", "f1")
+
+    assert detail.rca.status == "done"
+    assert detail.rca.result == "root cause text"
+    assert detail.rca.trace_id is None
+    assert detail.rca.trace_status is None
+    assert detail.rca.attempt is None
 
 
 def test_get_finding_rca_lookup_failure_still_returns_finding(reader, monkeypatch):

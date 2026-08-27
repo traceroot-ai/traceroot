@@ -430,11 +430,19 @@ class DetectorReaderService:
             return {}
 
     def _read_rca(self, project_id: str, finding_id: str) -> RCAResult | None:
-        """Read the finding's free-text RCA from Postgres; None if missing/failed."""
+        """Read the finding's free-text RCA from Postgres; None if missing/failed.
+
+        Left-joins the latest ``detector_rca_executions`` row (if any) to surface
+        its agent trace: legacy RCA rows created before executions existed have no
+        ``latest_execution_id``, so ``trace_id``/``trace_status``/``attempt`` are
+        null rather than failing the lookup.
+        """
         try:
             rows = self._pg_rows(
-                "SELECT status, result FROM detector_rcas "
-                "WHERE project_id = %s AND finding_id = %s LIMIT 1",
+                "SELECT r.status, r.result, e.trace_id, e.trace_status, e.attempt "
+                "FROM detector_rcas r "
+                "LEFT JOIN detector_rca_executions e ON e.id = r.latest_execution_id "
+                "WHERE r.project_id = %s AND r.finding_id = %s LIMIT 1",
                 (project_id, finding_id),
             )
         except Exception:
@@ -442,7 +450,14 @@ class DetectorReaderService:
             return None
         if not rows:
             return None
-        return RCAResult(status=rows[0][0], result=rows[0][1])
+        status, result, trace_id, trace_status, attempt = rows[0]
+        return RCAResult(
+            status=status,
+            result=result,
+            trace_id=trace_id,
+            trace_status=trace_status,
+            attempt=attempt,
+        )
 
 
 # Singleton instance
