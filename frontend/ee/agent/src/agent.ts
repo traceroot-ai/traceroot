@@ -15,6 +15,7 @@ import {
   type ProviderModelConfig,
 } from "@traceroot/core/model-resolver";
 import { SessionManager } from "./session.js";
+import { writePolicyHook } from "./tools/write-policy.js";
 
 /**
  * Resolve an API key for a pi-ai provider — workspace BYOK first, env var fallback.
@@ -68,8 +69,12 @@ export async function getOrCreateAgent(config: AgentRunnerConfig): Promise<{
   const existingAgent = sessionAgents.get(config.sessionId);
   const existingManager = sessionManagers.get(config.sessionId);
 
-  // Return cached agent if model hasn't changed
+  // Return cached agent if model hasn't changed. Tools close over
+  // per-request context (projectId from the URL, the current executor), and
+  // the agent cache outlives it — a stale closure would aim write tools at
+  // the wrong project — so refresh the tools with this request's closures.
   if (existingAgent && existingManager && cachedModel === cacheKeyModel) {
+    existingAgent.state.tools = config.tools;
     return { agent: existingAgent, sessionManager: existingManager };
   }
 
@@ -105,6 +110,7 @@ export async function getOrCreateAgent(config: AgentRunnerConfig): Promise<{
     },
     // TODO: implement proper convertToLlm instead of identity cast
     convertToLlm: (messages: AgentMessage[]) => messages as Message[],
+    beforeToolCall: writePolicyHook,
     getApiKey: async (provider: string) => {
       // If we have BYOK config with a decrypted key, use it directly
       if (providerConfig && providerConfig.key !== BEDROCK_USE_DEFAULT_CREDENTIALS) {
