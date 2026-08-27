@@ -20,10 +20,13 @@ import { TraceViewerPanel } from "@/features/traces/components/TraceViewerPanel"
 export function AgentTraceSheet({
   projectId,
   traceId,
+  spanId,
   onClose,
 }: {
   projectId: string;
   traceId: string | null;
+  /** Span to focus when the sheet opens (a tool step's "Open span"). */
+  spanId?: string | null;
   onClose: () => void;
 }) {
   return (
@@ -47,6 +50,7 @@ export function AgentTraceSheet({
             traceId={traceId}
             source="agent"
             embedded
+            initialSpanId={spanId ?? undefined}
             onClose={onClose}
             onNavigate={() => {}}
             canNavigateUp={false}
