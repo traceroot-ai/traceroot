@@ -259,6 +259,29 @@ describe("GET .../runs — RCA status enrichment", () => {
     expect(rcaFindManyMock).not.toHaveBeenCalled();
   });
 
+  it("attaches the latest execution's agent trace id/status alongside rca_status", async () => {
+    backendFetchMock.mockResolvedValue(backendResponse({ data: [run("f1"), run("f2")], meta: {} }));
+    rcaFindManyMock.mockResolvedValue([
+      {
+        findingId: "f1",
+        status: "done",
+        latestExecution: { traceId: "f1f1", traceStatus: "available" },
+      },
+      { findingId: "f2", status: "pending", latestExecution: null },
+    ]);
+
+    const res = await GET(makeRequest(), makeParams());
+    const body = (await res.json()) as {
+      data: Array<{ execution_trace_id: unknown; execution_trace_status: unknown }>;
+    };
+
+    expect(body.data[0].execution_trace_id).toBe("f1f1");
+    expect(body.data[0].execution_trace_status).toBe("available");
+    // No latestExecution row -> both fields null, not absent.
+    expect(body.data[1].execution_trace_id).toBeNull();
+    expect(body.data[1].execution_trace_status).toBeNull();
+  });
+
   it("returns triggered runs WITHOUT rca_status when the lookup fails (absent, not Skipped)", async () => {
     backendFetchMock.mockResolvedValue(backendResponse({ data: [run("f1")], meta: {} }));
     rcaFindManyMock.mockRejectedValue(new Error("pg down"));

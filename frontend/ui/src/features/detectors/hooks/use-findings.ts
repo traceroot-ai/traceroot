@@ -141,6 +141,9 @@ export interface BackendRun {
    * with reads from an un-migrated backend, which imply false.
    */
   self_traced?: boolean;
+  /** Latest RCA execution's agent trace, enriched by the runs proxy. Absent when un-enriched. */
+  execution_trace_id?: string | null;
+  execution_trace_status?: TraceStatus | null;
 }
 
 /**
@@ -150,6 +153,13 @@ export interface BackendRun {
  */
 export function selfTraceId(run: Pick<BackendRun, "run_id">): string {
   return run.run_id.replaceAll("-", "");
+}
+
+/** The agent trace behind a finding: its latest execution's trace id (attempt 1 = dashless finding id). */
+export function agentTraceId(
+  run: Pick<BackendRun, "execution_trace_id" | "finding_id">,
+): string | null {
+  return run.execution_trace_id ?? run.finding_id?.replaceAll("-", "") ?? null;
 }
 
 export interface RunsQuery {

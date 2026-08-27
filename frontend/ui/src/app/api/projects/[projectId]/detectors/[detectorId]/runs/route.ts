@@ -66,13 +66,15 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
   const data: unknown = await response.json();
 
-  // Enrich each triggered run with its stored RCA status (one batched Postgres
-  // lookup) so the findings view (identified runs) can show whether the agent
-  // analysis ran. Same source of truth as the trace viewer's Alert gating: a
-  // DetectorRca row exists iff RCA ran; an absent row (null) means it was
-  // skipped (RCA disabled on every detector that fired). Best-effort: on lookup
-  // failure the field is simply absent and the UI renders "—". Runs that never
-  // triggered (null finding_id) are left untouched.
+  // Enrich each triggered run with its stored RCA status and latest execution's
+  // agent trace (one batched Postgres lookup) so the findings view (identified
+  // runs) can show whether the agent analysis ran, and the runs table can open
+  // that analysis trace directly. Same source of truth as the trace viewer's
+  // Alert gating: a DetectorRca row exists iff RCA ran; an absent row (null)
+  // means it was skipped (RCA disabled on every detector that fired).
+  // Best-effort: on lookup failure the fields are simply absent and the UI
+  // renders "—" / plain text. Runs that never triggered (null finding_id) are
+  // left untouched.
   if (response.ok && data !== null && typeof data === "object") {
     const runs = (data as { data?: unknown }).data;
     if (Array.isArray(runs)) {
@@ -83,12 +85,19 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
         try {
           const rcas = await prisma.detectorRca.findMany({
             where: { findingId: { in: ids } },
-            select: { findingId: true, status: true },
+            select: {
+              findingId: true,
+              status: true,
+              latestExecution: { select: { traceId: true, traceStatus: true } },
+            },
           });
-          const statusByFinding = new Map(rcas.map((r) => [r.findingId, r.status]));
+          const byFinding = new Map(rcas.map((r) => [r.findingId, r]));
           for (const r of runs as Array<Record<string, unknown>>) {
             if (typeof r.finding_id === "string") {
-              r.rca_status = statusByFinding.get(r.finding_id) ?? null;
+              const rca = byFinding.get(r.finding_id);
+              r.rca_status = rca?.status ?? null;
+              r.execution_trace_id = rca?.latestExecution?.traceId ?? null;
+              r.execution_trace_status = rca?.latestExecution?.traceStatus ?? null;
             }
           }
         } catch (err) {

@@ -10,6 +10,8 @@ interface DetectorRunsTableProps {
   onTraceClick: (run: BackendRun) => void;
   /** Fired when a self-traced run's run_id cell is clicked — opens its self-trace. */
   onRunClick: (run: BackendRun) => void;
+  /** Fired when a triggered run's Finding ID cell is clicked — opens the RCA agent trace. */
+  onFindingClick: (run: BackendRun) => void;
 }
 
 /**
@@ -24,7 +26,12 @@ interface DetectorRunsTableProps {
  * run_id stays plain text. The `trace_id` cell is the one cell that routes
  * elsewhere — the scanned trace — so it stops row-click propagation.
  */
-export function DetectorRunsTable({ rows, onTraceClick, onRunClick }: DetectorRunsTableProps) {
+export function DetectorRunsTable({
+  rows,
+  onTraceClick,
+  onRunClick,
+  onFindingClick,
+}: DetectorRunsTableProps) {
   return (
     <table className="w-full">
       <thead className="sticky top-0 bg-background">
@@ -94,9 +101,27 @@ export function DetectorRunsTable({ rows, onTraceClick, onRunClick }: DetectorRu
               <td className={cn(DETECTOR_TD, "font-mono text-[11px]")}>
                 {findingId == null ? (
                   <span className="text-muted-foreground">—</span>
+                ) : run.execution_trace_status === "available" ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onFindingClick(run);
+                    }}
+                    title={`${findingId} — open the analysis trace`}
+                    className="block max-w-full truncate text-left text-muted-foreground transition-colors hover:text-foreground hover:underline"
+                  >
+                    {findingId}
+                  </button>
                 ) : (
                   <span
-                    title={findingId}
+                    title={
+                      run.execution_trace_status == null
+                        ? `${findingId} — no analysis trace (analysis ran before tracing was enabled)`
+                        : run.execution_trace_status === "pending"
+                          ? `${findingId} — analysis trace is being recorded`
+                          : `${findingId} — analysis trace unavailable`
+                    }
                     className="block max-w-full truncate text-muted-foreground"
                   >
                     {findingId}
