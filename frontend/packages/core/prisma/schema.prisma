@@ -550,7 +550,6 @@ model TestCase {
   // comparison alignment, and the TEST_CASE_ORDER tiebreak).
   @@unique([datasetVersionId, testCaseId], map: "uq_test_case_version_test_case_id")
   @@index([datasetVersionId], map: "ix_test_case_version_id")
-  @@index([projectId], map: "ix_test_case_project_id")
   @@index([sourceTraceId], map: "ix_test_case_source_trace_id")
   @@map("test_cases")
 }
