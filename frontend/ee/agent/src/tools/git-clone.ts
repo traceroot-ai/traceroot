@@ -12,6 +12,41 @@ const schema = Type.Object({
   ),
 });
 
+/**
+ * GitHub owner/repo: both segments allow only letters, digits, `.`, `_`, `-`.
+ */
+const REPO_RE = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
+
+/**
+ * Characters git forbids in a ref name (`git check-ref-format`): ASCII control
+ * characters, space, and ~ ^ : ? * [ \\. Everything else — including + = @ ,
+ * which appear in real branch names — is allowed. This is a denylist rather
+ * than an allowlist because the value never reaches a shell: it travels to git
+ * through the environment (see executors/git-clone-command.ts), so the job here
+ * is to reject refs git itself would reject, not to guess at shell safety.
+ */
+// eslint-disable-next-line no-control-regex
+const REF_FORBIDDEN_RE = /[\x00-\x20\x7f~^:?*[\\]/;
+
+export function isValidRepo(repo: string): boolean {
+  return REPO_RE.test(repo);
+}
+
+export function isValidRef(ref: string): boolean {
+  if (ref.length === 0 || REF_FORBIDDEN_RE.test(ref)) return false;
+  // A leading dash would be parsed by git as an option rather than a ref.
+  if (ref.startsWith("-")) return false;
+  if (ref.includes("..") || ref.includes("@{")) return false;
+  if (ref === "@" || ref.endsWith(".") || ref.endsWith("/")) return false;
+
+  // Each slash-separated component must be non-empty, must not start with a
+  // dot, and must not end with .lock — this is what rejects "/main", "a//b",
+  // "a/.b" and "a/b.lock".
+  return ref
+    .split("/")
+    .every((part) => part.length > 0 && !part.startsWith(".") && !part.endsWith(".lock"));
+}
+
 export function createGitCloneTool(
   workspaceId: string,
   uiBaseUrl: string,
@@ -24,6 +59,32 @@ export function createGitCloneTool(
       "Clone a GitHub repository into the sandbox. Uses the user's GitHub App installation for authentication. After cloning, use bash/read to explore the code.",
     parameters: schema,
     execute: async (_, params): Promise<AgentToolResult<undefined>> => {
+      // Validate before touching the network or the sandbox. These values reach
+      // a path on disk and (via cloneRepo) the git CLI, so reject anything
+      // outside the expected character sets rather than trying to escape it.
+      if (!isValidRepo(params.repo)) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Invalid repository "${params.repo}". Expected 'owner/repo' using letters, digits, '.', '_' or '-'.`,
+            },
+          ],
+          details: undefined,
+        };
+      }
+      if (params.ref !== undefined && !isValidRef(params.ref)) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Invalid ref "${params.ref}". Expected a branch, tag, or commit SHA using letters, digits, '.', '_', '/' or '-'.`,
+            },
+          ],
+          details: undefined,
+        };
+      }
+
       // Ensure sandbox is ready
       if (!executor.isReady()) {
         await executor.init();
@@ -62,52 +123,27 @@ export function createGitCloneTool(
       // 3. Ensure repos dir exists
       await executor.exec(`mkdir -p ${workDir}/repos`);
 
-      // 4. Clone — native SDK path (Daytona) or exec fallback (Docker)
-      if (executor.hasNativeGit?.()) {
-        try {
-          await executor.cloneRepo!(`https://github.com/${params.repo}.git`, clonePath, {
-            ref: params.ref,
-            username: "x-access-token",
-            password: token,
-          });
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Clone failed:\n${msg.replaceAll(token, "[REDACTED]")}`,
-              },
-            ],
-            details: undefined,
-          };
-        }
-      } else {
-        const cloneUrl = `https://x-access-token:${token}@github.com/${params.repo}.git`;
-
-        let cloneCmd: string;
-        if (params.ref) {
-          // Try as branch/tag first, fall back to fetch+checkout for commit SHAs
-          cloneCmd = `git clone --depth 1 --branch "${params.ref}" "${cloneUrl}" "${clonePath}" 2>/dev/null || (git clone "${cloneUrl}" "${clonePath}" && cd "${clonePath}" && git checkout "${params.ref}")`;
-        } else {
-          cloneCmd = `git clone --depth 1 "${cloneUrl}" "${clonePath}"`;
-        }
-
-        const result = await executor.exec(cloneCmd, { timeout: 120 });
-
-        if (result.code !== 0) {
-          // Sanitize error (remove token from output)
-          const sanitizedErr = result.stderr.replace(token, "[REDACTED]");
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Clone failed:\n${sanitizedErr}`,
-              },
-            ],
-            details: undefined,
-          };
-        }
+      // 4. Clone. Both executors implement cloneRepo() with the same
+      // injection-safe construction (see executors/git-clone-command.ts): the
+      // URL, ref, destination and token travel via the environment, never
+      // interpolated into a shell command.
+      try {
+        await executor.cloneRepo(`https://github.com/${params.repo}.git`, clonePath, {
+          ref: params.ref,
+          username: "x-access-token",
+          password: token,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Clone failed:\n${msg.replaceAll(token, "[REDACTED]")}`,
+            },
+          ],
+          details: undefined,
+        };
       }
 
       // 5. Get commit info

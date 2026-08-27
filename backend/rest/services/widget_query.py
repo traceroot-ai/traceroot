@@ -22,7 +22,10 @@ MAX_TABLE_ROWS = 1000
 HISTOGRAM_BINS = 20
 HOUR_BUCKET_MAX = timedelta(days=2)
 # Ceiling on an explicitly bucketed series: the range-derived path is bounded by
-# its own coarsening, a caller-chosen bucket is not.
+# its own coarsening, a caller-chosen bucket is not. 500 is more points than a
+# chart column of pixels can distinguish, and with a breakdown it caps the
+# result at (MAX_GROUPS + 1) * 500 rows — the same order as the widest
+# range-derived query — so one tile cannot become an unbounded read.
 MAX_EXPLICIT_BUCKETS = 500
 
 _AGG_SQL = {
@@ -145,8 +148,16 @@ def compile_widget_query(
     start_time: datetime,
     end_time: datetime,
     bucket_seconds: int | None = None,
+    include_row_count: bool = False,
 ) -> tuple[str, dict[str, Any]]:
-    """Return (sql, params) for the spec. Raises WidgetSpecError on bad specs."""
+    """Return (sql, params) for the spec. Raises WidgetSpecError on bad specs.
+
+    ``include_row_count`` adds ``count() AS row_count`` beside the scalar of a
+    number display, over exactly the metric's FROM/WHERE. Alert evaluation
+    needs the population size to tell an empty window from a null aggregate,
+    and folding it here costs one column where a second query would double the
+    ClickHouse load of every tick.
+    """
     # Normalize like every other ClickHouse endpoint: mixed tz-aware/naive
     # datetimes (both accepted by the request schema) crash subtraction in
     # granularity picking, and a reversed window compiles a negative LIMIT
@@ -156,6 +167,12 @@ def compile_widget_query(
     if end_time <= start_time:
         raise WidgetSpecError("time_range", "end_time must be after start_time")
     is_timeseries = spec.display.type in ("line", "area")
+    # Checked before the histogram early-return so a misuse cannot pass silently.
+    if include_row_count and spec.display.type != "number":
+        raise WidgetSpecError(
+            "display",
+            f"include_row_count requires a number display; got '{spec.display.type}'",
+        )
     if bucket_seconds is not None:
         # A width on a display with no time axis means the caller has the request's
         # shape wrong — same stance as the key-on-an-unkeyed-field guard below.
@@ -324,6 +341,11 @@ def compile_widget_query(
             order_by = "ORDER BY value DESC"
 
     select_cols.append(f"{metric_sql} AS value")
+    if include_row_count:
+        # Only reachable on a number display (guarded above), where there is no
+        # GROUP BY: count() is the whole filtered population, the same number
+        # the count(*) sentinel field measures.
+        select_cols.append("count() AS row_count")
     group_by = f"GROUP BY {', '.join(group_cols)}" if group_cols else ""
 
     # Row cap: for table display use a fixed row limit.
@@ -358,13 +380,16 @@ def run_widget_query(
     start_time: datetime,
     end_time: datetime,
     bucket_seconds: int | None = None,
+    include_row_count: bool = False,
 ) -> dict[str, Any]:
     """Compile and execute, returning the response contract dict."""
     # Normalized once here; compile_widget_query re-normalizing is idempotent
     # and keeps it safe for direct callers.
     start_time = to_utc_naive(start_time)
     end_time = to_utc_naive(end_time)
-    sql, params = compile_widget_query(spec, project_id, start_time, end_time, bucket_seconds)
+    sql, params = compile_widget_query(
+        spec, project_id, start_time, end_time, bucket_seconds, include_row_count
+    )
     client = get_clickhouse_client()
     # Execution bounds (readonly, timeout, GROUP BY spill ceiling) are the shared read
     # settings: a dashboard tile is the same interactive, time-windowed GROUP BY as the
