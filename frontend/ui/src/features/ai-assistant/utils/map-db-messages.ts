@@ -1,4 +1,5 @@
 import type { AIMessage } from "../types";
+import type { TraceStatus } from "@/features/detectors/hooks/use-findings";
 
 /** AIMessage row as returned by GET /api/projects/:id/ai/sessions/:id/messages. */
 export interface DbAiMessageRow {
@@ -20,6 +21,7 @@ interface ToolStepMetadata {
   args?: Record<string, unknown>;
   result?: unknown;
   isError?: boolean;
+  spanId?: string;
 }
 
 /**
@@ -45,16 +47,22 @@ export function mapDbMessages(rows: DbAiMessageRow[]): AIMessage[] {
           result: md.result,
           isError: md.isError,
           status: md.isError ? "error" : "done",
+          spanId: md.spanId,
         },
       });
       continue;
     }
-    const md = m.metadata as { thinking?: string; totalTokens?: number } | null | undefined;
+    const md = m.metadata as
+      | { thinking?: string; totalTokens?: number; traceId?: string; traceStatus?: TraceStatus }
+      | null
+      | undefined;
     const usage = {
       ...(m.inputTokens != null ? { inputTokens: m.inputTokens } : {}),
       ...(m.outputTokens != null ? { outputTokens: m.outputTokens } : {}),
       ...(md?.totalTokens != null ? { totalTokens: md.totalTokens } : {}),
       ...(m.cost != null ? { costUsd: Number(m.cost) } : {}),
+      ...(md?.traceId != null ? { traceId: md.traceId } : {}),
+      ...(md?.traceStatus != null ? { traceStatus: md.traceStatus } : {}),
     };
     // A content-less assistant row is the usage carrier of a run that ended at
     // a tool boundary. The live stream pins usage on the last text bubble, so

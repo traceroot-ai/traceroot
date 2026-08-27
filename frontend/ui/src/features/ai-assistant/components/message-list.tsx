@@ -321,7 +321,16 @@ function formatToolName(name: string): string {
   return name.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
 }
 
-function ToolStepItem({ step, isActive }: { step: ToolCallStep; isActive: boolean }) {
+function ToolStepItem({
+  step,
+  isActive,
+  onOpenSpan,
+}: {
+  step: ToolCallStep;
+  isActive: boolean;
+  /** Present only when this step's turn has a resolved trace to focus into. */
+  onOpenSpan?: (spanId: string) => void;
+}) {
   const [isOpen, setIsOpen] = useState(isActive);
 
   useEffect(() => {
@@ -386,6 +395,15 @@ function ToolStepItem({ step, isActive }: { step: ToolCallStep; isActive: boolea
                 </pre>
               </div>
             )}
+            {step.spanId && onOpenSpan && (
+              <button
+                type="button"
+                className="text-muted-foreground/60 hover:underline"
+                onClick={() => onOpenSpan(step.spanId!)}
+              >
+                Open span
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -442,7 +460,13 @@ function UserBubble({ msg }: { msg: AIMessage }) {
   );
 }
 
-function UsageFooter({ msg }: { msg: AIMessage }) {
+function UsageFooter({
+  msg,
+  onOpenTrace,
+}: {
+  msg: AIMessage;
+  onOpenTrace?: (traceId: string, spanId?: string) => void;
+}) {
   return (
     <div className="mt-1 flex items-center gap-2 px-1 text-[10px] text-muted-foreground/60">
       <span title="Input tokens">{msg.inputTokens!.toLocaleString()} in</span>
@@ -460,6 +484,19 @@ function UsageFooter({ msg }: { msg: AIMessage }) {
           <span title="Estimated cost">${msg.costUsd.toFixed(4)}</span>
         </>
       )}
+      {msg.traceId && msg.traceStatus === "available" && onOpenTrace && (
+        <>
+          <span>&middot;</span>
+          <button
+            type="button"
+            className="hover:underline"
+            onClick={() => onOpenTrace(msg.traceId!)}
+            title="Open this turn's trace"
+          >
+            View trace
+          </button>
+        </>
+      )}
     </div>
   );
 }
@@ -470,9 +507,11 @@ function UsageFooter({ msg }: { msg: AIMessage }) {
 interface MessageListProps {
   messages: AIMessage[];
   sessionStreaming?: boolean;
+  /** Opens the sidebar's agent-trace sheet on `traceId`, optionally focusing `spanId`. */
+  onOpenTrace?: (traceId: string, spanId?: string) => void;
 }
 
-export function MessageList({ messages, sessionStreaming = false }: MessageListProps) {
+export function MessageList({ messages, sessionStreaming = false, onOpenTrace }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
   const userScrolledRef = useRef(false);
@@ -539,13 +578,27 @@ export function MessageList({ messages, sessionStreaming = false }: MessageListP
   return (
     <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-3 pt-3">
       <div ref={innerRef}>
-        {messages.map((msg) => {
+        {messages.map((msg, index) => {
           if (msg.role === "tool_step" && msg.toolStep) {
+            // The step's own turn hasn't produced its trace-carrying assistant
+            // bubble yet until that bubble appears later in the list — its
+            // traceId is the one this tool step's span belongs to.
+            const turnTraceId = messages
+              .slice(index + 1)
+              .find((m) => m.role === "assistant")?.traceId;
+            const onOpenSpan =
+              onOpenTrace && turnTraceId
+                ? (spanId: string) => onOpenTrace(turnTraceId, spanId)
+                : undefined;
             return (
               <AnimatedItem key={msg.id}>
                 <div className="flex justify-start">
                   <div className="min-w-0" style={{ maxWidth: bubbleMaxWidth }}>
-                    <ToolStepItem step={msg.toolStep} isActive={msg.id === activeToolStepId} />
+                    <ToolStepItem
+                      step={msg.toolStep}
+                      isActive={msg.id === activeToolStepId}
+                      onOpenSpan={onOpenSpan}
+                    />
                   </div>
                 </div>
               </AnimatedItem>
@@ -561,7 +614,7 @@ export function MessageList({ messages, sessionStreaming = false }: MessageListP
                     <AssistantBubble msg={msg} panelWidth={panelWidth} />
                   )}
                   {msg.role === "assistant" && msg.inputTokens != null && !msg.isStreaming && (
-                    <UsageFooter msg={msg} />
+                    <UsageFooter msg={msg} onOpenTrace={onOpenTrace} />
                   )}
                 </div>
               </div>

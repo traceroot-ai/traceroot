@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { X, Plus, History, Square, AlertTriangle } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { MessageList } from "./message-list";
 import { MessageInput } from "./message-input";
 import { SessionHistory } from "./session-history";
+import { AgentTraceSheet } from "./agent-trace-sheet";
 import { useAiChatContext } from "./ai-chat-context";
 import { getProject, getAvailableLLMModels } from "@/lib/api";
 
@@ -119,6 +120,11 @@ export function AiAssistantPanel({
     handleSelectSession,
     handleDeleteSession,
   } = useAiChatContext();
+
+  // Per-turn "View trace" / "Open span" (Task 17). useAiChatContext() doesn't
+  // carry projectId — this component already receives it as its own prop, so
+  // that's what the sheet is given.
+  const [openTrace, setOpenTrace] = useState<{ traceId: string; spanId?: string } | null>(null);
 
   // Clicking X explicitly ends the conversation: abort any in-flight stream,
   // clear messages, drop the session id. Matches the upstream pre-decoupling
@@ -238,7 +244,11 @@ export function AiAssistantPanel({
             <div className="m-auto py-6">{emptyState}</div>
           </div>
         ) : (
-          <MessageList messages={messages} sessionStreaming={isStreaming} />
+          <MessageList
+            messages={messages}
+            sessionStreaming={isStreaming}
+            onOpenTrace={(traceId, spanId) => setOpenTrace({ traceId, spanId })}
+          />
         )}
 
         {/* Input */}
@@ -262,6 +272,13 @@ export function AiAssistantPanel({
           }
         />
       </div>
+      {projectId && (
+        <AgentTraceSheet
+          projectId={projectId}
+          traceId={openTrace?.traceId ?? null}
+          onClose={() => setOpenTrace(null)}
+        />
+      )}
     </div>
   );
 }

@@ -1,3 +1,5 @@
+import type { TraceStatus } from "@/features/detectors/hooks/use-findings";
+
 export interface ToolCallStep {
   toolCallId: string;
   toolName: string;
@@ -5,6 +7,8 @@ export interface ToolCallStep {
   result?: unknown;
   isError?: boolean;
   status: "running" | "done" | "error";
+  /** ClickHouse span id for this tool call, when the run was traced. */
+  spanId?: string;
 }
 
 export interface AIMessage {
@@ -20,6 +24,10 @@ export interface AIMessage {
   costUsd?: number;
   // only set when role === "tool_step"
   toolStep?: ToolCallStep;
+  /** Trace id for the run this assistant segment belongs to, when traced. */
+  traceId?: string;
+  /** Export status of `traceId` — "View trace" only shows once it's "available". */
+  traceStatus?: TraceStatus;
 }
 
 export interface AISession {

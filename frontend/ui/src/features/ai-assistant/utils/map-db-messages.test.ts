@@ -195,6 +195,29 @@ describe("mapDbMessages", () => {
     expect(msgs[1].inputTokens).toBe(5);
   });
 
+  it("passes traceId/traceStatus on assistant rows and spanId on tool_step rows through", () => {
+    const out = mapDbMessages([
+      {
+        id: "t1",
+        role: "tool_step",
+        content: "",
+        createTime: "2026-01-01T00:00:00Z",
+        metadata: { toolCallId: "c1", toolName: "bash", args: {}, spanId: "abcdef0123456789" },
+      },
+      {
+        id: "a1",
+        role: "assistant",
+        content: "done",
+        createTime: "2026-01-01T00:00:01Z",
+        metadata: { traceId: "f".repeat(32), traceStatus: "available" },
+        inputTokens: 1,
+        outputTokens: 1,
+      },
+    ]);
+    expect(out[0].toolStep?.spanId).toBe("abcdef0123456789");
+    expect(out[1]).toMatchObject({ traceId: "f".repeat(32), traceStatus: "available" });
+  });
+
   it("maps plain user/assistant rows and preserves order", () => {
     const msgs = mapDbMessages([
       { ...base, id: "u1", role: "user", content: "hi" },

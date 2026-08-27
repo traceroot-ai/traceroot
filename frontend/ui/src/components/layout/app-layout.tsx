@@ -35,7 +35,12 @@ interface LayoutContextType {
   registerAiHost: () => () => void;
 }
 
-const LayoutContext = createContext<LayoutContextType>({
+// Exported (only) so agent-trace-sheet.tsx can shadow it locally with a
+// Provider that neutralizes registerAiHost/aiPanelOpen for the TraceViewerPanel
+// it mounts — that viewer is hosted *inside* the assistant panel and must
+// never claim the AI slot out from under its own host, nor spawn a nested
+// assistant panel of its own (see agent-trace-sheet.tsx for the rationale).
+export const LayoutContext = createContext<LayoutContextType>({
   sidebarCollapsed: false,
   setSidebarCollapsed: () => {},
   headerContent: null,
