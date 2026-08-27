@@ -82,3 +82,21 @@
 .animate-slide-in-left {
   animation: slideInFromLeft 0.3s ease-out;
 }
+
+/* One-shot highlight for a table row the page has just scrolled to (a dataset
+   case that was added or edited). It FADES rather than sticking, so it reads as
+   "here it is", not as a selection the user now has to clear. Not gated on
+   prefers-reduced-motion: a colour fade carries no motion, and it is the only
+   signal that says which row changed. */
+@keyframes rowFlash {
+  from {
+    background-color: hsl(var(--muted));
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+.animate-row-flash {
+  animation: rowFlash 2s ease-out;
+}

@@ -136,11 +136,14 @@ export function useSaveTestCase(projectId: string, datasetId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: SaveTestCaseInput) =>
-      sendJson<{ duplicate: boolean; testCaseId?: string; versionId?: string }>(
-        `/api/projects/${projectId}/datasets/${datasetId}/test-cases`,
-        "POST",
-        input,
-      ),
+      // `focusTestCaseId` is the published version's row to reveal; on the duplicate
+      // short-circuit the server returns the existing case as `testCaseId` instead.
+      sendJson<{
+        duplicate: boolean;
+        testCaseId?: string;
+        versionId?: string;
+        focusTestCaseId?: string;
+      }>(`/api/projects/${projectId}/datasets/${datasetId}/test-cases`, "POST", input),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["datasets"] });
       // Refresh the trace's span→dataset chips so a just-saved span is marked.
