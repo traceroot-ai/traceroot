@@ -22,7 +22,10 @@ MAX_TABLE_ROWS = 1000
 HISTOGRAM_BINS = 20
 HOUR_BUCKET_MAX = timedelta(days=2)
 # Ceiling on an explicitly bucketed series: the range-derived path is bounded by
-# its own coarsening, a caller-chosen bucket is not.
+# its own coarsening, a caller-chosen bucket is not. 500 is more points than a
+# chart column of pixels can distinguish, and with a breakdown it caps the
+# result at (MAX_GROUPS + 1) * 500 rows — the same order as the widest
+# range-derived query — so one tile cannot become an unbounded read.
 MAX_EXPLICIT_BUCKETS = 500
 
 _AGG_SQL = {
