@@ -236,6 +236,19 @@ export function TraceViewerPanel({
   const { data: rcaData } = useRca(projectId, traceFinding?.finding_id ?? "");
   const hasRca = !!traceFinding && !!rcaData?.rca;
   const rcaSessionId = rcaData?.rca?.sessionId ?? undefined;
+  // The RCA's own agent trace — only openable once its export has landed.
+  const agentTrace = rcaData?.rca?.traceStatus === "available" ? rcaData.rca.traceId : null;
+  const [viewingAgentTrace, setViewingAgentTrace] = useState(false);
+  // Effective fetch target: the customer trace, or — when the user asked for the
+  // analysis — the RCA execution's trace under the opt-in agent scope.
+  const effectiveTraceId = viewingAgentTrace && agentTrace ? agentTrace : traceId;
+  const effectiveSource: TraceSource | undefined =
+    viewingAgentTrace && agentTrace ? "agent" : source;
+  // A different trace was selected (navigation, or a fresh panel) — drop back
+  // to viewing it rather than carrying the previous trace's agent view over.
+  useEffect(() => {
+    setViewingAgentTrace(false);
+  }, [traceId]);
 
   // Auto-open chat with RCA session loaded when arriving from /detectors.
   // Waits for rcaSessionId so the chat opens already pointing at the session,
@@ -260,15 +273,15 @@ export function TraceViewerPanel({
     isLoading: isFetching,
     error,
   } = useQuery({
-    queryKey: traceQueryKey(projectId, traceId, source),
-    queryFn: () => getTrace(projectId, traceId, "", undefined, source),
+    queryKey: traceQueryKey(projectId, effectiveTraceId, effectiveSource),
+    queryFn: () => getTrace(projectId, effectiveTraceId, "", undefined, effectiveSource),
     enabled: !traceOverride,
   });
   const trace = traceOverride ?? fetchedTrace;
   const isLoading = traceOverride ? false : isFetching;
 
   // source must match the query key above, or SSE span merging silently no-ops.
-  useTraceStream(projectId, traceId, !traceOverride, source);
+  useTraceStream(projectId, effectiveTraceId, !traceOverride, effectiveSource);
 
   // Reset when navigating to a different trace
   useEffect(() => {
@@ -391,6 +404,26 @@ export function TraceViewerPanel({
               >
                 Alert
               </button>
+            )}
+            {hasRca && agentTrace && !viewingAgentTrace && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => setViewingAgentTrace(true)}
+              >
+                View analysis trace
+              </Button>
+            )}
+            {viewingAgentTrace && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => setViewingAgentTrace(false)}
+              >
+                ← Back to trace
+              </Button>
             )}
             <Button
               variant="outline"
