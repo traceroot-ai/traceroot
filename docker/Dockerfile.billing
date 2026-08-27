@@ -12,6 +12,7 @@ COPY frontend/worker/package.json ./worker/package.json
 COPY frontend/packages/core/package.json ./packages/core/package.json
 COPY frontend/packages/slack/package.json ./packages/slack/package.json
 
+COPY frontend/vendor ./vendor
 RUN pnpm install --frozen-lockfile
 
 FROM base AS builder

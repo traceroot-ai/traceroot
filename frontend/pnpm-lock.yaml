@@ -65,8 +65,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/tools
       '@traceroot-ai/traceroot':
-        specifier: file:/Users/jared/traceroot-ts/packages/traceroot/traceroot-ai-traceroot-0.4.0.tgz
-        version: file:../../../../../traceroot-ts/packages/traceroot/traceroot-ai-traceroot-0.4.0.tgz(@anthropic-ai/sdk@0.91.1(zod@4.4.3))(@aws-sdk/client-bedrock-runtime@3.1048.0)(@langchain/core@1.2.3(@opentelemetry/api@1.9.1)(@opentelemetry/exporter-trace-otlp-proto@0.207.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.10.0(@opentelemetry/api@1.9.1))(openai@6.26.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(openai@6.26.0(ws@8.21.0)(zod@4.4.3))
+        specifier: file:../../vendor/traceroot-ai-traceroot-0.4.0.tgz
+        version: file:vendor/traceroot-ai-traceroot-0.4.0.tgz(@anthropic-ai/sdk@0.91.1(zod@4.4.3))(@aws-sdk/client-bedrock-runtime@3.1048.0)(@langchain/core@1.2.3(@opentelemetry/api@1.9.1)(@opentelemetry/exporter-trace-otlp-proto@0.207.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.10.0(@opentelemetry/api@1.9.1))(openai@6.26.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(openai@6.26.0(ws@8.21.0)(zod@4.4.3))
       '@traceroot/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -2938,8 +2938,8 @@ packages:
       openai:
         optional: true
 
-  '@traceroot-ai/traceroot@file:../../../../../traceroot-ts/packages/traceroot/traceroot-ai-traceroot-0.4.0.tgz':
-    resolution: {integrity: sha512-NgLTYE+40hJKWQtoe8TtM3GrMI91VJiry5plwoZ8QOK6as8J+Fnt3WhHlxzF7IXr2Y3XIit/ph0WyggYf+6LbA==, tarball: file:../../../../../traceroot-ts/packages/traceroot/traceroot-ai-traceroot-0.4.0.tgz}
+  '@traceroot-ai/traceroot@file:vendor/traceroot-ai-traceroot-0.4.0.tgz':
+    resolution: {integrity: sha512-NgLTYE+40hJKWQtoe8TtM3GrMI91VJiry5plwoZ8QOK6as8J+Fnt3WhHlxzF7IXr2Y3XIit/ph0WyggYf+6LbA==, tarball: file:vendor/traceroot-ai-traceroot-0.4.0.tgz}
     version: 0.4.0
     engines: {node: '>=20'}
     peerDependencies:
@@ -8832,7 +8832,7 @@ snapshots:
       - '@langchain/core'
       - supports-color
 
-  '@traceroot-ai/traceroot@file:../../../../../traceroot-ts/packages/traceroot/traceroot-ai-traceroot-0.4.0.tgz(@anthropic-ai/sdk@0.91.1(zod@4.4.3))(@aws-sdk/client-bedrock-runtime@3.1048.0)(@langchain/core@1.2.3(@opentelemetry/api@1.9.1)(@opentelemetry/exporter-trace-otlp-proto@0.207.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.10.0(@opentelemetry/api@1.9.1))(openai@6.26.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(openai@6.26.0(ws@8.21.0)(zod@4.4.3))':
+  '@traceroot-ai/traceroot@file:vendor/traceroot-ai-traceroot-0.4.0.tgz(@anthropic-ai/sdk@0.91.1(zod@4.4.3))(@aws-sdk/client-bedrock-runtime@3.1048.0)(@langchain/core@1.2.3(@opentelemetry/api@1.9.1)(@opentelemetry/exporter-trace-otlp-proto@0.207.0(@opentelemetry/api@1.9.1))(@opentelemetry/sdk-trace-base@2.10.0(@opentelemetry/api@1.9.1))(openai@6.26.0(ws@8.21.0)(zod@4.4.3))(ws@8.21.0))(openai@6.26.0(ws@8.21.0)(zod@4.4.3))':
     dependencies:
       '@arizeai/openinference-core': 2.4.0
       '@arizeai/openinference-instrumentation-anthropic': 0.1.16
