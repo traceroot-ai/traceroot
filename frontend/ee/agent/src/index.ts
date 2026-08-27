@@ -323,12 +323,14 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
           kind: "rca",
           name: `rca: ${(body.agentTrace.metadata.detectors as string[] | undefined)?.join(", ") ?? "analysis"}`,
           metadata: { ...body.agentTrace.metadata, session_id: sessionId },
+          input: body.message,
         }
       : {
           traceId: turnTraceId(sessionId, userRow.id),
           projectId,
           kind,
           name: kind === "followup" ? "followup" : "chat",
+          input: body.message,
           metadata: {
             session_id: sessionId,
             message_id: userRow.id,
@@ -340,7 +342,9 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
           },
         };
 
-    const outcome = await withAgentTrace(traceMeta, run);
+    const outcome = await withAgentTrace(traceMeta, run, {
+      recordOutput: () => persister.finalText() || undefined,
+    });
 
     // Flush the trailing text segment (or the usage-only row) — stamped with
     // this turn's trace outcome — and wait for all rows to land. Runs once

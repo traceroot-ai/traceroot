@@ -33,6 +33,8 @@ export class StreamPersister {
   private thinking = "";
   /** start timestamp by toolCallId, so the end event can record a duration */
   private readonly pendingToolStart = new Map<string, number>();
+  /** The most recent non-empty text segment — the answer the root span records as its output. */
+  private lastText = "";
   /** args by toolCallId, captured at tool_execution_start (end events lack args) */
   private pendingToolArgs = new Map<string, Record<string, unknown>>();
   /** Per-run capture-policy budget accumulator (see applyCapturePolicy). */
@@ -87,6 +89,11 @@ export class StreamPersister {
     }
   }
 
+  /** The final assistant text so far (trailing unflushed text, else the last flushed segment). */
+  finalText(): string {
+    return this.text || this.lastText;
+  }
+
   /** Flush the trailing text segment (with the run's usage and trace outcome) and wait for all inserts. */
   async finish(
     tokenUsage?: TokenUsageData,
@@ -106,6 +113,7 @@ export class StreamPersister {
     if (!this.text && !this.thinking && !tokenUsage && !trace) return;
     const content = this.text;
     const thinking = this.thinking;
+    if (content) this.lastText = content;
     this.text = "";
     this.thinking = "";
     const metadata = {
