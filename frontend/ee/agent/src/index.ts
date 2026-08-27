@@ -15,6 +15,7 @@ import {
 import { getOrCreateAgent, runAgent, removeAgent, invalidateProviderCache } from "./agent.js";
 import { StreamPersister } from "./stream-persister.js";
 import { UsageAccumulator } from "./usage-accumulator.js";
+import { withAgentTrace, type AgentTraceMeta } from "./self-trace.js";
 import { getSystemPrompt } from "./prompts/system.js";
 import { createExecutor } from "./executors/index.js";
 import { createTools } from "./tools/index.js";
@@ -139,6 +140,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     traceSessionId?: string;
     providerName?: string;
     source?: ModelSource;
+    agentTrace?: { traceId: string; kind: "rca"; metadata: Record<string, unknown> };
   }>();
 
   // Authorize first: caller must own the session (user-bound) or have
@@ -228,70 +230,89 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     const usageAccumulator = new UsageAccumulator();
     let loggedFirstUpdate = false;
 
-    await new Promise<void>((resolve) => {
-      runAgent(agent, body.message, {
-        onEvent: (event) => {
-          if (event.type === "message_update") {
-            // Log only the very first message_update for debugging
-            if (!loggedFirstUpdate) {
-              loggedFirstUpdate = true;
-              console.log(`[Agent] First message_update:`, JSON.stringify(event).slice(0, 500));
+    const run = () =>
+      new Promise<void>((resolve) => {
+        runAgent(agent, body.message, {
+          onEvent: (event) => {
+            if (event.type === "message_update") {
+              // Log only the very first message_update for debugging
+              if (!loggedFirstUpdate) {
+                loggedFirstUpdate = true;
+                console.log(`[Agent] First message_update:`, JSON.stringify(event).slice(0, 500));
+              }
+            } else if (event.type !== "message_start") {
+              // Skip noisy message_start, log other event types
+              console.log(`[Agent] Event: ${event.type}`);
             }
-          } else if (event.type !== "message_start") {
-            // Skip noisy message_start, log other event types
-            console.log(`[Agent] Event: ${event.type}`);
-          }
-          // Log error details from message_end
-          if (event.type === "message_end") {
-            const msg = (event as any).message;
-            console.log(
-              `[Agent] message_end:`,
-              JSON.stringify({
-                model: msg?.model,
-                provider: msg?.provider,
-                usage: msg?.usage,
-                stopReason: msg?.stopReason,
-              }).slice(0, 500),
-            );
-            if (msg?.stopReason === "error") {
-              console.error(`[Agent] API error:`, msg.errorMessage || "unknown");
+            // Log error details from message_end
+            if (event.type === "message_end") {
+              const msg = (event as any).message;
+              console.log(
+                `[Agent] message_end:`,
+                JSON.stringify({
+                  model: msg?.model,
+                  provider: msg?.provider,
+                  usage: msg?.usage,
+                  stopReason: msg?.stopReason,
+                }).slice(0, 500),
+              );
+              if (msg?.stopReason === "error") {
+                console.error(`[Agent] API error:`, msg.errorMessage || "unknown");
+              }
             }
-          }
-          // Forward all events to the frontend
-          stream.writeSSE({
-            event: event.type,
-            data: JSON.stringify(event),
-          });
+            // Forward all events to the frontend
+            stream.writeSSE({
+              event: event.type,
+              data: JSON.stringify(event),
+            });
 
-          // Mirror the event into token totals and durable rows
-          usageAccumulator.onEvent(event);
-          persister.onEvent(event);
-        },
-        onError: async (error) => {
-          console.error(`[Agent] ERROR:`, error.message);
-          stream.writeSSE({
-            event: "error",
-            data: JSON.stringify({ message: error.message }),
-          });
-          // Persist whatever the run produced before failing (text so far,
-          // completed tool steps) so reloaded history matches what was shown,
-          // with the usage accumulated before the failure so those tokens
-          // still count toward the run meters.
-          await persister.finish(
-            await usageAccumulator.toTokenUsage(body.source === ModelSource.BYOK),
-          );
-          resolve();
-        },
-        onDone: async () => {
-          const tokenUsage = await usageAccumulator.toTokenUsage(body.source === ModelSource.BYOK);
-          // Flush the trailing text segment and wait for all rows to land
-          await persister.finish(tokenUsage);
-          console.log(`[Agent] Done. Run persisted for session ${sessionId}`);
-          stream.writeSSE({ event: "done", data: "{}" });
-          resolve();
-        },
+            // Mirror the event into token totals and durable rows
+            usageAccumulator.onEvent(event);
+            persister.onEvent(event);
+          },
+          onError: (error) => {
+            console.error(`[Agent] ERROR:`, error.message);
+            stream.writeSSE({
+              event: "error",
+              data: JSON.stringify({ message: error.message }),
+            });
+            resolve();
+          },
+          onDone: () => {
+            resolve();
+          },
+        });
       });
+
+    // Only RCA runs carry agentTrace today; Task 13 fills this in for
+    // follow-up and chat turns (their own trace ids, no agentTrace on the wire).
+    const traceMeta: AgentTraceMeta | null = body.agentTrace
+      ? {
+          traceId: body.agentTrace.traceId,
+          projectId,
+          kind: "rca",
+          name: `rca: ${(body.agentTrace.metadata.detectors as string[] | undefined)?.join(", ") ?? "analysis"}`,
+          metadata: { ...body.agentTrace.metadata, session_id: sessionId },
+        }
+      : null;
+
+    const outcome = traceMeta
+      ? await withAgentTrace(traceMeta, run)
+      : { value: await run(), trace: "disabled" as const };
+
+    // Flush the trailing text segment (or the usage-only row) and wait for
+    // all rows to land. Runs once here (after the run — success or error —
+    // resolves) rather than inside onDone/onError, so it happens exactly once
+    // regardless of outcome.
+    const tokenUsage = await usageAccumulator.toTokenUsage(body.source === ModelSource.BYOK);
+    await persister.finish(tokenUsage);
+    console.log(`[Agent] Done. Run persisted for session ${sessionId}`);
+
+    await stream.writeSSE({
+      event: "trace",
+      data: JSON.stringify({ status: outcome.trace, traceId: traceMeta?.traceId ?? null }),
     });
+    await stream.writeSSE({ event: "done", data: "{}" });
   });
 });
 

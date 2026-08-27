@@ -4,6 +4,16 @@ const fetchProviderConfigMock = vi.fn();
 const resolvePiModelMock = vi.fn();
 const modelProviderFindMany = vi.fn().mockResolvedValue([]);
 const digestAddMock = vi.fn().mockResolvedValue(undefined);
+// Task 12: processRcaJob allocates an execution before every run and acks its
+// trace status after. Defaulted here so every pre-existing test in this file
+// (none of which cares about executions) doesn't hit the real transactional
+// allocateExecution against a real Postgres connection.
+const allocateExecutionMock = vi
+  .fn()
+  .mockResolvedValue({ executionId: "exec-1", attempt: 1, traceId: "f".repeat(32) });
+const advanceLatestMock = vi.fn().mockResolvedValue(true);
+const setExecutionTraceStatusMock = vi.fn().mockResolvedValue(undefined);
+const detectorRcaExecutionUpdateMock = vi.fn().mockResolvedValue({});
 
 vi.mock("@traceroot/core/model-resolver", async () => ({
   fetchProviderConfig: (...args: any[]) => fetchProviderConfigMock(...args),
@@ -25,7 +35,14 @@ vi.mock("@traceroot/core", async (importOriginal) => {
         ...actual.prisma.modelProvider,
         findMany: (...a: any[]) => modelProviderFindMany(...a),
       },
+      detectorRcaExecution: {
+        ...actual.prisma.detectorRcaExecution,
+        update: (...a: any[]) => detectorRcaExecutionUpdateMock(...a),
+      },
     },
+    allocateExecution: (...a: any[]) => allocateExecutionMock(...a),
+    advanceLatest: (...a: any[]) => advanceLatestMock(...a),
+    setExecutionTraceStatus: (...a: any[]) => setExecutionTraceStatusMock(...a),
   };
 });
 
@@ -35,6 +52,12 @@ afterEach(() => {
   modelProviderFindMany.mockReset();
   modelProviderFindMany.mockResolvedValue([]);
   digestAddMock.mockReset().mockResolvedValue(undefined);
+  allocateExecutionMock
+    .mockReset()
+    .mockResolvedValue({ executionId: "exec-1", attempt: 1, traceId: "f".repeat(32) });
+  advanceLatestMock.mockReset().mockResolvedValue(true);
+  setExecutionTraceStatusMock.mockReset().mockResolvedValue(undefined);
+  detectorRcaExecutionUpdateMock.mockReset().mockResolvedValue({});
 });
 
 describe("resolveProjectModel", () => {
