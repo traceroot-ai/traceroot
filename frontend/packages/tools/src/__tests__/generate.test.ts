@@ -403,6 +403,55 @@ describe("generateRegistry write operations", () => {
     );
   });
 
+  it("throws on a body property whose emitted schema still contains a nested $ref", () => {
+    const doc = fakeWriteDoc();
+    doc.components!.schemas!.CreateWorkspaceRequest!.properties = {
+      scorers: {
+        type: "array",
+        title: "Scorers",
+        items: { $ref: "#/components/schemas/ScorerRef" },
+      },
+    };
+    doc.components!.schemas!.ScorerRef = { type: "object", properties: {} };
+    expect(() => generateRegistry(doc)).toThrow(
+      'Enabled tool on POST /api/v1/public/workspaces: body property "scorers" contains an ' +
+        "unresolved $ref — extend the generator before enabling this operation",
+    );
+  });
+
+  it("does not flag ref-free nested body schemas (create-request shapes)", () => {
+    const doc = fakeWriteDoc();
+    doc.components!.schemas!.CreateWorkspaceRequest = {
+      type: "object",
+      title: "CreateDetectorLikeRequest",
+      properties: {
+        name: { title: "Name", type: "string" },
+        cursor: { anyOf: [{ type: "string" }, { type: "integer" }], title: "Cursor" },
+        sample_rate: { anyOf: [{ type: "integer" }, { type: "null" }], title: "Sample Rate" },
+        output_schema: {
+          anyOf: [{ items: {}, type: "array" }, { type: "null" }],
+          title: "Output Schema",
+        },
+        trigger_conditions: {
+          anyOf: [{ items: { type: "object" }, type: "array" }, { type: "null" }],
+          title: "Trigger Conditions",
+        },
+      },
+      required: ["name"],
+    };
+    const entry = generateRegistry(doc)[0]!;
+    expect(entry.bodyParams).toEqual([
+      "cursor",
+      "name",
+      "output_schema",
+      "sample_rate",
+      "trigger_conditions",
+    ]);
+    expect(entry.inputSchema.properties.cursor).toEqual({
+      anyOf: [{ type: "string" }, { type: "integer" }],
+    });
+  });
+
   it("emits empty bodyParams for an enabled POST without a JSON request body", () => {
     const doc = fakeWriteDoc();
     delete doc.paths["/api/v1/public/workspaces"].post!.requestBody;
