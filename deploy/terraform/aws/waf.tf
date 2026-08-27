@@ -155,8 +155,9 @@ resource "aws_cloudwatch_log_group" "waf_auth_rate_limit" {
   count = var.enable_auth_waf ? 1 : 0
 
   # WAF logging requires the destination name to start with "aws-waf-logs-".
-  name              = "aws-waf-logs-${var.name}-auth-rate-limit"
-  retention_in_days = 30
+  name = "aws-waf-logs-${var.name}-auth-rate-limit"
+  # A year costs next to nothing at blocked-only volume.
+  retention_in_days = 365
 
   tags = local.tags
 }
