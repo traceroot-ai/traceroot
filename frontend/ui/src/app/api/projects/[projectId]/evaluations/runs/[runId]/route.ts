@@ -8,7 +8,7 @@ import {
 } from "@/lib/auth-helpers";
 import { compareRuns } from "@/lib/eval/comparison";
 import { toComparisonRun, toComparisonResults } from "@/lib/eval/comparison-db";
-import { countResultStatuses } from "@/lib/eval/pass-rate";
+import { countResultStatuses } from "@/lib/eval/result-status-counts";
 
 type RouteParams = { params: Promise<{ projectId: string; runId: string }> };
 
