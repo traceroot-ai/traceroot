@@ -15,3 +15,18 @@ export const INTERNAL_BINDINGS: Readonly<Record<string, string>> = {
   get_finding: "/api/v1/projects/{project_id}/detectors/findings/{finding_id}",
   get_finding_by_trace: "/api/v1/projects/{project_id}/detectors/traces/{trace_id}/finding",
 };
+
+/**
+ * Internal Next-app write route templates, keyed by tool name, for surfaces
+ * that call the trusted-caller write routes directly (flat POSTs — tenancy
+ * and provenance travel in the camelCase body, not the path). Only the
+ * agent's current write set is bound; widening this map is a deliberate
+ * per-tool decision.
+ */
+export const INTERNAL_WRITE_BINDINGS: Readonly<Record<string, string>> = {
+  create_workspace: "/api/internal/write/workspaces",
+  create_project: "/api/internal/write/projects",
+  create_detector: "/api/internal/write/detectors",
+  create_dashboard: "/api/internal/write/dashboards",
+  create_widget: "/api/internal/write/widgets",
+};
