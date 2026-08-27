@@ -9,6 +9,7 @@ import {
   listSessions,
   deleteSession,
   updateSessionTitle,
+  type TurnAttribution,
 } from "./session.js";
 import { getOrCreateAgent, runAgent, removeAgent, invalidateProviderCache } from "./agent.js";
 import { StreamPersister } from "./stream-persister.js";
@@ -52,13 +53,14 @@ app.post("/api/v1/projects/:projectId/sessions", async (c) => {
   const projectId = c.req.param("projectId");
   const userId = c.req.header("x-user-id") || undefined;
   const workspaceId = c.req.header("x-workspace-id") || "";
-  const body = await c.req.json<{ title?: string }>();
+  const body = await c.req.json<{ title?: string; executionId?: string }>();
 
   const session = await createSession({
     projectId,
     workspaceId,
     userId, // undefined → stored as null for system/RCA sessions
     title: body.title,
+    executionId: body.executionId,
   });
   return c.json(session, 201);
 });
@@ -171,8 +173,26 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
 
   console.log(`[Agent] Agent ready, running prompt: "${body.message.slice(0, 50)}"`);
 
+  // Attribution is computed once per turn and applied to every row it
+  // produces (the user message, and every assistant/tool_step row the
+  // persister writes below) so a turn reads as one attributed unit.
+  const attribution: TurnAttribution =
+    ownedSession.userId === null
+      ? userId
+        ? {
+            turnKind: "rca_followup",
+            executionId: ownedSession.executionId,
+            initiatorUserId: userId,
+          }
+        : {
+            turnKind: "rca_execution",
+            executionId: ownedSession.executionId,
+            initiatorUserId: null,
+          }
+      : { turnKind: "chat", initiatorUserId: userId || null };
+
   // Persist user message to DB via SessionManager
-  await sessionManager.appendMessage("user", body.message);
+  await sessionManager.appendMessage("user", body.message, undefined, undefined, attribution);
 
   // Auto-generate session title from first user message (we already have
   // the session loaded above for the auth check — reuse it).
@@ -185,7 +205,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     // Mirrors the run into AIMessage rows (text segments, tool steps) so
     // reloaded history matches what the live stream rendered.
     const persister = new StreamPersister((role, content, metadata, tokenUsage) =>
-      sessionManager.appendMessage(role, content, metadata, tokenUsage),
+      sessionManager.appendMessage(role, content, metadata, tokenUsage, attribution),
     );
     // Accumulates token usage across all message_end events (tool-use loops)
     const usageAccumulator = new UsageAccumulator();

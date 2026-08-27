@@ -344,6 +344,9 @@ model AISession {
   title         String?                @db.VarChar
   status        String                 @default("active") @db.VarChar // active, completed, failed
   metadata      Json?                  @db.JsonB
+  // The execution that opened this system session (null for user sessions and
+  // for system sessions predating executions — no backfill by design).
+  executionId   String?                @map("execution_id") @db.VarChar
   createTime    DateTime               @default(now()) @map("create_time") @db.Timestamp(6)
   updateTime    DateTime               @default(now()) @updatedAt @map("update_time") @db.Timestamp(6)
   messages      AIMessage[]
@@ -356,27 +359,42 @@ model AISession {
   @@map("ai_sessions")
 }
 
+enum TurnKind {
+  rca_execution
+  rca_followup
+  chat
+  detector
+  digest
+}
+
 // AI Messages - Individual messages within an AI session
 model AIMessage {
-  id           String     @id @default(cuid()) @db.VarChar
-  workspaceId  String     @map("workspace_id") @db.VarChar // direct workspace pointer for per-kind aggregation (detector scans have no session)
-  sessionId    String?    @map("session_id") @db.VarChar // nullable: detector scans have no chat session
-  kind         String     @default("chat") @db.VarChar // "chat" | "rca" | "detector" | "digest-summary" — categorical tag; usage metering aggregates only chat|rca|detector (digest-summary is recorded, not metered)
-  role         String     @db.VarChar // user, assistant, tool
-  content      String     @db.Text
-  metadata     Json?      @db.JsonB // tool name, tool result, etc.
-  model        String?    @db.VarChar
-  provider     String?    @db.VarChar
-  isByok       Boolean?   @map("is_byok")
-  inputTokens  Int?       @map("input_tokens")
-  outputTokens Int?       @map("output_tokens")
-  cost         Decimal?   @map("cost_usd") @db.Decimal(10, 6)
-  createTime   DateTime   @default(now()) @map("create_time") @db.Timestamp(6)
-  workspace    Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  session      AISession? @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id          String @id @default(cuid()) @db.VarChar
+  workspaceId String @map("workspace_id") @db.VarChar // direct workspace pointer for per-kind aggregation (detector scans have no session)
+  sessionId   String? @map("session_id") @db.VarChar // nullable: detector scans have no chat session
+  kind        String @default("chat") @db.VarChar // "chat" | "rca" | "detector" | "digest-summary" — categorical tag; usage metering aggregates only chat|rca|detector (digest-summary is recorded, not metered)
+  // Per-turn attribution. `kind` is kept one release for old readers and is
+  // derived from turnKind at write time; metering will move to turnKind (E-09 follow-up).
+  turnKind        TurnKind              @default(chat) @map("turn_kind")
+  executionId     String?               @map("execution_id") @db.VarChar
+  initiatorUserId String?               @map("initiator_user_id") @db.VarChar
+  role            String                @db.VarChar // user, assistant, tool
+  content         String                @db.Text
+  metadata        Json?                 @db.JsonB // tool name, tool result, etc.
+  model           String?               @db.VarChar
+  provider        String?               @db.VarChar
+  isByok          Boolean?              @map("is_byok")
+  inputTokens     Int?                  @map("input_tokens")
+  outputTokens    Int?                  @map("output_tokens")
+  cost            Decimal?              @map("cost_usd") @db.Decimal(10, 6)
+  createTime      DateTime              @default(now()) @map("create_time") @db.Timestamp(6)
+  workspace       Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  session         AISession?            @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  execution       DetectorRcaExecution? @relation(fields: [executionId], references: [id], onDelete: SetNull)
 
   @@index([sessionId], map: "ix_ai_message_session_id")
   @@index([workspaceId, kind, createTime], map: "ix_ai_message_workspace_kind_time")
+  @@index([workspaceId, turnKind, createTime], map: "ix_ai_message_workspace_turnkind_time")
   @@map("ai_messages")
 }
 
@@ -516,6 +534,7 @@ model DetectorRcaExecution {
   rca      DetectorRca  @relation("rcaExecutions", fields: [findingId], references: [findingId], onDelete: Cascade)
   session  AISession?   @relation(fields: [sessionId], references: [id], onDelete: SetNull)
   latestOf DetectorRca? @relation("latestExecution")
+  messages AIMessage[]
 
   @@unique([findingId, attempt], map: "uq_rca_execution_finding_attempt")
   @@index([projectId], map: "ix_rca_execution_project_id")

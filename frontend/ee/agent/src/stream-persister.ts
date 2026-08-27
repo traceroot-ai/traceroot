@@ -1,5 +1,5 @@
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
-import type { TokenUsageData } from "./session.js";
+import type { TokenUsageData, TurnAttribution } from "./session.js";
 
 /** Signature of SessionManager.appendMessage — injected so the persister is testable. */
 export type AppendMessageFn = (
@@ -7,7 +7,8 @@ export type AppendMessageFn = (
   content: string,
   metadata?: Record<string, unknown>,
   tokenUsage?: TokenUsageData,
-) => Promise<void>;
+  attribution?: TurnAttribution,
+) => Promise<unknown>;
 
 /**
  * Mirrors a run's agent events into durable AIMessage rows so reloaded
@@ -95,7 +96,9 @@ export class StreamPersister {
     tokenUsage?: TokenUsageData,
   ): void {
     this.chain = this.chain
-      .then(() => this.append(role, content, metadata, tokenUsage))
+      .then(async () => {
+        await this.append(role, content, metadata, tokenUsage);
+      })
       .catch((error) => {
         console.error(`[Agent] Failed to persist ${role} message:`, error);
       });

@@ -111,6 +111,7 @@ export async function flushDigest(job: DigestFlushJob): Promise<void> {
             workspaceId: recipients.workspaceId,
             sessionId: null,
             kind: "digest-summary",
+            turnKind: "digest",
             role: "assistant",
             content: "",
             model: result.usage.model,
