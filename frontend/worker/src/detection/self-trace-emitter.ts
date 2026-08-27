@@ -22,7 +22,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { SpanStatusCode, trace } from "@opentelemetry/api";
 import { TraceRoot, observe } from "@traceroot-ai/traceroot";
 
-export interface SelfTraceRunMeta {
+export interface DetectorRunMeta {
   /** Run id; its dashless form is forced as the self-trace's trace id. */
   runId: string;
   projectId: string;
@@ -31,6 +31,21 @@ export interface SelfTraceRunMeta {
   /** The customer trace this run scanned. */
   scannedTraceId: string;
 }
+
+/** A non-detector self-trace root (e.g. the worker's digest-summary LLM call):
+ *  the caller picks the trace id and the root's name/metadata directly, rather
+ *  than having them derived from a detector run's identity. */
+export interface GenericSelfTraceMeta {
+  traceId: string;
+  projectId: string;
+  name: string;
+  metadata: Record<string, unknown>;
+}
+
+export type SelfTraceRunMeta = DetectorRunMeta | GenericSelfTraceMeta;
+
+/** GenericSelfTraceMeta is the only variant that carries its own traceId. */
+const isGeneric = (m: SelfTraceRunMeta): m is GenericSelfTraceMeta => "traceId" in m;
 
 /** Active self-trace scope, visible to instrumentation (e.g. tracedComplete). */
 export interface SelfTraceScope {
@@ -198,7 +213,7 @@ export async function withSelfTrace<T>(
 
   let traceId: string;
   try {
-    traceId = meta.runId.replaceAll("-", "");
+    traceId = isGeneric(meta) ? meta.traceId : meta.runId.replaceAll("-", "");
   } catch (err) {
     console.error("[Detector] self-trace setup failed:", err);
     return runPlain(fn);
@@ -239,15 +254,18 @@ export async function withSelfTrace<T>(
       observe(
         {
           // The trace record inherits this name, so both the trace node and
-          // the root row read "which detector's run" at a glance.
-          name: `detector-run: ${meta.detectorName}`,
+          // the root row read "which detector's run" (or the generic caller's
+          // own name) at a glance.
+          name: isGeneric(meta) ? meta.name : `detector-run: ${meta.detectorName}`,
           traceId,
           projectId: meta.projectId,
-          metadata: {
-            detectorId: meta.detectorId,
-            detectorName: meta.detectorName,
-            scannedTraceId: meta.scannedTraceId,
-          },
+          metadata: isGeneric(meta)
+            ? meta.metadata
+            : {
+                detectorId: meta.detectorId,
+                detectorName: meta.detectorName,
+                scannedTraceId: meta.scannedTraceId,
+              },
           // recordIo owns the root's output (bounded); the SDK's default
           // capture would store fn's full result unbounded.
           captureOutput: false,

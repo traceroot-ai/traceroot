@@ -94,6 +94,7 @@ export async function flushDigest(job: DigestFlushJob): Promise<void> {
         })),
       },
       {
+        projectId,
         workspaceId: recipients.workspaceId,
         rcaModel: recipients.rcaModel,
         rcaProvider: recipients.rcaProvider,
