@@ -89,5 +89,9 @@ describe("Alert panel → agent trace", () => {
     expect(mocks.getTrace).toHaveBeenLastCalledWith("p1", "f1f1", "", undefined, "agent");
 
     expect(await screen.findByRole("button", { name: /back to trace/i })).toBeTruthy();
+
+    // The header now reflects the agent trace being viewed — same as a panel
+    // mounted directly with source="agent" (Task 18), not just the fetch target.
+    expect(await screen.findByText("Agent")).toBeTruthy();
   });
 });

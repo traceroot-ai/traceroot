@@ -286,8 +286,11 @@ export function TraceViewerPanel({
   // Root trace metadata written by the RCA/follow-up/chat emitters (Tasks 12/13):
   // kind, finding_id, execution_id, attempt, session_id, parent_trace_id. Only
   // parsed for an agent-scoped trace — a user trace's metadata is opaque here.
+  // Keyed on effectiveSource, not the raw prop: swapping into the RCA's agent
+  // trace via "View analysis trace" must show the same header as a trace opened
+  // directly with source="agent".
   const agentMeta = useMemo(() => {
-    if (source !== "agent" || !trace?.metadata) return null;
+    if (effectiveSource !== "agent" || !trace?.metadata) return null;
     try {
       return JSON.parse(trace.metadata) as {
         kind?: string;
@@ -299,7 +302,7 @@ export function TraceViewerPanel({
     } catch {
       return null;
     }
-  }, [source, trace?.metadata]);
+  }, [effectiveSource, trace?.metadata]);
 
   // Reset when navigating to a different trace
   useEffect(() => {
@@ -406,12 +409,12 @@ export function TraceViewerPanel({
                 title={`Copy ${headerIdentity.label.toLowerCase()} id`}
               />
             )}
-            {source === "agent" && (
+            {effectiveSource === "agent" && (
               <span className="shrink-0 rounded bg-emerald-600/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
                 Agent
               </span>
             )}
-            {source === "agent" && agentMeta && (
+            {effectiveSource === "agent" && agentMeta && (
               <span className="truncate text-xs text-muted-foreground">
                 {agentMeta.kind === "rca" &&
                   agentMeta.finding_id &&
@@ -507,10 +510,14 @@ export function TraceViewerPanel({
                       // A self-trace or agent trace's id matches no list row's
                       // trace_id, so the receiving page needs the source to
                       // reopen it as one instead of looking it up as an original.
+                      // Uses the effective id/source, not the raw props, so
+                      // popping out while viewing the RCA's agent trace (via
+                      // "View analysis trace") reopens THAT trace, not the
+                      // original one underneath it.
                       extraParams:
-                        source === "detector" || source === "agent"
-                          ? { traceId, fullscreen: "1", source }
-                          : { traceId, fullscreen: "1" },
+                        effectiveSource === "detector" || effectiveSource === "agent"
+                          ? { traceId: effectiveTraceId, fullscreen: "1", source: effectiveSource }
+                          : { traceId: effectiveTraceId, fullscreen: "1" },
                     }),
                     "_blank",
                   )
@@ -662,7 +669,7 @@ export function TraceViewerPanel({
                     />
                   ) : error || !trace ? (
                     <div className="flex h-full items-center justify-center">
-                      {(source === "detector" || source === "agent") &&
+                      {(effectiveSource === "detector" || effectiveSource === "agent") &&
                       (!error || (error instanceof ApiError && error.status === 404)) ? (
                         // self_traced is set optimistically at emit time (detector), and an
                         // agent trace id is allocated before the run (RCA/follow-up/chat) —
