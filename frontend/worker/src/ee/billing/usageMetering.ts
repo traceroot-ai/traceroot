@@ -30,7 +30,7 @@ import {
   DETECTOR_RUN_QUOTAS,
   EVENT_QUOTAS,
 } from "@traceroot/core";
-import { getWorkspaceUsageDetails } from "./clickhouse.js";
+import { getWorkspaceUsageDetails, type SourceBreakdown } from "./clickhouse.js";
 import { runUsageQuotaNotifications } from "./usageNotifications.js";
 
 let stripe: Stripe | null = null;
@@ -122,9 +122,23 @@ async function processWorkspace(
   // =========================================================================
   // 1. Query event usage (traces + spans + detector runs) from ClickHouse
   // =========================================================================
-  let usage: { traces: number; spans: number; detectorRuns: number };
+  let usage: {
+    traces: number;
+    spans: number;
+    detectorRuns: number;
+    bySource: SourceBreakdown;
+  };
   if (projectIds.length === 0) {
-    usage = { traces: 0, spans: 0, detectorRuns: 0 };
+    usage = {
+      traces: 0,
+      spans: 0,
+      detectorRuns: 0,
+      bySource: {
+        user: { traces: 0, spans: 0 },
+        detector: { traces: 0, spans: 0 },
+        agent: { traces: 0, spans: 0 },
+      },
+    };
   } else {
     // Free plan: total usage (all time)
     // Paid plans: usage within current billing period (from Stripe webhook)
@@ -152,6 +166,11 @@ async function processWorkspace(
   }
 
   const totalEvents = usage.traces + usage.spans;
+  // Free ingestion cap counts customer rows only — internal telemetry
+  // (detector self-traces, agent traces) must never push a workspace over the
+  // Free quota, which exists for the customer's own data (totalEvents above
+  // still feeds Stripe metering, which bills every stored row).
+  const userEvents = usage.bySource.user.traces + usage.bySource.user.spans;
 
   // =========================================================================
   // 2. Query AI usage from PostgreSQL
@@ -228,6 +247,7 @@ async function processWorkspace(
     currentUsage: {
       traces: usage.traces,
       spans: usage.spans,
+      bySource: usage.bySource,
       tokens: 0,
       updatedAt: ctx.now.toISOString(),
       ai: {
@@ -304,11 +324,11 @@ async function processWorkspace(
   // free workspace upgrades — gating it behind `if (isFreePlan)` left the flag
   // stuck true forever (paid plans never re-entered the branch). Mirrors the
   // paid-plan unblock already done for AI (4c) and RCA (4c-ter).
-  const shouldBlockIngestion = isIngestionBlocked(plan, totalEvents);
+  const shouldBlockIngestion = isIngestionBlocked(plan, userEvents);
   if (workspace.ingestionBlocked !== shouldBlockIngestion) {
     updateData.ingestionBlocked = shouldBlockIngestion;
     console.log(
-      `[Billing] Workspace ${workspace.id}: ${totalEvents}/${USAGE_CONFIG.includedUnits} events, ingestion_blocked: ${shouldBlockIngestion}`,
+      `[Billing] Workspace ${workspace.id}: ${userEvents}/${USAGE_CONFIG.includedUnits} customer events (${totalEvents} total), ingestion_blocked: ${shouldBlockIngestion}`,
     );
   }
 

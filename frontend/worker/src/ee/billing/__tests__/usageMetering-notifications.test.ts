@@ -67,7 +67,16 @@ beforeEach(() => {
   mocks.workspaceFindMany.mockResolvedValue([workspace()]);
   mocks.workspaceUpdate.mockResolvedValue({});
   mocks.detectorRcaCount.mockResolvedValue(7);
-  mocks.getWorkspaceUsageDetails.mockResolvedValue({ traces: 100, spans: 900, detectorRuns: 3 });
+  mocks.getWorkspaceUsageDetails.mockResolvedValue({
+    traces: 100,
+    spans: 900,
+    detectorRuns: 3,
+    bySource: {
+      user: { traces: 100, spans: 900 },
+      detector: { traces: 0, spans: 0 },
+      agent: { traces: 0, spans: 0 },
+    },
+  });
   mocks.runUsageQuotaNotifications.mockResolvedValue(undefined);
 });
 
