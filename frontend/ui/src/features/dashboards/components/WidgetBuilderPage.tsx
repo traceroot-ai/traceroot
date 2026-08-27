@@ -127,7 +127,11 @@ export function WidgetBuilderPage({
   }, [isEdit, dashboard, widget, dashboardUrl, router]);
 
   // ── schema-driven field lists (same derivation as the old modal) ──────────
-  const { data: schema } = useWidgetSchema(projectId);
+  const {
+    data: schema,
+    isPending: isSchemaPending,
+    isError: isSchemaError,
+  } = useWidgetSchema(projectId);
   const view = draft.view as View | undefined;
   const viewFields: Record<string, WidgetSchemaField> = view ? (schema?.[view]?.fields ?? {}) : {};
   // `viewFields` stays whole so a saved widget still finds its measure's label;
@@ -315,6 +319,10 @@ export function WidgetBuilderPage({
                       filter={f as { field: string; op: string; value: string | number }}
                       filterableFields={filterableFields}
                       fieldsMap={viewFields}
+                      fieldsLoading={isSchemaPending}
+                      // Unavailable only with nothing cached: a failed refetch
+                      // keeps the schema, and the rows stay editable.
+                      fieldsUnavailable={isSchemaError && schema === undefined}
                       onChange={handleFilterChange}
                       onRemove={handleFilterRemove}
                       projectId={projectId}

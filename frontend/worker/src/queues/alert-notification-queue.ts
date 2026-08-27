@@ -1,6 +1,11 @@
 import { Queue, type JobsOptions } from "bullmq";
 import { Redis } from "ioredis";
-import type { AlertSeverity, AlertThresholdOperator, AlertWindow } from "@traceroot/core";
+import type {
+  AlertFilter,
+  AlertSeverity,
+  AlertThresholdOperator,
+  AlertWindow,
+} from "@traceroot/core";
 
 export { createRedisConnection } from "./detector-run-queue.js";
 
@@ -30,6 +35,8 @@ export interface AlertNotification {
   window: AlertWindow;
   windowStart: Date;
   windowEnd: Date;
+  // Optional: jobs enqueued before this field existed render without their filters.
+  filters?: readonly AlertFilter[];
   // Optional: jobs enqueued before this field existed are delivered but never compensated.
   emission?: AlertEmissionClaim;
 }

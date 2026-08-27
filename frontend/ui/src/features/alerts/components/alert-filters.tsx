@@ -21,7 +21,11 @@ interface AlertFiltersProps {
  * will not filter on would chart a different query from the one the alert runs.
  */
 export function AlertFilters({ projectId, filters, onFiltersChange }: AlertFiltersProps) {
-  const { data: schema } = useWidgetSchema(projectId);
+  const {
+    data: schema,
+    isPending: isSchemaPending,
+    isError: isSchemaError,
+  } = useWidgetSchema(projectId);
   const spansFields = schema?.spans.fields;
 
   const filterableFields = useMemo<[string, WidgetSchemaField][]>(
@@ -72,6 +76,12 @@ export function AlertFilters({ projectId, filters, onFiltersChange }: AlertFilte
           projectId={projectId}
           view="spans"
           range={range}
+          // Pending: a saved row must not read as unknown before the registry
+          // has had its say. Failed with nothing cached: it says so, and stays
+          // removable. A failed background refetch keeps the cached schema,
+          // which is still the registry — the rows stay editable.
+          fieldsLoading={isSchemaPending}
+          fieldsUnavailable={isSchemaError && schema === undefined}
         />
       ))}
       {/* Disabled until the schema answers: an empty field dropdown is a dead

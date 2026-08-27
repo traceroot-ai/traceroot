@@ -13,7 +13,7 @@ import pytest
 
 from rest.services.filters import columns as reg
 
-MEMBERSHIP_FIELDS = {"model_name", "environment"}
+MEMBERSHIP_FIELDS = {"model_name", "environment", "span_kind", "status", "name"}
 # Keyed map: its own tier, because the predicate carries a map key as well as a value and
 # lowers to a shape no membership field lowers to. One parameterized field over a Map
 # column, never one registry row per key.
