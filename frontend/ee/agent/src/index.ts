@@ -15,7 +15,13 @@ import {
 import { getOrCreateAgent, runAgent, removeAgent, invalidateProviderCache } from "./agent.js";
 import { StreamPersister } from "./stream-persister.js";
 import { UsageAccumulator } from "./usage-accumulator.js";
-import { withAgentTrace, type AgentTraceMeta } from "./self-trace.js";
+import {
+  withAgentTrace,
+  currentToolSpanIds,
+  turnTraceId,
+  type AgentTraceMeta,
+  type AgentTraceKind,
+} from "./self-trace.js";
 import { getSystemPrompt } from "./prompts/system.js";
 import { createExecutor } from "./executors/index.js";
 import { createTools } from "./tools/index.js";
@@ -210,8 +216,10 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
           }
       : { turnKind: "chat", initiatorUserId: userId || null };
 
-  // Persist user message to DB via SessionManager
-  await sessionManager.appendMessage("user", body.message, attribution);
+  // Persist user message to DB via SessionManager. The created row's id is
+  // this turn's messageId, used below to derive a deterministic trace id for
+  // follow-up and chat turns.
+  const userRow = await sessionManager.appendMessage("user", body.message, attribution);
 
   // Auto-generate session title from first user message (we already have
   // the session loaded above for the auth check — reuse it).
@@ -220,11 +228,27 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     await updateSessionTitle(sessionId, title);
   }
 
+  // For a system (RCA) session, a follow-up turn's trace is a child of the
+  // execution that opened the session — carry its trace/finding ids into the
+  // follow-up's own trace metadata so the two are linkable in the UI.
+  const exec = ownedSession.executionId
+    ? await prisma.detectorRcaExecution.findUnique({
+        where: { id: ownedSession.executionId },
+        select: { traceId: true, findingId: true },
+      })
+    : null;
+  const parentTraceId = exec?.traceId ?? null;
+  const findingIdForSession = exec?.findingId ?? null;
+
   return streamSSE(c, async (stream) => {
     // Mirrors the run into AIMessage rows (text segments, tool steps) so
-    // reloaded history matches what the live stream rendered.
-    const persister = new StreamPersister((role, content, metadata, tokenUsage) =>
-      sessionManager.appendMessage(role, content, attribution, metadata, tokenUsage),
+    // reloaded history matches what the live stream rendered. toolSpanIds
+    // stamps each tool_step row with the OTel span id the instrumentation
+    // reported for that tool call.
+    const persister = new StreamPersister(
+      (role, content, metadata, tokenUsage) =>
+        sessionManager.appendMessage(role, content, attribution, metadata, tokenUsage),
+      { toolSpanIds: currentToolSpanIds },
     );
     // Accumulates token usage across all message_end events (tool-use loops)
     const usageAccumulator = new UsageAccumulator();
@@ -284,9 +308,15 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
         });
       });
 
-    // Only RCA runs carry agentTrace today; Task 13 fills this in for
-    // follow-up and chat turns (their own trace ids, no agentTrace on the wire).
-    const traceMeta: AgentTraceMeta | null = body.agentTrace
+    // RCA execution runs carry agentTrace from the worker (Task 12); every
+    // other turn (follow-up on a system session, or a plain chat turn) gets
+    // its own deterministic trace id keyed on this turn's user message.
+    const kind: AgentTraceKind = body.agentTrace
+      ? "rca"
+      : ownedSession.userId === null
+        ? "followup"
+        : "chat";
+    const traceMeta: AgentTraceMeta = body.agentTrace
       ? {
           traceId: body.agentTrace.traceId,
           projectId,
@@ -294,23 +324,35 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
           name: `rca: ${(body.agentTrace.metadata.detectors as string[] | undefined)?.join(", ") ?? "analysis"}`,
           metadata: { ...body.agentTrace.metadata, session_id: sessionId },
         }
-      : null;
+      : {
+          traceId: turnTraceId(sessionId, userRow.id),
+          projectId,
+          kind,
+          name: kind === "followup" ? "followup" : "chat",
+          metadata: {
+            session_id: sessionId,
+            message_id: userRow.id,
+            initiator_user_id: userId || null,
+            ...(ownedSession.executionId ? { execution_id: ownedSession.executionId } : {}),
+            ...(parentTraceId
+              ? { finding_id: findingIdForSession, parent_trace_id: parentTraceId }
+              : {}),
+          },
+        };
 
-    const outcome = traceMeta
-      ? await withAgentTrace(traceMeta, run)
-      : { value: await run(), trace: "disabled" as const };
+    const outcome = await withAgentTrace(traceMeta, run);
 
-    // Flush the trailing text segment (or the usage-only row) and wait for
-    // all rows to land. Runs once here (after the run — success or error —
-    // resolves) rather than inside onDone/onError, so it happens exactly once
-    // regardless of outcome.
+    // Flush the trailing text segment (or the usage-only row) — stamped with
+    // this turn's trace outcome — and wait for all rows to land. Runs once
+    // here (after the run — success or error — resolves) rather than inside
+    // onDone/onError, so it happens exactly once regardless of outcome.
     const tokenUsage = await usageAccumulator.toTokenUsage(body.source === ModelSource.BYOK);
-    await persister.finish(tokenUsage);
+    await persister.finish(tokenUsage, { traceId: traceMeta.traceId, status: outcome.trace });
     console.log(`[Agent] Done. Run persisted for session ${sessionId}`);
 
     await stream.writeSSE({
       event: "trace",
-      data: JSON.stringify({ status: outcome.trace, traceId: traceMeta?.traceId ?? null }),
+      data: JSON.stringify({ status: outcome.trace, traceId: traceMeta.traceId }),
     });
     await stream.writeSSE({ event: "done", data: "{}" });
   });

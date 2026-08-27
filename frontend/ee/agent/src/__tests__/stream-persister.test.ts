@@ -73,6 +73,33 @@ function makePersister() {
 }
 
 describe("StreamPersister", () => {
+  it("stamps spanId on tool_step rows from the run's tool span map", async () => {
+    const calls: AppendCall[] = [];
+    const ids = new Map([["1", "abcdef0123456789"]]);
+    const p = new StreamPersister(
+      async (role, content, metadata) => {
+        calls.push({ role, content, metadata });
+      },
+      { toolSpanIds: () => ids },
+    );
+    p.onEvent(toolStart("1"));
+    p.onEvent(toolEnd("1"));
+    await p.finish();
+    expect(calls[0].metadata?.spanId).toBe("abcdef0123456789");
+  });
+
+  it("writes traceId and traceStatus on the final text segment", async () => {
+    const calls: AppendCall[] = [];
+    const p = new StreamPersister(async (role, content, metadata) => {
+      calls.push({ role, content, metadata });
+    });
+    p.onEvent(textDelta("done"));
+    await p.finish(USAGE, { traceId: "f".repeat(32), status: "available" });
+    const last = calls.at(-1)!;
+    expect(last.role).toBe("assistant");
+    expect(last.metadata).toMatchObject({ traceId: "f".repeat(32), traceStatus: "available" });
+  });
+
   it("persists a text-only run as a single assistant row carrying the usage", async () => {
     const { persister, calls } = makePersister();
     persister.onEvent(textDelta("Hello"));
