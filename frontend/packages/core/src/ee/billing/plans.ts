@@ -78,11 +78,16 @@ export function isFreePlanBlocked(currentUsage: number): boolean {
  * gated it behind `if (isFreePlan)` and never cleared the flag on upgrade — a
  * workspace that tripped the Free cap and then upgraded stayed blocked
  * indefinitely. Returning false for paid plans here clears that stale block.
+ *
+ * `userEvents` is the count of customer-written rows (source='user') —
+ * internal telemetry (detector self-traces, agent traces) is billed like any
+ * stored row on paid plans but must never consume the Free quota, which
+ * exists for the customer's own data.
  */
-export function isIngestionBlocked(plan: PlanType, totalEvents: number): boolean {
+export function isIngestionBlocked(plan: PlanType, userEvents: number): boolean {
   if (!isBillingEnabled()) return false;
   if (plan === PlanType.FREE) {
-    return totalEvents >= EVENT_QUOTAS[plan].included;
+    return userEvents >= EVENT_QUOTAS[plan].included;
   }
   return false;
 }

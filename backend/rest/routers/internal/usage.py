@@ -16,10 +16,20 @@ class UsageTotalResponse(BaseModel):
     total_events: int
 
 
+class SourceCount(BaseModel):
+    traces: int = 0
+    spans: int = 0
+
+
 class UsageDetailsResponse(BaseModel):
     traces: int
     spans: int
     detector_runs: int = 0
+    # Attribution only. The totals above are what is billed (every stored row,
+    # whoever wrote it — 747562e2); this splits the same rows by writer so the
+    # Free ingestion cap can be applied to customer rows and the billing tab can
+    # show customers which rows are theirs.
+    by_source: dict[str, SourceCount] = {}
 
 
 @router.get(
@@ -84,7 +94,7 @@ async def get_usage_details(
     project_id_list = [p.strip() for p in project_ids.split(",") if p.strip()]
 
     if not project_id_list:
-        return UsageDetailsResponse(traces=0, spans=0, detector_runs=0)
+        return UsageDetailsResponse(traces=0, spans=0, detector_runs=0, by_source={})
 
     ch = get_clickhouse_client()
 
@@ -152,4 +162,33 @@ async def get_usage_details(
         int(detector_runs_result.result_rows[0][0]) if detector_runs_result.result_rows else 0
     )
 
-    return UsageDetailsResponse(traces=traces, spans=spans, detector_runs=detector_runs)
+    # Breakdown is a separate query so the total queries above stay byte-for-byte
+    # unfiltered (their guard test asserts no `source` token). Same dedup as the
+    # totals: uniqExact per source over pre-merge ReplacingMergeTree rows.
+    breakdown_result = ch.query(
+        """
+        SELECT source, uniqExact(trace_id) AS traces, 0 AS spans
+        FROM traces
+        WHERE project_id IN {project_ids:Array(String)}
+          AND ch_create_time >= {start:String}
+          AND ch_create_time < {end:String}
+        GROUP BY source
+        UNION ALL
+        SELECT source, 0 AS traces, uniqExact(span_id) AS spans
+        FROM spans
+        WHERE project_id IN {project_ids:Array(String)}
+          AND ch_create_time >= {start:String}
+          AND ch_create_time < {end:String}
+        GROUP BY source
+        """,
+        parameters={"project_ids": project_id_list, "start": start_str, "end": end_str},
+    )
+    by_source: dict[str, SourceCount] = {s: SourceCount() for s in ("user", "detector", "agent")}
+    for source, t, s in breakdown_result.result_rows:
+        bucket = by_source.setdefault(str(source), SourceCount())
+        bucket.traces += int(t)
+        bucket.spans += int(s)
+
+    return UsageDetailsResponse(
+        traces=traces, spans=spans, detector_runs=detector_runs, by_source=by_source
+    )
