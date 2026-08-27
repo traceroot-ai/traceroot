@@ -100,6 +100,10 @@ cache_node_type = "cache.t4g.micro"
 # rest_replicas   = 1
 # worker_replicas = 1
 
+# WAF rate limiting for the auth endpoints (see waf.tf)
+# enable_auth_waf     = true
+# auth_waf_rate_limit = 300  # requests per 5 minutes per client IP
+
 # Additional environment variables (escape hatch for anything not covered above)
 # Each entry must have either `value` (plain text) or `valueFrom` (secret reference), not both.
 # additional_env = [

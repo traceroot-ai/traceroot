@@ -88,3 +88,8 @@ output "helm_release_status" {
   description = "Helm release status"
   value       = helm_release.traceroot.status
 }
+
+output "auth_waf_web_acl_arn" {
+  description = "ARN of the WAF web ACL rate-limiting the auth endpoints (null when disabled)"
+  value       = var.enable_auth_waf ? aws_wafv2_web_acl.auth_rate_limit[0].arn : null
+}

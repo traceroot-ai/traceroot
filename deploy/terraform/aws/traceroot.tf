@@ -175,6 +175,9 @@ ingress:
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
     alb.ingress.kubernetes.io/ssl-redirect: "443"
     alb.ingress.kubernetes.io/certificate-arn: "${var.domain != "" ? aws_acm_certificate.app[0].arn : ""}"
+%{if var.enable_auth_waf~}
+    alb.ingress.kubernetes.io/wafv2-acl-arn: "${aws_wafv2_web_acl.auth_rate_limit[0].arn}"
+%{endif~}
 EOT
 
   ingress_values_http = <<-EOT
@@ -186,6 +189,9 @@ ingress:
     alb.ingress.kubernetes.io/scheme: ${var.alb_scheme}
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+%{if var.enable_auth_waf~}
+    alb.ingress.kubernetes.io/wafv2-acl-arn: "${aws_wafv2_web_acl.auth_rate_limit[0].arn}"
+%{endif~}
 EOT
 
   ingress_values = var.domain != "" ? local.ingress_values_https : local.ingress_values_http

@@ -293,6 +293,23 @@ variable "alb_scheme" {
   default     = "internet-facing"
 }
 
+variable "enable_auth_waf" {
+  description = "Attach a WAF rate-based rule for the unauthenticated auth endpoints to the ALB (see waf.tf)"
+  type        = bool
+  default     = true
+}
+
+variable "auth_waf_rate_limit" {
+  description = "WAF rate limit for the auth endpoints: requests per 5 minutes per client IP. Set above legitimate per-user login/refresh volume (the CLI refreshes its token roughly every 10 minutes)."
+  type        = number
+  default     = 300
+
+  validation {
+    condition     = var.auth_waf_rate_limit >= 10
+    error_message = "AWS WAF rate-based rules require a limit of at least 10."
+  }
+}
+
 # --- Additional environment variables ---
 # Catch-all for any env vars not covered above (Google OAuth, SMTP, Stripe, etc.)
 # Each entry has either `value` (plain text) or `valueFrom` (secret ref).
