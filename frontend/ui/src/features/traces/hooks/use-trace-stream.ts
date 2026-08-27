@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Span, TraceDetail } from "@/types/api";
+import type { TraceSource } from "@/lib/api/traces";
 import { enrichSpansWithPending } from "../utils";
 import { traceQueryKey } from "./index";
 
@@ -39,7 +40,7 @@ export function useTraceStream(
   projectId: string,
   traceId: string,
   enabled: boolean,
-  source?: "detector" | "user",
+  source?: TraceSource,
 ): UseTraceStreamResult {
   const queryClient = useQueryClient();
   const [isStreaming, setIsStreaming] = useState(false);
