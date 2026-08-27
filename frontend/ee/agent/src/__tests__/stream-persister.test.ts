@@ -17,17 +17,26 @@ const thinkingDelta = (delta: string): AgentEvent =>
     assistantMessageEvent: { type: "thinking_delta", delta } as never,
   }) as AgentEvent;
 
-const toolStart = (id: string, args: Record<string, unknown> = {}): AgentEvent => ({
+const toolStart = (
+  id: string,
+  args: Record<string, unknown> = {},
+  toolName = "get_traces",
+): AgentEvent => ({
   type: "tool_execution_start",
   toolCallId: id,
-  toolName: "get_traces",
+  toolName,
   args,
 });
 
-const toolEnd = (id: string, result: unknown = "ok", isError = false): AgentEvent => ({
+const toolEnd = (
+  id: string,
+  result: unknown = "ok",
+  isError = false,
+  toolName = "get_traces",
+): AgentEvent => ({
   type: "tool_execution_end",
   toolCallId: id,
-  toolName: "get_traces",
+  toolName,
   result,
   isError,
 });
@@ -96,17 +105,20 @@ describe("StreamPersister", () => {
 
   it("records tool args from start and result from end in metadata", async () => {
     const { persister, calls } = makePersister();
-    persister.onEvent(toolStart("t1", { query: "errors" }));
-    persister.onEvent(toolEnd("t1", { rows: [] }, true));
+    // download_traces is capture-policy-allowlisted, so its result is kept
+    // (as a redacted/bounded string) rather than withheld — see Task 9.
+    persister.onEvent(toolStart("t1", { query: "errors" }, "download_traces"));
+    persister.onEvent(toolEnd("t1", { rows: [] }, true, "download_traces"));
     await persister.finish();
 
     expect(calls).toHaveLength(1);
     expect(calls[0].role).toBe("tool_step");
     expect(calls[0].metadata).toEqual({
       toolCallId: "t1",
-      toolName: "get_traces",
+      toolName: "download_traces",
       args: { query: "errors" },
-      result: { rows: [] },
+      result: '{"rows":[]}',
+      outputBytes: 11,
       isError: true,
     });
   });
@@ -203,5 +215,45 @@ describe("StreamPersister", () => {
     expect(calls).toEqual(["tool_step"]);
     expect(errorSpy).toHaveBeenCalled();
     errorSpy.mockRestore();
+  });
+
+  it("withholds bash output but keeps its size; keeps download_traces output", async () => {
+    const calls: AppendCall[] = [];
+    const p = new StreamPersister(async (role, content, metadata) => {
+      calls.push({ role, content, metadata });
+    });
+    p.onEvent({
+      type: "tool_execution_start",
+      toolCallId: "1",
+      toolName: "bash",
+      args: { command: "cat secrets" },
+    });
+    p.onEvent({
+      type: "tool_execution_end",
+      toolCallId: "1",
+      toolName: "bash",
+      result: "ghp_" + "x".repeat(40),
+      isError: false,
+    });
+    p.onEvent({
+      type: "tool_execution_start",
+      toolCallId: "2",
+      toolName: "download_traces",
+      args: {},
+    });
+    p.onEvent({
+      type: "tool_execution_end",
+      toolCallId: "2",
+      toolName: "download_traces",
+      result: '{"spans":[]}',
+      isError: false,
+    });
+    await p.finish();
+    const bash = calls.find((c) => c.metadata?.toolName === "bash")!.metadata!;
+    expect(bash.result).toBeUndefined();
+    expect(bash.outputBytes).toBe(44);
+    expect(bash.withheld).toBe("not-allowlisted");
+    const dl = calls.find((c) => c.metadata?.toolName === "download_traces")!.metadata!;
+    expect(dl.result).toBe('{"spans":[]}');
   });
 });

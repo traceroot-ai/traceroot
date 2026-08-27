@@ -1,4 +1,5 @@
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
+import { applyCapturePolicy } from "@traceroot/core";
 import type { TokenUsageData, TurnAttribution } from "./session.js";
 
 /** Signature of SessionManager.appendMessage — injected so the persister is testable. */
@@ -31,6 +32,8 @@ export class StreamPersister {
   private thinking = "";
   /** args by toolCallId, captured at tool_execution_start (end events lack args) */
   private pendingToolArgs = new Map<string, Record<string, unknown>>();
+  /** Per-run capture-policy budget accumulator (see applyCapturePolicy). */
+  private readonly captureState = { spentBytes: 0 };
 
   constructor(private readonly append: AppendMessageFn) {}
 
@@ -51,11 +54,18 @@ export class StreamPersister {
     if (event.type === "tool_execution_end") {
       const args = this.pendingToolArgs.get(event.toolCallId) ?? {};
       this.pendingToolArgs.delete(event.toolCallId);
+      const captured = applyCapturePolicy(
+        { toolName: event.toolName, args, result: event.result },
+        this.captureState,
+      );
       this.enqueue("tool_step", "", {
         toolCallId: event.toolCallId,
         toolName: event.toolName,
-        args,
-        result: event.result,
+        args: captured.args,
+        ...(captured.result !== undefined ? { result: captured.result } : {}),
+        outputBytes: captured.outputBytes,
+        ...(captured.truncated ? { truncated: true } : {}),
+        ...(captured.withheld ? { withheld: captured.withheld } : {}),
         isError: event.isError,
       });
     }
