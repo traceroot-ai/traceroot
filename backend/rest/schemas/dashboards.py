@@ -66,6 +66,8 @@ class WidgetQueryRequest(_StrictModel):
     end_time: datetime
     # Time-series bucket width, when the caller needs one specific grain rather than
     # the range-derived one. Rejected (422) on displays that carry no time axis.
+    # 86_400 (one day) is the coarsest grain the range-derived path ever picks,
+    # so an explicit bucket may refine the automatic grain but never exceed it.
     bucket_seconds: int | None = Field(default=None, ge=1, le=86_400)
 
 
