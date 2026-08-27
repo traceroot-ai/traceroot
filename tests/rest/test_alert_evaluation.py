@@ -436,7 +436,7 @@ def test_project_scoping_is_bound_into_every_query(fake_ch):
 
 
 def test_a_chunk_s_queries_overlap_rather_than_queue(monkeypatch):
-    """Serial evaluation cost chunk-size × the query cap against the caller's 30s abort.
+    """Serial evaluation cost chunk-size x the query cap against the caller's 30s abort.
 
     The barrier only releases once all three queries are in flight at the same
     time, so this fails — every alert reporting a query error — if evaluation
