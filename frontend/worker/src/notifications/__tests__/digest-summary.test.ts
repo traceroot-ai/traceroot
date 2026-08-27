@@ -37,7 +37,14 @@ async function callGenerate(cfgOverrides = {}) {
       windowEnd: new Date("2026-07-13T19:10:00Z"),
       detectors: [{ name: "D", findingCount: 2, sampleSummaries: ["a", "b"] }],
     },
-    { workspaceId: "ws1", rcaModel: null, rcaProvider: null, rcaSource: null, ...cfgOverrides },
+    {
+      projectId: "p1",
+      workspaceId: "ws1",
+      rcaModel: null,
+      rcaProvider: null,
+      rcaSource: null,
+      ...cfgOverrides,
+    },
   );
 }
 
