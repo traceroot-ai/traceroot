@@ -230,11 +230,185 @@ describe("generateRegistry", () => {
     expect(() => generateRegistry(doc)).toThrow(/missing an x-tool name or description/);
   });
 
-  it("throws on an enabled non-GET operation", () => {
+  it("throws on an enabled operation with an unsupported method", () => {
     const doc = fakeDoc();
-    doc.paths["/api/v1/public/traces"].post = {
-      "x-tool": { enabled: true, name: "ingest_traces", description: "Ingest." },
+    doc.paths["/api/v1/public/traces"].put = {
+      "x-tool": { enabled: true, name: "replace_traces", description: "Replace." },
     };
-    expect(() => generateRegistry(doc)).toThrow(/GET/);
+    expect(() => generateRegistry(doc)).toThrow(
+      "Enabled tool on PUT /api/v1/public/traces: only GET and POST operations are supported",
+    );
+  });
+
+  it("emits GET entries without write-only keys", () => {
+    for (const entry of generateRegistry(fakeDoc())) {
+      expect("bodyParams" in entry).toBe(false);
+      expect("policy" in entry).toBe(false);
+    }
+  });
+});
+
+/** Minimal fake of the public document's write-operation shapes. */
+function fakeWriteDoc(): OpenApiDocument {
+  return {
+    paths: {
+      "/api/v1/public/workspaces": {
+        post: {
+          "x-tool": {
+            enabled: true,
+            name: "create_workspace",
+            description: "Create a workspace.",
+            policy: { approvalClass: "approval", minRole: "VIEWER", tenancy: "account" },
+          },
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { $ref: "#/components/schemas/CreateWorkspaceRequest" },
+              },
+            },
+          },
+        },
+      },
+    },
+    components: {
+      schemas: {
+        CreateWorkspaceRequest: {
+          type: "object",
+          title: "CreateWorkspaceRequest",
+          properties: {
+            name: { type: "string", title: "Name" },
+            plan: { anyOf: [{ type: "string" }, { type: "null" }], title: "Plan" },
+          },
+          required: ["name"],
+        },
+      },
+    },
+  };
+}
+
+describe("generateRegistry write operations", () => {
+  it("emits a post entry with flattened body properties, bodyParams, and verbatim policy", () => {
+    const registry = generateRegistry(fakeWriteDoc());
+    expect(registry).toHaveLength(1);
+    const entry = registry[0]!;
+    expect(entry.method).toBe("post");
+    expect(entry.path).toBe("/api/v1/public/workspaces");
+    expect(entry.inputSchema.properties.name).toEqual({ type: "string" });
+    expect(entry.inputSchema.properties.plan).toEqual({ type: "string" });
+    expect(entry.inputSchema.required).toEqual(["name"]);
+    expect(entry.bodyParams).toEqual(["name", "plan"]);
+    expect(entry.policy).toEqual({
+      approvalClass: "approval",
+      minRole: "VIEWER",
+      tenancy: "account",
+    });
+  });
+
+  it("declares a type on every body-derived property schema", () => {
+    const entry = generateRegistry(fakeWriteDoc())[0]!;
+    for (const name of entry.bodyParams!) {
+      expect(entry.inputSchema.properties[name]!.type).toBeTypeOf("string");
+    }
+  });
+
+  it("merges path params alongside body properties; bodyParams holds only body names", () => {
+    const doc = fakeWriteDoc();
+    doc.paths["/api/v1/public/workspaces"].post!.parameters = [
+      {
+        name: "workspace_id",
+        in: "path",
+        required: true,
+        schema: { type: "string", title: "Workspace Id" },
+      },
+    ];
+    const entry = generateRegistry(doc)[0]!;
+    expect(entry.inputSchema.properties.workspace_id).toEqual({ type: "string" });
+    expect(entry.inputSchema.properties.name).toEqual({ type: "string" });
+    expect(entry.inputSchema.required).toEqual(["workspace_id", "name"]);
+    expect(entry.bodyParams).toEqual(["name", "plan"]);
+  });
+
+  it("resolves property-level $refs one level before flattening", () => {
+    const doc = fakeWriteDoc();
+    doc.components!.schemas!.CreateWorkspaceRequest!.properties = {
+      settings: { $ref: "#/components/schemas/WorkspaceSettings" },
+    };
+    doc.components!.schemas!.WorkspaceSettings = {
+      type: "object",
+      title: "WorkspaceSettings",
+      properties: { retention_days: { type: "integer", title: "Retention Days" } },
+    };
+    const entry = generateRegistry(doc)[0]!;
+    expect(entry.inputSchema.properties.settings).toEqual({
+      type: "object",
+      properties: { retention_days: { type: "integer", title: "Retention Days" } },
+    });
+    expect(entry.bodyParams).toEqual(["settings"]);
+  });
+
+  const policyError =
+    "Enabled write tool on POST /api/v1/public/workspaces: " +
+    "x-tool policy {approvalClass, minRole, tenancy} is required and must be complete";
+
+  it("throws on an enabled POST without a policy", () => {
+    const doc = fakeWriteDoc();
+    delete doc.paths["/api/v1/public/workspaces"].post!["x-tool"]!.policy;
+    expect(() => generateRegistry(doc)).toThrow(policyError);
+  });
+
+  it("throws on a policy with an illegal value", () => {
+    const doc = fakeWriteDoc();
+    doc.paths["/api/v1/public/workspaces"].post!["x-tool"]!.policy = {
+      approvalClass: "sometimes",
+      minRole: "VIEWER",
+      tenancy: "account",
+    };
+    expect(() => generateRegistry(doc)).toThrow(policyError);
+  });
+
+  it("throws on a policy with an extra key", () => {
+    const doc = fakeWriteDoc();
+    doc.paths["/api/v1/public/workspaces"].post!["x-tool"]!.policy = {
+      approvalClass: "approval",
+      minRole: "VIEWER",
+      tenancy: "account",
+      audited: true,
+    };
+    expect(() => generateRegistry(doc)).toThrow(policyError);
+  });
+
+  it("still skips disabled non-GET operations", () => {
+    const doc = fakeWriteDoc();
+    doc.paths["/api/v1/public/workspaces"].post!["x-tool"] = { enabled: false };
+    expect(generateRegistry(doc)).toEqual([]);
+  });
+
+  it("throws on an unresolvable requestBody $ref", () => {
+    const doc = fakeWriteDoc();
+    delete doc.components!.schemas!.CreateWorkspaceRequest;
+    expect(() => generateRegistry(doc)).toThrow(
+      "Enabled tool on POST /api/v1/public/workspaces: " +
+        "unresolvable requestBody $ref #/components/schemas/CreateWorkspaceRequest",
+    );
+  });
+
+  it("throws on a $ref outside #/components/schemas/", () => {
+    const doc = fakeWriteDoc();
+    doc.paths["/api/v1/public/workspaces"].post!.requestBody!.content!["application/json"]!.schema =
+      { $ref: "#/definitions/CreateWorkspaceRequest" };
+    expect(() => generateRegistry(doc)).toThrow(
+      "Enabled tool on POST /api/v1/public/workspaces: " +
+        "unresolvable requestBody $ref #/definitions/CreateWorkspaceRequest",
+    );
+  });
+
+  it("emits empty bodyParams for an enabled POST without a JSON request body", () => {
+    const doc = fakeWriteDoc();
+    delete doc.paths["/api/v1/public/workspaces"].post!.requestBody;
+    const entry = generateRegistry(doc)[0]!;
+    expect(entry.bodyParams).toEqual([]);
+    expect(entry.inputSchema.properties).toEqual({});
+    expect(entry.inputSchema.required).toEqual([]);
   });
 });
