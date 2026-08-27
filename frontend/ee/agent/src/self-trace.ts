@@ -1,0 +1,118 @@
+/**
+ * Agent-service self-tracing: every RCA execution and chat turn becomes a trace in
+ * the customer's project, exported through the secret-gated internal route with the
+ * agent's own credential (the route stamps source='agent' from it). Modelled on the
+ * worker's detection/self-trace-emitter.ts: init is latched, and no tracing failure
+ * ever fails the run.
+ */
+import { AsyncLocalStorage } from "node:async_hooks";
+import { createHash } from "node:crypto";
+import { TraceRoot, observe } from "@traceroot-ai/traceroot";
+
+export type AgentTraceKind = "rca" | "followup" | "chat";
+export type AgentTraceOutcome = "disabled" | "available" | "failed";
+export interface AgentTraceMeta {
+  traceId: string;
+  projectId: string;
+  kind: AgentTraceKind;
+  name: string;
+  metadata: Record<string, unknown>;
+}
+
+const FLUSH_TIMEOUT_MS = 30_000;
+
+export function isAgentTraceEnabled(kind: AgentTraceKind): boolean {
+  if (process.env.AGENT_SELF_TRACE !== "1") return false;
+  const list = process.env.AGENT_SELF_TRACE_KINDS;
+  if (!list) return true;
+  return list
+    .split(",")
+    .map((s) => s.trim())
+    .includes(kind);
+}
+
+export function turnTraceId(sessionId: string, messageId: string): string {
+  return createHash("sha256").update(`${sessionId}:${messageId}`).digest("hex").slice(0, 32);
+}
+
+// Per-run scope: the tool-span ids Task 10's onToolSpan reports, keyed by toolCallId,
+// so the StreamPersister can stamp spanId on tool_step rows.
+const runScope = new AsyncLocalStorage<{ toolSpanIds: Map<string, string> }>();
+export function currentToolSpanIds(): Map<string, string> | undefined {
+  return runScope.getStore()?.toolSpanIds;
+}
+export function recordToolSpan(info: { toolCallId: string; spanId: string }): void {
+  runScope.getStore()?.toolSpanIds.set(info.toolCallId, info.spanId);
+}
+
+let initialized = false;
+let latchedOff = false;
+
+function initOnce(): boolean {
+  if (initialized) return true;
+  if (latchedOff) return false;
+  const secret = process.env.INTERNAL_API_SECRET_AGENT || "";
+  if (!secret) {
+    latchedOff = true;
+    console.warn("[AgentTrace] INTERNAL_API_SECRET_AGENT unset; agent self-trace disabled");
+    return false;
+  }
+  try {
+    TraceRoot.initialize({
+      baseUrl: process.env.BACKEND_INTERNAL_URL || "http://localhost:8000",
+      internalExport: { path: "/api/v1/internal/traces", headers: { "X-Internal-Secret": secret } },
+    });
+    initialized = true;
+    return true;
+  } catch (err) {
+    latchedOff = true;
+    console.error("[AgentTrace] SDK initialization failed; agent self-trace disabled:", err);
+    return false;
+  }
+}
+
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => reject(new Error(`flush timed out after ${ms}ms`)), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      },
+    );
+  });
+}
+
+export async function withAgentTrace<T>(
+  meta: AgentTraceMeta,
+  fn: () => Promise<T>,
+): Promise<{ value: T; trace: AgentTraceOutcome }> {
+  if (!isAgentTraceEnabled(meta.kind) || !initOnce()) {
+    return { value: await fn(), trace: "disabled" };
+  }
+  const value: T = await runScope.run({ toolSpanIds: new Map() }, () =>
+    observe(
+      {
+        name: meta.name,
+        type: "agent",
+        traceId: meta.traceId,
+        projectId: meta.projectId,
+        metadata: { kind: meta.kind, ...meta.metadata },
+        captureInput: false,
+        captureOutput: false,
+      },
+      fn,
+    ),
+  );
+  try {
+    await withTimeout(TraceRoot.flush(), FLUSH_TIMEOUT_MS);
+    return { value, trace: "available" };
+  } catch (err) {
+    console.error(`[AgentTrace] export failed for trace ${meta.traceId}:`, err);
+    return { value, trace: "failed" };
+  }
+}

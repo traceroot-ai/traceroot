@@ -4,9 +4,16 @@ import {
   type AgentTool,
   type AgentMessage,
 } from "@earendil-works/pi-agent-core";
+import * as piAgentCore from "@earendil-works/pi-agent-core";
 import { getEnvApiKey } from "@earendil-works/pi-ai/compat";
 import type { Message } from "@earendil-works/pi-ai";
-import { ADAPTER_TO_PI_AI, BEDROCK_USE_DEFAULT_CREDENTIALS, ModelSource } from "@traceroot/core";
+import {
+  ADAPTER_TO_PI_AI,
+  BEDROCK_USE_DEFAULT_CREDENTIALS,
+  ModelSource,
+  applyCapturePolicy,
+} from "@traceroot/core";
+import { instrumentPiAgentCore } from "@traceroot-ai/traceroot";
 import {
   resolvePiModel,
   fetchProviderConfig,
@@ -15,6 +22,22 @@ import {
   type ProviderModelConfig,
 } from "@traceroot/core/model-resolver";
 import { SessionManager } from "./session.js";
+import { recordToolSpan } from "./self-trace.js";
+
+// Process-global, idempotent: patches Agent.prototype once. Spans only land inside an
+// active withAgentTrace() context; outside one the instrumentation opens roots that
+// the SDK drops as unattributed (no project id), so this is safe to install unconditionally.
+instrumentPiAgentCore(piAgentCore, {
+  captureContent: true,
+  captureToolIo: (toolName, args, result) => {
+    const c = applyCapturePolicy({ toolName, args, result }, { spentBytes: 0 });
+    return {
+      args: c.args,
+      result: c.result ?? `[withheld: ${c.withheld ?? "policy"}; ${c.outputBytes} bytes]`,
+    };
+  },
+  onToolSpan: recordToolSpan,
+});
 
 /**
  * Resolve an API key for a pi-ai provider — workspace BYOK first, env var fallback.
