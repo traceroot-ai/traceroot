@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   X,
@@ -283,6 +283,24 @@ export function TraceViewerPanel({
   // source must match the query key above, or SSE span merging silently no-ops.
   useTraceStream(projectId, effectiveTraceId, !traceOverride, effectiveSource);
 
+  // Root trace metadata written by the RCA/follow-up/chat emitters (Tasks 12/13):
+  // kind, finding_id, execution_id, attempt, session_id, parent_trace_id. Only
+  // parsed for an agent-scoped trace — a user trace's metadata is opaque here.
+  const agentMeta = useMemo(() => {
+    if (source !== "agent" || !trace?.metadata) return null;
+    try {
+      return JSON.parse(trace.metadata) as {
+        kind?: string;
+        finding_id?: string;
+        attempt?: number;
+        parent_trace_id?: string;
+        session_id?: string;
+      };
+    } catch {
+      return null;
+    }
+  }, [source, trace?.metadata]);
+
   // Reset when navigating to a different trace
   useEffect(() => {
     setSelection({ type: "trace" });
@@ -388,6 +406,26 @@ export function TraceViewerPanel({
                 title={`Copy ${headerIdentity.label.toLowerCase()} id`}
               />
             )}
+            {source === "agent" && (
+              <span className="shrink-0 rounded bg-emerald-600/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
+                Agent
+              </span>
+            )}
+            {source === "agent" && agentMeta && (
+              <span className="truncate text-xs text-muted-foreground">
+                {agentMeta.kind === "rca" &&
+                  agentMeta.finding_id &&
+                  `Analysis for finding ${agentMeta.finding_id.replaceAll("-", "")}${
+                    agentMeta.attempt && agentMeta.attempt > 1
+                      ? ` · attempt ${agentMeta.attempt}`
+                      : ""
+                  }`}
+                {agentMeta.kind === "followup" &&
+                  agentMeta.finding_id &&
+                  `Follow-up · finding ${agentMeta.finding_id.replaceAll("-", "")}`}
+                {agentMeta.kind === "chat" && "Chat turn"}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1">
             {headerStatus}
@@ -466,11 +504,11 @@ export function TraceViewerPanel({
                       dateFilter,
                       customStartDate,
                       customEndDate,
-                      // A self-trace's id matches no list row's trace_id, so the
-                      // receiving page needs the source to reopen it as a
-                      // self-trace instead of looking it up as an original.
+                      // A self-trace or agent trace's id matches no list row's
+                      // trace_id, so the receiving page needs the source to
+                      // reopen it as one instead of looking it up as an original.
                       extraParams:
-                        source === "detector"
+                        source === "detector" || source === "agent"
                           ? { traceId, fullscreen: "1", source }
                           : { traceId, fullscreen: "1" },
                     }),
@@ -624,15 +662,16 @@ export function TraceViewerPanel({
                     />
                   ) : error || !trace ? (
                     <div className="flex h-full items-center justify-center">
-                      {source === "detector" &&
+                      {(source === "detector" || source === "agent") &&
                       (!error || (error instanceof ApiError && error.status === 404)) ? (
-                        // self_traced is set optimistically at emit time, but the
-                        // SDK export is batched — the trace may not be ingested
-                        // yet, so a 404 miss here is expected, not an error. A
-                        // non-404 failure still surfaces as a real error below.
-                        // Once the export window has passed, the stamp is stale:
-                        // the export failed and nothing will arrive, so say so
-                        // instead of telling the user to keep waiting.
+                        // self_traced is set optimistically at emit time (detector), and an
+                        // agent trace id is allocated before the run (RCA/follow-up/chat) —
+                        // in both cases the SDK export is batched, so the trace may not be
+                        // ingested yet and a 404 miss here is expected, not an error. A
+                        // non-404 failure still surfaces as a real error below. Once the
+                        // export window has passed, the stamp is stale: the export failed
+                        // and nothing will arrive, so say so instead of telling the user to
+                        // keep waiting.
                         isSelfTracePending(runTimestamp) ? (
                           <p className="text-sm text-muted-foreground">
                             This detector run&rsquo;s trace is still being recorded. Check back in a
