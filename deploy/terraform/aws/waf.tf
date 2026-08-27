@@ -63,39 +63,62 @@ resource "aws_wafv2_web_acl" "auth_rate_limit" {
         # (e.g. /api/cli/%74oken). Decode then normalize before comparing.
         # STARTS_WITH is deliberate: it also catches trailing-slash variants
         # and any future subpaths of these endpoints.
+        #
+        # The method match keeps non-POST noise out of the budget. Not a
+        # security boundary — the bucket is per-IP, and an attacker's POSTs
+        # cost them no more than GETs — but scanner sweeps are overwhelmingly
+        # GET, and without it a scanner behind a shared NAT burns that NAT's
+        # login budget for everyone on it. Both endpoints are POST-only.
         scope_down_statement {
-          or_statement {
+          and_statement {
             statement {
               byte_match_statement {
-                search_string         = "/api/auth/device/code"
-                positional_constraint = "STARTS_WITH"
+                search_string         = "POST"
+                positional_constraint = "EXACTLY"
                 field_to_match {
-                  uri_path {}
+                  method {}
                 }
                 text_transformation {
                   priority = 0
-                  type     = "URL_DECODE"
-                }
-                text_transformation {
-                  priority = 1
-                  type     = "NORMALIZE_PATH"
+                  type     = "NONE"
                 }
               }
             }
             statement {
-              byte_match_statement {
-                search_string         = "/api/cli/token"
-                positional_constraint = "STARTS_WITH"
-                field_to_match {
-                  uri_path {}
+              or_statement {
+                statement {
+                  byte_match_statement {
+                    search_string         = "/api/auth/device/code"
+                    positional_constraint = "STARTS_WITH"
+                    field_to_match {
+                      uri_path {}
+                    }
+                    text_transformation {
+                      priority = 0
+                      type     = "URL_DECODE"
+                    }
+                    text_transformation {
+                      priority = 1
+                      type     = "NORMALIZE_PATH"
+                    }
+                  }
                 }
-                text_transformation {
-                  priority = 0
-                  type     = "URL_DECODE"
-                }
-                text_transformation {
-                  priority = 1
-                  type     = "NORMALIZE_PATH"
+                statement {
+                  byte_match_statement {
+                    search_string         = "/api/cli/token"
+                    positional_constraint = "STARTS_WITH"
+                    field_to_match {
+                      uri_path {}
+                    }
+                    text_transformation {
+                      priority = 0
+                      type     = "URL_DECODE"
+                    }
+                    text_transformation {
+                      priority = 1
+                      type     = "NORMALIZE_PATH"
+                    }
+                  }
                 }
               }
             }
@@ -118,4 +141,58 @@ resource "aws_wafv2_web_acl" "auth_rate_limit" {
   }
 
   tags = local.tags
+}
+
+# Durable record of blocked requests. WAF's sampled requests are kept for only
+# a few hours — too short for after-the-fact forensics or spotting a too-low
+# limit throttling legitimate clients (request-volume analysis for tuning the
+# limit down still comes from the rule's CloudWatch metrics, not these logs).
+# Blocked-only via the logging filter: full request logging on this ACL would
+# record every request through the ALB (it evaluates all traffic even though
+# only the auth paths can match the rule), which is enormous volume for a
+# trace-ingestion product and none of it useful here.
+resource "aws_cloudwatch_log_group" "waf_auth_rate_limit" {
+  count = var.enable_auth_waf ? 1 : 0
+
+  # WAF logging requires the destination name to start with "aws-waf-logs-".
+  name              = "aws-waf-logs-${var.name}-auth-rate-limit"
+  retention_in_days = 30
+
+  tags = local.tags
+}
+
+resource "aws_wafv2_web_acl_logging_configuration" "auth_rate_limit" {
+  count = var.enable_auth_waf ? 1 : 0
+
+  resource_arn            = aws_wafv2_web_acl.auth_rate_limit[0].arn
+  log_destination_configs = [aws_cloudwatch_log_group.waf_auth_rate_limit[0].arn]
+
+  # Today only the unauthenticated auth paths can be blocked and their secrets
+  # travel in the (unlogged) body, but keep credentials out of the log record
+  # regardless — this ACL is expected to grow rules.
+  redacted_fields {
+    single_header {
+      name = "authorization"
+    }
+  }
+  redacted_fields {
+    single_header {
+      name = "cookie"
+    }
+  }
+
+  logging_filter {
+    default_behavior = "DROP"
+
+    filter {
+      behavior    = "KEEP"
+      requirement = "MEETS_ANY"
+
+      condition {
+        action_condition {
+          action = "BLOCK"
+        }
+      }
+    }
+  }
 }
