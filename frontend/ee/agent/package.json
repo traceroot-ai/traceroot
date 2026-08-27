@@ -24,6 +24,7 @@
     "@earendil-works/pi-ai": "0.80.3",
     "@hono/node-server": "^1.19.13",
     "@traceroot-ai/tools": "workspace:*",
+    "@traceroot-ai/traceroot": "file:/Users/jared/traceroot-ts/packages/traceroot/traceroot-ai-traceroot-0.4.0.tgz",
     "@traceroot/core": "workspace:*",
     "hono": "^4.12.25"
   },
