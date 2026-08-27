@@ -7,12 +7,8 @@ import {
 import * as piAgentCore from "@earendil-works/pi-agent-core";
 import { getEnvApiKey } from "@earendil-works/pi-ai/compat";
 import type { Message } from "@earendil-works/pi-ai";
-import {
-  ADAPTER_TO_PI_AI,
-  BEDROCK_USE_DEFAULT_CREDENTIALS,
-  ModelSource,
-  applyCapturePolicy,
-} from "@traceroot/core";
+import { ADAPTER_TO_PI_AI, BEDROCK_USE_DEFAULT_CREDENTIALS, ModelSource } from "@traceroot/core";
+import { applyCapturePolicy } from "@traceroot/core/capture-policy";
 import { instrumentPiAgentCore } from "@traceroot-ai/traceroot";
 import {
   resolvePiModel,
