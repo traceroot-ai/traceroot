@@ -368,6 +368,9 @@ services:
       # --- Secrets ---
       INTERNAL_API_SECRET: ${INTERNAL_API_SECRET:?required, generate with openssl rand -hex 32}
       INTERNAL_API_SECRET_AGENT: ${INTERNAL_API_SECRET_AGENT:?required, generate with openssl rand -hex 32}
+      # Agent self-tracing (design: agent-self-trace). Off unless set; kinds default to all.
+      AGENT_SELF_TRACE: ${AGENT_SELF_TRACE:-0}
+      AGENT_SELF_TRACE_KINDS: ${AGENT_SELF_TRACE_KINDS:-}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
       # --- Sandbox ---
       SANDBOX_PROVIDER: ${SANDBOX_PROVIDER:-docker}
