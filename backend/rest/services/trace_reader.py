@@ -53,11 +53,12 @@ def customer_traffic_only(alias: str = "") -> str:
     calls this rather than spelling the comparison out, so a new surface can't quietly
     ship without it.
 
-    Asserts ``source = 'user'`` rather than ``!= 'detector'`` deliberately. The
-    inequality is fail-open — a second internal marker (an RCA or assistant self-trace,
-    say) would pass it and leak into customer lists, sessions and dropdowns until every
-    call site was revisited. Naming the one value that IS customer traffic excludes any
-    future internal marker the day it is introduced.
+    Asserts ``source = 'user'`` rather than the negated comparison against the
+    detector marker deliberately. That inequality is fail-open — a second internal
+    marker (an RCA or assistant self-trace, say) would pass it and leak into customer
+    lists, sessions and dropdowns until every call site was revisited. Naming the one
+    value that IS customer traffic excludes any future internal marker the day it is
+    introduced.
 
     Args:
         alias (str): Table alias qualifying the column (e.g. ``"t"``), or ``""`` when the
