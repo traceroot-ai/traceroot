@@ -129,6 +129,8 @@ def _check_json_size(value: Any, max_chars: int, field: str) -> Any:
 EvalRunStatus = Literal[
     "running", "completed", "completed_with_errors", "failed", "incomplete", "cancelled"
 ]
+# Inbound validation for the public result-upload route: do not narrow this set, and
+# keep it in step with EVAL_RESULT_STATUSES (the parity fixtures pin both).
 EvalResultStatus = Literal["passed", "failed", "errored", "not_scored"]
 ResultChange = Literal["improved", "regressed", "unchanged"]
 ScorerValueType = Literal["numeric", "boolean", "categorical"]
