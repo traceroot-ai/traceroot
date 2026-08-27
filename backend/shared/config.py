@@ -166,8 +166,12 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("TRACEROOT_PUBLIC_UI_URL", "NEXT_PUBLIC_APP_URL"),
     )
     internal_api_secret: str = ""
+    # Second internal credential, held only by the agent service. Which secret
+    # authenticates a request decides the caller id (see rest.routers.internal.auth),
+    # and the ingest route derives `source` from that id — the client never picks it.
+    internal_api_secret_agent: str = ""
 
-    @field_validator("internal_api_secret")
+    @field_validator("internal_api_secret", "internal_api_secret_agent")
     @classmethod
     def _ignore_published_placeholder(cls, value: str) -> str:
         """Treat a placeholder this repository published as if it were unset.
