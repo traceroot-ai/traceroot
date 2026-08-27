@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApiClient } from "../client.js";
-import { INTERNAL_BINDINGS } from "../internal.js";
+import { INTERNAL_BINDINGS, INTERNAL_WRITE_BINDINGS } from "../internal.js";
 import { toPiAgentTool } from "../pi.js";
 import type { RegistryEntry } from "../types.js";
 
@@ -184,6 +184,18 @@ describe("INTERNAL_BINDINGS", () => {
       get_finding_by_trace: "/api/v1/projects/{project_id}/detectors/traces/{trace_id}/finding",
       list_dashboards: "/api/v1/projects/{project_id}/dashboards",
       get_dashboard: "/api/v1/projects/{project_id}/dashboards/{dashboard_id}",
+    });
+  });
+});
+
+describe("INTERNAL_WRITE_BINDINGS", () => {
+  it("covers exactly the agent's current write set with flat trusted-caller routes", () => {
+    expect(INTERNAL_WRITE_BINDINGS).toEqual({
+      create_workspace: "/api/internal/write/workspaces",
+      create_project: "/api/internal/write/projects",
+      create_detector: "/api/internal/write/detectors",
+      create_dashboard: "/api/internal/write/dashboards",
+      create_widget: "/api/internal/write/widgets",
     });
   });
 });
