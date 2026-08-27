@@ -280,8 +280,9 @@ def _has_metadata_condition(detectors: list[dict]) -> bool:
     )
 
 
-# The one source detectors may evaluate. Named as an allowlist (not "!= 'detector'")
-# so every internal marker — present or future — is refused the day it is introduced:
+# The one source detectors may evaluate. Named as an allowlist (not a fail-open
+# inequality against the detector marker) so every internal marker — present or
+# future — is refused the day it is introduced:
 # the same fail-closed shape as Langfuse's isEvalTargetEnvironmentAllowed. Enqueue
 # already only sees public-path traces, but this makes the judge's own read safe even
 # if enqueueing is ever wired to another path.
