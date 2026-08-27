@@ -60,6 +60,9 @@ const V2 = {
   createdBy: null,
   createTime: "2026-08-21T00:00:00Z",
 };
+/** What every publish here creates: datasets are immutable, so a save never edits
+ *  a version in place — it publishes the next one. */
+const V3 = { ...V2, id: "dv3", versionNumber: 3, label: "v3", createTime: "2026-08-21T12:00:00Z" };
 
 function testCase(id: string, input: string, over: Record<string, unknown> = {}) {
   return {
@@ -91,6 +94,8 @@ const SEED = [
 
 /** Rows the dataset GET currently serves; a POST/PATCH mutates this. */
 let cases: ReturnType<typeof testCase>[] = [];
+/** The version the dataset GET currently serves; a POST/PATCH moves it to V3. */
+let currentVersion = V2;
 /** What the publish response reports as the row to reveal. */
 let focusTestCaseId = "";
 
@@ -98,6 +103,8 @@ let focusTestCaseId = "";
 let scrolled: Array<{ el: HTMLElement; opts: ScrollIntoViewOptions | undefined }> = [];
 /** Delay applied to the dataset GET that follows a publish (0 = answer at once). */
 let refetchDelayMs = 0;
+/** When set, the first dataset GET after a publish rejects (a transient failure). */
+let failNextRefetch = false;
 let publishSeen = false;
 
 beforeAll(() => {
@@ -114,24 +121,43 @@ beforeAll(() => {
 
 beforeEach(() => {
   cases = [...SEED];
+  currentVersion = V2;
   focusTestCaseId = "";
   scrolled = [];
   refetchDelayMs = 0;
+  failNextRefetch = false;
   publishSeen = false;
   global.fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
     const s = String(url);
     const method = init?.method ?? "GET";
     if (method === "POST" && s.includes("/test-cases")) {
-      cases = [...cases, testCase("tc_new", "a brand new question")];
+      cases = [...cases, testCase("tc_new", "a brand new question", { datasetVersionId: V3.id })];
+      currentVersion = V3;
       publishSeen = true;
       return { ok: true, status: 201, json: async () => ({ duplicate: false, ...published() }) };
     }
     if (method === "PATCH" && s.includes("/test-cases/")) {
+      // The edited case keeps its stable `testCaseId` but lands in a new version
+      // as a NEW row — a fresh per-version row id, carrying the edited input.
+      // Nothing about the pre-edit row is rewritten; the server never mutates a
+      // published snapshot.
+      const edited = decodeURIComponent(s.split("/test-cases/")[1]);
+      const patch = JSON.parse(String(init?.body ?? "{}")) as { input?: string };
+      cases = cases.map((c) =>
+        c.testCaseId === edited
+          ? { ...c, id: `${c.id}-v3`, datasetVersionId: V3.id, input: patch.input ?? c.input }
+          : c,
+      );
+      currentVersion = V3;
       publishSeen = true;
       return { ok: true, status: 201, json: async () => published() };
     }
     if (publishSeen && refetchDelayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, refetchDelayMs));
+    }
+    if (publishSeen && failNextRefetch && !s.endsWith("/runs")) {
+      failNextRefetch = false;
+      throw new Error("network");
     }
     return { ok: true, status: 200, json: async () => payloadFor(s) };
   }) as unknown as typeof fetch;
@@ -139,7 +165,12 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 function published() {
-  return { versionId: "dv3", versionNumber: 3, focusTestCaseId, caseCount: cases.length };
+  return {
+    versionId: V3.id,
+    versionNumber: V3.versionNumber,
+    focusTestCaseId,
+    caseCount: cases.length,
+  };
 }
 
 function payloadFor(url: string): unknown {
@@ -147,12 +178,12 @@ function payloadFor(url: string): unknown {
   if (url.includes("/evaluations/runs"))
     return { data: [], meta: { page: 0, limit: 50, total: 0 } };
   return {
-    dataset: DATASET,
-    currentVersion: V2,
-    selectedVersion: V2,
+    dataset: { ...DATASET, currentVersionId: currentVersion.id },
+    currentVersion,
+    selectedVersion: currentVersion,
     isCurrentVersion: true,
     testCases: cases,
-    versions: [V2],
+    versions: currentVersion === V3 ? [V3, V2] : [V2],
   };
 }
 
@@ -172,6 +203,12 @@ function row(testCaseId: string): HTMLElement | null {
   return document.querySelector<HTMLElement>(`tr[data-test-case-id="${testCaseId}"]`);
 }
 
+/** The elements scrollIntoView was called on, for identity (not id) comparisons —
+ *  a publish replaces a row's element, and only identity tells the two apart. */
+function scrolledElements(): HTMLElement[] {
+  return scrolled.map((s) => s.el);
+}
+
 /** Only the scroll calls aimed at a table row (Radix and the panel scroll too). */
 function scrolledRowIds(): string[] {
   return scrolled.map((s) => s.el.dataset.testCaseId).filter((id): id is string => !!id);
@@ -183,6 +220,16 @@ async function addRow(input = "a brand new question") {
   fireEvent.change(screen.getByLabelText("Input"), { target: { value: input } });
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
   await screen.findByText("Row added");
+}
+
+/** Edit the first row's input via the row action menu (the PATCH path). */
+async function editFirstRow(input = "edited question") {
+  fireEvent.click((await screen.findAllByLabelText("Row actions"))[0]);
+  fireEvent.click(await screen.findByText("Edit"));
+  await screen.findByText("Edit Row");
+  fireEvent.change(screen.getByLabelText("Input"), { target: { value: input } });
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await screen.findByText(/Row saved/);
 }
 
 describe("Dataset detail — revealing the row a publish touched", () => {
@@ -242,16 +289,65 @@ describe("Dataset detail — revealing the row a publish touched", () => {
     focusTestCaseId = "tc_1";
     mountDetail();
     await screen.findByText("I was charged twice");
-    fireEvent.click((await screen.findAllByLabelText("Row actions"))[0]);
-    fireEvent.click(await screen.findByText("Edit"));
-    await screen.findByText("Edit Row");
-    fireEvent.change(screen.getByLabelText("Input"), { target: { value: "edited question" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-    await screen.findByText(/Row saved/);
+    await editFirstRow();
 
     await waitFor(() => expect(scrolledRowIds()).toContain("tc_1"));
     expect(row("tc_1")!.className).toContain("animate-row-flash");
   });
+
+  it("waits for the edited row's own version when the refetch outlives the flash", async () => {
+    // An edit KEEPS the case's testCaseId, so a row carrying that id is already on
+    // screen from the PRE-edit version — unlike an add, whose row does not exist
+    // until the refetch lands. Targeting whatever row currently holds the id would
+    // scroll and flash pre-edit content and start the expiry against a row about to
+    // be replaced: past the flash duration, the edited row arrives unmarked and the
+    // save reads as the no-op this whole change exists to fix.
+    focusTestCaseId = "tc_1";
+    refetchDelayMs = 2500; // > ROW_FLASH_MS (2000)
+    mountDetail();
+    await screen.findByText("I was charged twice");
+    const preEditRow = row("tc_1")!;
+
+    await editFirstRow();
+
+    // The edited row only exists once the slow refetch delivers the new version,
+    // and it is a NEW element — the publish minted a fresh per-version row id.
+    await screen.findByText("edited question", undefined, { timeout: 8000 });
+    const editedRow = row("tc_1")!;
+    expect(editedRow).not.toBe(preEditRow);
+
+    await waitFor(() => expect(scrolledElements()).toContain(editedRow), { timeout: 8000 });
+    expect(editedRow.className).toContain("animate-row-flash");
+    // ...and the superseded row was never the one revealed.
+    expect(scrolledElements()).not.toContain(preEditRow);
+  }, 20000);
+
+  it("retains the target when the post-edit refetch fails, revealing it on recovery", async () => {
+    // A failed refetch leaves the pre-edit snapshot on screen. Dropping the target
+    // there would spend the reveal on content the user did not just author and
+    // leave the edit permanently unannounced; it is held until a version that
+    // actually contains the edit loads.
+    focusTestCaseId = "tc_1";
+    failNextRefetch = true;
+    mountDetail();
+    await screen.findByText("I was charged twice");
+    const preEditRow = row("tc_1")!;
+
+    await editFirstRow();
+
+    // The refetch failed, so the page still shows the pre-edit row — untouched.
+    await waitFor(() => expect(failNextRefetch).toBe(false));
+    expect(row("tc_1")).toBe(preEditRow);
+    expect(scrolledElements()).not.toContain(preEditRow);
+    expect(preEditRow.className).not.toContain("animate-row-flash");
+
+    // The next successful fetch still reveals it: the target was retained.
+    window.dispatchEvent(new Event("visibilitychange"));
+    await screen.findByText("edited question", undefined, { timeout: 8000 });
+    const editedRow = row("tc_1")!;
+    await waitFor(() => expect(scrolledElements()).toContain(editedRow), { timeout: 8000 });
+    expect(editedRow.className).toContain("animate-row-flash");
+  }, 20000);
 
   it("still reveals the row when the refetch outlives the flash", async () => {
     // The row does not exist until the refetch of the new version lands. Starting

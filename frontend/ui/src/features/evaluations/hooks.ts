@@ -142,6 +142,7 @@ export function useSaveTestCase(projectId: string, datasetId: string) {
         duplicate: boolean;
         testCaseId?: string;
         versionId?: string;
+        versionNumber?: number;
         focusTestCaseId?: string;
       }>(`/api/projects/${projectId}/datasets/${datasetId}/test-cases`, "POST", input),
     onSuccess: () => {

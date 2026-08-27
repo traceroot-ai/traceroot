@@ -151,12 +151,29 @@ export function DatasetDetailView({
   // a new version's row ids, would silently unmount the open panel.
   const openCase = openCaseId ? (allCases.find((c) => c.testCaseId === openCaseId) ?? null) : null;
 
-  // The row a publish just touched. Adding a case appends it, so on any dataset
-  // past one screenful the change happens off-screen and the page reads as a
-  // no-op. The id is the server's `focusTestCaseId` from the publish response,
-  // not re-derived here: where a case lands is the server's call.
-  const [focusCaseId, setFocusCaseId] = React.useState<string | null>(null);
+  // The row a publish just touched, held with the version that publish created.
+  // Adding a case appends it, so on any dataset past one screenful the change
+  // happens off-screen and the page reads as a no-op. The id is the server's
+  // `focusTestCaseId` from the publish response, not re-derived here: where a
+  // case lands is the server's call.
+  const [focus, setFocus] = React.useState<{ caseId: string; version: number | null } | null>(null);
   const tableRef = React.useRef<HTMLDivElement>(null);
+
+  // An edit keeps the case's stable testCaseId, so a row carrying that id is
+  // ALREADY on screen — from the pre-edit snapshot — while the refetch is still
+  // in flight. Matching it there would flash the old content and start the
+  // highlight's expiry against a row about to be replaced, so a refetch slower
+  // than the flash would leave the edited row arriving unmarked: the same
+  // failure the add path avoids by having no such row yet. Hold the target until
+  // the snapshot on screen is at least the version the publish created (`>=`, so
+  // a publish that raced ahead of ours still satisfies it). A failed refetch
+  // leaves the older snapshot in place, which retains the target rather than
+  // dropping it — the next successful fetch reveals it.
+  const focusCaseId =
+    focus &&
+    (focus.version === null || (data?.selectedVersion?.versionNumber ?? -1) >= focus.version)
+      ? focus.caseId
+      : null;
 
   // A search left running while a row is added filters that row straight back
   // out, leaving nothing to reveal. Drop the keyword instead — the whole point
@@ -177,15 +194,13 @@ export function DatasetDetailView({
     const row = Array.from(
       tableRef.current?.querySelectorAll<HTMLElement>("tr[data-test-case-id]") ?? [],
     ).find((el) => el.dataset.testCaseId === focusCaseId);
-    // Until that refetch delivers the row there is nothing on screen and nothing
-    // flashing, so its expiry doesn't start either. Armed on the publish instead,
-    // a refetch slower than the flash would clear the highlight before the row it
-    // belongs to ever rendered — and a slow refetch means a big dataset, the exact
-    // case where the row lands off-screen and this reveal is the only signal.
+    // The keyword filter can still hold the row out of the DOM for a render (the
+    // effect above drops the keyword on the same pass). Nothing is on screen and
+    // nothing is flashing, so its expiry doesn't start either.
     if (!row) return;
     const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
     row.scrollIntoView({ block: "nearest", behavior: reduceMotion ? "auto" : "smooth" });
-    const timer = window.setTimeout(() => setFocusCaseId(null), ROW_FLASH_MS);
+    const timer = window.setTimeout(() => setFocus(null), ROW_FLASH_MS);
     return () => window.clearTimeout(timer);
   }, [focusCaseId, cases]);
 
@@ -303,7 +318,13 @@ export function DatasetDetailView({
                   <span className="text-[12px] text-muted-foreground">Version</span>
                   <Select
                     value={selectedVersion?.id ?? ""}
-                    onValueChange={(v) => setSelectedVersionId(v)}
+                    onValueChange={(v) => {
+                      // Deliberately navigating to another snapshot supersedes a
+                      // pending reveal; left armed, it would fire on whatever
+                      // version the user lands on next.
+                      setFocus(null);
+                      setSelectedVersionId(v);
+                    }}
                   >
                     {/* The version id IS the time-sortable snowflake (`v.id`); the
                           dropdown pairs each version NUMBER with that id so both the
@@ -445,9 +466,9 @@ export function DatasetDetailView({
           datasetId={datasetId}
           mode={editorMode}
           onClose={() => setEditorMode(null)}
-          onSaved={(focusTestCaseId) => {
+          onSaved={(focusTestCaseId, versionNumber) => {
             setSelectedVersionId(null);
-            setFocusCaseId(focusTestCaseId);
+            setFocus(focusTestCaseId ? { caseId: focusTestCaseId, version: versionNumber } : null);
           }}
         />
       )}
