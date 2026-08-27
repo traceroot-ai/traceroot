@@ -1,8 +1,9 @@
-"""Public, API-key-authenticated read API for detector findings.
+"""Public read API for detector findings.
 
-Mirrors the public traces read stack (StampedAuth, READ-bucket rate limiting,
-project-scoped reads). All access is scoped to the project resolved from the API
-key; a finding outside that project simply isn't found (404). Handler bodies
+Mirrors the public traces read stack (DualStampedAuth, READ-bucket rate limiting,
+project-scoped reads). Authenticated by either an API key (which fixes its own
+project) or a user session token (which names the project via ``project_id``); a
+finding outside the resolved project simply isn't found (404). Handler bodies
 live in rest.routers.detector_read_common, shared with the internal
 project-scoped mirror, so behavior cannot drift between the surfaces.
 """
@@ -24,7 +25,7 @@ from rest.routers.detector_read_common import (
     require_detector,
     require_finding,
 )
-from rest.routers.public.deps import StampedAuth
+from rest.routers.public.deps import DualStampedAuth
 from rest.schemas.public import (
     DetectorDetail,
     FindingDetail,
@@ -43,7 +44,7 @@ router = APIRouter(prefix="/public/detectors", tags=["Detectors (Public)"])
 async def list_detectors(
     request: Request,
     response: Response,
-    auth: StampedAuth,
+    auth: DualStampedAuth,
     service: DetectorReaderService = Depends(get_detector_reader_service),
     limit: int = Query(50, ge=1, le=200, description="Items per page"),
     start_after: datetime | None = Query(
@@ -53,7 +54,7 @@ async def list_detectors(
         None, description="Only detectors created before this time (exclusive, ISO 8601)"
     ),
 ):
-    """List the detectors in the API key's project (newest first)."""
+    """List the detectors in the caller's project (newest first)."""
     return await list_detectors_page(service, auth.project_id, limit, start_after, end_before)
 
 
@@ -64,7 +65,7 @@ async def list_detectors(
 async def list_findings(
     request: Request,
     response: Response,
-    auth: StampedAuth,
+    auth: DualStampedAuth,
     service: DetectorReaderService = Depends(get_detector_reader_service),
     limit: int = Query(50, ge=1, le=200, description="Items per page"),
     start_after: datetime | None = Query(
@@ -76,7 +77,7 @@ async def list_findings(
     detector: str | None = Query(None, description="Filter by detector id, name, or template"),
     trace_id: str | None = Query(None, description="Filter to a single trace"),
 ):
-    """List recent detector findings for the API key's project (newest first)."""
+    """List recent detector findings for the caller's project (newest first)."""
     return await list_findings_page(
         service,
         auth.billing_plan,
@@ -96,7 +97,7 @@ async def list_findings(
 async def get_finding(
     request: Request,
     response: Response,
-    auth: StampedAuth,
+    auth: DualStampedAuth,
     finding_id: str,
     service: DetectorReaderService = Depends(get_detector_reader_service),
 ):
@@ -115,7 +116,7 @@ async def get_finding(
 async def get_finding_by_trace(
     request: Request,
     response: Response,
-    auth: StampedAuth,
+    auth: DualStampedAuth,
     trace_id: str,
     service: DetectorReaderService = Depends(get_detector_reader_service),
 ):
@@ -134,7 +135,7 @@ async def get_finding_by_trace(
 async def get_detector(
     request: Request,
     response: Response,
-    auth: StampedAuth,
+    auth: DualStampedAuth,
     detector_id: str,
     service: DetectorReaderService = Depends(get_detector_reader_service),
 ):
