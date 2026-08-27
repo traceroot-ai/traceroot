@@ -92,6 +92,11 @@ detector:
   # Per-attempt LLM eval timeout (ms). High enough to absorb slow/throttled
   # BYOK providers (e.g. Z.AI glm) so their evals complete instead of timing out.
   evalTimeoutMs: "180000"
+  # Runs the per-minute alert scheduler tick ("true"/"false"). Shipped false so
+  # alerting is turned on deliberately, not by the deploy that merges it; flip
+  # to "false" again mid-incident to stop the paging without a rollback.
+  # Notifications already queued still deliver on their own retry budget.
+  alertsSchedulerEnabled: "false"
   resources:
     requests:
       cpu: "250m"
@@ -109,6 +114,11 @@ ingress:
     alb.ingress.kubernetes.io/scheme: internet-facing
     alb.ingress.kubernetes.io/target-type: ip
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+  # Stop the load balancer routing the service-to-service API. Callers reach it
+  # over cluster DNS, so this is also correct for a single-cluster self-host.
+  # Set false to restore the previous behaviour without rebuilding an image.
+  blockInternalRoutes: true
+  internalRoutePrefix: /api/v1/internal
 
 # --- External services (injected by Terraform) ---
 postgresql:
