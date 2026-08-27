@@ -6,7 +6,7 @@ import {
   DASHBOARD_NAME_MAX,
   WIDGET_TITLE_MAX,
 } from "@/features/dashboards/types";
-import { writeAudit } from "./audit";
+import { writeAudit, type AuditEntry } from "./audit";
 import type { Provenance, ServiceResult } from "./types";
 
 export interface DashboardCreated {
@@ -112,7 +112,8 @@ export async function createDashboard(input: {
   description?: string | null;
   provenance: Provenance;
 }): Promise<ServiceResult<DashboardCreated>> {
-  return prisma.$transaction(async (tx) => {
+  let audit: AuditEntry | null = null;
+  const result = await prisma.$transaction(async (tx) => {
     const access = await requireProjectMember(tx, input.projectId, input.actorUserId);
     if (!access.ok) return access;
 
@@ -146,7 +147,7 @@ export async function createDashboard(input: {
       },
       select: { id: true, name: true, projectId: true },
     });
-    await writeAudit(tx, {
+    audit = {
       actorUserId: input.actorUserId,
       operation: "create_dashboard",
       resourceType: "dashboard",
@@ -156,9 +157,11 @@ export async function createDashboard(input: {
       summary: { name },
       transport: input.provenance.transport,
       agentSessionId: input.provenance.agentSessionId ?? null,
-    });
+    };
     return { ok: true as const, created: true, data: dashboard };
   });
+  if (audit) await writeAudit(prisma, audit);
+  return result;
 }
 
 export async function createWidget(input: {
@@ -171,7 +174,8 @@ export async function createWidget(input: {
   displayConfig?: Record<string, unknown>;
   provenance: Provenance;
 }): Promise<ServiceResult<WidgetCreated>> {
-  return prisma.$transaction(async (tx) => {
+  let audit: AuditEntry | null = null;
+  const result = await prisma.$transaction(async (tx) => {
     const access = await requireProjectMember(tx, input.projectId, input.actorUserId);
     if (!access.ok) return access;
 
@@ -210,7 +214,7 @@ export async function createWidget(input: {
       },
       select: { id: true, dashboardId: true, title: true, type: true },
     });
-    await writeAudit(tx, {
+    audit = {
       actorUserId: input.actorUserId,
       operation: "create_widget",
       resourceType: "widget",
@@ -220,7 +224,9 @@ export async function createWidget(input: {
       summary: { title, type, dashboardId: input.dashboardId },
       transport: input.provenance.transport,
       agentSessionId: input.provenance.agentSessionId ?? null,
-    });
+    };
     return { ok: true as const, created: true, data: widget };
   });
+  if (audit) await writeAudit(prisma, audit);
+  return result;
 }

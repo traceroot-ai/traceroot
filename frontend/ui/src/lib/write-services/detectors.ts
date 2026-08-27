@@ -2,7 +2,7 @@ import { prisma, Role, hasMinRole } from "@traceroot/core";
 import { z } from "zod";
 import { DEFAULT_DETECTOR_SAMPLE_RATE } from "@/features/detectors/templates";
 import { validateTriggerConditions } from "@/features/detectors/trigger-fields";
-import { writeAudit } from "./audit";
+import { writeAudit, type AuditEntry } from "./audit";
 import type { Provenance, ServiceResult } from "./types";
 
 export interface DetectorCreated {
@@ -69,7 +69,8 @@ export async function createDetector(input: {
   enabled?: boolean;
   provenance: Provenance;
 }): Promise<ServiceResult<DetectorCreated>> {
-  return prisma.$transaction(async (tx) => {
+  let audit: AuditEntry | null = null;
+  const result = await prisma.$transaction(async (tx) => {
     const project = await tx.project.findUnique({
       where: { id: input.projectId },
       select: { workspaceId: true, deleteTime: true },
@@ -145,7 +146,7 @@ export async function createDetector(input: {
       },
       select: { id: true, name: true, projectId: true, enabled: true, sampleRate: true },
     });
-    await writeAudit(tx, {
+    audit = {
       actorUserId: input.actorUserId,
       operation: "create_detector",
       resourceType: "detector",
@@ -160,7 +161,9 @@ export async function createDetector(input: {
       },
       transport: input.provenance.transport,
       agentSessionId: input.provenance.agentSessionId ?? null,
-    });
+    };
     return { ok: true as const, created: true, data: detector };
   });
+  if (audit) await writeAudit(prisma, audit);
+  return result;
 }

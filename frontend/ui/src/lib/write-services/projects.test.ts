@@ -3,12 +3,17 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const tx = {
   workspaceMember: { findUnique: vi.fn() },
   project: { findFirst: vi.fn(), create: vi.fn() },
-  auditLog: { create: vi.fn().mockResolvedValue({}) },
 };
+// Audit rows are written on the root client after the transaction commits, so
+// the tx mock deliberately has no auditLog.
+const auditLogCreate = vi.fn();
 vi.mock("@traceroot/core", () => {
   const ROLE_ORDER = ["VIEWER", "MEMBER", "ADMIN"];
   return {
-    prisma: { $transaction: (fn: (t: unknown) => unknown) => fn(tx) },
+    prisma: {
+      $transaction: (fn: (t: unknown) => unknown) => fn(tx),
+      auditLog: { create: (args: unknown) => auditLogCreate(args) },
+    },
     Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
     hasMinRole: (userRole: string, minRole: string) =>
       ROLE_ORDER.indexOf(userRole) >= ROLE_ORDER.indexOf(minRole),
@@ -20,8 +25,8 @@ beforeEach(() => {
   tx.workspaceMember.findUnique.mockReset();
   tx.project.findFirst.mockReset();
   tx.project.create.mockReset();
-  tx.auditLog.create.mockReset();
-  tx.auditLog.create.mockResolvedValue({});
+  auditLogCreate.mockReset();
+  auditLogCreate.mockResolvedValue({});
 });
 
 describe("createProject", () => {
@@ -52,7 +57,7 @@ describe("createProject", () => {
         traceTtlDays: 30,
       }),
     });
-    expect(tx.auditLog.create).toHaveBeenCalledWith({
+    expect(auditLogCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
         actorUserId: "u1",
         operation: "create_project",
@@ -114,7 +119,7 @@ describe("createProject", () => {
       select: { id: true, name: true, workspaceId: true },
     });
     expect(tx.project.create).not.toHaveBeenCalled();
-    expect(tx.auditLog.create).not.toHaveBeenCalled();
+    expect(auditLogCreate).not.toHaveBeenCalled();
   });
 
   it("rejects a non-member with 403", async () => {

@@ -10,12 +10,17 @@ const tx = {
   workspaceMember: { findUnique: vi.fn() },
   dashboard: { findFirst: vi.fn(), create: vi.fn() },
   widget: { create: vi.fn() },
-  auditLog: { create: vi.fn().mockResolvedValue({}) },
 };
+// Audit rows are written on the root client after the transaction commits, so
+// the tx mock deliberately has no auditLog.
+const auditLogCreate = vi.fn();
 vi.mock("@traceroot/core", () => {
   const ROLE_ORDER = ["VIEWER", "MEMBER", "ADMIN"];
   return {
-    prisma: { $transaction: (fn: (t: unknown) => unknown) => fn(tx) },
+    prisma: {
+      $transaction: (fn: (t: unknown) => unknown) => fn(tx),
+      auditLog: { create: (args: unknown) => auditLogCreate(args) },
+    },
     Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
     hasMinRole: (userRole: string, minRole: string) =>
       ROLE_ORDER.indexOf(userRole) >= ROLE_ORDER.indexOf(minRole),
@@ -71,8 +76,8 @@ beforeEach(() => {
   tx.dashboard.findFirst.mockReset();
   tx.dashboard.create.mockReset();
   tx.widget.create.mockReset();
-  tx.auditLog.create.mockReset();
-  tx.auditLog.create.mockResolvedValue({});
+  auditLogCreate.mockReset();
+  auditLogCreate.mockResolvedValue({});
 });
 
 describe("createDashboard", () => {
@@ -160,7 +165,7 @@ describe("createDashboard", () => {
       select: { id: true, name: true, projectId: true },
     });
     expect(tx.dashboard.create).not.toHaveBeenCalled();
-    expect(tx.auditLog.create).not.toHaveBeenCalled();
+    expect(auditLogCreate).not.toHaveBeenCalled();
   });
 
   it("creates the dashboard with a null description and writes the audit row", async () => {
@@ -180,7 +185,7 @@ describe("createDashboard", () => {
       },
       select: { id: true, name: true, projectId: true },
     });
-    expect(tx.auditLog.create).toHaveBeenCalledWith({
+    expect(auditLogCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
         actorUserId: "u1",
         operation: "create_dashboard",
@@ -209,7 +214,7 @@ describe("createDashboard", () => {
         data: expect.objectContaining({ description: "Spend at a glance" }),
       }),
     );
-    expect(tx.auditLog.create).toHaveBeenCalledWith({
+    expect(auditLogCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({ transport: "agent", agentSessionId: "as1" }),
     });
   });
@@ -321,7 +326,7 @@ describe("createWidget", () => {
       },
       select: { id: true, dashboardId: true, title: true, type: true },
     });
-    expect(tx.auditLog.create).toHaveBeenCalledWith({
+    expect(auditLogCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
         actorUserId: "u1",
         operation: "create_widget",
@@ -354,7 +359,7 @@ describe("createWidget", () => {
         }),
       }),
     );
-    expect(tx.auditLog.create).toHaveBeenCalledWith({
+    expect(auditLogCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({ transport: "agent", agentSessionId: "as1" }),
     });
   });

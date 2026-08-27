@@ -1,5 +1,5 @@
 import { prisma, Role, hasMinRole } from "@traceroot/core";
-import { writeAudit } from "./audit";
+import { writeAudit, type AuditEntry } from "./audit";
 import type { Provenance, ServiceResult } from "./types";
 
 export interface ProjectCreated {
@@ -34,7 +34,8 @@ export async function createProject(input: {
       error: "traceTtlDays must be an integer between 1 and 365",
     };
   }
-  return prisma.$transaction(async (tx) => {
+  let audit: AuditEntry | null = null;
+  const result = await prisma.$transaction(async (tx) => {
     const member = await tx.workspaceMember.findUnique({
       where: {
         workspaceId_userId: {
@@ -77,7 +78,7 @@ export async function createProject(input: {
         traceTtlDays,
       },
     });
-    await writeAudit(tx, {
+    audit = {
       actorUserId: input.actorUserId,
       operation: "create_project",
       resourceType: "project",
@@ -87,7 +88,7 @@ export async function createProject(input: {
       summary: { name },
       transport: input.provenance.transport,
       agentSessionId: input.provenance.agentSessionId ?? null,
-    });
+    };
     return {
       ok: true as const,
       created: true,
@@ -98,4 +99,6 @@ export async function createProject(input: {
       },
     };
   });
+  if (audit) await writeAudit(prisma, audit);
+  return result;
 }

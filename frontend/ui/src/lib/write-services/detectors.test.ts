@@ -5,12 +5,17 @@ const tx = {
   project: { findUnique: vi.fn() },
   workspaceMember: { findUnique: vi.fn() },
   detector: { findFirst: vi.fn(), create: vi.fn() },
-  auditLog: { create: vi.fn().mockResolvedValue({}) },
 };
+// Audit rows are written on the root client after the transaction commits, so
+// the tx mock deliberately has no auditLog.
+const auditLogCreate = vi.fn();
 vi.mock("@traceroot/core", () => {
   const ROLE_ORDER = ["VIEWER", "MEMBER", "ADMIN"];
   return {
-    prisma: { $transaction: (fn: (t: unknown) => unknown) => fn(tx) },
+    prisma: {
+      $transaction: (fn: (t: unknown) => unknown) => fn(tx),
+      auditLog: { create: (args: unknown) => auditLogCreate(args) },
+    },
     Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
     hasMinRole: (userRole: string, minRole: string) =>
       ROLE_ORDER.indexOf(userRole) >= ROLE_ORDER.indexOf(minRole),
@@ -52,8 +57,8 @@ beforeEach(() => {
   tx.workspaceMember.findUnique.mockReset();
   tx.detector.findFirst.mockReset();
   tx.detector.create.mockReset();
-  tx.auditLog.create.mockReset();
-  tx.auditLog.create.mockResolvedValue({});
+  auditLogCreate.mockReset();
+  auditLogCreate.mockResolvedValue({});
 });
 
 describe("createDetector", () => {
@@ -238,7 +243,7 @@ describe("createDetector", () => {
       select: { id: true, name: true, projectId: true, enabled: true, sampleRate: true },
     });
     expect(tx.detector.create).not.toHaveBeenCalled();
-    expect(tx.auditLog.create).not.toHaveBeenCalled();
+    expect(auditLogCreate).not.toHaveBeenCalled();
   });
 
   it("creates the detector without a nested trigger when conditions are absent", async () => {
@@ -263,7 +268,7 @@ describe("createDetector", () => {
       detectionProvider: null,
       detectionSource: null,
     });
-    expect(tx.auditLog.create).toHaveBeenCalledWith({
+    expect(auditLogCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
         actorUserId: "u1",
         operation: "create_detector",
@@ -308,7 +313,7 @@ describe("createDetector", () => {
         }),
       }),
     );
-    expect(tx.auditLog.create).toHaveBeenCalledWith({
+    expect(auditLogCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({ transport: "agent", agentSessionId: "as1" }),
     });
   });

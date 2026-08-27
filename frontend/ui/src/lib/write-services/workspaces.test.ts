@@ -3,10 +3,15 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const tx = {
   workspace: { findFirst: vi.fn(), create: vi.fn() },
   workspaceMember: { create: vi.fn() },
-  auditLog: { create: vi.fn().mockResolvedValue({}) },
 };
+// Audit rows are written on the root client after the transaction commits, so
+// the tx mock deliberately has no auditLog.
+const auditLogCreate = vi.fn();
 vi.mock("@traceroot/core", () => ({
-  prisma: { $transaction: (fn: (t: unknown) => unknown) => fn(tx) },
+  prisma: {
+    $transaction: (fn: (t: unknown) => unknown) => fn(tx),
+    auditLog: { create: (args: unknown) => auditLogCreate(args) },
+  },
   Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
 }));
 import { createWorkspace } from "./workspaces";
@@ -15,8 +20,8 @@ beforeEach(() => {
   tx.workspace.findFirst.mockReset();
   tx.workspace.create.mockReset();
   tx.workspaceMember.create.mockReset();
-  tx.auditLog.create.mockReset();
-  tx.auditLog.create.mockResolvedValue({});
+  auditLogCreate.mockReset();
+  auditLogCreate.mockResolvedValue({});
 });
 
 describe("createWorkspace", () => {
@@ -37,7 +42,38 @@ describe("createWorkspace", () => {
     expect(tx.workspaceMember.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ userId: "u1", role: "ADMIN" }),
     });
-    expect(tx.auditLog.create).toHaveBeenCalled();
+    expect(auditLogCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        actorUserId: "u1",
+        operation: "create_workspace",
+        resourceType: "workspace",
+        resourceId: "w1",
+        workspaceId: "w1",
+        summary: { name: "Acme" },
+        transport: "public-api",
+        agentSessionId: null,
+      }),
+    });
+  });
+
+  it("still returns created=true when the audit write fails", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    tx.workspace.findFirst.mockResolvedValue(null);
+    tx.workspace.create.mockResolvedValue({ id: "w1", name: "Acme" });
+    tx.workspaceMember.create.mockResolvedValue({});
+    auditLogCreate.mockRejectedValue(new Error("audit store down"));
+    const r = await createWorkspace({
+      actorUserId: "u1",
+      name: "Acme",
+      provenance: { transport: "public-api" },
+    });
+    expect(r).toEqual({
+      ok: true,
+      created: true,
+      data: { id: "w1", name: "Acme", role: "ADMIN" },
+    });
+    expect(auditLogCreate).toHaveBeenCalled();
+    errorSpy.mockRestore();
   });
 
   it("returns the existing workspace when the actor already admins one by that name, created=false", async () => {
@@ -53,7 +89,7 @@ describe("createWorkspace", () => {
       data: { id: "w0", name: "Acme", role: "ADMIN" },
     });
     expect(tx.workspace.create).not.toHaveBeenCalled();
-    expect(tx.auditLog.create).not.toHaveBeenCalled();
+    expect(auditLogCreate).not.toHaveBeenCalled();
   });
 
   it("rejects an empty name with 400", async () => {
