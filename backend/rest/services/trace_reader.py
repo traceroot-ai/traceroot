@@ -35,6 +35,9 @@ DEFAULT_SPAN_SCAN_LOOKBACK_HOURS = 24
 # column's DEFAULT); internal telemetry carries a marker of its own.
 USER_SOURCE = "user"
 DETECTOR_SOURCE = "detector"
+AGENT_SOURCE = "agent"
+# Sources a caller may opt into by name. Anything else resolves to customer traffic.
+INTERNAL_SOURCES = frozenset({DETECTOR_SOURCE, AGENT_SOURCE})
 
 # Distinct-value dropdown scan: cap the returned options, and briefly cache each
 # (column, window) so repeatedly opening the same filter does not re-scan spans.
@@ -660,9 +663,10 @@ class TraceReaderService:
         Args:
             project_id (str): Project that owns the trace.
             trace_id (str): Trace to fetch.
-            source (str | None): "detector" restricts the read to self-traces.
-                Anything else — including None — restricts it to customer
-                traffic; reading internal telemetry is opt-in, never a default.
+            source (str | None): "detector" or "agent" restricts the read to
+                that internal source. Anything else — including None —
+                restricts it to customer traffic; reading internal telemetry
+                is opt-in, never a default.
 
         Returns:
             dict | None: The trace with span skeletons, or None when no row
@@ -683,8 +687,8 @@ class TraceReaderService:
         # reached through a trace this predicate already resolved, so they are not a
         # way in, but they are not themselves scoped — don't read this comment as
         # covering every span read in the file.
-        if source == DETECTOR_SOURCE:
-            source_condition = f"source = '{DETECTOR_SOURCE}'"
+        if source in INTERNAL_SOURCES:
+            source_condition = f"source = '{source}'"
         else:
             source_condition = customer_traffic_only()
         source_predicate = f"AND {source_condition}"
