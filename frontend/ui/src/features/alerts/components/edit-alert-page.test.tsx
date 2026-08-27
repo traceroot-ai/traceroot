@@ -32,6 +32,7 @@ const storedAlert: AlertRecord = {
   threshold: 250,
   filters: [{ field: "model_name", op: "=", value: "gpt-4o" }],
   renotify: { mode: "OFF" },
+  noDataMode: "HOLD",
   status: "ACTIVE",
   severity: "OK",
   severityChangedAt: null,
