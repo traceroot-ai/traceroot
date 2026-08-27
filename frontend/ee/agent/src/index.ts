@@ -347,7 +347,17 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     // here (after the run — success or error — resolves) rather than inside
     // onDone/onError, so it happens exactly once regardless of outcome.
     const tokenUsage = await usageAccumulator.toTokenUsage(body.source === ModelSource.BYOK);
-    await persister.finish(tokenUsage, { traceId: traceMeta.traceId, status: outcome.trace });
+    // When tracing is disabled, pass no trace argument at all: finish()'s
+    // `!trace` gate must see undefined, not a present-but-inert object, or a
+    // tool-only turn with the flag off would gain an extra empty assistant
+    // row that main today never writes (Global Constraint: byte-identical
+    // row set with the flag off).
+    await persister.finish(
+      tokenUsage,
+      outcome.trace === "disabled"
+        ? undefined
+        : { traceId: traceMeta.traceId, status: outcome.trace },
+    );
     console.log(`[Agent] Done. Run persisted for session ${sessionId}`);
 
     await stream.writeSSE({

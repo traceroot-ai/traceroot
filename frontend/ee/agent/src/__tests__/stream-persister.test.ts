@@ -182,6 +182,31 @@ describe("StreamPersister", () => {
     expect(calls[2]).toMatchObject({ content: "", tokenUsage: USAGE });
   });
 
+  it("with tracing disabled (no trace argument), a tool-only turn writes exactly the rows PR #1961 wrote — no extra row", async () => {
+    const { persister, calls } = makePersister();
+    persister.onEvent(toolStart("t1"));
+    persister.onEvent(toolEnd("t1"));
+    await persister.finish(USAGE, undefined);
+
+    // Same shape PR #1961 wrote: a usage-carrying assistant row plus the
+    // tool_step, and nothing more. A disabled-tracing outcome must never add
+    // a third row beyond what main writes today (Global Constraint).
+    expect(calls.map((c) => c.role)).toEqual(["tool_step", "assistant"]);
+    expect(calls[1]).toMatchObject({ content: "", tokenUsage: USAGE });
+    expect(calls[1].metadata).toBeUndefined();
+  });
+
+  it("with a trace outcome and no usage, a tool-only turn gains exactly one assistant row carrying the trace metadata", async () => {
+    const { persister, calls } = makePersister();
+    persister.onEvent(toolStart("t1"));
+    persister.onEvent(toolEnd("t1"));
+    await persister.finish(undefined, { traceId: "f".repeat(32), status: "available" });
+
+    expect(calls.map((c) => c.role)).toEqual(["tool_step", "assistant"]);
+    expect(calls[1]).toMatchObject({ content: "" });
+    expect(calls[1].metadata).toEqual({ traceId: "f".repeat(32), traceStatus: "available" });
+  });
+
   it("stores the cumulative session total in the final segment's metadata", async () => {
     const { persister, calls } = makePersister();
     persister.onEvent(textDelta("Done."));
