@@ -84,3 +84,22 @@ describe("withAgentTrace", () => {
     expect(mod.turnTraceId("s", "m")).toBe(mod.turnTraceId("s", "m"));
   });
 });
+
+describe("withAgentTrace root I/O", () => {
+  it("records the input and the final output on the root span, redacted and capped", async () => {
+    const setAttribute = vi.fn();
+    const { trace } = await import("@opentelemetry/api");
+    const spy = vi.spyOn(trace, "getActiveSpan").mockReturnValue({ setAttribute } as never);
+    const r = await mod.withAgentTrace(
+      { ...meta, input: "why did it fail? token ghp_" + "x".repeat(40) },
+      async () => "done",
+      { recordOutput: (v) => `answer: ${v} ` + "y".repeat(20_000) },
+    );
+    expect(r.trace).toBe("available");
+    const calls = Object.fromEntries(setAttribute.mock.calls);
+    expect(calls["traceroot.span.input"]).toContain("ghp_[REDACTED]");
+    expect(calls["traceroot.span.output"].startsWith("answer: done")).toBe(true);
+    expect(calls["traceroot.span.output"].length).toBeLessThanOrEqual(16_385);
+    spy.mockRestore();
+  });
+});

@@ -7,7 +7,9 @@
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
+import { trace } from "@opentelemetry/api";
 import { TraceRoot, observe } from "@traceroot-ai/traceroot";
+import { redactSecrets } from "@traceroot/core/capture-policy";
 
 export type AgentTraceKind = "rca" | "followup" | "chat";
 export type AgentTraceOutcome = "disabled" | "available" | "failed";
@@ -17,6 +19,17 @@ export interface AgentTraceMeta {
   kind: AgentTraceKind;
   name: string;
   metadata: Record<string, unknown>;
+  /** The turn's user message — recorded (redacted, capped) as the root span's input. */
+  input?: string;
+}
+
+/** Root-span I/O cap (spec B8): the root carries the prompt and the final answer, bounded. */
+export const ROOT_IO_CAP = 16_384;
+
+function boundedText(text: string | undefined): string | undefined {
+  if (!text) return undefined;
+  const redacted = redactSecrets(text);
+  return redacted.length > ROOT_IO_CAP ? `${redacted.slice(0, ROOT_IO_CAP)}…` : redacted;
 }
 
 const FLUSH_TIMEOUT_MS = 30_000;
@@ -90,10 +103,28 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 export async function withAgentTrace<T>(
   meta: AgentTraceMeta,
   fn: () => Promise<T>,
+  options: { recordOutput?: (value: T) => string | undefined } = {},
 ): Promise<{ value: T; trace: AgentTraceOutcome }> {
   if (!isAgentTraceEnabled(meta.kind) || !initOnce()) {
     return { value: await fn(), trace: "disabled" };
   }
+  // The root's I/O is set by hand (not observe's auto-capture): fn takes no
+  // arguments and returns nothing useful, while the meaningful boundary is the
+  // user message in and the assistant's final text out. Same attribute names
+  // the worker's self-trace emitter uses for its root.
+  const traced = async (): Promise<T> => {
+    const root = trace.getActiveSpan();
+    const input = boundedText(meta.input);
+    if (root && input !== undefined) root.setAttribute("traceroot.span.input", input);
+    const value = await fn();
+    try {
+      const output = boundedText(options.recordOutput?.(value));
+      if (root && output !== undefined) root.setAttribute("traceroot.span.output", output);
+    } catch (err) {
+      console.error("[AgentTrace] root output capture failed:", err);
+    }
+    return value;
+  };
   const value: T = await runScope.run({ toolSpanIds: new Map() }, () =>
     observe(
       {
@@ -105,7 +136,7 @@ export async function withAgentTrace<T>(
         captureInput: false,
         captureOutput: false,
       },
-      fn,
+      traced,
     ),
   );
   try {
