@@ -7,6 +7,9 @@ import {
   ALERT_WINDOWS,
   DEFAULT_ALERT_WINDOW,
   isAlertWindow,
+  allocateExecution,
+  advanceLatest,
+  setExecutionTraceStatus,
 } from "@traceroot/core";
 import { fetchProviderConfig, resolvePiModel } from "@traceroot/core/model-resolver";
 import type { DetectorRcaJob } from "../queues/detector-run-queue.js";
@@ -120,7 +123,17 @@ export async function runRcaSession(params: {
   rcaModel?: string | null;
   rcaProvider?: string | null;
   rcaSource?: string | null;
-}): Promise<{ result: string; sessionId: string }> {
+  // Execution identity, allocated by processRcaJob BEFORE this call. Optional
+  // so direct callers (and existing tests) that don't allocate an execution
+  // still run — the agent then gets no agentTrace and the run stays untraced.
+  executionId?: string;
+  attempt?: number;
+  executionTraceId?: string;
+}): Promise<{
+  result: string;
+  sessionId: string;
+  traceStatus: "available" | "failed" | "disabled";
+}> {
   const sessionRes = await fetch(
     `${AGENT_SERVICE_URL}/api/v1/projects/${params.projectId}/sessions`,
     {
@@ -132,6 +145,7 @@ export async function runRcaSession(params: {
       },
       body: JSON.stringify({
         title: `[RCA] ${params.findings.map((f) => f.detectorName).join(", ")} — ${params.traceId.slice(0, 8)}`,
+        ...(params.executionId ? { executionId: params.executionId } : {}),
       }),
     },
   );
@@ -195,11 +209,25 @@ Output your findings in this format:
     model?: string;
     providerName?: string;
     source?: ModelSource;
+    agentTrace?: { traceId: string; kind: "rca"; metadata: Record<string, unknown> };
   } = { message: prompt, traceId: params.traceId };
   if (resolved) {
     msgBody.model = resolved.model;
     msgBody.providerName = resolved.providerName;
     msgBody.source = resolved.source;
+  }
+  if (params.executionTraceId) {
+    msgBody.agentTrace = {
+      traceId: params.executionTraceId,
+      kind: "rca",
+      metadata: {
+        finding_id: params.findingId,
+        execution_id: params.executionId,
+        attempt: params.attempt,
+        scanned_trace_id: params.traceId,
+        detectors: params.findings.map((f) => f.detectorName),
+      },
+    };
   }
 
   const msgRes = await fetch(
@@ -224,6 +252,7 @@ Output your findings in this format:
   let rcaResult = "";
   let agentErrorMessage: string | undefined;
   let currentEventName: string | undefined;
+  let traceStatus: "available" | "failed" | "disabled" = "disabled";
   const reader = msgRes.body!.getReader();
   const decoder = new TextDecoder();
   let remainder = "";
@@ -251,6 +280,19 @@ Output your findings in this format:
             agentErrorMessage = parsed?.message || raw || "unknown agent error";
           } catch {
             agentErrorMessage = raw || "unknown agent error";
+          }
+        } else if (currentEventName === "trace") {
+          try {
+            const parsed = JSON.parse(raw);
+            if (
+              parsed?.status === "available" ||
+              parsed?.status === "failed" ||
+              parsed?.status === "disabled"
+            ) {
+              traceStatus = parsed.status;
+            }
+          } catch {
+            // malformed trace frame — keep the default "disabled"
           }
         } else {
           try {
@@ -286,7 +328,7 @@ Output your findings in this format:
     throw new Error("RCA agent produced no output");
   }
 
-  return { result: rcaResult, sessionId: session.id };
+  return { result: rcaResult, sessionId: session.id, traceStatus };
 }
 
 export async function processRcaJob(job: Job<DetectorRcaJob>) {
@@ -326,6 +368,11 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
     create: { findingId, projectId, status: "running" },
     update: { projectId, status: "running" },
   });
+
+  // Fix attempt + trace id BEFORE the agent runs. A crash between export and the
+  // status write must not let the retry reuse this trace id: the retry allocates
+  // attempt+1 (Decision 1 in the spec).
+  const execution = await allocateExecution(prisma, { findingId, projectId });
 
   // Project alert aggregation window. Hoisted because `scheduleDigestFlush`
   // closes over it but `project` is fetched later in the try below. Defaults to
@@ -385,7 +432,11 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
     });
     const hasGitHub = ghCount > 0;
 
-    const { result: rcaResult } = await runRcaSession({
+    const {
+      result: rcaResult,
+      sessionId,
+      traceStatus,
+    } = await runRcaSession({
       findingId,
       projectId,
       workspaceId,
@@ -395,6 +446,9 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
       rcaModel: project?.rcaModel,
       rcaProvider: project?.rcaProvider,
       rcaSource: project?.rcaSource,
+      executionId: execution.executionId,
+      attempt: execution.attempt,
+      executionTraceId: execution.traceId,
     });
 
     await prisma.detectorRca.update({
@@ -404,6 +458,17 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
         result: rcaResult,
         completedAt: new Date(),
       },
+    });
+
+    await setExecutionTraceStatus(prisma, execution.executionId, traceStatus);
+    await prisma.detectorRcaExecution.update({
+      where: { id: execution.executionId },
+      data: { sessionId, result: rcaResult, finishedAt: new Date() },
+    });
+    await advanceLatest(prisma, {
+      findingId,
+      executionId: execution.executionId,
+      attempt: execution.attempt,
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
@@ -417,6 +482,7 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
         },
       })
       .catch(() => {}); // best-effort
+    await setExecutionTraceStatus(prisma, execution.executionId, "failed").catch(() => {});
 
     await scheduleDigestFlush();
 
