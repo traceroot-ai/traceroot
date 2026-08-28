@@ -158,10 +158,17 @@ export function createRegistryWriteTools(opts: CreateRegistryWriteToolsOptions):
     const tenancyBody =
       tenancy === "project" ? { projectId } : tenancy === "workspace" ? { workspaceId } : {};
 
+    // Registry-curated fields the agent must neither show to the model nor
+    // accept from it (the API/CLI keep them; the fieldMap may still know the
+    // translation so un-hiding a field is a curation-only change).
+    const agentHidden = new Set(entry.agentHiddenParams ?? []);
+    const modelVisible = (field: string): boolean =>
+      field !== hiddenField && !agentHidden.has(field);
+
     // Fail loud at wiring time if the generated registry gains a field the
     // explicit body map doesn't know how to translate.
     for (const field of Object.keys(entry.inputSchema.properties)) {
-      if (field !== hiddenField && !(field in spec.fieldMap)) {
+      if (modelVisible(field) && !(field in spec.fieldMap)) {
         throw new Error(`${name}: unmapped registry field: ${field}`);
       }
     }
@@ -173,14 +180,11 @@ export function createRegistryWriteTools(opts: CreateRegistryWriteToolsOptions):
       },
     };
     for (const [field, schema] of Object.entries(entry.inputSchema.properties)) {
-      if (field !== hiddenField) {
+      if (modelVisible(field)) {
         properties[field] = schema;
       }
     }
-    const required = [
-      "label",
-      ...entry.inputSchema.required.filter((field) => field !== hiddenField),
-    ];
+    const required = ["label", ...entry.inputSchema.required.filter(modelVisible)];
 
     return {
       name: entry.name,
@@ -196,6 +200,10 @@ export function createRegistryWriteTools(opts: CreateRegistryWriteToolsOptions):
           ...tenancyBody,
         };
         for (const [field, bodyKey] of Object.entries(spec.fieldMap)) {
+          // A hidden field the model passes anyway must never reach the body.
+          if (agentHidden.has(field)) {
+            continue;
+          }
           const value = params[field];
           // Unset optionals stay out of the body entirely — the internal zod
           // distinguishes absent from null in places, and absent is always safe.
