@@ -40,6 +40,10 @@ export interface RegistryEntry {
   inputSchema: InputSchema;
   /** Args routed to the JSON request body (write ops only). */
   bodyParams?: readonly string[];
+  /** Body fields kept in the API/CLI contract but that the agent's tool
+   * factory must neither show to the model nor accept from it. The entry's
+   * inputSchema/bodyParams stay complete; filtering is the consumer's job. */
+  agentHiddenParams?: readonly string[];
   /** Required on every non-GET entry; validated at generation time. */
   policy?: ToolPolicy;
 }

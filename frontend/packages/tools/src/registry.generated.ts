@@ -126,6 +126,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
       additionalProperties: false,
     },
     bodyParams: ["name", "trace_ttl_days", "workspace_id"],
+    agentHiddenParams: ["trace_ttl_days"],
     policy: {
       approvalClass: "none",
       minRole: "MEMBER",

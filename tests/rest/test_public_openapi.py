@@ -579,6 +579,53 @@ def test_get_entry_carrying_policy_fails_build(monkeypatch):
         build_public_schema(app)
 
 
+# --- Agent-hidden write params ------------------------------------------------
+
+
+def test_create_project_curation_carries_agent_hidden_params():
+    # trace_ttl_days stays in the public API/CLI contract; the key tells the
+    # agent's tool factory to keep it out of the model-visible schema.
+    tool = _schema()["paths"]["/api/v1/public/projects"]["post"]["x-tool"]
+    assert tool["agentHiddenParams"] == ["trace_ttl_days"]
+
+
+def test_agent_hidden_params_stale_name_fails_build(monkeypatch):
+    # A hidden name that no longer exists in the request body is a curation
+    # mistake (e.g. after a field rename) and must fail the build.
+    entry = deepcopy(openapi_public._TOOL_CURATION["create_project"])
+    entry["agentHiddenParams"] = ["not_a_body_field"]
+    monkeypatch.setitem(openapi_public._TOOL_CURATION, "create_project", entry)
+    with pytest.raises(ValueError, match=r"create_project.*not_a_body_field"):
+        build_public_schema(app)
+
+
+def test_agent_hidden_params_on_get_entry_fails_build(monkeypatch):
+    entry = deepcopy(openapi_public._TOOL_CURATION["whoami"])
+    entry["agentHiddenParams"] = ["anything"]
+    monkeypatch.setitem(openapi_public._TOOL_CURATION, "whoami", entry)
+    with pytest.raises(ValueError, match=r"whoami.*agentHiddenParams"):
+        build_public_schema(app)
+
+
+def test_agent_hidden_params_on_disabled_entry_fails_build(monkeypatch):
+    monkeypatch.setitem(
+        openapi_public._TOOL_CURATION,
+        "ingest_traces",
+        {"enabled": False, "agentHiddenParams": ["anything"]},
+    )
+    with pytest.raises(ValueError, match=r"ingest_traces.*agentHiddenParams"):
+        build_public_schema(app)
+
+
+@pytest.mark.parametrize("bad_value", [[], ["trace_ttl_days", 3], "trace_ttl_days"])
+def test_agent_hidden_params_must_be_nonempty_string_list(monkeypatch, bad_value):
+    entry = deepcopy(openapi_public._TOOL_CURATION["create_project"])
+    entry["agentHiddenParams"] = bad_value
+    monkeypatch.setitem(openapi_public._TOOL_CURATION, "create_project", entry)
+    with pytest.raises(ValueError, match=r"create_project.*agentHiddenParams"):
+        build_public_schema(app)
+
+
 # The five public creates, pinned to their exact write-tool policy. approvalClass
 # and minRole must match what the write service actually enforces; tenancy names
 # the scope the target resource lives in.
