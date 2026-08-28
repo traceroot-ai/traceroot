@@ -205,6 +205,18 @@
     }
   },
   {
+    "id": "tr-gpt-5-6-cyber",
+    "modelName": "gpt-5.6-cyber",
+    "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-5\\.6-cyber)(-[\\d-]+)?$",
+    "provider": "openai",
+    "prices": {
+      "input": 0.0000125,
+      "output": 0.000075,
+      "cacheRead": 0.00000125,
+      "cacheWrite": 0.000015625
+    }
+  },
+  {
     "id": "tr-gpt-5-5",
     "modelName": "gpt-5.5",
     "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-5\\.5)(-[\\d-]+)?$",
