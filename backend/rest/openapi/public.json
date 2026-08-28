@@ -4433,6 +4433,9 @@
           "Account (Public)"
         ],
         "x-tool": {
+          "agentHiddenParams": [
+            "trace_ttl_days"
+          ],
           "description": "Create a project in a workspace the logged-in user can write to (idempotent on the project name within the workspace).",
           "enabled": true,
           "name": "create_project",

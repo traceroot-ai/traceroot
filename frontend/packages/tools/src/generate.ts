@@ -15,6 +15,7 @@ interface ToolCuration {
   name?: string;
   description?: string;
   policy?: unknown;
+  agentHiddenParams?: readonly string[];
 }
 
 interface OpenApiOperation {
@@ -227,6 +228,16 @@ export function generateRegistry(doc: OpenApiDocument): RegistryEntry[] {
       }
       const policy = validatePolicy(tool.policy, path);
       const bodyParams = mergeBodySchema(op, doc, path, inputSchema);
+      // Copied verbatim: hidden fields stay in inputSchema/bodyParams (full
+      // API/CLI parity) — stripping them from the model is the consumer's job.
+      const agentHiddenParams = tool.agentHiddenParams;
+      for (const field of agentHiddenParams ?? []) {
+        if (!bodyParams.includes(field)) {
+          throw new Error(
+            `Enabled write tool on POST ${path}: agentHiddenParams field "${field}" is not a request-body property`,
+          );
+        }
+      }
       entries.push({
         name: tool.name,
         description: tool.description,
@@ -234,6 +245,7 @@ export function generateRegistry(doc: OpenApiDocument): RegistryEntry[] {
         path,
         inputSchema,
         bodyParams,
+        ...(agentHiddenParams !== undefined && { agentHiddenParams }),
         policy,
       });
     }

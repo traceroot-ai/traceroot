@@ -452,6 +452,30 @@ describe("generateRegistry write operations", () => {
     });
   });
 
+  it("copies agentHiddenParams verbatim without filtering the schema or bodyParams", () => {
+    const doc = fakeWriteDoc();
+    doc.paths["/api/v1/public/workspaces"].post!["x-tool"]!.agentHiddenParams = ["plan"];
+    const entry = generateRegistry(doc)[0]!;
+    expect(entry.agentHiddenParams).toEqual(["plan"]);
+    // Visibility filtering is the consumer's job: the entry keeps full parity.
+    expect(entry.inputSchema.properties).toHaveProperty("plan");
+    expect(entry.bodyParams).toEqual(["name", "plan"]);
+  });
+
+  it("throws when agentHiddenParams names an unknown body property", () => {
+    const doc = fakeWriteDoc();
+    doc.paths["/api/v1/public/workspaces"].post!["x-tool"]!.agentHiddenParams = ["retention"];
+    expect(() => generateRegistry(doc)).toThrow(
+      "Enabled write tool on POST /api/v1/public/workspaces: " +
+        'agentHiddenParams field "retention" is not a request-body property',
+    );
+  });
+
+  it("omits the agentHiddenParams key entirely on entries that declare none", () => {
+    const entry = generateRegistry(fakeWriteDoc())[0]!;
+    expect("agentHiddenParams" in entry).toBe(false);
+  });
+
   it("emits empty bodyParams for an enabled POST without a JSON request body", () => {
     const doc = fakeWriteDoc();
     delete doc.paths["/api/v1/public/workspaces"].post!.requestBody;
