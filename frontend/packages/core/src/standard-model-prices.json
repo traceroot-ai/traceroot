@@ -172,10 +172,10 @@
     "matchPattern": "(?i)^(openai\\/|azure\\/)?(gpt-5\\.6-luna)(-[\\d-]+)?$",
     "provider": "openai",
     "prices": {
-      "input": 0.000001,
-      "output": 0.000006,
-      "cacheRead": 0.0000001,
-      "cacheWrite": 0.00000125
+      "input": 0.0000002,
+      "output": 0.0000012,
+      "cacheRead": 0.00000002,
+      "cacheWrite": 0.00000025
     }
   },
   {
