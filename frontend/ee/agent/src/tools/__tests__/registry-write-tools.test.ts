@@ -45,7 +45,52 @@ describe("createRegistryWriteTools", () => {
     const tool = makeTools(stubClient().client).find((t) => t.name === "create_project")!;
     expect(tool.parameters.properties).not.toHaveProperty("workspace_id");
     expect(tool.parameters.required).not.toContain("workspace_id");
-    expect(tool.parameters.properties).toHaveProperty("trace_ttl_days");
+  });
+
+  it("create_project hides the registry's agent-hidden trace_ttl_days from the model", () => {
+    const tool = makeTools(stubClient().client).find((t) => t.name === "create_project")!;
+    expect(tool.parameters.properties).not.toHaveProperty("trace_ttl_days");
+    expect(tool.parameters.required).not.toContain("trace_ttl_days");
+    expect(Object.keys(tool.parameters.properties)).toEqual(["label", "name"]);
+  });
+
+  it("drops a model-supplied agent-hidden field instead of translating it to the body", async () => {
+    const { client, request } = stubClient({
+      created: true,
+      project: { id: "p2", name: "api", workspaceId: "w1" },
+    });
+    const tool = makeTools(client).find((t) => t.name === "create_project")!;
+    await tool.execute("id", { label: "x", name: "api", trace_ttl_days: 30 });
+    expect(request).toHaveBeenCalledWith("post", "/api/internal/write/projects", {
+      body: {
+        actorUserId: "u1",
+        transport: "agent",
+        agentSessionId: "as1",
+        workspaceId: "w1",
+        name: "api",
+      },
+      signal: undefined,
+    });
+  });
+
+  it("leaves tools without agent-hidden params untouched", () => {
+    const tool = makeTools(stubClient().client).find((t) => t.name === "create_detector")!;
+    expect(Object.keys(tool.parameters.properties).sort()).toEqual(
+      [
+        "detection_model",
+        "detection_provider",
+        "detection_source",
+        "enable_rca",
+        "enabled",
+        "label",
+        "name",
+        "prompt",
+        "output_schema",
+        "sample_rate",
+        "template",
+        "trigger_conditions",
+      ].sort(),
+    );
   });
 
   it("create_detector POSTs the exact camelCase body with actor and provenance injected", async () => {
