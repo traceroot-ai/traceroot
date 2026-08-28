@@ -360,6 +360,9 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         ),
         "enabled": True,
         "policy": {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "workspace"},
+        # API/CLI-visible but hidden from the agent: no UI form exposes the
+        # field, so the model shouldn't interrogate users about it.
+        "agentHiddenParams": ["trace_ttl_days"],
     },
     "create_detector": {
         "name": "create_detector",
@@ -461,6 +464,65 @@ def _validate_curation_policy(
         )
 
 
+def _validate_agent_hidden_params(
+    entry: dict[str, Any],
+    op: dict[str, Any],
+    schema: dict[str, Any],
+    method: str,
+    path: str,
+    op_id: str | None,
+) -> None:
+    """Enforce the agent-hidden-params contract on one curation entry.
+
+    ``agentHiddenParams`` marks request-body fields that stay in the public
+    API/CLI contract but that the agent's tool factory must neither expose to
+    the model nor accept from it.
+
+    Args:
+        entry (dict[str, Any]): The ``_TOOL_CURATION`` entry for the operation.
+        op (dict[str, Any]): The OpenAPI operation (for its ``requestBody``).
+        schema (dict[str, Any]): The public-only document, used to resolve a
+            request-body ``$ref`` against ``components.schemas``.
+        method (str): Lowercase HTTP method of the operation.
+        path (str): Public path the operation lives on (for error messages).
+        op_id (str | None): The operation's ``operationId`` (for error messages).
+
+    Raises:
+        ValueError: If ``agentHiddenParams`` appears on a GET or disabled
+            entry, is not a non-empty list of strings, or names a field that
+            does not exist in the operation's JSON request-body properties
+            (stale after a field rename or removal).
+    """
+    hidden = entry.get("agentHiddenParams")
+    if hidden is None:
+        return
+    if method == "get" or not entry.get("enabled"):
+        raise ValueError(
+            f"tool {method.upper()} {path} ({op_id}): agentHiddenParams is only "
+            "legal on an enabled non-GET entry"
+        )
+    if not (isinstance(hidden, list) and hidden and all(isinstance(n, str) for n in hidden)):
+        raise ValueError(
+            f"enabled write tool {method.upper()} {path} ({op_id}): "
+            "agentHiddenParams must be a non-empty list of strings"
+        )
+    body_schema = (
+        op.get("requestBody", {}).get("content", {}).get("application/json", {}).get("schema", {})
+    )
+    ref = body_schema.get("$ref")
+    if isinstance(ref, str) and ref.startswith("#/components/schemas/"):
+        body_schema = (
+            (schema.get("components") or {}).get("schemas", {}).get(ref.rsplit("/", 1)[1], {})
+        )
+    properties = body_schema.get("properties", {})
+    for name in hidden:
+        if name not in properties:
+            raise ValueError(
+                f"enabled write tool {method.upper()} {path} ({op_id}): "
+                f"agentHiddenParams names unknown requestBody property {name!r}"
+            )
+
+
 def _apply_tool_curation(schema: dict[str, Any]) -> None:
     """Stamp the per-operation ``x-tool`` block from ``_TOOL_CURATION``.
 
@@ -472,8 +534,10 @@ def _apply_tool_curation(schema: dict[str, Any]) -> None:
         ValueError: If a public operation has no curation entry — forces every
             new endpoint to make an explicit tool decision in the same PR — if
             a curation entry matches no public operation (stale after a rename
-            or removal), or if an entry violates the write-tool policy contract
-            (see :func:`_validate_curation_policy`).
+            or removal), if an entry violates the write-tool policy contract
+            (see :func:`_validate_curation_policy`), or if an entry violates
+            the agent-hidden-params contract (see
+            :func:`_validate_agent_hidden_params`).
     """
     consumed: set[str] = set()
     for path, item in schema["paths"].items():
@@ -488,6 +552,7 @@ def _apply_tool_curation(schema: dict[str, Any]) -> None:
                     "_TOOL_CURATION entry — add one (enabled or disabled)"
                 )
             _validate_curation_policy(entry, method, path, op_id)
+            _validate_agent_hidden_params(entry, op, schema, method, path, op_id)
             consumed.add(op_id)
             op["x-tool"] = copy.deepcopy(entry)
     stale = set(_TOOL_CURATION) - consumed
