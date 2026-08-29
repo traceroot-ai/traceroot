@@ -34,8 +34,13 @@ const TICK: AlertTick = {
   now: NOW,
   boundary: new Date("2026-08-12T10:37:00.000Z"),
   windowEnd: new Date("2026-08-12T10:36:30.000Z"),
-  nextRunAt: new Date("2026-08-12T10:38:00.000Z"),
 };
+
+/** `row()`'s own window is 10m, so it re-arms at the cadence cap, not at the tick. */
+const CAPPED_NEXT_RUN = new Date("2026-08-12T10:42:00.000Z");
+
+/** What a window this build cannot read falls back to: one tick, as before. */
+const TICK_NEXT_RUN = new Date("2026-08-12T10:38:00.000Z");
 
 function row(overrides: Partial<AlertRowLike> = {}): AlertRowLike {
   return {
@@ -131,7 +136,7 @@ describe("claimDueAlerts — taking ownership", () => {
 
     expect(updateMany.mock.calls[0][0]).toEqual({
       where: { id: "alert-1", lastClaimedAt: previousClaim },
-      data: { lastClaimedAt: TICK.now, nextRunAt: TICK.nextRunAt },
+      data: { lastClaimedAt: TICK.now, nextRunAt: CAPPED_NEXT_RUN },
     });
     expect(claims).toHaveLength(1);
     expect(claims[0].claimStamp).toBe(TICK.now);
@@ -151,8 +156,31 @@ describe("claimDueAlerts — taking ownership", () => {
     expect(await claimDueAlerts(TICK)).toEqual([]);
     expect(updateMany.mock.calls[0][0]).toMatchObject({
       where: { id: "alert-1" },
-      data: { lastClaimedAt: TICK.now, nextRunAt: TICK.nextRunAt },
+      // No window to derive a cadence from, so it keeps the tick's.
+      data: { lastClaimedAt: TICK.now, nextRunAt: TICK_NEXT_RUN },
     });
+  });
+
+  it("re-arms each row on its own window rather than on one cadence for the tick", async () => {
+    findMany.mockResolvedValue([
+      row({ id: "narrow", window: "1m" }),
+      row({ id: "wide", window: "2h" }),
+    ]);
+
+    await claimDueAlerts(TICK);
+
+    const scheduled = new Map(
+      updateMany.mock.calls.map(([args]) => {
+        const { where, data } = args as {
+          where: { id: string };
+          data: { nextRunAt: Date };
+        };
+        return [where.id, data.nextRunAt.toISOString()];
+      }),
+    );
+    // The 1m rule is unchanged; the 2h rule skips the next four ticks entirely.
+    expect(scheduled.get("narrow")).toBe(TICK_NEXT_RUN.toISOString());
+    expect(scheduled.get("wide")).toBe(CAPPED_NEXT_RUN.toISOString());
   });
 
   it("leaves the reason on a row it will never be able to evaluate", async () => {
