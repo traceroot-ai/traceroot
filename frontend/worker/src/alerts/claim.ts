@@ -3,7 +3,7 @@ import { mapWithConcurrency } from "./concurrency.js";
 import { logError, logInfo } from "./log.js";
 import { parseAlertRule, type AlertRowLike, type AlertRule } from "./rule.js";
 import type { AlertRuntimeState } from "./state-machine.js";
-import type { AlertTick } from "./tick.js";
+import { alertNextRunAt, type AlertTick } from "./tick.js";
 
 const ACTIVE: AlertStatus = "ACTIVE";
 
@@ -43,7 +43,9 @@ async function claimRow(row: DueAlertRow, tick: AlertTick): Promise<ClaimedAlert
   try {
     ({ count } = await prisma.alert.updateMany({
       where: { id: row.id, lastClaimedAt: row.lastClaimedAt },
-      data: { lastClaimedAt: tick.now, nextRunAt: tick.nextRunAt },
+      // The rule's own cadence, read off the raw row: the claim lands before the
+      // parse, and an unreadable window falls back to the tick (see `alertCadenceMs`).
+      data: { lastClaimedAt: tick.now, nextRunAt: alertNextRunAt(tick, row.window) },
     }));
   } catch (error) {
     // One row's write failing must cost that row only, not the batch.
