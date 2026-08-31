@@ -1,6 +1,10 @@
 import { prisma, Role, hasMinRole } from "@traceroot/core";
 import { z } from "zod";
-import { DEFAULT_DETECTOR_SAMPLE_RATE } from "@/features/detectors/templates";
+import {
+  DEFAULT_DETECTOR_SAMPLE_RATE,
+  DETECTOR_TEMPLATES,
+  getTemplate,
+} from "@/features/detectors/templates";
 import { validateTriggerConditions } from "@/features/detectors/trigger-fields";
 import { writeAudit, type AuditEntry } from "./audit";
 import type { Provenance, ServiceResult } from "./types";
@@ -20,45 +24,59 @@ const nonEmptyString = (field: string) => {
 
 const sampleRateMessage = "sampleRate must be an integer between 0 and 100";
 
+// Templates whose canonical instructions a caller may adopt by omitting
+// prompt. Derived from the template data so the set cannot drift; blank is
+// excluded because its prompt is empty.
+const STANDARD_TEMPLATE_IDS = DETECTOR_TEMPLATES.filter((t) => t.id !== "blank").map((t) => t.id);
+
 // Mirrors the cookie route's validation verbatim so both write surfaces
-// reject the same payloads with the same messages.
-const inputSchema = z.object({
-  name: nonEmptyString("name"),
-  template: nonEmptyString("template"),
-  prompt: nonEmptyString("prompt"),
-  sampleRate: z
-    .number(sampleRateMessage)
-    .int(sampleRateMessage)
-    .min(0, sampleRateMessage)
-    .max(100, sampleRateMessage)
-    .optional(),
-  outputSchema: z.array(z.unknown(), "outputSchema must be an array").optional(),
-  // Validated against the trigger-field registry — an unknown field or
-  // operator would be stored fine but never match at evaluation time,
-  // silently disabling the detector.
-  triggerConditions: z.unknown().superRefine((value, ctx) => {
-    if (value === undefined) return;
-    const error = validateTriggerConditions(value);
-    if (error) ctx.addIssue({ code: "custom", message: error });
-  }),
-  detectionSource: z
-    .union(
-      [z.literal("system"), z.literal("byok"), z.null()],
-      'detectionSource must be "system" or "byok"',
-    )
-    .optional(),
-  detectionModel: z.string().nullable().optional(),
-  detectionProvider: z.string().nullable().optional(),
-  enableRca: z.boolean("enableRca must be a boolean").optional(),
-  enabled: z.boolean("enabled must be a boolean").optional(),
-});
+// reject the same payloads with the same messages — except prompt, which
+// only this surface may omit to adopt a standard template's instructions.
+const inputSchema = z
+  .object({
+    name: nonEmptyString("name"),
+    template: nonEmptyString("template"),
+    prompt: nonEmptyString("prompt").optional(),
+    sampleRate: z
+      .number(sampleRateMessage)
+      .int(sampleRateMessage)
+      .min(0, sampleRateMessage)
+      .max(100, sampleRateMessage)
+      .optional(),
+    outputSchema: z.array(z.unknown(), "outputSchema must be an array").optional(),
+    // Validated against the trigger-field registry — an unknown field or
+    // operator would be stored fine but never match at evaluation time,
+    // silently disabling the detector.
+    triggerConditions: z.unknown().superRefine((value, ctx) => {
+      if (value === undefined) return;
+      const error = validateTriggerConditions(value);
+      if (error) ctx.addIssue({ code: "custom", message: error });
+    }),
+    detectionSource: z
+      .union(
+        [z.literal("system"), z.literal("byok"), z.null()],
+        'detectionSource must be "system" or "byok"',
+      )
+      .optional(),
+    detectionModel: z.string().nullable().optional(),
+    detectionProvider: z.string().nullable().optional(),
+    enableRca: z.boolean("enableRca must be a boolean").optional(),
+    enabled: z.boolean("enabled must be a boolean").optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.prompt !== undefined || STANDARD_TEMPLATE_IDS.includes(value.template)) return;
+    ctx.addIssue({
+      code: "custom",
+      message: `prompt is required unless template is one of: ${STANDARD_TEMPLATE_IDS.join(", ")}`,
+    });
+  });
 
 export async function createDetector(input: {
   actorUserId: string;
   projectId: string;
   name: string;
   template: string;
-  prompt: string;
+  prompt?: string;
   sampleRate?: number;
   outputSchema?: unknown[];
   triggerConditions?: unknown[];
@@ -110,7 +128,17 @@ export async function createDetector(input: {
         error: parsed.error.issues[0].message,
       };
     }
-    const { name, template, prompt, detectionSource, enableRca, enabled } = parsed.data;
+    const { name, template, detectionSource, enableRca, enabled } = parsed.data;
+    let prompt = parsed.data.prompt;
+    let outputSchema = parsed.data.outputSchema;
+    if (prompt === undefined) {
+      // The schema rule only lets prompt be absent for a standard template,
+      // so the canonical lookup cannot miss. A supplied outputSchema still
+      // wins over the template's.
+      const canonical = getTemplate(template)!;
+      prompt = canonical.prompt;
+      outputSchema = outputSchema ?? canonical.outputSchema;
+    }
     const triggerConditions = (parsed.data.triggerConditions as unknown[] | undefined) ?? [];
     const resolvedSampleRate = parsed.data.sampleRate ?? DEFAULT_DETECTOR_SAMPLE_RATE;
     // A detector created at 0% sampling should not show as "enabled but never
@@ -133,7 +161,7 @@ export async function createDetector(input: {
         name,
         template,
         prompt,
-        outputSchema: (parsed.data.outputSchema ?? []) as object,
+        outputSchema: (outputSchema ?? []) as object,
         sampleRate: resolvedSampleRate,
         enabled: resolvedEnabled,
         enableRca: enableRca ?? true,

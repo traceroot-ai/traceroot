@@ -369,7 +369,12 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         "description": (
             "Create a detector (name, template, prompt, optional sampling/RCA "
             "settings) in a project — idempotent on the detector name within "
-            "the project."
+            "the project. The standard detector types (failure, hallucination, "
+            "logic, task, safety) have canonical default instructions: pass "
+            "the matching template id and OMIT prompt to use them. Only supply "
+            "prompt when the user provides genuinely custom instructions — a "
+            "supplied prompt is stored verbatim and overrides the template "
+            "default."
         ),
         "enabled": True,
         "policy": {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},

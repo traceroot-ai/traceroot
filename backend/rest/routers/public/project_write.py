@@ -75,12 +75,14 @@ async def create_detector(
         "projectId": payload.project_id,
         "name": payload.name,
         "template": payload.template,
-        "prompt": payload.prompt,
         "transport": "public-api",
     }
     # Unset optionals stay out of the body entirely — the internal zod
     # distinguishes absent from null in places, and absent is always safe.
+    # An absent prompt in particular tells the write service to fill the
+    # canonical instructions of a standard template.
     optionals = {
+        "prompt": payload.prompt,
         "sampleRate": payload.sample_rate,
         "outputSchema": payload.output_schema,
         "triggerConditions": payload.trigger_conditions,
