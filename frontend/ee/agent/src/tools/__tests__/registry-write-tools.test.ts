@@ -143,6 +143,27 @@ describe("createRegistryWriteTools", () => {
     });
   });
 
+  it("create_detector does not require prompt and leaves an unset prompt out of the body", async () => {
+    const { client, request } = stubClient({
+      created: true,
+      detector: { id: "d1", name: "latency", projectId: "p1", enabled: true, sampleRate: 25 },
+    });
+    const tool = makeTools(client).find((t) => t.name === "create_detector")!;
+    expect(tool.parameters.required).toEqual(["label", "name", "template"]);
+    await tool.execute("id", { label: "x", name: "latency", template: "failure" });
+    expect(request).toHaveBeenCalledWith("post", "/api/internal/write/detectors", {
+      body: {
+        actorUserId: "u1",
+        transport: "agent",
+        agentSessionId: "as1",
+        projectId: "p1",
+        name: "latency",
+        template: "failure",
+      },
+      signal: undefined,
+    });
+  });
+
   it("create_workspace injects only actor and provenance and hides nothing but label", async () => {
     const { client, request } = stubClient({
       created: true,
