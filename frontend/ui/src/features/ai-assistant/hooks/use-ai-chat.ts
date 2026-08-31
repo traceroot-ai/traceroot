@@ -3,8 +3,8 @@
 import { useRef, useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useLocalStorage } from "@/lib/hooks/use-local-storage";
-import { useAIStream, type LiveToolResult } from "./use-ai-stream";
-import { createdDashboardRoute } from "../lib/resource-navigation";
+import { useAIStream, type LiveToolResult, type TurnCompletion } from "./use-ai-stream";
+import { createdDashboardRoute, isCreatedDashboardResult } from "../lib/resource-navigation";
 import type { AISession, AIMessage, AiTraceContext } from "../types";
 import type { ModelSelection } from "../components/model-selector";
 
@@ -24,14 +24,33 @@ export function useAiChat({
   const router = useRouter();
   const sessionIdRef = useRef<string | null>(null);
 
-  // When the agent creates (or reuses) a DASHBOARD in the active session's
-  // project, take the user to it. createdDashboardRoute holds the guards:
-  // dashboards only, active session only, same project only.
-  const handleToolResult = useCallback(
-    (event: LiveToolResult) => {
+  // When the agent creates (or reuses) a DASHBOARD, remember it here and take
+  // the user to it only once the agent's TURN completes — navigating on the
+  // tool result itself would pull the user away while the agent is still
+  // adding widgets. The last dashboard created in a turn wins. Cleared on
+  // fire, abort, panel close, session switch/new/delete, and project change;
+  // aborted or superseded streams never report completion, so a pending
+  // navigation from a cut-short turn dies here unfired.
+  const pendingDashboardNavRef = useRef<{ result: unknown; sessionId: string } | null>(null);
+
+  const handleToolResult = useCallback((event: LiveToolResult) => {
+    if (isCreatedDashboardResult(event.result)) {
+      pendingDashboardNavRef.current = { result: event.result, sessionId: event.sessionId };
+    }
+  }, []);
+
+  // Fire point for the deferred navigation. createdDashboardRoute holds the
+  // guards — dashboards only, active session only, same project only — and is
+  // evaluated HERE, against the panel's current state, not the state when the
+  // tool result arrived.
+  const handleTurnComplete = useCallback(
+    (event: TurnCompletion) => {
+      const pending = pendingDashboardNavRef.current;
+      pendingDashboardNavRef.current = null;
+      if (!pending || pending.sessionId !== event.sessionId) return;
       const route = createdDashboardRoute({
-        result: event.result,
-        eventSessionId: event.sessionId,
+        result: pending.result,
+        eventSessionId: pending.sessionId,
         activeSessionId: sessionIdRef.current,
         panelProjectId: projectId,
       });
@@ -42,6 +61,7 @@ export function useAiChat({
 
   const { messages, isStreaming, sendMessage, abort, setMessages } = useAIStream({
     onToolResult: handleToolResult,
+    onTurnComplete: handleTurnComplete,
   });
   // Set so concurrent ensureSession calls don't cancel each other; handleClose
   // aborts all in-flight POST /sessions to prevent post-close resurrection.
@@ -71,6 +91,7 @@ export function useAiChat({
   // When initialSessionId is set, the loading useEffect below owns session
   // ownership, so we bail here to avoid clobbering its fetched messages.
   useEffect(() => {
+    pendingDashboardNavRef.current = null;
     if (initialSessionId) return;
     sessionIdRef.current = null;
     setMessages([]);
@@ -83,6 +104,7 @@ export function useAiChat({
   useEffect(() => {
     if (!initialSessionId || !projectId) return;
     sessionIdRef.current = initialSessionId;
+    pendingDashboardNavRef.current = null;
     setMessages([]);
 
     const ac = new AbortController();
@@ -166,8 +188,15 @@ export function useAiChat({
     // chat view until the backend turn completes — tracked separately as a
     // follow-up (see the linked discussion / issue on #784).
     sessionIdRef.current = null;
+    pendingDashboardNavRef.current = null;
     setMessages([]);
   }, [setMessages]);
+
+  // Aborting cuts the turn short — its pending navigation must die with it.
+  const handleAbort = useCallback(() => {
+    pendingDashboardNavRef.current = null;
+    abort();
+  }, [abort]);
 
   // Closing the panel ends the conversation: any in-flight run is aborted,
   // and the session id + messages are dropped so the next reopen starts
@@ -179,6 +208,7 @@ export function useAiChat({
     ensureSessionAbortersRef.current.clear();
     abort();
     sessionIdRef.current = null;
+    pendingDashboardNavRef.current = null;
     setMessages([]);
   }, [abort, setMessages]);
 
@@ -197,6 +227,7 @@ export function useAiChat({
   const handleSelectSession = useCallback(
     async (session: AISession) => {
       sessionIdRef.current = session.id;
+      pendingDashboardNavRef.current = null;
       setMessages([]);
       setHistoryOpen(false);
 
@@ -225,6 +256,7 @@ export function useAiChat({
       setSessions((prev) => prev.filter((s) => s.id !== sessionId));
       if (sessionIdRef.current === sessionId) {
         sessionIdRef.current = null;
+        pendingDashboardNavRef.current = null;
         setMessages([]);
       }
     },
@@ -246,7 +278,7 @@ export function useAiChat({
 
     // Actions
     handleSend,
-    handleAbort: abort,
+    handleAbort,
     handleNewSession,
     handleClose,
     handleOpenHistory,
