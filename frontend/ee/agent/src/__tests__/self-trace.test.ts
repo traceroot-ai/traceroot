@@ -103,3 +103,26 @@ describe("withAgentTrace root I/O", () => {
     spy.mockRestore();
   });
 });
+
+describe("rcaSpanName", () => {
+  it("names the detector when exactly one fired", () => {
+    expect(mod.rcaSpanName(["Hallucination Detector"])).toBe("rca: Hallucination Detector");
+  });
+
+  it("counts instead of listing once more than one fired", () => {
+    expect(mod.rcaSpanName(["Hallucination Detector", "Failure Detector"])).toBe("rca: 2 detectors");
+    expect(mod.rcaSpanName(["a", "b", "c", "d", "e"])).toBe("rca: 5 detectors");
+  });
+
+  it("stays bounded when a single detector has a long name", () => {
+    const name = mod.rcaSpanName([`Detector ${"x".repeat(200)}`]);
+    expect(name.length).toBeLessThanOrEqual("rca: ".length + 40);
+    expect(name.endsWith("…")).toBe(true);
+  });
+
+  it("falls back to a bare kind when the list is missing or empty", () => {
+    expect(mod.rcaSpanName(undefined)).toBe("rca");
+    expect(mod.rcaSpanName([])).toBe("rca");
+    expect(mod.rcaSpanName(["  "])).toBe("rca");
+  });
+});
