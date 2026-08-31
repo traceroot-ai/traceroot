@@ -15,9 +15,29 @@ function generateId(): string {
   });
 }
 
-export function useAIStream() {
+/** A finished tool call observed on the live stream, tagged with its origin. */
+export interface LiveToolResult {
+  sessionId: string;
+  projectId: string;
+  result: unknown;
+  isError: boolean;
+}
+
+export interface UseAIStreamOptions {
+  /**
+   * Called for each tool_execution_end on the CURRENT stream (superseded and
+   * aborted streams never fire it). Lets the caller react to live tool
+   * results — e.g. navigate to a resource the agent just created.
+   */
+  onToolResult?: (event: LiveToolResult) => void;
+}
+
+export function useAIStream(options?: UseAIStreamOptions) {
   const [messages, setMessages] = useState<AIMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  // Ref so the stream loop always sees the latest callback without resubscribing.
+  const onToolResultRef = useRef(options?.onToolResult);
+  onToolResultRef.current = options?.onToolResult;
   const abortRef = useRef<AbortController | null>(null);
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   // Bumped on send AND on abort — invalidates in-flight setMessages from prior streams.
@@ -223,6 +243,14 @@ export function useAIStream() {
                 }
 
                 if (eventData.type === "tool_execution_end") {
+                  if (generationRef.current === myGen) {
+                    onToolResultRef.current?.({
+                      sessionId: params.sessionId,
+                      projectId: params.projectId,
+                      result: eventData.result,
+                      isError: eventData.isError === true,
+                    });
+                  }
                   safeSetMessages((prev) =>
                     prev.map((m) =>
                       m.id === eventData.toolCallId

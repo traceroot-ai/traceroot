@@ -1,8 +1,10 @@
 "use client";
 
 import { useRef, useState, useCallback, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useLocalStorage } from "@/lib/hooks/use-local-storage";
-import { useAIStream } from "./use-ai-stream";
+import { useAIStream, type LiveToolResult } from "./use-ai-stream";
+import { createdDashboardRoute } from "../lib/resource-navigation";
 import type { AISession, AIMessage, AiTraceContext } from "../types";
 import type { ModelSelection } from "../components/model-selector";
 
@@ -19,8 +21,28 @@ export function useAiChat({
   traceSessionId,
   initialSessionId,
 }: UseAiChatOptions) {
-  const { messages, isStreaming, sendMessage, abort, setMessages } = useAIStream();
+  const router = useRouter();
   const sessionIdRef = useRef<string | null>(null);
+
+  // When the agent creates (or reuses) a DASHBOARD in the active session's
+  // project, take the user to it. createdDashboardRoute holds the guards:
+  // dashboards only, active session only, same project only.
+  const handleToolResult = useCallback(
+    (event: LiveToolResult) => {
+      const route = createdDashboardRoute({
+        result: event.result,
+        eventSessionId: event.sessionId,
+        activeSessionId: sessionIdRef.current,
+        panelProjectId: projectId,
+      });
+      if (route) router.push(route);
+    },
+    [projectId, router],
+  );
+
+  const { messages, isStreaming, sendMessage, abort, setMessages } = useAIStream({
+    onToolResult: handleToolResult,
+  });
   // Set so concurrent ensureSession calls don't cancel each other; handleClose
   // aborts all in-flight POST /sessions to prevent post-close resurrection.
   const ensureSessionAbortersRef = useRef<Set<AbortController>>(new Set());
