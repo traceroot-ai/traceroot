@@ -7,6 +7,7 @@ import {
   WIDGET_TITLE_MAX,
   WidgetSpecSchema,
 } from "@/features/dashboards/types";
+import { parseTraceFeedSpec } from "@/features/dashboards/trace-feed-spec";
 import { writeAudit, type AuditEntry } from "./audit";
 import type { Provenance, ServiceResult } from "./types";
 
@@ -205,11 +206,10 @@ export async function createWidget(input: {
     const title = parsed.data.title.trim();
     const { type } = parsed.data;
     let spec = parsed.data.spec as Record<string, unknown>;
-    // Query specs must satisfy the same schema the dashboard renderer parses
-    // with — anything else would store a widget that can only fail at render
-    // time. Storing the parsed output (defaults filled, unknown keys stripped)
-    // means what's stored is exactly what renders. trace_feed specs use the
-    // trace-list predicate wire format and are validated by their renderer.
+    // Specs must satisfy the same validation the dashboard renderers use —
+    // anything else would store a widget that can only fail at render time.
+    // Storing the parsed output (defaults filled, unknown keys handled) means
+    // what's stored is exactly what renders.
     if (type === "query") {
       const specParsed = WidgetSpecSchema.safeParse(spec);
       if (!specParsed.success) {
@@ -224,6 +224,18 @@ export async function createWidget(input: {
         };
       }
       spec = specParsed.data;
+    } else {
+      const feedParsed = parseTraceFeedSpec(spec);
+      if (!feedParsed.ok) {
+        return {
+          result: {
+            ok: false,
+            status: 400,
+            error: `spec is not a valid trace_feed spec: ${feedParsed.error}`,
+          },
+        };
+      }
+      spec = feedParsed.data as unknown as Record<string, unknown>;
     }
     const displayConfig = (parsed.data.displayConfig as Record<string, unknown> | undefined) ?? {};
 

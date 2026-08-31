@@ -351,16 +351,44 @@ describe("createWidget", () => {
     );
   });
 
-  it("does not apply the query spec schema to trace_feed specs", async () => {
+  it("accepts a seed-shaped trace_feed spec and stores the parsed shape", async () => {
     mockAccess();
     mockDashboard();
     tx.widget.create.mockResolvedValue(widgetRow);
-    const feedSpec = { filters: [{ field: "errors", op: "gt", value: 0 }], limit: 10 };
+    const feedSpec = { filters: [{ field: "errors", op: "gt", value: 0 }] };
     const r = await runWidget({ type: "trace_feed", spec: feedSpec });
     expect(r).toEqual({ ok: true, created: true, data: widgetRow });
     expect(tx.widget.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ spec: feedSpec }) }),
+      expect.objectContaining({
+        // Parsed shape: the renderer's default limit is filled in.
+        data: expect.objectContaining({ spec: { ...feedSpec, limit: 10 } }),
+      }),
     );
+  });
+
+  it("rejects a query-dialect spec under type trace_feed with 400, no create, no audit", async () => {
+    mockAccess();
+    mockDashboard();
+    const r = await runWidget({ type: "trace_feed", spec: validSpec });
+    expect(r).toMatchObject({ ok: false, status: 400 });
+    expect((r as { error: string }).error).toMatch(/^spec is not a valid trace_feed spec: /);
+    expect(tx.widget.create).not.toHaveBeenCalled();
+    expect(root.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects a trace_feed spec with an invalid predicate with 400", async () => {
+    mockAccess();
+    mockDashboard();
+    const r = await runWidget({
+      type: "trace_feed",
+      spec: { filters: [{ field: "errors", op: "gt", value: "high" }], limit: 10 },
+    });
+    expect(r).toEqual({
+      ok: false,
+      status: 400,
+      error:
+        "spec is not a valid trace_feed spec: filters[0] is not a valid trace filter predicate",
+    });
   });
 
   it("rejects an array displayConfig with 400", async () => {
@@ -424,6 +452,7 @@ describe("createWidget", () => {
     tx.widget.create.mockResolvedValue(widgetRow);
     const r = await runWidget({
       type: "trace_feed",
+      spec: { filters: [], limit: 5 },
       displayConfig: { compact: true },
       provenance: { transport: "agent", agentSessionId: "as1" },
     });
