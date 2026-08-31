@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const verifyStateParam = vi.fn();
 const storeInstallation = vi.fn();
@@ -23,14 +23,17 @@ vi.mock("@/env", () => ({
   },
 }));
 
-global.fetch = fetchMock as any;
-
 describe("GET /api/slack/oauth/callback", () => {
   beforeEach(() => {
     verifyStateParam.mockReset();
     storeInstallation.mockReset();
     fetchMock.mockReset();
+    vi.stubGlobal("fetch", fetchMock);
     vi.stubEnv("BETTER_AUTH_URL", "http://localhost:3000");
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("redirects with error on missing code/state", async () => {

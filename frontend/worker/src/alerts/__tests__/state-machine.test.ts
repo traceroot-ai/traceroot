@@ -282,6 +282,26 @@ describe("the reading a rule takes of a gap", () => {
     });
   });
 
+  it("clears the old ALERT page before the first silent NO_DATA window under NOTIFY", () => {
+    const firstGap = applyAlertStateMachine(
+      state("ALERT", T0, minutesBefore(NOW, 30)),
+      "NO_DATA",
+      NOW,
+      OFF,
+      "NOTIFY",
+    );
+    expect(firstGap).toEqual({
+      emit: false,
+      nextState: { severity: "NO_DATA", severityChangedAt: NOW, alertedAt: null },
+    });
+
+    const later = new Date(NOW.getTime() + 5 * 60_000);
+    expect(applyAlertStateMachine(firstGap.nextState, "NO_DATA", later, OFF, "NOTIFY")).toEqual({
+      emit: true,
+      nextState: { severity: "NO_DATA", severityChangedAt: NOW, alertedAt: later },
+    });
+  });
+
   it("repeats a standing gap on renotify's terms and not on every tick, under NOTIFY", () => {
     const paged = state("NO_DATA", T0, minutesBefore(NOW, 20));
 

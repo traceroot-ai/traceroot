@@ -302,7 +302,6 @@ describe("runAlertTick — the page a transition produces", () => {
     expect(
       enqueueAlertNotification.mock.calls.map(([p]) => [p.alertId, p.severity, p.value]),
     ).toEqual([
-      ["silent-1", "NO_DATA", null],
       ["floor-1", "ALERT", null],
     ]);
   });

@@ -112,11 +112,16 @@ function nextAlertedAt(
   severity: AlertSeverity,
   emit: boolean,
   now: Date,
+  noDataMode: AlertNoDataMode,
 ): Date | null {
   if (emit) return now;
-  // A gap holds an outstanding page open and drops anything else, so the quiet
-  // stretch after a recovery cannot be mistaken for a breach waiting to clear.
-  if (severity === "NO_DATA") return hasOutstandingPage(previous) ? previous.alertedAt : null;
+  // Under NOTIFY, the first silent NO_DATA window starts a fresh debounce and
+  // clears any outstanding page from the prior ALERT so the second consecutive
+  // empty window can page without the old ALERT renotify interval blocking it.
+  if (severity === "NO_DATA") {
+    if (noDataMode === "NOTIFY" && previous.severity !== "NO_DATA") return null;
+    return hasOutstandingPage(previous) ? previous.alertedAt : null;
+  }
   return previous.alertedAt;
 }
 
@@ -138,7 +143,7 @@ export function applyAlertStateMachine(
       // one. Renotify reads `alertedAt`, so collapsing them resets the interval
       // every evaluation.
       severityChangedAt: previous.severity === severity ? previous.severityChangedAt : now,
-      alertedAt: nextAlertedAt(previous, severity, emit, now),
+      alertedAt: nextAlertedAt(previous, severity, emit, now, noDataMode),
     },
   };
 }

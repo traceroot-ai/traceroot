@@ -18,5 +18,5 @@ export function formatRcaQuotaLabel(quota: QuotaConfig, runsUsed: number): strin
 }
 
 export function formatDetectorScanLabel(scansRun: number): string {
-  return scansRun.toLocaleString();
+  return new Intl.NumberFormat("en-US").format(scansRun);
 }
