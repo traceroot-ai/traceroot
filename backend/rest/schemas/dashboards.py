@@ -10,7 +10,7 @@ is the single source of truth for which views and fields exist.
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, WithJsonSchema
 
 DisplayType = Literal["line", "area", "bar", "pie", "number", "table", "histogram"]
 AggName = Literal["count", "sum", "avg", "min", "max", "p50", "p95", "p99"]
@@ -29,7 +29,13 @@ class WidgetFilter(_StrictModel):
     op: Literal["=", "contains", ">", ">=", "<", "<="]
     # min_length mirrors the frontend schema: an empty value means the filter
     # was never completed and would silently match only empty-valued rows.
-    value: Annotated[str, StringConstraints(min_length=1)] | float
+    # The union is emitted as a JSON-Schema type array rather than an anyOf:
+    # this model feeds generated tool schemas (via the public widget-create
+    # body), and some model providers reject properties without a `type`.
+    value: Annotated[
+        Annotated[str, StringConstraints(min_length=1)] | float,
+        WithJsonSchema({"type": ["string", "number"], "minLength": 1}),
+    ]
 
 
 class WidgetMetric(_StrictModel):
@@ -46,7 +52,12 @@ class WidgetDisplay(_StrictModel):
 
 
 class WidgetSpec(_StrictModel):
-    """Full declarative specification of a single dashboard widget."""
+    """Full declarative specification of a single dashboard widget.
+
+    Mirrors the canonical zod ``WidgetSpecSchema``
+    (frontend/ui/src/features/dashboards/types.ts); the frontend
+    widget-spec-parity test guards the two against structural drift.
+    """
 
     view: Literal["spans", "traces"]
     filters: list[WidgetFilter] = Field(default_factory=list)

@@ -114,6 +114,80 @@ function resolveSchemaRef(
   return resolved;
 }
 
+// Ref chains deeper than this are a schema bug (the write bodies nest a
+// handful of levels at most), so the resolver fails instead of unbounded work.
+const MAX_REF_DEPTH = 10;
+
+/**
+ * Recursively normalize one request-body property schema for the registry:
+ * resolve `#/components/schemas/` $refs inline (bounded depth, cycle guard),
+ * collapse `anyOf [T, null]` wrappers (optionality lives in `required`), strip
+ * generated titles at every level, and stamp `type: "object"` on a union whose
+ * variants are all objects — some model providers reject properties that
+ * declare no `type`, and the stamped type is valid JSON Schema alongside the
+ * preserved variants.
+ *
+ * `seenRefs` holds the ref names on the current resolution chain; revisiting
+ * one is a cycle, which cannot be emitted inline and throws.
+ */
+function normalizeBodySchema(
+  schema: Record<string, unknown>,
+  doc: OpenApiDocument,
+  path: string,
+  seenRefs: ReadonlySet<string>,
+): Record<string, unknown> {
+  const { $ref, ...withoutRef } = schema;
+  if (typeof $ref === "string") {
+    if (seenRefs.size >= MAX_REF_DEPTH) {
+      throw new Error(
+        `Enabled tool on POST ${path}: $ref nesting exceeds ${MAX_REF_DEPTH} levels at ${$ref}`,
+      );
+    }
+    const prefix = "#/components/schemas/";
+    const name = $ref.startsWith(prefix) ? $ref.slice(prefix.length) : $ref;
+    if (seenRefs.has(name)) {
+      throw new Error(
+        `Enabled tool on POST ${path}: cyclic $ref ${name} (via ${[...seenRefs].join(" -> ")})`,
+      );
+    }
+    const resolved = resolveSchemaRef({ $ref }, doc, path);
+    // Sibling keys next to the $ref (e.g. a description) override the target's.
+    return normalizeBodySchema(
+      { ...resolved, ...withoutRef },
+      doc,
+      path,
+      new Set([...seenRefs, name]),
+    );
+  }
+  const { title: _title, anyOf, ...rest } = withoutRef;
+  const out: Record<string, unknown> = { ...rest };
+  if (Array.isArray(anyOf)) {
+    const variants = anyOf
+      .map((variant) =>
+        normalizeBodySchema(variant as Record<string, unknown>, doc, path, seenRefs),
+      )
+      .filter((variant) => variant.type !== "null");
+    if (variants.length === 1) {
+      return { ...variants[0], ...out };
+    }
+    out.anyOf = variants;
+    if (out.type === undefined && variants.every((variant) => variant.type === "object")) {
+      out.type = "object";
+    }
+  }
+  if (out.properties !== null && typeof out.properties === "object") {
+    out.properties = Object.fromEntries(
+      Object.entries(out.properties as Record<string, Record<string, unknown>>).map(
+        ([name, propSchema]) => [name, normalizeBodySchema(propSchema, doc, path, seenRefs)],
+      ),
+    );
+  }
+  if (out.items !== null && typeof out.items === "object" && !Array.isArray(out.items)) {
+    out.items = normalizeBodySchema(out.items as Record<string, unknown>, doc, path, seenRefs);
+  }
+  return out;
+}
+
 /** True when a `$ref` key survives anywhere in an emitted schema fragment. */
 function containsRef(node: unknown): boolean {
   if (Array.isArray(node)) {
@@ -145,11 +219,11 @@ function mergeBodySchema(
   const properties = (resolved.properties ?? {}) as Record<string, Record<string, unknown>>;
   for (const [name, propSchema] of Object.entries(properties)) {
     const flattened = stripOversizedNumericBounds(
-      flattenParamSchema(resolveSchemaRef(propSchema, doc, path)),
+      normalizeBodySchema(propSchema, doc, path, new Set()),
     );
-    // Refs are only resolved one level deep, so a nested $ref (e.g. inside
-    // `items`) would ship a dangling pointer to the model. Fail closed until
-    // the generator learns to resolve the shape an operation actually needs.
+    // The resolver reaches $refs at the property, items, and anyOf-variant
+    // levels; one surviving anywhere else (e.g. allOf) would ship a dangling
+    // pointer to the model. Fail closed until the generator learns the shape.
     if (containsRef(flattened)) {
       throw new Error(
         `Enabled tool on POST ${path}: body property "${name}" contains an unresolved $ref — extend the generator before enabling this operation`,

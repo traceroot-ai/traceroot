@@ -136,7 +136,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
   {
     name: "create_widget",
     description:
-      "Add a widget (title, type, query spec) to an existing dashboard. Strict create: every call adds a new widget.",
+      'Add a widget (title, type, spec) to an existing dashboard. Type "query" charts a metric (spec: view/filters/metric/breakdown/display); type "trace_feed" lists recent traces (spec: predicate filters + limit). Strict create: every call adds a new widget.',
     method: "post",
     path: "/api/v1/public/widgets",
     inputSchema: {
@@ -153,7 +153,176 @@ export const REGISTRY: readonly RegistryEntry[] = [
           type: "string",
         },
         spec: {
-          additionalProperties: true,
+          description:
+            'The widget\'s content. For type "query": a chart spec (view/filters/metric/breakdown/display). For type "trace_feed": a trace-list feed spec (predicate filters + row limit).',
+          anyOf: [
+            {
+              additionalProperties: false,
+              description:
+                "Full declarative specification of a single dashboard widget.\n\nMirrors the canonical zod ``WidgetSpecSchema``\n(frontend/ui/src/features/dashboards/types.ts); the frontend\nwidget-spec-parity test guards the two against structural drift.",
+              properties: {
+                breakdown: {
+                  type: "string",
+                },
+                display: {
+                  additionalProperties: false,
+                  description: "Controls how the query result is rendered on the dashboard.",
+                  properties: {
+                    type: {
+                      enum: ["line", "area", "bar", "pie", "number", "table", "histogram"],
+                      type: "string",
+                    },
+                  },
+                  required: ["type"],
+                  type: "object",
+                },
+                filters: {
+                  items: {
+                    additionalProperties: false,
+                    description: "A single filter predicate applied to a widget query.",
+                    properties: {
+                      field: {
+                        type: "string",
+                      },
+                      op: {
+                        enum: ["=", "contains", ">", ">=", "<", "<="],
+                        type: "string",
+                      },
+                      value: {
+                        minLength: 1,
+                        type: ["string", "number"],
+                      },
+                    },
+                    required: ["field", "op", "value"],
+                    type: "object",
+                  },
+                  type: "array",
+                },
+                metric: {
+                  additionalProperties: false,
+                  description:
+                    "The measure and aggregation function that define the widget's y-axis.",
+                  properties: {
+                    agg: {
+                      enum: ["count", "sum", "avg", "min", "max", "p50", "p95", "p99"],
+                      type: "string",
+                    },
+                    measure: {
+                      type: "string",
+                    },
+                  },
+                  required: ["measure", "agg"],
+                  type: "object",
+                },
+                view: {
+                  enum: ["spans", "traces"],
+                  type: "string",
+                },
+              },
+              required: ["view", "metric", "display"],
+              type: "object",
+            },
+            {
+              additionalProperties: false,
+              description:
+                "Spec for a ``trace_feed`` widget: a filtered live list of recent traces.\n\nMirrors the trace-list predicate wire format (canonical shape: what\n``isValidPredicate`` in frontend/ui/src/features/filters/predicate.ts\naccepts and the dashboard seed produces). ``limit`` carries the trace-list\npage-size bound; it defaults to 10 rows in the renderer when omitted.",
+              properties: {
+                filters: {
+                  items: {
+                    anyOf: [
+                      {
+                        additionalProperties: false,
+                        description:
+                          "Membership predicate: the field's value is one of the listed strings.",
+                        properties: {
+                          field: {
+                            type: "string",
+                          },
+                          key: {
+                            maxLength: 256,
+                            minLength: 1,
+                            type: "string",
+                          },
+                          op: {
+                            const: "in",
+                            type: "string",
+                          },
+                          value: {
+                            items: {
+                              maxLength: 1024,
+                              type: "string",
+                            },
+                            minItems: 1,
+                            type: "array",
+                          },
+                        },
+                        required: ["field", "op", "value"],
+                        type: "object",
+                      },
+                      {
+                        additionalProperties: false,
+                        description:
+                          "Numeric comparison predicate (equality or ordering) on a finite number.",
+                        properties: {
+                          field: {
+                            type: "string",
+                          },
+                          key: {
+                            maxLength: 256,
+                            minLength: 1,
+                            type: "string",
+                          },
+                          op: {
+                            enum: ["eq", "gt", "gte", "lt", "lte"],
+                            type: "string",
+                          },
+                          value: {
+                            type: "number",
+                          },
+                        },
+                        required: ["field", "op", "value"],
+                        type: "object",
+                      },
+                      {
+                        additionalProperties: false,
+                        description: "Text predicate: exact match or substring containment.",
+                        properties: {
+                          field: {
+                            type: "string",
+                          },
+                          key: {
+                            maxLength: 256,
+                            minLength: 1,
+                            type: "string",
+                          },
+                          op: {
+                            enum: ["eq", "contains"],
+                            type: "string",
+                          },
+                          value: {
+                            maxLength: 1024,
+                            minLength: 1,
+                            type: "string",
+                          },
+                        },
+                        required: ["field", "op", "value"],
+                        type: "object",
+                      },
+                    ],
+                    type: "object",
+                  },
+                  maxItems: 20,
+                  type: "array",
+                },
+                limit: {
+                  maximum: 200,
+                  minimum: 1,
+                  type: "integer",
+                },
+              },
+              type: "object",
+            },
+          ],
           type: "object",
         },
         title: {

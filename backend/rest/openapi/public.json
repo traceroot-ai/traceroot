@@ -393,7 +393,7 @@
         "type": "object"
       },
       "CreateWidgetRequest": {
-        "description": "Body for creating a widget on a dashboard.",
+        "description": "Body for creating a widget on a dashboard.\n\nUnlike the other create bodies, ``spec`` is deep-validated here: it is a\nstructured contract the agent/CLI must compose (a wrong shape only\nsurfaces at render time otherwise), and the union below is what generated\ntool schemas show the model.",
         "properties": {
           "dashboard_id": {
             "title": "Dashboard Id",
@@ -416,9 +416,16 @@
             "type": "string"
           },
           "spec": {
-            "additionalProperties": true,
-            "title": "Spec",
-            "type": "object"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WidgetSpec"
+              },
+              {
+                "$ref": "#/components/schemas/TraceFeedSpec"
+              }
+            ],
+            "description": "The widget's content. For type \"query\": a chart spec (view/filters/metric/breakdown/display). For type \"trace_feed\": a trace-list feed spec (predicate filters + row limit).",
+            "title": "Spec"
           },
           "title": {
             "title": "Title",
@@ -2625,6 +2632,150 @@
         "title": "SpanResponse",
         "type": "object"
       },
+      "TraceFeedInPredicate": {
+        "additionalProperties": false,
+        "description": "Membership predicate: the field's value is one of the listed strings.",
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "key": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "op": {
+            "const": "in",
+            "title": "Op",
+            "type": "string"
+          },
+          "value": {
+            "items": {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Value",
+            "type": "array"
+          }
+        },
+        "required": [
+          "field",
+          "op",
+          "value"
+        ],
+        "title": "TraceFeedInPredicate",
+        "type": "object"
+      },
+      "TraceFeedNumericPredicate": {
+        "additionalProperties": false,
+        "description": "Numeric comparison predicate (equality or ordering) on a finite number.",
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "key": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "op": {
+            "enum": [
+              "eq",
+              "gt",
+              "gte",
+              "lt",
+              "lte"
+            ],
+            "title": "Op",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "field",
+          "op",
+          "value"
+        ],
+        "title": "TraceFeedNumericPredicate",
+        "type": "object"
+      },
+      "TraceFeedSpec": {
+        "additionalProperties": false,
+        "description": "Spec for a ``trace_feed`` widget: a filtered live list of recent traces.\n\nMirrors the trace-list predicate wire format (canonical shape: what\n``isValidPredicate`` in frontend/ui/src/features/filters/predicate.ts\naccepts and the dashboard seed produces). ``limit`` carries the trace-list\npage-size bound; it defaults to 10 rows in the renderer when omitted.",
+        "properties": {
+          "filters": {
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TraceFeedInPredicate"
+                },
+                {
+                  "$ref": "#/components/schemas/TraceFeedNumericPredicate"
+                },
+                {
+                  "$ref": "#/components/schemas/TraceFeedTextPredicate"
+                }
+              ]
+            },
+            "maxItems": 20,
+            "title": "Filters",
+            "type": "array"
+          },
+          "limit": {
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "title": "TraceFeedSpec",
+        "type": "object"
+      },
+      "TraceFeedTextPredicate": {
+        "additionalProperties": false,
+        "description": "Text predicate: exact match or substring containment.",
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "key": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          },
+          "op": {
+            "enum": [
+              "eq",
+              "contains"
+            ],
+            "title": "Op",
+            "type": "string"
+          },
+          "value": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "field",
+          "op",
+          "value"
+        ],
+        "title": "TraceFeedTextPredicate",
+        "type": "object"
+      },
       "UpsertResultRequest": {
         "description": "Upsert one test-case result. Idempotent on (``run_id``, ``test_case_id``).\n``trace_id`` may be null now and set on a later call (out-of-order arrival).\n\n``scores`` is genuinely optional and carries three distinct meanings, so the\nout-of-order flow (POST the result with its scores, then re-POST later just to\nattach the OTel ``trace_id``) cannot destroy them: absent \u2192 leave the existing\nscores untouched, ``[]`` \u2192 clear them, non-empty \u2192 replace them. Do not give\nthis a ``default_factory=list``, which would collapse the first two cases.\n\nEvery optional field is a *partial* update: a key the caller omits keeps its\nstored value, while an explicit null clears it. Sending ``scores`` replaces\nthe result's scores (``[]`` clears them); omitting it leaves them alone.",
         "properties": {
@@ -2896,6 +3047,142 @@
           "ui_base_url"
         ],
         "title": "WhoamiResponse",
+        "type": "object"
+      },
+      "WidgetDisplay": {
+        "additionalProperties": false,
+        "description": "Controls how the query result is rendered on the dashboard.",
+        "properties": {
+          "type": {
+            "enum": [
+              "line",
+              "area",
+              "bar",
+              "pie",
+              "number",
+              "table",
+              "histogram"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "title": "WidgetDisplay",
+        "type": "object"
+      },
+      "WidgetFilter": {
+        "additionalProperties": false,
+        "description": "A single filter predicate applied to a widget query.",
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "op": {
+            "enum": [
+              "=",
+              "contains",
+              ">",
+              ">=",
+              "<",
+              "<="
+            ],
+            "title": "Op",
+            "type": "string"
+          },
+          "value": {
+            "minLength": 1,
+            "title": "Value",
+            "type": [
+              "string",
+              "number"
+            ]
+          }
+        },
+        "required": [
+          "field",
+          "op",
+          "value"
+        ],
+        "title": "WidgetFilter",
+        "type": "object"
+      },
+      "WidgetMetric": {
+        "additionalProperties": false,
+        "description": "The measure and aggregation function that define the widget's y-axis.",
+        "properties": {
+          "agg": {
+            "enum": [
+              "count",
+              "sum",
+              "avg",
+              "min",
+              "max",
+              "p50",
+              "p95",
+              "p99"
+            ],
+            "title": "Agg",
+            "type": "string"
+          },
+          "measure": {
+            "title": "Measure",
+            "type": "string"
+          }
+        },
+        "required": [
+          "measure",
+          "agg"
+        ],
+        "title": "WidgetMetric",
+        "type": "object"
+      },
+      "WidgetSpec": {
+        "additionalProperties": false,
+        "description": "Full declarative specification of a single dashboard widget.\n\nMirrors the canonical zod ``WidgetSpecSchema``\n(frontend/ui/src/features/dashboards/types.ts); the frontend\nwidget-spec-parity test guards the two against structural drift.",
+        "properties": {
+          "breakdown": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Breakdown"
+          },
+          "display": {
+            "$ref": "#/components/schemas/WidgetDisplay"
+          },
+          "filters": {
+            "items": {
+              "$ref": "#/components/schemas/WidgetFilter"
+            },
+            "title": "Filters",
+            "type": "array"
+          },
+          "metric": {
+            "$ref": "#/components/schemas/WidgetMetric"
+          },
+          "view": {
+            "enum": [
+              "spans",
+              "traces"
+            ],
+            "title": "View",
+            "type": "string"
+          }
+        },
+        "required": [
+          "view",
+          "metric",
+          "display"
+        ],
+        "title": "WidgetSpec",
         "type": "object"
       },
       "WorkspaceListItem": {
@@ -6102,7 +6389,7 @@
           "Project (Public)"
         ],
         "x-tool": {
-          "description": "Add a widget (title, type, query spec) to an existing dashboard. Strict create: every call adds a new widget.",
+          "description": "Add a widget (title, type, spec) to an existing dashboard. Type \"query\" charts a metric (spec: view/filters/metric/breakdown/display); type \"trace_feed\" lists recent traces (spec: predicate filters + limit). Strict create: every call adds a new widget.",
           "enabled": true,
           "name": "create_widget",
           "policy": {
