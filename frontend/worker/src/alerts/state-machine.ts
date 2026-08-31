@@ -86,10 +86,11 @@ function shouldEmit(
   // UNKNOWN is never an evaluated outcome, under any reading of a gap.
   if (severity === "UNKNOWN") return false;
   if (noDataMode === "NOTIFY") {
-    // The silence is the incident: entering it pages once and then on
-    // renotify's terms, and any reading at all on the far side ends it.
+    // The first empty window is a silent plunge into NO_DATA. The second
+    // consecutive empty window pages, and any later one follows renotify.
     if (severity === "NO_DATA") {
-      return previous.severity !== "NO_DATA" || shouldRenotify(previous, now, renotify);
+      if (previous.severity !== "NO_DATA") return false;
+      return previous.alertedAt === null || shouldRenotify(previous, now, renotify);
     }
     if (previous.severity === "NO_DATA") return true;
   }
