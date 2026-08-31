@@ -303,16 +303,20 @@ export function TraceViewerPanel({
 
   // Deep link: select `initialSpanId` once its trace has loaded. Applied once
   // per (trace, span) so a later manual selection isn't overridden by a
-  // re-render, and skipped when the span isn't in this trace.
+  // re-render. When the span isn't in this trace the selection falls back to
+  // the trace itself rather than keeping whatever was selected before, so a
+  // stale id can't leave the sheet pointing at a span from another trace.
+  //
+  // This effect owns the selection whenever `initialSpanId` is set — see the
+  // reset effect below, which must not clear what this one just applied.
   const appliedInitialSpanRef = useRef<string | null>(null);
   useEffect(() => {
     if (!initialSpanId || !trace?.spans?.length) return;
     const key = `${trace.trace_id}:${initialSpanId}`;
     if (appliedInitialSpanRef.current === key) return;
-    const span = trace.spans.find((s) => s.span_id === initialSpanId);
-    if (!span) return;
     appliedInitialSpanRef.current = key;
-    setSelection({ type: "span", span });
+    const span = trace.spans.find((s) => s.span_id === initialSpanId);
+    setSelection(span ? { type: "span", span } : { type: "trace" });
   }, [initialSpanId, trace]);
   const isLoading = traceOverride ? false : isFetching;
 
@@ -324,10 +328,17 @@ export function TraceViewerPanel({
   // EFFECTIVE id: the analysis swap changes what is displayed without changing
   // `traceId`, and a customer span carried across would render its data (and
   // fetch its I/O) against the wrong trace.
+  //
+  // Selection is only cleared when nothing is deep-linking into this trace.
+  // React runs effects in declaration order, so on mount this runs *after* the
+  // deep-link effect above: clearing unconditionally discarded the span
+  // "Open span" had just selected and landed the sheet on the root every time.
+  // When `initialSpanId` is set the deep-link effect owns the selection — it
+  // resolves to the span, or to the trace when the id isn't in this trace.
   useEffect(() => {
-    setSelection({ type: "trace" });
     setCollapsedIds(new Set());
-  }, [traceId]);
+    if (!initialSpanId) setSelection({ type: "trace" });
+  }, [traceId, initialSpanId]);
 
   useEffect(() => {
     if (viewMode !== "timeline") return;
