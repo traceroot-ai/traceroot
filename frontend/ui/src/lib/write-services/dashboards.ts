@@ -8,6 +8,7 @@ import {
   WidgetSpecSchema,
 } from "@/features/dashboards/types";
 import { parseTraceFeedSpec } from "@/features/dashboards/trace-feed-spec";
+import { validateWidgetSpecVocabulary } from "@/features/dashboards/widget-spec-vocabulary";
 import { writeAudit, type AuditEntry } from "./audit";
 import type { Provenance, ServiceResult } from "./types";
 
@@ -222,6 +223,13 @@ export async function createWidget(input: {
             error: `spec is not a valid widget spec: ${path ? `${path}: ` : ""}${issue.message}`,
           },
         };
+      }
+      // Shape-valid is not enough: the fields the spec names must exist in the
+      // registry vocabulary, or the widget stores fine and 4xxs forever at
+      // query time.
+      const vocabulary = validateWidgetSpecVocabulary(specParsed.data);
+      if (!vocabulary.ok) {
+        return { result: { ok: false, status: 400, error: vocabulary.error } };
       }
       spec = specParsed.data;
     } else {

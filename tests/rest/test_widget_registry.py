@@ -6,9 +6,22 @@ not the internal shape of individual fields.
 
 import json
 import re
+from pathlib import Path
 
 from rest.services.trace_reader import customer_traffic_only
-from rest.services.widget_registry import REGISTRY, registry_schema
+from rest.services.widget_registry import REGISTRY, registry_schema, render_registry_snapshot
+
+# The checked-in registry snapshot the frontend write service validates specs
+# against; kept in lockstep with `registry_schema()` by the drift test below.
+SNAPSHOT = (
+    Path(__file__).resolve().parents[2]
+    / "frontend"
+    / "ui"
+    / "src"
+    / "features"
+    / "dashboards"
+    / "widget-registry.generated.json"
+)
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -153,3 +166,22 @@ def test_every_base_relation_excludes_detector_self_traces():
                 f"{view_name}: the scan of `{scan.group(1)}` at offset {scan.start()} "
                 f"has no detector guard in its own WHERE"
             )
+
+
+def test_snapshot_artifact_matches_registry_schema():
+    """Drift guard for the frontend snapshot: regenerate with
+    `uv run python scripts/sync_public_openapi.py`."""
+    assert SNAPSHOT.exists(), f"missing widget registry snapshot: {SNAPSHOT}"
+    assert SNAPSHOT.read_text(encoding="utf-8") == render_registry_snapshot(), (
+        "widget registry snapshot is stale — regenerate with "
+        "`uv run python scripts/sync_public_openapi.py`"
+    )
+
+
+def test_snapshot_rendering_is_deterministic_json_of_registry_schema():
+    """The snapshot is the registry schema itself (no extra envelope), rendered
+    like the public OpenAPI artifact (sorted keys) so diffs stay stable."""
+    rendered = render_registry_snapshot()
+    assert json.loads(rendered) == registry_schema()
+    assert rendered == render_registry_snapshot()
+    assert rendered.endswith("\n")

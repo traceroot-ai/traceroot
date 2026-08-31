@@ -9,6 +9,7 @@ never raw user input.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -239,3 +240,15 @@ def registry_schema() -> dict:
         }
         for view_name, view in REGISTRY.items()
     }
+
+
+def render_registry_snapshot() -> str:
+    """Deterministic serialization of :func:`registry_schema` for the checked-in
+    frontend snapshot (``widget-registry.generated.json``), which the write
+    service validates widget specs against. Sorted keys, matching the public
+    OpenAPI artifact's rendering convention, so drift checks diff cleanly.
+
+    Returns:
+        str: The registry schema as pretty-printed JSON with a trailing newline.
+    """
+    return json.dumps(registry_schema(), indent=2, sort_keys=True) + "\n"

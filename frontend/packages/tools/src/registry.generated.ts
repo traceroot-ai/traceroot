@@ -138,7 +138,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
   {
     name: "create_widget",
     description:
-      'Add a widget (title, type, spec) to an existing dashboard. Type "query" charts a metric (spec: view/filters/metric/breakdown/display); type "trace_feed" lists recent traces (spec: predicate filters + limit). Strict create: every call adds a new widget. The spec schema enumerates the only available views, metrics, filter operators, and display types — nothing outside it exists. If the user asks for a visualization or option that is not in the schema (for example a display type the enum lacks), say so explicitly and propose the closest available match instead of silently substituting.',
+      'Add a widget (title, type, spec) to an existing dashboard. Type "query" charts a metric (spec: view/filters/metric/breakdown/display); type "trace_feed" lists recent traces (spec: predicate filters + limit). Strict create: every call adds a new widget. The spec schema enumerates the only available views, metrics, filter operators, and display types — nothing outside it exists. If the user asks for a visualization or option that is not in the schema (for example a display type the enum lacks), say so explicitly and propose the closest available match instead of silently substituting. Pick the view first — spans and traces expose different fields, and the enums in this schema are the complete field vocabulary for each view. If the user asks for a dimension or metric that exists on neither view, say so and propose the closest available one (for example "traces by model" is built on the spans view via model_name).',
     method: "post",
     path: "/api/v1/public/widgets",
     inputSchema: {
@@ -161,10 +161,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
             {
               additionalProperties: false,
               description:
-                "Full declarative specification of a single dashboard widget.\n\nMirrors the canonical zod ``WidgetSpecSchema``\n(frontend/ui/src/features/dashboards/types.ts); the frontend\nwidget-spec-parity test guards the two against structural drift.",
+                'Chart spec over the "spans" view; the enums below are the complete field vocabulary for this view.',
               properties: {
                 breakdown: {
-                  type: "string",
+                  enum: ["name", "span_kind", "model_name", "environment", null],
+                  type: ["string", "null"],
                 },
                 display: {
                   additionalProperties: false,
@@ -184,6 +185,20 @@ export const REGISTRY: readonly RegistryEntry[] = [
                     description: "A single filter predicate applied to a widget query.",
                     properties: {
                       field: {
+                        enum: [
+                          "name",
+                          "span_kind",
+                          "status",
+                          "model_name",
+                          "environment",
+                          "duration_ms",
+                          "cost",
+                          "input_tokens",
+                          "output_tokens",
+                          "cache_read_tokens",
+                          "cache_write_tokens",
+                          "total_tokens",
+                        ],
                         type: "string",
                       },
                       op: {
@@ -210,6 +225,16 @@ export const REGISTRY: readonly RegistryEntry[] = [
                       type: "string",
                     },
                     measure: {
+                      enum: [
+                        "duration_ms",
+                        "cost",
+                        "input_tokens",
+                        "output_tokens",
+                        "cache_read_tokens",
+                        "cache_write_tokens",
+                        "total_tokens",
+                        "count",
+                      ],
                       type: "string",
                     },
                   },
@@ -217,7 +242,99 @@ export const REGISTRY: readonly RegistryEntry[] = [
                   type: "object",
                 },
                 view: {
-                  enum: ["spans", "traces"],
+                  const: "spans",
+                  type: "string",
+                },
+              },
+              required: ["view", "metric", "display"],
+              type: "object",
+            },
+            {
+              additionalProperties: false,
+              description:
+                'Chart spec over the "traces" view; the enums below are the complete field vocabulary for this view.',
+              properties: {
+                breakdown: {
+                  enum: ["name", "user_id", "session_id", "environment", null],
+                  type: ["string", "null"],
+                },
+                display: {
+                  additionalProperties: false,
+                  description: "Controls how the query result is rendered on the dashboard.",
+                  properties: {
+                    type: {
+                      enum: ["line", "area", "bar", "pie", "number", "table", "histogram"],
+                      type: "string",
+                    },
+                  },
+                  required: ["type"],
+                  type: "object",
+                },
+                filters: {
+                  items: {
+                    additionalProperties: false,
+                    description: "A single filter predicate applied to a widget query.",
+                    properties: {
+                      field: {
+                        enum: [
+                          "name",
+                          "user_id",
+                          "session_id",
+                          "environment",
+                          "duration_ms",
+                          "cost",
+                          "input_tokens",
+                          "output_tokens",
+                          "cache_read_tokens",
+                          "cache_write_tokens",
+                          "total_tokens",
+                          "error_count",
+                        ],
+                        type: "string",
+                      },
+                      op: {
+                        enum: ["=", "contains", ">", ">=", "<", "<="],
+                        type: "string",
+                      },
+                      value: {
+                        minLength: 1,
+                        type: ["string", "number"],
+                      },
+                    },
+                    required: ["field", "op", "value"],
+                    type: "object",
+                  },
+                  type: "array",
+                },
+                metric: {
+                  additionalProperties: false,
+                  description:
+                    "The measure and aggregation function that define the widget's y-axis.",
+                  properties: {
+                    agg: {
+                      enum: ["count", "sum", "avg", "min", "max", "p50", "p95", "p99"],
+                      type: "string",
+                    },
+                    measure: {
+                      enum: [
+                        "duration_ms",
+                        "cost",
+                        "input_tokens",
+                        "output_tokens",
+                        "cache_read_tokens",
+                        "cache_write_tokens",
+                        "total_tokens",
+                        "count",
+                        "error_count",
+                      ],
+                      type: "string",
+                    },
+                  },
+                  required: ["measure", "agg"],
+                  type: "object",
+                },
+                view: {
+                  const: "traces",
                   type: "string",
                 },
               },

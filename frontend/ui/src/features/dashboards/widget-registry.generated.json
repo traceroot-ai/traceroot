@@ -1,0 +1,459 @@
+{
+  "spans": {
+    "fields": {
+      "cache_read_tokens": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "label": "Cache read tokens",
+        "type": "number"
+      },
+      "cache_write_tokens": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "label": "Cache write tokens",
+        "type": "number"
+      },
+      "cost": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "label": "Cost",
+        "type": "number"
+      },
+      "count": {
+        "aggs": [
+          "count"
+        ],
+        "filterOps": [],
+        "groupable": false,
+        "histogrammable": false,
+        "label": "Count",
+        "type": "number"
+      },
+      "duration_ms": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "label": "Duration",
+        "type": "number"
+      },
+      "environment": {
+        "aggs": [],
+        "filterOps": [
+          "=",
+          "contains"
+        ],
+        "groupable": true,
+        "histogrammable": false,
+        "label": "Environment",
+        "type": "string"
+      },
+      "input_tokens": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "label": "Input tokens",
+        "type": "number"
+      },
+      "model_name": {
+        "aggs": [],
+        "filterOps": [
+          "=",
+          "contains"
+        ],
+        "groupable": true,
+        "histogrammable": false,
+        "label": "Model",
+        "type": "string"
+      },
+      "name": {
+        "aggs": [],
+        "filterOps": [
+          "=",
+          "contains"
+        ],
+        "groupable": true,
+        "histogrammable": false,
+        "label": "Span name",
+        "type": "string"
+      },
+      "output_tokens": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "label": "Output tokens",
+        "type": "number"
+      },
+      "span_kind": {
+        "aggs": [],
+        "filterOps": [
+          "=",
+          "contains"
+        ],
+        "groupable": true,
+        "histogrammable": false,
+        "label": "Span kind",
+        "type": "string"
+      },
+      "status": {
+        "aggs": [],
+        "filterOps": [
+          "=",
+          "contains"
+        ],
+        "groupable": false,
+        "histogrammable": false,
+        "label": "Status",
+        "type": "string"
+      },
+      "total_tokens": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "label": "Total tokens",
+        "type": "number"
+      }
+    }
+  },
+  "traces": {
+    "fields": {
+      "cache_read_tokens": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "label": "Cache read tokens",
+        "type": "number"
+      },
+      "cache_write_tokens": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "label": "Cache write tokens",
+        "type": "number"
+      },
+      "cost": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "label": "Cost",
+        "type": "number"
+      },
+      "count": {
+        "aggs": [
+          "count"
+        ],
+        "filterOps": [],
+        "groupable": false,
+        "histogrammable": false,
+        "label": "Count",
+        "type": "number"
+      },
+      "duration_ms": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "label": "Latency",
+        "type": "number"
+      },
+      "environment": {
+        "aggs": [],
+        "filterOps": [
+          "=",
+          "contains"
+        ],
+        "groupable": true,
+        "histogrammable": false,
+        "label": "Environment",
+        "type": "string"
+      },
+      "error_count": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "label": "Errors",
+        "type": "number"
+      },
+      "input_tokens": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "label": "Input tokens",
+        "type": "number"
+      },
+      "name": {
+        "aggs": [],
+        "filterOps": [
+          "=",
+          "contains"
+        ],
+        "groupable": true,
+        "histogrammable": false,
+        "label": "Trace name",
+        "type": "string"
+      },
+      "output_tokens": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "label": "Output tokens",
+        "type": "number"
+      },
+      "session_id": {
+        "aggs": [],
+        "filterOps": [
+          "=",
+          "contains"
+        ],
+        "groupable": true,
+        "histogrammable": false,
+        "label": "Session",
+        "type": "string"
+      },
+      "total_tokens": {
+        "aggs": [
+          "sum",
+          "avg",
+          "min",
+          "max",
+          "p50",
+          "p95",
+          "p99"
+        ],
+        "filterOps": [
+          ">",
+          ">=",
+          "<",
+          "<=",
+          "="
+        ],
+        "groupable": false,
+        "histogrammable": true,
+        "label": "Tokens",
+        "type": "number"
+      },
+      "user_id": {
+        "aggs": [],
+        "filterOps": [
+          "=",
+          "contains"
+        ],
+        "groupable": true,
+        "histogrammable": false,
+        "label": "User",
+        "type": "string"
+      }
+    }
+  }
+}
