@@ -301,9 +301,7 @@ describe("runAlertTick — the page a transition produces", () => {
     ]);
     expect(
       enqueueAlertNotification.mock.calls.map(([p]) => [p.alertId, p.severity, p.value]),
-    ).toEqual([
-      ["floor-1", "ALERT", null],
-    ]);
+    ).toEqual([["floor-1", "ALERT", null]]);
   });
 
   it("writes back against the state it decided from, not the claim token alone", async () => {
