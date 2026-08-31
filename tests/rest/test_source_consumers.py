@@ -39,6 +39,29 @@ ALLOW_UNFILTERED = {
 
 SCAN = re.compile(r"FROM\s+(spans|traces)\b")
 
+# WHERE-clause placeholders whose builder applies customer_traffic_only() for the
+# caller. trace_discovery._window_scan is the only such builder today; if another
+# appears, add its placeholder here AND assert the builder guards, below.
+GUARDED_WHERE_BUILDERS = {"_window_scan"}
+
+
+def test_guarded_where_builders_still_guard():
+    """The placeholders GUARD accepts are only safe while their builder guards.
+
+    GUARD treats `{span_where}` and friends as satisfying the source check. That
+    is true exactly as long as the builder that fills them appends
+    customer_traffic_only(); this pins that, so removing it there fails here
+    rather than silently unguarding every query the builder feeds.
+    """
+    text = (BACKEND / "rest/services/trace_discovery.py").read_text()
+    for builder in GUARDED_WHERE_BUILDERS:
+        start = text.index(f"def {builder}(")
+        end = text.index("\ndef ", start + 1)
+        assert "customer_traffic_only()" in text[start:end], (
+            f"{builder} no longer applies customer_traffic_only(); "
+            "every query using its placeholder is now unguarded"
+        )
+
 
 def _py_files():
     for p in BACKEND.rglob("*.py"):
@@ -47,21 +70,40 @@ def _py_files():
         yield p
 
 
+# How far past a `FROM spans|traces` a guard may appear and still be counted as
+# guarding it. Query text between the FROM and its predicates; a guard further
+# away than this belongs to a different statement.
+GUARD_WINDOW = 1200
+
+# A guard counts when it is literal in the query, or when the WHERE clause is a
+# placeholder filled by a builder that applies one. Named builders are listed
+# rather than matched loosely: an unrecognised placeholder must still fail.
+GUARD = re.compile(
+    r"customer_traffic_only\(|source = 'user'|DETECTOR_TARGET_SOURCE_SQL"
+    r"|\{span_where\}|\{trace_where\}|\{inner_where\}"
+)
+
+
 def test_every_spans_or_traces_reader_is_classified():
+    """Each scan is judged on its own guard, not on the file containing one somewhere.
+
+    Checking file-wide string presence would let a file that already has one
+    guarded query gain a second unguarded one and still pass — exactly the case
+    this test exists to catch.
+    """
     unclassified = []
     for path in _py_files():
         text = path.read_text()
-        if not SCAN.search(text):
-            continue
         rel = str(path.relative_to(BACKEND))
         if rel in ALLOW_UNFILTERED:
             continue
-        if "customer_traffic_only(" in text or "source = 'user'" in text:
-            continue
-        unclassified.append(rel)
+        for match in SCAN.finditer(text):
+            if not GUARD.search(text, match.end(), match.end() + GUARD_WINDOW):
+                line = text.count("\n", 0, match.start()) + 1
+                unclassified.append(f"{rel}:{line}")
     assert not unclassified, (
-        "Unclassified spans/traces readers (add customer_traffic_only() or an ALLOW_UNFILTERED entry with a reason): "
-        + ", ".join(sorted(unclassified))
+        "Unclassified spans/traces reads (add customer_traffic_only() next to the query, "
+        "or an ALLOW_UNFILTERED entry for the file with a reason): " + ", ".join(sorted(unclassified))
     )
 
 
