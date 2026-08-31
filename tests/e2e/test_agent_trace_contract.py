@@ -69,9 +69,24 @@ def _ch(sql: str) -> str:
     return httpx.post(CH, content=sql).text.strip()
 
 
+def _detector_jobs(r) -> int:
+    """Every state a queued detector job can occupy, so the count is stable.
+
+    `wait` alone is not enough: BullMQ moves a picked-up job to `active`, and a
+    pre-existing job whose EVALUATOR_DELAY elapses mid-test transitions
+    delayed -> wait -> active. Counting all three keeps the before/after
+    comparison measuring "did we enqueue", not "did an unrelated job advance".
+    """
+    return (
+        r.zcard("bull:detector-run:delayed")
+        + r.llen("bull:detector-run:wait")
+        + r.llen("bull:detector-run:active")
+    )
+
+
 def test_internal_traces_do_not_change_customer_views_and_move_only_internal_buckets():
     r = redis.from_url(REDIS)
-    jobs_before = r.zcard("bull:detector-run:delayed") + r.llen("bull:detector-run:wait")
+    jobs_before = _detector_jobs(r)
     before = _snapshot()
 
     agent_tid = uuid.uuid4().bytes
@@ -107,7 +122,7 @@ def test_internal_traces_do_not_change_customer_views_and_move_only_internal_buc
     assert after["usage"]["traces"] == before["usage"]["traces"] + 2
     assert after["usage"]["spans"] == before["usage"]["spans"] + 2
     # No detection was enqueued and no judge run exists for the agent trace.
-    assert r.zcard("bull:detector-run:delayed") + r.llen("bull:detector-run:wait") == jobs_before
+    assert _detector_jobs(r) == jobs_before
     assert (
         _ch(
             f"SELECT count() FROM detector_runs WHERE project_id='{PROJECT}' AND trace_id='{agent_tid.hex()}'"
