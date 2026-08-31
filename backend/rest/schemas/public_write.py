@@ -126,7 +126,13 @@ class CreateDetectorRequest(BaseModel):
     project_id: str
     name: str
     template: str
-    prompt: str
+    prompt: str | None = Field(
+        default=None,
+        description=(
+            "Detector instructions. Omit to adopt the canonical instructions "
+            "of a standard template; required for any other template."
+        ),
+    )
     sample_rate: int | None = None
     output_schema: JsonPayloadList | None = None
     trigger_conditions: JsonPayloadList | None = None
