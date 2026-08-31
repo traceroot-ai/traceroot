@@ -35,7 +35,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
   {
     name: "create_detector",
     description:
-      "Create a detector (name, template, prompt, optional sampling/RCA settings) in a project — idempotent on the detector name within the project.",
+      "Create a detector (name, template, prompt, optional sampling/RCA settings) in a project — idempotent on the detector name within the project. The standard detector types (failure, hallucination, logic, task, safety) have canonical default instructions: pass the matching template id and OMIT prompt to use them. Only supply prompt when the user provides genuinely custom instructions — a supplied prompt is stored verbatim and overrides the template default.",
     method: "post",
     path: "/api/v1/public/detectors",
     inputSchema: {
@@ -68,6 +68,8 @@ export const REGISTRY: readonly RegistryEntry[] = [
         },
         prompt: {
           type: "string",
+          description:
+            "Detector instructions. Omit to adopt the canonical instructions of a standard template; required for any other template.",
         },
         sample_rate: {
           type: "integer",
@@ -80,7 +82,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
           type: "array",
         },
       },
-      required: ["project_id", "name", "template", "prompt"],
+      required: ["project_id", "name", "template"],
       additionalProperties: false,
     },
     bodyParams: [

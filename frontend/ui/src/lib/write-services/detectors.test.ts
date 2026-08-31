@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { DEFAULT_DETECTOR_SAMPLE_RATE } from "@/features/detectors/templates";
+import {
+  DEFAULT_DETECTOR_SAMPLE_RATE,
+  DETECTOR_TEMPLATES,
+  getTemplate,
+} from "@/features/detectors/templates";
 
 // The transaction client and the root client carry separate auditLog mocks so
 // the tests can tell which one the audit row was written through.
@@ -301,6 +305,91 @@ describe("createDetector", () => {
         transport: "public-api",
         agentSessionId: null,
       }),
+    });
+  });
+
+  describe("canonical template prompts", () => {
+    // The exact 400 message the service must emit for a promptless create
+    // outside the standard templates. The drift guard below keeps this
+    // literal honest against DETECTOR_TEMPLATES.
+    const promptRequiredMessage =
+      "prompt is required unless template is one of: failure, hallucination, logic, task, safety";
+
+    function runWithoutPrompt(overrides: Record<string, unknown> = {}) {
+      const { prompt: _omitted, ...rest } = baseInput;
+      return createDetector({ ...rest, ...overrides } as Parameters<typeof createDetector>[0]);
+    }
+
+    it("keeps the pinned message in sync with DETECTOR_TEMPLATES (drift guard)", () => {
+      const standardIds = DETECTOR_TEMPLATES.filter((t) => t.id !== "blank").map((t) => t.id);
+      expect(promptRequiredMessage).toBe(
+        `prompt is required unless template is one of: ${standardIds.join(", ")}`,
+      );
+    });
+
+    it("fills prompt and outputSchema from the canonical template when prompt is omitted", async () => {
+      mockAccess();
+      tx.detector.findFirst.mockResolvedValue(null);
+      tx.detector.create.mockResolvedValue(createdRow);
+      const r = await runWithoutPrompt({ template: "failure" });
+      expect(r).toEqual({ ok: true, created: true, data: createdRow });
+      const template = getTemplate("failure")!;
+      expect(tx.detector.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            template: "failure",
+            prompt: template.prompt,
+            outputSchema: template.outputSchema,
+          }),
+        }),
+      );
+    });
+
+    it("keeps a caller-provided outputSchema over the template's when prompt is omitted", async () => {
+      mockAccess();
+      tx.detector.findFirst.mockResolvedValue(null);
+      tx.detector.create.mockResolvedValue(createdRow);
+      const outputSchema = [{ name: "custom", type: "string" }];
+      const r = await runWithoutPrompt({ template: "safety", outputSchema });
+      expect(r.ok).toBe(true);
+      expect(tx.detector.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            prompt: getTemplate("safety")!.prompt,
+            outputSchema,
+          }),
+        }),
+      );
+    });
+
+    it("stores an explicit prompt verbatim without applying the template defaults", async () => {
+      mockAccess();
+      tx.detector.findFirst.mockResolvedValue(null);
+      tx.detector.create.mockResolvedValue(createdRow);
+      const r = await run({ template: "failure" });
+      expect(r.ok).toBe(true);
+      expect(tx.detector.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            prompt: "Find traces with slow spans",
+            outputSchema: [],
+          }),
+        }),
+      );
+    });
+
+    it("rejects a promptless create with a non-standard template with 400", async () => {
+      mockAccess();
+      const r = await runWithoutPrompt({ template: "custom-x" });
+      expect(r).toEqual({ ok: false, status: 400, error: promptRequiredMessage });
+      expect(tx.detector.create).not.toHaveBeenCalled();
+    });
+
+    it("rejects a promptless create with the blank template with 400", async () => {
+      mockAccess();
+      const r = await runWithoutPrompt({ template: "blank" });
+      expect(r).toEqual({ ok: false, status: 400, error: promptRequiredMessage });
+      expect(tx.detector.create).not.toHaveBeenCalled();
     });
   });
 

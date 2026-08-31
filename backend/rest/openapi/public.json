@@ -254,8 +254,16 @@
             "type": "string"
           },
           "prompt": {
-            "title": "Prompt",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Detector instructions. Omit to adopt the canonical instructions of a standard template; required for any other template.",
+            "title": "Prompt"
           },
           "sample_rate": {
             "anyOf": [
@@ -288,8 +296,7 @@
         "required": [
           "project_id",
           "name",
-          "template",
-          "prompt"
+          "template"
         ],
         "title": "CreateDetectorRequest",
         "type": "object"
@@ -3973,7 +3980,7 @@
           "Project (Public)"
         ],
         "x-tool": {
-          "description": "Create a detector (name, template, prompt, optional sampling/RCA settings) in a project \u2014 idempotent on the detector name within the project.",
+          "description": "Create a detector (name, template, prompt, optional sampling/RCA settings) in a project \u2014 idempotent on the detector name within the project. The standard detector types (failure, hallucination, logic, task, safety) have canonical default instructions: pass the matching template id and OMIT prompt to use them. Only supply prompt when the user provides genuinely custom instructions \u2014 a supplied prompt is stored verbatim and overrides the template default.",
           "enabled": true,
           "name": "create_detector",
           "policy": {
