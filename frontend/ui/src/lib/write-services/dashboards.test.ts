@@ -38,13 +38,23 @@ const baseDashboardInput = {
   provenance: { transport: "public-api" as const },
 };
 
+// Matches the canonical WidgetSpecSchema, already in parsed shape (defaults
+// present) so stored-spec assertions can compare against it directly.
+const validSpec = {
+  view: "traces",
+  filters: [],
+  metric: { measure: "count", agg: "count" },
+  breakdown: null,
+  display: { type: "number" },
+};
+
 const baseWidgetInput = {
   actorUserId: "u1",
   projectId: "p1",
   dashboardId: "dash1",
   title: "Cost by model",
   type: "query" as const,
-  spec: { metric: "cost" },
+  spec: validSpec,
   provenance: { transport: "public-api" as const },
 };
 
@@ -297,6 +307,46 @@ describe("createWidget", () => {
     expect(r).toEqual({ ok: false, status: 400, error: "spec must be a JSON object" });
   });
 
+  it("rejects a query spec with a hallucinated vocabulary with 400, no create, no audit", async () => {
+    mockAccess();
+    mockDashboard();
+    const r = await runWidget({
+      spec: {
+        metric: "input_tokens",
+        source: "observations",
+        group_by: "model",
+        aggregation: "sum",
+      },
+    });
+    expect(r).toMatchObject({ ok: false, status: 400 });
+    expect((r as { error: string }).error).toMatch(/^spec is not a valid widget spec: /);
+    expect(tx.widget.create).not.toHaveBeenCalled();
+    expect(auditLogCreate).not.toHaveBeenCalled();
+  });
+
+  it("strips unknown keys from a query spec and stores the parsed shape", async () => {
+    mockAccess();
+    mockDashboard();
+    tx.widget.create.mockResolvedValue(widgetRow);
+    const r = await runWidget({ spec: { ...validSpec, extraneous: "x" } });
+    expect(r).toEqual({ ok: true, created: true, data: widgetRow });
+    expect(tx.widget.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ spec: validSpec }) }),
+    );
+  });
+
+  it("does not apply the query spec schema to trace_feed specs", async () => {
+    mockAccess();
+    mockDashboard();
+    tx.widget.create.mockResolvedValue(widgetRow);
+    const feedSpec = { filters: [{ field: "errors", op: "gt", value: 0 }], limit: 10 };
+    const r = await runWidget({ type: "trace_feed", spec: feedSpec });
+    expect(r).toEqual({ ok: true, created: true, data: widgetRow });
+    expect(tx.widget.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ spec: feedSpec }) }),
+    );
+  });
+
   it("rejects an array displayConfig with 400", async () => {
     mockAccess();
     mockDashboard();
@@ -321,7 +371,7 @@ describe("createWidget", () => {
         dashboardId: "dash1",
         title: "Cost by model",
         type: "query",
-        spec: { metric: "cost" },
+        spec: validSpec,
         displayConfig: {},
       },
       select: { id: true, dashboardId: true, title: true, type: true },

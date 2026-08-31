@@ -5,6 +5,7 @@ import {
   DASHBOARD_DESCRIPTION_MAX,
   DASHBOARD_NAME_MAX,
   WIDGET_TITLE_MAX,
+  WidgetSpecSchema,
 } from "@/features/dashboards/types";
 import { writeAudit, type AuditEntry } from "./audit";
 import type { Provenance, ServiceResult } from "./types";
@@ -199,7 +200,25 @@ export async function createWidget(input: {
     }
     const title = parsed.data.title.trim();
     const { type } = parsed.data;
-    const spec = parsed.data.spec as Record<string, unknown>;
+    let spec = parsed.data.spec as Record<string, unknown>;
+    // Query specs must satisfy the same schema the dashboard renderer parses
+    // with — anything else would store a widget that can only fail at render
+    // time. Storing the parsed output (defaults filled, unknown keys stripped)
+    // means what's stored is exactly what renders. trace_feed specs use the
+    // trace-list predicate wire format and are validated by their renderer.
+    if (type === "query") {
+      const specParsed = WidgetSpecSchema.safeParse(spec);
+      if (!specParsed.success) {
+        const issue = specParsed.error.issues[0];
+        const path = issue.path.join(".");
+        return {
+          ok: false as const,
+          status: 400 as const,
+          error: `spec is not a valid widget spec: ${path ? `${path}: ` : ""}${issue.message}`,
+        };
+      }
+      spec = specParsed.data;
+    }
     const displayConfig = (parsed.data.displayConfig as Record<string, unknown> | undefined) ?? {};
 
     // Widgets have no natural key (duplicate titles are legitimate), so this
