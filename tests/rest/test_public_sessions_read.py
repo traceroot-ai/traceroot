@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from rest.main import app
 from rest.retention import get_retention_cutoff
-from rest.routers.public.deps import AuthResult, authenticate_api_key
+from rest.routers.public.deps import AuthResult, authenticate_public_caller
 
 SESSION_LIST = {
     "data": [
@@ -74,7 +74,9 @@ def mock_reader():
 
 
 def _client_with(mock_reader, billing_plan: str = "enterprise"):
-    app.dependency_overrides[authenticate_api_key] = lambda: make_auth(billing_plan=billing_plan)
+    app.dependency_overrides[authenticate_public_caller] = lambda: make_auth(
+        billing_plan=billing_plan
+    )
     import rest.routers.public.sessions_read as mod
 
     original = mod.get_trace_reader_service
