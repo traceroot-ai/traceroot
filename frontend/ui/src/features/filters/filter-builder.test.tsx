@@ -2,14 +2,41 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 import { FilterBuilder } from "./filter-builder";
-import type { FilterFieldDef } from "./registry";
+import { ValueDropdown } from "./filter-controls";
+import { isValidPredicate } from "./predicate";
+import type { FilterFieldDef, FilterValue } from "./registry";
 
-// Stub the distinct-values hook; keep it as a spy so we can assert the window bounds
-// are threaded through to it for a distinct-query categorical field.
+// Spies, not bare stubs, so tests can assert the window bounds each hook is asked about.
 const mockUseFilterValues = vi.hoisted(() => vi.fn(() => ({ values: [], isLoading: false })));
-vi.mock("./hooks", () => ({ useFilterValues: mockUseFilterValues }));
+// A discovery row IS the categorical distinct-value row (`{value, count}`), so the stub
+// cannot spell the field a way the endpoint does not.
+const mockUseMetadataKeys = vi.hoisted(() =>
+  vi.fn(
+    (
+      _projectId: string,
+      _startAfter?: string,
+      _endBefore?: string,
+      _enabled?: boolean,
+    ): { keys: { value: string; count: number }[]; isLoading: boolean } => ({
+      keys: [],
+      isLoading: false,
+    }),
+  ),
+);
+vi.mock("./hooks", () => ({
+  useFilterValues: mockUseFilterValues,
+  useMetadataKeys: mockUseMetadataKeys,
+}));
 
-afterEach(cleanup);
+/** Discovery answers with these keys, in the order given (frequency-descending). */
+function suggestKeys(keys: FilterValue[]) {
+  mockUseMetadataKeys.mockReturnValue({ keys, isLoading: false });
+}
+
+afterEach(() => {
+  cleanup();
+  mockUseMetadataKeys.mockReturnValue({ keys: [], isLoading: false });
+});
 
 const STATUS: FilterFieldDef = {
   field: "status",
@@ -48,6 +75,19 @@ const MODEL: FilterFieldDef = {
   operators: ["in"],
   value_source: "distinct_query",
   enum_values: [],
+};
+
+const METADATA: FilterFieldDef = {
+  field: "metadata",
+  label: "Metadata",
+  type: "text",
+  // Keyed-map tier, matching the backend registry — metadata is the one field whose
+  // predicate carries a key, and SPAN_MEMBERSHIP here contradicted columns.py.
+  level: "KEYED_MAP",
+  operators: ["eq", "contains"],
+  value_source: "free_text",
+  enum_values: [],
+  requires_key: true,
 };
 
 const TRACE_ID: FilterFieldDef = {
@@ -258,6 +298,12 @@ describe("FilterBuilder (Basic row)", () => {
     expect(screen.getByRole("button", { name: "Add filter" })).toHaveProperty("disabled", true);
   });
 
+  it("shows no metadata key control for an unkeyed field", () => {
+    renderBuilder([TRACE_ID]);
+    pickField(/Trace ID/);
+    expect(screen.queryByLabelText("metadata key")).toBeNull();
+  });
+
   it("threads both window bounds into the distinct-values query for a categorical field", () => {
     mockUseFilterValues.mockClear();
     render(
@@ -278,5 +324,196 @@ describe("FilterBuilder (Basic row)", () => {
       "2026-06-02T00:00:00Z",
       true,
     );
+  });
+});
+
+describe("FilterBuilder (Metadata key)", () => {
+  const fillKeyAndValue = (key: string, value: string) => {
+    fireEvent.change(screen.getByLabelText("metadata key"), { target: { value: key } });
+    fireEvent.change(screen.getByLabelText("value"), { target: { value } });
+  };
+
+  /**
+   * What the shipped categorical value dropdown renders for an empty option list, read
+   * off that dropdown itself so the key combobox is compared against the real thing.
+   */
+  const valueDropdownEmptyState = () => {
+    render(<ValueDropdown value="" options={[]} onValue={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Enter value" }));
+    const text = screen.getByRole("dialog").textContent;
+    cleanup();
+    return text;
+  };
+
+  it("reveals the key control when Metadata is selected", () => {
+    renderBuilder([METADATA, TRACE_ID]);
+    expect(screen.queryByLabelText("metadata key")).toBeNull();
+    pickField(/Metadata/);
+    expect(screen.getByLabelText("metadata key")).toBeTruthy();
+  });
+
+  it("renders suggested keys in the frequency order discovery returned them", () => {
+    suggestKeys([
+      { value: "session_id", count: 120 },
+      { value: "user_id", count: 40 },
+      { value: "tenant", count: 3 },
+    ]);
+    renderBuilder([METADATA]);
+    pickField(/Metadata/);
+    fireEvent.focus(screen.getByLabelText("metadata key"));
+    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "session_id120",
+      "user_id40",
+      "tenant3",
+    ]);
+  });
+
+  it("picking a suggested key emits a predicate carrying that key", () => {
+    suggestKeys([{ value: "session_id", count: 9 }]);
+    const onSubmit = renderBuilder([METADATA]);
+    pickField(/Metadata/);
+    fireEvent.focus(screen.getByLabelText("metadata key"));
+    fireEvent.click(screen.getByRole("option", { name: /session_id/ }));
+    fireEvent.change(screen.getByLabelText("value"), { target: { value: "s-1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add filter" }));
+    expect(onSubmit).toHaveBeenCalledWith({
+      field: "metadata",
+      key: "session_id",
+      op: "eq",
+      value: "s-1",
+    });
+  });
+
+  it("accepts a typed key that is NOT in the suggestion list (suggestion is not permission)", () => {
+    suggestKeys([{ value: "session_id", count: 9 }]);
+    const onSubmit = renderBuilder([METADATA]);
+    pickField(/Metadata/);
+    fillKeyAndValue("never_suggested_key", "v1");
+    fireEvent.click(screen.getByRole("button", { name: "Add filter" }));
+    const emitted = onSubmit.mock.calls[0][0];
+    expect(emitted).toEqual({
+      field: "metadata",
+      key: "never_suggested_key",
+      op: "eq",
+      value: "v1",
+    });
+    // And the emitted predicate is one the URL/query layer will keep, not one it drops.
+    expect(isValidPredicate(emitted)).toBe(true);
+  });
+
+  it("shows the value dropdown's own empty state when nothing in the list matches", () => {
+    // An empty suggestion list is not a rejection, so it says exactly what the shipped
+    // categorical value dropdown says for an empty option list — read from that dropdown
+    // rather than spelled out here, so the two surfaces cannot drift apart in a copy edit.
+    const shared = valueDropdownEmptyState();
+    suggestKeys([{ value: "session_id", count: 9 }]);
+    renderBuilder([METADATA]);
+    pickField(/Metadata/);
+    fireEvent.change(screen.getByLabelText("metadata key"), {
+      target: { value: "never_suggested_key" },
+    });
+    expect(screen.getByRole("dialog").textContent).toBe(shared);
+  });
+
+  it("claims only what the one discovery query knows, answered without a second scan", () => {
+    // "No metadata in this project" would be a stronger claim than one windowed query can
+    // support, and widening the scan to sharpen one sentence is not a cost an empty
+    // project pays — so empty discovery says the same neutral thing, scoped to nothing.
+    const shared = valueDropdownEmptyState();
+    mockUseMetadataKeys.mockClear();
+    renderBuilder([METADATA]);
+    pickField(/Metadata/);
+    fireEvent.focus(screen.getByLabelText("metadata key"));
+    expect(screen.getByRole("dialog").textContent).toBe(shared);
+    expect(screen.queryByText(/no metadata found in this project/i)).toBeNull();
+    const windows = new Set(
+      mockUseMetadataKeys.mock.calls.map(([, startAfter, endBefore]) =>
+        JSON.stringify([startAfter ?? null, endBefore ?? null]),
+      ),
+    );
+    expect(windows.size).toBe(1);
+  });
+
+  it("keeps Add filter disabled until the key is filled", () => {
+    renderBuilder([METADATA]);
+    pickField(/Metadata/);
+    fireEvent.change(screen.getByLabelText("value"), { target: { value: "v1" } });
+    expect(screen.getByRole("button", { name: "Add filter" })).toHaveProperty("disabled", true);
+    fireEvent.change(screen.getByLabelText("metadata key"), { target: { value: "k" } });
+    expect(screen.getByRole("button", { name: "Add filter" })).toHaveProperty("disabled", false);
+  });
+
+  it("treats a whitespace-only key as no key at all", () => {
+    renderBuilder([METADATA]);
+    pickField(/Metadata/);
+    fillKeyAndValue("   ", "v1");
+    expect(screen.getByRole("button", { name: "Add filter" })).toHaveProperty("disabled", true);
+  });
+
+  it("trims surrounding whitespace off a typed key", () => {
+    const onSubmit = renderBuilder([METADATA]);
+    pickField(/Metadata/);
+    fillKeyAndValue("  session_id  ", "s-1");
+    fireEvent.click(screen.getByRole("button", { name: "Add filter" }));
+    expect(onSubmit).toHaveBeenCalledWith({
+      field: "metadata",
+      key: "session_id",
+      op: "eq",
+      value: "s-1",
+    });
+  });
+
+  it("offers `=` and `contains` for metadata, and emits `contains` when chosen", () => {
+    const onSubmit = renderBuilder([METADATA]);
+    pickField(/Metadata/);
+    fireEvent.click(screen.getByRole("button", { name: "=" })); // operator dropdown
+    expect(screen.queryByRole("option", { name: "is" })).toBeNull();
+    fireEvent.click(screen.getByRole("option", { name: "contains" }));
+    fillKeyAndValue("session_id", "s-");
+    fireEvent.click(screen.getByRole("button", { name: "Add filter" }));
+    expect(onSubmit).toHaveBeenCalledWith({
+      field: "metadata",
+      key: "session_id",
+      op: "contains",
+      value: "s-",
+    });
+  });
+
+  it("applies the filter when Enter is pressed in the key field", () => {
+    const onSubmit = renderBuilder([METADATA]);
+    pickField(/Metadata/);
+    fillKeyAndValue("session_id", "s-1");
+    fireEvent.keyDown(screen.getByLabelText("metadata key"), { key: "Enter" });
+    expect(onSubmit).toHaveBeenCalledWith({
+      field: "metadata",
+      key: "session_id",
+      op: "eq",
+      value: "s-1",
+    });
+  });
+
+  it("clears the key along with the rest of the row after adding", () => {
+    const onSubmit = renderBuilder([METADATA]);
+    pickField(/Metadata/);
+    fillKeyAndValue("session_id", "s-1");
+    fireEvent.click(screen.getByRole("button", { name: "Add filter" }));
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    // Field is unset again, so the key control is gone with it rather than retaining a
+    // key that would silently attach to the next filter.
+    expect(screen.getByRole("button", { name: "Field" })).toBeTruthy();
+    expect(screen.queryByLabelText("metadata key")).toBeNull();
+  });
+
+  it("takes a free-text value rather than the distinct-values dropdown", () => {
+    mockUseFilterValues.mockClear();
+    renderBuilder([METADATA]);
+    pickField(/Metadata/);
+    // The value is free text because the field's registry TYPE is text — discovery
+    // answers which KEYS exist, not which values a key takes, so there is no per-key
+    // value list to open.
+    expect(screen.getByLabelText("value").tagName).toBe("INPUT");
+    for (const call of mockUseFilterValues.mock.calls) {
+      expect(call).not.toContain("metadata");
+    }
   });
 });

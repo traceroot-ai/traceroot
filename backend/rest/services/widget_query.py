@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from db.clickhouse import get_clickhouse_client
+from db.clickhouse.query_settings import READ_QUERY_SETTINGS
 from rest.schemas.dashboards import WidgetSpec
 from rest.services.widget_registry import REGISTRY, FieldDef
 from rest.sql_utils import escape_ilike, to_utc_naive
@@ -17,9 +18,7 @@ from rest.sql_utils import escape_ilike, to_utc_naive
 MAX_GROUPS = 50  # top-N breakdown groups; remainder folds into "other"
 MAX_TABLE_ROWS = 1000
 HISTOGRAM_BINS = 20
-QUERY_TIMEOUT_S = 10
 HOUR_BUCKET_MAX = timedelta(days=2)
-GROUP_BY_SPILL_BYTES = 1 * 1024**3  # aggregation memory ceiling before disk spill
 
 _AGG_SQL = {
     "count": "count({expr})",
@@ -271,20 +270,10 @@ def run_widget_query(
     end_time = to_utc_naive(end_time)
     sql, params = compile_widget_query(spec, project_id, start_time, end_time)
     client = get_clickhouse_client()
-    result = client.query(
-        sql,
-        parameters=params,
-        settings={
-            "readonly": 1,
-            "max_execution_time": QUERY_TIMEOUT_S,
-            # Large breakdown GROUP BYs spill to disk past this threshold
-            # instead of ballooning server memory: slower beats OOM for a
-            # dashboard tile. (use_query_condition_cache would help the
-            # repeated same-window scans too, but it needs ClickHouse >= 25.4
-            # — the current server rejects it as an unknown setting.)
-            "max_bytes_before_external_group_by": GROUP_BY_SPILL_BYTES,
-        },
-    )
+    # Execution bounds (readonly, timeout, GROUP BY spill ceiling) are the shared read
+    # settings: a dashboard tile is the same interactive, time-windowed GROUP BY as the
+    # trace list and the filter-option scans, so it gets the same ceilings.
+    result = client.query(sql, parameters=params, settings=READ_QUERY_SETTINGS)
     meta: dict[str, Any] = {}
     if spec.display.type in ("line", "area"):
         meta["granularity"] = _pick_granularity(start_time, end_time)

@@ -260,4 +260,49 @@ describe("ModelProvidersTab", () => {
       expect.objectContaining({ baseUrl: "https://example.com/v1testing" }),
     );
   });
+
+  it("shows the catalog protocol for an o-series model and persists an explicit Responses pick", async () => {
+    mocks.getModelProviders.mockResolvedValue({
+      byokEnabled: true,
+      providers: [
+        {
+          id: "provider-1",
+          adapter: "openai",
+          provider: "OpenAI",
+          keyPreview: "sk-...",
+          baseUrl: null,
+          customModels: ["o3"],
+          withDefaultModels: true,
+          config: null, // saved before any override existed
+          enabled: true,
+          createdBy: "user-1",
+          createTime: "2026-06-17T00:00:00.000Z",
+          updateTime: "2026-06-17T00:00:00.000Z",
+        },
+      ],
+    });
+    mocks.updateModelProvider.mockResolvedValue({ id: "provider-1" });
+
+    renderTab();
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+
+    // The protocol select is the one offering the two OpenAI protocols. With no
+    // override it must show what the resolver will actually use for o3.
+    const protocolSelect = screen
+      .getAllByRole("combobox")
+      .find((el) =>
+        Array.from((el as HTMLSelectElement).options).some((o) => o.value === "openai-completions"),
+      ) as HTMLSelectElement;
+    expect(protocolSelect.value).toBe("openai-completions");
+
+    // Choosing Responses for o3 differs from its effective default, so it is persisted.
+    fireEvent.change(protocolSelect, { target: { value: "openai-responses" } });
+    fireEvent.click(screen.getByRole("button", { name: "Update" }));
+    await waitFor(() => expect(mocks.updateModelProvider).toHaveBeenCalledTimes(1));
+    expect(mocks.updateModelProvider).toHaveBeenCalledWith(
+      "ws-1",
+      "provider-1",
+      expect.objectContaining({ config: { modelProtocols: { o3: "openai-responses" } } }),
+    );
+  });
 });

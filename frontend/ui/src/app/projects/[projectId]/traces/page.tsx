@@ -5,21 +5,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
-import { X, Inbox, AlertTriangle } from "lucide-react";
+import { X, Inbox, AlertTriangle, Plus } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { TraceSearchFilterInput } from "@/features/filters/trace-search-filter-input";
 import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
-import {
-  formatDuration,
-  formatDate,
-  formatCost,
-  formatTokenFlow,
-  formatExactTokens,
-  cn,
-  buildUrlWithFilters,
-} from "@/lib/utils";
+import { cn, buildUrlWithFilters } from "@/lib/utils";
 import type { TraceListItem } from "@/types/api";
 import { useTraces, usePrefetchTraces, useTracesExist } from "@/features/traces/hooks";
 import { useRetention } from "@/lib/hooks/use-retention";
@@ -29,7 +21,20 @@ import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useLocalStorage } from "@/lib/hooks/use-local-storage";
 import { TraceViewerPanel, GettingStarted } from "@/features/traces/components";
 import { LoadingState } from "@/components/ui/loading-state";
+import type { TraceSelection } from "@/features/traces";
+import { Button } from "@/components/ui/button";
+import {
+  SaveTestCaseDrawer,
+  TraceEvaluationChip,
+  SpanDatasetChip,
+} from "@/features/evaluations/components/trace-integration";
+import { useTraceTestCases } from "@/features/evaluations/hooks";
 import { formatContentPreview } from "@/features/traces/utils";
+import { TraceListTable } from "@/features/traces/components/TraceListTable";
+import { ColumnPicker } from "@/features/traces/components/ColumnPicker";
+// Imported from the hook's own module, not the feature barrel: the page tests replace that
+// barrel wholesale with a factory mock, and a barrel import here would go missing under it.
+import { useTraceColumns } from "@/features/traces/hooks/use-trace-columns";
 import { useSession as useAuthSession } from "@/lib/auth-client";
 
 // Tab definitions
@@ -70,14 +75,28 @@ export default function TracesPage() {
   } = useListPageState({ retentionDays: retention.retentionDays });
 
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(traceIdFromUrl);
+  // Warm the span→dataset chip data as soon as a trace is selected, so the
+  // "Dataset:" chip is ready before the user opens a span (no per-span latency).
+  useTraceTestCases(projectId, selectedTraceId ?? "");
+  // Save-as-test-case (offline eval): which span the drawer targets (undefined = root).
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [saveSpanId, setSaveSpanId] = useState<string | undefined>(undefined);
+  // Close the drawer (and drop its target span) whenever the selected trace changes —
+  // including closing the viewer entirely. Without this, the drawer reopens on the
+  // NEXT trace still targeting a span from the previous one (which won't resolve
+  // there), stuck with no way out but closing and reopening it.
+  useEffect(() => {
+    setSaveOpen(false);
+    setSaveSpanId(undefined);
+  }, [selectedTraceId]);
   // Persisted per-project so a live view survives reloads, navigation, and re-login.
   // Default false: a project the user never toggled behaves exactly as before.
   const [autoRefresh, setAutoRefresh] = useLocalStorage(
     `traceroot:traces:live:v1:${projectId}`,
     false,
   );
-
-  // Fetch traces with combined query options + user filter from URL
+  // Fetch traces with combined query options + user filter from URL.
+  // Evaluation traces are excluded from this default list.
   const { data, isLoading, error } = useTraces(
     projectId,
     {
@@ -88,6 +107,8 @@ export default function TracesPage() {
   );
 
   const prefetchTraces = usePrefetchTraces(projectId);
+
+  const { visibleColumns, toggleField, reset: resetColumns } = useTraceColumns(projectId);
 
   // Check if project has EVER sent traces — controls onboarding visibility.
   // Uses a dedicated endpoint that bypasses retention gating (returns a
@@ -143,7 +164,7 @@ export default function TracesPage() {
         {/* Tab navigation — hidden during onboarding or while checking */}
         {!checking && !showGettingStarted && (
           <div className="border-b border-border bg-background">
-            <div className="flex">
+            <div className="flex items-center">
               {tabs.map((tab) => {
                 const Icon = tab.icon;
                 const isActive = tab.id === "traces";
@@ -186,6 +207,13 @@ export default function TracesPage() {
             onCustomRangeChange={updateCustomRange}
             retentionDays={retention.retentionDays}
             onUpgradeClick={retention.onUpgradeClick}
+            beforeDateFilter={
+              <ColumnPicker
+                visibleColumns={visibleColumns}
+                onToggleField={toggleField}
+                onReset={resetColumns}
+              />
+            }
           >
             <button
               type="button"
@@ -258,110 +286,12 @@ export default function TracesPage() {
           ) : (
             <div className="flex h-full flex-col">
               <div className="flex-1 overflow-auto">
-                <table className="w-full">
-                  <thead className="sticky top-0 bg-background">
-                    <tr className="border-b border-border bg-muted/50">
-                      <th className="w-[140px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Timestamp
-                      </th>
-                      <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Name
-                      </th>
-                      <th className="min-w-[280px] max-w-[400px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Trace ID
-                      </th>
-                      <th className="w-[60px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Errors
-                      </th>
-                      <th className="w-[60px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Spans
-                      </th>
-                      <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Input
-                      </th>
-                      <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Output
-                      </th>
-                      <th className="w-[100px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Tokens
-                      </th>
-                      <th className="w-[80px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Cost
-                      </th>
-                      <th className="px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Latency
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {traces.map((trace: TraceListItem) => (
-                      <tr
-                        key={trace.trace_id}
-                        onClick={() => {
-                          setSelectedTraceId(trace.trace_id);
-                        }}
-                        className={cn(
-                          "cursor-pointer border-b border-border/50 transition-colors last:border-0",
-                          selectedTraceId === trace.trace_id ? "bg-muted" : "hover:bg-muted/50",
-                        )}
-                      >
-                        <td className="whitespace-nowrap border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
-                          {formatDate(trace.trace_start_time)}
-                        </td>
-                        <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-foreground">
-                          {trace.name}
-                        </td>
-                        <td className="min-w-[280px] max-w-[400px] whitespace-nowrap border-r border-border/50 px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
-                          <span className="block truncate" title={trace.trace_id}>
-                            {trace.trace_id}
-                          </span>
-                        </td>
-                        <td className="border-r border-border/50 px-3 py-1.5 text-center">
-                          {trace.error_count > 0 ? (
-                            <span className="inline-flex min-w-5 justify-center rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
-                              {trace.error_count}
-                            </span>
-                          ) : (
-                            <span className="text-[12px] text-muted-foreground">0</span>
-                          )}
-                        </td>
-                        <td className="border-r border-border/50 px-3 py-1.5 text-center text-[12px] text-muted-foreground">
-                          {trace.span_count}
-                        </td>
-                        <td className="max-w-[180px] border-r border-border/50 px-3 py-1.5">
-                          <span className="block truncate font-mono text-[11px] text-muted-foreground">
-                            {formatContentPreview(trace.input)}
-                          </span>
-                        </td>
-                        <td className="max-w-[180px] border-r border-border/50 px-3 py-1.5">
-                          <span className="block truncate font-mono text-[11px] text-muted-foreground">
-                            {formatContentPreview(trace.output)}
-                          </span>
-                        </td>
-                        <td className="whitespace-nowrap border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
-                          {(trace.total_input_tokens ?? 0) + (trace.total_output_tokens ?? 0) >
-                          0 ? (
-                            <span
-                              title={`${formatExactTokens(trace.total_input_tokens)} → ${formatExactTokens(trace.total_output_tokens)} (${formatExactTokens((trace.total_input_tokens ?? 0) + (trace.total_output_tokens ?? 0))})`}
-                            >
-                              {formatTokenFlow(trace.total_input_tokens, trace.total_output_tokens)}
-                            </span>
-                          ) : (
-                            "-"
-                          )}
-                        </td>
-                        <td className="border-r border-border/50 px-3 py-1.5 text-[12px] text-foreground">
-                          {trace.total_cost && trace.total_cost > 0
-                            ? formatCost(trace.total_cost)
-                            : "-"}
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-1.5 text-[12px] text-foreground">
-                          {formatDuration(trace.duration_ms)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                <TraceListTable
+                  traces={traces}
+                  selectedTraceId={selectedTraceId}
+                  onSelectTrace={setSelectedTraceId}
+                  visibleColumns={visibleColumns}
+                />
               </div>
 
               <ListPagination
@@ -410,6 +340,41 @@ export default function TracesPage() {
           customStartDate={state.customStartDate}
           customEndDate={state.customEndDate}
           initialFullscreen={startFullscreen}
+          // Offline eval: save any span (or the trace root) as a dataset test case.
+          spanHeaderAction={(selection: TraceSelection) => (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 shrink-0 gap-1.5 text-[12px]"
+              onClick={() => {
+                setSaveSpanId(selection.type === "span" ? selection.span.span_id : undefined);
+                setSaveOpen(true);
+              }}
+            >
+              <Plus className="h-3.5 w-3.5" aria-hidden />
+              Add to datasets
+            </Button>
+          )}
+          // Offline eval: while the "Save as test case" drawer is open, clicking a
+          // different span in the tree retargets the drawer to that span.
+          onSelectionChange={(selection: TraceSelection) => {
+            if (saveOpen) {
+              setSaveSpanId(selection.type === "span" ? selection.span.span_id : undefined);
+            }
+          }}
+          // Offline eval: a trace-level chip when this trace came from a run, and
+          // a per-span "Dataset:" chip marking a span already saved as a test case.
+          spanExtraTags={(selection: TraceSelection) =>
+            selection.type === "trace" ? (
+              <TraceEvaluationChip projectId={projectId} traceId={selectedTraceId} />
+            ) : (
+              <SpanDatasetChip
+                projectId={projectId}
+                traceId={selectedTraceId}
+                spanId={selection.span.span_id}
+              />
+            )
+          }
           // Customer surface, so state the scope explicitly rather than inheriting it:
           // the reader already defaults to customer traffic, so this is defense in depth,
           // and it also pins the trace-detail cache key this panel shares with the live
@@ -418,6 +383,14 @@ export default function TracesPage() {
           source="user"
         />
       )}
+
+      <SaveTestCaseDrawer
+        projectId={projectId}
+        traceId={selectedTraceId}
+        spanId={saveSpanId}
+        open={saveOpen}
+        onOpenChange={setSaveOpen}
+      />
 
       <PricingDialog
         open={retention.showPricing}

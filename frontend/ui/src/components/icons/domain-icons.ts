@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   ArrowRight,
   Bot,
+  Braces,
   BotMessageSquare,
   Box,
   CircleAlert,
@@ -43,6 +44,10 @@ export const DOMAIN_ICONS = {
   agent: Bot,
   llm: Sparkle,
   tool: Wrench,
+  // Offline-eval span kinds, emitted by the SDK's eval engine.
+  evaluation: FlaskConical,
+  task: Play,
+  scorer: Ruler,
   // Default/generic span kind (anything that isn't trace/llm/agent/tool).
   span: ArrowRight,
   assistant: BotMessageSquare,
@@ -63,6 +68,8 @@ export const DOMAIN_ICONS = {
   workspace: LayoutGrid,
   detector: Eye,
   environment: Globe,
+  // Free-form key/value data the user attached to a trace, not a traceroot field.
+  metadata: Braces,
   dashboard: LayoutDashboard,
   success: CircleCheck,
   failure: XCircle,

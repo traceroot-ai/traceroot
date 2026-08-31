@@ -68,8 +68,6 @@ export function FilterRow({
     return current && !hasCurrent ? [{ value: current }, ...values] : values;
   }, [values, filter.value]);
 
-  const showValueDropdown = enumerable && (options.length > 0 || isLoading);
-
   return (
     // The widget builder's config column runs at 12px, so the shared controls
     // render at their compact size here.
@@ -118,7 +116,7 @@ export function FilterRow({
         {/* value — same controls as the trace-list builder's ValueControl */}
         {!fieldMeta ? (
           <ParkedValueField />
-        ) : showValueDropdown ? (
+        ) : enumerable ? (
           <ValueDropdown
             value={String(filter.value)}
             options={options}

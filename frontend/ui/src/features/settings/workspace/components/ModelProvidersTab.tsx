@@ -26,10 +26,10 @@ import {
 } from "@/components/ui/select";
 import {
   ADAPTER_CONFIG,
-  ADAPTER_API_PROTOCOL,
   ADAPTER_AVAILABLE_PROTOCOLS,
   ADAPTER_DEFAULT_BASE_URL,
   ADAPTER_MODELS,
+  defaultApiProtocol,
 } from "@traceroot/core";
 import type { LLMAdapter } from "@traceroot/core";
 import {
@@ -179,13 +179,13 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
 
   function handleSave() {
     setSaveError(null);
-    // Build config with per-model protocol overrides (only non-default ones)
-    const defaultProtocol = ADAPTER_API_PROTOCOL[adapter] || "";
+    // Build config with per-model protocol overrides — only picks that differ
+    // from what the resolver would use anyway for that model.
     const trimmedModels = [...new Set(customModels.map((m) => m.trim()).filter(Boolean))];
     const filteredProtocols: Record<string, string> = {};
     for (const modelId of trimmedModels) {
       const proto = modelProtocols[modelId];
-      if (proto && proto !== defaultProtocol) {
+      if (proto && proto !== defaultApiProtocol(adapter, modelId)) {
         filteredProtocols[modelId] = proto;
       }
     }
@@ -256,15 +256,6 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     setModelProtocols({});
   }
 
-  function seedProtocolFromCatalog(modelId: string) {
-    const catalog = ADAPTER_MODELS[adapter as LLMAdapter];
-    if (!catalog) return;
-    const entry = catalog.find((m) => m.id === modelId);
-    if (entry?.apiProtocol) {
-      setModelProtocols((prev) => ({ ...prev, [modelId]: entry.apiProtocol! }));
-    }
-  }
-
   function addCustomModel() {
     const curatedModels = ADAPTER_MODELS[adapter as LLMAdapter];
     if (curatedModels) {
@@ -272,7 +263,6 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
       const next = curatedModels.find((m) => !used.has(m.id));
       if (!next) return;
       setCustomModels([...customModels, next.id]);
-      seedProtocolFromCatalog(next.id);
     } else {
       setCustomModels([...customModels, ""]);
     }
@@ -286,7 +276,6 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     const updated = [...customModels];
     updated[index] = value;
     setCustomModels(updated);
-    seedProtocolFromCatalog(value);
   }
 
   if (isLoading) {
@@ -559,7 +548,6 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                 {(() => {
                   const protocols = ADAPTER_AVAILABLE_PROTOCOLS[adapter];
                   const hasMultipleProtocols = protocols && protocols.length > 1;
-                  const defaultProto = ADAPTER_API_PROTOCOL[adapter] || "";
                   const curatedModels = ADAPTER_MODELS[adapter as LLMAdapter];
 
                   return customModels.map((model, i) => (
@@ -600,7 +588,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                       )}
                       {hasMultipleProtocols && (
                         <Select
-                          value={modelProtocols[model] || defaultProto}
+                          value={modelProtocols[model] || defaultApiProtocol(adapter, model)}
                           onValueChange={(v) =>
                             setModelProtocols((prev) => ({ ...prev, [model]: v }))
                           }

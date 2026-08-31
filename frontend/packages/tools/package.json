@@ -1,0 +1,38 @@
+{
+  "name": "@traceroot-ai/tools",
+  "version": "0.1.0",
+  "description": "TraceRoot tool registry: generated from the public OpenAPI schema; one definition per tool, dispatched generically by the CLI, MCP, and agent surfaces.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.3"
+  },
+  "scripts": {
+    "build": "tsc",
+    "generate": "tsx scripts/generate-registry.ts && pnpm exec prettier --write src/registry.generated.ts",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^3.2.6",
+    "tsx": "^4.21.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.2.6"
+  }
+}

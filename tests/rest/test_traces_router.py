@@ -3,6 +3,7 @@
 Uses FastAPI TestClient with mocked dependencies — no ClickHouse needed.
 """
 
+import asyncio
 import copy
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
@@ -78,8 +79,19 @@ def mock_trace_reader():
 
 
 @pytest.fixture()
-def client(mock_trace_reader):
-    """TestClient with mocked auth and trace reader."""
+def mock_trace_discovery():
+    """Mock TraceDiscoveryService.
+
+    Distinct-value and metadata-key routes read from discovery, not the reader. Left
+    unpatched they build a real service and open a real ClickHouse connection, so these
+    tests pass or fail on whether a container happens to be listening.
+    """
+    return MagicMock()
+
+
+@pytest.fixture()
+def client(mock_trace_reader, mock_trace_discovery):
+    """TestClient with mocked auth and trace services."""
 
     async def mock_get_access(project_id: str, x_user_id=None):
         # Mirror the validate-project-access contract (workspaceId + billingPlan)
@@ -98,11 +110,14 @@ def client(mock_trace_reader):
     import rest.routers.traces as traces_mod
 
     original = traces_mod.get_trace_reader_service
+    original_discovery = traces_mod.get_trace_discovery_service
     traces_mod.get_trace_reader_service = lambda: mock_trace_reader
+    traces_mod.get_trace_discovery_service = lambda: mock_trace_discovery
 
     yield TestClient(app)
 
     traces_mod.get_trace_reader_service = original
+    traces_mod.get_trace_discovery_service = original_discovery
 
 
 class TestTracesExist:
@@ -459,7 +474,7 @@ class TestDashboardKeepsSpanTreeMetadata:
 
 
 @pytest.fixture()
-def free_plan_client(mock_trace_reader):
+def free_plan_client(mock_trace_reader, mock_trace_discovery):
     """TestClient with free-plan billing for retention gate tests."""
 
     async def mock_get_access(project_id: str, x_user_id=None):
@@ -476,11 +491,14 @@ def free_plan_client(mock_trace_reader):
     import rest.routers.traces as traces_mod
 
     original = traces_mod.get_trace_reader_service
+    original_discovery = traces_mod.get_trace_discovery_service
     traces_mod.get_trace_reader_service = lambda: mock_trace_reader
+    traces_mod.get_trace_discovery_service = lambda: mock_trace_discovery
 
     yield TestClient(app)
 
     traces_mod.get_trace_reader_service = original
+    traces_mod.get_trace_discovery_service = original_discovery
 
 
 def _now_naive():
@@ -517,14 +535,17 @@ class TestRetentionGate:
         assert abs((kw["start_after"] - expected).total_seconds()) < 2
 
     def test_get_filter_values_clamps_when_outside_window(
-        self, free_plan_client, mock_trace_reader
+        self, free_plan_client, mock_trace_discovery
     ):
-        mock_trace_reader.get_distinct_span_values.return_value = []
+        mock_trace_discovery.get_distinct_span_values.return_value = []
         old = (_now_naive() - timedelta(days=30)).isoformat()
         response = free_plan_client.get(
             f"/api/v1/projects/test-project/traces/filter-values/model_name?start_after={old}"
         )
         assert response.status_code == 200
+        kw = mock_trace_discovery.get_distinct_span_values.call_args.kwargs
+        expected = _now_naive() - timedelta(days=15, hours=1)
+        assert abs((kw["start_after"] - expected).total_seconds()) < 2
 
     def test_get_trace_403_when_trace_outside_window(self, free_plan_client, mock_trace_reader):
         old_trace = {**TRACE_DETAIL, "trace_start_time": datetime(2020, 1, 1)}
@@ -586,3 +607,92 @@ class TestRetentionGateEnterprise:
         mock_trace_reader.get_trace.return_value = old_trace
         response = client.get("/api/v1/projects/test-project/traces/old")
         assert response.status_code == 200
+
+
+class TestBlockingReadsRunOffTheEventLoop:
+    """The synchronous ClickHouse reads must be handed to a worker thread.
+
+    Nothing observable changes when this regresses. The endpoint returns the same body
+    with the same status; the only difference is that the whole process's event loop is
+    parked for the duration of the query, so every other in-flight request stalls behind
+    it (one uvicorn worker, one replica — there is no second process to absorb it). That
+    makes it exactly the kind of change a later refactor drops without noticing.
+
+    What IS observable is where the blocking call runs. Work handed to
+    ``asyncio.to_thread`` executes on a worker thread, which has no running event loop,
+    while a call awaited inline executes on the loop thread itself — so asking for the
+    running loop from inside the mocked service call distinguishes the two directly.
+    """
+
+    @staticmethod
+    def _loop_visible_to(recorder: list[bool], result):
+        """Service stub recording whether it ran somewhere an event loop was running."""
+
+        def _call(*_args, **_kwargs):
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                recorder.append(False)
+            else:
+                recorder.append(True)
+            return result
+
+        return _call
+
+    def test_the_sentinel_would_catch_a_call_left_on_the_loop(self):
+        """Guard on the guard: the two tests below only mean something if this stub
+        reports True when it really does run on the event loop."""
+        ran_on_loop: list[bool] = []
+        stub = self._loop_visible_to(ran_on_loop, None)
+
+        async def call_inline():
+            stub()
+
+        asyncio.run(call_inline())
+
+        assert ran_on_loop == [True]
+
+    def test_list_traces_reads_off_the_loop(self, client, mock_trace_reader):
+        ran_on_loop: list[bool] = []
+        mock_trace_reader.list_traces.side_effect = self._loop_visible_to(
+            ran_on_loop,
+            {"data": [], "meta": {"page": 0, "limit": 50, "total": 0}},
+        )
+
+        response = client.get("/api/v1/projects/test-project/traces")
+
+        assert response.status_code == 200
+        assert ran_on_loop == [False]
+
+    def test_metadata_keys_reads_off_the_loop(self, client, mock_trace_discovery):
+        ran_on_loop: list[bool] = []
+        mock_trace_discovery.get_distinct_metadata_keys.side_effect = self._loop_visible_to(
+            ran_on_loop, []
+        )
+
+        response = client.get("/api/v1/projects/test-project/traces/metadata-keys")
+
+        assert response.status_code == 200
+        assert ran_on_loop == [False]
+
+    def test_a_read_that_raises_in_the_worker_thread_still_maps_to_500(
+        self, client, mock_trace_reader
+    ):
+        """The thread hop must not swallow or reshape the failure: the exception has to
+        propagate back out of the await and into the handler's own except block."""
+        mock_trace_reader.list_traces.side_effect = Exception("ClickHouse down")
+
+        response = client.get("/api/v1/projects/test-project/traces")
+
+        assert response.status_code == 500
+        assert response.json()["detail"] == "Failed to list traces"
+
+    def test_a_bad_predicate_is_rejected_before_any_thread_is_taken(
+        self, client, mock_trace_reader
+    ):
+        """Filter parsing stays in front of the hop, so a malformed predicate is a 422
+        and never costs a worker thread or a query."""
+        response = client.get("/api/v1/projects/test-project/traces?filters=not-json")
+
+        assert response.status_code == 422
+        mock_trace_reader.list_traces.assert_not_called()

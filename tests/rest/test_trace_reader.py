@@ -572,3 +572,37 @@ class TestHasTraces:
         service.has_traces("c")
         assert "a" not in service._has_traces_cache
         assert "c" in service._has_traces_cache
+
+
+class TestListTracesRows:
+    def test_trace_rows_carry_the_trace_level_metadata_map(self):
+        """The list projects the TRACE row's metadata as a map so the UI can render one
+        column per key. A trace with no metadata yields an empty map, not null."""
+        base = [
+            "t1",
+            "p1",
+            "trace",
+            datetime(2026, 6, 1),
+            "u1",
+            None,
+            3,
+            1500,
+            0,
+            "in",
+            "out",
+            10,
+            20,
+            0.5,
+        ]
+        results = iter(
+            [
+                _rows([base + [{"tenant_id": "acme-corp"}], base + [None]]),
+                _rows([[2]]),
+            ]
+        )
+        service, _ = _make_service(lambda *a, **kw: next(results))
+
+        result = service.list_traces(project_id="p1")
+
+        assert result["data"][0]["metadata_map"] == {"tenant_id": "acme-corp"}
+        assert result["data"][1]["metadata_map"] == {}
