@@ -25,6 +25,10 @@ export interface DigestSummaryDetectorInput {
   name: string;
   findingCount: number;
   sampleSummaries: string[];
+  /** Traces this detector fired on in the window, newest first (SQL-capped).
+   * Recorded on the self-trace so the digest run links back to what it
+   * summarised, the way an RCA trace links to its scanned trace. */
+  sampleTraceIds?: string[];
 }
 
 export interface DigestSummaryInput {
@@ -222,7 +226,16 @@ export async function generateDigestSummary(
             kind: "digest",
             window_start: input.windowStart.getTime(),
             window_end: input.windowEnd.getTime(),
-            detectors: input.detectors.map((d) => ({ name: d.name, findingCount: d.findingCount })),
+            detectors: input.detectors.map((d) => ({
+              name: d.name,
+              findingCount: d.findingCount,
+              // The digest reads counts and summaries, not finding rows, so no
+              // finding id reaches this far — the upstream window-summary
+              // endpoint returns finding_count and sample_trace_ids only. The
+              // sampled traces are the useful link anyway: they are what a
+              // reader can open.
+              sampleTraceIds: d.sampleTraceIds ?? [],
+            })),
           },
         },
         () =>
