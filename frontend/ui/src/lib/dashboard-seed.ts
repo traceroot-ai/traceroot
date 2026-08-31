@@ -1,6 +1,9 @@
-// Widget definitions for the lazily-created "Default" dashboard.
-// Created once per project on first dashboards fetch, then fully user-owned —
-// never re-seeded or force-updated.
+// The per-project "Default" dashboard: seeded at project creation (both the
+// UI route and the write service), with the dashboards list's lazy seed kept
+// as backfill for projects that predate creation-time seeding. Once created
+// it is fully user-owned — never re-seeded or force-updated.
+
+import type { Prisma } from "@prisma/client";
 
 type SeedWidget = {
   title: string;
@@ -108,4 +111,35 @@ export function seedWidgets(): SeedWidget[] {
   ];
 
   return widgets;
+}
+
+/**
+ * Create the "Default" dashboard and its starter widgets for a project.
+ *
+ * Accepts a transaction client so creation-time seeding commits atomically
+ * with the project row; the deterministic dashboard id keeps the lazy backfill
+ * idempotent (a concurrent duplicate fails the PK constraint, which that call
+ * site swallows). This function itself does not swallow — inside a
+ * project-create transaction a clash is a real error.
+ */
+export async function seedDefaultDashboard(
+  tx: Pick<Prisma.TransactionClient, "dashboard">,
+  { projectId, actorUserId }: { projectId: string; actorUserId: string },
+): Promise<void> {
+  const seeded = seedWidgets().map((w, i) => ({ ...w, id: `seed-${i}-${projectId}` }));
+  await tx.dashboard.create({
+    data: {
+      id: defaultDashboardId(projectId),
+      projectId,
+      name: "Default",
+      description: "Auto-created overview of traces, cost, tokens, and latency.",
+      isDefault: true,
+      createdBy: actorUserId,
+      // layout keys MUST equal widget ids (react-grid-layout matches on `i`)
+      layout: seeded.map((w) => ({ i: w.id, ...w.layout })),
+      widgets: {
+        create: seeded.map((w) => ({ id: w.id, title: w.title, type: w.type, spec: w.spec })),
+      },
+    },
+  });
 }

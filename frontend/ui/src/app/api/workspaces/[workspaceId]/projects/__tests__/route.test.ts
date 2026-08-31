@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import path from "path";
 import { pathToFileURL } from "url";
 import { z } from "zod";
@@ -16,6 +16,9 @@ const mockRequireAuth = vi.fn();
 const mockRequireWorkspaceMembership = vi.fn();
 const mockFindFirst = vi.fn();
 const mockProjectUpdate = vi.fn();
+const mockTxProjectCreate = vi.fn();
+const mockTxDashboardCreate = vi.fn();
+const mockTransaction = vi.fn();
 
 vi.mock("@/lib/auth-helpers", () => ({
   requireAuth: (...a: any[]) => mockRequireAuth(...a),
@@ -34,8 +37,15 @@ vi.mock("@traceroot/core", async (orig) => {
         findFirst: (...a: any[]) => mockFindFirst(...a),
         update: (...a: any[]) => mockProjectUpdate(...a),
       },
+      $transaction: (fn: (t: unknown) => unknown) => {
+        mockTransaction();
+        return fn({
+          project: { create: (...a: any[]) => mockTxProjectCreate(...a) },
+          dashboard: { create: (...a: any[]) => mockTxDashboardCreate(...a) },
+        });
+      },
     },
-    Role: { ADMIN: "ADMIN" },
+    Role: { ADMIN: "ADMIN", MEMBER: "MEMBER" },
   };
 });
 
@@ -101,5 +111,60 @@ describe("Workspace project route", () => {
         data: expect.objectContaining({ rcaProvider: "anthropic", rcaSource: "system" }),
       }),
     );
+  });
+});
+
+const createRoutePath = path.join(__dirname, "..", "route.ts");
+
+describe("Workspace projects create route", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockRequireAuth.mockResolvedValue({ user: { id: "u1" }, error: null });
+    mockRequireWorkspaceMembership.mockResolvedValue({ error: null });
+  });
+
+  const post = async (body: unknown) => {
+    const mod = await import(pathToFileURL(createRoutePath).href);
+    return mod.POST(
+      new Request("http://localhost/", { method: "POST", body: JSON.stringify(body) }),
+      { params: Promise.resolve({ workspaceId: "ws1" }) },
+    );
+  };
+
+  it("creates the project and seeds the Default dashboard in the same transaction", async () => {
+    mockFindFirst.mockResolvedValue(null);
+    mockTxProjectCreate.mockImplementation(({ data }: any) =>
+      Promise.resolve({ ...data, createTime: new Date() }),
+    );
+    mockTxDashboardCreate.mockResolvedValue({});
+
+    const res = await post({ name: "Checkout" });
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.name).toBe("Checkout");
+
+    expect(mockTransaction).toHaveBeenCalledTimes(1);
+    expect(mockTxDashboardCreate).toHaveBeenCalledTimes(1);
+    const { data } = mockTxDashboardCreate.mock.calls[0][0];
+    expect(data).toEqual(
+      expect.objectContaining({
+        id: `default_${body.id}`,
+        projectId: body.id,
+        name: "Default",
+        isDefault: true,
+        createdBy: "u1",
+        widgets: { create: expect.any(Array) },
+      }),
+    );
+  });
+
+  it("returns 409 on a duplicate name and creates nothing", async () => {
+    mockFindFirst.mockResolvedValue({ id: "p-existing" });
+
+    const res = await post({ name: "Checkout" });
+    expect(res.status).toBe(409);
+    expect(mockTransaction).not.toHaveBeenCalled();
+    expect(mockTxProjectCreate).not.toHaveBeenCalled();
+    expect(mockTxDashboardCreate).not.toHaveBeenCalled();
   });
 });

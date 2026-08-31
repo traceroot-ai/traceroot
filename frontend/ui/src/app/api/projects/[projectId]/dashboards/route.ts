@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { prisma, Role } from "@traceroot/core";
 import { errorResponse, successResponse } from "@/lib/auth-helpers";
 import { parseJsonObject, requireProjectAuth } from "@/lib/route-helpers";
-import { defaultDashboardId, seedWidgets } from "@/lib/dashboard-seed";
+import { seedDefaultDashboard } from "@/lib/dashboard-seed";
 import { DASHBOARD_DESCRIPTION_MAX, DASHBOARD_NAME_MAX } from "@/features/dashboards/types";
 
 type RouteParams = { params: Promise<{ projectId: string }> };
@@ -41,7 +41,7 @@ async function withCreators<T extends { createdBy: string }>(dashboards: T[]) {
 }
 
 // GET /api/projects/[projectId]/dashboards — list; lazily seeds the default
-// "Default" dashboard the first time a project's dashboards are fetched.
+// "Default" dashboard for projects that predate creation-time seeding.
 export async function GET(_req: NextRequest, { params }: RouteParams) {
   const auth = await requireProjectAuth(params);
   if (auth.error) return auth.error;
@@ -51,24 +51,8 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
   let dashboards = await prisma.dashboard.findMany(listArgs(projectId));
 
   if (dashboards.length === 0) {
-    const widgets = seedWidgets();
-    const seeded = widgets.map((w, i) => ({ ...w, id: `seed-${i}-${projectId}` }));
     try {
-      await prisma.dashboard.create({
-        data: {
-          id: defaultDashboardId(projectId),
-          projectId,
-          name: "Default",
-          description: "Auto-created overview of traces, cost, tokens, and latency.",
-          isDefault: true,
-          createdBy: user.id,
-          // layout keys MUST equal widget ids (react-grid-layout matches on `i`)
-          layout: seeded.map((w) => ({ i: w.id, ...w.layout })),
-          widgets: {
-            create: seeded.map((w) => ({ id: w.id, title: w.title, type: w.type, spec: w.spec })),
-          },
-        },
-      });
+      await seedDefaultDashboard(prisma, { projectId, actorUserId: user.id });
     } catch (e) {
       // Concurrent first-visit: another request already created it (PK clash).
       if (!(e instanceof Prisma.PrismaClientKnownRequestError) || e.code !== "P2002") throw e;

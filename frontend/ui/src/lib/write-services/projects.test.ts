@@ -6,6 +6,7 @@ const { tx, root } = vi.hoisted(() => ({
   tx: {
     workspaceMember: { findUnique: vi.fn() },
     project: { findFirst: vi.fn(), create: vi.fn() },
+    dashboard: { create: vi.fn() },
     auditLog: { create: vi.fn() },
   },
   root: { auditLog: { create: vi.fn() } },
@@ -28,6 +29,8 @@ beforeEach(() => {
   tx.workspaceMember.findUnique.mockReset();
   tx.project.findFirst.mockReset();
   tx.project.create.mockReset();
+  tx.dashboard.create.mockReset();
+  tx.dashboard.create.mockResolvedValue({});
   tx.auditLog.create.mockReset();
   tx.auditLog.create.mockResolvedValue({});
   root.auditLog.create.mockReset();
@@ -70,9 +73,41 @@ describe("createProject", () => {
         resourceId: "p1",
         workspaceId: "w1",
         projectId: "p1",
-        summary: { name: "Checkout" },
+        summary: { name: "Checkout", defaultDashboard: true },
         transport: "agent",
         agentSessionId: "as1",
+      }),
+    });
+  });
+
+  it("seeds the Default dashboard inside the transaction on create", async () => {
+    tx.workspaceMember.findUnique.mockResolvedValue({ role: "MEMBER" });
+    tx.project.findFirst.mockResolvedValue(null);
+    tx.project.create.mockResolvedValue({
+      id: "p1",
+      name: "Checkout",
+      workspaceId: "w1",
+    });
+    const r = await createProject({
+      actorUserId: "u1",
+      workspaceId: "w1",
+      name: "Checkout",
+      provenance: { transport: "public-api" },
+    });
+    expect(r).toEqual({
+      ok: true,
+      created: true,
+      data: { id: "p1", name: "Checkout", workspaceId: "w1" },
+    });
+    expect(tx.dashboard.create).toHaveBeenCalledTimes(1);
+    expect(tx.dashboard.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        id: "default_p1",
+        projectId: "p1",
+        name: "Default",
+        isDefault: true,
+        createdBy: "u1",
+        widgets: { create: expect.any(Array) },
       }),
     });
   });
@@ -124,6 +159,7 @@ describe("createProject", () => {
       select: { id: true, name: true, workspaceId: true },
     });
     expect(tx.project.create).not.toHaveBeenCalled();
+    expect(tx.dashboard.create).not.toHaveBeenCalled();
     expect(root.auditLog.create).not.toHaveBeenCalled();
   });
 
