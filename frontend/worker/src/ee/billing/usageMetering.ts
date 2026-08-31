@@ -165,12 +165,10 @@ async function processWorkspace(
     });
   }
 
+  // Every stored row, whoever wrote it (747562e2). usage.bySource splits the
+  // same total for display; it deliberately does not feed the cap, so blocking
+  // and the Stripe quantity stay one number.
   const totalEvents = usage.traces + usage.spans;
-  // Free ingestion cap counts customer rows only — internal telemetry
-  // (detector self-traces, agent traces) must never push a workspace over the
-  // Free quota, which exists for the customer's own data (totalEvents above
-  // still feeds Stripe metering, which bills every stored row).
-  const userEvents = usage.bySource.user.traces + usage.bySource.user.spans;
 
   // =========================================================================
   // 2. Query AI usage from PostgreSQL
@@ -324,11 +322,11 @@ async function processWorkspace(
   // free workspace upgrades — gating it behind `if (isFreePlan)` left the flag
   // stuck true forever (paid plans never re-entered the branch). Mirrors the
   // paid-plan unblock already done for AI (4c) and RCA (4c-ter).
-  const shouldBlockIngestion = isIngestionBlocked(plan, userEvents);
+  const shouldBlockIngestion = isIngestionBlocked(plan, totalEvents);
   if (workspace.ingestionBlocked !== shouldBlockIngestion) {
     updateData.ingestionBlocked = shouldBlockIngestion;
     console.log(
-      `[Billing] Workspace ${workspace.id}: ${userEvents}/${USAGE_CONFIG.includedUnits} customer events (${totalEvents} total), ingestion_blocked: ${shouldBlockIngestion}`,
+      `[Billing] Workspace ${workspace.id}: ${totalEvents}/${USAGE_CONFIG.includedUnits} events, ingestion_blocked: ${shouldBlockIngestion}`,
     );
   }
 
