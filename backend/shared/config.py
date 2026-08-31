@@ -7,7 +7,7 @@ Environment variables are loaded from .env by entrypoints (rest/main.py,
 worker/celery_app.py) before this module is first imported.
 """
 
-from pydantic import AliasChoices, Field, field_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Values shipped as defaults in .env.example / docker-compose.prod.yml. They are
@@ -183,6 +183,26 @@ class Settings(BaseSettings):
         silently-trusted value into a visible misconfiguration.
         """
         return "" if value.strip().lower() in _PUBLISHED_INTERNAL_SECRETS else value
+
+    @model_validator(mode="after")
+    def _internal_secrets_must_differ(self) -> "Settings":
+        """Refuse two internal callers sharing one credential.
+
+        The ingest route derives a trace's `source` from which secret
+        authenticated, and the check is ordered — the platform secret is tried
+        first. Configure the same value twice and every agent request is
+        identified as the platform, so agent traces are stored as `detector`
+        with nothing anywhere reporting it. Failing at startup makes a
+        misconfiguration loud instead of silently collapsing the distinction the
+        whole source model rests on.
+        """
+        if self.internal_api_secret and self.internal_api_secret == self.internal_api_secret_agent:
+            raise ValueError(
+                "INTERNAL_API_SECRET and INTERNAL_API_SECRET_AGENT must differ: "
+                "the ingest route derives a trace's source from which one authenticated, "
+                "so sharing a value silently labels agent traces as detector traces."
+            )
+        return self
 
     # Live SSE: how long a completed root span must stay quiet before the
     # stream emits trace_complete. Must exceed the SDK's flush interval

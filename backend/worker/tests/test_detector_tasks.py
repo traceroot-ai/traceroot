@@ -8,6 +8,8 @@ from worker.detector_tasks import (
     _eval_condition,
     _get_trace_summaries,
     _passes_trigger,
+    DETECTOR_TARGET_SOURCES,
+    DETECTOR_TARGET_SOURCE_SQL,
     is_detector_target_source,
 )
 
@@ -195,5 +197,9 @@ def test_trace_summaries_query_scopes_to_user_source():
     with patch("db.clickhouse.client.get_clickhouse_client", return_value=ch):
         _get_trace_summaries("p1", ["t1"], include_trace_metadata=False)
     sql = ch.query.call_args_list[0].args[0]
-    assert "AND source = 'user'" in sql
+    # Asserted through the constant the query is generated from, so the allowlist
+    # has one definition: widening DETECTOR_TARGET_SOURCES changes the predicate
+    # and this assertion together, and cannot change one without the other.
+    assert f"AND {DETECTOR_TARGET_SOURCE_SQL}" in sql
+    assert DETECTOR_TARGET_SOURCES == frozenset({"user"}), "judge must target customer traffic only"
     assert "!= 'detector'" not in sql
