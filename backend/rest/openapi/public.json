@@ -6389,7 +6389,7 @@
           "Project (Public)"
         ],
         "x-tool": {
-          "description": "Add a widget (title, type, spec) to an existing dashboard. Type \"query\" charts a metric (spec: view/filters/metric/breakdown/display); type \"trace_feed\" lists recent traces (spec: predicate filters + limit). Strict create: every call adds a new widget.",
+          "description": "Add a widget (title, type, spec) to an existing dashboard. Type \"query\" charts a metric (spec: view/filters/metric/breakdown/display); type \"trace_feed\" lists recent traces (spec: predicate filters + limit). Strict create: every call adds a new widget. The spec schema enumerates the only available views, metrics, filter operators, and display types \u2014 nothing outside it exists. If the user asks for a visualization or option that is not in the schema (for example a display type the enum lacks), say so explicitly and propose the closest available match instead of silently substituting.",
           "enabled": true,
           "name": "create_widget",
           "policy": {
