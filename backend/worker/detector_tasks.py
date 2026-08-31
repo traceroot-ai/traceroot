@@ -288,6 +288,15 @@ def _has_metadata_condition(detectors: list[dict]) -> bool:
 # if enqueueing is ever wired to another path.
 DETECTOR_TARGET_SOURCES = frozenset({"user"})
 
+# The SQL predicate is generated from the same frozenset the helper checks, so the
+# allowlist has one definition. Written as a literal because ClickHouse cannot
+# parameterise an IN list here without changing the query shape; the values are
+# ours, not user input, and the assertion below keeps them safe to inline.
+assert all(s.isalpha() for s in DETECTOR_TARGET_SOURCES), "sources must be bare identifiers"
+DETECTOR_TARGET_SOURCE_SQL = "source IN (" + ", ".join(
+    f"'{s}'" for s in sorted(DETECTOR_TARGET_SOURCES)
+) + ")"
+
 
 def is_detector_target_source(source: str | None) -> bool:
     """True only for customer traffic. Fails closed on None, '' and unknown values."""
@@ -325,7 +334,7 @@ def _get_trace_summaries(
     parameters = {"project_id": project_id, "trace_ids": trace_ids}
 
     result = ch.query(
-        """
+        f"""
         SELECT
             trace_id,
             groupUniqArray(environment) AS environments,
@@ -345,9 +354,9 @@ def _get_trace_summaries(
             SELECT trace_id, span_id, environment, model_name, cost, total_tokens,
                    span_start_time, span_end_time, status, metadata_map, is_evaluation
             FROM spans
-            WHERE project_id = {project_id:String}
-              AND trace_id IN {trace_ids:Array(String)}
-              AND source = 'user'
+            WHERE project_id = {{project_id:String}}
+              AND trace_id IN {{trace_ids:Array(String)}}
+              AND {DETECTOR_TARGET_SOURCE_SQL}
             ORDER BY ch_update_time DESC
             LIMIT 1 BY project_id, trace_id, span_id
         )
