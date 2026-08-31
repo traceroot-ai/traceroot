@@ -8,8 +8,9 @@ WORKDIR /app
 
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
 COPY frontend/.npmrc ./.npmrc
-COPY frontend/packages/agent/package.json ./packages/agent/package.json
+COPY frontend/ee/agent/package.json ./ee/agent/package.json
 COPY frontend/packages/core/package.json ./packages/core/package.json
+COPY frontend/packages/tools/package.json ./packages/tools/package.json
 
 RUN pnpm install --frozen-lockfile
 
@@ -17,11 +18,13 @@ FROM base AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/packages/agent/node_modules ./packages/agent/node_modules
+COPY --from=deps /app/ee/agent/node_modules ./ee/agent/node_modules
 COPY --from=deps /app/packages/core/node_modules ./packages/core/node_modules
+COPY --from=deps /app/packages/tools/node_modules ./packages/tools/node_modules
 
 COPY frontend/packages/core ./packages/core
-COPY frontend/packages/agent ./packages/agent
+COPY frontend/ee/agent ./ee/agent
+COPY frontend/packages/tools ./packages/tools
 COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
 
 # Generate Prisma client (agent depends on core which uses Prisma)
@@ -36,7 +39,10 @@ RUN cd packages/core && npx prisma generate \
 RUN cd packages/core && \
     pnpm build && \
     node -e "const fs=require('fs'); const p=JSON.parse(fs.readFileSync('package.json','utf8')); p.main='./dist/index.js'; p.exports={'.':{types:'./dist/index.d.ts',import:'./dist/index.js'},'./model-resolver':{types:'./dist/model-resolver.d.ts',import:'./dist/model-resolver.js'},'./llm-providers':{types:'./dist/llm-providers.d.ts',import:'./dist/llm-providers.js'}}; fs.writeFileSync('package.json',JSON.stringify(p,null,2))"
-RUN cd packages/agent && pnpm build
+# The agent resolves @traceroot-ai/tools through its compiled dist, so build
+# the tools package first.
+RUN cd packages/tools && pnpm build
+RUN cd ee/agent && pnpm build
 
 FROM node:20-alpine AS runner
 WORKDIR /app
@@ -49,13 +55,17 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages/core/dist ./packages/core/dist
 COPY --from=builder /app/packages/core/package.json ./packages/core/package.json
 COPY --from=builder /app/packages/core/node_modules ./packages/core/node_modules
+# Copy the compiled tools package (no runtime deps; the workspace symlink in
+# node_modules points at this directory, so dist + package.json must exist)
+COPY --from=builder /app/packages/tools/dist ./packages/tools/dist
+COPY --from=builder /app/packages/tools/package.json ./packages/tools/package.json
 # Copy compiled agent
-COPY --from=builder /app/packages/agent/dist ./packages/agent/dist
-COPY --from=builder /app/packages/agent/package.json ./packages/agent/package.json
-COPY --from=builder /app/packages/agent/node_modules ./packages/agent/node_modules
+COPY --from=builder /app/ee/agent/dist ./ee/agent/dist
+COPY --from=builder /app/ee/agent/package.json ./ee/agent/package.json
+COPY --from=builder /app/ee/agent/node_modules ./ee/agent/node_modules
 # Copy Prisma engines
 COPY --from=builder /tmp/prisma-engines/.prisma ./node_modules/.prisma
 
 EXPOSE 8100
 
-CMD ["node", "packages/agent/dist/index.js"]
+CMD ["node", "ee/agent/dist/index.js"]

@@ -1,12 +1,15 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Eye, X, Copy, Check, ArrowUp, ArrowDown } from "lucide-react";
+import { X, Copy, Check, ArrowUp, ArrowDown } from "lucide-react";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { useDetector, useUpdateDetector } from "../hooks/use-detectors";
+import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 import { DEFAULT_DETECTOR_SAMPLE_RATE } from "../templates";
 import { useProject } from "@/features/projects/hooks";
 import { TriggerEditor } from "./trigger-editor";
 import type { TriggerCondition } from "./trigger-editor";
+import { normalizeTriggerConditions, validateTriggerConditions } from "../trigger-fields";
 import { AgentModelLink } from "./agent-model-link";
 import { RcaToggle } from "./rca-toggle";
 import {
@@ -75,7 +78,7 @@ export function DetectorPanel({
     detectionModel: editModelSelection.model,
     detectionProvider: editModelSelection.provider,
     detectionSource: editModelSelection.source === "byok" ? "byok" : "system",
-    conditions: editConditions as DetectorFormValues["conditions"],
+    conditions: normalizeTriggerConditions(editConditions) as DetectorFormValues["conditions"],
   });
 
   const applyForm = (values: DetectorFormValues) => {
@@ -139,6 +142,18 @@ export function DetectorPanel({
 
   const updateMutation = useUpdateDetector(projectId, detectorId);
 
+  // Block Save while a filter row is incomplete (missing value or metadata
+  // key) — the write path rejects such payloads, and the fetch layer would
+  // surface only a generic failure. Scoped to a save that actually writes the
+  // conditions: a detector stored before this registry existed can hold a row
+  // the registry now rejects, and that must not lock its name or prompt.
+  const loadedValues = loadedRef.current?.values;
+  const savesConditions =
+    !!loadedValues && buildDetectorPatch(loadedValues, readForm()).triggerConditions !== undefined;
+  const conditionsError = savesConditions
+    ? validateTriggerConditions(normalizeTriggerConditions(editConditions))
+    : null;
+
   const handleSave = () => {
     // Guard against saving while the new detector's data is still loading.
     // Edit state would be the previous detector's, but the mutation targets
@@ -162,7 +177,7 @@ export function DetectorPanel({
       {/* Header — same style as trace viewer */}
       <div className="flex h-10 flex-shrink-0 items-center justify-between border-b border-border bg-muted/30 px-4">
         <div className="flex min-w-0 items-center gap-2">
-          <Eye className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <DOMAIN_ICONS.detector className="h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="text-[13px] font-medium">Detector</span>
           <span className="truncate text-[13px] text-muted-foreground">
             {detector?.name ?? detectorId}
@@ -237,6 +252,7 @@ export function DetectorPanel({
                 value={editModelSelection}
                 onChange={setEditModelSelection}
                 workspaceId={workspaceId}
+                defaultModelId={DETECTOR_SYSTEM_DEFAULT_MODEL_ID}
               />
               <p className="mt-1 text-[11px] text-muted-foreground">
                 Used to evaluate each trace for this detector.
@@ -279,7 +295,12 @@ export function DetectorPanel({
 
         {/* Filter */}
         <div className="border border-border">
-          <TriggerEditor conditions={editConditions} onChange={setEditConditions} asCard />
+          <TriggerEditor
+            conditions={editConditions}
+            projectId={projectId}
+            onChange={setEditConditions}
+            asCard
+          />
         </div>
 
         {/* Sampling */}
@@ -303,14 +324,22 @@ export function DetectorPanel({
         </div>
 
         {/* Save / Cancel */}
-        <div className="flex justify-end gap-2 pt-1">
+        <div className="flex items-center justify-end gap-2 pt-1">
+          {conditionsError && (
+            <span className="text-[12px] text-destructive">{conditionsError}</span>
+          )}
           <Button variant="outline" size="sm" onClick={onClose} className="h-7 text-[12px]">
             Cancel
           </Button>
           <Button
             size="sm"
             onClick={handleSave}
-            disabled={updateMutation.isPending || !detector || detector.id !== detectorId}
+            disabled={
+              updateMutation.isPending ||
+              !detector ||
+              detector.id !== detectorId ||
+              conditionsError !== null
+            }
             className="h-7 text-[12px]"
           >
             {updateMutation.isPending ? "Saving..." : "Save"}

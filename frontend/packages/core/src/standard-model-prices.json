@@ -13,9 +13,22 @@
     }
   },
   {
-    "id": "tr-claude-opus-4-8",
-    "modelName": "claude-opus-4-8",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-4-8(\\[1m\\])?(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-opus-4-8(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-8-opus(@[\\d-]+)?)$",
+    "id": "tr-claude-opus-5-fast",
+    "modelName": "claude-opus-5-fast",
+    "matchPattern": "(?i)^(anthropic\\/)?claude-opus-5-fast$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 0.00001,
+      "output": 0.00005,
+      "cacheRead": 0.000001,
+      "cacheWrite": 0.0000125,
+      "cacheWrite1h": 0.00002
+    }
+  },
+  {
+    "id": "tr-claude-opus-5",
+    "modelName": "claude-opus-5",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-5(\\[1m\\])?(-[\\d-]+)?(@[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-opus-5(-[\\d-]+)?(-v\\d+:\\d+)?|claude-5-opus(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.000005,
@@ -26,9 +39,48 @@
     }
   },
   {
+    "id": "tr-claude-opus-4-8-fast",
+    "modelName": "claude-opus-4-8-fast",
+    "matchPattern": "(?i)^(anthropic\\/)?claude-opus-4[.-]8-fast$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 0.00001,
+      "output": 0.00005,
+      "cacheRead": 0.000001,
+      "cacheWrite": 0.0000125,
+      "cacheWrite1h": 0.00002
+    }
+  },
+  {
+    "id": "tr-claude-opus-4-8",
+    "modelName": "claude-opus-4-8",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-4[.-]8(\\[1m\\])?(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-opus-4-8(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-8-opus(@[\\d-]+)?)$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 0.000005,
+      "output": 0.000025,
+      "cacheRead": 0.0000005,
+      "cacheWrite": 0.00000625,
+      "cacheWrite1h": 0.00001
+    }
+  },
+  {
+    "id": "tr-claude-opus-4-7-fast",
+    "modelName": "claude-opus-4-7-fast",
+    "matchPattern": "(?i)^(anthropic\\/)?claude-opus-4[.-]7-fast$",
+    "provider": "anthropic",
+    "prices": {
+      "input": 0.00003,
+      "output": 0.00015,
+      "cacheRead": 0.000003,
+      "cacheWrite": 0.0000375,
+      "cacheWrite1h": 0.00006
+    }
+  },
+  {
     "id": "tr-claude-opus-4-7",
     "modelName": "claude-opus-4-7",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-4-7(\\[1m\\])?(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-opus-4-7(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-7-opus(@[\\d-]+)?)$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-4[.-]7(\\[1m\\])?(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-opus-4-7(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-7-opus(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.000005,
@@ -41,7 +93,7 @@
   {
     "id": "tr-claude-opus-4-6",
     "modelName": "claude-opus-4-6",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-4-6(\\[1m\\])?(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-opus-4-6(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-6-opus(@[\\d-]+)?)$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-4[.-]6(\\[1m\\])?(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-opus-4-6(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-6-opus(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.000005,
@@ -67,7 +119,7 @@
   {
     "id": "tr-claude-sonnet-4-6",
     "modelName": "claude-sonnet-4-6",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-sonnet-4-6(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-sonnet-4-6(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-6-sonnet(@[\\d-]+)?)$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-sonnet-4[.-]6(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-sonnet-4-6(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-6-sonnet(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.000003,
@@ -80,7 +132,7 @@
   {
     "id": "tr-claude-opus-4-5",
     "modelName": "claude-opus-4-5",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-4-5(\\[1m\\])?(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-opus-4-5(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-5-opus(@[\\d-]+)?)$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-opus-4[.-]5(\\[1m\\])?(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-opus-4-5(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-5-opus(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.000005,
@@ -93,7 +145,7 @@
   {
     "id": "tr-claude-sonnet-4-5",
     "modelName": "claude-sonnet-4-5",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-sonnet-4-5(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-sonnet-4-5(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-5-sonnet(@[\\d-]+)?)$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-sonnet-4[.-]5(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-sonnet-4-5(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-5-sonnet(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.000003,
@@ -106,7 +158,7 @@
   {
     "id": "tr-claude-haiku-4-5",
     "modelName": "claude-haiku-4-5",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-haiku-4-5(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-haiku-4-5(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-5-haiku(@[\\d-]+)?)$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-haiku-4[.-]5(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-haiku-4-5(-[\\d-]+)?(-v\\d+:\\d+)?|claude-4-5-haiku(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.000001,
@@ -659,7 +711,7 @@
   {
     "id": "tr-claude-3-5-sonnet",
     "modelName": "claude-3-5-sonnet",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-3-5-sonnet(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-3-5-sonnet(-[\\d-]+)?(-v\\d+:\\d+)?|claude-3-5-sonnet(@[\\d-]+)?)$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-3[.-]5-sonnet(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-3-5-sonnet(-[\\d-]+)?(-v\\d+:\\d+)?|claude-3-5-sonnet(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.000003,
@@ -672,7 +724,7 @@
   {
     "id": "tr-claude-3-5-haiku",
     "modelName": "claude-3-5-haiku",
-    "matchPattern": "(?i)^(anthropic\\/)?(claude-3-5-haiku(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-3-5-haiku(-[\\d-]+)?(-v\\d+:\\d+)?|claude-3-5-haiku(@[\\d-]+)?)$",
+    "matchPattern": "(?i)^(anthropic\\/)?(claude-3[.-]5-haiku(-[\\d-]+)?|(eu\\.|us\\.|apac\\.|global\\.)?anthropic\\.claude-3-5-haiku(-[\\d-]+)?(-v\\d+:\\d+)?|claude-3-5-haiku(@[\\d-]+)?)$",
     "provider": "anthropic",
     "prices": {
       "input": 0.0000008,
@@ -1115,6 +1167,18 @@
       "input": 0,
       "output": 0,
       "cacheRead": 0,
+      "cacheWrite": null
+    }
+  },
+  {
+    "id": "tr-kimi-k3",
+    "modelName": "kimi-k3",
+    "matchPattern": "(?i)^(moonshot\\/)?kimi-k3(-[\\d-]+)?$",
+    "provider": "moonshot",
+    "prices": {
+      "input": 0.000003,
+      "output": 0.000015,
+      "cacheRead": 0.0000003,
       "cacheWrite": null
     }
   }

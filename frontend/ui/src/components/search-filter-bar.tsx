@@ -1,13 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { Search, ChevronDown, Calendar } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Search } from "lucide-react";
+import { DateFilterSelect } from "@/components/date-filter-select";
 import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { DateRangePicker } from "@/components/ui/date-time-picker";
-import { cn } from "@/lib/utils";
-import { DATE_FILTER_OPTIONS, formatDateRange, type DateFilterOption } from "@/lib/date-filter";
+import type { DateFilterOption } from "@/lib/date-filter";
 
 interface SearchFilterBarProps {
   // Search
@@ -17,14 +13,22 @@ interface SearchFilterBarProps {
   // Optional replacement for the default search input (e.g. a combined
   // search-and-filter input). When provided, the plain input is not rendered.
   searchInput?: React.ReactNode;
-  // Date filter
-  dateFilter: DateFilterOption;
-  customStartDate: Date | null;
-  customEndDate: Date | null;
-  onDateFilterChange: (option: DateFilterOption) => void;
-  onCustomRangeChange: (startDate: Date, endDate: Date) => void;
+  // Date filter — omit all five when the list has no date predicate to apply
+  // one to; a rendered-but-inert filter would falsely read as an applied
+  // constraint. The control simply doesn't render when `dateFilter` is unset.
+  dateFilter?: DateFilterOption;
+  customStartDate?: Date | null;
+  customEndDate?: Date | null;
+  onDateFilterChange?: (option: DateFilterOption) => void;
+  onCustomRangeChange?: (startDate: Date, endDate: Date) => void;
+  // Retention gating — options exceeding the window show a lock icon
+  retentionDays?: number | null;
+  onUpgradeClick?: () => void;
   // Optional additional content (e.g., filter badges)
   children?: React.ReactNode;
+  // Optional control rendered immediately left of the date filter, grouped with it on the
+  // right of the bar rather than with `children` on the left.
+  beforeDateFilter?: React.ReactNode;
 }
 
 export function SearchFilterBar({
@@ -37,28 +41,11 @@ export function SearchFilterBar({
   customEndDate,
   onDateFilterChange,
   onCustomRangeChange,
+  retentionDays,
+  onUpgradeClick,
   children,
+  beforeDateFilter,
 }: SearchFilterBarProps) {
-  const [dateFilterOpen, setDateFilterOpen] = useState(false);
-  const [showCustomPicker, setShowCustomPicker] = useState(false);
-
-  const getDateFilterLabel = () => {
-    if (dateFilter.isCustom && customStartDate && customEndDate) {
-      return formatDateRange(customStartDate, customEndDate);
-    }
-    return dateFilter.label;
-  };
-
-  const handleCustomDateApply = (startDate: Date | null, endDate: Date | null) => {
-    if (startDate && endDate) {
-      const customOption = DATE_FILTER_OPTIONS.find((o) => o.isCustom)!;
-      onDateFilterChange(customOption);
-      onCustomRangeChange(startDate, endDate);
-    }
-    setDateFilterOpen(false);
-    setShowCustomPicker(false);
-  };
-
   return (
     <div className="border-b border-border bg-background px-3 py-1.5">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -74,61 +61,22 @@ export function SearchFilterBar({
           </div>
         )}
         {children}
-        <Popover
-          open={dateFilterOpen}
-          onOpenChange={(open) => {
-            setDateFilterOpen(open);
-            if (!open) setShowCustomPicker(false);
-          }}
-        >
-          <PopoverTrigger asChild>
-            <Button
-              variant="outline"
-              size="sm"
-              className="ml-auto h-8 min-w-[140px] justify-between gap-2 text-[13px] font-normal"
-            >
-              <span>{getDateFilterLabel()}</span>
-              <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent
-            align="end"
-            className={cn("p-0", showCustomPicker ? "w-auto" : "w-auto min-w-[130px]")}
-          >
-            {!showCustomPicker ? (
-              <div className="py-1">
-                {DATE_FILTER_OPTIONS.map((option) => (
-                  <button
-                    key={option.id}
-                    className={cn(
-                      "flex w-full items-center gap-1.5 px-2.5 py-1 text-left text-[13px] transition-colors",
-                      dateFilter.id === option.id && !option.isCustom
-                        ? "bg-muted/70"
-                        : "hover:bg-muted/50",
-                    )}
-                    onClick={() => {
-                      if (option.isCustom) {
-                        setShowCustomPicker(true);
-                      } else {
-                        onDateFilterChange(option);
-                        setDateFilterOpen(false);
-                      }
-                    }}
-                  >
-                    {option.isCustom && <Calendar className="h-3 w-3 text-muted-foreground" />}
-                    <span>{option.label}</span>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <DateRangePicker
-                startDate={customStartDate}
-                endDate={customEndDate}
-                onApply={handleCustomDateApply}
-              />
-            )}
-          </PopoverContent>
-        </Popover>
+        {dateFilter && onDateFilterChange && onCustomRangeChange && (
+          <div className="ml-auto flex items-center gap-2">
+            {/* The auto margin moves to the group so an adjacent control travels with the date
+                filter and wraps with it instead of drifting to the other end of the bar. */}
+            {beforeDateFilter}
+            <DateFilterSelect
+              dateFilter={dateFilter}
+              customStartDate={customStartDate ?? null}
+              customEndDate={customEndDate ?? null}
+              onDateFilterChange={onDateFilterChange}
+              onCustomRangeChange={onCustomRangeChange}
+              retentionDays={retentionDays}
+              onUpgradeClick={onUpgradeClick}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

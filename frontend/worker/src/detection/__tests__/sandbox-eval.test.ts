@@ -1,13 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const { mockComplete, mockResolvePiModel, mockFetchProviderConfig, mockFindByokKey } = vi.hoisted(
-  () => ({
-    mockComplete: vi.fn(),
-    mockResolvePiModel: vi.fn(),
-    mockFetchProviderConfig: vi.fn(),
-    mockFindByokKey: vi.fn().mockResolvedValue(null),
-  }),
-);
+const {
+  mockComplete,
+  mockResolvePiModel,
+  mockFetchProviderConfig,
+  mockFindByokKey,
+  mockIsSystemModelId,
+} = vi.hoisted(() => ({
+  mockComplete: vi.fn(),
+  mockResolvePiModel: vi.fn(),
+  mockFetchProviderConfig: vi.fn(),
+  mockFindByokKey: vi.fn().mockResolvedValue(null),
+  mockIsSystemModelId: vi.fn(),
+}));
 
 // Forward unmocked exports (Type, getModel, etc.) so submit-result-tool.ts's
 // TypeBox imports still work; only `complete` is replaced with the mock.
@@ -23,6 +28,7 @@ vi.mock("@traceroot/core/model-resolver", () => ({
   resolvePiModel: mockResolvePiModel,
   fetchProviderConfig: mockFetchProviderConfig,
   findByokKeyForPiProvider: mockFindByokKey,
+  isSystemModelId: mockIsSystemModelId,
 }));
 
 import {
@@ -79,6 +85,8 @@ describe("runDetectionForTrace", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockResolvePiModel.mockReturnValue(ANTHROPIC_MODEL);
+    // Default: the id is in the catalog. The retired-model test overrides this.
+    mockIsSystemModelId.mockReturnValue(true);
     // Default: workspace BYOK scan returns a key. Individual tests can override
     // by chaining mockResolvedValueOnce(null) before the call to simulate "no key".
     mockFindByokKey.mockResolvedValue("test-api-key");
@@ -138,7 +146,7 @@ describe("runDetectionForTrace", () => {
     expect(mockResolvePiModel).toHaveBeenCalledWith(DETECTOR_SYSTEM_DEFAULT_MODEL_ID, null);
   });
 
-  it("keeps legacy null-source detectors on the availability-aware resolver default", async () => {
+  it("screens legacy null-source detectors on the system default, as the UI labels them", async () => {
     mockComplete.mockResolvedValueOnce({
       content: [
         {
@@ -158,7 +166,58 @@ describe("runDetectionForTrace", () => {
       workspaceId: "ws-1",
     });
 
-    expect(mockResolvePiModel).toHaveBeenCalledWith(undefined, null);
+    expect(mockResolvePiModel).toHaveBeenCalledWith(DETECTOR_SYSTEM_DEFAULT_MODEL_ID, null);
+  });
+
+  // A retired model id, or one an API client invented, would otherwise resolve
+  // to an unrelated fallback and screen on it while the UI shows the pinned id.
+  it("refuses a pinned system model that has left the catalog", async () => {
+    mockIsSystemModelId.mockReturnValue(false);
+
+    const result = await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: { ...DETECTOR, detectionSource: "system", detectionModel: "claude-retired-1" },
+      workspaceId: "ws-1",
+    });
+
+    expect(result.error).toContain("claude-retired-1");
+    expect(result.inferenceSource).toBe("system");
+    expect(mockResolvePiModel).not.toHaveBeenCalled();
+    expect(mockComplete).not.toHaveBeenCalled();
+  });
+
+  // BYOK rows resolve against their own provider catalog, so the system-model
+  // check must not reject them.
+  it("does not apply the system-catalog check to BYOK detectors", async () => {
+    mockIsSystemModelId.mockReturnValue(false);
+    mockFetchProviderConfig.mockResolvedValueOnce(BYOK_PROVIDER_CONFIG);
+    mockComplete.mockResolvedValueOnce({
+      content: [
+        {
+          type: "toolCall",
+          name: "submit_result",
+          arguments: { identified: false, summary: "Clean trace", data: {} },
+        },
+      ],
+      usage: ZERO_USAGE,
+      stopReason: "toolUse",
+    });
+
+    const result = await runDetectionForTrace({
+      traceId: "trace-abc",
+      spansJsonl: "{}",
+      detector: {
+        ...DETECTOR,
+        detectionSource: "byok",
+        detectionProvider: "My Anthropic",
+        detectionModel: "custom-model-1",
+      },
+      workspaceId: "ws-1",
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(mockResolvePiModel).toHaveBeenCalledWith("custom-model-1", BYOK_PROVIDER_CONFIG);
   });
 
   it("passes pinned system detector models through to the resolver", async () => {
@@ -557,7 +616,10 @@ describe("runDetectionForTrace", () => {
       expect(result.inferenceSource).toBe("system");
     });
 
-    it("treats null source as null on the EvalResult (processor normalizes)", async () => {
+    // Attribution follows the model that actually ran: a null-source detector
+    // screens on the system default with a system key, so the run is system.
+    // Billing is unaffected either way — the processor only asks `=== "byok"`.
+    it("attributes a null-source run to system on the EvalResult", async () => {
       mockComplete.mockResolvedValueOnce({
         content: [
           {
@@ -570,15 +632,14 @@ describe("runDetectionForTrace", () => {
         stopReason: "toolUse",
       });
 
-      const detectorWithoutSource = { ...DETECTOR };
       const result = await runDetectionForTrace({
         traceId: "t",
         spansJsonl: "{}",
-        detector: detectorWithoutSource,
+        detector: { ...DETECTOR, detectionSource: null },
         workspaceId: "ws-1",
       });
 
-      expect(result.inferenceSource).toBeNull();
+      expect(result.inferenceSource).toBe("system");
       expect(result.inferenceCost).toBeCloseTo(0.002, 6);
     });
   });

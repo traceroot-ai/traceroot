@@ -2,7 +2,13 @@
  * Trace API functions (Python backend - ClickHouse)
  */
 import { fetchTraceApi, type TraceApiUser } from "./client";
-import type { SpanIO, TraceDetail, TraceListResponse, TraceQueryOptions } from "@/types/api";
+import type {
+  MetadataKeysResponse,
+  SpanIO,
+  TraceDetail,
+  TraceListResponse,
+  TraceQueryOptions,
+} from "@/types/api";
 import { serializeFiltersParam } from "@/features/filters/predicate";
 import type { FilterFieldsResponse, FilterValuesResponse } from "@/features/filters/registry";
 
@@ -21,6 +27,7 @@ export async function getTraces(
   if (options.start_after) params.set("start_after", options.start_after);
   if (options.end_before) params.set("end_before", options.end_before);
   if (options.search_query) params.set("search_query", options.search_query);
+  if (options.include_evaluations) params.set("include_evaluations", "true");
   const filtersParam = serializeFiltersParam(options.filters);
   if (filtersParam) params.set("filters", filtersParam);
 
@@ -30,13 +37,22 @@ export async function getTraces(
   return fetchTraceApi<TraceListResponse>(endpoint, {}, user);
 }
 
+export async function tracesExist(
+  projectId: string,
+  user?: TraceApiUser,
+): Promise<{ exists: boolean }> {
+  return fetchTraceApi<{ exists: boolean }>(`/projects/${projectId}/traces/exists`, {}, user);
+}
+
 export async function getTrace(
   projectId: string,
   traceId: string,
   _apiKey: string,
   user?: TraceApiUser,
+  source?: "detector" | "user",
 ): Promise<TraceDetail> {
-  return fetchTraceApi<TraceDetail>(`/projects/${projectId}/traces/${traceId}`, {}, user);
+  const query = source ? `?source=${source}` : "";
+  return fetchTraceApi<TraceDetail>(`/projects/${projectId}/traces/${traceId}${query}`, {}, user);
 }
 
 /** Registry of filterable fields driving the filter dropdown (Python source of truth). */
@@ -65,6 +81,32 @@ export async function getFilterValues(
   const query = params.toString() ? `?${params.toString()}` : "";
   return fetchTraceApi<FilterValuesResponse>(
     `/projects/${projectId}/traces/filter-values/${encodeURIComponent(field)}${query}`,
+    {},
+    user,
+  );
+}
+
+/**
+ * Metadata keys observed in the active window, frequency-ordered — the discovery answer
+ * behind the metadata filter's key combobox, its one consumer.
+ *
+ * The window is passed exactly as the distinct-values fetcher passes it, and for the same
+ * reason: a key list gathered outside the window the user is looking at would suggest keys
+ * that return zero rows the moment they are picked. The response carries the keys and
+ * nothing else — it does not echo the bounds back.
+ */
+export async function getMetadataKeys(
+  projectId: string,
+  startAfter: string | undefined,
+  endBefore: string | undefined,
+  user?: TraceApiUser,
+): Promise<MetadataKeysResponse> {
+  const params = new URLSearchParams();
+  if (startAfter) params.set("start_after", startAfter);
+  if (endBefore) params.set("end_before", endBefore);
+  const query = params.toString() ? `?${params.toString()}` : "";
+  return fetchTraceApi<MetadataKeysResponse>(
+    `/projects/${projectId}/traces/metadata-keys${query}`,
     {},
     user,
   );

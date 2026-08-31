@@ -4,14 +4,15 @@ Auth is overridden and the reader service is replaced with a fake, so these run
 with no live databases.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
 
 from rest.main import app
-from rest.routers.public.deps import AuthResult, authenticate_api_key
+from rest.routers.public.deps import AuthResult, authenticate_public_caller
 from rest.schemas.public import (
+    DetectorDetail,
     DetectorItem,
     DetectorResultItem,
     FindingDetail,
@@ -21,11 +22,15 @@ from rest.schemas.public import (
 from rest.services.detector_reader import get_detector_reader_service
 
 
-def make_auth(project_id: str = "proj-A") -> AuthResult:
+def _now_naive():
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+def make_auth(project_id: str = "proj-A", billing_plan: str = "enterprise") -> AuthResult:
     return AuthResult(
         project_id=project_id,
         workspace_id="ws-1",
-        billing_plan="pro",
+        billing_plan=billing_plan,
         ingestion_blocked=False,
     )
 
@@ -35,6 +40,9 @@ class FakeReader:
         self.list_args: dict | None = None
         self.list_return: tuple = ([], 0)
         self.raise_on_list = False
+        self.raise_on_get_finding_by_trace = False
+        self.raise_on_get_finding = False
+        self.raise_on_get_detector = False
         self.detectors_args: dict | None = None
         self.detectors_return: tuple = ([], 0)
         self.raise_on_detectors = False
@@ -42,6 +50,8 @@ class FakeReader:
         self.by_trace: FindingDetail | None = None
         self.last_get: tuple | None = None
         self.last_by_trace: tuple | None = None
+        self.detector: object | None = None
+        self.last_get_detector: tuple | None = None
 
     def list_findings(self, **kwargs):
         self.list_args = kwargs
@@ -57,11 +67,21 @@ class FakeReader:
 
     def get_finding(self, project_id, finding_id):
         self.last_get = (project_id, finding_id)
+        if self.raise_on_get_finding:
+            raise RuntimeError("boom")
         return self.finding
 
     def get_finding_by_trace(self, project_id, trace_id):
         self.last_by_trace = (project_id, trace_id)
+        if self.raise_on_get_finding_by_trace:
+            raise RuntimeError("boom")
         return self.by_trace
+
+    def get_detector(self, project_id, detector_id):
+        self.last_get_detector = (project_id, detector_id)
+        if self.raise_on_get_detector:
+            raise RuntimeError("boom")
+        return self.detector
 
 
 @pytest.fixture()
@@ -72,7 +92,7 @@ def reader():
 @pytest.fixture()
 def client(reader):
     # conftest's autouse fixture clears app.dependency_overrides after each test.
-    app.dependency_overrides[authenticate_api_key] = lambda: make_auth()
+    app.dependency_overrides[authenticate_public_caller] = lambda: make_auth()
     app.dependency_overrides[get_detector_reader_service] = lambda: reader
     return TestClient(app)
 
@@ -241,6 +261,14 @@ def test_detail_404_when_missing(client, reader):
     assert client.get("/api/v1/public/detectors/findings/nope").status_code == 404
 
 
+def test_detail_reader_failure_returns_sanitized_500(client, reader):
+    reader.raise_on_get_finding = True
+    resp = client.get("/api/v1/public/detectors/findings/f1")
+    assert resp.status_code == 500
+    assert resp.json()["detail"] == "Failed to read finding"
+    assert "boom" not in resp.text
+
+
 def test_detail_by_trace_returns_finding(client, reader):
     reader.by_trace = _detail(trace_id="t9", results=[], rca=None)
     resp = client.get("/api/v1/public/detectors/traces/t9/finding")
@@ -254,9 +282,108 @@ def test_detail_by_trace_404_when_none(client, reader):
     assert client.get("/api/v1/public/detectors/traces/none/finding").status_code == 404
 
 
+def test_detail_by_trace_reader_failure_returns_sanitized_500(client, reader):
+    reader.raise_on_get_finding_by_trace = True
+    resp = client.get("/api/v1/public/detectors/traces/t1/finding")
+    assert resp.status_code == 500
+    assert resp.json()["detail"] == "Failed to read finding"
+    assert "boom" not in resp.text
+
+
 def test_auth_required_without_key(reader):
     # Only the service is overridden; with no auth override the real key check runs
     # and a request without a key is rejected before reaching the reader.
     app.dependency_overrides[get_detector_reader_service] = lambda: reader
     resp = TestClient(app).get("/api/v1/public/detectors/findings")
     assert resp.status_code in (401, 403)
+
+
+class TestDetectorsRetentionGate:
+    @pytest.fixture()
+    def free_client(self, reader):
+        app.dependency_overrides[authenticate_public_caller] = lambda: make_auth(
+            billing_plan="free"
+        )
+        app.dependency_overrides[get_detector_reader_service] = lambda: reader
+        return TestClient(app)
+
+    def test_list_detectors_bypasses_retention(self, free_client, reader):
+        """list_detectors has no retention gate (B7 fix — old configs must remain visible)."""
+        reader.detectors_return = ([], 0)
+        resp = free_client.get("/api/v1/public/detectors")
+        assert resp.status_code == 200
+
+    def test_list_findings_clamps_when_outside_window(self, free_client, reader):
+        reader.list_return = ([], 0)
+        old = _now_naive() - timedelta(days=30)
+        resp = free_client.get(f"/api/v1/public/detectors/findings?start_after={old.isoformat()}")
+        assert resp.status_code == 200
+
+    def test_get_finding_403_when_outside_window(self, free_client, reader):
+        reader.finding = _detail(timestamp=datetime(2020, 1, 1))
+        resp = free_client.get("/api/v1/public/detectors/findings/f1")
+        assert resp.status_code == 403
+
+    def test_get_finding_200_when_in_window(self, free_client, reader):
+        reader.finding = _detail(timestamp=_now_naive() - timedelta(days=5))
+        resp = free_client.get("/api/v1/public/detectors/findings/f1")
+        assert resp.status_code == 200
+
+    def test_get_finding_by_trace_403_when_outside_window(self, free_client, reader):
+        reader.by_trace = _detail(timestamp=datetime(2020, 1, 1))
+        resp = free_client.get("/api/v1/public/detectors/traces/t1/finding")
+        assert resp.status_code == 403
+
+
+def _detector_detail() -> DetectorDetail:
+    return DetectorDetail(
+        detector_id="det-1",
+        name="Error spike",
+        template="failure",
+        enabled=True,
+        created_at=datetime(2026, 8, 1, 12, 0, 0),
+        prompt="Flag traces with elevated error rates",
+        output_schema={"type": "object"},
+        sample_rate=25,
+        enable_rca=True,
+        detection_model="claude-haiku-4-5",
+        detection_provider="anthropic",
+        detection_source="system",
+        updated_at=datetime(2026, 8, 2, 9, 0, 0),
+        trigger_conditions=[{"field": "root_span_finished", "op": "=", "value": True}],
+    )
+
+
+class TestGetDetector:
+    def test_200_returns_full_config(self, client, reader):
+        reader.detector = _detector_detail()
+        resp = client.get("/api/v1/public/detectors/det-1")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["detector_id"] == "det-1"
+        assert body["prompt"] == "Flag traces with elevated error rates"
+        assert body["sample_rate"] == 25
+        assert body["trigger_conditions"] == [
+            {"field": "root_span_finished", "op": "=", "value": True}
+        ]
+        assert reader.last_get_detector == ("proj-A", "det-1")
+
+    def test_missing_detector_is_404(self, client, reader):
+        reader.detector = None
+        resp = client.get("/api/v1/public/detectors/nope")
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Detector not found"
+
+    def test_reader_failure_returns_sanitized_500(self, client, reader):
+        reader.raise_on_get_detector = True
+        resp = client.get("/api/v1/public/detectors/det-1")
+        assert resp.status_code == 500
+        assert resp.json()["detail"] == "Failed to read detector"
+        assert "boom" not in resp.text
+
+    def test_findings_path_is_not_shadowed_by_detector_id(self, client, reader):
+        reader.list_return = ([], 0)
+        resp = client.get("/api/v1/public/detectors/findings")
+        assert resp.status_code == 200
+        assert reader.list_args is not None
+        assert reader.last_get_detector is None

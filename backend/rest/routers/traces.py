@@ -1,7 +1,9 @@
 """Trace query endpoints (user-authenticated, not public API)."""
 
+import asyncio
 import logging
 from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response, status
 
@@ -19,21 +21,43 @@ from rest.rate_limit import (
     limiter,
     resolve_limit,
 )
+from rest.retention import clamp_retention_window, enforce_retention_by_time
 from rest.routers.deps import RateLimitedProjectAccess
 from rest.schemas.traces import (
     FilterFieldsResponse,
     FilterValuesResponse,
+    MetadataKeysResponse,
     SpanIOResponse,
     TraceDetailResponse,
     TraceListResponse,
 )
 from rest.services.filters import columns as filter_columns
 from rest.services.filters.translate import parse_filters_param
+from rest.services.trace_discovery import get_trace_discovery_service
 from rest.services.trace_reader import get_trace_reader_service
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/projects/{project_id}/traces", tags=["Traces"])
+
+
+@router.get("/exists")
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def traces_exist(
+    request: Request,
+    response: Response,
+    project_id: str,
+    _access: RateLimitedProjectAccess,
+):
+    """Check if a project has ever ingested traces (bypasses retention).
+
+    Returns a boolean — no trace data is exposed, so retention gating
+    is intentionally skipped. Used by the frontend onboarding probe.
+    """
+    service = get_trace_reader_service()
+    return {"exists": service.has_traces(project_id)}
 
 
 @router.get("", response_model=TraceListResponse)
@@ -57,17 +81,29 @@ async def list_traces(
     filters: str | None = Query(
         None, description="URL-encoded JSON array of {field, op, value} filter predicates"
     ),
+    include_evaluations: bool = Query(
+        False,
+        description="Include traces produced by offline-evaluation runs, "
+        "which are excluded by default.",
+    ),
 ):
     """List traces for a project with pagination and filtering."""
     # Parse + validate filters before the DB try-block so a bad predicate surfaces as a
     # 422 rather than being swallowed by the broad 500 handler below.
+    start_after, end_before = clamp_retention_window(_access.billing_plan, start_after, end_before)
     try:
         parsed_filters = parse_filters_param(filters)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e)) from e
     try:
         service = get_trace_reader_service()
-        result = service.list_traces(
+        # Off the event loop: clickhouse-connect is synchronous, and this is the widest
+        # scan the dashboard issues (a filtered list runs a page query and a count query
+        # back to back, both capped at the shared execution timeout). Awaiting it inline
+        # would stall every other request in the process — the REST service runs a single
+        # uvicorn worker, single replica, so there is no second process to absorb it.
+        result = await asyncio.to_thread(
+            service.list_traces,
             project_id=project_id,
             page=page,
             limit=limit,
@@ -77,6 +113,7 @@ async def list_traces(
             end_before=end_before,
             search_query=search_query,
             filters=parsed_filters,
+            include_evaluations=include_evaluations,
         )
         return result
     except Exception as e:
@@ -121,6 +158,7 @@ async def get_filter_fields(
                 "value_source": c.value_source,
                 "enum_values": list(c.enum_values),
                 "integer": c.is_integer,
+                "requires_key": c.requires_key,
             }
             for c in filter_columns.FILTER_COLUMNS
         ]
@@ -166,6 +204,7 @@ async def get_filter_values(
         HTTPException: 404 if the field is not in the registry, 400 if it is not a
             distinct-query categorical.
     """
+    start_after, end_before = clamp_retention_window(_access.billing_plan, start_after, end_before)
     column = filter_columns.get_column(field)
     if column is None:
         raise HTTPException(
@@ -178,11 +217,65 @@ async def get_filter_values(
             detail=f"Field '{field}' does not support distinct-value listing",
         )
 
-    service = get_trace_reader_service()
+    service = get_trace_discovery_service()
     values = service.get_distinct_span_values(
         project_id=project_id, column=column.name, start_after=start_after, end_before=end_before
     )
     return {"field": field, "values": values}
+
+
+@router.get("/metadata-keys", response_model=MetadataKeysResponse)
+@limiter.shared_limit(
+    resolve_limit, scope=BUCKET_READ, key_func=key_read, exempt_when=is_request_rate_limit_exempt
+)
+async def get_metadata_keys(
+    request: Request,
+    response: Response,
+    project_id: str,
+    _access: RateLimitedProjectAccess,  # Validates access + sets rate-limit identity
+    start_after: datetime | None = Query(
+        None,
+        description="Only consider traces and spans starting at or after this timestamp",
+    ),
+    end_before: datetime | None = Query(
+        None, description="Only consider traces and spans starting before this timestamp"
+    ),
+):
+    """Metadata keys seen on the window's traces and spans, by descending frequency.
+
+    The discovery answer behind the metadata filter's key combobox, its one consumer. It
+    covers both scopes the SDK can attach metadata at: a key set on the trace and a key
+    set on a span are disjoint key spaces, so answering from one table alone would leave
+    the other's keys unsuggestable, while a filter on either is equally valid. Unlike
+    ``/filter-values/{field}`` there is no field to resolve and nothing to reject: a key
+    binds as a parameter, so this list only suggests, and an unlisted key stays filterable
+    by typing it.
+
+    Args:
+        project_id (str): Project that owns the traces and spans; server-bound for
+            isolation.
+        _access (RateLimitedProjectAccess): Validates access and sets rate-limit identity.
+        start_after (datetime | None): Lower bound on trace and span start time (active
+            window). An omitted bound is defaulted to a fixed lookback, never scanned
+            all-time.
+        end_before (datetime | None): Upper bound on trace and span start time (active
+            window), symmetric with ``start_after`` so keys match the list's window.
+
+    Returns:
+        MetadataKeysResponse: Keys with occurrence counts, by descending frequency.
+    """
+    start_after, end_before = clamp_retention_window(_access.billing_plan, start_after, end_before)
+    service = get_trace_discovery_service()
+    # Off the event loop, same reasoning as the trace list: the key scan arrayJoins over
+    # mapKeys on both tables' base rows, so it is the heaviest of the discovery reads, and
+    # the 30s cache does not protect the first caller.
+    keys = await asyncio.to_thread(
+        service.get_distinct_metadata_keys,
+        project_id=project_id,
+        start_after=start_after,
+        end_before=end_before,
+    )
+    return {"keys": keys}
 
 
 @router.get("/{trace_id}", response_model=TraceDetailResponse)
@@ -196,6 +289,12 @@ async def get_trace(
     trace_id: str,
     _access: RateLimitedProjectAccess,  # Validates access + sets rate-limit identity
     fields: str | None = Query(None, description=FIELDS_PARAM_DESC),
+    source: Literal["detector", "user"] | None = Query(
+        None,
+        description=(
+            "'detector' reads detector self-traces; omitted or 'user' reads customer traffic only"
+        ),
+    ),
 ):
     """Get a single trace for a project.
 
@@ -212,6 +311,10 @@ async def get_trace(
         fields (str | None): Comma-separated projection groups (e.g. ``io``,
             ``metadata``) or an alias (``skeleton``/``full``). ``None`` selects
             the default `skeleton` projection.
+        source (Literal["detector", "user"] | None): "detector" restricts the
+            read to detector self-traces. "user" and None both restrict it to
+            customer traffic — internal telemetry is opt-in, so omitting the
+            parameter never widens the read.
 
     Returns:
         TraceDetailResponse: The trace with span skeletons, plus per-span I/O
@@ -226,13 +329,15 @@ async def get_trace(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
 
     service = get_trace_reader_service()
-    trace = service.get_trace(project_id=project_id, trace_id=trace_id)
+    trace = service.get_trace(project_id=project_id, trace_id=trace_id, source=source)
 
     if not trace:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Trace not found",
         )
+
+    enforce_retention_by_time(_access.billing_plan, trace.get("trace_start_time"))
 
     hydrate_span_io(service, trace, project_id=project_id, trace_id=trace_id, groups=groups)
     return trace
@@ -253,6 +358,9 @@ async def get_span_io(
     """Get full input/output/metadata for a single span on demand."""
     service = get_trace_reader_service()
     try:
+        trace_start = service.get_trace_start_time(project_id, trace_id)
+        enforce_retention_by_time(_access.billing_plan, trace_start)
+
         result = service.get_span_io(
             project_id=project_id,
             trace_id=trace_id,

@@ -4,7 +4,7 @@
 import { useCallback } from "react";
 import { useQuery, keepPreviousData, useQueryClient } from "@tanstack/react-query";
 import { useSession as useAuthSession } from "@/lib/auth-client";
-import { getTraces, getTrace, getSpanIO } from "@/lib/api";
+import { getTraces, getTrace, getSpanIO, tracesExist } from "@/lib/api";
 import { getSessions, getSession, type SessionDetailOptions } from "@/lib/api/sessions";
 import { getUsers, type UserQueryOptions } from "@/lib/api/users";
 import type { SessionQueryOptions, TraceQueryOptions } from "@/types/api";
@@ -13,6 +13,9 @@ import { canonicalizeFilters } from "@/features/filters/predicate";
 
 // Composed state hooks
 export { useTraceListState } from "./use-trace-list-state";
+
+// Column visibility for the trace list
+export { useTraceColumns } from "./use-trace-columns";
 
 // Live trace streaming
 export { useTraceStream } from "./use-trace-stream";
@@ -70,6 +73,30 @@ export function useTraces(
 }
 
 /**
+ * Lightweight probe: has this project ever ingested any traces?
+ * Bypasses retention gating (returns a boolean, not trace data).
+ */
+export function useTracesExist(
+  projectId: string,
+  queryOptions: {
+    refetchInterval?: number | false | ((query: unknown) => number | false);
+  } = {},
+) {
+  const { data: authSession, isPending } = useAuthSession();
+  const sessionReady = !isPending && !!authSession?.user;
+  const user: TraceApiUser | undefined = authSession?.user
+    ? { id: authSession.user.id, email: authSession.user.email }
+    : undefined;
+  return useQuery({
+    queryKey: ["traces-exist", projectId],
+    queryFn: () => tracesExist(projectId, user),
+    enabled: sessionReady && !!projectId,
+    staleTime: Infinity,
+    ...queryOptions,
+  });
+}
+
+/**
  * Hook for fetching a single trace with its spans
  */
 export function useTrace(projectId: string, traceId: string, enabled: boolean = true) {
@@ -79,7 +106,7 @@ export function useTrace(projectId: string, traceId: string, enabled: boolean = 
     ? { id: authSession.user.id, email: authSession.user.email }
     : undefined;
   return useQuery({
-    queryKey: ["trace", projectId, traceId],
+    queryKey: traceQueryKey(projectId, traceId),
     queryFn: () => getTrace(projectId, traceId, "", user),
     enabled: sessionReady && enabled,
   });
@@ -96,6 +123,19 @@ export const SPAN_IO_STALE_TIME_MS = 5 * 60 * 1000;
  */
 export function spanIOQueryKey(projectId: string, traceId: string, spanId: string) {
   return ["span-io", projectId, traceId, spanId] as const;
+}
+
+/**
+ * React Query key for one trace's detail. Source is part of the key because a
+ * detector self-trace and a customer trace can share neither id nor cache entry.
+ *
+ * Exported so every reader and writer keys identically: the live SSE stream
+ * merges incoming spans with an exact-match setQueryData, so a key that differs
+ * by even one element makes every span event a silent no-op — the view then only
+ * refreshes on trace_complete, because invalidateQueries matches by prefix.
+ */
+export function traceQueryKey(projectId: string, traceId: string, source?: "detector" | "user") {
+  return ["trace", projectId, traceId, source ?? null] as const;
 }
 
 /**

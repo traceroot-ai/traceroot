@@ -1,4 +1,10 @@
 // @vitest-environment jsdom
+// Pin a non-UTC zone before anything reads the clock. CI runners are UTC, where
+// new Date(naive) and parseAsUTC(naive) agree — so the self-trace pending-window
+// tests below could not tell a local-time parse from a UTC one, and the regression
+// they exist to guard would sail through.
+process.env.TZ = "America/New_York";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, cleanup, screen, fireEvent } from "@testing-library/react";
 
@@ -8,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   traceError: null as unknown,
   traceLoading: false,
   aiPanelOpen: false,
+  lastQuery: undefined as { queryKey: unknown[]; queryFn: () => unknown } | undefined,
 }));
 
 // Layout context drives the fullscreen width math (sidebar width).
@@ -24,7 +31,10 @@ vi.mock("@/components/layout/app-layout", () => ({
 
 // Trace fetch + stream — irrelevant to layout, stub them out.
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: () => ({ data: mocks.trace, isLoading: mocks.traceLoading, error: mocks.traceError }),
+  useQuery: (opts: { queryKey: unknown[]; queryFn: () => unknown }) => {
+    mocks.lastQuery = opts;
+    return { data: mocks.trace, isLoading: mocks.traceLoading, error: mocks.traceError };
+  },
 }));
 vi.mock("@/lib/api", () => ({ getTrace: vi.fn() }));
 vi.mock("../hooks/use-trace-stream", () => ({ useTraceStream: vi.fn() }));
@@ -45,15 +55,25 @@ vi.mock("./TraceDetectorsTab", () => ({
 vi.mock("@/features/ai-assistant/components/ai-assistant-panel", () => ({
   AiAssistantPanel: () => <div data-testid="ai-panel" />,
 }));
+vi.mock("@/components/RetentionGateBanner", () => ({
+  RetentionGateBanner: () => <div data-testid="retention-banner" />,
+}));
 vi.mock("@/components/ui/resizable", () => ({
   ResizablePanelGroup: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   ResizablePanel: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   ResizableHandle: () => null,
 }));
 
+import { ApiError } from "@/lib/api/errors";
 import { TraceViewerPanel } from "./TraceViewerPanel";
 
-function renderPanel(props: { initialFullscreen?: boolean } = {}) {
+function renderPanel(
+  props: {
+    initialFullscreen?: boolean;
+    source?: "detector" | "user";
+    runTimestamp?: string;
+  } = {},
+) {
   const { container } = render(
     <TraceViewerPanel
       projectId="proj-1"
@@ -182,6 +202,18 @@ describe("TraceViewerPanel content states", () => {
     expect(screen.getByText("Error loading trace")).toBeTruthy();
   });
 
+  it("renders the retention banner when the trace fetch returns 403 retention error", () => {
+    mocks.trace = undefined;
+    mocks.traceError = new ApiError(403, {
+      message: "Data outside retention window",
+      retention_days: 15,
+      cutoff: "2026-06-29T00:00:00",
+      plan: "free",
+    });
+    renderPanel();
+    expect(screen.getByTestId("retention-banner")).toBeTruthy();
+  });
+
   it("renders the timeline view in timeline mode", () => {
     renderPanel();
     fireEvent.click(screen.getByRole("button", { name: /timeline/i }));
@@ -192,5 +224,130 @@ describe("TraceViewerPanel content states", () => {
     mocks.aiPanelOpen = true;
     renderPanel();
     expect(screen.getByTestId("ai-panel")).toBeTruthy();
+  });
+});
+
+describe("source-scoped fetch", () => {
+  it("threads source into the queryKey and the getTrace call", async () => {
+    renderPanel({ source: "detector" });
+    expect(mocks.lastQuery!.queryKey).toContain("detector");
+    await mocks.lastQuery!.queryFn();
+    const { getTrace } = await import("@/lib/api");
+    expect(vi.mocked(getTrace)).toHaveBeenCalledWith(
+      "proj-1",
+      "trace-1",
+      "",
+      undefined,
+      "detector",
+    );
+  });
+
+  it("keeps detector out of the queryKey when no source is given", () => {
+    renderPanel();
+    expect(mocks.lastQuery!.queryKey).not.toContain("detector");
+  });
+});
+
+describe("detector self-trace not-yet-ingested state", () => {
+  it("shows a 'still being recorded' hint instead of an error for a missing detector trace", () => {
+    mocks.trace = null;
+    renderPanel({ source: "detector" });
+    expect(screen.getByText(/still being recorded/i)).toBeTruthy();
+    expect(screen.queryByText("Error loading trace")).toBeNull();
+  });
+
+  it("treats a 404 as not-yet-ingested for a detector trace", () => {
+    mocks.trace = null;
+    mocks.traceError = new ApiError(404, "Trace not found");
+    renderPanel({ source: "detector" });
+    expect(screen.getByText(/still being recorded/i)).toBeTruthy();
+    expect(screen.queryByText("Error loading trace")).toBeNull();
+  });
+
+  it("surfaces a non-404 failure as a real error for a detector trace", () => {
+    mocks.trace = null;
+    mocks.traceError = new ApiError(500, "backend exploded");
+    renderPanel({ source: "detector" });
+    expect(screen.getByText("Error loading trace")).toBeTruthy();
+    expect(screen.queryByText(/still being recorded/i)).toBeNull();
+  });
+
+  it("surfaces a network-level failure as a real error for a detector trace", () => {
+    mocks.trace = null;
+    mocks.traceError = new Error("fetch failed");
+    renderPanel({ source: "detector" });
+    expect(screen.getByText("Error loading trace")).toBeTruthy();
+    expect(screen.queryByText(/still being recorded/i)).toBeNull();
+  });
+
+  it("shows the normal error for a missing user trace", () => {
+    mocks.trace = null;
+    renderPanel({ source: "user" });
+    expect(screen.getByText("Error loading trace")).toBeTruthy();
+    expect(screen.queryByText(/still being recorded/i)).toBeNull();
+  });
+});
+
+describe("detector self-trace pending window", () => {
+  // Mirrors the wire format: the runs endpoint serializes a ClickHouse DateTime64 via
+  // datetime.isoformat() on a naive value, so there is NO trailing "Z". Building these
+  // with toISOString() would hide a local-vs-UTC parsing bug, since only the naive
+  // shape is misread as local time.
+  const ago = (ms: number) => new Date(Date.now() - ms).toISOString().replace("Z", "");
+
+  it("keeps the pending hint for a run inside the export window", () => {
+    mocks.trace = null;
+    mocks.traceError = new ApiError(404, "Trace not found");
+    renderPanel({ source: "detector", runTimestamp: ago(5_000) });
+    expect(screen.getByText(/still being recorded/i)).toBeTruthy();
+    expect(screen.queryByText(/didn’t reach the backend/i)).toBeNull();
+  });
+
+  it("reports a permanently failed export once the window has passed", () => {
+    mocks.trace = null;
+    mocks.traceError = new ApiError(404, "Trace not found");
+    renderPanel({ source: "detector", runTimestamp: ago(10 * 60_000) });
+    expect(screen.getByText(/didn’t reach the backend/i)).toBeTruthy();
+    expect(screen.queryByText(/still being recorded/i)).toBeNull();
+  });
+
+  it("stays pending when the run timestamp is unparseable", () => {
+    // An unknown run time is not evidence that the export failed.
+    mocks.trace = null;
+    mocks.traceError = new ApiError(404, "Trace not found");
+    renderPanel({ source: "detector", runTimestamp: "not-a-date" });
+    expect(screen.getByText(/still being recorded/i)).toBeTruthy();
+    expect(screen.queryByText(/didn’t reach the backend/i)).toBeNull();
+  });
+
+  it("still surfaces a non-404 failure as a real error for an old run", () => {
+    mocks.trace = null;
+    mocks.traceError = new ApiError(500, "backend exploded");
+    renderPanel({ source: "detector", runTimestamp: ago(10 * 60_000) });
+    expect(screen.getByText("Error loading trace")).toBeTruthy();
+    expect(screen.queryByText(/didn’t reach the backend/i)).toBeNull();
+    expect(screen.queryByText(/still being recorded/i)).toBeNull();
+  });
+});
+
+describe("open in new tab", () => {
+  it("carries source=detector in the popout URL for a self-trace", () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    renderPanel({ source: "detector" });
+    fireEvent.click(screen.getByTitle("Open in new tab"));
+    const url = open.mock.calls[0][0] as string;
+    expect(url).toContain("traceId=trace-1");
+    expect(url).toContain("source=detector");
+    open.mockRestore();
+  });
+
+  it("leaves source out of the popout URL for an original trace", () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    renderPanel({ source: "user" });
+    fireEvent.click(screen.getByTitle("Open in new tab"));
+    const url = open.mock.calls[0][0] as string;
+    expect(url).toContain("traceId=trace-1");
+    expect(url).not.toContain("source=");
+    open.mockRestore();
   });
 });

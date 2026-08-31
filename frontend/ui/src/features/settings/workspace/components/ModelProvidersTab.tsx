@@ -25,10 +25,10 @@ import {
 } from "@/components/ui/select";
 import {
   ADAPTER_CONFIG,
-  ADAPTER_API_PROTOCOL,
   ADAPTER_AVAILABLE_PROTOCOLS,
   ADAPTER_DEFAULT_BASE_URL,
   ADAPTER_MODELS,
+  defaultApiProtocol,
 } from "@traceroot/core";
 import type { LLMAdapter } from "@traceroot/core";
 import {
@@ -42,6 +42,17 @@ import {
 
 interface ModelProvidersTabProps {
   workspaceId: string;
+}
+
+export function getBaseUrlPayload(
+  baseUrl: string,
+  isEditMode: boolean,
+): { baseUrl?: string | null } {
+  const trimmedBaseUrl = baseUrl.trim();
+
+  if (trimmedBaseUrl) return { baseUrl: trimmedBaseUrl };
+  if (isEditMode) return { baseUrl: null };
+  return {};
 }
 
 export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
@@ -167,23 +178,22 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
 
   function handleSave() {
     setSaveError(null);
-    // Build config with per-model protocol overrides (only non-default ones)
-    const defaultProtocol = ADAPTER_API_PROTOCOL[adapter] || "";
+    // Build config with per-model protocol overrides — only picks that differ
+    // from what the resolver would use anyway for that model.
     const trimmedModels = [...new Set(customModels.map((m) => m.trim()).filter(Boolean))];
     const filteredProtocols: Record<string, string> = {};
     for (const modelId of trimmedModels) {
       const proto = modelProtocols[modelId];
-      if (proto && proto !== defaultProtocol) {
+      if (proto && proto !== defaultApiProtocol(adapter, modelId)) {
         filteredProtocols[modelId] = proto;
       }
     }
     const config: Record<string, unknown> = {};
     if (Object.keys(filteredProtocols).length > 0) config.modelProtocols = filteredProtocols;
-
     const base: Record<string, unknown> = {
       adapter,
       provider: providerName,
-      baseUrl: baseUrl || undefined,
+      ...getBaseUrlPayload(baseUrl, !!editProvider),
       customModels: trimmedModels,
       withDefaultModels: true,
       ...(Object.keys(config).length > 0 ? { config } : {}),
@@ -227,7 +237,8 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
       // Use stored key from DB
       testData.providerId = editProvider.id;
     }
-    if (baseUrl) testData.baseUrl = baseUrl;
+    const trimmedBaseUrl = baseUrl.trim();
+    if (trimmedBaseUrl) testData.baseUrl = trimmedBaseUrl;
     setTestResult(null);
     testMutation.mutate(testData as any);
   }
@@ -244,15 +255,6 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     setModelProtocols({});
   }
 
-  function seedProtocolFromCatalog(modelId: string) {
-    const catalog = ADAPTER_MODELS[adapter as LLMAdapter];
-    if (!catalog) return;
-    const entry = catalog.find((m) => m.id === modelId);
-    if (entry?.apiProtocol) {
-      setModelProtocols((prev) => ({ ...prev, [modelId]: entry.apiProtocol! }));
-    }
-  }
-
   function addCustomModel() {
     const curatedModels = ADAPTER_MODELS[adapter as LLMAdapter];
     if (curatedModels) {
@@ -260,7 +262,6 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
       const next = curatedModels.find((m) => !used.has(m.id));
       if (!next) return;
       setCustomModels([...customModels, next.id]);
-      seedProtocolFromCatalog(next.id);
     } else {
       setCustomModels([...customModels, ""]);
     }
@@ -274,7 +275,6 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
     const updated = [...customModels];
     updated[index] = value;
     setCustomModels(updated);
-    seedProtocolFromCatalog(value);
   }
 
   if (isLoading) {
@@ -320,7 +320,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
       : editProvider
         ? true // existing key is kept
         : !!apiKey;
-  const hasRequiredBaseUrl = adapterConfig?.requiresBaseUrl ? !!baseUrl : true;
+  const hasRequiredBaseUrl = adapterConfig?.requiresBaseUrl ? !!baseUrl.trim() : true;
   const canSave = adapter && providerName && hasCredentials && hasRequiredBaseUrl;
 
   const curatedModelsForAdapter = adapter ? ADAPTER_MODELS[adapter as LLMAdapter] : null;
@@ -547,7 +547,6 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                 {(() => {
                   const protocols = ADAPTER_AVAILABLE_PROTOCOLS[adapter];
                   const hasMultipleProtocols = protocols && protocols.length > 1;
-                  const defaultProto = ADAPTER_API_PROTOCOL[adapter] || "";
                   const curatedModels = ADAPTER_MODELS[adapter as LLMAdapter];
 
                   return customModels.map((model, i) => (
@@ -588,7 +587,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                       )}
                       {hasMultipleProtocols && (
                         <Select
-                          value={modelProtocols[model] || defaultProto}
+                          value={modelProtocols[model] || defaultApiProtocol(adapter, model)}
                           onValueChange={(v) =>
                             setModelProtocols((prev) => ({ ...prev, [model]: v }))
                           }

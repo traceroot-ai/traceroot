@@ -1,7 +1,7 @@
 "use client";
 
-import { Workflow, Sparkle, Bot, Wrench, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { TREE_LAYOUT } from "../utils";
 
 /**
@@ -11,16 +11,22 @@ export function getSpanKindIcon(kind: string) {
   const normalizedKind = kind.toLowerCase();
   switch (normalizedKind) {
     case "trace":
-      return Workflow;
+      return DOMAIN_ICONS.trace;
     case "llm":
-      return Sparkle;
+      return DOMAIN_ICONS.llm;
     case "agent":
-      return Bot;
+      return DOMAIN_ICONS.agent;
     case "tool":
-      return Wrench;
+      return DOMAIN_ICONS.tool;
+    case "evaluation":
+      return DOMAIN_ICONS.evaluation;
+    case "task":
+      return DOMAIN_ICONS.task;
+    case "scorer":
+      return DOMAIN_ICONS.scorer;
     case "span":
     default:
-      return ArrowRight;
+      return DOMAIN_ICONS.span;
   }
 }
 
@@ -52,6 +58,19 @@ const SPAN_KIND_COLORS: Record<string, SpanKindColor> = {
   span: {
     surface: "bg-slate-100 border-slate-300 dark:bg-slate-800/50 dark:border-slate-700",
     glyph: "text-slate-600 dark:text-slate-400",
+  },
+  // Offline-evaluation kinds — distinct tints so eval traces read at a glance.
+  evaluation: {
+    surface: "bg-emerald-100 border-emerald-300 dark:bg-emerald-950/50 dark:border-emerald-800",
+    glyph: "text-emerald-700 dark:text-emerald-300",
+  },
+  task: {
+    surface: "bg-sky-100 border-sky-300 dark:bg-sky-950/50 dark:border-sky-800",
+    glyph: "text-sky-700 dark:text-sky-300",
+  },
+  scorer: {
+    surface: "bg-fuchsia-100 border-fuchsia-300 dark:bg-fuchsia-950/50 dark:border-fuchsia-800",
+    glyph: "text-fuchsia-700 dark:text-fuchsia-300",
   },
   // The trace root is structural, not a real span_kind — keep it neutral/quiet.
   trace: {

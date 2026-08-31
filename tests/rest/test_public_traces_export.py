@@ -15,7 +15,11 @@ from fastapi.testclient import TestClient
 from httpx import Response
 
 from rest.main import app
-from rest.routers.public.deps import AuthResult, authenticate_api_key
+from rest.routers.public.deps import (
+    AuthResult,
+    authenticate_api_key,
+    authenticate_public_caller,
+)
 
 BASE_URL = "http://localhost:3000"
 
@@ -62,7 +66,7 @@ def make_auth(project_id: str = "proj-A") -> AuthResult:
     return AuthResult(
         project_id=project_id,
         workspace_id="ws-1",
-        billing_plan="pro",
+        billing_plan="enterprise",
         ingestion_blocked=False,
     )
 
@@ -79,7 +83,11 @@ def mock_reader():
 
 @pytest.fixture()
 def client(mock_reader):
+    # whoami still authenticates via the key-only dependency; the swapped read
+    # routes (list/get/export) authenticate via the dual-credential dependency.
+    # This file exercises both surfaces, so override both.
     app.dependency_overrides[authenticate_api_key] = lambda: make_auth()
+    app.dependency_overrides[authenticate_public_caller] = lambda: make_auth()
 
     import rest.routers.public.traces_read as mod
 
@@ -181,6 +189,18 @@ class TestExportBundle:
         kw = mock_reader.get_trace.call_args.kwargs
         assert kw["project_id"] == "proj-A"
         assert kw["trace_id"] == "abc123"
+
+    def test_never_opts_into_internal_telemetry(self, client, mock_reader):
+        # A self-trace's id is the dashless detector run id, which the runs surface
+        # shows the customer — so exporting one by id is directly reachable. The
+        # reader defaults to customer traffic, and export must not override that:
+        # otherwise internal telemetry would land in the customer's own pipeline.
+        mock_reader.get_trace.return_value = dict(TRACE_DETAIL)
+        client.get("/api/v1/public/traces/abc123/export", headers=AUTH)
+        call = mock_reader.get_trace.call_args
+        # Both forms, so switching to a positional call can't make this pass vacuously.
+        assert call.kwargs.get("source") in (None, "user")
+        assert "detector" not in call.args
 
     def test_trace_url_present(self, client, mock_reader):
         mock_reader.get_trace.return_value = dict(TRACE_DETAIL)
@@ -290,7 +310,7 @@ class TestExportAuth:
         test_client = TestClient(app, raise_server_exceptions=False)
         resp = test_client.get(
             "/api/v1/public/traces/abc123/export",
-            headers={"Authorization": "Bearer bad"},
+            headers={"Authorization": "Bearer tr-bad"},
         )
         assert resp.status_code == 401
 
@@ -323,7 +343,7 @@ class TestPublicUrlAcrossStack:
         app.dependency_overrides[authenticate_api_key] = lambda: AuthResult(
             project_id="proj-A",
             workspace_id="ws-1",
-            billing_plan="pro",
+            billing_plan="enterprise",
             ingestion_blocked=False,
             project_name="P",
             workspace_name="W",

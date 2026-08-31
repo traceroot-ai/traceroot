@@ -541,3 +541,68 @@ class TestGetSpanIO:
         assert result["input"] == "new-input"
         assert result["output"] == "new-output"
         assert result["metadata"] == "new-meta"
+
+
+class TestHasTraces:
+    def test_returns_true_when_spans_exist(self):
+        service, _ = _make_service(lambda *a, **kw: _rows([(1,)]))
+        assert service.has_traces("proj-1") is True
+
+    def test_returns_false_when_no_spans(self):
+        service, _ = _make_service(lambda *a, **kw: _rows([]))
+        assert service.has_traces("proj-1") is False
+
+    def test_caches_true_result(self):
+        call_count = {"n": 0}
+
+        def side_effect(*a, **kw):
+            call_count["n"] += 1
+            return _rows([(1,)])
+
+        service, _ = _make_service(side_effect)
+        assert service.has_traces("proj-1") is True
+        assert service.has_traces("proj-1") is True
+        assert call_count["n"] == 1
+
+    def test_evicts_oldest_when_cache_full(self):
+        service, _ = _make_service(lambda *a, **kw: _rows([(1,)]))
+        service._HAS_TRACES_CACHE_MAX = 2
+        service.has_traces("a")
+        service.has_traces("b")
+        service.has_traces("c")
+        assert "a" not in service._has_traces_cache
+        assert "c" in service._has_traces_cache
+
+
+class TestListTracesRows:
+    def test_trace_rows_carry_the_trace_level_metadata_map(self):
+        """The list projects the TRACE row's metadata as a map so the UI can render one
+        column per key. A trace with no metadata yields an empty map, not null."""
+        base = [
+            "t1",
+            "p1",
+            "trace",
+            datetime(2026, 6, 1),
+            "u1",
+            None,
+            3,
+            1500,
+            0,
+            "in",
+            "out",
+            10,
+            20,
+            0.5,
+        ]
+        results = iter(
+            [
+                _rows([base + [{"tenant_id": "acme-corp"}], base + [None]]),
+                _rows([[2]]),
+            ]
+        )
+        service, _ = _make_service(lambda *a, **kw: next(results))
+
+        result = service.list_traces(project_id="p1")
+
+        assert result["data"][0]["metadata_map"] == {"tenant_id": "acme-corp"}
+        assert result["data"][1]["metadata_map"] == {}
