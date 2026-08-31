@@ -22,7 +22,18 @@ function resourceCreatedDetails(result: unknown): ResourceCreatedDetails | null 
 }
 
 /**
- * Route to auto-open when a live write-tool result reports a dashboard, or
+ * Whether a live write-tool result reports a created (or reused) dashboard —
+ * the buffer-time check for deferring navigation to the end of the agent's
+ * turn. Deliberately context-free: session and project guards belong at fire
+ * time (see createdDashboardRoute), when the panel's state may have moved on.
+ */
+export function isCreatedDashboardResult(result: unknown): boolean {
+  const details = resourceCreatedDetails(result);
+  return details !== null && details.resourceType === "dashboard";
+}
+
+/**
+ * Route to auto-open for a write-tool result that reports a dashboard, or
  * null when the event must not move the user:
  * - only dashboards navigate (other resource types render in place);
  * - only events from the panel's active session (a background session's
@@ -30,7 +41,9 @@ function resourceCreatedDetails(result: unknown): ResourceCreatedDetails | null 
  * - only within the panel's current project (no cross-project jumps from
  *   stale sessions).
  * A reused (created:false) dashboard still routes — it is what the user
- * asked to see.
+ * asked to see. Callers evaluate this at the end of the agent's turn with
+ * the panel's CURRENT session/project, so every guard reflects fire-time
+ * state, not the state when the tool result arrived.
  */
 export function createdDashboardRoute(params: {
   /** The tool_execution_end event's result payload. */
