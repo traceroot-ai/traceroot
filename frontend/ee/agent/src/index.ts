@@ -19,6 +19,7 @@ import {
   withAgentTrace,
   currentToolSpanIds,
   turnTraceId,
+  rcaSpanName,
   type AgentTraceMeta,
   type AgentTraceKind,
 } from "./self-trace.js";
@@ -321,7 +322,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
           traceId: body.agentTrace.traceId,
           projectId,
           kind: "rca",
-          name: `rca: ${(body.agentTrace.metadata.detectors as string[] | undefined)?.join(", ") ?? "analysis"}`,
+          name: rcaSpanName(body.agentTrace.metadata.detectors as string[] | undefined),
           metadata: { ...body.agentTrace.metadata, session_id: sessionId },
           input: body.message,
         }

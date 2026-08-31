@@ -44,6 +44,30 @@ export function isAgentTraceEnabled(kind: AgentTraceKind): boolean {
     .includes(kind);
 }
 
+/** Longest a single detector name may occupy in a root span name. */
+const DETECTOR_NAME_CAP = 40;
+
+/**
+ * Root span name for an RCA execution.
+ *
+ * A finding can fire on any number of detectors, and detector names are free
+ * text, so joining them all produces a name that grows without bound and reads
+ * as noise in the trace tree. One detector is worth naming — it says what the
+ * analysis is about. Beyond that the count is the only honest summary: the full
+ * list is on the root span's `metadata.detectors` and spelled out in its input.
+ */
+export function rcaSpanName(detectors: readonly string[] | undefined): string {
+  const named = (detectors ?? []).map((d) => d.trim()).filter(Boolean);
+  if (named.length === 0) return "rca";
+  if (named.length === 1) {
+    const only = named[0] as string;
+    const short =
+      only.length > DETECTOR_NAME_CAP ? `${only.slice(0, DETECTOR_NAME_CAP - 1)}…` : only;
+    return `rca: ${short}`;
+  }
+  return `rca: ${named.length} detectors`;
+}
+
 export function turnTraceId(sessionId: string, messageId: string): string {
   return createHash("sha256").update(`${sessionId}:${messageId}`).digest("hex").slice(0, 32);
 }
