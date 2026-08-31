@@ -203,7 +203,14 @@ describe("flushDigest", () => {
     await run();
     expect(readDetectorWindowSummary.mock.calls[0][3]).toEqual({ includeSummaries: true });
     expect(generateDigestSummary.mock.calls[0][0].detectors).toEqual([
-      { name: "Latency", findingCount: 4, sampleSummaries: ["s1", "s2"] },
+      {
+        name: "Latency",
+        findingCount: 4,
+        sampleSummaries: ["s1", "s2"],
+        // Carried through so the digest's self-trace can link back to the
+        // traces it summarised.
+        sampleTraceIds: ["trace-d1"],
+      },
     ]);
     expect(sendDigestAlertSlack.mock.calls[0][0].summary).toBe("Payments API is down.");
     expect(sendDigestAlertEmail.mock.calls[0][0].summary).toBe("Payments API is down.");
