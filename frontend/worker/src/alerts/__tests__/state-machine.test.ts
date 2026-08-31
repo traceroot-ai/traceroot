@@ -263,15 +263,20 @@ describe("the reading a rule takes of a gap", () => {
     }
   });
 
-  it("pages on the silence and again on its end under NOTIFY", () => {
-    const gap = applyAlertStateMachine(state("OK", T0, null), "NO_DATA", NOW, OFF, "NOTIFY");
-    expect(gap).toEqual({
-      emit: true,
-      nextState: { severity: "NO_DATA", severityChangedAt: NOW, alertedAt: NOW },
+  it("waits for a second consecutive empty window before paging under NOTIFY", () => {
+    const firstGap = applyAlertStateMachine(state("OK", T0, null), "NO_DATA", NOW, OFF, "NOTIFY");
+    expect(firstGap).toEqual({
+      emit: false,
+      nextState: { severity: "NO_DATA", severityChangedAt: NOW, alertedAt: null },
     });
 
     const later = new Date(NOW.getTime() + 60 * 60_000);
-    expect(applyAlertStateMachine(gap.nextState, "OK", later, OFF, "NOTIFY")).toEqual({
+    expect(applyAlertStateMachine(firstGap.nextState, "NO_DATA", later, OFF, "NOTIFY")).toEqual({
+      emit: true,
+      nextState: { severity: "NO_DATA", severityChangedAt: NOW, alertedAt: later },
+    });
+
+    expect(applyAlertStateMachine(firstGap.nextState, "OK", later, OFF, "NOTIFY")).toEqual({
       emit: true,
       nextState: { severity: "OK", severityChangedAt: later, alertedAt: later },
     });
