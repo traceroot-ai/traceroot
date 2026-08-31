@@ -221,3 +221,76 @@ describe("useAIStream per-session isolation", () => {
     expect(result.current.messagesBySession["C"]![0].content).toBe("three");
   });
 });
+
+const toolEndEvent = {
+  type: "tool_execution_end",
+  toolCallId: "tc1",
+  toolName: "create_dashboard",
+  result: {
+    content: [{ type: "text", text: 'Created dashboard "Spend" (id db1)' }],
+    details: { kind: "resource_created", resourceType: "dashboard", resourceId: "db1" },
+  },
+  isError: false,
+};
+
+const sendParams = { sessionId: "s1", message: "make a dashboard", projectId: "p1" };
+
+describe("useAIStream live tool-result and turn-completion callbacks", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  /** Start a run in s1 against `sse` without awaiting it; returns its promise. */
+  const startSend = (
+    result: { current: ReturnType<typeof useAIStream> },
+    sse: ReturnType<typeof createSSE>,
+  ) => {
+    fetchMock.mockResolvedValueOnce(sse.response);
+    let send!: Promise<void>;
+    act(() => {
+      send = result.current.sendMessage(sendParams);
+    });
+    return send;
+  };
+
+  it("reports live tool results with the run's session and project", async () => {
+    const sse = createSSE();
+    const onToolResult = vi.fn();
+    const { result } = renderHook(() => useAIStream({ onToolResult }));
+    const send = startSend(result, sse);
+
+    sse.emit(toolEndEvent);
+    sse.close();
+    await act(() => send);
+
+    expect(onToolResult).toHaveBeenCalledExactlyOnceWith({
+      sessionId: "s1",
+      projectId: "p1",
+      result: toolEndEvent.result,
+      isError: false,
+    });
+  });
+
+  it("still records the tool step when no callback is given", async () => {
+    const sse = createSSE();
+    const { result } = renderHook(() => useAIStream());
+    const send = startSend(result, sse);
+
+    sse.emit({ type: "tool_execution_start", toolCallId: "tc1", toolName: "create_dashboard" });
+    sse.emit(toolEndEvent);
+    sse.close();
+    await act(() => send);
+
+    const step = result.current.messagesBySession["s1"]?.find((m) => m.role === "tool_step");
+    expect(step?.toolStep?.result).toEqual(toolEndEvent.result);
+    expect(step?.toolStep?.status).toBe("done");
+  });
+});

@@ -28,6 +28,23 @@ interface SessionRun {
   reader: ReadableStreamDefaultReader<Uint8Array> | null;
 }
 
+/** A finished tool call observed on a live stream, tagged with its origin. */
+export interface LiveToolResult {
+  sessionId: string;
+  projectId: string;
+  result: unknown;
+  isError: boolean;
+}
+
+export interface UseAIStreamOptions {
+  /**
+   * Called for each tool_execution_end on a run that still owns its session
+   * (superseded and aborted runs never fire it). Lets the caller react to
+   * live tool results — e.g. navigate to a resource the agent just created.
+   */
+  onToolResult?: (event: LiveToolResult) => void;
+}
+
 /**
  * Streams agent responses into per-session message buckets.
  *
@@ -37,11 +54,14 @@ interface SessionRun {
  * still-running session shows its accumulated progress when the user returns
  * to it.
  */
-export function useAIStream() {
+export function useAIStream(options?: UseAIStreamOptions) {
   const [messagesBySession, setMessagesBySession] = useState<Record<string, AIMessage[]>>({});
   const [streamingSessions, setStreamingSessions] = useState<Record<string, boolean>>({});
   const runsRef = useRef<Map<string, SessionRun>>(new Map());
   const genRef = useRef(0);
+  // Refs so the stream loop always sees the latest callbacks without resubscribing.
+  const onToolResultRef = useRef(options?.onToolResult);
+  onToolResultRef.current = options?.onToolResult;
 
   const updateBucket = useCallback(
     (sessionId: string, updater: (prev: AIMessage[]) => AIMessage[]) => {
@@ -321,6 +341,14 @@ export function useAIStream() {
                 }
 
                 if (eventData.type === "tool_execution_end") {
+                  if (runsRef.current.get(sessionId)?.gen === myGen) {
+                    onToolResultRef.current?.({
+                      sessionId,
+                      projectId: params.projectId,
+                      result: eventData.result,
+                      isError: eventData.isError === true,
+                    });
+                  }
                   safeUpdate((prev) =>
                     prev.map((m) =>
                       m.id === eventData.toolCallId

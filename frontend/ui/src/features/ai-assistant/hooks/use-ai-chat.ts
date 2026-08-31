@@ -1,9 +1,11 @@
 "use client";
 
 import { useRef, useState, useCallback, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useLocalStorage } from "@/lib/hooks/use-local-storage";
-import { useAIStream } from "./use-ai-stream";
+import { useAIStream, type LiveToolResult } from "./use-ai-stream";
 import { mapDbMessages } from "../utils/map-db-messages";
+import { createdDashboardRoute } from "../lib/resource-navigation";
 import type { AISession, AIMessage, AiTraceContext } from "../types";
 import type { ModelSelection } from "../components/model-selector";
 
@@ -20,6 +22,31 @@ export function useAiChat({
   traceSessionId,
   initialSessionId,
 }: UseAiChatOptions) {
+  const router = useRouter();
+
+  // The session the panel is currently displaying. Streams for OTHER sessions
+  // keep running into their own buckets; only this one is rendered.
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(initialSessionId ?? null);
+  // Ref mirror for reads inside async callbacks without re-binding them.
+  const activeSessionIdRef = useRef(activeSessionId);
+  activeSessionIdRef.current = activeSessionId;
+
+  // When the agent creates (or reuses) a DASHBOARD in the active session's
+  // project, take the user to it. createdDashboardRoute holds the guards:
+  // dashboards only, active session only, same project only.
+  const handleToolResult = useCallback(
+    (event: LiveToolResult) => {
+      const route = createdDashboardRoute({
+        result: event.result,
+        eventSessionId: event.sessionId,
+        activeSessionId: activeSessionIdRef.current,
+        panelProjectId: projectId,
+      });
+      if (route) router.push(route);
+    },
+    [projectId, router],
+  );
+
   const {
     messagesBySession,
     streamingSessions,
@@ -30,14 +57,9 @@ export function useAiChat({
     abortAll,
     clearAll,
     removeSession,
-  } = useAIStream();
-
-  // The session the panel is currently displaying. Streams for OTHER sessions
-  // keep running into their own buckets; only this one is rendered.
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(initialSessionId ?? null);
-  // Ref mirror for reads inside async callbacks without re-binding them.
-  const activeSessionIdRef = useRef(activeSessionId);
-  activeSessionIdRef.current = activeSessionId;
+  } = useAIStream({
+    onToolResult: handleToolResult,
+  });
 
   // Set so concurrent ensureSession calls don't cancel each other; handleClose
   // aborts all in-flight POST /sessions to prevent post-close resurrection.
@@ -284,6 +306,7 @@ export function useAiChat({
     [removeSession],
   );
 
+  // Aborting cuts the turn short — its pending navigation must die with it.
   const handleAbort = useCallback(() => {
     if (activeSessionIdRef.current) abortSession(activeSessionIdRef.current);
   }, [abortSession]);

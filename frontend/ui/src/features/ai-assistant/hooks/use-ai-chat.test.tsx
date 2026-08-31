@@ -2,6 +2,11 @@
 import { useEffect } from "react";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, waitFor, cleanup } from "@testing-library/react";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
+
 import { useAiChat } from "./use-ai-chat";
 import type { AISession } from "../types";
 import type { ModelSelection } from "../components/model-selector";
@@ -119,7 +124,10 @@ describe("useAiChat session switching", () => {
   };
 
   it("loads an initialSessionId's history into its bucket on mount", async () => {
-    const { result } = renderHook(() => useAiChat({ projectId: "p1", initialSessionId: "rca-1" }));
+    const { result } = renderHook(
+      () => useAiChat({ projectId: "p1", initialSessionId: "rca-1" }),
+      {},
+    );
     expect(result.current.currentSessionId).toBe("rca-1");
     await waitFor(() =>
       expect(result.current.messages.some((m) => m.content === "history of rca-1")).toBe(true),
