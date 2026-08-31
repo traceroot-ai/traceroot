@@ -1,9 +1,11 @@
-"""Public, API-key-authenticated session read endpoints.
+"""Public session read endpoints.
 
 `GET /api/v1/public/sessions` (list) and `GET /api/v1/public/sessions/{session_id}`
-(get). Reads are scoped to the project the API key belongs to — the client never
-supplies a project id. Reuses the shared trace-reader service that also serves
-the user-authenticated session routes, so both surfaces share one implementation.
+(get). Authenticated by either an API key or a user session token
+(``DualStampedAuth``): an API key fixes its own project, while a user credential
+names the project via ``project_id``. Reuses the shared trace-reader service that
+also serves the user-authenticated session routes, so both surfaces share one
+implementation.
 """
 
 import logging
@@ -19,7 +21,7 @@ from rest.rate_limit import (
     resolve_limit,
 )
 from rest.retention import clamp_retention_window
-from rest.routers.public.deps import StampedAuth
+from rest.routers.public.deps import DualStampedAuth
 from rest.schemas.sessions import SessionDetailResponse, SessionListResponse
 from rest.services.trace_reader import get_trace_reader_service
 
@@ -35,7 +37,7 @@ router = APIRouter(prefix="/public/sessions", tags=["Sessions (Public)"])
 async def list_sessions(
     request: Request,
     response: Response,
-    auth: StampedAuth,
+    auth: DualStampedAuth,
     limit: int = Query(50, ge=1, le=200, description="Items per page"),
     search_query: str | None = Query(None, description="Search by session_id"),
     start_after: datetime | None = Query(
@@ -47,11 +49,12 @@ async def list_sessions(
         description="Only sessions with traces before this time (exclusive, ISO 8601)",
     ),
 ):
-    """List unique sessions for the API key's project with trace counts.
+    """List unique sessions for the caller's project with trace counts.
 
     Args:
-        auth (StampedAuth): Resolved API-key context; scopes the read to its
-            project and stamps the rate-limit identity.
+        auth (DualStampedAuth): Resolved credential context (API key or user
+            session token); scopes the read to its project and stamps the
+            rate-limit identity.
         limit (int): Items per page (1-200).
         search_query (str | None): Substring match on session id.
         start_after (datetime | None): Inclusive lower bound on trace time.
@@ -88,7 +91,7 @@ async def list_sessions(
 async def get_session(
     request: Request,
     response: Response,
-    auth: StampedAuth,
+    auth: DualStampedAuth,
     session_id: str,
     start_after: datetime | None = Query(
         None, description="Only traces at or after this time (inclusive, ISO 8601)"
@@ -104,8 +107,9 @@ async def get_session(
     the in-window traces instead of failing outright.
 
     Args:
-        auth (StampedAuth): Resolved API-key context; scopes the read to its
-            project and stamps the rate-limit identity.
+        auth (DualStampedAuth): Resolved credential context (API key or user
+            session token); scopes the read to its project and stamps the
+            rate-limit identity.
         session_id (str): Session to fetch.
         start_after (datetime | None): Inclusive lower bound on trace time.
         end_before (datetime | None): Exclusive upper bound on trace time.

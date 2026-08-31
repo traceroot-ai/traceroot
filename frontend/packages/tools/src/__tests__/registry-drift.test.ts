@@ -24,9 +24,11 @@ describe("committed registry", () => {
       "get_trace",
       "list_detectors",
       "list_findings",
+      "list_projects",
       "list_sessions",
       "list_trace_filter_values",
       "list_traces",
+      "list_workspaces",
       "whoami",
     ]);
   });

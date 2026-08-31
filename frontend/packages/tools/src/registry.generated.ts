@@ -19,6 +19,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
           description:
             "Comma-separated field groups to include: 'core' (tree/timing/status, always included), 'usage' (tokens/cost), 'io' (per-span input/output), 'metadata' (per-span metadata). Aliases: 'skeleton' (core,usage), 'full' (everything). Unknown groups return 400.",
         },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
       },
       required: ["trace_id"],
       additionalProperties: false,
@@ -36,6 +41,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
         detector_id: {
           type: "string",
         },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
       },
       required: ["detector_id"],
       additionalProperties: false,
@@ -52,6 +62,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
         finding_id: {
           type: "string",
         },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
       },
       required: ["finding_id"],
       additionalProperties: false,
@@ -67,6 +82,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
       properties: {
         trace_id: {
           type: "string",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
         },
       },
       required: ["trace_id"],
@@ -95,6 +115,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
           type: "string",
           description: "Only traces before this time (exclusive, ISO 8601)",
         },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
       },
       required: ["session_id"],
       additionalProperties: false,
@@ -116,6 +141,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
           type: "string",
           description:
             "Comma-separated field groups to include: 'core' (tree/timing/status, always included), 'usage' (tokens/cost), 'io' (per-span input/output), 'metadata' (per-span metadata). Aliases: 'skeleton' (core,usage), 'full' (everything). Unknown groups return 400.",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
         },
       },
       required: ["trace_id"],
@@ -146,6 +176,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
           format: "date-time",
           type: "string",
           description: "Only detectors created before this time (exclusive, ISO 8601)",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
         },
       },
       required: [],
@@ -186,6 +221,29 @@ export const REGISTRY: readonly RegistryEntry[] = [
           type: "string",
           description: "Filter to a single trace",
         },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_projects",
+    description:
+      "List the projects the logged-in user can access, across workspaces (id, name, workspace). User-credential-only account discovery: use it to resolve the project_id a project-scoped request needs. Optionally filter by workspace_id.",
+    method: "get",
+    path: "/api/v1/public/projects",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workspace_id: {
+          type: "string",
+          description: "Restrict the result to projects in this workspace.",
+        },
       },
       required: [],
       additionalProperties: false,
@@ -221,6 +279,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
           type: "string",
           description: "Only sessions with traces before this time (exclusive, ISO 8601)",
         },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
       },
       required: [],
       additionalProperties: false,
@@ -247,6 +310,11 @@ export const REGISTRY: readonly RegistryEntry[] = [
           format: "date-time",
           type: "string",
           description: "Only consider spans starting before this timestamp",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
         },
       },
       required: ["field"],
@@ -484,7 +552,25 @@ export const REGISTRY: readonly RegistryEntry[] = [
           description:
             "JSON array of typed filter predicates ({field, op, value}); the field catalog and per-field operators are defined in the schema",
         },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
       },
+      required: [],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_workspaces",
+    description:
+      "List the workspaces the logged-in user belongs to (id, name, role). User-credential-only account discovery: it needs no project_id and is not available to project-scoped API keys.",
+    method: "get",
+    path: "/api/v1/public/workspaces",
+    inputSchema: {
+      type: "object",
+      properties: {},
       required: [],
       additionalProperties: false,
     },
