@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const tx = {
   workspaceMember: { findUnique: vi.fn() },
   project: { findFirst: vi.fn(), create: vi.fn() },
+  dashboard: { create: vi.fn() },
 };
 // Audit rows are written on the root client after the transaction commits, so
 // the tx mock deliberately has no auditLog.
@@ -25,6 +26,8 @@ beforeEach(() => {
   tx.workspaceMember.findUnique.mockReset();
   tx.project.findFirst.mockReset();
   tx.project.create.mockReset();
+  tx.dashboard.create.mockReset();
+  tx.dashboard.create.mockResolvedValue({});
   auditLogCreate.mockReset();
   auditLogCreate.mockResolvedValue({});
 });
@@ -65,9 +68,41 @@ describe("createProject", () => {
         resourceId: "p1",
         workspaceId: "w1",
         projectId: "p1",
-        summary: { name: "Checkout" },
+        summary: { name: "Checkout", defaultDashboard: true },
         transport: "agent",
         agentSessionId: "as1",
+      }),
+    });
+  });
+
+  it("seeds the Default dashboard inside the transaction on create", async () => {
+    tx.workspaceMember.findUnique.mockResolvedValue({ role: "MEMBER" });
+    tx.project.findFirst.mockResolvedValue(null);
+    tx.project.create.mockResolvedValue({
+      id: "p1",
+      name: "Checkout",
+      workspaceId: "w1",
+    });
+    const r = await createProject({
+      actorUserId: "u1",
+      workspaceId: "w1",
+      name: "Checkout",
+      provenance: { transport: "public-api" },
+    });
+    expect(r).toEqual({
+      ok: true,
+      created: true,
+      data: { id: "p1", name: "Checkout", workspaceId: "w1" },
+    });
+    expect(tx.dashboard.create).toHaveBeenCalledTimes(1);
+    expect(tx.dashboard.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        id: "default_p1",
+        projectId: "p1",
+        name: "Default",
+        isDefault: true,
+        createdBy: "u1",
+        widgets: { create: expect.any(Array) },
       }),
     });
   });
@@ -119,6 +154,7 @@ describe("createProject", () => {
       select: { id: true, name: true, workspaceId: true },
     });
     expect(tx.project.create).not.toHaveBeenCalled();
+    expect(tx.dashboard.create).not.toHaveBeenCalled();
     expect(auditLogCreate).not.toHaveBeenCalled();
   });
 
