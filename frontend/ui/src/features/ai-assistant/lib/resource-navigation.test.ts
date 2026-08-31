@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createdDashboardRoute } from "./resource-navigation";
+import { createdDashboardRoute, isCreatedDashboardResult } from "./resource-navigation";
 
 const dashboardResult = (overrides: Record<string, unknown> = {}) => ({
   content: [{ type: "text", text: 'Created dashboard "Spend" (id db1)' }],
@@ -59,6 +59,20 @@ describe("createdDashboardRoute", () => {
         }),
       ).toBeNull();
     }
+  });
+
+  it("recognizes a created-dashboard result regardless of session/project context", () => {
+    expect(isCreatedDashboardResult(dashboardResult())).toBe(true);
+    expect(isCreatedDashboardResult(dashboardResult({ created: false }))).toBe(true);
+    expect(isCreatedDashboardResult(dashboardResult({ projectId: "p2" }))).toBe(true);
+  });
+
+  it("does not recognize non-dashboard or malformed results", () => {
+    expect(isCreatedDashboardResult(dashboardResult({ resourceType: "widget" }))).toBe(false);
+    expect(isCreatedDashboardResult(dashboardResult({ kind: "other" }))).toBe(false);
+    expect(isCreatedDashboardResult(undefined)).toBe(false);
+    expect(isCreatedDashboardResult({ content: [] })).toBe(false);
+    expect(isCreatedDashboardResult({ details: "nope" })).toBe(false);
   });
 
   it("ignores results without well-formed resource_created details", () => {

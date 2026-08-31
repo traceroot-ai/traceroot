@@ -293,4 +293,94 @@ describe("useAIStream live tool-result and turn-completion callbacks", () => {
     expect(step?.toolStep?.result).toEqual(toolEndEvent.result);
     expect(step?.toolStep?.status).toBe("done");
   });
+
+  it("fires onTurnComplete once, after the turn's tool results, on a normal drain", async () => {
+    const sse = createSSE();
+    const onToolResult = vi.fn();
+    const onTurnComplete = vi.fn();
+    const { result } = renderHook(() => useAIStream({ onToolResult, onTurnComplete }));
+    const send = startSend(result, sse);
+
+    sse.emit(toolEndEvent);
+    sse.emit(textDelta("done"));
+    sse.close();
+    await act(() => send);
+
+    expect(onTurnComplete).toHaveBeenCalledExactlyOnceWith({ sessionId: "s1", projectId: "p1" });
+    expect(onTurnComplete.mock.invocationCallOrder[0]).toBeGreaterThan(
+      onToolResult.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("does not fire onTurnComplete when the run is aborted mid-turn", async () => {
+    const sse = createSSE();
+    const onTurnComplete = vi.fn();
+    const { result } = renderHook(() => useAIStream({ onTurnComplete }));
+    const send = startSend(result, sse);
+    await waitFor(() => expect(result.current.streamingSessions["s1"]).toBe(true));
+
+    act(() => {
+      result.current.abortSession("s1");
+    });
+    sse.close();
+    await act(() => send);
+
+    expect(onTurnComplete).not.toHaveBeenCalled();
+  });
+
+  it("reports neither callback for a run superseded within its own session", async () => {
+    const superseded = createSSE();
+    const winner = createSSE();
+    const onToolResult = vi.fn();
+    const onTurnComplete = vi.fn();
+    const { result } = renderHook(() => useAIStream({ onToolResult, onTurnComplete }));
+    const first = startSend(result, superseded);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    // A second send in the SAME session cancels the first run.
+    const second = startSend(result, winner);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    // The dead run's tool result arrives late — it must be ignored entirely.
+    superseded.emit(toolEndEvent);
+    superseded.close();
+    winner.close();
+    await act(async () => {
+      await Promise.all([first, second]);
+    });
+
+    expect(onToolResult).not.toHaveBeenCalled();
+    // Only the run that still owns the session reports completion.
+    expect(onTurnComplete).toHaveBeenCalledExactlyOnceWith({ sessionId: "s1", projectId: "p1" });
+  });
+
+  it("does not fire onTurnComplete when the turn surfaces a stream error event", async () => {
+    const sse = createSSE();
+    const onTurnComplete = vi.fn();
+    const { result } = renderHook(() => useAIStream({ onTurnComplete }));
+    const send = startSend(result, sse);
+
+    sse.emit(toolEndEvent);
+    sse.emit({ type: "error", message: "boom" });
+    sse.close();
+    await act(() => send);
+
+    expect(onTurnComplete).not.toHaveBeenCalled();
+  });
+
+  it("does not fire onTurnComplete when the turn ends with an errored message_end", async () => {
+    const sse = createSSE();
+    const onTurnComplete = vi.fn();
+    const { result } = renderHook(() => useAIStream({ onTurnComplete }));
+    const send = startSend(result, sse);
+
+    sse.emit({
+      type: "message_end",
+      message: { stopReason: "error", errorMessage: "model failed" },
+    });
+    sse.close();
+    await act(() => send);
+
+    expect(onTurnComplete).not.toHaveBeenCalled();
+  });
 });
