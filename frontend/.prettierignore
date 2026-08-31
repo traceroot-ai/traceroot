@@ -5,3 +5,6 @@ dist
 coverage
 *.lock
 pnpm-lock.yaml
+# Rendered by scripts/sync_public_openapi.py; a backend drift test compares it
+# byte-for-byte against the Python renderer, so prettier must not reflow it.
+widget-registry.generated.json

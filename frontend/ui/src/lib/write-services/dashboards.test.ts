@@ -442,4 +442,74 @@ describe("createWidget", () => {
       data: expect.objectContaining({ transport: "agent", agentSessionId: "as1" }),
     });
   });
+
+  // Real-world agent-created specs that passed shape validation but could only
+  // 422 at query time; the registry vocabulary now rejects them at create.
+  it.each([
+    {
+      spec: {
+        view: "spans",
+        metric: { measure: "spans", agg: "count" },
+        display: { type: "number" },
+      },
+      error: /^unknown measure "spans" for view "spans" — valid measures: .*count.*duration_ms/,
+    },
+    {
+      spec: {
+        view: "traces",
+        metric: { measure: "traces", agg: "count" },
+        display: { type: "number" },
+      },
+      error: /^unknown measure "traces" for view "traces" — valid measures: .*error_count/,
+    },
+    {
+      spec: {
+        view: "spans",
+        metric: { measure: "count", agg: "count" },
+        breakdown: "model",
+        display: { type: "bar" },
+      },
+      error:
+        /^unknown breakdown "model" for view "spans" — valid breakdowns: environment, model_name, name, span_kind$/,
+    },
+    {
+      spec: {
+        view: "traces",
+        metric: { measure: "count", agg: "count" },
+        filters: [{ field: "errors", op: ">", value: 0 }],
+        display: { type: "number" },
+      },
+      error:
+        /^unknown filter field "errors" for view "traces" — valid filter fields: .*error_count/,
+    },
+  ])(
+    "rejects an out-of-vocabulary query spec with 400 and the valid options ($error)",
+    async ({ spec, error }) => {
+      mockAccess();
+      mockDashboard();
+      const r = await runWidget({ spec });
+      expect(r).toMatchObject({ ok: false, status: 400 });
+      expect((r as { error: string }).error).toMatch(error);
+      expect(tx.widget.create).not.toHaveBeenCalled();
+      expect(auditLogCreate).not.toHaveBeenCalled();
+    },
+  );
+
+  it("creates a spans widget broken down by model_name (the vocabulary for 'by model')", async () => {
+    mockAccess();
+    mockDashboard();
+    tx.widget.create.mockResolvedValue(widgetRow);
+    const spec = {
+      view: "spans",
+      filters: [],
+      metric: { measure: "count", agg: "count" },
+      breakdown: "model_name",
+      display: { type: "bar" },
+    };
+    const r = await runWidget({ spec });
+    expect(r).toEqual({ ok: true, created: true, data: widgetRow });
+    expect(tx.widget.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ spec }) }),
+    );
+  });
 });
