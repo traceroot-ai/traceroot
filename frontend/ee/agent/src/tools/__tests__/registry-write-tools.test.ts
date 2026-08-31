@@ -134,6 +134,13 @@ describe("createRegistryWriteTools", () => {
       signal: undefined,
     });
     expect(result.content[0]!.text).toBe('Created detector "latency" (id d1)');
+    expect(result.details).toEqual({
+      kind: "resource_created",
+      resourceType: "detector",
+      resourceId: "d1",
+      created: true,
+      projectId: "p1",
+    });
   });
 
   it("create_workspace injects only actor and provenance and hides nothing but label", async () => {
@@ -155,6 +162,12 @@ describe("createRegistryWriteTools", () => {
       signal: undefined,
     });
     expect(result.content[0]!.text).toBe('Created workspace "Analytics" (id w9)');
+    expect(result.details).toEqual({
+      kind: "resource_created",
+      resourceType: "workspace",
+      resourceId: "w9",
+      created: true,
+    });
   });
 
   it("create_widget maps dashboard_id and display_config and names the widget by title", async () => {
@@ -186,6 +199,14 @@ describe("createRegistryWriteTools", () => {
       signal: undefined,
     });
     expect(result.content[0]!.text).toBe('Created widget "Spend by model" (id wg1)');
+    expect(result.details).toEqual({
+      kind: "resource_created",
+      resourceType: "widget",
+      resourceId: "wg1",
+      created: true,
+      projectId: "p1",
+      dashboardId: "db1",
+    });
   });
 
   it("reports an idempotent created:false result as already existing", async () => {
@@ -201,6 +222,13 @@ describe("createRegistryWriteTools", () => {
       prompt: "p",
     });
     expect(result.content[0]!.text).toBe('Detector "latency" already exists (id d1) — reusing it');
+    expect(result.details).toEqual({
+      kind: "resource_created",
+      resourceType: "detector",
+      resourceId: "d1",
+      created: false,
+      projectId: "p1",
+    });
   });
 
   it("returns the internal route's {error} message as tool text instead of throwing", async () => {
@@ -219,6 +247,7 @@ describe("createRegistryWriteTools", () => {
     expect(result.content[0]!.text).toBe(
       "Error calling create_detector: API error 403: Requires MEMBER role or higher",
     );
+    expect(result.details).toBeUndefined();
   });
 
   it("returns thrown fetch errors as tool text instead of throwing", async () => {
@@ -230,6 +259,7 @@ describe("createRegistryWriteTools", () => {
     )!;
     const result = await tool.execute("id", { label: "x", name: "Analytics" });
     expect(result.content[0]!.text).toBe("Error calling create_workspace: fetch failed");
+    expect(result.details).toBeUndefined();
   });
 
   it("leaves unset optional args out of the body entirely", async () => {
@@ -254,6 +284,37 @@ describe("createRegistryWriteTools", () => {
       signal: undefined,
     });
     expect(result.content[0]!.text).toBe('Created project "api" (id p2)');
+    expect(result.details).toEqual({
+      kind: "resource_created",
+      resourceType: "project",
+      resourceId: "p2",
+      created: true,
+      workspaceId: "w1",
+    });
+  });
+
+  it("stamps dashboard results with the ambient projectId for navigation", async () => {
+    const { client } = stubClient({
+      created: true,
+      dashboard: { id: "db1", name: "Spend", projectId: "p1" },
+    });
+    const tool = makeTools(client).find((t) => t.name === "create_dashboard")!;
+    const result = await tool.execute("id", { label: "x", name: "Spend" });
+    expect(result.details).toEqual({
+      kind: "resource_created",
+      resourceType: "dashboard",
+      resourceId: "db1",
+      created: true,
+      projectId: "p1",
+    });
+  });
+
+  it("carries no details when the success payload has an unexpected shape", async () => {
+    const { client } = stubClient({ ok: true });
+    const tool = makeTools(client).find((t) => t.name === "create_dashboard")!;
+    const result = await tool.execute("id", { label: "x", name: "Spend" });
+    expect(result.content[0]!.text).toBe(JSON.stringify({ ok: true }, null, 2));
+    expect(result.details).toBeUndefined();
   });
 
   it("drops explicit nulls the way the public route drops unset optionals", async () => {

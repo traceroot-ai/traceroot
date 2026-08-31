@@ -1,11 +1,10 @@
-import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { AgentTool, AgentToolResult } from "@earendil-works/pi-agent-core";
 import {
   ApiClient,
   ApiError,
   INTERNAL_WRITE_BINDINGS,
   REGISTRY,
   type ParamSchema,
-  type PiToolResult,
   type RegistryEntry,
 } from "@traceroot-ai/tools";
 
@@ -19,9 +18,25 @@ interface WriteToolSpec {
   /** Public snake_case field → internal camelCase body key (tenancy fields excluded). */
   fieldMap: Record<string, string>;
   /** Key holding the resource in the route's success payload. */
-  resourceKey: string;
+  resourceKey: "workspace" | "project" | "detector" | "dashboard" | "widget";
   /** Field naming the resource in the success text. */
   displayNameKey: "name" | "title";
+}
+
+/**
+ * Structured success payload surfaced to the UI through the tool result's
+ * `details` (forwarded verbatim over the agent service's SSE stream), so the
+ * panel can link to — or navigate to — the resource a write tool touched.
+ */
+export interface ResourceCreatedDetails {
+  kind: "resource_created";
+  resourceType: WriteToolSpec["resourceKey"];
+  resourceId: string;
+  /** false when the write was idempotent and an existing resource was reused. */
+  created: boolean;
+  projectId?: string;
+  workspaceId?: string;
+  dashboardId?: string;
 }
 
 const WRITE_TOOL_SPECS: Readonly<Record<string, WriteToolSpec>> = {
@@ -101,21 +116,44 @@ function humanizeName(name: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
-/** "Created detector "latency" (id d1)" / already-exists variant. */
-function formatWriteResult(resourceKey: string, displayNameKey: string, result: unknown): string {
+/**
+ * "Created detector "latency" (id d1)" / already-exists variant, plus the
+ * structured details the UI consumes. `tenancyIds` is the ambient projectId /
+ * workspaceId the tool injected into the write.
+ */
+function buildWriteSuccess(
+  spec: WriteToolSpec,
+  tenancyIds: { projectId?: string; workspaceId?: string },
+  result: unknown,
+): { text: string; details: ResourceCreatedDetails | undefined } {
   const payload = result as Record<string, unknown>;
-  const resource = payload[resourceKey] as Record<string, unknown> | undefined;
+  const resource = payload[spec.resourceKey] as Record<string, unknown> | undefined;
   const id = resource?.id;
-  const displayName = resource?.[displayNameKey];
+  const displayName = resource?.[spec.displayNameKey];
   if (typeof id !== "string" || typeof displayName !== "string") {
     // Unexpected payload shape: show it verbatim rather than guessing.
-    return JSON.stringify(result, null, 2);
+    return { text: JSON.stringify(result, null, 2), details: undefined };
   }
-  if (payload.created === false) {
-    const capitalized = resourceKey.charAt(0).toUpperCase() + resourceKey.slice(1);
-    return `${capitalized} "${displayName}" already exists (id ${id}) — reusing it`;
+  const created = payload.created !== false;
+  const details: ResourceCreatedDetails = {
+    kind: "resource_created",
+    resourceType: spec.resourceKey,
+    resourceId: id,
+    created,
+    ...tenancyIds,
+  };
+  // Widgets live under a dashboard; the route echoes which one.
+  if (typeof resource?.dashboardId === "string") {
+    details.dashboardId = resource.dashboardId;
   }
-  return `Created ${resourceKey} "${displayName}" (id ${id})`;
+  if (created) {
+    return { text: `Created ${spec.resourceKey} "${displayName}" (id ${id})`, details };
+  }
+  const capitalized = spec.resourceKey.charAt(0).toUpperCase() + spec.resourceKey.slice(1);
+  return {
+    text: `${capitalized} "${displayName}" already exists (id ${id}) — reusing it`,
+    details,
+  };
 }
 
 /**
@@ -191,7 +229,11 @@ export function createRegistryWriteTools(opts: CreateRegistryWriteToolsOptions):
       label: humanizeName(entry.name),
       description: entry.description,
       parameters: { type: "object", properties, required, additionalProperties: false },
-      execute: async (_toolCallId, rawParams, signal): Promise<PiToolResult> => {
+      execute: async (
+        _toolCallId,
+        rawParams,
+        signal,
+      ): Promise<AgentToolResult<ResourceCreatedDetails | undefined>> => {
         const { label: _label, ...params } = (rawParams ?? {}) as Record<string, unknown>;
         const body: Record<string, unknown> = {
           actorUserId,
@@ -213,15 +255,8 @@ export function createRegistryWriteTools(opts: CreateRegistryWriteToolsOptions):
         }
         try {
           const result = await client.request("post", path, { body, signal });
-          return {
-            content: [
-              {
-                type: "text",
-                text: formatWriteResult(spec.resourceKey, spec.displayNameKey, result),
-              },
-            ],
-            details: undefined,
-          };
+          const { text, details } = buildWriteSuccess(spec, tenancyBody, result);
+          return { content: [{ type: "text", text }], details };
         } catch (error) {
           // Deliberate divergence from the runtime's throw-on-failure contract:
           // errors are returned as tool-result text so the model can read the
