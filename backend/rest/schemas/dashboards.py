@@ -10,7 +10,7 @@ is the single source of truth for which views and fields exist.
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, WithJsonSchema
 
 DisplayType = Literal["line", "area", "bar", "pie", "number", "table", "histogram"]
 AggName = Literal["count", "sum", "avg", "min", "max", "p50", "p75", "p90", "p95", "p99", "uniq"]
@@ -32,13 +32,18 @@ class WidgetFilter(_StrictModel):
     # allow_inf_nan=False: json.loads accepts bare NaN/Infinity tokens, but a
     # stored non-finite float can never be re-encoded by a strict JSON encoder
     # (the write proxy's httpx client included) — reject it at validation.
-    value: (
-        Annotated[str, StringConstraints(min_length=1)]
-        | Annotated[float, Field(allow_inf_nan=False)]
-    )
+    # The union is emitted as a JSON-Schema type array rather than an anyOf:
+    # this model feeds generated tool schemas (via the public widget-create
+    # body), and some model providers reject properties without a `type`.
+    value: Annotated[
+        Annotated[str, StringConstraints(min_length=1)] | Annotated[float, Field(allow_inf_nan=False)],
+        WithJsonSchema({"type": ["string", "number"], "minLength": 1}),
+    ]
     # The map key for a keyed field. Unconstrained here: whether a key is required,
     # forbidden or over-length depends on the field, so the compiler raises those.
-    key: str | None = None
+    # Typed as an array for the same reason as value: an anyOf-only property
+    # is rejected by some model providers' tool schemas.
+    key: Annotated[str | None, WithJsonSchema({"type": ["string", "null"]})] = None
 
 
 class WidgetMetric(_StrictModel):
@@ -55,7 +60,12 @@ class WidgetDisplay(_StrictModel):
 
 
 class WidgetSpec(_StrictModel):
-    """Full declarative specification of a single dashboard widget."""
+    """Full declarative specification of a single dashboard widget.
+
+    Mirrors the canonical zod ``WidgetSpecSchema``
+    (frontend/ui/src/features/dashboards/types.ts); the frontend
+    widget-spec-parity test guards the two against structural drift.
+    """
 
     view: Literal["spans", "traces"]
     filters: list[WidgetFilter] = Field(default_factory=list)

@@ -170,6 +170,29 @@ describe("createRegistryWriteTools", () => {
     });
   });
 
+  it("create_widget's model-visible spec schema carries both structured dialects", () => {
+    const tool = makeTools(stubClient().client).find((t) => t.name === "create_widget")!;
+    const spec = tool.parameters.properties.spec as {
+      type?: string;
+      anyOf?: { properties: Record<string, unknown>; required?: string[] }[];
+    };
+    // The union of object dialects keeps an explicit type for providers that
+    // reject untyped properties, plus both variants for the model to compose.
+    expect(spec.type).toBe("object");
+    expect(spec.anyOf).toHaveLength(2);
+    const query = spec.anyOf!.find((variant) => "view" in variant.properties)!;
+    expect(Object.keys(query.properties).sort()).toEqual([
+      "breakdown",
+      "display",
+      "filters",
+      "metric",
+      "view",
+    ]);
+    expect(query.required).toEqual(["view", "metric", "display"]);
+    const feed = spec.anyOf!.find((variant) => "limit" in variant.properties)!;
+    expect(Object.keys(feed.properties).sort()).toEqual(["filters", "limit"]);
+  });
+
   it("create_widget maps dashboard_id and display_config and names the widget by title", async () => {
     const { client, request } = stubClient({
       created: true,
