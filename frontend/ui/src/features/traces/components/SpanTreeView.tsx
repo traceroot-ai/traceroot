@@ -6,7 +6,8 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSession as useAuthSession } from "@/lib/auth-client";
 import { getSpanIO } from "@/lib/api";
-import { ChevronRight, ChevronDown, CircleStop, CircleDollarSign } from "lucide-react";
+import { ChevronRight, ChevronDown } from "lucide-react";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { cn, formatDuration, formatTokenFlow } from "@/lib/utils";
 import { SpanKind, SpanStatus } from "@traceroot/core";
 import type { TraceDetail, Span } from "@/types/api";
@@ -96,6 +97,12 @@ interface SpanTreeViewProps {
   onHoverChange: (id: string | null) => void;
   /** The overflow-y-auto scroll container owned by TraceViewerPanel. */
   scrollRef: RefObject<HTMLDivElement | null>;
+  /**
+   * Skip the hover-prefetch (offline-eval override traces). `trace.project_id`/
+   * `trace.trace_id` are synthetic (`run.evaluationId` / `eval-<resultId>`) on an
+   * override, so every hover would fire a doomed `/span-io` request otherwise.
+   */
+  disableIOPrefetch?: boolean;
 }
 
 export interface SpanTreeViewHandle {
@@ -127,6 +134,7 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
     hoveredSpanId,
     onHoverChange,
     scrollRef,
+    disableIOPrefetch = false,
   },
   ref,
 ) {
@@ -151,6 +159,9 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
   const runSpanIOPrefetch = useCallback(
     (span: Span) => {
       if (span.pending) return;
+      // Skip prefetch under an override: trace.project_id/trace.trace_id are
+      // synthetic there, so a real /span-io request would always 404.
+      if (disableIOPrefetch) return;
       // Skip prefetch until the auth session is ready: prefetching with no user
       // would trigger a fallback session fetch per hover and could cache an
       // unauthenticated result under the shared span-io query key.
@@ -162,7 +173,7 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
         staleTime: SPAN_IO_STALE_TIME_MS,
       });
     },
-    [queryClient, authSession, trace.project_id, trace.trace_id],
+    [queryClient, authSession, trace.project_id, trace.trace_id, disableIOPrefetch],
   );
 
   // Schedule the prefetch after a short hover delay; cancel on leave / unmount so a
@@ -277,7 +288,7 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
 
                         {traceTokenUsage && (
                           <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap text-[10px] font-medium text-muted-foreground @[130px]:inline-flex">
-                            <CircleStop className="h-2.5 w-2.5" />
+                            <DOMAIN_ICONS.tokens className="h-2.5 w-2.5" />
                             {formatTokenFlow(
                               traceTokenUsage.inputTokens,
                               traceTokenUsage.outputTokens,
@@ -288,7 +299,7 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
 
                         {traceTotalCost != null && (
                           <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[190px]:inline-flex">
-                            <CircleDollarSign className="h-2.5 w-2.5" />
+                            <DOMAIN_ICONS.cost className="h-2.5 w-2.5" />
                             {traceTotalCost.toFixed(4)}
                           </span>
                         )}
@@ -376,7 +387,7 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
 
                       {span.span_kind === SpanKind.LLM && span.total_tokens != null && (
                         <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap text-[10px] font-medium text-muted-foreground @[130px]:inline-flex">
-                          <CircleStop className="h-2.5 w-2.5" />
+                          <DOMAIN_ICONS.tokens className="h-2.5 w-2.5" />
                           {formatTokenFlow(
                             span.input_tokens,
                             span.output_tokens,
@@ -389,7 +400,7 @@ export const SpanTreeView = forwardRef<SpanTreeViewHandle, SpanTreeViewProps>(fu
                         span.cost != null &&
                         Number.isFinite(span.cost) && (
                           <span className="hidden shrink-0 items-center gap-0.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground @[190px]:inline-flex">
-                            <CircleDollarSign className="h-2.5 w-2.5" />
+                            <DOMAIN_ICONS.cost className="h-2.5 w-2.5" />
                             {span.cost.toFixed(4)}
                           </span>
                         )}

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import {
   ADAPTER_MODELS,
@@ -5,7 +6,26 @@ import {
   ADAPTER_API_PROTOCOL,
   LLMAdapter,
   DETECTOR_SYSTEM_DEFAULT_MODEL_ID,
+  defaultApiProtocol,
 } from "../llm-providers.ts";
+
+describe("defaultApiProtocol", () => {
+  it("prefers the catalog entry's own protocol over the adapter default", () => {
+    expect(defaultApiProtocol("openai", "o3")).toBe("openai-completions");
+    expect(defaultApiProtocol("openai", "o4-mini")).toBe("openai-completions");
+    expect(defaultApiProtocol("openai", "gpt-5")).toBe("openai-responses");
+  });
+
+  it("falls back to the adapter default for unknown models and no model", () => {
+    expect(defaultApiProtocol("openai", "some-future-model")).toBe("openai-responses");
+    expect(defaultApiProtocol("openai")).toBe("openai-responses");
+    expect(defaultApiProtocol("deepseek", "deepseek-chat")).toBe("openai-completions");
+  });
+
+  it("is empty for an unknown adapter", () => {
+    expect(defaultApiProtocol("nope", "x")).toBe("");
+  });
+});
 
 describe("ADAPTER_MODELS", () => {
   it("contains no duplicate model IDs within a single adapter", () => {
@@ -145,4 +165,30 @@ describe("ADAPTER_MODELS", () => {
       }
     });
   });
+});
+
+describe("docs stay in sync with SYSTEM_MODELS", () => {
+  // The BYOK docs table is a hand-maintained copy of SYSTEM_MODELS. Without this
+  // check, adding a model here silently leaves the docs stale (see #1431).
+  const BYOK_DOC = new URL("../../../../../docs/ai-agent/byok.mdx", import.meta.url);
+
+  it.each(SYSTEM_MODELS.map((s) => [s.provider, s.models.map((m) => m.id)] as const))(
+    "the byok.mdx Default Models table lists %s's models in SYSTEM_MODELS order",
+    (provider, expectedIds) => {
+      const row = readFileSync(BYOK_DOC, "utf8")
+        .split("\n")
+        .find((line) => line.startsWith(`| ${provider} |`));
+
+      expect(
+        row,
+        `no "${provider}" row in the Default Models table of docs/ai-agent/byok.mdx`,
+      ).toBeDefined();
+
+      const documentedIds = [...row!.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
+      expect(
+        documentedIds,
+        `docs/ai-agent/byok.mdx is out of sync with SYSTEM_MODELS for ${provider} — update the table`,
+      ).toEqual([...expectedIds]);
+    },
+  );
 });

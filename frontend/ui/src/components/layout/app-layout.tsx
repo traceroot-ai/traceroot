@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback, createContext, useContext, ReactNode 
 import { usePathname } from "next/navigation";
 import { Sidebar } from "./sidebar";
 import { Button } from "@/components/ui/button";
-import { PanelLeft, BotMessageSquare } from "lucide-react";
+import { PanelLeft } from "lucide-react";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { AiAssistantPanel } from "@/features/ai-assistant/components/ai-assistant-panel";
 import { AiChatProvider } from "@/features/ai-assistant/components/ai-chat-context";
@@ -89,8 +90,11 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
   const projectIdMatch = pathname.match(/^\/projects\/([^/]+)/);
   const projectId = projectIdMatch?.[1];
 
-  // Don't show layout on auth pages
-  if (pathname.startsWith("/auth/")) {
+  // Don't show the app shell (sidebar, header, user menu) on standalone
+  // sign-in surfaces. The device consent page is reachable while signed out,
+  // so wrapping it in the authenticated shell would render a bogus "User"
+  // menu and workspace rail around it.
+  if (pathname.startsWith("/auth/") || pathname === "/device") {
     return <>{children}</>;
   }
 
@@ -155,7 +159,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
                       }}
                       title="AI Assistant"
                     >
-                      <BotMessageSquare className="h-4 w-4" />
+                      <DOMAIN_ICONS.assistant className="h-4 w-4" />
                     </Button>
                   </div>
                 )}

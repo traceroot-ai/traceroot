@@ -51,8 +51,13 @@ jobs:
       - name: Build @traceroot/github
         run: cd frontend/packages/github && pnpm build
 
+      # The agent imports @traceroot-ai/tools via its compiled dist, so the
+      # tools package must build first.
+      - name: Build tools package
+        run: cd frontend/packages/tools && pnpm build
+
       - name: Build @traceroot/agent
-        run: cd frontend/packages/agent && pnpm build
+        run: cd frontend/ee/agent && pnpm build
 
       - name: Build traceroot-worker (billing)
         run: cd frontend/worker && pnpm build

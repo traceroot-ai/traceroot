@@ -8,6 +8,7 @@ import {
   ModelSelector,
   type ModelSelection,
 } from "@/features/ai-assistant/components/model-selector";
+import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 import {
   DEFAULT_DETECTOR_SAMPLE_RATE,
   DETECTOR_TEMPLATES,
@@ -17,6 +18,10 @@ import { useCreateDetector } from "@/features/detectors/hooks/use-detectors";
 import type { CreateDetectorInput } from "@/features/detectors/hooks/use-detectors";
 import { TriggerEditor } from "@/features/detectors/components/trigger-editor";
 import type { TriggerCondition } from "@/features/detectors/components/trigger-editor";
+import {
+  normalizeTriggerConditions,
+  validateTriggerConditions,
+} from "@/features/detectors/trigger-fields";
 import { AgentModelLink } from "@/features/detectors/components/agent-model-link";
 import { RcaToggle } from "@/features/detectors/components/rca-toggle";
 import { useProject } from "@/features/projects/hooks";
@@ -71,7 +76,7 @@ export default function NewDetectorPage() {
       sampleRate,
       enabled: sampleRate > 0,
       enableRca,
-      triggerConditions,
+      triggerConditions: normalizeTriggerConditions(triggerConditions),
       detectionModel: modelSelection.model || undefined,
       detectionProvider: modelSelection.provider || undefined,
       detectionSource: modelSelection.source === "byok" ? "byok" : "system",
@@ -81,6 +86,11 @@ export default function NewDetectorPage() {
   };
 
   const selectedTemplateDef = DETECTOR_TEMPLATES.find((t) => t.id === selectedTemplate);
+
+  // Block Create while a filter row is incomplete (missing value or metadata
+  // key) — the write path rejects such payloads with a message the fetch
+  // layer would flatten into a generic failure.
+  const conditionsError = validateTriggerConditions(normalizeTriggerConditions(triggerConditions));
 
   return (
     <div className="relative flex h-full text-[13px]">
@@ -155,6 +165,7 @@ export default function NewDetectorPage() {
                     value={modelSelection}
                     onChange={setModelSelection}
                     workspaceId={project?.workspace_id}
+                    defaultModelId={DETECTOR_SYSTEM_DEFAULT_MODEL_ID}
                   />
                   <p className="mt-1 text-[11px] text-muted-foreground">
                     Used to evaluate each trace for this detector.
@@ -199,6 +210,7 @@ export default function NewDetectorPage() {
             <div className="border border-border">
               <TriggerEditor
                 conditions={triggerConditions}
+                projectId={projectId}
                 onChange={setTriggerConditions}
                 asCard
               />
@@ -225,7 +237,10 @@ export default function NewDetectorPage() {
             </div>
 
             {/* Footer */}
-            <div className="flex justify-end gap-2 pt-1">
+            <div className="flex items-center justify-end gap-2 pt-1">
+              {conditionsError && (
+                <span className="text-[12px] text-destructive">{conditionsError}</span>
+              )}
               <Button
                 type="button"
                 variant="outline"
@@ -239,7 +254,12 @@ export default function NewDetectorPage() {
                 type="submit"
                 size="sm"
                 className="h-7 text-[12px]"
-                disabled={createMutation.isPending || !name.trim() || !prompt.trim()}
+                disabled={
+                  createMutation.isPending ||
+                  !name.trim() ||
+                  !prompt.trim() ||
+                  conditionsError !== null
+                }
               >
                 {createMutation.isPending ? "Creating..." : "Create Detector"}
               </Button>

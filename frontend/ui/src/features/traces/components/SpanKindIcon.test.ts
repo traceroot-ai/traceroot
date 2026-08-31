@@ -1,5 +1,24 @@
 import { describe, it, expect } from "vitest";
-import { getSpanKindColor } from "./SpanKindIcon";
+import { getSpanKindColor, getSpanKindIcon } from "./SpanKindIcon";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
+
+describe("getSpanKindIcon", () => {
+  it("maps each known kind to its domain icon", () => {
+    expect(getSpanKindIcon("trace")).toBe(DOMAIN_ICONS.trace);
+    expect(getSpanKindIcon("llm")).toBe(DOMAIN_ICONS.llm);
+    expect(getSpanKindIcon("agent")).toBe(DOMAIN_ICONS.agent);
+    expect(getSpanKindIcon("tool")).toBe(DOMAIN_ICONS.tool);
+  });
+
+  it("is case-insensitive", () => {
+    expect(getSpanKindIcon("LLM")).toBe(DOMAIN_ICONS.llm);
+  });
+
+  it("falls back to the generic span icon for span and unknown kinds", () => {
+    expect(getSpanKindIcon("span")).toBe(DOMAIN_ICONS.span);
+    expect(getSpanKindIcon("http")).toBe(DOMAIN_ICONS.span);
+  });
+});
 
 describe("getSpanKindColor", () => {
   it("returns distinct surface tints for the four real kinds", () => {
@@ -32,6 +51,22 @@ describe("getSpanKindColor", () => {
   it("includes a dark-mode variant in every glyph color", () => {
     for (const k of ["LLM", "AGENT", "TOOL", "SPAN"]) {
       expect(getSpanKindColor(k).glyph).toContain("dark:");
+    }
+  });
+
+  it("gives the offline-eval kinds distinct tints (not the SPAN fallback)", () => {
+    expect(getSpanKindColor("EVALUATION").surface).toContain("emerald");
+    expect(getSpanKindColor("TASK").surface).toContain("sky");
+    expect(getSpanKindColor("SCORER").surface).toContain("fuchsia");
+    for (const k of ["EVALUATION", "TASK", "SCORER"]) {
+      expect(getSpanKindColor(k)).not.toEqual(getSpanKindColor("SPAN"));
+    }
+  });
+
+  it("maps the offline-eval kinds to their own icons", () => {
+    const span = getSpanKindIcon("SPAN");
+    for (const k of ["EVALUATION", "TASK", "SCORER"]) {
+      expect(getSpanKindIcon(k)).not.toBe(span);
     }
   });
 });

@@ -21,6 +21,7 @@ class FilterLevel(StrEnum):
     TRACE = "TRACE"  # inline predicate on the traces row (t.*)
     SPAN_MEMBERSHIP = "SPAN_MEMBERSHIP"  # trace_id IN (SELECT … FROM spans WHERE …)
     SPAN_AGGREGATE = "SPAN_AGGREGATE"  # trace_id IN (SELECT … GROUP BY trace_id HAVING …)
+    KEYED_MAP = "KEYED_MAP"  # inline traces-row Map match OR the span semi-join, by key
 
 
 class FilterType(StrEnum):
@@ -63,13 +64,30 @@ class FilterColumn:
     """A single filterable column.
 
     Attributes:
-        name (str): The ClickHouse column name, also the predicate ``field`` key.
+        name (str): The predicate ``field`` key — what a filter names, and what
+            ``get_column`` resolves. For every level except ``KEYED_MAP`` it is also the
+            ClickHouse column read. A ``KEYED_MAP`` field is queried through the Map
+            column DERIVED from it rather than the column of this name: ``metadata`` is
+            filtered as ``metadata_map[key]``, the materialized one-level map of the
+            ``metadata`` JSON blob (migration 009). The translator owns that derivation,
+            so the physical column for a keyed-map field is not declared here.
         label (str): Human-readable label for the filter pill.
         ch_type (str): ClickHouse type, used to bind query parameters.
         level (str): One of ``FilterLevel`` — how the predicate lowers to SQL.
         type (str): One of ``FilterType`` — the UI input kind.
         operators (tuple[str, ...]): Allowed ``FilterOperator`` values (whitelist).
         value_source (str): One of ``ValueSource`` — where options come from.
+        requires_key (bool): Whether a predicate on the field carries a ``key`` slot in
+            addition to op/value (``{field, key, op, value}``) — e.g. which metadata key
+            the value is compared against. Declared per field rather than derived from
+            the level, because keyed-ness and lowering scope are independent axes: a key
+            slot says the predicate names a map entry, the level says which relation the
+            predicate lowers against, and a future keyed field could sit at any level.
+            This is also what ``/filter-fields`` serializes — the UI needs one boolean
+            ("render an extra key control"), and typing the level string on the client
+            would push a backend enum into UI branching. Nothing enforces agreement
+            between this and ``level`` by construction; a registry parity test pins which
+            fields declare it.
         enum_values (tuple[str, ...]): Static options for ``STATIC_ENUM`` fields.
         aggregate_expr (str | None): For ``SPAN_AGGREGATE`` fields, the per-trace
             aggregate the HAVING clause filters on (e.g. ``sum(cost)``). ``None`` for
@@ -87,6 +105,7 @@ class FilterColumn:
     type: str
     operators: tuple[str, ...]
     value_source: str
+    requires_key: bool = False
     enum_values: tuple[str, ...] = ()
     aggregate_expr: str | None = None
     source_columns: tuple[str, ...] = ()
@@ -192,6 +211,30 @@ FILTER_COLUMNS: tuple[FilterColumn, ...] = (
         value_source=ValueSource.RANGE,
         aggregate_expr="countIf(status = 'ERROR')",
         source_columns=("status",),
+    ),
+    # Keyed-map tier — "the trace carries <key> <op> <value>, at either scope".
+    # ONE parameterized field with a key slot, never one row per key: metadata keys are the
+    # user's own data, discovered per window at runtime, while this tuple is a fixed contract.
+    # That works because the key reaches SQL as a bound parameter rather than an identifier,
+    # so any key the user types is safe to query — an unsuggested key simply matches nothing.
+    # The SDK may attach metadata at trace scope (traces.metadata_map, surfaced in the list
+    # as the single default-off Metadata blob cell) or at span scope (spans.metadata_map), and
+    # the two key spaces are disjoint, so the level lowers to an inline traces-row match OR the
+    # span semi-join.
+    # A user filtering by a tag they can see therefore need not know which scope set it;
+    # matching only spans would have dropped every trace-level key. The trace-row arm rides
+    # the scan the list already does, so only the span arm costs a scan. Last in the tuple
+    # because this is also the field dropdown's render order, and metadata is the one field
+    # that renders an extra control.
+    FilterColumn(
+        name="metadata",
+        label="Metadata",
+        ch_type="String",
+        level=FilterLevel.KEYED_MAP,
+        type=FilterType.TEXT,
+        operators=(FilterOperator.EQ, FilterOperator.CONTAINS),
+        value_source=ValueSource.FREE_TEXT,
+        requires_key=True,
     ),
 )
 

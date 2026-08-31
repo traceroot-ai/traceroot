@@ -1,5 +1,7 @@
 import { NextRequest } from "next/server";
 import { requireAuth, requireProjectAccess, errorResponse } from "@/lib/auth-helpers";
+import { prisma, PlanType } from "@traceroot/core";
+import { clampStartAfter } from "@/lib/server/retention";
 import { env } from "@/env";
 
 const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
@@ -20,8 +22,15 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   if (accessResult.error) return accessResult.error;
 
   const { searchParams } = req.nextUrl;
-  const startAfter = searchParams.get("start_after");
+  let startAfter = searchParams.get("start_after");
   const endBefore = searchParams.get("end_before");
+
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: accessResult.project.workspaceId },
+    select: { billingPlan: true },
+  });
+  const billingPlan = workspace?.billingPlan || PlanType.FREE;
+  startAfter = clampStartAfter(billingPlan, startAfter);
 
   if (!startAfter) {
     return errorResponse("start_after is required", 400);

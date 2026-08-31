@@ -215,8 +215,15 @@ Output your findings in this format:
     throw new Error(`Failed to send RCA message: HTTP ${msgRes.status}`);
   }
 
-  // Consume SSE stream, accumulate assistant text
+  // Consume SSE stream, accumulate assistant text. The agent service reports
+  // mid-stream failures on the SSE `event:` field (an `error` frame, or a
+  // `message_end` whose message.stopReason is "error") — both arrive over an
+  // HTTP 200 stream, so they must be read from the frames, not the response
+  // status. Track the current `event:` name to recognize an `error` frame,
+  // since its data payload (just `{ message }`) carries no `type` of its own.
   let rcaResult = "";
+  let agentErrorMessage: string | undefined;
+  let currentEventName: string | undefined;
   const reader = msgRes.body!.getReader();
   const decoder = new TextDecoder();
   let remainder = "";
@@ -229,21 +236,54 @@ Output your findings in this format:
     const lines = text.split("\n");
     remainder = lines.pop() ?? ""; // last element: incomplete or empty
     for (const line of lines) {
-      if (line.startsWith("data: ")) {
-        try {
-          const event = JSON.parse(line.slice(6));
-          if (
-            event.type === "message_update" &&
-            event.assistantMessageEvent?.type === "text_delta" &&
-            event.assistantMessageEvent.delta
-          ) {
-            rcaResult += event.assistantMessageEvent.delta;
+      if (line.startsWith("event: ")) {
+        currentEventName = line.slice(7).trim();
+      } else if (line.startsWith("data: ")) {
+        const raw = line.slice(6);
+        if (currentEventName === "error") {
+          // Our own onError handler sends JSON (`{ message }`), but hono's
+          // generic streamSSE `run()` wrapper — triggered when the route
+          // callback throws outside that handler — sends the raw
+          // Error.message string instead. Fall back to the raw line whenever
+          // it isn't JSON with a `.message` field, so that error isn't lost.
+          try {
+            const parsed = JSON.parse(raw);
+            agentErrorMessage = parsed?.message || raw || "unknown agent error";
+          } catch {
+            agentErrorMessage = raw || "unknown agent error";
           }
-        } catch {
-          // skip malformed SSE lines
+        } else {
+          try {
+            const event = JSON.parse(raw);
+            if (
+              event.type === "message_update" &&
+              event.assistantMessageEvent?.type === "text_delta" &&
+              event.assistantMessageEvent.delta
+            ) {
+              rcaResult += event.assistantMessageEvent.delta;
+            } else if (event.type === "message_end" && event.message?.stopReason === "error") {
+              agentErrorMessage = event.message?.errorMessage || "unknown agent error";
+            }
+          } catch {
+            // skip malformed SSE lines
+          }
         }
+      } else if (line === "") {
+        currentEventName = undefined;
       }
     }
+  }
+
+  if (agentErrorMessage) {
+    throw new Error(`RCA agent failed: ${agentErrorMessage}`);
+  }
+  // An empty-but-clean stream is indistinguishable from a swallowed failure,
+  // so it fails deliberately rather than being recorded as done. BullMQ
+  // retries this per the `attempts`/`backoff` set on the RCA job enqueue
+  // (detector-run-processor.ts), which is what actually catches transient
+  // causes like rate limits or provider 5xx.
+  if (!rcaResult.trim()) {
+    throw new Error("RCA agent produced no output");
   }
 
   return { result: rcaResult, sessionId: session.id };
@@ -366,8 +406,16 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
       },
     });
   } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
     await prisma.detectorRca
-      .update({ where: { findingId }, data: { status: "failed" } })
+      .update({
+        where: { findingId },
+        data: {
+          status: "failed",
+          result: `RCA failed: ${message}`,
+          completedAt: new Date(),
+        },
+      })
       .catch(() => {}); // best-effort
 
     await scheduleDigestFlush();

@@ -1,9 +1,33 @@
 import { z } from "zod";
 
+// Values this repository shipped as defaults in .env.example or
+// docker-compose.prod.yml. They are public, so they are not secrets: a
+// deployment still carrying one signs sessions with a key anyone can read.
+const PUBLISHED_PLACEHOLDERS = new Set([
+  "dev-internal-secret",
+  "internal-secret",
+  "your-better-auth-secret",
+  "local-dev-secret-change-in-production",
+  "changeme",
+]);
+
+// Deliberately no .trim() transform: this exact string is compared against the
+// Python services' copy, so normalizing it here alone would break every internal
+// request when an operator's value carries stray whitespace. Blankness is
+// checked without changing the value.
+export const authSecret = () =>
+  z
+    .string()
+    .refine((value) => value.trim().length > 0, { message: "must not be blank" })
+    .refine((value) => !PUBLISHED_PLACEHOLDERS.has(value.trim().toLowerCase()), {
+      message:
+        "value is a placeholder published in this repository; generate one with `openssl rand -hex 32`",
+    });
+
 const serverSchema = z.object({
-  BETTER_AUTH_SECRET: z.string().min(1),
+  BETTER_AUTH_SECRET: authSecret(),
   BETTER_AUTH_URL: z.string().default("http://localhost:3000"),
-  INTERNAL_API_SECRET: z.string().min(1),
+  INTERNAL_API_SECRET: authSecret(),
   AUTH_GOOGLE_CLIENT_ID: z.string().default(""),
   AUTH_GOOGLE_CLIENT_SECRET: z.string().default(""),
   TRACEROOT_SMTP_URL: z.string().optional(),

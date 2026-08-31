@@ -22,8 +22,8 @@ import {
   PROVIDER_PRIORITY,
   ADAPTER_TO_PI_AI,
   ADAPTER_DEFAULT_BASE_URL,
-  ADAPTER_API_PROTOCOL,
   ADAPTER_MODELS,
+  defaultApiProtocol,
 } from "./llm-providers.ts";
 
 /** Workspace BYOK row (decrypted key). Same shape as agent's private ProviderConfig. */
@@ -35,8 +35,7 @@ export interface ProviderModelConfig {
 }
 
 // Build system model lookup from SYSTEM_MODELS.
-// Per-model apiProtocol overrides the provider-level default
-// (e.g. gpt-5.3-codex → openai-responses).
+// A model's own apiProtocol, when set, overrides the provider-level default.
 const systemModelLookup = new Map<string, { piAIProvider: string; apiProtocol: string }>();
 for (const sys of SYSTEM_MODELS) {
   for (const m of sys.models) {
@@ -45,6 +44,15 @@ for (const sys of SYSTEM_MODELS) {
       apiProtocol: m.apiProtocol || sys.apiProtocol,
     });
   }
+}
+
+/**
+ * Whether `modelId` is one of the compiled-in system models. Lets callers
+ * holding a *stored* id reject one that has left the catalog, which
+ * `resolvePiModel` would otherwise answer with a substitute model.
+ */
+export function isSystemModelId(modelId: string): boolean {
+  return systemModelLookup.has(modelId);
 }
 
 /**
@@ -131,15 +139,11 @@ export function resolvePiModel(
         );
       }
 
-      // Per-model `apiProtocol` overrides — checked in order:
-      //   1. BYOK row's `config.modelProtocols` (user-overridable per workspace)
-      //   2. Catalog's per-model `apiProtocol` (e.g. gpt-5.3-codex → openai-responses)
-      //   3. Adapter-level default
-      const catalogProtocol = catalog?.find((m) => m.id === fallbackModelId)?.apiProtocol;
+      // The BYOK row's `config.modelProtocols` (user-overridable per workspace)
+      // wins over the catalog/adapter default the provider dialog displays.
       const apiProtocol =
         modelProtocols?.[fallbackModelId] ||
-        catalogProtocol ||
-        ADAPTER_API_PROTOCOL[providerConfig.adapter] ||
+        defaultApiProtocol(providerConfig.adapter, fallbackModelId) ||
         "openai-completions";
       const model = buildFallbackModel(fallbackModelId, apiProtocol, piAIProvider);
       const baseUrl = providerConfig.baseUrl || ADAPTER_DEFAULT_BASE_URL[providerConfig.adapter];

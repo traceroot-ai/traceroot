@@ -4,7 +4,7 @@ GET /api/v1/public/traces and GET /api/v1/public/traces/{trace_id}. Reads are
 scoped to the API key's project; the client never supplies a project id.
 """
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from httpx import Response
 
 from rest.main import app
-from rest.routers.public.deps import AuthResult, authenticate_api_key
+from rest.routers.public.deps import AuthResult, authenticate_public_caller
 
 BASE_URL = "http://localhost:3000"
 
@@ -67,11 +67,15 @@ TRACE_DETAIL = {
 }
 
 
-def make_auth(project_id: str = "proj-A") -> AuthResult:
+def _now_naive():
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+def make_auth(project_id: str = "proj-A", billing_plan: str = "enterprise") -> AuthResult:
     return AuthResult(
         project_id=project_id,
         workspace_id="ws-1",
-        billing_plan="pro",
+        billing_plan=billing_plan,
         ingestion_blocked=False,
     )
 
@@ -84,7 +88,7 @@ def mock_reader():
 @pytest.fixture()
 def client(mock_reader):
     """TestClient with mocked API-key auth and trace reader."""
-    app.dependency_overrides[authenticate_api_key] = lambda: make_auth()
+    app.dependency_overrides[authenticate_public_caller] = lambda: make_auth()
 
     import rest.routers.public.traces_read as mod
 
@@ -183,6 +187,21 @@ class TestPublicListTraces:
         assert kwargs["start_after"] == datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
         assert kwargs["end_before"] == datetime(2024, 1, 31, 23, 59, 59, tzinfo=UTC)
 
+    def test_forwards_name_user_id_and_search_query(self, client, mock_reader):
+        mock_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        resp = client.get(
+            "/api/v1/public/traces?name=checkout&user_id=user-1&search_query=abc",
+            headers=AUTH_HEADER,
+        )
+        assert resp.status_code == 200
+        kwargs = mock_reader.list_traces.call_args.kwargs
+        assert kwargs["name"] == "checkout"
+        assert kwargs["user_id"] == "user-1"
+        assert kwargs["search_query"] == "abc"
+
     def test_time_range_defaults_to_none_when_absent(self, client, mock_reader):
         mock_reader.list_traces.return_value = {
             "data": [],
@@ -206,6 +225,86 @@ class TestPublicListTraces:
         assert resp.json()["detail"] == "Failed to list traces"
 
 
+class TestPublicListTracesFilters:
+    def test_forwards_parsed_predicates(self, client, mock_reader):
+        mock_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        filters = '[{"field":"model_name","op":"in","value":["gpt-4o"]}]'
+        resp = client.get(f"/api/v1/public/traces?filters={filters}", headers=AUTH_HEADER)
+        assert resp.status_code == 200
+        sent = mock_reader.list_traces.call_args.kwargs["filters"]
+        assert len(sent) == 1
+        assert sent[0].field == "model_name"
+        assert sent[0].op == "in"
+        assert sent[0].value == ["gpt-4o"]
+
+    def test_no_filters_forwards_empty(self, client, mock_reader):
+        mock_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        resp = client.get("/api/v1/public/traces", headers=AUTH_HEADER)
+        assert resp.status_code == 200
+        assert mock_reader.list_traces.call_args.kwargs["filters"] == []
+
+    def test_unknown_field_is_400_naming_the_field(self, client, mock_reader):
+        filters = '[{"field":"nope","op":"eq","value":1}]'
+        resp = client.get(f"/api/v1/public/traces?filters={filters}", headers=AUTH_HEADER)
+        assert resp.status_code == 400
+        assert "nope" in resp.json()["detail"]
+        mock_reader.list_traces.assert_not_called()
+
+    def test_bad_operator_is_400(self, client, mock_reader):
+        filters = '[{"field":"model_name","op":"contains","value":["x"]}]'
+        resp = client.get(f"/api/v1/public/traces?filters={filters}", headers=AUTH_HEADER)
+        assert resp.status_code == 400
+        mock_reader.list_traces.assert_not_called()
+
+    def test_malformed_json_is_400(self, client, mock_reader):
+        resp = client.get("/api/v1/public/traces?filters=not-json", headers=AUTH_HEADER)
+        assert resp.status_code == 400
+        mock_reader.list_traces.assert_not_called()
+
+
+class TestPublicListTraceFilterValues:
+    def test_returns_distinct_values_scoped_to_project(self, client, mock_reader):
+        mock_reader.get_distinct_span_values.return_value = [
+            {"value": "gpt-4o", "count": 3},
+            {"value": "claude", "count": 1},
+        ]
+        resp = client.get("/api/v1/public/traces/filter-values/model_name", headers=AUTH_HEADER)
+        assert resp.status_code == 200
+        assert resp.json()["values"] == [
+            {"value": "gpt-4o", "count": 3},
+            {"value": "claude", "count": 1},
+        ]
+        assert mock_reader.get_distinct_span_values.call_args.kwargs["project_id"] == "proj-A"
+
+    def test_non_enumerable_field_is_400(self, client, mock_reader):
+        resp = client.get("/api/v1/public/traces/filter-values/duration_ms", headers=AUTH_HEADER)
+        assert resp.status_code == 400
+
+    def test_unknown_field_is_400(self, client, mock_reader):
+        resp = client.get("/api/v1/public/traces/filter-values/nope", headers=AUTH_HEADER)
+        assert resp.status_code == 400
+
+    def test_literal_segment_not_captured_as_trace_id(self, client, mock_reader):
+        # Guards the route-declaration order: /filter-values/{field} must win
+        # over /{trace_id}. If ordering regresses, this 404s via get_trace.
+        mock_reader.get_distinct_span_values.return_value = []
+        resp = client.get("/api/v1/public/traces/filter-values/model_name", headers=AUTH_HEADER)
+        assert resp.status_code == 200
+        mock_reader.get_trace.assert_not_called()
+
+    def test_500_on_reader_failure(self, client, mock_reader):
+        mock_reader.get_distinct_span_values.side_effect = RuntimeError("boom")
+        resp = client.get("/api/v1/public/traces/filter-values/model_name", headers=AUTH_HEADER)
+        assert resp.status_code == 500
+        assert resp.json()["detail"] == "Failed to list filter values"
+
+
 class TestPublicGetTrace:
     def test_scopes_to_auth_project_id(self, client, mock_reader):
         mock_reader.get_trace.return_value = dict(TRACE_DETAIL)
@@ -214,6 +313,18 @@ class TestPublicGetTrace:
         kw = mock_reader.get_trace.call_args.kwargs
         assert kw["project_id"] == "proj-A"
         assert kw["trace_id"] == "abc123"
+
+    def test_never_opts_into_internal_telemetry(self, client, mock_reader):
+        # The public list hides self-traces, so the by-id read must too — a self-trace's
+        # id is the dashless detector run id the runs surface shows the customer, making
+        # this the one reachable path to internal telemetry. The reader defaults to
+        # customer traffic; this pins that the route doesn't widen it.
+        mock_reader.get_trace.return_value = dict(TRACE_DETAIL)
+        client.get("/api/v1/public/traces/abc123", headers=AUTH_HEADER)
+        call = mock_reader.get_trace.call_args
+        # Both forms, so switching to a positional call can't make this pass vacuously.
+        assert call.kwargs.get("source") in (None, "user")
+        assert "detector" not in call.args
 
     def test_returns_full_payload_with_trace_url(self, client, mock_reader):
         mock_reader.get_trace.return_value = dict(TRACE_DETAIL)
@@ -347,7 +458,7 @@ class TestPublicTraceReadAuth:
         test_client = TestClient(app, raise_server_exceptions=False)
         resp = test_client.get(
             "/api/v1/public/traces/abc123",
-            headers={"Authorization": "Bearer bad-key"},
+            headers={"Authorization": "Bearer tr-bad-key"},
         )
         assert resp.status_code == 401
 
@@ -401,3 +512,61 @@ class TestPublicReadRateLimiting:
         for name, resp in responses.items():
             assert resp.status_code == 200, f"{name}: {resp.text}"
             assert "X-RateLimit-Limit" in resp.headers, name
+
+
+class TestPublicTracesRetentionGate:
+    @pytest.fixture()
+    def free_client(self, mock_reader):
+        app.dependency_overrides[authenticate_public_caller] = lambda: make_auth(
+            billing_plan="free"
+        )
+
+        import rest.routers.public.traces_read as mod
+
+        original = mod.get_trace_reader_service
+        mod.get_trace_reader_service = lambda: mock_reader
+        yield TestClient(app)
+        mod.get_trace_reader_service = original
+
+    def test_list_clamps_default_query(self, free_client, mock_reader):
+        mock_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        resp = free_client.get("/api/v1/public/traces", headers=AUTH_HEADER)
+        assert resp.status_code == 200
+        kw = mock_reader.list_traces.call_args.kwargs
+        assert kw["start_after"] is not None
+
+    def test_list_clamps_when_start_after_outside_window(self, free_client, mock_reader):
+        mock_reader.list_traces.return_value = {
+            "data": [],
+            "meta": {"page": 0, "limit": 50, "total": 0},
+        }
+        old = _now_naive() - timedelta(days=30)
+        resp = free_client.get(
+            f"/api/v1/public/traces?start_after={old.isoformat()}",
+            headers=AUTH_HEADER,
+        )
+        assert resp.status_code == 200
+        kw = mock_reader.list_traces.call_args.kwargs
+        expected = _now_naive() - timedelta(days=15, hours=1)
+        assert abs((kw["start_after"] - expected).total_seconds()) < 2
+
+    def test_get_trace_403_when_outside_window(self, free_client, mock_reader):
+        old_trace = dict(TRACE_DETAIL, trace_start_time=datetime(2020, 1, 1))
+        mock_reader.get_trace.return_value = old_trace
+        resp = free_client.get("/api/v1/public/traces/abc123", headers=AUTH_HEADER)
+        assert resp.status_code == 403
+
+    def test_get_trace_200_when_in_window(self, free_client, mock_reader):
+        recent_trace = dict(TRACE_DETAIL, trace_start_time=_now_naive() - timedelta(days=5))
+        mock_reader.get_trace.return_value = recent_trace
+        resp = free_client.get("/api/v1/public/traces/abc123", headers=AUTH_HEADER)
+        assert resp.status_code == 200
+
+    def test_export_403_when_outside_window(self, free_client, mock_reader):
+        old_trace = dict(TRACE_DETAIL, trace_start_time=datetime(2020, 1, 1))
+        mock_reader.get_trace.return_value = old_trace
+        resp = free_client.get("/api/v1/public/traces/abc123/export", headers=AUTH_HEADER)
+        assert resp.status_code == 403

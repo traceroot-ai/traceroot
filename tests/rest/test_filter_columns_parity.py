@@ -6,6 +6,7 @@ registry can't silently drift. The ``skipif`` cross-check against the SQL Gatewa
 snapshot stays in sync with the curated-column contract it mirrors.
 """
 
+import dataclasses
 from dataclasses import FrozenInstanceError
 
 import pytest
@@ -13,6 +14,10 @@ import pytest
 from rest.services.filters import columns as reg
 
 MEMBERSHIP_FIELDS = {"model_name", "environment"}
+# Keyed map: its own tier, because the predicate carries a map key as well as a value and
+# lowers to a shape no membership field lowers to. One parameterized field over a Map
+# column, never one registry row per key.
+KEYED_MAP_FIELDS = {"metadata"}
 AGGREGATE_FIELDS = {"cost", "total_tokens", "duration_ms", "errors"}
 TRACE_FIELDS = {"trace_id"}
 
@@ -20,7 +25,7 @@ TRACE_FIELDS = {"trace_id"}
 def test_registry_column_set_is_exactly_the_declared_tiers():
     """The registry holds precisely the membership + aggregate + trace fields."""
     assert {c.name for c in reg.FILTER_COLUMNS} == (
-        MEMBERSHIP_FIELDS | AGGREGATE_FIELDS | TRACE_FIELDS
+        MEMBERSHIP_FIELDS | KEYED_MAP_FIELDS | AGGREGATE_FIELDS | TRACE_FIELDS
     )
 
 
@@ -61,6 +66,54 @@ def test_trace_id_is_a_text_trace_level_field():
     assert col.source_columns == ()
 
 
+def test_metadata_is_a_keyed_map_text_field_on_its_own_level():
+    """Metadata declares the keyed-map level rather than borrowing the membership one:
+    it lowers to an inline traces-row map match ORed onto a span semi-join, which no
+    membership field lowers to. It takes a key alongside its value and matches text with
+    the string operators only."""
+    col = reg.get_column("metadata")
+    assert col.level is reg.FilterLevel.KEYED_MAP
+    assert col.level is not reg.FilterLevel.SPAN_MEMBERSHIP
+    assert col.type is reg.FilterType.TEXT
+    assert col.operators == (reg.FilterOperator.EQ, reg.FilterOperator.CONTAINS)
+    assert col.requires_key is True
+    assert col.ch_type == "String"
+    assert col.aggregate_expr is None
+    assert col.source_columns == ()
+
+
+def test_requires_key_is_declared_per_field_and_agrees_with_the_level():
+    """``requires_key`` is a declared field, not a property derived from ``level``, because
+    keyed-ness and lowering scope are independent axes: a key slot says the predicate names
+    a map entry, the level says which relation the predicate lowers against, and a keyed
+    field could sit at any level. Deriving one from the other collapses the two into a
+    flattened matrix the moment a second keyed field appears at a different scope, while
+    the wire contract was already two-axis.
+
+    Their agreement therefore used to hold by construction and is now a checked invariant,
+    which is what this test is: a registry entry could otherwise claim a key the
+    translator's lowering never reads (or the reverse) and the two would disagree silently.
+    Adding a keyed field at a new scope fails here, which is the signal to keep the two
+    axes in step deliberately rather than by accident."""
+    declared = {f.name: f for f in dataclasses.fields(reg.FilterColumn)}
+    assert "requires_key" in declared
+    # Unkeyed is the default, so every entry but the keyed one omits the kwarg entirely.
+    assert declared["requires_key"].default is False
+    for col in reg.FILTER_COLUMNS:
+        assert col.requires_key is (col.level is reg.FilterLevel.KEYED_MAP)
+    # Every other field's predicate is {field, op, value}, so the UI renders the extra key
+    # control for exactly one field.
+    assert {c.name for c in reg.FILTER_COLUMNS if c.requires_key} == KEYED_MAP_FIELDS
+
+
+def test_metadata_options_are_suggestions_not_an_enumerated_value_set():
+    """The value is free text — a metadata value is never enumerated into a dropdown, so
+    an unsuggested value stays typable. (Key discovery has its own endpoint.)"""
+    col = reg.get_column("metadata")
+    assert col.value_source is reg.ValueSource.FREE_TEXT
+    assert col.enum_values == ()
+
+
 def test_errors_is_a_numeric_count_of_error_spans():
     """`errors` is a derived per-trace count, filtered like the other numeric aggregates."""
     col = reg.get_column("errors")
@@ -93,7 +146,7 @@ def test_aggregate_source_columns_name_the_referenced_spans_columns():
     assert reg.get_column("total_tokens").source_columns == ("total_tokens",)
     assert reg.get_column("duration_ms").source_columns == ("span_start_time", "span_end_time")
     assert reg.get_column("errors").source_columns == ("status",)
-    for name in MEMBERSHIP_FIELDS | TRACE_FIELDS:
+    for name in MEMBERSHIP_FIELDS | KEYED_MAP_FIELDS | TRACE_FIELDS:
         assert reg.get_column(name).source_columns == ()
 
 

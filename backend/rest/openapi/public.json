@@ -1,6 +1,233 @@
 {
   "components": {
     "schemas": {
+      "CompleteRunRequest": {
+        "description": "Complete/fail a run, reporting final completeness counts.",
+        "properties": {
+          "case_count": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Count"
+          },
+          "scored_count": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scored Count"
+          },
+          "scorer_error_count": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scorer Error Count"
+          },
+          "scorers": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ScorerRef"
+                },
+                "maxItems": 200,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scorers"
+          },
+          "status": {
+            "enum": [
+              "running",
+              "completed",
+              "completed_with_errors",
+              "failed",
+              "incomplete",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "task_error_count": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Error Count"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "CompleteRunRequest",
+        "type": "object"
+      },
+      "CompleteRunResponse": {
+        "properties": {
+          "evaluation_run_id": {
+            "title": "Evaluation Run Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "running",
+              "completed",
+              "completed_with_errors",
+              "failed",
+              "incomplete",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "evaluation_run_id",
+          "status"
+        ],
+        "title": "CompleteRunResponse",
+        "type": "object"
+      },
+      "DetectorDetail": {
+        "description": "A detector's full configuration (Postgres ``detectors`` + optional trigger).\n\n``trigger_conditions`` comes from ``detector_triggers.conditions`` and is\nNone when the detector has no trigger row (it then runs on every sampled\ntrace).",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "detection_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detection Model"
+          },
+          "detection_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detection Provider"
+          },
+          "detection_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detection Source"
+          },
+          "detector_id": {
+            "title": "Detector Id",
+            "type": "string"
+          },
+          "enable_rca": {
+            "title": "Enable Rca",
+            "type": "boolean"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "output_schema": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Schema"
+          },
+          "prompt": {
+            "title": "Prompt",
+            "type": "string"
+          },
+          "sample_rate": {
+            "title": "Sample Rate",
+            "type": "integer"
+          },
+          "template": {
+            "title": "Template",
+            "type": "string"
+          },
+          "trigger_conditions": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trigger Conditions"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detector_id",
+          "name",
+          "template",
+          "enabled",
+          "created_at",
+          "prompt",
+          "output_schema",
+          "sample_rate",
+          "enable_rca",
+          "detection_model",
+          "detection_provider",
+          "detection_source",
+          "updated_at",
+          "trigger_conditions"
+        ],
+        "title": "DetectorDetail",
+        "type": "object"
+      },
       "DetectorItem": {
         "description": "A detector from the project's catalog (Postgres ``detectors``).\n\n``detector_id`` is the value to pass to ``findings list --detector`` to filter\nfindings to this detector.",
         "properties": {
@@ -87,6 +314,79 @@
         "title": "DetectorResultItem",
         "type": "object"
       },
+      "EmittedMetric": {
+        "description": "One metric a scorer DEFINITION emits, with its own comparison policy. The metric\n``name`` is the EMITTED-METRIC identity (what a Score row reports as ``scorer_name``),\ndistinct from the scorer DEFINITION name. Mirrors ``EmittedMetricSchema``.",
+        "properties": {
+          "direction": {
+            "anyOf": [
+              {
+                "enum": [
+                  "higher_is_better",
+                  "lower_is_better",
+                  "none"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold"
+          },
+          "value_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "numeric",
+                  "boolean",
+                  "categorical"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value Type"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "EmittedMetric",
+        "type": "object"
+      },
+      "ErrorResponse": {
+        "description": "The canonical public error envelope (matches the gateway's normalized shape).",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ErrorResponse",
+        "type": "object"
+      },
       "ExportManifest": {
         "description": "manifest.json: index of the bundle's parts.",
         "properties": {
@@ -117,6 +417,47 @@
           "files"
         ],
         "title": "ExportManifest",
+        "type": "object"
+      },
+      "FilterValueCount": {
+        "description": "A distinct categorical value and how often it occurs.",
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value",
+          "count"
+        ],
+        "title": "FilterValueCount",
+        "type": "object"
+      },
+      "FilterValuesResponse": {
+        "description": "Distinct values for one categorical filter field, by frequency.",
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/FilterValueCount"
+            },
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "field",
+          "values"
+        ],
+        "title": "FilterValuesResponse",
         "type": "object"
       },
       "FindingDetail": {
@@ -152,6 +493,14 @@
               "$ref": "#/components/schemas/DetectorResultItem"
             },
             "title": "Results",
+            "type": "array"
+          },
+          "run_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Run Ids",
             "type": "array"
           },
           "summary": {
@@ -198,6 +547,14 @@
           "project_id": {
             "title": "Project Id",
             "type": "string"
+          },
+          "run_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Run Ids",
+            "type": "array"
           },
           "summary": {
             "title": "Summary",
@@ -371,6 +728,35 @@
         "title": "PaginationMeta",
         "type": "object"
       },
+      "ProjectListItem": {
+        "description": "A project the user can access, tagged with its owning workspace.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          },
+          "workspace_name": {
+            "title": "Workspace Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "workspace_id",
+          "workspace_name"
+        ],
+        "title": "ProjectListItem",
+        "type": "object"
+      },
       "PublicDetectorListResponse": {
         "description": "Paginated list of the project's detectors for the public API.",
         "properties": {
@@ -411,6 +797,23 @@
           "meta"
         ],
         "title": "PublicFindingListResponse",
+        "type": "object"
+      },
+      "PublicProjectListResponse": {
+        "description": "Account-scope discovery: the projects the user can access.\n\nReturned by ``list_projects`` \u2014 a user-credential-only op. Projects are\nflattened across the user's workspaces; an optional ``workspace_id`` query\nnarrows the result to one workspace.",
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/ProjectListItem"
+            },
+            "title": "Data",
+            "type": "array"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "PublicProjectListResponse",
         "type": "object"
       },
       "PublicTraceDetailResponse": {
@@ -598,6 +1001,14 @@
             ],
             "title": "Input"
           },
+          "metadata_map": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "default": {},
+            "title": "Metadata Map",
+            "type": "object"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -731,6 +1142,23 @@
         "title": "PublicTraceListResponse",
         "type": "object"
       },
+      "PublicWorkspaceListResponse": {
+        "description": "Account-scope discovery: the workspaces the user can access.\n\nReturned by ``list_workspaces`` \u2014 a user-credential-only op that needs no\n``project_id``. Not paginated: a user's workspace membership is small and\nbounded.",
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceListItem"
+            },
+            "title": "Data",
+            "type": "array"
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "title": "PublicWorkspaceListResponse",
+        "type": "object"
+      },
       "RCAResult": {
         "description": "Free-text root-cause analysis for a finding (Postgres ``detector_rcas``).",
         "properties": {
@@ -755,6 +1183,827 @@
           "result"
         ],
         "title": "RCAResult",
+        "type": "object"
+      },
+      "RegisterRunRequest": {
+        "description": "Register/start a run. Idempotent on ``client_run_id`` within an evaluation.",
+        "properties": {
+          "baseline_run_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Run Id"
+          },
+          "candidate_version": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Candidate Version",
+            "type": "string"
+          },
+          "case_count": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Count"
+          },
+          "client_run_id": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Run Id"
+          },
+          "dataset_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "dataset_version_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Version Id"
+          },
+          "environment": {
+            "default": "evaluation",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Environment",
+            "type": "string"
+          },
+          "evaluation_key": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluation Key"
+          },
+          "evaluation_name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Evaluation Name",
+            "type": "string"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "scorers": {
+            "items": {
+              "$ref": "#/components/schemas/ScorerRef"
+            },
+            "maxItems": 200,
+            "title": "Scorers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "evaluation_name",
+          "dataset_id",
+          "candidate_version"
+        ],
+        "title": "RegisterRunRequest",
+        "type": "object"
+      },
+      "RegisterRunResponse": {
+        "properties": {
+          "dataset_version_id": {
+            "title": "Dataset Version Id",
+            "type": "string"
+          },
+          "evaluation_id": {
+            "title": "Evaluation Id",
+            "type": "string"
+          },
+          "evaluation_run_id": {
+            "title": "Evaluation Run Id",
+            "type": "string"
+          },
+          "run_number": {
+            "title": "Run Number",
+            "type": "integer"
+          },
+          "run_path": {
+            "title": "Run Path",
+            "type": "string"
+          },
+          "run_url": {
+            "title": "Run Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "evaluation_id",
+          "evaluation_run_id",
+          "run_number",
+          "dataset_version_id",
+          "run_path",
+          "run_url"
+        ],
+        "title": "RegisterRunResponse",
+        "type": "object"
+      },
+      "ScoreInput": {
+        "description": "One scorer's outcome on one result. ``error`` set = the scorer failed to judge.",
+        "properties": {
+          "bool_value": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bool Value"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "explanation": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Explanation"
+          },
+          "numeric_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Numeric Value"
+          },
+          "passed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passed"
+          },
+          "scorer_name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Scorer Name",
+            "type": "string"
+          },
+          "scorer_version": {
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Scorer Version",
+            "type": "string"
+          },
+          "string_value": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "String Value"
+          }
+        },
+        "required": [
+          "scorer_name",
+          "scorer_version"
+        ],
+        "title": "ScoreInput",
+        "type": "object"
+      },
+      "ScorerMessage": {
+        "description": "One prompt message of an LLM-judge scorer's definition.",
+        "properties": {
+          "content": {
+            "maxLength": 20000,
+            "title": "Content",
+            "type": "string"
+          },
+          "role": {
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "content"
+        ],
+        "title": "ScorerMessage",
+        "type": "object"
+      },
+      "ScorerRef": {
+        "description": "A scorer's descriptor. ``key`` is the stable SEMANTIC comparison identity\n(it defaults to ``name`` when omitted \u2014 see below); ``name``/``version``/\n``language``/``source`` are provenance, NOT identity. The richer metadata is\noptional and back-compatible (an old SDK sending only ``{name, version}`` stays\nvalid \u2014 its ``key`` falls back to ``name``). Mirrors the non-strict\n``ScorerRefSchema``, so unknown keys are ignored rather than rejected.\n\nThe DEFINITION fields (``scorer_type``, prompt/source, config) let the read-only\nScorer detail render an LLM judge's model + messages or a code scorer's snippet.\n\n``scorer_type`` / ``output_type`` / ``language`` are display-only, so an\nunrecognised value from a newer SDK degrades to ``None`` rather than failing\nrun registration (which would lose the run's every result and score) \u2014\nmatching ``.catch(null)`` on the Zod side. The vocabularies that drive\npersistence and aggregation still reject.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "enum": [
+                  "higher_is_better",
+                  "lower_is_better",
+                  "none"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Direction"
+          },
+          "emitted_metrics": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/EmittedMetric"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emitted Metrics"
+          },
+          "key": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "enum": [
+                  "python",
+                  "typescript"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "messages": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ScorerMessage"
+                },
+                "maxItems": 50,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Messages"
+          },
+          "metadata": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metadata"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "output_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "score",
+                  "classification"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Type"
+          },
+          "required_inputs": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxLength": 100,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "maxItems": 20,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Required Inputs"
+          },
+          "scorer_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "llm_judge",
+                  "code"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scorer Type"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "maxLength": 50000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold"
+          },
+          "value_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "numeric",
+                  "boolean",
+                  "categorical"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value Type"
+          },
+          "version": {
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "version"
+        ],
+        "title": "ScorerRef",
+        "type": "object"
+      },
+      "SessionDetailResponse": {
+        "description": "Session detail with all traces for conversation view.",
+        "properties": {
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "first_trace_time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Trace Time"
+          },
+          "last_trace_time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Trace Time"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "total_cost": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Cost"
+          },
+          "total_input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Input Tokens"
+          },
+          "total_output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Output Tokens"
+          },
+          "trace_count": {
+            "title": "Trace Count",
+            "type": "integer"
+          },
+          "traces": {
+            "items": {
+              "$ref": "#/components/schemas/SessionTraceItem"
+            },
+            "title": "Traces",
+            "type": "array"
+          },
+          "user_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "User Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "session_id",
+          "traces",
+          "user_ids",
+          "trace_count",
+          "first_trace_time",
+          "last_trace_time",
+          "duration_ms",
+          "total_input_tokens",
+          "total_output_tokens"
+        ],
+        "title": "SessionDetailResponse",
+        "type": "object"
+      },
+      "SessionListItem": {
+        "description": "Single session with aggregated trace statistics.",
+        "properties": {
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "first_trace_time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Trace Time"
+          },
+          "input": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input"
+          },
+          "last_trace_time": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Trace Time"
+          },
+          "output": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "total_cost": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Cost"
+          },
+          "total_input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Input Tokens"
+          },
+          "total_output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Output Tokens"
+          },
+          "trace_count": {
+            "title": "Trace Count",
+            "type": "integer"
+          },
+          "user_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "User Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "session_id",
+          "trace_count",
+          "user_ids",
+          "first_trace_time",
+          "last_trace_time",
+          "duration_ms",
+          "total_input_tokens",
+          "total_output_tokens",
+          "input",
+          "output"
+        ],
+        "title": "SessionListItem",
+        "type": "object"
+      },
+      "SessionListResponse": {
+        "description": "Paginated list of sessions.",
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/SessionListItem"
+            },
+            "title": "Data",
+            "type": "array"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/PaginationMeta"
+          }
+        },
+        "required": [
+          "data",
+          "meta"
+        ],
+        "title": "SessionListResponse",
+        "type": "object"
+      },
+      "SessionTraceItem": {
+        "description": "Single trace within a session, for conversation view.",
+        "properties": {
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "input": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "output": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "trace_id": {
+            "title": "Trace Id",
+            "type": "string"
+          },
+          "trace_start_time": {
+            "format": "date-time",
+            "title": "Trace Start Time",
+            "type": "string"
+          },
+          "user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Id"
+          }
+        },
+        "required": [
+          "trace_id",
+          "name",
+          "trace_start_time",
+          "user_id",
+          "input",
+          "output",
+          "duration_ms",
+          "status"
+        ],
+        "title": "SessionTraceItem",
         "type": "object"
       },
       "SpanResponse": {
@@ -976,6 +2225,162 @@
         "title": "SpanResponse",
         "type": "object"
       },
+      "UpsertResultRequest": {
+        "description": "Upsert one test-case result. Idempotent on (``run_id``, ``test_case_id``).\n``trace_id`` may be null now and set on a later call (out-of-order arrival).\n\n``scores`` is genuinely optional and carries three distinct meanings, so the\nout-of-order flow (POST the result with its scores, then re-POST later just to\nattach the OTel ``trace_id``) cannot destroy them: absent \u2192 leave the existing\nscores untouched, ``[]`` \u2192 clear them, non-empty \u2192 replace them. Do not give\nthis a ``default_factory=list``, which would collapse the first two cases.\n\nEvery optional field is a *partial* update: a key the caller omits keeps its\nstored value, while an explicit null clears it. Sending ``scores`` replaces\nthe result's scores (``[]`` clears them); omitting it leaves them alone.",
+        "properties": {
+          "baseline_output": {
+            "anyOf": [
+              {
+                "maxLength": 1000000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Output"
+          },
+          "candidate_output": {
+            "anyOf": [
+              {
+                "maxLength": 1000000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Output"
+          },
+          "change": {
+            "anyOf": [
+              {
+                "enum": [
+                  "improved",
+                  "regressed",
+                  "unchanged"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Change"
+          },
+          "cost": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "maximum": 9007199254740991.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
+          },
+          "expected_output": {
+            "anyOf": [
+              {
+                "maxLength": 1000000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Output"
+          },
+          "input": {
+            "maxLength": 1000000,
+            "title": "Input",
+            "type": "string"
+          },
+          "scores": {
+            "items": {
+              "$ref": "#/components/schemas/ScoreInput"
+            },
+            "maxItems": 200,
+            "title": "Scores",
+            "type": "array"
+          },
+          "status": {
+            "enum": [
+              "passed",
+              "failed",
+              "errored",
+              "not_scored"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "task_error": {
+            "anyOf": [
+              {
+                "maxLength": 10000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Error"
+          },
+          "test_case_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Test Case Id",
+            "type": "string"
+          },
+          "trace_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trace Id"
+          }
+        },
+        "required": [
+          "test_case_id",
+          "input",
+          "status"
+        ],
+        "title": "UpsertResultRequest",
+        "type": "object"
+      },
+      "UpsertResultResponse": {
+        "properties": {
+          "evaluation_result_id": {
+            "title": "Evaluation Result Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "evaluation_result_id"
+        ],
+        "title": "UpsertResultResponse",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -1092,6 +2497,30 @@
         ],
         "title": "WhoamiResponse",
         "type": "object"
+      },
+      "WorkspaceListItem": {
+        "description": "A workspace the authenticated user belongs to, with their role in it.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "role"
+        ],
+        "title": "WorkspaceListItem",
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -1109,8 +2538,8 @@
   "paths": {
     "/api/v1/public/detectors": {
       "get": {
-        "description": "List the detectors in the API key's project (newest first).",
-        "operationId": "list_detectors_api_v1_public_detectors_get",
+        "description": "List the detectors in the caller's project (newest first).",
+        "operationId": "list_detectors",
         "parameters": [
           {
             "description": "Items per page",
@@ -1162,6 +2591,24 @@
               ],
               "description": "Only detectors created before this time (exclusive, ISO 8601)",
               "title": "End Before"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
             }
           }
         ],
@@ -1240,13 +2687,18 @@
         "summary": "List Detectors",
         "tags": [
           "Detectors (Public)"
-        ]
+        ],
+        "x-tool": {
+          "description": "List the project's detectors (id, name, template, enabled flag, creation time).",
+          "enabled": true,
+          "name": "list_detectors"
+        }
       }
     },
     "/api/v1/public/detectors/findings": {
       "get": {
-        "description": "List recent detector findings for the API key's project (newest first).",
-        "operationId": "list_findings_api_v1_public_detectors_findings_get",
+        "description": "List recent detector findings for the caller's project (newest first).",
+        "operationId": "list_findings",
         "parameters": [
           {
             "description": "Items per page",
@@ -1335,6 +2787,24 @@
               "description": "Filter to a single trace",
               "title": "Trace Id"
             }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
           }
         ],
         "responses": {
@@ -1412,13 +2882,18 @@
         "summary": "List Findings",
         "tags": [
           "Detectors (Public)"
-        ]
+        ],
+        "x-tool": {
+          "description": "List detector findings for the project, optionally filtered by detector (id, name, or template), trace id, or time range.",
+          "enabled": true,
+          "name": "list_findings"
+        }
       }
     },
     "/api/v1/public/detectors/findings/{finding_id}": {
       "get": {
         "description": "Get a single finding by id for the key's project.",
-        "operationId": "get_finding_api_v1_public_detectors_findings__finding_id__get",
+        "operationId": "get_finding",
         "parameters": [
           {
             "in": "path",
@@ -1427,6 +2902,24 @@
             "schema": {
               "title": "Finding Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
             }
           }
         ],
@@ -1520,13 +3013,18 @@
         "summary": "Get Finding",
         "tags": [
           "Detectors (Public)"
-        ]
+        ],
+        "x-tool": {
+          "description": "Fetch one detector finding by id, with its full analysis detail.",
+          "enabled": true,
+          "name": "get_finding"
+        }
       }
     },
     "/api/v1/public/detectors/traces/{trace_id}/finding": {
       "get": {
         "description": "Get the finding for a single trace (findings are 1-per-trace).",
-        "operationId": "get_finding_by_trace_api_v1_public_detectors_traces__trace_id__finding_get",
+        "operationId": "get_finding_by_trace",
         "parameters": [
           {
             "in": "path",
@@ -1535,6 +3033,24 @@
             "schema": {
               "title": "Trace Id",
               "type": "string"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
             }
           }
         ],
@@ -1628,13 +3144,939 @@
         "summary": "Get Finding By Trace",
         "tags": [
           "Detectors (Public)"
-        ]
+        ],
+        "x-tool": {
+          "description": "Fetch the detector finding attached to a specific trace, if any.",
+          "enabled": true,
+          "name": "get_finding_by_trace"
+        }
+      }
+    },
+    "/api/v1/public/detectors/{detector_id}": {
+      "get": {
+        "description": "Get one detector's full configuration for the key's project.",
+        "operationId": "get_detector",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "detector_id",
+            "required": true,
+            "schema": {
+              "title": "Detector Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DetectorDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Detector not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Failed to read detector"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Detector",
+        "tags": [
+          "Detectors (Public)"
+        ],
+        "x-tool": {
+          "description": "Fetch one detector's full configuration by id: prompt, output schema, sample rate, RCA and detection settings, and trigger conditions.",
+          "enabled": true,
+          "name": "get_detector"
+        }
+      }
+    },
+    "/api/v1/public/evaluation-runs": {
+      "post": {
+        "description": "Register/start a run. Idempotent on ``client_run_id`` within an evaluation.",
+        "operationId": "register_run",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegisterRunResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Register an evaluation run",
+        "tags": [
+          "Offline Eval (Public)"
+        ],
+        "x-tool": {
+          "enabled": false
+        }
+      }
+    },
+    "/api/v1/public/evaluation-runs/{run_id}/complete": {
+      "post": {
+        "description": "Complete/fail a run, reporting final completeness counts.",
+        "operationId": "complete_run",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompleteRunResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Complete/finalize an evaluation run",
+        "tags": [
+          "Offline Eval (Public)"
+        ],
+        "x-tool": {
+          "enabled": false
+        }
+      }
+    },
+    "/api/v1/public/evaluation-runs/{run_id}/results": {
+      "post": {
+        "description": "Upsert one test-case result (and its scores). Idempotent on (run, test case).",
+        "operationId": "upsert_result",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertResultRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpsertResultResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request body too large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Upsert one test-case result with scores",
+        "tags": [
+          "Offline Eval (Public)"
+        ],
+        "x-tool": {
+          "enabled": false
+        }
+      }
+    },
+    "/api/v1/public/projects": {
+      "get": {
+        "description": "List the projects the authenticated user can access, across workspaces.\n\nA user-credential-only discovery op (no ``project_id``). Projects are\nflattened across the user's workspaces and tagged with their owning\nworkspace; the answer is what you pass as ``project_id`` to a project-scoped\nrequest.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or CLI\n        access JWT); carries the resolved ``user_id`` and stamps the per-user\n        rate-limit identity.\n    workspace_id (str | None): Optional filter; when given, only projects in\n        that workspace are returned.\n\nReturns:\n    PublicProjectListResponse: The accessible projects (id, name,\n        workspace_id, workspace_name).",
+        "operationId": "list_projects",
+        "parameters": [
+          {
+            "description": "Restrict the result to projects in this workspace.",
+            "in": "query",
+            "name": "workspace_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Restrict the result to projects in this workspace.",
+              "title": "Workspace Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicProjectListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List Projects",
+        "tags": [
+          "Account (Public)"
+        ],
+        "x-tool": {
+          "description": "List the projects the logged-in user can access, across workspaces (id, name, workspace). User-credential-only account discovery: use it to resolve the project_id a project-scoped request needs. Optionally filter by workspace_id.",
+          "enabled": true,
+          "name": "list_projects"
+        }
+      }
+    },
+    "/api/v1/public/sessions": {
+      "get": {
+        "description": "List unique sessions for the caller's project with trace counts.\n\nArgs:\n    auth (DualStampedAuth): Resolved credential context (API key or user\n        session token); scopes the read to its project and stamps the\n        rate-limit identity.\n    limit (int): Items per page (1-200).\n    search_query (str | None): Substring match on session id.\n    start_after (datetime | None): Inclusive lower bound on trace time.\n    end_before (datetime | None): Exclusive upper bound on trace time.\n\nReturns:\n    SessionListResponse: Session summaries, newest first.\n\nRaises:\n    HTTPException: 500 on a reader failure.",
+        "operationId": "list_sessions",
+        "parameters": [
+          {
+            "description": "Items per page",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "description": "Items per page",
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Search by session_id",
+            "in": "query",
+            "name": "search_query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Search by session_id",
+              "title": "Search Query"
+            }
+          },
+          {
+            "description": "Only sessions with traces at or after this time (inclusive, ISO 8601)",
+            "in": "query",
+            "name": "start_after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only sessions with traces at or after this time (inclusive, ISO 8601)",
+              "title": "Start After"
+            }
+          },
+          {
+            "description": "Only sessions with traces before this time (exclusive, ISO 8601)",
+            "in": "query",
+            "name": "end_before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only sessions with traces before this time (exclusive, ISO 8601)",
+              "title": "End Before"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Failed to list sessions"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List Sessions",
+        "tags": [
+          "Sessions (Public)"
+        ],
+        "x-tool": {
+          "description": "List recent sessions (groups of traces sharing a session id) for the project, with trace counts and durations. Search by session id substring.",
+          "enabled": true,
+          "name": "list_sessions"
+        }
+      }
+    },
+    "/api/v1/public/sessions/{session_id}": {
+      "get": {
+        "description": "Get one session with all its traces for the key's project.\n\nRetention uses the silent list-style clamp rather than a 403: a session\nthat contains traces older than the plan window degrades to showing only\nthe in-window traces instead of failing outright.\n\nArgs:\n    auth (DualStampedAuth): Resolved credential context (API key or user\n        session token); scopes the read to its project and stamps the\n        rate-limit identity.\n    session_id (str): Session to fetch.\n    start_after (datetime | None): Inclusive lower bound on trace time.\n    end_before (datetime | None): Exclusive upper bound on trace time.\n\nReturns:\n    SessionDetailResponse: The session overview and its traces.\n\nRaises:\n    HTTPException: 404 if the session is missing or outside the key's\n        project, 500 on a reader failure.",
+        "operationId": "get_session",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only traces at or after this time (inclusive, ISO 8601)",
+            "in": "query",
+            "name": "start_after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only traces at or after this time (inclusive, ISO 8601)",
+              "title": "Start After"
+            }
+          },
+          {
+            "description": "Only traces before this time (exclusive, ISO 8601)",
+            "in": "query",
+            "name": "end_before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only traces before this time (exclusive, ISO 8601)",
+              "title": "End Before"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Session not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Failed to get session"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Get Session",
+        "tags": [
+          "Sessions (Public)"
+        ],
+        "x-tool": {
+          "description": "Fetch one session with all its traces (ids, names, status, I/O summaries). Use before deep-diving individual traces of a conversation.",
+          "enabled": true,
+          "name": "get_session"
+        }
       }
     },
     "/api/v1/public/traces": {
       "get": {
-        "description": "List recent traces for the API key's project (newest first).",
-        "operationId": "list_traces_api_v1_public_traces_get",
+        "description": "List recent traces for the caller's project (newest first).\n\nOffline-evaluation traces are excluded by default; pass\n``include_evaluations=true`` to include them.",
+        "operationId": "list_traces",
         "parameters": [
           {
             "description": "Items per page",
@@ -1687,6 +4129,355 @@
               "description": "Only traces that started before this time (exclusive, ISO 8601)",
               "title": "End Before"
             }
+          },
+          {
+            "description": "Include traces produced by offline-evaluation runs. Excluded by default so evaluation runs do not appear in the production trace list.",
+            "in": "query",
+            "name": "include_evaluations",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Include traces produced by offline-evaluation runs. Excluded by default so evaluation runs do not appear in the production trace list.",
+              "title": "Include Evaluations",
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Filter by trace name (substring match)",
+            "in": "query",
+            "name": "name",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by trace name (substring match)",
+              "title": "Name"
+            }
+          },
+          {
+            "description": "Filter by the user id recorded on the trace",
+            "in": "query",
+            "name": "user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by the user id recorded on the trace",
+              "title": "User Id"
+            }
+          },
+          {
+            "description": "Search across trace_id, name, session_id, user_id",
+            "in": "query",
+            "name": "search_query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Search across trace_id, name, session_id, user_id",
+              "title": "Search Query"
+            }
+          },
+          {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "const": "trace_id",
+                            "title": "Trace ID",
+                            "type": "string"
+                          },
+                          "op": {
+                            "enum": [
+                              "eq",
+                              "contains"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "maxLength": 1024,
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "const": "model_name",
+                            "title": "Model",
+                            "type": "string"
+                          },
+                          "op": {
+                            "enum": [
+                              "in"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "items": {
+                              "maxLength": 1024,
+                              "type": "string"
+                            },
+                            "minItems": 1,
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "const": "environment",
+                            "title": "Environment",
+                            "type": "string"
+                          },
+                          "op": {
+                            "enum": [
+                              "in"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "items": {
+                              "maxLength": 1024,
+                              "type": "string"
+                            },
+                            "minItems": 1,
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "const": "cost",
+                            "title": "Cost",
+                            "type": "string"
+                          },
+                          "op": {
+                            "enum": [
+                              "eq",
+                              "gt",
+                              "gte",
+                              "lt",
+                              "lte"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "maximum": 999999999,
+                            "minimum": 0,
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "const": "total_tokens",
+                            "title": "Tokens",
+                            "type": "string"
+                          },
+                          "op": {
+                            "enum": [
+                              "eq",
+                              "gt",
+                              "gte",
+                              "lt",
+                              "lte"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "maximum": 9223372036854775807,
+                            "minimum": 0,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "const": "duration_ms",
+                            "title": "Latency",
+                            "type": "string"
+                          },
+                          "op": {
+                            "enum": [
+                              "eq",
+                              "gt",
+                              "gte",
+                              "lt",
+                              "lte"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "maximum": 9223372036854775807,
+                            "minimum": 0,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "const": "errors",
+                            "title": "Errors",
+                            "type": "string"
+                          },
+                          "op": {
+                            "enum": [
+                              "eq",
+                              "gt",
+                              "gte",
+                              "lt",
+                              "lte"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "maximum": 18446744073709551615,
+                            "minimum": 0,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "field": {
+                            "const": "metadata",
+                            "title": "Metadata",
+                            "type": "string"
+                          },
+                          "key": {
+                            "description": "Which metadata key the value is compared against",
+                            "maxLength": 256,
+                            "minLength": 1,
+                            "type": "string"
+                          },
+                          "op": {
+                            "enum": [
+                              "eq",
+                              "contains"
+                            ],
+                            "type": "string"
+                          },
+                          "value": {
+                            "maxLength": 1024,
+                            "minLength": 1,
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "field",
+                          "key",
+                          "op",
+                          "value"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "maxItems": 20,
+                  "type": "array"
+                }
+              }
+            },
+            "description": "JSON array of typed filter predicates ({field, op, value}); the field catalog and per-field operators are defined in the schema",
+            "in": "query",
+            "name": "filters",
+            "required": false
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
           }
         ],
         "responses": {
@@ -1699,6 +4490,21 @@
               }
             },
             "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Invalid filters parameter"
           },
           "401": {
             "content": {
@@ -1764,11 +4570,16 @@
         "summary": "List Traces",
         "tags": [
           "Traces (Public)"
-        ]
+        ],
+        "x-tool": {
+          "description": "List recent traces for the project (newest first). Filter by time range, trace name, user id, or a free-text search across trace/session/user ids and names. Use this for discovery before fetching a specific trace. Structured filters (model, environment, cost, tokens, latency, error count, keyed metadata) are available via the typed filters parameter.",
+          "enabled": true,
+          "name": "list_traces"
+        }
       },
       "post": {
         "description": "Ingest OTLP trace data.\n\nAccepts OTLP protobuf format only (optionally gzip compressed).\nProtobuf is converted to camelCase JSON before storage in S3.\n\nS3 path: events/otel/{project_id}/{yyyy}/{mm}/{dd}/{hh}/{uuid}.json\n\nHeaders:\n    Authorization: Bearer <api_key>\n    Content-Encoding: gzip (optional)\n    Content-Type: application/x-protobuf\n\nBody:\n    OTLP trace data in protobuf format",
-        "operationId": "ingest_traces_api_v1_public_traces_post",
+        "operationId": "ingest_traces",
         "requestBody": {
           "content": {
             "application/x-protobuf": {
@@ -1900,13 +4711,185 @@
         "summary": "Ingest Traces",
         "tags": [
           "Traces (Public)"
-        ]
+        ],
+        "x-tool": {
+          "enabled": false
+        }
+      }
+    },
+    "/api/v1/public/traces/filter-values/{field}": {
+      "get": {
+        "description": "Distinct values for an open-ended categorical filter field.\n\nThe values-discovery companion to the typed ``filters`` parameter on the\ntrace list: the filterable field catalog lives in the generated schema,\nwhile a field's current values are dynamic per project. Only fields the\nregistry marks as distinct-query (model_name, environment) are listable;\nthe field is resolved through the registry before it reaches SQL, so it can\nnever be a raw client-supplied column name.\n\nArgs:\n    auth (DualStampedAuth): Resolved credential context (API key or user\n        session token); scopes the read to its project and stamps the\n        rate-limit identity.\n    field (str): The categorical field to enumerate.\n    start_after (datetime | None): Lower bound on span start time (active\n        window).\n    end_before (datetime | None): Upper bound on span start time (active\n        window), symmetric with ``start_after`` so options match the list's\n        window.\n\nReturns:\n    FilterValuesResponse: Distinct values ordered by descending frequency.\n\nRaises:\n    HTTPException: 400 if the field is unknown or not a distinct-query\n        categorical, 500 on a reader failure.",
+        "operationId": "list_trace_filter_values",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "field",
+            "required": true,
+            "schema": {
+              "title": "Field",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Only consider spans starting at or after this timestamp",
+            "in": "query",
+            "name": "start_after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only consider spans starting at or after this timestamp",
+              "title": "Start After"
+            }
+          },
+          {
+            "description": "Only consider spans starting before this timestamp",
+            "in": "query",
+            "name": "end_before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only consider spans starting before this timestamp",
+              "title": "End Before"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FilterValuesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Field is not filterable by distinct values"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Failed to list filter values"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List Trace Filter Values",
+        "tags": [
+          "Traces (Public)"
+        ],
+        "x-tool": {
+          "description": "Discover the current values of a categorical trace filter field (e.g. model_name, environment) for the project \u2014 use before filtering the trace list by that field.",
+          "enabled": true,
+          "name": "list_trace_filter_values"
+        }
       }
     },
     "/api/v1/public/traces/{trace_id}": {
       "get": {
-        "description": "Get a single trace for the key's project.\n\nDefaults to the lightweight `skeleton` projection (no per-span I/O); pass\n`fields=full` (or `fields=io,metadata`) for per-span input/output/metadata.\n\nArgs:\n    auth (StampedAuth): Resolved API-key context; scopes the read to its\n        project and stamps the rate-limit identity.\n    trace_id (str): Trace to fetch.\n    fields (str | None): Comma-separated projection groups (e.g. ``io``,\n        ``metadata``) or an alias (``skeleton``/``full``). ``None`` selects\n        the default `skeleton` projection.\n\nReturns:\n    PublicTraceDetailResponse: The trace with span skeletons, plus per-span\n        I/O when the projection requests it.\n\nRaises:\n    HTTPException: 400 if `fields` is invalid, 404 if the trace is missing\n        or outside the key's project, 500 on a reader failure.",
-        "operationId": "get_trace_api_v1_public_traces__trace_id__get",
+        "description": "Get a single trace for the caller's project.\n\nDefaults to the lightweight `skeleton` projection (no per-span I/O); pass\n`fields=full` (or `fields=io,metadata`) for per-span input/output/metadata.\n\nArgs:\n    auth (DualStampedAuth): Resolved credential context (API key or user\n        session token); scopes the read to its project and stamps the\n        rate-limit identity.\n    trace_id (str): Trace to fetch.\n    fields (str | None): Comma-separated projection groups (e.g. ``io``,\n        ``metadata``) or an alias (``skeleton``/``full``). ``None`` selects\n        the default `skeleton` projection.\n\nReturns:\n    PublicTraceDetailResponse: The trace with span skeletons, plus per-span\n        I/O when the projection requests it.\n\nRaises:\n    HTTPException: 400 if `fields` is invalid, 404 if the trace is missing\n        or outside the key's project, 500 on a reader failure.",
+        "operationId": "get_trace",
         "parameters": [
           {
             "in": "path",
@@ -1933,6 +4916,24 @@
               ],
               "description": "Comma-separated field groups to include: 'core' (tree/timing/status, always included), 'usage' (tokens/cost), 'io' (per-span input/output), 'metadata' (per-span metadata). Aliases: 'skeleton' (core,usage), 'full' (everything). Unknown groups return 400.",
               "title": "Fields"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
             }
           }
         ],
@@ -2041,13 +5042,18 @@
         "summary": "Get Trace",
         "tags": [
           "Traces (Public)"
-        ]
+        ],
+        "x-tool": {
+          "description": "Fetch one trace with its span tree. Defaults to the lightweight skeleton projection; pass fields=full for per-span input/output/metadata.",
+          "enabled": true,
+          "name": "get_trace"
+        }
       }
     },
     "/api/v1/public/traces/{trace_id}/export": {
       "get": {
-        "description": "Export the V1 bundle (trace + spans + git_context + manifest) for the key's project.\n\nDefaults to the `full` projection \u2014 an export is explicit intent to take the\ncomplete trace, so per-span input/output/metadata are included unless the\ncaller narrows `fields`. `bundle.trace` equals the `traces get` payload at the\nsame projection.\n\nRate limited on its own `export` bucket because it builds and serializes the\nfull bundle.\n\nArgs:\n    auth (StampedAuth): Resolved API-key context; scopes the read to its\n        project and stamps the rate-limit identity.\n    trace_id (str): Trace to export.\n    fields (str | None): Comma-separated projection groups or an alias\n        (``skeleton``/``full``). ``None`` selects the default `full`\n        projection.\n\nReturns:\n    PublicTraceExportResponse: The V1 export bundle (manifest, trace, spans,\n        git_context) at the requested projection.\n\nRaises:\n    HTTPException: 400 if `fields` is invalid, 404 if the trace is missing\n        or outside the key's project, 500 on a reader failure.",
-        "operationId": "export_trace_api_v1_public_traces__trace_id__export_get",
+        "description": "Export the V1 bundle (trace + spans + git_context + manifest) for the caller's project.\n\nDefaults to the `full` projection \u2014 an export is explicit intent to take the\ncomplete trace, so per-span input/output/metadata are included unless the\ncaller narrows `fields`. `bundle.trace` equals the `traces get` payload at the\nsame projection.\n\nRate limited on its own `export` bucket because it builds and serializes the\nfull bundle.\n\nArgs:\n    auth (DualStampedAuth): Resolved credential context (API key or user\n        session token); scopes the read to its project and stamps the\n        rate-limit identity.\n    trace_id (str): Trace to export.\n    fields (str | None): Comma-separated projection groups or an alias\n        (``skeleton``/``full``). ``None`` selects the default `full`\n        projection.\n\nReturns:\n    PublicTraceExportResponse: The V1 export bundle (manifest, trace, spans,\n        git_context) at the requested projection.\n\nRaises:\n    HTTPException: 400 if `fields` is invalid, 404 if the trace is missing\n        or outside the key's project, 500 on a reader failure.",
+        "operationId": "export_trace",
         "parameters": [
           {
             "in": "path",
@@ -2074,6 +5080,24 @@
               ],
               "description": "Comma-separated field groups to include: 'core' (tree/timing/status, always included), 'usage' (tokens/cost), 'io' (per-span input/output), 'metadata' (per-span metadata). Aliases: 'skeleton' (core,usage), 'full' (everything). Unknown groups return 400.",
               "title": "Fields"
+            }
+          },
+          {
+            "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+              "title": "Project Id"
             }
           }
         ],
@@ -2182,13 +5206,18 @@
         "summary": "Export Trace",
         "tags": [
           "Traces (Public)"
-        ]
+        ],
+        "x-tool": {
+          "description": "Export the complete bundle (trace, spans, git context, manifest) for one trace.",
+          "enabled": true,
+          "name": "export_trace"
+        }
       }
     },
     "/api/v1/public/whoami": {
       "get": {
         "description": "Return the identity the authenticated API key maps to.",
-        "operationId": "whoami_api_v1_public_whoami_get",
+        "operationId": "whoami",
         "responses": {
           "200": {
             "content": {
@@ -2249,7 +5278,84 @@
         "summary": "Whoami",
         "tags": [
           "Whoami (Public)"
-        ]
+        ],
+        "x-tool": {
+          "description": "Identify the project and workspace the current credential belongs to.",
+          "enabled": true,
+          "name": "whoami"
+        }
+      }
+    },
+    "/api/v1/public/workspaces": {
+      "get": {
+        "description": "List the workspaces the authenticated user belongs to.\n\nA user-credential-only discovery op (no ``project_id``). Use it, then\n``list_projects``, to resolve the project a subsequent request scopes to.\n\nArgs:\n    request (Request): Incoming request (rate-limit plumbing).\n    response (Response): Outgoing response (rate-limit plumbing).\n    auth (AccountStampedAuth): Account-scope user auth (session token or CLI\n        access JWT); carries the resolved ``user_id`` and stamps the per-user\n        rate-limit identity.\n\nReturns:\n    PublicWorkspaceListResponse: The user's workspaces (id, name, role).",
+        "operationId": "list_workspaces",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicWorkspaceListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication failed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "detail": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Authentication service unavailable"
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "List Workspaces",
+        "tags": [
+          "Account (Public)"
+        ],
+        "x-tool": {
+          "description": "List the workspaces the logged-in user belongs to (id, name, role). User-credential-only account discovery: it needs no project_id and is not available to project-scoped API keys.",
+          "enabled": true,
+          "name": "list_workspaces"
+        }
       }
     }
   }

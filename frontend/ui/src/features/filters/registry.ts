@@ -15,6 +15,13 @@ export interface FilterFieldDef {
   enum_values: string[];
   /** Integer-typed numeric field (tokens/latency/errors) — restrict input to whole numbers. */
   integer?: boolean;
+  /**
+   * The field is parameterized by a key, so its predicate carries a `key` slot and the
+   * builder renders a key control before the operator. `metadata` is the only such field:
+   * its keys are user data, so they are discovered per window rather than being registry
+   * rows, and the registry stays one entry per field.
+   */
+  requires_key?: boolean;
 }
 
 /** GET /traces/filter-fields response. */
@@ -100,5 +107,17 @@ export const STATIC_FILTER_FIELDS: FilterFieldDef[] = [
     value_source: "range",
     enum_values: [],
     integer: true,
+  },
+  {
+    // Values are stored stringified, so string operators only — no per-key type inference.
+    // `free_text` because the value is typed, not picked; the key is the discovered part.
+    field: "metadata",
+    label: "Metadata",
+    type: "text",
+    level: "KEYED_MAP",
+    operators: ["eq", "contains"],
+    value_source: "free_text",
+    enum_values: [],
+    requires_key: true,
   },
 ];

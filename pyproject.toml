@@ -1,7 +1,7 @@
 [project]
 name = "traceroot-platform"
 version = "0.1.0"
-description = "TraceRoot - AI Observability Platform"
+description = "TraceRoot - open-source observability and self-improving layer for AI agents"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -31,6 +31,9 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "watchfiles>=0.21",
     "httpx>=0.28.1",
+    # Offline verification of the CLI access JWTs against the app's JWKS
+    # (EdDSA/Ed25519 needs the crypto extra -> cryptography).
+    "pyjwt[crypto]>=2.9",
     # Tokenization
     "tiktoken>=0.5.0",
     # PostgreSQL (for standard model pricing lookup)
