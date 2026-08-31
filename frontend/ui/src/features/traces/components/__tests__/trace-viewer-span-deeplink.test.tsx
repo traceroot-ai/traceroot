@@ -1,0 +1,148 @@
+// @vitest-environment jsdom
+import { afterEach, expect, it, vi } from "vitest";
+import { cleanup, render } from "@testing-library/react";
+
+const trace = {
+  trace_id: "f".repeat(32),
+  name: "rca: Failure Detector",
+  source: "agent",
+  trace_start_time: "2026-01-01T00:00:00Z",
+  metadata: JSON.stringify({
+    kind: "rca",
+    finding_id: "3817f98c-1876-6de9-30a2-66452c8e1e9f",
+    attempt: 1,
+  }),
+  spans: [
+    {
+      span_id: "s1",
+      parent_span_id: null,
+      name: "rca: Failure Detector",
+      span_kind: "AGENT",
+      status: "OK",
+      span_start_time: "2026-01-01T00:00:00Z",
+      span_end_time: "2026-01-01T00:00:01Z",
+    },
+    {
+      span_id: "s2",
+      parent_span_id: "s1",
+      name: "read",
+      span_kind: "TOOL",
+      status: "OK",
+      span_start_time: "2026-01-01T00:00:00Z",
+      span_end_time: "2026-01-01T00:00:01Z",
+    },
+  ],
+};
+
+vi.mock("@tanstack/react-query", () => ({
+  useQuery: () => ({ data: trace, isLoading: false, error: null }),
+}));
+vi.mock("@/lib/api", () => ({ getTrace: vi.fn() }));
+vi.mock("../../hooks/use-trace-stream", () => ({ useTraceStream: vi.fn() }));
+vi.mock("@/features/detectors/hooks/use-findings", () => ({
+  useTraceFindings: () => ({ data: { findings: [] } }),
+  useRca: () => ({ data: { rca: null } }),
+}));
+vi.mock("@/components/layout/app-layout", () => ({
+  useLayout: () => ({
+    aiPanelOpen: false,
+    setAiPanelOpen: vi.fn(),
+    setAiContext: vi.fn(),
+    setAiInitialSessionId: vi.fn(),
+    registerAiHost: () => () => {},
+    sidebarCollapsed: false,
+  }),
+}));
+vi.mock("../SpanTreeView", () => ({ SpanTreeView: () => null }));
+vi.mock("../SpanInfoPanel", () => ({
+  SpanInfoPanel: (props: { selection?: { type: string; span?: { span_id?: string } } }) => (
+    <div
+      data-testid="span-info"
+      data-span={props.selection?.type === "span" ? props.selection.span?.span_id : "none"}
+    />
+  ),
+}));
+vi.mock("../SpanTimelineView", () => ({ SpanTimelineView: () => <div data-testid="timeline" /> }));
+vi.mock("../TraceDetectorsTab", () => ({
+  TraceDetectorsTab: () => <div data-testid="detectors-tab" />,
+}));
+vi.mock("@/features/ai-assistant/components/ai-assistant-panel", () => ({
+  AiAssistantPanel: () => <div data-testid="ai-panel" />,
+}));
+vi.mock("@/components/RetentionGateBanner", () => ({
+  RetentionGateBanner: () => <div data-testid="retention-banner" />,
+}));
+vi.mock("@/components/ui/resizable", () => ({
+  ResizablePanelGroup: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  ResizablePanel: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  ResizableHandle: () => null,
+}));
+
+import { TraceViewerPanel } from "../TraceViewerPanel";
+
+afterEach(cleanup);
+
+/**
+ * `initialSpanId` is how a sidebar tool step's "Open span" asks the sheet to
+ * land on that step's span. The panel declares the deep-link effect before the
+ * "reset when the trace changes" effect, and React runs effects in declaration
+ * order — so on mount the reset ran second and cleared what the deep link had
+ * just applied, and every "Open span" landed on the trace root instead.
+ *
+ * SpanInfoPanel is stubbed to expose which span it was handed, which is the
+ * selection the panel resolved.
+ */
+function selectedSpan(container: HTMLElement): string {
+  return container.querySelector("[data-testid=span-info]")?.getAttribute("data-span") ?? "missing";
+}
+
+it("keeps the deep-linked span selected on mount", async () => {
+  const { container, findByTestId } = render(
+    <TraceViewerPanel
+      projectId="p1"
+      traceId={trace.trace_id}
+      source="agent"
+      initialSpanId="s2"
+      onClose={vi.fn()}
+      onNavigate={vi.fn()}
+      canNavigateUp={false}
+      canNavigateDown={false}
+    />,
+  );
+  await findByTestId("span-info");
+  expect(selectedSpan(container)).toBe("s2");
+});
+
+it("falls back to the trace when the deep-linked span is not in this trace", async () => {
+  const { container, findByTestId } = render(
+    <TraceViewerPanel
+      projectId="p1"
+      traceId={trace.trace_id}
+      source="agent"
+      initialSpanId="span-from-another-trace"
+      onClose={vi.fn()}
+      onNavigate={vi.fn()}
+      canNavigateUp={false}
+      canNavigateDown={false}
+    />,
+  );
+  await findByTestId("span-info");
+  // Not a stale span from a previous selection — the trace itself.
+  expect(selectedSpan(container)).toBe("none");
+});
+
+it("selects the trace when nothing is deep-linked", async () => {
+  const { container, findByTestId } = render(
+    <TraceViewerPanel
+      projectId="p1"
+      traceId={trace.trace_id}
+      source="agent"
+      onClose={vi.fn()}
+      onNavigate={vi.fn()}
+      canNavigateUp={false}
+      canNavigateDown={false}
+    />,
+  );
+  await findByTestId("span-info");
+  expect(selectedSpan(container)).toBe("none");
+});
