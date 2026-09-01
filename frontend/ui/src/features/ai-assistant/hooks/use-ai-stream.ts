@@ -131,6 +131,32 @@ export function useAIStream(options?: UseAIStreamOptions) {
   }, []);
 
   /**
+   * Locally resolve a parked call once its decision was accepted server-side.
+   * Create reverts the step to the plain running line (the tool now actually
+   * executes; its result arrives on the stream as usual); skip collapses it to
+   * the skipped line immediately, ahead of the declined result.
+   */
+  const resolvePendingDecision = useCallback(
+    (sessionId: string, toolCallId: string, action: "create" | "skip") => {
+      updateBucket(sessionId, (prev) =>
+        prev.map((m) =>
+          m.id === toolCallId && m.toolStep?.pending !== undefined
+            ? {
+                ...m,
+                toolStep: {
+                  ...m.toolStep,
+                  pending: undefined,
+                  skipped: action === "skip" ? true : m.toolStep.skipped,
+                },
+              }
+            : m,
+        ),
+      );
+    },
+    [updateBucket],
+  );
+
+  /**
    * Synchronous truth for "does this session have a live run?". Unlike the
    * streamingSessions state (which lags until the next render), runsRef is
    * registered before sendMessage's first await, so callers racing a send —
@@ -359,6 +385,41 @@ export function useAIStream(options?: UseAIStreamOptions) {
                   safeUpdate((prev) => [...prev, toolStepMsg]);
                 }
 
+                // A confirm-class write was parked: mark its tool step pending
+                // so the panel can offer the decision. The step normally exists
+                // already (tool_execution_start precedes the park); if the
+                // start event was missed, the entry is appended whole. Keyed by
+                // toolCallId, a superseding event replaces the pending entry in
+                // place — one call can never show two pending cards.
+                if (eventData.type === "confirmation_pending") {
+                  const pending = { decisionId: eventData.decisionId };
+                  safeUpdate((prev) => {
+                    if (prev.some((m) => m.id === eventData.toolCallId)) {
+                      return prev.map((m) =>
+                        m.id === eventData.toolCallId
+                          ? { ...m, toolStep: { ...m.toolStep!, pending } }
+                          : m,
+                      );
+                    }
+                    return [
+                      ...prev,
+                      {
+                        id: eventData.toolCallId,
+                        role: "tool_step" as const,
+                        content: "",
+                        timestamp: new Date().toISOString(),
+                        toolStep: {
+                          toolCallId: eventData.toolCallId,
+                          toolName: eventData.toolName,
+                          args: eventData.args ?? {},
+                          status: "running" as const,
+                          pending,
+                        },
+                      },
+                    ];
+                  });
+                }
+
                 if (eventData.type === "tool_execution_end") {
                   if (runsRef.current.get(sessionId)?.gen === myGen) {
                     onToolResultRef.current?.({
@@ -378,6 +439,18 @@ export function useAIStream(options?: UseAIStreamOptions) {
                               result: eventData.result,
                               isError: eventData.isError,
                               status: eventData.isError ? ("error" as const) : ("done" as const),
+                              // The result resolves the parked decision. An
+                              // error landing on a still-pending step is the
+                              // decline of a skip (the user's, or a server-side
+                              // release like the timeout backstop) — noted so
+                              // the line reads as skipped, not failed. A step
+                              // no longer pending keeps its skipped mark from
+                              // the local skip that cleared it.
+                              pending: undefined,
+                              skipped:
+                                m.toolStep!.skipped ||
+                                (m.toolStep!.pending !== undefined && eventData.isError === true) ||
+                                undefined,
                             },
                           }
                         : m,
@@ -447,6 +520,7 @@ export function useAIStream(options?: UseAIStreamOptions) {
     isSessionStreaming,
     sendMessage,
     setSessionMessages,
+    resolvePendingDecision,
     abortSession,
     abortAll,
     clearAll,

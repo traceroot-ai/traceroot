@@ -89,6 +89,7 @@ export function useAiChat({
     isSessionStreaming,
     sendMessage,
     setSessionMessages,
+    resolvePendingDecision,
     abortSession,
     abortAll,
     clearAll,
@@ -351,6 +352,47 @@ export function useAiChat({
     [removeSession],
   );
 
+  /**
+   * Post the user's decision on a parked write to the session's decisions
+   * route. Returns true when the decision is settled — accepted, or already
+   * resolved elsewhere — so the card keeps its buttons disabled and lets the
+   * stream (or the local resolution) replace it; false when the request never
+   * landed and the card should offer the buttons again. Never errors the
+   * transcript: a 409 means someone decided first (the stream delivers the
+   * outcome), and a 404 means the parked call is gone — resolved locally as
+   * the skip it already became server-side.
+   */
+  const handleDecision = useCallback(
+    async (params: {
+      toolCallId: string;
+      decisionId: string;
+      action: "create" | "skip";
+    }): Promise<boolean> => {
+      const sessionId = activeSessionIdRef.current;
+      if (!projectId || !sessionId) return false;
+      try {
+        const res = await fetch(`/api/projects/${projectId}/ai/sessions/${sessionId}/decisions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ decisionId: params.decisionId, action: params.action }),
+        });
+        if (res.ok) {
+          resolvePendingDecision(sessionId, params.toolCallId, params.action);
+          return true;
+        }
+        if (res.status === 409) return true;
+        if (res.status === 404) {
+          resolvePendingDecision(sessionId, params.toolCallId, "skip");
+          return true;
+        }
+        return false;
+      } catch {
+        return false;
+      }
+    },
+    [projectId, resolvePendingDecision],
+  );
+
   // Aborting cuts the turn short — its pending navigation must die with it.
   const handleAbort = useCallback(() => {
     pendingDashboardNavRef.current = null;
@@ -375,6 +417,7 @@ export function useAiChat({
 
     // Actions
     handleSend,
+    handleDecision,
     handleAbort,
     handleNewSession,
     handleClose,
