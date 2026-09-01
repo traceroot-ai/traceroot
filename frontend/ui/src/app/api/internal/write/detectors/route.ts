@@ -14,8 +14,10 @@ const bodySchema = z.object({
   template: z.string("template is required").min(1, "template is required"),
   prompt: z.string("prompt is required").min(1, "prompt is required"),
   sampleRate: z.number().int().min(0).max(100).optional(),
-  outputSchema: z.array(z.unknown()).optional(),
-  triggerConditions: z.array(z.unknown()).optional(),
+  // Carry the service's own messages so a non-array is rejected identically
+  // whichever surface catches it first.
+  outputSchema: z.array(z.unknown(), "outputSchema must be an array").optional(),
+  triggerConditions: z.array(z.unknown(), "triggerConditions must be an array").optional(),
   detectionSource: z.union([z.literal("system"), z.literal("byok"), z.null()]).optional(),
   detectionModel: z.string().nullable().optional(),
   detectionProvider: z.string().nullable().optional(),
