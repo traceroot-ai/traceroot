@@ -10,9 +10,10 @@ import {
   deleteSession,
   updateSessionTitle,
 } from "./session.js";
-import { getOrCreateAgent, runAgent, removeAgent, invalidateProviderCache } from "./agent.js";
-import { StreamPersister } from "./stream-persister.js";
-import { UsageAccumulator } from "./usage-accumulator.js";
+import { getOrCreateAgent, removeAgent, invalidateProviderCache } from "./agent.js";
+import { decisionsRoute } from "./decisions-route.js";
+import { pendingDecisions, SESSION_DELETED_SKIP_REASON } from "./pending-decisions.js";
+import { runAgentStream } from "./run-stream.js";
 import { getSystemPrompt } from "./prompts/system.js";
 import { createExecutor } from "./executors/index.js";
 import { createTools } from "./tools/index.js";
@@ -104,15 +105,20 @@ app.delete("/api/v1/projects/:projectId/sessions/:sessionId", async (c) => {
   removeAgent(sessionId);
   const result = await deleteSession(sessionId, userId);
   if (!result) return c.json({ error: "not found" }, 404);
+  // The session is gone — any tool call still parked on a confirmation for
+  // it can never receive a decision, so release it as a skip.
+  pendingDecisions.releaseSession(sessionId, SESSION_DELETED_SKIP_REASON);
   return c.json({ ok: true });
 });
+
+// Confirmation decisions for parked confirm-class tool calls
+app.route("/", decisionsRoute);
 
 // Message route — SSE streaming via agent runner
 app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) => {
   const projectId = c.req.param("projectId");
   const sessionId = c.req.param("sessionId");
   const userId = c.req.header("x-user-id") || "";
-  const workspaceId = c.req.header("x-workspace-id") || "";
   const body = await c.req.json<{
     message: string;
     model?: string;
@@ -182,81 +188,18 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     await updateSessionTitle(sessionId, title);
   }
 
-  return streamSSE(c, async (stream) => {
-    // Mirrors the run into AIMessage rows (text segments, tool steps) so
-    // reloaded history matches what the live stream rendered.
-    const persister = new StreamPersister((role, content, metadata, tokenUsage) =>
-      sessionManager.appendMessage(role, content, metadata, tokenUsage),
-    );
-    // Accumulates token usage across all message_end events (tool-use loops)
-    const usageAccumulator = new UsageAccumulator();
-    let loggedFirstUpdate = false;
-
-    await new Promise<void>((resolve) => {
-      runAgent(agent, body.message, {
-        onEvent: (event) => {
-          if (event.type === "message_update") {
-            // Log only the very first message_update for debugging
-            if (!loggedFirstUpdate) {
-              loggedFirstUpdate = true;
-              console.log(`[Agent] First message_update:`, JSON.stringify(event).slice(0, 500));
-            }
-          } else if (event.type !== "message_start") {
-            // Skip noisy message_start, log other event types
-            console.log(`[Agent] Event: ${event.type}`);
-          }
-          // Log error details from message_end
-          if (event.type === "message_end") {
-            const msg = (event as any).message;
-            console.log(
-              `[Agent] message_end:`,
-              JSON.stringify({
-                model: msg?.model,
-                provider: msg?.provider,
-                usage: msg?.usage,
-                stopReason: msg?.stopReason,
-              }).slice(0, 500),
-            );
-            if (msg?.stopReason === "error") {
-              console.error(`[Agent] API error:`, msg.errorMessage || "unknown");
-            }
-          }
-          // Forward all events to the frontend
-          stream.writeSSE({
-            event: event.type,
-            data: JSON.stringify(event),
-          });
-
-          // Mirror the event into token totals and durable rows
-          usageAccumulator.onEvent(event);
-          persister.onEvent(event);
-        },
-        onError: async (error) => {
-          console.error(`[Agent] ERROR:`, error.message);
-          stream.writeSSE({
-            event: "error",
-            data: JSON.stringify({ message: error.message }),
-          });
-          // Persist whatever the run produced before failing (text so far,
-          // completed tool steps) so reloaded history matches what was shown,
-          // with the usage accumulated before the failure so those tokens
-          // still count toward the run meters.
-          await persister.finish(
-            await usageAccumulator.toTokenUsage(body.source === ModelSource.BYOK),
-          );
-          resolve();
-        },
-        onDone: async () => {
-          const tokenUsage = await usageAccumulator.toTokenUsage(body.source === ModelSource.BYOK);
-          // Flush the trailing text segment and wait for all rows to land
-          await persister.finish(tokenUsage);
-          console.log(`[Agent] Done. Run persisted for session ${sessionId}`);
-          stream.writeSSE({ event: "done", data: "{}" });
-          resolve();
-        },
-      });
-    });
-  });
+  return streamSSE(c, (stream) =>
+    runAgentStream(stream, {
+      agent,
+      message: body.message,
+      sessionId,
+      // Attended means the session belongs to a user who can answer
+      // confirmation cards; system/RCA sessions (userId null) are unattended.
+      channelUserId: ownedSession.userId ?? "",
+      isByok: body.source === ModelSource.BYOK,
+      sessionManager,
+    }),
+  );
 });
 
 // Graceful shutdown
@@ -304,9 +247,12 @@ async function main(): Promise<void> {
   });
 }
 
-main().catch((error) => {
-  console.error("[Agent] Fatal error:", error);
-  process.exit(1);
-});
+// Under vitest the app is exercised via app.request — don't boot the server.
+if (!process.env.VITEST) {
+  main().catch((error) => {
+    console.error("[Agent] Fatal error:", error);
+    process.exit(1);
+  });
+}
 
 export { app };
