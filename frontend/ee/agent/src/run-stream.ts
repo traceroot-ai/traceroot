@@ -122,9 +122,11 @@ export async function runAgentStream(
             data: JSON.stringify({ message: error.message }),
           });
           // Persist whatever the run produced before failing (text so far,
-          // completed tool steps) so reloaded history matches what was shown,
-          // with the usage accumulated before the failure so those tokens
-          // still count toward the run meters.
+          // completed tool steps) plus a durable error marker, so reloaded
+          // history shows the failure instead of a silent non-answer — with
+          // the usage accumulated before the failure so those tokens still
+          // count toward the run meters.
+          persister.recordError(error.message);
           await persister.finish(await usageAccumulator.toTokenUsage(options.isByok));
           resolve();
         },

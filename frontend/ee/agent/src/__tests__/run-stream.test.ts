@@ -135,11 +135,19 @@ describe("runAgentStream", () => {
     });
 
     const stream = fakeStream();
-    await runAgentStream(stream, options("rs-3", decisions));
+    const opts = options("rs-3", decisions);
+    await runAgentStream(stream, opts);
 
     await expect(outcome).resolves.toEqual({ action: "skip", reason: RUN_ERROR_SKIP_REASON });
     expect(decisions.pendingCount()).toBe(0);
     expect(stream.events.some((e) => e.event === "error")).toBe(true);
+    // the failure is durable: the persisted final segment carries the error
+    expect(opts.sessionManager.appendMessage).toHaveBeenCalledWith(
+      "assistant",
+      "",
+      expect.objectContaining({ runError: "model exploded" }),
+      undefined,
+    );
   });
 
   it("release path: run completion resolves decisions still parked somehow", async () => {
