@@ -3,8 +3,10 @@ import { z } from "zod";
 import { verifyInternalSecret } from "@/lib/auth-helpers";
 import { createDetector } from "@/lib/write-services/detectors";
 
-// Shape-level checks only: the deep field validation (exact messages, trigger
-// registry) lives in the write service, whose 400s pass through unchanged.
+// Shape-level checks only: the deep field validation (exact messages, ranges,
+// trigger registry) lives in the write service, whose 400s pass through
+// unchanged. Re-declaring a range here would shadow the service's message
+// with zod's generic text.
 const bodySchema = z.object({
   // The string-typed error covers missing/wrong-type input too, so the
   // surfaced message is deterministic whether the field is absent or empty.
@@ -15,7 +17,7 @@ const bodySchema = z.object({
   // Optional at the shape level: the service decides whether an absent prompt
   // is fillable from a standard template or a 400.
   prompt: z.string("prompt is required").min(1, "prompt is required").optional(),
-  sampleRate: z.number().int().min(0).max(100).optional(),
+  sampleRate: z.number().optional(),
   outputSchema: z.array(z.unknown()).optional(),
   triggerConditions: z.array(z.unknown()).optional(),
   detectionSource: z.union([z.literal("system"), z.literal("byok"), z.null()]).optional(),
