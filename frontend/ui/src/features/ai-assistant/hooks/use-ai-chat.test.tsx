@@ -798,3 +798,175 @@ describe("useAiChat model selection", () => {
     expect(b.result.current.modelSelection.model).toBe("");
   });
 });
+
+describe("useAiChat pending-write decisions", () => {
+  /** SSE stream that can emit arbitrary event objects, not just text deltas. */
+  function createEventSSE() {
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) {
+        controller = c;
+      },
+    });
+    const encoder = new TextEncoder();
+    return {
+      response: new Response(stream, { status: 200 }),
+      emit(event: Record<string, unknown>) {
+        try {
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n`));
+        } catch {
+          // stream cancelled — assertions read hook state
+        }
+      },
+    };
+  }
+
+  let sse: ReturnType<typeof createEventSSE>;
+  let fetchMock: ReturnType<typeof vi.fn>;
+  let decisionCalls: { url: string; body: unknown }[];
+  let decisionResponse: () => Response | Promise<Response>;
+
+  beforeEach(() => {
+    sse = createEventSSE();
+    decisionCalls = [];
+    decisionResponse = () => jsonResponse({ ok: true });
+    fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.endsWith("/ai/sessions")) {
+        return jsonResponse({ id: "A" });
+      }
+      if (method === "POST" && url.endsWith("/ai/sessions/A/messages")) {
+        return sse.response;
+      }
+      if (method === "POST" && url.endsWith("/decisions")) {
+        decisionCalls.push({ url, body: JSON.parse(String(init?.body)) });
+        return decisionResponse();
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  const findStep = (result: { current: ReturnType<typeof useAiChat> }) =>
+    result.current.messages.find((m) => m.role === "tool_step")?.toolStep;
+
+  /** Send a message in session A and park a create_widget call on it. */
+  const parkPendingCall = async () => {
+    const rendered = renderHook(() => useAiChat({ projectId: "p1" }), { wrapper });
+    await act(async () => {
+      await rendered.result.current.handleSend("make a widget", MODEL);
+    });
+    sse.emit({
+      type: "tool_execution_start",
+      toolCallId: "tc1",
+      toolName: "create_widget",
+      args: { title: "Tokens" },
+    });
+    sse.emit({
+      type: "confirmation_pending",
+      decisionId: "d1",
+      toolCallId: "tc1",
+      toolName: "create_widget",
+      args: { title: "Tokens" },
+    });
+    await waitFor(() => expect(findStep(rendered.result)?.pending).toEqual({ decisionId: "d1" }));
+    return rendered;
+  };
+
+  it("posts a create decision through the session's decisions route and clears pending", async () => {
+    const { result } = await parkPendingCall();
+
+    let settled!: boolean;
+    await act(async () => {
+      settled = await result.current.handleDecision({
+        toolCallId: "tc1",
+        decisionId: "d1",
+        action: "create",
+      });
+    });
+
+    expect(settled).toBe(true);
+    expect(decisionCalls).toEqual([
+      {
+        url: "/api/projects/p1/ai/sessions/A/decisions",
+        body: { decisionId: "d1", action: "create" },
+      },
+    ]);
+    expect(findStep(result)?.pending).toBeUndefined();
+    expect(findStep(result)?.skipped).toBeFalsy();
+  });
+
+  it("marks the step skipped when the user's skip decision lands", async () => {
+    const { result } = await parkPendingCall();
+
+    await act(async () => {
+      await result.current.handleDecision({ toolCallId: "tc1", decisionId: "d1", action: "skip" });
+    });
+
+    expect(decisionCalls[0]?.body).toEqual({ decisionId: "d1", action: "skip" });
+    expect(findStep(result)?.pending).toBeUndefined();
+    expect(findStep(result)?.skipped).toBe(true);
+  });
+
+  it("treats 409 as already resolved: silent, no transcript error, stream owns the outcome", async () => {
+    decisionResponse = () =>
+      new Response(JSON.stringify({ error: "already decided" }), { status: 409 });
+    const { result } = await parkPendingCall();
+
+    let settled!: boolean;
+    await act(async () => {
+      settled = await result.current.handleDecision({
+        toolCallId: "tc1",
+        decisionId: "d1",
+        action: "create",
+      });
+    });
+
+    expect(settled).toBe(true);
+    // No local mutation — the resolving tool result arrives on the stream.
+    expect(findStep(result)?.pending).toEqual({ decisionId: "d1" });
+    expect(result.current.messages.some((m) => m.content.startsWith("Error"))).toBe(false);
+  });
+
+  it("resolves a stale card (404) as a skip", async () => {
+    decisionResponse = () => new Response(JSON.stringify({ error: "not found" }), { status: 404 });
+    const { result } = await parkPendingCall();
+
+    let settled!: boolean;
+    await act(async () => {
+      settled = await result.current.handleDecision({
+        toolCallId: "tc1",
+        decisionId: "d1",
+        action: "create",
+      });
+    });
+
+    expect(settled).toBe(true);
+    expect(findStep(result)?.pending).toBeUndefined();
+    expect(findStep(result)?.skipped).toBe(true);
+  });
+
+  it("leaves the card pending and reports failure when the request cannot be delivered", async () => {
+    decisionResponse = () => Promise.reject(new Error("network down"));
+    const { result } = await parkPendingCall();
+
+    let settled!: boolean;
+    await act(async () => {
+      settled = await result.current.handleDecision({
+        toolCallId: "tc1",
+        decisionId: "d1",
+        action: "create",
+      });
+    });
+
+    expect(settled).toBe(false);
+    expect(findStep(result)?.pending).toEqual({ decisionId: "d1" });
+    expect(result.current.messages.some((m) => m.content.startsWith("Error"))).toBe(false);
+  });
+});

@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import type { ReactNode } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { CHART_TILE_ASPECT, DashboardMiniature } from "./dashboard-miniature";
@@ -90,7 +91,15 @@ function CardBody({ body, resourceId }: { body: ResourceCardBody; resourceId: st
   }
 }
 
-export function ResourceCard({ model }: { model: ResourceCardModel }) {
+export function ResourceCard({
+  model,
+  footer,
+}: {
+  model: ResourceCardModel;
+  /** Rendered under the body. Only the pending variant passes anything here —
+   *  a receipt card stays free of affordances. */
+  footer?: ReactNode;
+}) {
   const body = <CardBody body={model.body} resourceId={model.resourceId} />;
 
   return (
@@ -108,7 +117,13 @@ export function ResourceCard({ model }: { model: ResourceCardModel }) {
         )}
       </div>
       <p className="break-words text-[11px] text-muted-foreground/70">{model.meta.join(" · ")}</p>
+      {model.description !== undefined && (
+        <p className="break-words text-[11px] text-muted-foreground [overflow-wrap:anywhere]">
+          {model.description}
+        </p>
+      )}
       {body}
+      {footer}
     </Card>
   );
 }

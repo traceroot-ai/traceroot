@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import * as api from "@/features/dashboards/api";
 import { MessageList } from "./message-list";
 import type { AIMessage, ToolCallStep } from "../types";
@@ -295,5 +295,113 @@ describe("MessageList tool entries", () => {
     );
     expect(screen.getByText("make me a chart")).toBeTruthy();
     expect(screen.getByText("Tokens by model")).toBeTruthy();
+  });
+});
+
+describe("MessageList pending confirmation entries", () => {
+  function pendingWidgetStep(toolCallId = "tc1"): ToolCallStep {
+    return {
+      toolCallId,
+      toolName: "create_widget",
+      args: {
+        dashboard_id: "db1",
+        title: "Tokens by model",
+        type: "query",
+        spec: {
+          view: "spans",
+          metric: { measure: "total_tokens", agg: "sum" },
+          display: { type: "bar" },
+        },
+      },
+      status: "running",
+      pending: { decisionId: "d1" },
+    };
+  }
+
+  it("renders the pending card before the resource exists, with only the two buttons", () => {
+    render(
+      <MessageList
+        messages={[toolEntry(pendingWidgetStep())]}
+        projectId="p1"
+        onDecision={vi.fn()}
+      />,
+    );
+
+    // The Phase 1 card, built from args alone — no result exists yet.
+    expect(screen.getByText("Tokens by model")).toBeTruthy();
+    expect(screen.getByText("view spans")).toBeTruthy();
+    expect(screen.queryByText("(create_widget)")).toBeNull();
+
+    const buttons = screen.getAllByRole("button");
+    expect(buttons).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Create widget" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
+    expect(screen.queryByText(/awaiting/i)).toBeNull();
+  });
+
+  it("posts the decision with the step's tool call and decision ids", () => {
+    const onDecision = vi.fn().mockResolvedValue(true);
+    render(
+      <MessageList
+        messages={[toolEntry(pendingWidgetStep())]}
+        projectId="p1"
+        onDecision={onDecision}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Create widget" }));
+    expect(onDecision).toHaveBeenCalledExactlyOnceWith({
+      toolCallId: "tc1",
+      decisionId: "d1",
+      action: "create",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
+    // Second click lands while the first is in flight — buttons are disabled.
+    expect(onDecision).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the plain tool line for a pending tool it has no card for", () => {
+    const step: ToolCallStep = {
+      toolCallId: "tc9",
+      toolName: "mystery_write",
+      args: {},
+      status: "running",
+      pending: { decisionId: "d9" },
+    };
+    render(<MessageList messages={[toolEntry(step)]} projectId="p1" onDecision={vi.fn()} />);
+    expect(screen.getByText("(mystery_write)")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
+  });
+
+  it("collapses a skipped call to the plain tool line with a skipped note", () => {
+    const step: ToolCallStep = {
+      ...pendingWidgetStep(),
+      pending: undefined,
+      skipped: true,
+      status: "error",
+      isError: true,
+      result: { content: [{ type: "text", text: "The user chose to skip this call." }] },
+    };
+    render(<MessageList messages={[toolEntry(step)]} projectId="p1" onDecision={vi.fn()} />);
+
+    expect(screen.getByText("(create_widget)")).toBeTruthy();
+    expect(screen.getByText("skipped")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Create widget" })).toBeNull();
+  });
+
+  it("shows the receipt card once the tool result replaces the pending entry", () => {
+    // Same call, after the user chose create and the result landed.
+    render(
+      <MessageList
+        messages={[toolEntry(createWidgetStep(WIDGET_DETAILS))]}
+        projectId="p1"
+        onDecision={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Tokens by model")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Create widget" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
   });
 });
