@@ -1,17 +1,17 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import type { AlertRenotify } from "@traceroot/core";
+import type { AlertRenotify, Prisma } from "@traceroot/core";
 import type { AlertRowLike } from "../rule.js";
 import type { AlertRuntimeState } from "../state-machine.js";
 import type { AlertTick } from "../tick.js";
 
-const findMany = vi.fn<(args: Record<string, unknown>) => Promise<AlertRowLike[]>>();
+const queryRaw = vi.fn<(query: Prisma.Sql) => Promise<AlertRowLike[]>>();
 const updateMany = vi.fn<(args: Record<string, unknown>) => Promise<{ count: number }>>();
 
 vi.mock("@traceroot/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@traceroot/core")>();
   return {
     ...actual,
-    prisma: { alert: { findMany, updateMany } },
+    prisma: { alert: { updateMany }, $queryRaw: queryRaw },
   };
 });
 
@@ -24,6 +24,9 @@ const {
   ALERT_CLAIM_LIMIT,
   ALERT_CLAIM_SCAN_LIMIT,
 } = await import("../claim.js");
+// Imported after the mock factory rather than at the top: a value import from
+// `@traceroot/core` loads the module before the spies above are initialized.
+const { ALERT_WINDOWS } = await import("@traceroot/core");
 // Real, not faked: whether a page survives the race below is a question about
 // what the state machine does next with the row the writes leave behind.
 const { applyAlertStateMachine } = await import("../state-machine.js");
@@ -36,7 +39,7 @@ const TICK: AlertTick = {
   windowEnd: new Date("2026-08-12T10:36:30.000Z"),
 };
 
-/** `row()`'s own window is 10m, so it re-arms at the cadence cap, not at the tick. */
+/** Where a window at or past the cadence cap re-arms, rather than at the tick. */
 const CAPPED_NEXT_RUN = new Date("2026-08-12T10:42:00.000Z");
 
 /** What a window this build cannot read falls back to: one tick, as before. */
@@ -63,12 +66,23 @@ function row(overrides: Partial<AlertRowLike> = {}): AlertRowLike {
   };
 }
 
-const rowsFor = (projectId: string, count: number): AlertRowLike[] =>
-  Array.from({ length: count }, (_, index) => row({ id: `${projectId}-${index}`, projectId }));
+/**
+ * The claim statement with its parameters put back in. Selecting, claiming and
+ * re-arming are one query now rather than a call shape the mock can watch row by
+ * row, so what the tick takes and what it writes are only readable here.
+ */
+function claimSql(): string {
+  const [query] = queryRaw.mock.calls[0];
+  const values = query.values as unknown[];
+  return query.text.replace(/\$(\d+)/g, (_, position: string) => {
+    const value = values[Number(position) - 1];
+    return typeof value === "string" ? `'${value}'` : String(value);
+  });
+}
 
 beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
-  findMany.mockReset().mockResolvedValue([]);
+  queryRaw.mockReset().mockResolvedValue([]);
   updateMany.mockReset().mockResolvedValue({ count: 1 });
 });
 
@@ -76,136 +90,127 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("claimDueAlerts — the read that selects candidates", () => {
+describe("claimDueAlerts — the statement that selects candidates", () => {
   it("takes only ACTIVE, due rules whose project is still live", async () => {
     await claimDueAlerts(TICK);
+    const sql = claimSql();
 
-    const [args] = findMany.mock.calls[0];
-    const where = args.where as Record<string, unknown>;
-    expect(where).toMatchObject({ project: { deleteTime: null }, status: "ACTIVE" });
-    expect(where.OR).toEqual([{ nextRunAt: null }, { nextRunAt: { lte: NOW } }]);
-    expect(args.take).toBe(ALERT_CLAIM_SCAN_LIMIT);
+    expect(sql).toContain("a.status = 'ACTIVE'");
+    expect(sql).toContain(
+      `a.next_run_at IS NULL OR a.next_run_at <= '${NOW.toISOString()}'::timestamp`,
+    );
+    // Deletion is soft, so no cascade fires: without this a deleted project keeps paging.
+    expect(sql).toContain("JOIN projects p ON p.id = a.project_id AND p.delete_time IS NULL");
+  });
+
+  it("orders the scan by due time, leaving the unscheduled last", async () => {
+    await claimDueAlerts(TICK);
+
+    expect(claimSql()).toContain("ORDER BY a.next_run_at ASC, a.create_time ASC");
+    // `NULLS FIRST` put every rule created since the last tick ahead of every rule
+    // that was actually due, so a burst of new rules preempted the schedule.
+    expect(claimSql()).not.toContain("NULLS FIRST");
+  });
+
+  it("scans wider than the budget and deals the budget across projects", async () => {
+    await claimDueAlerts(TICK);
+    const sql = claimSql();
+
     expect(ALERT_CLAIM_SCAN_LIMIT).toBeGreaterThan(ALERT_CLAIM_LIMIT);
-    // `nulls: "first"` put every rule created since the last tick ahead of every
-    // rule that was actually due, so a burst of new rules preempted the schedule.
-    expect(args.orderBy).toEqual([{ nextRunAt: "asc" }, { createTime: "asc" }]);
-  });
-
-  it("claims no more than the budget, and never all of it for one project", async () => {
-    findMany.mockResolvedValue([
-      ...rowsFor("proj-noisy", ALERT_CLAIM_SCAN_LIMIT - 100),
-      ...rowsFor("proj-quiet", 100),
-    ]);
-
-    const claims = await claimDueAlerts(TICK);
-    const byProject = claims.reduce<Record<string, number>>((counts, claim) => {
-      const key = claim.rule.projectId;
-      return { ...counts, [key]: (counts[key] ?? 0) + 1 };
-    }, {});
-
-    expect(claims).toHaveLength(ALERT_CLAIM_LIMIT);
-    expect(updateMany).toHaveBeenCalledTimes(ALERT_CLAIM_LIMIT);
-    // Round-robin: the quiet project's whole backlog rides along rather than
-    // waiting behind a project that could fill the budget on its own.
-    expect(byProject["proj-quiet"]).toBe(100);
-    expect(byProject["proj-noisy"]).toBe(ALERT_CLAIM_LIMIT - 100);
-    // Sharing the budget must not reshuffle the scan's oldest-due-first order.
-    expect(claims[0].rule.id).toBe("proj-noisy-0");
-  });
-
-  it("never sees a project whose due rules all sort past the scan cap", async () => {
-    // The scan is one globally-ordered read, so the budget can only be shared
-    // among projects inside the slice it returns.
-    const due = [...rowsFor("proj-noisy", ALERT_CLAIM_SCAN_LIMIT), ...rowsFor("proj-quiet", 100)];
-    findMany.mockImplementation(async (args) => due.slice(0, args.take as number));
-
-    const claims = await claimDueAlerts(TICK);
-
-    expect(claims).toHaveLength(ALERT_CLAIM_LIMIT);
-    // The budget had room for the quiet project; the scan never showed it.
-    expect(claims.every((claim) => claim.rule.projectId === "proj-noisy")).toBe(true);
+    expect(sql).toContain(`LIMIT ${ALERT_CLAIM_SCAN_LIMIT}`);
+    // Depth before due time: every project in the scan gives up a rule before any
+    // project takes a second, so one project's backlog cannot fill the budget.
+    expect(sql).toContain("PARTITION BY a.project_id");
+    expect(sql).toContain("ORDER BY depth ASC, next_run_at ASC, create_time ASC");
+    expect(sql).toContain(`LIMIT ${ALERT_CLAIM_LIMIT}`);
   });
 });
 
 describe("claimDueAlerts — taking ownership", () => {
-  it("stamps the claim and advances nextRunAt under a CAS on lastClaimedAt", async () => {
-    const previousClaim = new Date("2026-08-12T10:36:00.000Z");
-    findMany.mockResolvedValue([{ ...row(), lastClaimedAt: previousClaim } as AlertRowLike]);
+  it("claims the whole batch in one round-trip", async () => {
+    queryRaw.mockResolvedValue([row(), row({ id: "alert-2" })]);
 
     const claims = await claimDueAlerts(TICK);
 
-    expect(updateMany.mock.calls[0][0]).toEqual({
-      where: { id: "alert-1", lastClaimedAt: previousClaim },
-      data: { lastClaimedAt: TICK.now, nextRunAt: CAPPED_NEXT_RUN },
-    });
-    expect(claims).toHaveLength(1);
-    expect(claims[0].claimStamp).toBe(TICK.now);
-    expect(claims[0].rule.id).toBe("alert-1");
+    // One write per due rule was 500 round-trips a minute at a full tick, against
+    // the pool the detector consumers share.
+    expect(queryRaw).toHaveBeenCalledTimes(1);
+    expect(updateMany).not.toHaveBeenCalled();
+    expect(claims.map((claim) => claim.rule.id)).toEqual(["alert-1", "alert-2"]);
+    expect(claims.every((claim) => claim.claimStamp === TICK.now)).toBe(true);
   });
 
-  it("drops a row whose CAS another scheduler won", async () => {
-    findMany.mockResolvedValue([row()]);
-    updateMany.mockResolvedValue({ count: 0 });
+  it("stamps the claim under a lock an overlapping tick passes over", async () => {
+    await claimDueAlerts(TICK);
+    const sql = claimSql();
 
-    expect(await claimDueAlerts(TICK)).toEqual([]);
-  });
-
-  it("claims an unparseable row before discarding it, so it stops being due", async () => {
-    findMany.mockResolvedValue([row({ window: "24h" })]);
-
-    expect(await claimDueAlerts(TICK)).toEqual([]);
-    expect(updateMany.mock.calls[0][0]).toMatchObject({
-      where: { id: "alert-1" },
-      // No window to derive a cadence from, so it keeps the tick's.
-      data: { lastClaimedAt: TICK.now, nextRunAt: TICK_NEXT_RUN },
-    });
+    // The mutex, in place of the per-row CAS on `lastClaimedAt`: a row another tick
+    // holds is skipped rather than waited on, so neither tick claims it twice.
+    expect(sql).toContain("FOR UPDATE SKIP LOCKED");
+    // Taken once over the chosen set rather than folded back into the UPDATE.
+    expect(sql).toContain("locked AS MATERIALIZED");
+    expect(sql).toContain(`last_claimed_at = '${NOW.toISOString()}'::timestamp`);
   });
 
   it("re-arms each row on its own window rather than on one cadence for the tick", async () => {
-    findMany.mockResolvedValue([
-      row({ id: "narrow", window: "1m" }),
-      row({ id: "wide", window: "2h" }),
-    ]);
-
     await claimDueAlerts(TICK);
+    const sql = claimSql();
 
-    const scheduled = new Map(
-      updateMany.mock.calls.map(([args]) => {
-        const { where, data } = args as {
-          where: { id: string };
-          data: { nextRunAt: Date };
-        };
-        return [where.id, data.nextRunAt.toISOString()];
-      }),
-    );
     // The 1m rule is unchanged; the 2h rule skips the next four ticks entirely.
-    expect(scheduled.get("narrow")).toBe(TICK_NEXT_RUN.toISOString());
-    expect(scheduled.get("wide")).toBe(CAPPED_NEXT_RUN.toISOString());
+    expect(sql).toContain(`WHEN '1m' THEN '${TICK_NEXT_RUN.toISOString()}'::timestamp`);
+    expect(sql).toContain(`WHEN '2h' THEN '${CAPPED_NEXT_RUN.toISOString()}'::timestamp`);
+    // No window to derive a cadence from, so it keeps the tick's.
+    expect(sql).toContain(`ELSE '${TICK_NEXT_RUN.toISOString()}'::timestamp`);
   });
 
-  it("leaves the reason on a row it will never be able to evaluate", async () => {
-    // `nextRunAt` still advances, so without this the row is re-read and
-    // re-written every minute while the owner reads a severity that is frozen,
-    // an empty error column, and no sign the rule will never fire again.
-    findMany.mockResolvedValue([row({ window: "24h" })]);
-
+  it("has a re-arm for every window the build can read", async () => {
     await claimDueAlerts(TICK);
+    const sql = claimSql();
 
-    const failure = updateMany.mock.calls[1][0] as { where: unknown; data: Record<string, string> };
-    expect(failure.where).toEqual({ id: "alert-1", status: "ACTIVE", lastClaimedAt: TICK.now });
-    expect(failure.data.lastError).toContain("cannot be evaluated");
-    expect(failure.data.lastErrorAt).toBeInstanceOf(Date);
-    // Still not a claim: the row is dropped from this tick either way.
+    // A token the statement has no branch for takes the fallback silently and is
+    // re-measured every minute, which is the cost the cadence exists to avoid.
+    for (const window of Object.keys(ALERT_WINDOWS)) {
+      expect(sql).toContain(`WHEN '${window}' THEN`);
+    }
+  });
+
+  it("returns nothing when every candidate was already held elsewhere", async () => {
     expect(await claimDueAlerts(TICK)).toEqual([]);
   });
 
-  it("keeps an unwritable reason to itself rather than losing the rest of the batch", async () => {
-    findMany.mockResolvedValue([row({ window: "24h" }), row({ id: "alert-2" })]);
-    updateMany.mockImplementation(async (args) => {
-      const data = args.data as Record<string, unknown>;
-      if ("lastError" in data) throw new Error("pool timeout");
-      return { count: 1 };
+  it("discards a row it cannot parse, which the statement has already re-armed", async () => {
+    // The re-arm is read off the raw `window` column inside the claim for exactly
+    // this reason: an unevaluable row still needs `nextRunAt` advanced, or it stays due.
+    queryRaw.mockResolvedValue([row({ window: "24h" })]);
+
+    expect(await claimDueAlerts(TICK)).toEqual([]);
+  });
+
+  it("leaves the reason on the rows it will never be able to evaluate", async () => {
+    // `nextRunAt` still advances, so without this such a row is re-read and
+    // re-written every cadence while the owner reads a severity that is frozen,
+    // an empty error column, and no sign the rule will never fire again.
+    queryRaw.mockResolvedValue([row({ window: "24h" }), row({ id: "alert-2", window: "24h" })]);
+    updateMany.mockResolvedValue({ count: 2 });
+
+    await claimDueAlerts(TICK);
+
+    // One write for the batch: they carry the same reason under the same claim
+    // stamp, so there is nothing per-row left to say.
+    expect(updateMany).toHaveBeenCalledTimes(1);
+    const [args] = updateMany.mock.calls[0] as [{ where: unknown; data: Record<string, unknown> }];
+    expect(args.where).toEqual({
+      id: { in: ["alert-1", "alert-2"] },
+      status: "ACTIVE",
+      lastClaimedAt: TICK.now,
     });
+    expect(args.data.lastError).toContain("cannot be evaluated");
+    expect(args.data.lastErrorAt).toBeInstanceOf(Date);
+  });
+
+  it("keeps an unwritable reason to itself rather than losing the rest of the batch", async () => {
+    queryRaw.mockResolvedValue([row({ window: "24h" }), row({ id: "alert-2" })]);
+    updateMany.mockRejectedValue(new Error("pool timeout"));
 
     expect((await claimDueAlerts(TICK)).map((claim) => claim.rule.id)).toEqual(["alert-2"]);
   });
