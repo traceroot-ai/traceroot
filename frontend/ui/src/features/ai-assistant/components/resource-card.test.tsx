@@ -142,8 +142,17 @@ describe("ResourceCard", () => {
           body: {
             kind: "dashboard",
             tiles: [
-              { id: "w1", title: "p95", glyph: "line", x: 0, y: 0, w: 6, h: 4 },
-              { id: "w2", title: "Recent", glyph: "trace_feed", x: 6, y: 0, w: 6, h: 6 },
+              { id: "w1", title: "p95", glyph: "line", chart: null, x: 0, y: 0, w: 6, h: 4 },
+              {
+                id: "w2",
+                title: "Recent",
+                glyph: "trace_feed",
+                chart: null,
+                x: 6,
+                y: 0,
+                w: 6,
+                h: 6,
+              },
             ],
           },
         })}
