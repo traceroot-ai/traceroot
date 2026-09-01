@@ -14,8 +14,9 @@ import {
   invalidateProviderConfigCache,
   type ProviderModelConfig,
 } from "@traceroot/core/model-resolver";
+import { REGISTRY } from "@traceroot-ai/tools";
 import { SessionManager } from "./session.js";
-import { writePolicyHook } from "./tools/write-policy.js";
+import { createWritePolicyHook } from "./tools/write-policy.js";
 
 /**
  * Resolve an API key for a pi-ai provider — workspace BYOK first, env var fallback.
@@ -110,7 +111,9 @@ export async function getOrCreateAgent(config: AgentRunnerConfig): Promise<{
     },
     // TODO: implement proper convertToLlm instead of identity cast
     convertToLlm: (messages: AgentMessage[]) => messages as Message[],
-    beforeToolCall: writePolicyHook,
+    // Session-bound so confirm-class writes can park against this session's
+    // live run channel and wait for the user's decision.
+    beforeToolCall: createWritePolicyHook(REGISTRY, { sessionId: config.sessionId }),
     getApiKey: async (provider: string) => {
       // If we have BYOK config with a decrypted key, use it directly
       if (providerConfig && providerConfig.key !== BEDROCK_USE_DEFAULT_CREDENTIALS) {

@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { BeforeToolCallContext } from "@earendil-works/pi-agent-core";
 import { getOrCreateAgent, type AgentRunnerConfig } from "../agent.js";
-import { writePolicyHook } from "../tools/write-policy.js";
+import { pendingDecisions } from "../pending-decisions.js";
 
 // Keep the module graph off Prisma and the DB: the agent cache logic under
 // test only needs a context-loading stub and a resolvable model.
@@ -42,9 +43,39 @@ function config(sessionId: string, tools: AgentTool<any>[]): AgentRunnerConfig {
 }
 
 describe("getOrCreateAgent", () => {
-  it("registers the fail-closed write policy hook on the agent", async () => {
+  it("registers a session-bound write policy hook on the agent", async () => {
     const { agent } = await getOrCreateAgent(config("hook-session", [fakeTool("a")]));
-    expect(agent.beforeToolCall).toBe(writePolicyHook);
+
+    // The hook is bound to THIS session: with an attended channel registered
+    // for it, a confirm-class registry write (create_detector) parks instead
+    // of resolving — proving both the registry policies and the session id
+    // reached the hook.
+    const emitted: Array<{ decisionId: string }> = [];
+    pendingDecisions.registerChannel("hook-session", {
+      userId: "u1",
+      emit: (event) => emitted.push(event),
+      keepalive: vi.fn(),
+    });
+    try {
+      const context = {
+        toolCall: { type: "toolCall", id: "tc-1", name: "create_detector", arguments: {} },
+        args: {},
+      } as unknown as BeforeToolCallContext;
+      let settled = false;
+      const result = agent.beforeToolCall!(context).finally(() => {
+        settled = true;
+      });
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(settled).toBe(false);
+      expect(pendingDecisions.pendingCount("hook-session")).toBe(1);
+
+      pendingDecisions.decide(emitted[0].decisionId, "hook-session", { action: "create" });
+      await expect(result).resolves.toBeUndefined();
+    } finally {
+      pendingDecisions.releaseSession("hook-session", "test cleanup");
+      const channel = pendingDecisions.channelFor("hook-session");
+      if (channel) pendingDecisions.unregisterChannel("hook-session", channel);
+    }
   });
 
   it("refreshes tool closures on cached agents so per-request context never goes stale", async () => {
