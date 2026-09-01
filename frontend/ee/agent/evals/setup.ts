@@ -1,6 +1,27 @@
 import { randomUUID } from "node:crypto";
 import type { EvalFixture, EvalPrisma, EvalUser } from "./types.js";
 
+/** Misconfiguration the runner reports as guidance rather than a stack trace. */
+export class EvalConfigError extends Error {}
+
+/**
+ * The account the eval runs as, from EVAL_USER_EMAIL.
+ *
+ * Required, with no fallback: a default address would be some real person's
+ * account on whichever stack the eval happens to point at, and the eval both
+ * writes as that user and tears fixtures down afterwards.
+ */
+export function requireEvalUserEmail(env: NodeJS.ProcessEnv = process.env): string {
+  const email = env.EVAL_USER_EMAIL?.trim();
+  if (!email) {
+    throw new EvalConfigError(
+      "EVAL_USER_EMAIL is not set — point it at an existing account on this stack, " +
+        "e.g. EVAL_USER_EMAIL=you@example.com pnpm --filter @traceroot/agent evals",
+    );
+  }
+  return email;
+}
+
 /**
  * Resolve the account the eval runs as, plus a workspace it can create the
  * fixture project in. No ids are hardcoded — everything hangs off the email.

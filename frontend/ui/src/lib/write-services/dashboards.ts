@@ -5,7 +5,9 @@ import {
   DASHBOARD_DESCRIPTION_MAX,
   DASHBOARD_NAME_MAX,
   WIDGET_TITLE_MAX,
+  WIDGET_TYPES,
   WidgetSpecSchema,
+  type WidgetType,
 } from "@/features/dashboards/types";
 import { parseTraceFeedSpec } from "@/features/dashboards/trace-feed-spec";
 import { validateWidgetSpecVocabulary } from "@/features/dashboards/widget-spec-vocabulary";
@@ -59,10 +61,9 @@ const dashboardSchema = z.object({
 
 const widgetSchema = z.object({
   title: boundedName("title", WIDGET_TITLE_MAX),
-  type: z.union(
-    [z.literal("query"), z.literal("trace_feed")],
-    'type must be "query" or "trace_feed"',
-  ),
+  // Values from the shared list; the wording stays hand-written because it is
+  // part of the public API's error contract.
+  type: z.enum(WIDGET_TYPES, 'type must be "query" or "trace_feed"'),
   spec: jsonObject("spec must be a JSON object", true),
   displayConfig: jsonObject("displayConfig must be a JSON object", false),
 });
@@ -180,7 +181,7 @@ export async function createWidget(input: {
   projectId: string;
   dashboardId: string;
   title: string;
-  type: "query" | "trace_feed";
+  type: WidgetType;
   spec: Record<string, unknown>;
   displayConfig?: Record<string, unknown>;
   provenance: Provenance;

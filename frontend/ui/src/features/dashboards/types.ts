@@ -21,6 +21,16 @@ export const DASHBOARD_NAME_MAX = 50;
 export const WIDGET_TITLE_MAX = 100;
 export const DASHBOARD_DESCRIPTION_MAX = 500;
 
+// The kinds of widget a dashboard can hold. Single source: the runtime check
+// on the write paths, the `WidgetType` union, and the grid's per-type tile
+// sizes all derive from this list, so adding a kind here fails to compile
+// until every one of them handles it.
+export const WIDGET_TYPES = ["query", "trace_feed"] as const;
+export type WidgetType = (typeof WIDGET_TYPES)[number];
+
+export const isWidgetType = (value: unknown): value is WidgetType =>
+  (WIDGET_TYPES as readonly unknown[]).includes(value);
+
 export const AGGS = ["count", "sum", "avg", "min", "max", "p50", "p95", "p99"] as const;
 
 export const WidgetFilterSchema = z.object({
@@ -108,7 +118,7 @@ export interface Widget {
   id: string;
   dashboardId: string;
   title: string;
-  type: "query" | "trace_feed";
+  type: WidgetType;
   spec: Record<string, unknown>;
   displayConfig: Record<string, unknown>;
 }

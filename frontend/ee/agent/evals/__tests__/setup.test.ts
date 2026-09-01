@@ -1,5 +1,11 @@
 import { describe, expect, it, vi, type Mock } from "vitest";
-import { createEvalProject, resolveEvalUser, teardownEvalProject } from "../setup.js";
+import {
+  createEvalProject,
+  EvalConfigError,
+  requireEvalUserEmail,
+  resolveEvalUser,
+  teardownEvalProject,
+} from "../setup.js";
 import type { EvalPrisma } from "../types.js";
 
 /** The delegate as the mock it really is, for call inspection and re-stubbing. */
@@ -65,6 +71,24 @@ describe("resolveEvalUser", () => {
     });
     await expect(resolveEvalUser(prisma, "eval@example.com")).rejects.toThrow(/workspace/i);
   });
+});
+
+describe("requireEvalUserEmail", () => {
+  it("returns the configured address, trimmed", () => {
+    expect(requireEvalUserEmail({ EVAL_USER_EMAIL: "  eval@example.com  " })).toBe(
+      "eval@example.com",
+    );
+  });
+
+  it.each([{}, { EVAL_USER_EMAIL: "" }, { EVAL_USER_EMAIL: "   " }])(
+    "refuses to run with no address configured (%j)",
+    (env) => {
+      // No default: whatever address were baked in would be a real person's
+      // account on whichever stack the eval happens to point at.
+      expect(() => requireEvalUserEmail(env)).toThrow(EvalConfigError);
+      expect(() => requireEvalUserEmail(env)).toThrow(/EVAL_USER_EMAIL/);
+    },
+  );
 });
 
 describe("createEvalProject", () => {

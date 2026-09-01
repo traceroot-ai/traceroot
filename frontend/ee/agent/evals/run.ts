@@ -8,9 +8,9 @@
  *   pnpm --filter @traceroot/agent evals
  *
  * Requires the dev stack to be up; this never starts or stops anything.
- * Env: AGENT_SERVICE_URL, TRACE_API_URL (or NEXT_PUBLIC_API_URL),
- * EVAL_USER_EMAIL, EVAL_MODEL, EVAL_TIMEOUT_MS, and --keep to retain the
- * fixture project for inspection.
+ * Env: EVAL_USER_EMAIL (required — the account to run as), AGENT_SERVICE_URL,
+ * TRACE_API_URL (or NEXT_PUBLIC_API_URL), EVAL_MODEL, EVAL_TIMEOUT_MS, and
+ * --keep to retain the fixture project for inspection.
  */
 
 import { randomBytes } from "node:crypto";
@@ -23,14 +23,19 @@ import { AgentClient, StackNotRunningError } from "./client.js";
 import { runAll } from "./runner.js";
 import { SCENARIOS } from "./scenarios.js";
 import { allPassed, formatScorecard } from "./scorecard.js";
-import { createEvalProject, resolveEvalUser, teardownEvalProject } from "./setup.js";
+import {
+  createEvalProject,
+  EvalConfigError,
+  requireEvalUserEmail,
+  resolveEvalUser,
+  teardownEvalProject,
+} from "./setup.js";
 import { makeCanonicalPrompt } from "./template-catalog.js";
 import type { EvalPrisma, ScenarioResult } from "./types.js";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
 const TRACE_API_URL =
   process.env.TRACE_API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-const EVAL_USER_EMAIL = process.env.EVAL_USER_EMAIL || "axd2025@nyu.edu";
 const RESULTS_ROOT = fileURLToPath(new URL(".results", import.meta.url));
 
 // The generated client's delegates are far more specific than the harness
@@ -48,7 +53,7 @@ async function main(): Promise<number> {
   const keepFixture = process.argv.includes("--keep");
   const runId = `${Date.now().toString(36)}${randomBytes(2).toString("hex")}`;
 
-  const user = await resolveEvalUser(db, EVAL_USER_EMAIL);
+  const user = await resolveEvalUser(db, requireEvalUserEmail());
   const client = new AgentClient({
     baseUrl: AGENT_SERVICE_URL,
     userId: user.id,
@@ -112,6 +117,8 @@ main()
   .catch(async (error) => {
     if (error instanceof StackNotRunningError) {
       console.error(`stack not running: ${error.message}`);
+    } else if (error instanceof EvalConfigError) {
+      console.error(error.message);
     } else {
       console.error(error instanceof Error ? error.stack || error.message : String(error));
     }
