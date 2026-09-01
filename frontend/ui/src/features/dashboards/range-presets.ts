@@ -13,6 +13,10 @@ export const RANGE_PRESETS = DATE_FILTER_OPTIONS.filter((o) => o.durationMinutes
 // The same default the trace list and dashboard page resolve to (24 hours).
 export const DEFAULT_RANGE_ID = DEFAULT_DATE_FILTER.id;
 
+// The default window's own words ("Last 24 hours"), for surfaces that chart on
+// that window with no preset picker of their own to name it.
+export const DEFAULT_RANGE_LABEL = DEFAULT_DATE_FILTER.label;
+
 export function makeRange(optionId: string): TimeRange {
   // findDateFilterOption falls back to the default option for unknown ids;
   // the ?? covers the custom option's null duration, which callers never pass
