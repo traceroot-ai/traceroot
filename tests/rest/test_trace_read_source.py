@@ -15,7 +15,9 @@ def reader():
     # every assertion below would silently cover only half the read — the spans
     # query carries the same source predicate and must be checked too.
     ch.query.side_effect = [
-        MagicMock(result_rows=[("t1", "p1", "root") + (None,) * 8]),  # 11 cols: get_trace unpacks row[0..10]
+        MagicMock(
+            result_rows=[("t1", "p1", "root") + (None,) * 8]
+        ),  # 11 cols: get_trace unpacks row[0..10]
         MagicMock(result_rows=[]),
     ]
     svc = TraceReaderService.__new__(TraceReaderService)
