@@ -477,7 +477,12 @@ describe("createdWidgetsByDashboard", () => {
 
   it("groups created widgets by the dashboard they were added to", () => {
     const first = widgetStep({}, "tc1");
-    const second = widgetStep({}, "tc2");
+    const second = step({
+      toolName: "create_widget",
+      toolCallId: "tc2",
+      args: { title: "Errors by model" },
+      details: created("widget", "w2", { projectId: "p1", dashboardId: "db1" }),
+    });
     const other = step({
       toolName: "create_widget",
       toolCallId: "tc3",
@@ -507,5 +512,12 @@ describe("createdWidgetsByDashboard", () => {
     });
     const grouped = createdWidgetsByDashboard([entry("tc1", dashboard), entry("tc2", orphan)]);
     expect(grouped.size).toBe(0);
+  });
+
+  it("keeps only the first step of a replayed create (same widget id twice)", () => {
+    const first = widgetStep({}, "tc1");
+    const replay = widgetStep({}, "tc2");
+    const grouped = createdWidgetsByDashboard([entry("tc1", first), entry("tc2", replay)]);
+    expect(grouped.get("db1")).toEqual([first]);
   });
 });

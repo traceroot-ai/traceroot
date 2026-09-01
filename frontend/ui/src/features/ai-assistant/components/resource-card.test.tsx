@@ -75,14 +75,16 @@ describe("ResourceCard", () => {
     expect(screen.getByText("sum(total_tokens)")).toBeTruthy();
   });
 
-  it("previews the created widget's own chart under its chips", () => {
+  it("previews the created widget's own chart under its chips", async () => {
     render(
       <ResourceCard
         model={model({ body: { kind: "widget", chips: ["view spans"], chart: CHART } })}
       />,
     );
     expect(screen.getByText("view spans")).toBeTruthy();
-    expect(screen.getByTestId("preview").textContent).toBe("p1/w1/line");
+    // findBy: the preview module is loaded through next/dynamic, so the stub
+    // mounts a tick after the card renders.
+    expect((await screen.findByTestId("preview")).textContent).toBe("p1/w1/line");
   });
 
   it("shows no preview for a widget with no chart to draw", () => {
