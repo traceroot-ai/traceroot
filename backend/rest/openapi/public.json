@@ -3630,7 +3630,7 @@
           "enabled": true,
           "name": "create_dashboard",
           "policy": {
-            "approvalClass": "none",
+            "approvalClass": "confirm",
             "minRole": "MEMBER",
             "tenancy": "project"
           }
@@ -3894,7 +3894,7 @@
           "enabled": true,
           "name": "create_detector",
           "policy": {
-            "approvalClass": "none",
+            "approvalClass": "confirm",
             "minRole": "MEMBER",
             "tenancy": "project"
           }
@@ -5034,7 +5034,7 @@
           "enabled": true,
           "name": "create_project",
           "policy": {
-            "approvalClass": "none",
+            "approvalClass": "confirm",
             "minRole": "MEMBER",
             "tenancy": "workspace"
           }
@@ -6700,7 +6700,7 @@
           "enabled": true,
           "name": "create_widget",
           "policy": {
-            "approvalClass": "none",
+            "approvalClass": "confirm",
             "minRole": "MEMBER",
             "tenancy": "project"
           }
@@ -6877,7 +6877,7 @@
           "enabled": true,
           "name": "create_workspace",
           "policy": {
-            "approvalClass": "none",
+            "approvalClass": "confirm",
             "minRole": "VIEWER",
             "tenancy": "account"
           }

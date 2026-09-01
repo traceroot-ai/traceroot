@@ -547,6 +547,23 @@ def test_enabled_write_entry_illegal_approval_class_fails_build(monkeypatch):
         build_public_schema(app)
 
 
+@pytest.mark.parametrize("approval_class", ["none", "confirm", "approval"])
+def test_enabled_write_entry_accepts_every_legal_approval_class(monkeypatch, approval_class):
+    monkeypatch.setitem(
+        openapi_public._TOOL_CURATION,
+        "create_project",
+        {
+            "name": "create_project",
+            "description": "Create a project.",
+            "enabled": True,
+            "policy": {**_VALID_CREATE_POLICY, "approvalClass": approval_class},
+        },
+    )
+    schema = build_public_schema(app)
+    tool = schema["paths"]["/api/v1/public/projects"]["post"]["x-tool"]
+    assert tool["policy"]["approvalClass"] == approval_class
+
+
 def test_enabled_write_entry_extra_policy_key_fails_build(monkeypatch):
     monkeypatch.setitem(
         openapi_public._TOOL_CURATION,
@@ -628,27 +645,28 @@ def test_agent_hidden_params_must_be_nonempty_string_list(monkeypatch, bad_value
 
 # The five public creates, pinned to their exact write-tool policy. approvalClass
 # and minRole must match what the write service actually enforces; tenancy names
-# the scope the target resource lives in.
+# the scope the target resource lives in. Creates are "confirm": an attended
+# surface shows the proposal and waits for the user's yes.
 _CREATE_TOOL_POLICIES = {
     "create_workspace": (
         "/api/v1/public/workspaces",
-        {"approvalClass": "none", "minRole": "VIEWER", "tenancy": "account"},
+        {"approvalClass": "confirm", "minRole": "VIEWER", "tenancy": "account"},
     ),
     "create_project": (
         "/api/v1/public/projects",
-        {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "workspace"},
+        {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "workspace"},
     ),
     "create_detector": (
         "/api/v1/public/detectors",
-        {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+        {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
     ),
     "create_dashboard": (
         "/api/v1/public/dashboards",
-        {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+        {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
     ),
     "create_widget": (
         "/api/v1/public/widgets",
-        {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+        {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
     ),
 }
 

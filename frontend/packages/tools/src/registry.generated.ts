@@ -27,7 +27,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
     },
     bodyParams: ["description", "name", "project_id"],
     policy: {
-      approvalClass: "none",
+      approvalClass: "confirm",
       minRole: "MEMBER",
       tenancy: "project",
     },
@@ -100,7 +100,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
       "trigger_conditions",
     ],
     policy: {
-      approvalClass: "none",
+      approvalClass: "confirm",
       minRole: "MEMBER",
       tenancy: "project",
     },
@@ -130,7 +130,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
     bodyParams: ["name", "trace_ttl_days", "workspace_id"],
     agentHiddenParams: ["trace_ttl_days"],
     policy: {
-      approvalClass: "none",
+      approvalClass: "confirm",
       minRole: "MEMBER",
       tenancy: "workspace",
     },
@@ -456,7 +456,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
     },
     bodyParams: ["dashboard_id", "display_config", "project_id", "spec", "title", "type"],
     policy: {
-      approvalClass: "none",
+      approvalClass: "confirm",
       minRole: "MEMBER",
       tenancy: "project",
     },
@@ -479,7 +479,7 @@ export const REGISTRY: readonly RegistryEntry[] = [
     },
     bodyParams: ["name"],
     policy: {
-      approvalClass: "none",
+      approvalClass: "confirm",
       minRole: "VIEWER",
       tenancy: "account",
     },

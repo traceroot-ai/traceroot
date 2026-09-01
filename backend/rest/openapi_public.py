@@ -448,7 +448,7 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
             "returns it instead of duplicating."
         ),
         "enabled": True,
-        "policy": {"approvalClass": "none", "minRole": "VIEWER", "tenancy": "account"},
+        "policy": {"approvalClass": "confirm", "minRole": "VIEWER", "tenancy": "account"},
     },
     "create_project": {
         "name": "create_project",
@@ -457,7 +457,7 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
             "(idempotent on the project name within the workspace)."
         ),
         "enabled": True,
-        "policy": {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "workspace"},
+        "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "workspace"},
         # API/CLI-visible but hidden from the agent: no UI form exposes the
         # field, so the model shouldn't interrogate users about it.
         "agentHiddenParams": ["trace_ttl_days"],
@@ -475,7 +475,7 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
             "default."
         ),
         "enabled": True,
-        "policy": {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+        "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
     },
     "create_dashboard": {
         "name": "create_dashboard",
@@ -484,7 +484,7 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
             "within the project); add charts to it with create_widget."
         ),
         "enabled": True,
-        "policy": {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+        "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
     },
     "create_widget": {
         "name": "create_widget",
@@ -506,7 +506,7 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
             "is built on the spans view via model_name)."
         ),
         "enabled": True,
-        "policy": {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+        "policy": {"approvalClass": "confirm", "minRole": "MEMBER", "tenancy": "project"},
     },
     "list_workspaces": {
         "name": "list_workspaces",
@@ -533,8 +533,16 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
 # Legal values for each required write-tool policy key. Mirrors the registry
 # generator's validation exactly, so a policy mistake fails the schema build
 # here before the generated artifact can even drift.
+#
+# approvalClass semantics:
+#   "none"     — execute immediately.
+#   "confirm"  — an attended surface shows the proposal and waits for the
+#                user's yes; an unattended surface executes as if "none".
+#                A taste gate, not a security control.
+#   "approval" — reserved for destructive ops (future deletes); fail-closed
+#                everywhere today.
 _POLICY_VALUES: dict[str, tuple[str, ...]] = {
-    "approvalClass": ("none", "approval"),
+    "approvalClass": ("none", "confirm", "approval"),
     "minRole": ("VIEWER", "MEMBER", "ADMIN"),
     "tenancy": ("account", "workspace", "project"),
 }
