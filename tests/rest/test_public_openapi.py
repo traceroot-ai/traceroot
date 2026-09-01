@@ -267,12 +267,34 @@ def test_session_read_routes_document_error_responses():
     assert responses["404"]["description"] == "Session not found"
 
 
+def test_dashboard_read_routes_document_error_responses():
+    paths = _schema()["paths"]
+    assert set(paths["/api/v1/public/dashboards"]["get"]["responses"]) >= {"200", "401", "503"}
+    responses = paths["/api/v1/public/dashboards/{dashboard_id}"]["get"]["responses"]
+    assert set(responses) >= {"200", "401", "404", "503"}
+    assert responses["404"]["description"] == "Dashboard not found"
+
+
+def test_dashboard_read_tools_steer_name_resolution():
+    """Both dashboard read tools tell the model to resolve a dashboard by
+    listing and matching its name — never to guess an id."""
+    paths = _schema()["paths"]
+    list_tool = paths["/api/v1/public/dashboards"]["get"]["x-tool"]
+    get_tool = paths["/api/v1/public/dashboards/{dashboard_id}"]["get"]["x-tool"]
+    for tool in (list_tool, get_tool):
+        assert tool["enabled"]
+        assert "never guess" in tool["description"]
+    assert "match its name" in list_tool["description"]
+    assert "matching the name" in get_tool["description"]
+
+
 _METHODS = {"get", "post", "put", "patch", "delete"}
 
 EXPECTED_OPERATION_IDS = {
     "/api/v1/public/projects": {"get": "list_projects", "post": "create_project"},
     "/api/v1/public/workspaces": {"get": "list_workspaces", "post": "create_workspace"},
-    "/api/v1/public/dashboards": {"post": "create_dashboard"},
+    "/api/v1/public/dashboards": {"get": "list_dashboards", "post": "create_dashboard"},
+    "/api/v1/public/dashboards/{dashboard_id}": {"get": "get_dashboard"},
     "/api/v1/public/widgets": {"post": "create_widget"},
     "/api/v1/public/detectors": {"get": "list_detectors", "post": "create_detector"},
     "/api/v1/public/detectors/findings": {"get": "list_findings"},
@@ -355,6 +377,8 @@ def test_x_tool_enabled_set_and_shape():
         "list_findings",
         "get_finding",
         "get_finding_by_trace",
+        "list_dashboards",
+        "get_dashboard",
         "list_workspaces",
         "list_projects",
         "create_workspace",
@@ -381,6 +405,8 @@ _PROJECT_ID_READ_OPS = [
     "/api/v1/public/detectors/findings",
     "/api/v1/public/detectors/findings/{finding_id}",
     "/api/v1/public/detectors/traces/{trace_id}/finding",
+    "/api/v1/public/dashboards",
+    "/api/v1/public/dashboards/{dashboard_id}",
 ]
 
 

@@ -28,8 +28,10 @@ from rest.routers.dashboards import router as dashboards_router
 from rest.routers.detectors import router as detectors_router
 from rest.routers.internal import router as internal_router
 from rest.routers.live import router as live_router
+from rest.routers.project_dashboards import router as project_dashboards_router
 from rest.routers.public.account_read import router as public_account_read_router
 from rest.routers.public.account_write import router as public_account_write_router
+from rest.routers.public.dashboards_read import router as public_dashboards_read_router
 from rest.routers.public.detectors_read import router as public_detectors_read_router
 from rest.routers.public.eval import router as public_eval_router
 from rest.routers.public.project_write import router as public_project_write_router
@@ -106,6 +108,7 @@ app.include_router(traces_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
 app.include_router(sessions_router, prefix="/api/v1")
 app.include_router(dashboards_router, prefix="/api/v1")
+app.include_router(project_dashboards_router, prefix="/api/v1")
 app.include_router(detectors_router, prefix="/api/v1")
 
 # Live trace streaming (SSE, user auth)
@@ -119,6 +122,7 @@ app.include_router(public_whoami_router, prefix="/api/v1")
 app.include_router(public_traces_read_router, prefix="/api/v1")
 app.include_router(public_sessions_read_router, prefix="/api/v1")
 app.include_router(public_detectors_read_router, prefix="/api/v1")
+app.include_router(public_dashboards_read_router, prefix="/api/v1")
 
 # Public offline-eval API (dataset authoring + run reporting). Thin authenticated
 # proxy to the Next.js control-plane routes so the SDK stays single-host.
