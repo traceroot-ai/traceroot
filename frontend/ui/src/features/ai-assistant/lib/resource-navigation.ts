@@ -3,15 +3,23 @@
  * result (mirrors ResourceCreatedDetails in the agent service; the values
  * arrive as untyped JSON over the SSE stream, so everything is re-checked).
  */
-interface ResourceCreatedDetails {
+export interface ResourceCreatedDetails {
   kind: "resource_created";
   resourceType: string;
   resourceId: string;
   created: boolean;
   projectId?: string;
+  workspaceId?: string;
+  dashboardId?: string;
 }
 
-function resourceCreatedDetails(result: unknown): ResourceCreatedDetails | null {
+/**
+ * The `resource_created` details of a write-tool result, or null when the
+ * result is not one (or is malformed). Only `resourceType` and `resourceId`
+ * are type-checked here; the scoping ids are optional in the payload, so
+ * consumers that build on them re-check their types.
+ */
+export function resourceCreatedDetails(result: unknown): ResourceCreatedDetails | null {
   if (typeof result !== "object" || result === null) return null;
   const details = (result as { details?: unknown }).details;
   if (typeof details !== "object" || details === null) return null;
