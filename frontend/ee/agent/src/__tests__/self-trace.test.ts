@@ -3,11 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const initialize = vi.fn();
 const flush = vi.fn(async () => {});
 const observe = vi.fn(async (_opts: any, fn: any) => fn());
+const tracingActive = { value: true };
 vi.mock("@traceroot-ai/traceroot", () => ({
   TraceRoot: {
     initialize: (...a: unknown[]) => initialize(...a),
     flush: (...a: unknown[]) => flush(...a),
-    isTracingActive: () => true,
+    isTracingActive: () => tracingActive.value,
   },
   observe: (...a: unknown[]) => observe(...a),
   instrumentPiAgentCore: vi.fn(),
@@ -19,6 +20,7 @@ beforeEach(async () => {
   initialize.mockReset();
   flush.mockReset().mockResolvedValue(undefined);
   observe.mockClear();
+  tracingActive.value = true;
   process.env.INTERNAL_API_SECRET_AGENT = "s";
   process.env.AGENT_SELF_TRACE = "1";
   delete process.env.AGENT_SELF_TRACE_KINDS;
@@ -38,6 +40,29 @@ const meta = {
 };
 
 describe("withAgentTrace", () => {
+  it("latches off when the SDK initialized but tracing never became active", async () => {
+    // initialize() not throwing does not mean spans flow: the SDK no-ops when
+    // disabled, and declines to register when another provider owns the global.
+    // Acking `available` there would publish links to traces that don't exist.
+    tracingActive.value = false;
+    const r = await mod.withAgentTrace(meta, async () => 7);
+    expect(r).toEqual({ value: 7, trace: "disabled" });
+    expect(observe).not.toHaveBeenCalled();
+  });
+
+  it("runs the turn untraced when observe fails before reaching fn", async () => {
+    // Tracing failing must never fail the run — the whole point of the latch.
+    observe.mockRejectedValueOnce(new Error("forced-id validation failed"));
+    const r = await mod.withAgentTrace(meta, async () => 5);
+    expect(r).toEqual({ value: 5, trace: "failed" });
+  });
+
+  it("still propagates fn's own error", async () => {
+    // Once fn has entered, a rejection is the caller's failure, not tracing's.
+    const boom = new Error("agent blew up");
+    await expect(mod.withAgentTrace(meta, async () => { throw boom; })).rejects.toBe(boom);
+  });
+
   it("runs fn inside observe with the forced trace id and returns available after flush", async () => {
     const r = await mod.withAgentTrace(meta, async () => 42);
     expect(r).toEqual({ value: 42, trace: "available" });

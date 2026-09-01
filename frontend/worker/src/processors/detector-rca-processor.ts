@@ -11,6 +11,7 @@ import {
 import {
   allocateExecution,
   advanceLatest,
+  isLatestExecution,
   setExecutionTraceStatus,
 } from "@traceroot/core/rca-executions";
 import { fetchProviderConfig, resolvePiModel } from "@traceroot/core/model-resolver";
@@ -474,16 +475,30 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
     });
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    await prisma.detectorRca
+    // The execution's own row always records the failure — it is this attempt's
+    // history and nothing else writes it. The shared finding row is different:
+    // a slow older attempt finishing after a newer one succeeded would overwrite
+    // that success with its own failure. Only the attempt that is still latest
+    // may speak for the finding, which is the same rule advanceLatest applies
+    // on the success path.
+    await prisma.detectorRcaExecution
       .update({
-        where: { findingId },
-        data: {
-          status: "failed",
-          result: `RCA failed: ${message}`,
-          completedAt: new Date(),
-        },
+        where: { id: execution.executionId },
+        data: { result: `RCA failed: ${message}`, finishedAt: new Date() },
       })
       .catch(() => {}); // best-effort
+    if (await isLatestExecution(prisma, findingId, execution.executionId)) {
+      await prisma.detectorRca
+        .update({
+          where: { findingId },
+          data: {
+            status: "failed",
+            result: `RCA failed: ${message}`,
+            completedAt: new Date(),
+          },
+        })
+        .catch(() => {}); // best-effort
+    }
     await setExecutionTraceStatus(prisma, execution.executionId, "failed").catch(() => {});
 
     await scheduleDigestFlush();

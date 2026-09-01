@@ -23,11 +23,13 @@ const detectorRcaUpsert = vi.fn();
 const detectorRcaUpdate = vi.fn();
 const detectorRcaExecutionUpdate = vi.fn();
 const digestQueueAdd = vi.fn();
+const isLatestExecution = vi.fn().mockResolvedValue(true);
 
 vi.mock("@traceroot/core/rca-executions", () => ({
   allocateExecution: (...a: unknown[]) => allocateExecution(...a),
   advanceLatest: (...a: unknown[]) => advanceLatest(...a),
   setExecutionTraceStatus: (...a: unknown[]) => setExecutionTraceStatus(...a),
+  isLatestExecution: (...a: unknown[]) => isLatestExecution(...a),
 }));
 vi.mock("@traceroot/core", async (orig) => ({
   ...(await orig<any>()),
@@ -44,6 +46,7 @@ vi.mock("@traceroot/core", async (orig) => ({
   allocateExecution: (...a: unknown[]) => allocateExecution(...a),
   advanceLatest: (...a: unknown[]) => advanceLatest(...a),
   setExecutionTraceStatus: (...a: unknown[]) => setExecutionTraceStatus(...a),
+  isLatestExecution: (...a: unknown[]) => isLatestExecution(...a),
 }));
 
 // Real createRedisConnection() opens an ioredis connection — never call it.
@@ -176,5 +179,36 @@ describe("processRcaJob execution lifecycle", () => {
     ).rejects.toThrow(/agent down/);
 
     expect(setExecutionTraceStatus).toHaveBeenCalledWith(expect.anything(), "exec-1", "failed");
+  });
+
+  it("a superseded attempt records its own failure but leaves the finding alone", async () => {
+    // A slow older attempt can finish after a newer one already succeeded. Its
+    // failure belongs to its own execution row; writing it to the shared
+    // finding row would overwrite the newer attempt's result.
+    isLatestExecution.mockResolvedValueOnce(false);
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce(sseStream([{ event: "error", data: { message: "agent down" } }]));
+
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    await expect(
+      processRcaJob({
+        data: {
+          findingId: "f1",
+          projectId: "p1",
+          traceId: "t1",
+          workspaceId: "w1",
+          findings: [{ detectorId: "d1", detectorName: "det1", summary: "s" }],
+          findingTimestamp: 1,
+        },
+      } as any),
+    ).rejects.toThrow(/agent down/);
+
+    // Its own execution row still records the failure...
+    expect(detectorRcaExecutionUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "exec-1" } }),
+    );
+    // ...but the finding, owned by the newer attempt, is untouched.
+    expect(detectorRcaUpdate).not.toHaveBeenCalled();
   });
 });

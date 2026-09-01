@@ -14,6 +14,9 @@ const allocateExecutionMock = vi
 const advanceLatestMock = vi.fn().mockResolvedValue(true);
 const setExecutionTraceStatusMock = vi.fn().mockResolvedValue(undefined);
 const detectorRcaExecutionUpdateMock = vi.fn().mockResolvedValue({});
+// Default true: most tests have a single attempt, which is always the latest.
+// The concurrency test flips it to assert an older attempt keeps quiet.
+const isLatestExecutionMock = vi.fn().mockResolvedValue(true);
 
 vi.mock("@traceroot/core/model-resolver", async () => ({
   fetchProviderConfig: (...args: any[]) => fetchProviderConfigMock(...args),
@@ -29,6 +32,7 @@ vi.mock("@traceroot/core/rca-executions", () => ({
   allocateExecution: (...a: any[]) => allocateExecutionMock(...a),
   advanceLatest: (...a: any[]) => advanceLatestMock(...a),
   setExecutionTraceStatus: (...a: any[]) => setExecutionTraceStatusMock(...a),
+  isLatestExecution: (...a: any[]) => isLatestExecutionMock(...a),
 }));
 vi.mock("@traceroot/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@traceroot/core")>();
@@ -48,6 +52,7 @@ vi.mock("@traceroot/core", async (importOriginal) => {
     allocateExecution: (...a: any[]) => allocateExecutionMock(...a),
     advanceLatest: (...a: any[]) => advanceLatestMock(...a),
     setExecutionTraceStatus: (...a: any[]) => setExecutionTraceStatusMock(...a),
+  isLatestExecution: (...a: any[]) => isLatestExecutionMock(...a),
   };
 });
 
