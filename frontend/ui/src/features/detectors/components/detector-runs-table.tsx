@@ -126,11 +126,20 @@ export function DetectorRunsTable({
                   title={
                     run.execution_trace_status === "available"
                       ? `${findingId} — open the analysis trace`
-                      : run.execution_trace_status == null
-                        ? `${findingId} — no analysis trace (analysis ran before tracing was enabled)`
-                        : run.execution_trace_status === "pending"
-                          ? `${findingId} — analysis trace is being recorded`
-                          : `${findingId} — analysis trace unavailable`
+                      : run.execution_trace_status === "pending"
+                        ? `${findingId} — analysis trace is being recorded`
+                        : run.execution_trace_status != null
+                          ? `${findingId} — analysis trace unavailable`
+                          : // No execution trace status. Absent means different
+                            // things depending on whether an analysis ran at
+                            // all, and saying "before tracing was enabled" for
+                            // a finding that was never analysed is simply
+                            // wrong — rca_status is what distinguishes them.
+                            run.rca_status == null
+                            ? `${findingId} — not analyzed`
+                            : run.rca_status === "done"
+                              ? `${findingId} — no analysis trace (analysis ran before tracing was enabled)`
+                              : `${findingId} — analysis ${run.rca_status}; no trace`
                   }
                   onOpen={
                     run.execution_trace_status === "available"

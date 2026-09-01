@@ -580,12 +580,19 @@ export function MessageList({ messages, sessionStreaming = false, onOpenTrace }:
       <div ref={innerRef}>
         {messages.map((msg, index) => {
           if (msg.role === "tool_step" && msg.toolStep) {
-            // The step's own turn hasn't produced its trace-carrying assistant
-            // bubble yet until that bubble appears later in the list — its
-            // traceId is the one this tool step's span belongs to.
-            const turnTraceId = messages
-              .slice(index + 1)
-              .find((m) => m.role === "assistant")?.traceId;
+            // A tool step belongs to the turn that produced it, and that turn's
+            // trace id arrives on the assistant bubble later in the list. The
+            // search must stop at the next user message: a tool-only run
+            // produces no assistant bubble, and scanning past the turn boundary
+            // would attach this step to the *next* turn's trace — a different
+            // trace that does not contain this span.
+            const turnEnd = messages.findIndex((m, i) => i > index && m.role === "user");
+            const turn = messages.slice(index + 1, turnEnd === -1 ? undefined : turnEnd);
+            const turnAssistant = turn.find((m) => m.role === "assistant");
+            // Same gate as the turn's own "View trace" link: a pending or failed
+            // export has no trace to open.
+            const turnTraceId =
+              turnAssistant?.traceStatus === "available" ? turnAssistant.traceId : undefined;
             const onOpenSpan =
               onOpenTrace && turnTraceId
                 ? (spanId: string) => onOpenTrace(turnTraceId, spanId)

@@ -52,6 +52,14 @@ interface TraceViewerPanelProps {
   /** When true, the panel mounts already expanded to full width (e.g. opened in a new tab). */
   initialFullscreen?: boolean;
   /**
+   * Rendered inside another surface (the agent-trace sheet) rather than as the
+   * page's own overlay. Drops the fixed full-height positioning so the host
+   * controls the bounds, and hides the AI Assistant control: the assistant it
+   * would toggle lives outside this container, so the button either does
+   * nothing or opens a panel the user cannot see from here.
+   */
+  embedded?: boolean;
+  /**
    * Base path the "open in new tab" button targets, so the trace pops out back
    * into the page it was opened from. Defaults to the project traces page; the
    * detector page passes its own path so the popped-out trace stays in the
@@ -167,6 +175,7 @@ export function TraceViewerPanel({
   customEndDate,
   autoOpenRca,
   initialFullscreen,
+  embedded,
   newTabPath,
   traceOverride,
   hideDetectors,
@@ -378,16 +387,25 @@ export function TraceViewerPanel({
   return (
     <div
       className={cn(
-        "animate-slide-in-right fixed bottom-0 right-0 z-50 border-l border-border bg-background shadow-xl transition-[width,top] duration-200",
-        // Fullscreen stays clear of the chrome it would otherwise cover: it
-        // starts below the top breadcrumb/header bar (h-14) and to the right of
-        // the left navbar. Width = 100% minus the sidebar's width, which differs
-        // when the sidebar is collapsed.
-        isFullscreen
-          ? sidebarCollapsed
-            ? "top-14 w-[calc(100%-3.5rem)]"
-            : "top-14 w-[calc(100%-12rem)]"
-          : "top-0 w-[70%]",
+        // Embedded, the host (a drawer) owns the bounds: filling it is the whole
+        // job. Keeping the fixed 70%-viewport overlay here would ignore the
+        // drawer and paint over the page instead of inside it. The non-embedded
+        // branch is written out in full, in its original order, because the
+        // user-trace snapshot test compares this markup byte for byte.
+        embedded
+          ? "flex h-full w-full flex-col border-l border-border bg-background"
+          : cn(
+              "animate-slide-in-right fixed bottom-0 right-0 z-50 border-l border-border bg-background shadow-xl transition-[width,top] duration-200",
+              // Fullscreen stays clear of the chrome it would otherwise cover: it
+              // starts below the top breadcrumb/header bar (h-14) and to the right of
+              // the left navbar. Width = 100% minus the sidebar's width, which differs
+              // when the sidebar is collapsed.
+              isFullscreen
+                ? sidebarCollapsed
+                  ? "top-14 w-[calc(100%-3.5rem)]"
+                  : "top-14 w-[calc(100%-12rem)]"
+                : "top-0 w-[70%]",
+            ),
       )}
     >
       <div className="flex h-full flex-col bg-background">
@@ -531,7 +549,10 @@ export function TraceViewerPanel({
             <div className="w-2" />
             {/* AI Assistant sits immediately left of Close, separated by a gap
                 from the navigation/view controls, so the agent button stays the
-                rightmost action regardless of the other header controls. */}
+                rightmost action regardless of the other header controls. Hidden
+                when embedded — the assistant it toggles is outside this
+                container. */}
+            {!embedded && (
             <Button
               variant="outline"
               size="sm"
@@ -548,6 +569,7 @@ export function TraceViewerPanel({
             >
               <DOMAIN_ICONS.assistant className="h-4 w-4" />
             </Button>
+            )}
             <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0">
               <X className="h-4 w-4" />
             </Button>

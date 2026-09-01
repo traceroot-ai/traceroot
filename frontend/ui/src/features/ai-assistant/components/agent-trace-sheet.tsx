@@ -51,6 +51,7 @@ export function AgentTraceSheet({
               projectId={projectId}
               traceId={traceId}
               source="agent"
+              embedded
               onClose={onClose}
               onNavigate={() => {}}
               canNavigateUp={false}

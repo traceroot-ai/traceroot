@@ -8,13 +8,14 @@ import { useLayout, LayoutContext } from "@/components/layout/app-layout";
 // AgentTraceSheet's local LayoutContext.Provider actually intercepts that read
 // rather than asserting on TraceViewerPanel's (unrelated, heavy) internals.
 vi.mock("@/features/traces/components/TraceViewerPanel", () => ({
-  TraceViewerPanel: (props: { source?: string }) => {
+  TraceViewerPanel: (props: { source?: string; embedded?: boolean }) => {
     const layout = useLayout();
     layout.registerAiHost();
     return (
       <div
         data-testid="trace-panel"
         data-source={props.source}
+        data-embedded={String(!!props.embedded)}
         data-ai-panel-open={String(layout.aiPanelOpen)}
       />
     );
@@ -70,4 +71,12 @@ describe("AgentTraceSheet", () => {
     render(<AgentTraceSheet projectId="proj-1" traceId={null} onClose={vi.fn()} />);
     expect(screen.queryByTestId("trace-panel")).toBeNull();
   });
+});
+
+it("renders the viewer in embedded mode so it fills the sheet", () => {
+  // TraceViewerPanel is otherwise a fixed 70%-viewport overlay, which would
+  // ignore the drawer's bounds and paint over the page. Embedded also hides the
+  // AI Assistant control, whose panel lives outside this container.
+  render(<AgentTraceSheet projectId="p1" traceId={"a".repeat(32)} onClose={() => {}} />);
+  expect(screen.getByTestId("trace-panel").getAttribute("data-embedded")).toBe("true");
 });
