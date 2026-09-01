@@ -303,9 +303,15 @@ export function TraceViewerPanel({
 
   // Deep link: select `initialSpanId` once its trace has loaded. Applied once
   // per (trace, span) so a later manual selection isn't overridden by a
-  // re-render. When the span isn't in this trace the selection falls back to
-  // the trace itself rather than keeping whatever was selected before, so a
-  // stale id can't leave the sheet pointing at a span from another trace.
+  // re-render.
+  //
+  // "Not in the trace" and "not here yet" are different states and only the
+  // first is final. Spans arrive over SSE, so a trace can render before the
+  // deep-linked one has landed; marking the link applied on that first miss
+  // would make the later arrival a no-op and strand the viewer on the root.
+  // The key is therefore only committed once the span is found, and the
+  // fallback to the trace is what a *settled* miss resolves to — settled
+  // meaning the trace finished loading and the span still is not in it.
   //
   // This effect owns the selection whenever `initialSpanId` is set — see the
   // reset effect below, which must not clear what this one just applied.
@@ -314,9 +320,18 @@ export function TraceViewerPanel({
     if (!initialSpanId || !trace?.spans?.length) return;
     const key = `${trace.trace_id}:${initialSpanId}`;
     if (appliedInitialSpanRef.current === key) return;
-    appliedInitialSpanRef.current = key;
     const span = trace.spans.find((s) => s.span_id === initialSpanId);
-    setSelection(span ? { type: "span", span } : { type: "trace" });
+    if (span) {
+      appliedInitialSpanRef.current = key;
+      setSelection({ type: "span", span });
+      return;
+    }
+    // A miss is not final while spans are still arriving, so the key stays
+    // uncommitted and the effect re-runs on the next batch. What IS final is
+    // the selection falling back to the trace — a stale id must not leave a
+    // span from a previous trace selected while we wait for one that will
+    // never come.
+    setSelection({ type: "trace" });
   }, [initialSpanId, trace]);
   const isLoading = traceOverride ? false : isFetching;
 
