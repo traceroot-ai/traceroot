@@ -316,6 +316,9 @@ export function TraceViewerPanel({
   // This effect owns the selection whenever `initialSpanId` is set — see the
   // reset effect below, which must not clear what this one just applied.
   const appliedInitialSpanRef = useRef<string | null>(null);
+  /** Deep link whose fallback-to-trace has already been applied, so a retry does
+   *  not keep clobbering a selection the user made in the meantime. */
+  const fellBackForRef = useRef<string | null>(null);
   useEffect(() => {
     if (!initialSpanId || !trace?.spans?.length) return;
     const key = `${trace.trace_id}:${initialSpanId}`;
@@ -327,11 +330,15 @@ export function TraceViewerPanel({
       return;
     }
     // A miss is not final while spans are still arriving, so the key stays
-    // uncommitted and the effect re-runs on the next batch. What IS final is
-    // the selection falling back to the trace — a stale id must not leave a
-    // span from a previous trace selected while we wait for one that will
-    // never come.
-    setSelection({ type: "trace" });
+    // uncommitted and the effect re-runs on the next batch. The fallback still
+    // runs — a stale id must not leave a span from a previous trace selected —
+    // but only once per link: repeating it on every SSE batch would keep
+    // resetting a span the user picked by hand while waiting for one that never
+    // arrives.
+    if (fellBackForRef.current !== key) {
+      fellBackForRef.current = key;
+      setSelection({ type: "trace" });
+    }
   }, [initialSpanId, trace]);
   const isLoading = traceOverride ? false : isFetching;
 

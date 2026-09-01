@@ -185,3 +185,30 @@ it("selects the trace when nothing is deep-linked", async () => {
   await findByTestId("span-info");
   expect(selectedSpan(container)).toBe("none");
 });
+
+it("does not keep clearing a manual selection while waiting for a late span", async () => {
+  // Spans arrive over SSE. Applying the fallback on every batch would reset a
+  // span the user picked by hand, over and over, until the deep-linked one
+  // shows up — or forever, if it never does.
+  queryState.data = { ...trace, spans: [trace.spans[0]] };
+  const props = {
+    projectId: "p1",
+    traceId: trace.trace_id,
+    source: "agent" as const,
+    initialSpanId: "never-arrives",
+    onClose: vi.fn(),
+    onNavigate: vi.fn(),
+    canNavigateUp: false,
+    canNavigateDown: false,
+  };
+  const { container, rerender, findByTestId } = render(<TraceViewerPanel {...props} />);
+  await findByTestId("span-info");
+  expect(selectedSpan(container)).toBe("none");
+
+  // A later batch adds an unrelated span; the fallback must not fire again.
+  const before = container.querySelector("[data-testid=span-info]")?.outerHTML;
+  queryState.data = { ...trace };
+  rerender(<TraceViewerPanel {...props} />);
+  await findByTestId("span-info");
+  expect(container.querySelector("[data-testid=span-info]")?.outerHTML).toBe(before);
+});
