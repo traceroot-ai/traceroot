@@ -157,6 +157,28 @@ export function useAIStream(options?: UseAIStreamOptions) {
   );
 
   /**
+   * Append a locally-authored user bubble to a session's bucket without
+   * starting a run. Used when the user's message resolves a parked decision
+   * as a revision: the words reach the model through the declined tool result
+   * on the already-open turn, but they are still the user's message and
+   * belong in the transcript.
+   */
+  const appendUserMessage = useCallback(
+    (sessionId: string, content: string) => {
+      updateBucket(sessionId, (prev) => [
+        ...prev,
+        {
+          id: generateId(),
+          role: "user" as const,
+          content,
+          timestamp: new Date().toISOString(),
+        },
+      ]);
+    },
+    [updateBucket],
+  );
+
+  /**
    * Synchronous truth for "does this session have a live run?". Unlike the
    * streamingSessions state (which lags until the next render), runsRef is
    * registered before sendMessage's first await, so callers racing a send —
@@ -531,6 +553,7 @@ export function useAIStream(options?: UseAIStreamOptions) {
     isSessionStreaming,
     sendMessage,
     setSessionMessages,
+    appendUserMessage,
     resolvePendingDecision,
     abortSession,
     abortAll,

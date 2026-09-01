@@ -94,6 +94,7 @@ export function useAiChat({
     isSessionStreaming,
     sendMessage,
     setSessionMessages,
+    appendUserMessage,
     resolvePendingDecision,
     abortSession,
     abortAll,
@@ -103,6 +104,11 @@ export function useAiChat({
     onToolResult: handleToolResult,
     onTurnComplete: handleTurnComplete,
   });
+
+  // Ref mirror of the message buckets so handleSend can look for a parked
+  // decision without re-binding on every stream delta.
+  const messagesBySessionRef = useRef(messagesBySession);
+  messagesBySessionRef.current = messagesBySession;
 
   // Set so concurrent ensureSession calls don't cancel each other; handleClose
   // aborts all in-flight POST /sessions to prevent post-close resurrection.
@@ -229,11 +235,84 @@ export function useAiChat({
     return creation;
   }, [projectId, traceId, traceSessionId]);
 
+  /**
+   * The ACTIVE session's parked tool step, if any — synchronous, so the send
+   * path can tell "revision" from "normal message" without an await boundary
+   * that would let session/project switches interleave into a plain send.
+   * Background sessions' parked decisions are never picked up — only the
+   * session the user is looking at.
+   */
+  const findActiveParkedStep = useCallback(() => {
+    const sessionId = activeSessionIdRef.current;
+    if (!projectId || !sessionId) return null;
+    const step = (messagesBySessionRef.current[sessionId] ?? []).find(
+      (m) => m.role === "tool_step" && m.toolStep?.pending !== undefined,
+    )?.toolStep;
+    return step?.pending ? { sessionId, step, pending: step.pending } : null;
+  }, [projectId]);
+
+  /**
+   * Resolve a parked decision as a revision carrying the user's message.
+   * Returns true when the revision landed — the message's job is done: the
+   * declined tool result delivers the words to the model on the still-open
+   * turn, which re-proposes in place. Returns false when the decision is
+   * stale or undeliverable (expired, decided elsewhere, network failure),
+   * and the caller sends the message normally so the user's text is never
+   * lost.
+   */
+  const reviseParkedDecision = useCallback(
+    async (
+      target: NonNullable<ReturnType<typeof findActiveParkedStep>>,
+      text: string,
+    ): Promise<boolean> => {
+      const { sessionId, step, pending } = target;
+      const hardEpoch = hardBoundaryEpochRef.current;
+      try {
+        const res = await fetch(`/api/projects/${projectId}/ai/sessions/${sessionId}/decisions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            decisionId: pending.decisionId,
+            action: "revise",
+            text,
+          }),
+        });
+        if (!res.ok) return false;
+        // A hard boundary (close, project switch) crossed while the POST was
+        // in flight: the revision landed server-side, but the local buckets
+        // are gone — don't resurrect them with stray writes.
+        if (hardEpoch === hardBoundaryEpochRef.current) {
+          // The old proposal collapses to its declined line (the stream's
+          // errored tool result confirms it); the re-proposal arrives as a
+          // fresh pending card.
+          resolvePendingDecision(sessionId, step.toolCallId, "skip");
+          // The revision text is the user's message — show it as one. It is
+          // deliberately NOT posted to the messages route (the model already
+          // receives it via the declined tool result), and the decisions
+          // endpoint does not persist it, so a history reload omits this
+          // bubble. Accepted for now: the re-proposed call it produced is
+          // persisted, so the transcript stays coherent.
+          appendUserMessage(sessionId, text);
+        }
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [projectId, resolvePendingDecision, appendUserMessage],
+  );
+
   const handleSend = useCallback(
     async (message: string, modelSelection: ModelSelection) => {
       if (!projectId) return;
       setActiveSends((n) => n + 1);
       try {
+        // Revision by chat: while the active session has a write parked on a
+        // confirmation card, the typed message IS the decision — it revises
+        // the parked call instead of opening a new user turn. Falls through
+        // to a normal send when the decision went stale while typing.
+        const parked = findActiveParkedStep();
+        if (parked && (await reviseParkedDecision(parked, message))) return;
         const epoch = sessionEpochRef.current;
         const hardEpoch = hardBoundaryEpochRef.current;
         const sessionId = await ensureSession();
@@ -265,7 +344,15 @@ export function useAiChat({
         setActiveSends((n) => n - 1);
       }
     },
-    [projectId, traceId, traceSessionId, ensureSession, sendMessage],
+    [
+      projectId,
+      traceId,
+      traceSessionId,
+      ensureSession,
+      sendMessage,
+      findActiveParkedStep,
+      reviseParkedDecision,
+    ],
   );
 
   // Start a fresh chat. A still-running stream from the previous session keeps
@@ -407,6 +494,9 @@ export function useAiChat({
 
   const messages: AIMessage[] = activeSessionId ? (messagesBySession[activeSessionId] ?? []) : [];
   const activeStreaming = activeSessionId ? !!streamingSessions[activeSessionId] : false;
+  // True while the visible session has a write parked on a confirmation card
+  // — the input hints that a reply revises the proposal.
+  const hasPendingDecision = messages.some((m) => m.toolStep?.pending !== undefined);
 
   return {
     // State
@@ -416,6 +506,7 @@ export function useAiChat({
     historyOpen,
     currentSessionId: activeSessionId,
     modelSelection,
+    hasPendingDecision,
 
     // Setters
     setHistoryOpen,
