@@ -7,8 +7,12 @@ Environment variables are loaded from .env by entrypoints (rest/main.py,
 worker/celery_app.py) before this module is first imported.
 """
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Values shipped as defaults in .env.example / docker-compose.prod.yml. They are
+# public, so they are not secrets and must never be accepted as one.
+_PUBLISHED_INTERNAL_SECRETS = frozenset({"dev-internal-secret", "internal-secret", "changeme"})
 
 
 class ClickHouseSettings(BaseSettings):
@@ -173,6 +177,19 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("TRACEROOT_PUBLIC_UI_URL", "NEXT_PUBLIC_APP_URL"),
     )
     internal_api_secret: str = ""
+
+    @field_validator("internal_api_secret")
+    @classmethod
+    def _ignore_published_placeholder(cls, value: str) -> str:
+        """Treat a placeholder this repository published as if it were unset.
+
+        .env.example and docker-compose.prod.yml both shipped working defaults
+        for this value, so any deployment that never overrode them shared a
+        secret with every other deployment. Both call sites already fail closed
+        on an empty secret, so mapping the published strings to "" turns a
+        silently-trusted value into a visible misconfiguration.
+        """
+        return "" if value.strip().lower() in _PUBLISHED_INTERNAL_SECRETS else value
 
     # Live SSE: how long a completed root span must stay quiet before the
     # stream emits trace_complete. Must exceed the SDK's flush interval
