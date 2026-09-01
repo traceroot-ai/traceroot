@@ -87,6 +87,12 @@ describe("POST .../messages — disabled-tracing row parity", () => {
     });
 
     expect(res.status).toBe(200);
+    // streamSSE runs the handler as a fire-and-forget task and app.request
+    // resolves as soon as the handler returns, so finish() may not have been
+    // called yet. Draining the response body waits for the stream the callback
+    // writes — without it these assertions can pass on a callback that never
+    // ran, which is the opposite of what they exist to check.
+    await res.text();
     expect(finishSpy).toHaveBeenCalledTimes(1);
     // Second argument (the trace stamp) must be undefined, not an object with
     // status: "disabled" — passing a present-but-inert object would defeat
