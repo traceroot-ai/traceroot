@@ -63,10 +63,12 @@ export interface WidgetChart {
 }
 
 /**
- * What one tile of the dashboard miniature shows: the widget's name, a static
- * glyph for its shape, and its place on the real grid in grid units. Shapes,
- * not data — a dashboard card must never fan out into one query per tile, so
- * the glyph stands in for the chart the widget will draw.
+ * What one tile of the dashboard miniature shows: the widget's name, the glyph
+ * of its shape, its place on the real grid in grid units — and, when the
+ * widget carries a runnable query, the query itself, so the tile can render
+ * live data once the miniature scrolls into view. The glyph remains the tile's
+ * loading and failure face: a feed, an unparseable spec, or a failed query
+ * shows the shape rather than nothing.
  */
 export type MiniatureGlyph = DisplayType | "trace_feed" | "unknown";
 
@@ -74,6 +76,9 @@ export interface MiniatureTile {
   id: string;
   title: string;
   glyph: MiniatureGlyph;
+  /** The query behind the tile, or null when only the glyph can stand — a
+   *  trace feed, a spec the widget schema rejects, or an unknown project. */
+  chart: WidgetChart | null;
   x: number;
   y: number;
   w: number;
@@ -283,6 +288,10 @@ function dashboardTiles(steps: readonly ToolCallStep[]): MiniatureTile[] {
       id: details.resourceId,
       title: (args === null ? null : str(args.title)) ?? details.resourceId,
       glyph: tileGlyph(args),
+      // The same gate the widget card's own preview applies: a strict spec
+      // parse plus the project the write landed in — a feed's spec fails the
+      // parse, which is why a feed tile keeps its rows and never queries.
+      chart: args === null ? null : widgetChart(args, details),
       x,
       y,
       w,
@@ -352,6 +361,11 @@ export function resourceCardModel(
   if (resourceType === "dashboard") {
     const widgetCount = widgetsByDashboard?.get(details.resourceId)?.length ?? 0;
     if (widgetCount > 0) meta.push(widgetCount === 1 ? "1 widget" : `${widgetCount} widgets`);
+    // One window label for the whole miniature — the tiles share a single
+    // frozen range, so naming it per tile would be twelve copies of one fact.
+    if (cardBody.kind === "dashboard" && cardBody.tiles.some((tile) => tile.chart !== null)) {
+      meta.push(DEFAULT_RANGE_LABEL);
+    }
   }
   if (resourceType === "detector" && args !== null) {
     const template = str(args.template);
