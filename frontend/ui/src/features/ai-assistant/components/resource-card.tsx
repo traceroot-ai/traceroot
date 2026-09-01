@@ -99,9 +99,13 @@ export function ResourceCard({ model }: { model: ResourceCardModel }) {
         <span className="min-w-0 break-words text-xs font-medium text-foreground [overflow-wrap:anywhere]">
           {model.title}
         </span>
-        <Badge variant={model.created ? "success" : "default"} className="shrink-0">
-          {model.created ? "Created" : "Reused"}
-        </Badge>
+        {/* A fresh create needs no badge — the card itself is the receipt. A
+            reused row is the one surprising outcome, so only that gets labeled. */}
+        {!model.created && (
+          <Badge variant="default" className="shrink-0">
+            Reused
+          </Badge>
+        )}
       </div>
       <p className="break-words text-[11px] text-muted-foreground/70">{model.meta.join(" · ")}</p>
       {body}

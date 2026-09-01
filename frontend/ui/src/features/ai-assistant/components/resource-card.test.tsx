@@ -48,11 +48,11 @@ function model(overrides: Partial<ResourceCardModel> = {}): ResourceCardModel {
 }
 
 describe("ResourceCard", () => {
-  it("heads a created resource with its name, meta line and a created badge", () => {
+  it("heads a created resource with its name and meta line, and no badge", () => {
     render(<ResourceCard model={model()} />);
     expect(screen.getByText("Tokens by model")).toBeTruthy();
     expect(screen.getByText("Widget")).toBeTruthy();
-    expect(screen.getByText("Created")).toBeTruthy();
+    expect(screen.queryByText("Created")).toBeNull();
   });
 
   it("says a resource was reused rather than created", () => {
@@ -165,7 +165,7 @@ describe("ResourceCard", () => {
     );
     expect(screen.getByText("Latency overview")).toBeTruthy();
     expect(screen.queryByTestId("miniature")).toBeNull();
-    expect(container.textContent).toBe("Latency overviewCreatedDashboard");
+    expect(container.textContent).toBe("Latency overviewDashboard");
   });
 
   it("renders a body-less card when the arguments left nothing to show", () => {
@@ -174,7 +174,7 @@ describe("ResourceCard", () => {
         model={model({ title: "w1", body: { kind: "widget", chips: [], chart: null } })}
       />,
     );
-    expect(container.textContent).toBe("w1CreatedWidget");
+    expect(container.textContent).toBe("w1Widget");
     expect(container.textContent).not.toContain("[object Object]");
   });
 
