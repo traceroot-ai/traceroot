@@ -1,12 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const tx = {
-  workspace: { findFirst: vi.fn(), create: vi.fn() },
-  workspaceMember: { create: vi.fn() },
-  auditLog: { create: vi.fn().mockResolvedValue({}) },
-};
+// The transaction client and the root client carry separate auditLog mocks so
+// the tests can tell which one the audit row was written through.
+const { tx, root } = vi.hoisted(() => ({
+  tx: {
+    workspace: { findFirst: vi.fn(), create: vi.fn() },
+    workspaceMember: { create: vi.fn() },
+    auditLog: { create: vi.fn() },
+  },
+  root: { auditLog: { create: vi.fn() } },
+}));
 vi.mock("@traceroot/core", () => ({
-  prisma: { $transaction: (fn: (t: unknown) => unknown) => fn(tx) },
+  prisma: {
+    $transaction: (fn: (t: unknown) => unknown) => fn(tx),
+    auditLog: root.auditLog,
+  },
   Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
 }));
 import { createWorkspace } from "./workspaces";
@@ -17,6 +25,8 @@ beforeEach(() => {
   tx.workspaceMember.create.mockReset();
   tx.auditLog.create.mockReset();
   tx.auditLog.create.mockResolvedValue({});
+  root.auditLog.create.mockReset();
+  root.auditLog.create.mockResolvedValue({});
 });
 
 describe("createWorkspace", () => {
@@ -37,7 +47,26 @@ describe("createWorkspace", () => {
     expect(tx.workspaceMember.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ userId: "u1", role: "ADMIN" }),
     });
-    expect(tx.auditLog.create).toHaveBeenCalled();
+    expect(root.auditLog.create).toHaveBeenCalled();
+  });
+
+  it("audits through the root client, not the transaction, so a failed audit cannot roll the workspace back", async () => {
+    tx.workspace.findFirst.mockResolvedValue(null);
+    tx.workspace.create.mockResolvedValue({ id: "w1", name: "Acme" });
+    tx.workspaceMember.create.mockResolvedValue({});
+    root.auditLog.create.mockRejectedValue(new Error("audit store down"));
+    const r = await createWorkspace({
+      actorUserId: "u1",
+      name: "Acme",
+      provenance: { transport: "public-api" },
+    });
+    expect(r).toEqual({
+      ok: true,
+      created: true,
+      data: { id: "w1", name: "Acme", role: "ADMIN" },
+    });
+    expect(tx.auditLog.create).not.toHaveBeenCalled();
+    expect(root.auditLog.create).toHaveBeenCalled();
   });
 
   it("returns the existing workspace when the actor already admins one by that name, created=false", async () => {
