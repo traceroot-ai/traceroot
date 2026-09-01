@@ -19,7 +19,18 @@
 import { DETECTOR_TEMPLATES } from "@/features/detectors/templates";
 import { triggerFieldDef, triggerOpLabel } from "@/features/detectors/trigger-fields";
 import { DEFAULT_RANGE_LABEL } from "@/features/dashboards/range-presets";
-import { parseSpec, type WidgetSpec } from "@/features/dashboards/types";
+import {
+  DISPLAY_TYPES,
+  isWidgetType,
+  parseSpec,
+  type DisplayType,
+  type WidgetSpec,
+  type WidgetType,
+} from "@/features/dashboards/types";
+import {
+  appendWidgetPlacement,
+  type WidgetPlacement,
+} from "@/features/dashboards/widget-placement";
 import { resourceCreatedDetails, type ResourceCreatedDetails } from "./resource-navigation";
 import type { AIMessage, ToolCallStep } from "../types";
 
@@ -52,13 +63,31 @@ export interface WidgetChart {
 }
 
 /**
- * The card body for each resource type. The dashboard body is deliberately
- * empty: its name and widget count sit in the header, and the scaled-down grid
- * that fills it is a separate change.
+ * What one tile of the dashboard miniature shows: the widget's name, a static
+ * glyph for its shape, and its place on the real grid in grid units. Shapes,
+ * not data — a dashboard card must never fan out into one query per tile, so
+ * the glyph stands in for the chart the widget will draw.
+ */
+export type MiniatureGlyph = DisplayType | "trace_feed" | "unknown";
+
+export interface MiniatureTile {
+  id: string;
+  title: string;
+  glyph: MiniatureGlyph;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * The card body for each resource type. A dashboard's body is the miniature
+ * of itself: its widgets as placed tiles (empty when the transcript created
+ * none, and the card stays header-only).
  */
 export type ResourceCardBody =
   | { kind: "widget"; chips: string[]; chart: WidgetChart | null }
-  | { kind: "dashboard" }
+  | { kind: "dashboard"; tiles: MiniatureTile[] }
   | { kind: "receipt"; rows: ReceiptRow[] }
   | { kind: "detector"; chips: string[] };
 
@@ -214,6 +243,55 @@ function receiptRows(details: ResourceCreatedDetails): ReceiptRow[] {
   return rows;
 }
 
+/**
+ * The glyph a miniature tile draws for one created widget. A trace feed is
+ * list rows; a chart widget is the shape of its display type, read loosely —
+ * the glyph needs only `spec.display.type`, so a spec the full schema would
+ * reject can still show its shape. Anything unreadable is a neutral tile.
+ */
+function tileGlyph(args: Record<string, unknown> | null): MiniatureGlyph {
+  if (args === null) return "unknown";
+  if (str(args.type) === "trace_feed") return "trace_feed";
+  const display = plainObject(plainObject(args.spec)?.display);
+  const displayType = display === null ? null : str(display.type);
+  return (DISPLAY_TYPES as readonly string[]).includes(displayType ?? "")
+    ? (displayType as DisplayType)
+    : "unknown";
+}
+
+/**
+ * A dashboard's widgets as miniature tiles, placed by folding each creation
+ * (in transcript order) through the same placement function the widget create
+ * route uses — so the miniature and the real grid cannot disagree. An
+ * unreadable type falls back to a chart tile, the smaller of the two sizes;
+ * a replayed create (same widget id twice) keeps its first tile.
+ */
+function dashboardTiles(steps: readonly ToolCallStep[]): MiniatureTile[] {
+  let layout: WidgetPlacement[] = [];
+  const tiles: MiniatureTile[] = [];
+  for (const step of steps) {
+    const details = resourceCreatedDetails(step.result);
+    if (details === null) continue;
+    const args = plainObject(step.args);
+    const rawType = args?.type;
+    const type: WidgetType = isWidgetType(rawType) ? rawType : "query";
+    const next = appendWidgetPlacement(layout, { id: details.resourceId, type });
+    if (next === null) continue;
+    layout = next;
+    const { x, y, w, h } = layout[layout.length - 1];
+    tiles.push({
+      id: details.resourceId,
+      title: (args === null ? null : str(args.title)) ?? details.resourceId,
+      glyph: tileGlyph(args),
+      x,
+      y,
+      w,
+      h,
+    });
+  }
+  return tiles;
+}
+
 /** "failure" -> "Failure" when it names a standard template; the raw id otherwise. */
 function templateLabel(template: string): string {
   return DETECTOR_TEMPLATES.find((t) => t.id === template)?.label ?? template;
@@ -223,13 +301,14 @@ function body(
   resourceType: CardResourceType,
   args: Record<string, unknown> | null,
   details: ResourceCreatedDetails,
+  widgetSteps: readonly ToolCallStep[],
 ): ResourceCardBody {
   switch (resourceType) {
     case "widget":
       if (args === null) return { kind: "widget", chips: [], chart: null };
       return { kind: "widget", chips: widgetChips(args), chart: widgetChart(args, details) };
     case "dashboard":
-      return { kind: "dashboard" };
+      return { kind: "dashboard", tiles: dashboardTiles(widgetSteps) };
     case "detector":
       return { kind: "detector", chips: args === null ? [] : detectorChips(args) };
     default:
@@ -243,8 +322,8 @@ function body(
  * returned no details, or a resource type this panel has no body for. The
  * caller renders the plain tool step for every null.
  *
- * `widgetsByDashboard` supplies the widgets created into each dashboard so a
- * dashboard card can say how many it holds; see createdWidgetsByDashboard.
+ * `widgetsByDashboard` supplies the widgets created into each dashboard, for
+ * the card's count and its miniature; see createdWidgetsByDashboard.
  */
 export function resourceCardModel(
   step: ToolCallStep,
@@ -260,7 +339,12 @@ export function resourceCardModel(
   const displayName =
     args === null ? null : (str(args.title, MAX_TITLE_CHARS) ?? str(args.name, MAX_TITLE_CHARS));
 
-  const cardBody = body(resourceType, args, details);
+  const cardBody = body(
+    resourceType,
+    args,
+    details,
+    widgetsByDashboard?.get(details.resourceId) ?? [],
+  );
 
   const meta: string[] = [RESOURCE_TYPE_LABELS[resourceType]];
   // A chart is a number without context until the window it covers is named.

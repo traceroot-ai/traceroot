@@ -5,12 +5,12 @@
 // narrow column forever. Creating a widget therefore also writes it a real
 // placement.
 
+import { COLS } from "./grid-constants";
 import type { WidgetType } from "./types";
 
 export type WidgetPlacement = { i: string; x: number; y: number; w: number; h: number };
 
-// Mirrors DashboardGrid's 12-column grid: tiles are half-width, two per row.
-const COLS = 12;
+// On the grid's twelve columns, tiles are half-width: two per row.
 const SLOT_W = COLS / 2;
 const SLOT_X = [0, SLOT_W];
 
