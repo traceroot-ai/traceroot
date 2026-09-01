@@ -67,7 +67,11 @@ describe("committed registry", () => {
     const create = REGISTRY.find((entry) => entry.name === "create_alert")!;
     expect(create.method).toBe("post");
     expect(create.path).toBe("/api/v1/public/alerts");
-    expect(create.policy).toEqual({ approvalClass: "none", minRole: "MEMBER", tenancy: "project" });
+    expect(create.policy).toEqual({
+      approvalClass: "confirm",
+      minRole: "MEMBER",
+      tenancy: "project",
+    });
     expect(create.bodyParams).toEqual([
       "aggregation",
       "filters",

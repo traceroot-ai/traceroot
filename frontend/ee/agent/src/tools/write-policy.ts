@@ -7,14 +7,19 @@ type PolicyCarrier = Pick<RegistryEntry, "name" | "policy">;
 export const APPROVAL_REQUIRED_REASON =
   "This operation requires human approval, which is not yet available in this chat. It was not performed.";
 
+export const CONFIRMATION_UNAVAILABLE_REASON =
+  "This operation asks the user to confirm before it runs, and this surface has not wired up that confirmation flow yet. It was not performed.";
+
 /**
  * Build a beforeToolCall hook enforcing the registry's write policies.
  *
  * Fail-closed: only tools whose registry entry carries `approvalClass:
- * "none"` may execute; any other approval class is blocked until an approval
- * flow exists in this surface. Tools without a policy entry (read tools,
- * sandbox tools, github tools — anything not a registry write) proceed
- * untouched. The hook never throws.
+ * "none"` may execute. `"confirm"` writes are meant to proceed once the user
+ * confirms the proposal, but this surface has no confirmation flow yet, so
+ * they are blocked with a reason that says so; any other approval class
+ * (including unknown future ones) is blocked as requiring approval. Tools
+ * without a policy entry (read tools, sandbox tools, github tools — anything
+ * not a registry write) proceed untouched. The hook never throws.
  */
 export function createWritePolicyHook(
   entries: readonly PolicyCarrier[] = REGISTRY,
@@ -30,6 +35,9 @@ export function createWritePolicyHook(
     const policy = policies.get(context.toolCall.name);
     if (policy === undefined || policy.approvalClass === "none") {
       return undefined;
+    }
+    if (policy.approvalClass === "confirm") {
+      return { block: true, reason: CONFIRMATION_UNAVAILABLE_REASON };
     }
     return { block: true, reason: APPROVAL_REQUIRED_REASON };
   };
