@@ -20,7 +20,16 @@ export type ToolMethod = "get" | "post";
 
 /** Guardrails a write tool carries; surfaces enforce them before dispatching. */
 export interface ToolPolicy {
-  approvalClass: "none" | "approval";
+  /**
+   * approvalClass semantics:
+   * - "none"     — execute immediately.
+   * - "confirm"  — an attended surface shows the proposal and waits for the
+   *   user's yes; an unattended surface executes as if "none". A taste gate,
+   *   not a security control.
+   * - "approval" — reserved for destructive ops (future deletes); fail-closed
+   *   everywhere today.
+   */
+  approvalClass: "none" | "confirm" | "approval";
   /** Minimum workspace role; "VIEWER" means no role floor (account-tenancy ops have no membership to gate). */
   minRole: "VIEWER" | "MEMBER" | "ADMIN";
   tenancy: "account" | "workspace" | "project";

@@ -494,6 +494,18 @@ describe("generateRegistry write operations", () => {
     "Enabled write tool on POST /api/v1/public/workspaces: " +
     "x-tool policy {approvalClass, minRole, tenancy} is required and must be complete";
 
+  it("accepts every legal approval class verbatim", () => {
+    for (const approvalClass of ["none", "confirm", "approval"] as const) {
+      const doc = fakeWriteDoc();
+      doc.paths["/api/v1/public/workspaces"].post!["x-tool"]!.policy = {
+        approvalClass,
+        minRole: "VIEWER",
+        tenancy: "account",
+      };
+      expect(generateRegistry(doc)[0]!.policy!.approvalClass).toBe(approvalClass);
+    }
+  });
+
   it("throws on an enabled POST without a policy", () => {
     const doc = fakeWriteDoc();
     delete doc.paths["/api/v1/public/workspaces"].post!["x-tool"]!.policy;
