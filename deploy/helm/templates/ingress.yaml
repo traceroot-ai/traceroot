@@ -6,6 +6,16 @@ metadata:
   labels:
     {{- include "traceroot.labels" . | nindent 4 }}
   annotations:
+    {{- if .Values.ingress.blockInternalRoutes }}
+    # Service-to-service routes are reached in-cluster via BACKEND_INTERNAL_URL
+    # (http://<release>-rest:8000), never through this load balancer, so they do
+    # not need to be routable from outside. Answer 404 rather than 403 so the
+    # response says nothing about what is mounted there.
+    alb.ingress.kubernetes.io/actions.block-internal: >-
+      {"type":"fixed-response","fixedResponseConfig":
+      {"contentType":"application/json","statusCode":"404",
+      "messageBody":"{\"detail\":\"Not Found\"}"}}
+    {{- end }}
     {{- range $key, $value := .Values.ingress.annotations }}
     {{ $key }}: {{ $value | quote }}
     {{- end }}
@@ -17,6 +27,19 @@ spec:
       {{- end }}
       http:
         paths:
+          {{- if .Values.ingress.blockInternalRoutes }}
+          # Listed before /api/v1 so the longer prefix wins. The service name
+          # must match the actions.* annotation suffix and the port name must be
+          # use-annotation -- that pairing is how the AWS Load Balancer
+          # Controller substitutes the fixed response for a real backend.
+          - path: {{ .Values.ingress.internalRoutePrefix }}
+            pathType: Prefix
+            backend:
+              service:
+                name: block-internal
+                port:
+                  name: use-annotation
+          {{- end }}
           - path: /api/v1
             pathType: Prefix
             backend:
