@@ -74,12 +74,28 @@ export function turnTraceId(sessionId: string, messageId: string): string {
 
 // Per-run scope: the tool-span ids Task 10's onToolSpan reports, keyed by toolCallId,
 // so the StreamPersister can stamp spanId on tool_step rows.
-const runScope = new AsyncLocalStorage<{ toolSpanIds: Map<string, string> }>();
+const runScope = new AsyncLocalStorage<{
+  toolSpanIds: Map<string, string>;
+  /** Capture budget for the spans this run emits — see currentCaptureState. */
+  captureState: { spentBytes: number };
+}>();
 export function currentToolSpanIds(): Map<string, string> | undefined {
   return runScope.getStore()?.toolSpanIds;
 }
 export function recordToolSpan(info: { toolCallId: string; spanId: string }): void {
   runScope.getStore()?.toolSpanIds.set(info.toolCallId, info.spanId);
+}
+
+/**
+ * The run's capture-budget accumulator, for the instrumentation's per-tool
+ * callback. The callback is invoked once per tool call, so allocating a fresh
+ * accumulator there would reset the per-run budget on every call and leave only
+ * the per-step cap in force — spans would keep capturing long after the
+ * persisted tool_step rows had stopped. Outside a run (a customer using the SDK
+ * standalone) there is no budget to share; the caller allocates its own.
+ */
+export function currentCaptureState(): { spentBytes: number } | undefined {
+  return runScope.getStore()?.captureState;
 }
 
 let initialized = false;
@@ -99,6 +115,17 @@ function initOnce(): boolean {
       baseUrl: process.env.BACKEND_INTERNAL_URL || "http://localhost:8000",
       internalExport: { path: "/api/v1/internal/traces", headers: { "X-Internal-Secret": secret } },
     });
+    // initialize() not throwing is not the same as tracing being on: the SDK
+    // no-ops when it is disabled, and it declines to register when another OTel
+    // provider already owns the global. Either way no span reaches the internal
+    // route — and without this check every run would still ack `available`,
+    // publishing links to traces that do not exist. Same guard the worker's
+    // emitter applies.
+    if (!TraceRoot.isTracingActive()) {
+      latchedOff = true;
+      console.warn("[AgentTrace] SDK initialized but tracing is not active; self-trace disabled");
+      return false;
+    }
     initialized = true;
     return true;
   } catch (err) {
@@ -136,7 +163,15 @@ export async function withAgentTrace<T>(
   // arguments and returns nothing useful, while the meaningful boundary is the
   // user message in and the assistant's final text out. Same attribute names
   // the worker's self-trace emitter uses for its root.
+  // Whether fn() got to run inside observe(). If observe rejects before that —
+  // forced-id validation, span setup, a provider that declined to register —
+  // the turn must still happen, untraced. If it rejects after, the error is
+  // fn's own and belongs to the caller. Without this distinction a tracing
+  // failure would abort the agent run, which is the one thing self-tracing
+  // must never do.
+  let entered = false;
   const traced = async (): Promise<T> => {
+    entered = true;
     const root = trace.getActiveSpan();
     const input = boundedText(meta.input);
     if (root && input !== undefined) root.setAttribute("traceroot.span.input", input);
@@ -149,20 +184,27 @@ export async function withAgentTrace<T>(
     }
     return value;
   };
-  const value: T = await runScope.run({ toolSpanIds: new Map() }, () =>
-    observe(
-      {
-        name: meta.name,
-        type: "agent",
-        traceId: meta.traceId,
-        projectId: meta.projectId,
-        metadata: { kind: meta.kind, ...meta.metadata },
-        captureInput: false,
-        captureOutput: false,
-      },
-      traced,
-    ),
-  );
+  let value: T;
+  try {
+    value = await runScope.run({ toolSpanIds: new Map(), captureState: { spentBytes: 0 } }, () =>
+      observe(
+        {
+          name: meta.name,
+          type: "agent",
+          traceId: meta.traceId,
+          projectId: meta.projectId,
+          metadata: { kind: meta.kind, ...meta.metadata },
+          captureInput: false,
+          captureOutput: false,
+        },
+        traced,
+      ),
+    );
+  } catch (err) {
+    if (entered) throw err; // fn's own failure — the caller's to handle
+    console.error("[AgentTrace] observe failed before the run; running untraced:", err);
+    return { value: await fn(), trace: "failed" };
+  }
   try {
     await withTimeout(TraceRoot.flush(), FLUSH_TIMEOUT_MS);
     return { value, trace: "available" };

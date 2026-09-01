@@ -18,7 +18,7 @@ import {
   type ProviderModelConfig,
 } from "@traceroot/core/model-resolver";
 import { SessionManager } from "./session.js";
-import { recordToolSpan } from "./self-trace.js";
+import { recordToolSpan, currentCaptureState } from "./self-trace.js";
 
 // Process-global, idempotent: patches Agent.prototype once. Spans only land inside an
 // active withAgentTrace() context; outside one the instrumentation opens roots that
@@ -26,7 +26,13 @@ import { recordToolSpan } from "./self-trace.js";
 instrumentPiAgentCore(piAgentCore, {
   captureContent: true,
   captureToolIo: (toolName, args, result) => {
-    const c = applyCapturePolicy({ toolName, args, result }, { spentBytes: 0 });
+    // Share the run's budget so spans and persisted step rows stop capturing
+    // together; a fresh accumulator here would reset the per-run cap on every
+    // tool call. Undefined outside a run (SDK used standalone).
+    const c = applyCapturePolicy(
+      { toolName, args, result },
+      currentCaptureState() ?? { spentBytes: 0 },
+    );
     return {
       args: c.args,
       result: c.result ?? `[withheld: ${c.withheld ?? "policy"}; ${c.outputBytes} bytes]`,

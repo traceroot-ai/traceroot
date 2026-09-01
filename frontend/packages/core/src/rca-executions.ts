@@ -79,3 +79,25 @@ export async function finishFindingIfLatest(
     return count === 1;
   });
 }
+
+/**
+ * Whether `executionId` is still the finding's latest execution.
+ *
+ * A finding row is shared by every attempt, so only the current one may write
+ * its status — otherwise a slow older attempt finishing last overwrites a newer
+ * attempt's result. The success path enforces this through advanceLatest's
+ * compare-and-set; failure paths, which write the finding directly, ask here.
+ */
+export async function isLatestExecution(
+  db: Db,
+  findingId: string,
+  executionId: string,
+): Promise<boolean> {
+  const current = await db.detectorRca.findUnique({
+    where: { findingId },
+    select: { latestExecutionId: true },
+  });
+  // No pointer yet means nothing newer has claimed the finding: this attempt,
+  // the only one to have finished, speaks for it.
+  return current?.latestExecutionId == null || current.latestExecutionId === executionId;
+}
