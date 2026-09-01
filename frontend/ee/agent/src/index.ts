@@ -9,6 +9,7 @@ import {
   listSessions,
   deleteSession,
   updateSessionTitle,
+  executionBelongsToProject,
   type TurnAttribution,
 } from "./session.js";
 import { getOrCreateAgent, runAgent, removeAgent, invalidateProviderCache } from "./agent.js";
@@ -54,6 +55,16 @@ app.post("/api/v1/projects/:projectId/sessions", async (c) => {
   const userId = c.req.header("x-user-id") || undefined;
   const workspaceId = c.req.header("x-workspace-id") || "";
   const body = await c.req.json<{ title?: string; executionId?: string }>();
+
+  // Every message in this session inherits the session's executionId as its
+  // attribution, so an id from another project would attribute this project's
+  // turns to that one. The caller is trusted to reach the route, not to name
+  // an execution: confirm it exists under this project before storing it. A
+  // malformed id is rejected here rather than surfacing later as an FK error
+  // on the session's first message.
+  if (body.executionId && !(await executionBelongsToProject(prisma, body.executionId, projectId))) {
+    return c.json({ error: "executionId does not belong to this project" }, 400);
+  }
 
   const session = await createSession({
     projectId,

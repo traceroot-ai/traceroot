@@ -247,3 +247,25 @@ export async function updateSessionTitle(id: string, title: string) {
     data: { title },
   });
 }
+
+/**
+ * Whether `executionId` names an execution in this project.
+ *
+ * A session's executionId becomes the attribution on every message in it, so an
+ * id from another project would attribute this project's turns to that one.
+ * The caller is trusted to reach the route, not to name an execution.
+ */
+export async function executionBelongsToProject(
+  // Structural, so a test can pass a stub. Deliberately loose on the argument
+  // and return types: Prisma's generated signature is far more specific than
+  // this call needs, and naming it here would couple the guard to the client.
+  db: { detectorRcaExecution: { findFirst: (args: never) => Promise<unknown> } },
+  executionId: string,
+  projectId: string,
+): Promise<boolean> {
+  const found = await db.detectorRcaExecution.findFirst({
+    where: { id: executionId, projectId },
+    select: { id: true },
+  } as never);
+  return found != null;
+}
