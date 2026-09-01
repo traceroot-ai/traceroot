@@ -15,10 +15,10 @@ const widgetFindFirstMock = vi.fn();
 const widgetCreateMock = vi.fn();
 const widgetUpdateMock = vi.fn();
 const widgetDeleteMock = vi.fn();
+const queryRawMock = vi.fn();
 
-vi.mock("@traceroot/core", () => ({
-  Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
-  prisma: {
+vi.mock("@traceroot/core", () => {
+  const client = {
     dashboard: {
       findFirst: (...args: unknown[]) => dashboardFindFirstMock(...args),
       count: (...args: unknown[]) => dashboardCountMock(...args),
@@ -31,8 +31,13 @@ vi.mock("@traceroot/core", () => ({
       update: (...args: unknown[]) => widgetUpdateMock(...args),
       delete: (...args: unknown[]) => widgetDeleteMock(...args),
     },
-  },
-}));
+    // Widget creation locks the dashboard row and rewrites its layout in one
+    // transaction; the mock runs the callback on this same client.
+    $queryRaw: (...args: unknown[]) => queryRawMock(...args),
+    $transaction: (fn: (tx: unknown) => unknown) => fn(client),
+  };
+  return { Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" }, prisma: client };
+});
 
 const requireAuthMock = vi.fn();
 const requireProjectAccessMock = vi.fn();
@@ -99,6 +104,8 @@ beforeEach(() => {
   widgetCreateMock.mockReset();
   widgetUpdateMock.mockReset();
   widgetDeleteMock.mockReset();
+  queryRawMock.mockReset();
+  queryRawMock.mockResolvedValue([{ layout: [] }]);
   requireAuthMock.mockReset();
   requireProjectAccessMock.mockReset();
   // Default: authenticated with project access.
@@ -531,6 +538,8 @@ describe("mutation hardening", () => {
   it("gates mutations on MEMBER role but leaves GET viewer-accessible", async () => {
     dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
     dashboardUpdateMock.mockResolvedValue(fakeDashboard);
+    // The widget POST places the created row in the layout, so it needs one.
+    widgetCreateMock.mockResolvedValue(fakeWidget);
 
     await GET(makeRequest(), makeParams());
     expect(requireProjectAccessMock).toHaveBeenLastCalledWith("user-1", "proj-1", undefined);

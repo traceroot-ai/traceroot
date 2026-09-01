@@ -9,7 +9,7 @@ import {
 } from "@/features/dashboards/types";
 import { parseTraceFeedSpec } from "@/features/dashboards/trace-feed-spec";
 import { validateWidgetSpecVocabulary } from "@/features/dashboards/widget-spec-vocabulary";
-import { appendWidgetPlacement } from "@/features/dashboards/widget-placement";
+import { createWidgetWithPlacement } from "@/lib/dashboard-layout";
 import { writeAudit, type AuditEntry } from "./audit";
 import type { Provenance, ServiceResult } from "./types";
 
@@ -193,7 +193,7 @@ export async function createWidget(input: {
     // instead of leaking a cross-project write.
     const dashboard = await tx.dashboard.findFirst({
       where: { id: input.dashboardId, projectId: input.projectId },
-      select: { id: true, layout: true },
+      select: { id: true },
     });
     if (!dashboard) {
       return { result: { ok: false, status: 404, error: "Dashboard not found" } };
@@ -249,27 +249,24 @@ export async function createWidget(input: {
     const displayConfig = (parsed.data.displayConfig as Record<string, unknown> | undefined) ?? {};
 
     // Widgets have no natural key (duplicate titles are legitimate), so this
-    // is a strict create — every call adds a widget.
-    const widget = await tx.widget.create({
-      data: {
-        dashboardId: input.dashboardId,
-        title,
-        type,
-        spec: spec as object,
-        displayConfig: displayConfig as object,
-      },
-      select: { id: true, dashboardId: true, title: true, type: true },
-    });
-    // Same transaction as the widget row: a widget that exists without a
-    // placement renders through the grid's unpersisted fallback, i.e. as a
-    // narrow left-edge stack. Callers pass no layout — placement is ours.
-    const nextLayout = appendWidgetPlacement(dashboard.layout, { id: widget.id, type });
-    if (nextLayout) {
-      await tx.dashboard.update({
-        where: { id: input.dashboardId },
-        data: { layout: nextLayout },
-      });
-    }
+    // is a strict create — every call adds a widget. Callers pass no layout:
+    // a widget with no placement renders through the grid's unpersisted
+    // fallback, as a narrow stack down the left edge, so placement is ours.
+    const widget = await createWidgetWithPlacement(
+      tx,
+      { dashboardId: input.dashboardId, type },
+      () =>
+        tx.widget.create({
+          data: {
+            dashboardId: input.dashboardId,
+            title,
+            type,
+            spec: spec as object,
+            displayConfig: displayConfig as object,
+          },
+          select: { id: true, dashboardId: true, title: true, type: true },
+        }),
+    );
     return {
       result: { ok: true, created: true, data: widget },
       audit: {
