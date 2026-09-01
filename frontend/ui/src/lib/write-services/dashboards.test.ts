@@ -3,6 +3,7 @@ import {
   DASHBOARD_DESCRIPTION_MAX,
   DASHBOARD_NAME_MAX,
   WIDGET_TITLE_MAX,
+  WIDGET_TYPES,
 } from "@/features/dashboards/types";
 
 const tx = {
@@ -295,7 +296,7 @@ describe("createWidget", () => {
     expect(r).toEqual({ ok: false, status: 400, error: titleMessage });
   });
 
-  it("rejects an unknown type with 400", async () => {
+  it("rejects an unknown type with 400, naming every supported type", async () => {
     mockAccess();
     mockDashboard();
     const r = await runWidget({ type: "chart" });
@@ -304,6 +305,11 @@ describe("createWidget", () => {
       status: 400,
       error: 'type must be "query" or "trace_feed"',
     });
+    // The wording is the API's error contract, but the types in it come from
+    // the shared list — a new kind can't leave this message stale.
+    expect((r as { error: string }).error).toBe(
+      `type must be ${WIDGET_TYPES.map((t) => `"${t}"`).join(" or ")}`,
+    );
   });
 
   it.each([null, ["a"], "text"])("rejects spec=%j with 400", async (spec) => {

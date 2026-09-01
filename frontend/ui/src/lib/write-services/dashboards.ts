@@ -5,6 +5,7 @@ import {
   DASHBOARD_DESCRIPTION_MAX,
   DASHBOARD_NAME_MAX,
   WIDGET_TITLE_MAX,
+  WIDGET_TYPE_MESSAGE,
   WIDGET_TYPES,
   WidgetSpecSchema,
   type WidgetType,
@@ -61,9 +62,7 @@ const dashboardSchema = z.object({
 
 const widgetSchema = z.object({
   title: boundedName("title", WIDGET_TITLE_MAX),
-  // Values from the shared list; the wording stays hand-written because it is
-  // part of the public API's error contract.
-  type: z.enum(WIDGET_TYPES, 'type must be "query" or "trace_feed"'),
+  type: z.enum(WIDGET_TYPES, WIDGET_TYPE_MESSAGE),
   spec: jsonObject("spec must be a JSON object", true),
   displayConfig: jsonObject("displayConfig must be a JSON object", false),
 });
