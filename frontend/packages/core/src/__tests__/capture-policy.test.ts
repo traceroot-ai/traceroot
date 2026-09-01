@@ -116,9 +116,7 @@ describe("applyCapturePolicy", () => {
     const out = applyCapturePolicy(
       {
         toolName: "download_traces",
-        args: Object.fromEntries(
-          Array.from({ length: 5 }, (_, i) => [`f${i}`, "x".repeat(5_000)]),
-        ),
+        args: Object.fromEntries(Array.from({ length: 5 }, (_, i) => [`f${i}`, "x".repeat(5_000)])),
         result: "y".repeat(5_000),
       },
       state,

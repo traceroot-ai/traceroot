@@ -31,8 +31,10 @@ const PATTERNS: Array<[RegExp, string | ((...args: never[]) => string)]> = [
   // or a printed environment.
   // The name is either the bare word or ends with `_word`, so `monkey=` and
   // `token_count=` stay readable while `api_key=` and `DB_PASSWORD=` do not.
-  [/\b([A-Za-z0-9]+(?:_[A-Za-z0-9]+)*_)?(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?)\s*=\s*[^\s'"]+/gi,
-   (_m: string, prefix: string | undefined, word: string) => `${prefix ?? ""}${word}=[REDACTED]`],
+  [
+    /\b([A-Za-z0-9]+(?:_[A-Za-z0-9]+)*_)?(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?)\s*=\s*[^\s'"]+/gi,
+    (_m: string, prefix: string | undefined, word: string) => `${prefix ?? ""}${word}=[REDACTED]`,
+  ],
 ];
 
 export function redactSecrets(text: string): string {
@@ -109,10 +111,7 @@ export function applyCapturePolicy(
   }
   // Never spend past the run budget: the last step gets what is left, not a
   // full step on top of an almost-exhausted budget.
-  const { text, truncated } = truncateTo(
-    redactSecrets(raw),
-    Math.min(step.remaining, remaining),
-  );
+  const { text, truncated } = truncateTo(redactSecrets(raw), Math.min(step.remaining, remaining));
   state.spentBytes += Buffer.byteLength(text, "utf8");
   return { args, result: text, outputBytes, truncated, withheld: null };
 }
@@ -144,7 +143,9 @@ function capArgs(
     }
     if (Array.isArray(value)) return value.map(cap);
     if (value && typeof value === "object") {
-      return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, cap(v)]));
+      return Object.fromEntries(
+        Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, cap(v)]),
+      );
     }
     return value;
   };
