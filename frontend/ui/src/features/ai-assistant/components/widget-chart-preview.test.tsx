@@ -4,8 +4,15 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { cloneElement, isValidElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as api from "@/features/dashboards/api";
+import { ROW_HEIGHT } from "@/features/dashboards/grid-constants";
 import type { WidgetSpec } from "@/features/dashboards/types";
+import { DEFAULT_SIZE } from "@/features/dashboards/widget-placement";
+import { REFERENCE_COL_WIDTH } from "./dashboard-miniature";
 import { WidgetChartPreview } from "./widget-chart-preview";
+
+// The frame's shape, derived the way the dashboard miniature derives a tile's:
+// a freshly placed chart widget's grid size at the reference proportions.
+const TILE_ASPECT = `${DEFAULT_SIZE.query.w * REFERENCE_COL_WIDTH} / ${DEFAULT_SIZE.query.h * ROW_HEIGHT}`;
 
 vi.mock("@/lib/auth-client", () => ({
   useSession: () => ({ data: { user: { id: "u1", email: "u@example.com" } }, isPending: false }),
@@ -147,5 +154,46 @@ describe("WidgetChartPreview", () => {
     scrollIntoView();
 
     await waitFor(() => expect(screen.getByText("Loading…")).toBeTruthy());
+  });
+
+  it("frames the preview at a dashboard chart tile's own aspect ratio", () => {
+    vi.mocked(api.runWidgetQuery).mockResolvedValue({ columns: ["value"], rows: [[7]], meta: {} });
+    const { container } = renderPreview();
+    const frame = container.firstElementChild as HTMLElement;
+    expect(frame.style.aspectRatio).toBe(TILE_ASPECT);
+    expect(frame.className).not.toContain("h-36");
+  });
+
+  it("keeps the loading state inside the same aspect frame", async () => {
+    vi.mocked(api.runWidgetQuery).mockReturnValue(new Promise(() => {}));
+    const { container } = renderPreview();
+    scrollIntoView();
+
+    await waitFor(() => expect(screen.getByText("Loading…")).toBeTruthy());
+    const frame = container.firstElementChild as HTMLElement;
+    expect(frame.style.aspectRatio).toBe(TILE_ASPECT);
+    expect(frame.contains(screen.getByText("Loading…"))).toBe(true);
+  });
+
+  it("keeps the empty state inside the same aspect frame", async () => {
+    vi.mocked(api.runWidgetQuery).mockResolvedValue({ columns: ["value"], rows: [], meta: {} });
+    const { container } = renderPreview();
+    scrollIntoView();
+
+    await waitFor(() => expect(screen.getByText("No data in range")).toBeTruthy());
+    const frame = container.firstElementChild as HTMLElement;
+    expect(frame.style.aspectRatio).toBe(TILE_ASPECT);
+    expect(frame.contains(screen.getByText("No data in range"))).toBe(true);
+  });
+
+  it("keeps the error state inside the same aspect frame", async () => {
+    vi.mocked(api.runWidgetQuery).mockRejectedValue(new Error("clickhouse exploded"));
+    const { container } = renderPreview();
+    scrollIntoView();
+
+    await waitFor(() => expect(screen.getByText(/couldn't load/i)).toBeTruthy(), { timeout: 5000 });
+    const frame = container.firstElementChild as HTMLElement;
+    expect(frame.style.aspectRatio).toBe(TILE_ASPECT);
+    expect(frame.contains(screen.getByText(/couldn't load/i))).toBe(true);
   });
 });

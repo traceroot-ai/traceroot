@@ -1,6 +1,7 @@
 "use client";
 
 import { COLS, ROW_HEIGHT } from "@/features/dashboards/grid-constants";
+import { DEFAULT_SIZE } from "@/features/dashboards/widget-placement";
 import type { MiniatureGlyph, MiniatureTile } from "../lib/resource-card";
 
 /**
@@ -20,6 +21,16 @@ import type { MiniatureGlyph, MiniatureTile } from "../lib/resource-card";
  * constants.
  */
 export const REFERENCE_COL_WIDTH = 88;
+
+/**
+ * The shape of one freshly placed chart tile at the reference proportions —
+ * the frame the widget card's chart preview draws in, so the preview reads as
+ * a dashboard tile that happens to live in the chat. Derived from the same
+ * constants as the miniature, never hardcoded, so a grid change moves both.
+ * Shared from here (not the preview module) because the preview loads through
+ * next/dynamic and importing it statically would drag recharts along.
+ */
+export const CHART_TILE_ASPECT = `${DEFAULT_SIZE.query.w * REFERENCE_COL_WIDTH} / ${DEFAULT_SIZE.query.h * ROW_HEIGHT}`;
 
 /**
  * The frame: a css grid with the dashboard's column count, one track per grid

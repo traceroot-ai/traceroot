@@ -16,6 +16,7 @@ import { useWidgetData } from "@/features/dashboards/hooks/use-widget-data";
 import { DEFAULT_RANGE_ID, makeRange } from "@/features/dashboards/range-presets";
 import type { WidgetSpec } from "@/features/dashboards/types";
 import { FIELD_UNIT } from "@/features/filters/filter-controls";
+import { CHART_TILE_ASPECT } from "./dashboard-miniature";
 
 interface WidgetChartPreviewProps {
   projectId: string;
@@ -81,12 +82,18 @@ export function WidgetChartPreview(props: WidgetChartPreviewProps) {
     return () => observer.disconnect();
   }, [seen]);
 
-  // A fixed height, because the renderer sizes itself to its parent — on a
-  // dashboard that parent is the tile; here it is this frame. Tall enough to
-  // read a shape in the app's narrowest column, and reserved before the plot
-  // arrives so the transcript doesn't jump as previews fill in.
+  // The renderer sizes itself to its parent — on a dashboard that parent is
+  // the tile; here it is this frame, held at a fresh chart tile's own aspect
+  // ratio so the preview scales with the panel instead of squashing into a
+  // strip. The ratio (not a height) is reserved before the plot arrives so
+  // the transcript doesn't jump as previews fill in, and overflow-hidden
+  // keeps the loading/empty/error states from ever stretching the frame.
   return (
-    <div ref={frameRef} className="h-36 min-w-0">
+    <div
+      ref={frameRef}
+      className="min-w-0 overflow-hidden"
+      style={{ aspectRatio: CHART_TILE_ASPECT }}
+    >
       {seen && <Plot {...props} />}
     </div>
   );

@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { appendWidgetPlacement } from "@/features/dashboards/widget-placement";
 import { DISPLAY_TYPES } from "@/features/dashboards/types";
-import { createdWidgetsByDashboard, resourceCardModel } from "./resource-card";
+import {
+  createdWidgetsByDashboard,
+  resourceCardModel,
+  suppressedWidgetStepIds,
+} from "./resource-card";
 import type { MiniatureTile } from "./resource-card";
 import type { AIMessage, ToolCallStep } from "../types";
 
@@ -519,5 +523,72 @@ describe("createdWidgetsByDashboard", () => {
     const replay = widgetStep({}, "tc2");
     const grouped = createdWidgetsByDashboard([entry("tc1", first), entry("tc2", replay)]);
     expect(grouped.get("db1")).toEqual([first]);
+  });
+});
+
+describe("suppressedWidgetStepIds", () => {
+  function entry(id: string, toolStep: ToolCallStep | undefined, role = "tool_step"): AIMessage {
+    return {
+      id,
+      role: role as AIMessage["role"],
+      content: "",
+      timestamp: "2026-01-02T03:04:05.000Z",
+      toolStep,
+    };
+  }
+
+  const dashboardStep = (resourceId = "db1") =>
+    step({
+      toolName: "create_dashboard",
+      args: { name: "Latency overview" },
+      details: created("dashboard", resourceId),
+    });
+
+  it("suppresses a widget whose dashboard has its own card earlier in the transcript", () => {
+    const suppressed = suppressedWidgetStepIds([
+      entry("tc0", dashboardStep()),
+      entry("tc1", widgetStep({}, "tc1")),
+    ]);
+    expect(suppressed).toEqual(new Set(["tc1"]));
+  });
+
+  it("suppresses every replay of a create the miniature already draws", () => {
+    const suppressed = suppressedWidgetStepIds([
+      entry("tc0", dashboardStep()),
+      entry("tc1", widgetStep({}, "tc1")),
+      entry("tc2", widgetStep({}, "tc2")),
+    ]);
+    expect(suppressed).toEqual(new Set(["tc1", "tc2"]));
+  });
+
+  it("keeps a widget added to a dashboard with no card in the transcript", () => {
+    const suppressed = suppressedWidgetStepIds([
+      entry("tc0", dashboardStep("db-other")),
+      entry("tc1", widgetStep({}, "tc1")),
+    ]);
+    expect(suppressed.size).toBe(0);
+  });
+
+  it("keeps a widget whose step precedes its dashboard's card", () => {
+    const suppressed = suppressedWidgetStepIds([
+      entry("tc1", widgetStep({}, "tc1")),
+      entry("tc0", dashboardStep()),
+    ]);
+    expect(suppressed.size).toBe(0);
+  });
+
+  it("never suppresses non-widget steps or widgets with no dashboard id", () => {
+    const orphan = step({
+      toolName: "create_widget",
+      toolCallId: "tc2",
+      args: { title: "Orphan" },
+      details: created("widget", "w9"),
+    });
+    const suppressed = suppressedWidgetStepIds([
+      entry("tc0", dashboardStep()),
+      entry("tc2", orphan),
+      entry("u1", undefined, "user"),
+    ]);
+    expect(suppressed.size).toBe(0);
   });
 });
