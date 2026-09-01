@@ -34,7 +34,7 @@ export async function createProject(input: {
       error: "traceTtlDays must be an integer between 1 and 365",
     };
   }
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const member = await tx.workspaceMember.findUnique({
       where: {
         workspaceId_userId: {
@@ -77,17 +77,6 @@ export async function createProject(input: {
         traceTtlDays,
       },
     });
-    await writeAudit(tx, {
-      actorUserId: input.actorUserId,
-      operation: "create_project",
-      resourceType: "project",
-      resourceId: project.id,
-      workspaceId: input.workspaceId,
-      projectId: project.id,
-      summary: { name },
-      transport: input.provenance.transport,
-      agentSessionId: input.provenance.agentSessionId ?? null,
-    });
     return {
       ok: true as const,
       created: true,
@@ -98,4 +87,19 @@ export async function createProject(input: {
       },
     };
   });
+
+  if (result.ok && result.created) {
+    await writeAudit(prisma, {
+      actorUserId: input.actorUserId,
+      operation: "create_project",
+      resourceType: "project",
+      resourceId: result.data.id,
+      workspaceId: input.workspaceId,
+      projectId: result.data.id,
+      summary: { name },
+      transport: input.provenance.transport,
+      agentSessionId: input.provenance.agentSessionId ?? null,
+    });
+  }
+  return result;
 }
