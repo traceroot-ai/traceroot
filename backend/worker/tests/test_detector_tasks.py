@@ -5,11 +5,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from worker.detector_tasks import (
+    DETECTOR_TARGET_SOURCE_SQL,
+    DETECTOR_TARGET_SOURCES,
     _eval_condition,
     _get_trace_summaries,
     _passes_trigger,
-    DETECTOR_TARGET_SOURCES,
-    DETECTOR_TARGET_SOURCE_SQL,
     is_detector_target_source,
 )
 
@@ -201,5 +201,5 @@ def test_trace_summaries_query_scopes_to_user_source():
     # has one definition: widening DETECTOR_TARGET_SOURCES changes the predicate
     # and this assertion together, and cannot change one without the other.
     assert f"AND {DETECTOR_TARGET_SOURCE_SQL}" in sql
-    assert DETECTOR_TARGET_SOURCES == frozenset({"user"}), "judge must target customer traffic only"
+    assert frozenset({"user"}) == DETECTOR_TARGET_SOURCES, "judge must target customer traffic only"
     assert "!= 'detector'" not in sql
