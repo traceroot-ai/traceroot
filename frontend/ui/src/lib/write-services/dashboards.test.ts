@@ -482,6 +482,26 @@ describe("createWidget", () => {
       error:
         /^unknown filter field "errors" for view "traces" — valid filter fields: .*error_count/,
     },
+    {
+      spec: {
+        view: "spans",
+        metric: { measure: "count", agg: "count" },
+        breakdown: "model_name",
+        display: { type: "number" },
+      },
+      error:
+        /^display "number" does not support a breakdown dimension — displays that support a breakdown: line, area, bar, pie, table$/,
+    },
+    {
+      spec: {
+        view: "spans",
+        metric: { measure: "duration_ms", agg: "p95" },
+        breakdown: "model_name",
+        display: { type: "histogram" },
+      },
+      error:
+        /^display "histogram" does not support a breakdown dimension — displays that support a breakdown: line, area, bar, pie, table$/,
+    },
   ])(
     "rejects an out-of-vocabulary query spec with 400 and the valid options ($error)",
     async ({ spec, error }) => {

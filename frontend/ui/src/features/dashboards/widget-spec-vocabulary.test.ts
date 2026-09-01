@@ -13,6 +13,7 @@ const TRACES_FILTER_FIELDS =
   "cache_read_tokens, cache_write_tokens, cost, duration_ms, environment, error_count, input_tokens, name, output_tokens, session_id, total_tokens, user_id";
 const SPANS_HISTOGRAMMABLES =
   "cache_read_tokens, cache_write_tokens, cost, duration_ms, input_tokens, output_tokens, total_tokens";
+const BREAKDOWN_DISPLAYS = "displays that support a breakdown: line, area, bar, pie, table";
 
 function spec(overrides: Record<string, unknown>): WidgetSpec {
   const parsed = WidgetSpecSchema.safeParse({
@@ -125,6 +126,48 @@ describe("validateWidgetSpecVocabulary", () => {
   it("accepts a number value on a string field, as the compiler does", () => {
     expect(
       validateWidgetSpecVocabulary(spec({ filters: [{ field: "name", op: "=", value: 5 }] })),
+    ).toEqual({ ok: true });
+  });
+
+  it("rejects a breakdown on the displays that cannot express one", () => {
+    expect(error(spec({ breakdown: "model_name", display: { type: "number" } }))).toBe(
+      `display "number" does not support a breakdown dimension — ${BREAKDOWN_DISPLAYS}`,
+    );
+    expect(
+      error(
+        spec({
+          metric: { measure: "duration_ms", agg: "p95" },
+          breakdown: "model_name",
+          display: { type: "histogram" },
+        }),
+      ),
+    ).toBe(`display "histogram" does not support a breakdown dimension — ${BREAKDOWN_DISPLAYS}`);
+  });
+
+  it("reports the display before the breakdown vocabulary, as the compiler does", () => {
+    // The compiler rejects the display/breakdown pairing before it ever
+    // resolves the breakdown field, so an unknown name is beside the point.
+    expect(error(spec({ breakdown: "model", display: { type: "number" } }))).toBe(
+      `display "number" does not support a breakdown dimension — ${BREAKDOWN_DISPLAYS}`,
+    );
+  });
+
+  it("accepts a breakdown on every display the compiler groups by", () => {
+    for (const type of ["line", "area", "bar", "pie", "table"] as const) {
+      expect(
+        validateWidgetSpecVocabulary(spec({ breakdown: "model_name", display: { type } })),
+      ).toEqual({ ok: true });
+    }
+  });
+
+  it("accepts number and histogram displays without a breakdown", () => {
+    expect(validateWidgetSpecVocabulary(spec({ display: { type: "number" } }))).toEqual({
+      ok: true,
+    });
+    expect(
+      validateWidgetSpecVocabulary(
+        spec({ metric: { measure: "duration_ms", agg: "p95" }, display: { type: "histogram" } }),
+      ),
     ).toEqual({ ok: true });
   });
 
