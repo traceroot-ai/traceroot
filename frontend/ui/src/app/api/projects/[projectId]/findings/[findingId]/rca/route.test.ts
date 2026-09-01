@@ -43,6 +43,31 @@ describe("GET /findings/:id/rca", () => {
       expect.objectContaining({ include: { latestExecution: true } }),
     );
   });
+  it("does not fall back to the legacy session when the latest execution has none", async () => {
+    // A re-run opens a new session; if that run has no chat yet, the answer is
+    // "no session", not the previous attempt's. Falling back would open the
+    // wrong run's conversation.
+    findFirst.mockResolvedValue({
+      id: "r1",
+      findingId: "f1",
+      sessionId: "session-from-attempt-1",
+      status: "running",
+      result: null,
+      completedAt: null,
+      createTime: new Date(0),
+      latestExecution: {
+        sessionId: null,
+        traceId: "t2",
+        traceStatus: "pending",
+        attempt: 2,
+      },
+    });
+    const res = await GET(new Request("http://x") as any, {
+      params: Promise.resolve({ projectId: "p1", findingId: "f1" }),
+    });
+    expect((await res.json()).rca).toMatchObject({ sessionId: null, attempt: 2 });
+  });
+
   it("is null-safe for legacy rows without an execution", async () => {
     findFirst.mockResolvedValue({
       id: "r1",
