@@ -55,10 +55,14 @@ describe("resourceCardModel", () => {
       resourceId: "w1",
       created: true,
       title: "Tokens by model",
-      meta: ["Widget"],
+      meta: ["Widget", "Last 24 hours"],
       body: {
         kind: "widget",
         chips: ["view spans", "sum(total_tokens)", "by model_name", "bar"],
+        chart: {
+          projectId: "p1",
+          spec: { ...WIDGET_SPEC, filters: [] },
+        },
       },
     });
   });
@@ -67,14 +71,56 @@ describe("resourceCardModel", () => {
     const model = resourceCardModel(
       widgetStep({ title: "Recent traces", type: "trace_feed", spec: { filters: [], limit: 10 } }),
     );
-    expect(model?.body).toEqual({ kind: "widget", chips: ["trace feed", "10 rows"] });
+    expect(model?.body).toEqual({
+      kind: "widget",
+      chips: ["trace feed", "10 rows"],
+      chart: null,
+    });
+    expect(model?.meta).toEqual(["Widget"]);
   });
 
   it("keeps the chips a partial widget spec supports and drops the rest", () => {
     const model = resourceCardModel(
       widgetStep({ spec: { view: "traces", display: { type: "number" } } }),
     );
-    expect(model?.body).toEqual({ kind: "widget", chips: ["view traces", "number"] });
+    expect(model?.body).toEqual({
+      kind: "widget",
+      chips: ["view traces", "number"],
+      chart: null,
+    });
+  });
+
+  it("charts a widget whose spec leaves out the fields the schema defaults", () => {
+    const model = resourceCardModel(
+      widgetStep({
+        spec: { view: "spans", metric: { measure: "cost", agg: "sum" }, display: { type: "line" } },
+      }),
+    );
+    expect(model?.body).toEqual({
+      kind: "widget",
+      chips: ["view spans", "sum(cost)", "line"],
+      chart: {
+        projectId: "p1",
+        spec: {
+          view: "spans",
+          filters: [],
+          metric: { measure: "cost", agg: "sum" },
+          breakdown: null,
+          display: { type: "line" },
+        },
+      },
+    });
+  });
+
+  it("gives a widget no chart when nothing says which project to query", () => {
+    const noProject = step({
+      toolName: "create_widget",
+      args: { title: "Tokens by model", type: "query", spec: WIDGET_SPEC },
+      details: created("widget", "w1", { dashboardId: "db1" }),
+    });
+    const model = resourceCardModel(noProject);
+    expect((model?.body as { chart: unknown }).chart).toBeNull();
+    expect(model?.meta).toEqual(["Widget"]);
   });
 
   it("builds a dashboard card counting the widgets created into it", () => {
@@ -267,7 +313,7 @@ describe("resourceCardModel", () => {
       created: true,
       title: "w1",
       meta: ["Widget"],
-      body: { kind: "widget", chips: [] },
+      body: { kind: "widget", chips: [], chart: null },
     });
     expect(JSON.stringify(model)).not.toContain("[object Object]");
   });

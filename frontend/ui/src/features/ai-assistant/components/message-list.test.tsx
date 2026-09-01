@@ -1,10 +1,45 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, render, screen } from "@testing-library/react";
+import * as api from "@/features/dashboards/api";
 import { MessageList } from "./message-list";
 import type { AIMessage, ToolCallStep } from "../types";
 
-afterEach(cleanup);
+vi.mock("@/lib/auth-client", () => ({
+  useSession: () => ({ data: { user: { id: "u1", email: "u@example.com" } }, isPending: false }),
+}));
+vi.mock("@/features/dashboards/api");
+
+// jsdom has no IntersectionObserver, so a widget card's chart preview stays
+// unqueried until a test scrolls it into view.
+const observers: (() => void)[] = [];
+const intersect = () => act(() => observers.forEach((fire) => fire()));
+
+beforeEach(() => {
+  observers.length = 0;
+  vi.stubGlobal(
+    "IntersectionObserver",
+    class {
+      constructor(private cb: IntersectionObserverCallback) {}
+      observe(element: Element) {
+        observers.push(() =>
+          this.cb(
+            [{ isIntersecting: true, target: element } as IntersectionObserverEntry],
+            this as unknown as IntersectionObserver,
+          ),
+        );
+      }
+      disconnect() {}
+      unobserve() {}
+    },
+  );
+});
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 function toolEntry(step: ToolCallStep): AIMessage {
   return {
@@ -105,6 +140,34 @@ describe("MessageList tool entries", () => {
     const running: ToolCallStep = { ...createWidgetStep(undefined), status: "running" };
     render(<MessageList messages={[toolEntry(running)]} />);
     expect(screen.getByText("(create_widget)")).toBeTruthy();
+  });
+
+  it("keeps rendering the transcript when a card's chart query fails", async () => {
+    vi.mocked(api.runWidgetQuery).mockRejectedValue(new Error("clickhouse exploded"));
+    const chartable = createWidgetStep(WIDGET_DETAILS);
+    chartable.args.spec = {
+      view: "spans",
+      metric: { measure: "total_tokens", agg: "sum" },
+      display: { type: "number" },
+    };
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <MessageList
+          messages={[
+            toolEntry(chartable),
+            { id: "a1", role: "assistant", content: "done", timestamp: "2026-01-02T03:04:06Z" },
+          ]}
+        />
+      </QueryClientProvider>,
+    );
+    intersect();
+
+    // The dashboard's query hook retries once, so the message lands a
+    // retry-backoff after the card itself.
+    await screen.findByText(/couldn't load/i, undefined, { timeout: 5000 });
+    expect(screen.getByText("done")).toBeTruthy();
+    expect(screen.getByText("Tokens by model")).toBeTruthy();
   });
 
   it("leaves ordinary bubbles alone", () => {

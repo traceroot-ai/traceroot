@@ -2,6 +2,7 @@
 
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { WidgetChartPreview } from "./widget-chart-preview";
 import type { ResourceCardBody, ResourceCardModel } from "../lib/resource-card";
 
 /**
@@ -29,12 +30,24 @@ function Chips({ chips }: { chips: string[] }) {
   );
 }
 
-function CardBody({ body }: { body: ResourceCardBody }) {
+function CardBody({ body, resourceId }: { body: ResourceCardBody; resourceId: string }) {
   switch (body.kind) {
     case "widget":
-      // The chart preview that fills this body is a separate change; until it
-      // lands the spec chips are the whole body.
-      return <Chips chips={body.chips} />;
+      // The widget itself, under the chips that name its spec. A widget with
+      // no chart to draw — a trace feed, or a spec the schema rejects — is the
+      // chips alone, as before.
+      return (
+        <div className="space-y-1.5">
+          <Chips chips={body.chips} />
+          {body.chart !== null && (
+            <WidgetChartPreview
+              projectId={body.chart.projectId}
+              widgetId={resourceId}
+              spec={body.chart.spec}
+            />
+          )}
+        </div>
+      );
     case "detector":
       return <Chips chips={body.chips} />;
     case "receipt":
@@ -59,7 +72,7 @@ function CardBody({ body }: { body: ResourceCardBody }) {
 }
 
 export function ResourceCard({ model }: { model: ResourceCardModel }) {
-  const body = <CardBody body={model.body} />;
+  const body = <CardBody body={model.body} resourceId={model.resourceId} />;
 
   return (
     <Card className="max-w-full space-y-1.5 border-border/80 bg-muted/20 px-2.5 py-2">

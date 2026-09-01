@@ -1,10 +1,29 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { ResourceCard } from "./resource-card";
-import type { ResourceCardModel } from "../lib/resource-card";
+import type { ResourceCardModel, WidgetChart } from "../lib/resource-card";
+
+// The preview is exercised for real in widget-chart-preview.test.tsx; here it
+// stands in for itself so these tests can assert what the card hands it.
+vi.mock("./widget-chart-preview", () => ({
+  WidgetChartPreview: ({ projectId, widgetId, spec }: WidgetChart & { widgetId: string }) => (
+    <div data-testid="preview">{`${projectId}/${widgetId}/${spec.display.type}`}</div>
+  ),
+}));
 
 afterEach(cleanup);
+
+const CHART: WidgetChart = {
+  projectId: "p1",
+  spec: {
+    view: "spans",
+    filters: [],
+    metric: { measure: "total_tokens", agg: "sum" },
+    breakdown: null,
+    display: { type: "line" },
+  },
+};
 
 function model(overrides: Partial<ResourceCardModel> = {}): ResourceCardModel {
   return {
@@ -13,7 +32,7 @@ function model(overrides: Partial<ResourceCardModel> = {}): ResourceCardModel {
     created: true,
     title: "Tokens by model",
     meta: ["Widget"],
-    body: { kind: "widget", chips: ["view spans", "sum(total_tokens)"] },
+    body: { kind: "widget", chips: ["view spans", "sum(total_tokens)"], chart: null },
     ...overrides,
   };
 }
@@ -47,6 +66,21 @@ describe("ResourceCard", () => {
     render(<ResourceCard model={model()} />);
     expect(screen.getByText("view spans")).toBeTruthy();
     expect(screen.getByText("sum(total_tokens)")).toBeTruthy();
+  });
+
+  it("previews the created widget's own chart under its chips", () => {
+    render(
+      <ResourceCard
+        model={model({ body: { kind: "widget", chips: ["view spans"], chart: CHART } })}
+      />,
+    );
+    expect(screen.getByText("view spans")).toBeTruthy();
+    expect(screen.getByTestId("preview").textContent).toBe("p1/w1/line");
+  });
+
+  it("shows no preview for a widget with no chart to draw", () => {
+    render(<ResourceCard model={model()} />);
+    expect(screen.queryByTestId("preview")).toBeNull();
   });
 
   it("renders a detector's chips", () => {
@@ -103,7 +137,9 @@ describe("ResourceCard", () => {
 
   it("renders a body-less card when the arguments left nothing to show", () => {
     const { container } = render(
-      <ResourceCard model={model({ title: "w1", body: { kind: "widget", chips: [] } })} />,
+      <ResourceCard
+        model={model({ title: "w1", body: { kind: "widget", chips: [], chart: null } })}
+      />,
     );
     expect(container.textContent).toBe("w1CreatedWidget");
     expect(container.textContent).not.toContain("[object Object]");
@@ -123,7 +159,11 @@ describe("ResourceCard", () => {
       <ResourceCard
         model={model({
           title: "A dashboard title long enough to need more than one line in a narrow panel",
-          body: { kind: "widget", chips: ["by an_extremely_long_breakdown_dimension_name"] },
+          body: {
+            kind: "widget",
+            chips: ["by an_extremely_long_breakdown_dimension_name"],
+            chart: null,
+          },
         })}
       />,
     );
