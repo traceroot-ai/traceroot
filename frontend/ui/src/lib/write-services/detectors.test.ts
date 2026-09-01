@@ -1,16 +1,24 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { DEFAULT_DETECTOR_SAMPLE_RATE } from "@/features/detectors/templates";
 
-const tx = {
-  project: { findUnique: vi.fn() },
-  workspaceMember: { findUnique: vi.fn() },
-  detector: { findFirst: vi.fn(), create: vi.fn() },
-  auditLog: { create: vi.fn().mockResolvedValue({}) },
-};
+// The transaction client and the root client carry separate auditLog mocks so
+// the tests can tell which one the audit row was written through.
+const { tx, root } = vi.hoisted(() => ({
+  tx: {
+    project: { findUnique: vi.fn() },
+    workspaceMember: { findUnique: vi.fn() },
+    detector: { findFirst: vi.fn(), create: vi.fn() },
+    auditLog: { create: vi.fn() },
+  },
+  root: { auditLog: { create: vi.fn() } },
+}));
 vi.mock("@traceroot/core", () => {
   const ROLE_ORDER = ["VIEWER", "MEMBER", "ADMIN"];
   return {
-    prisma: { $transaction: (fn: (t: unknown) => unknown) => fn(tx) },
+    prisma: {
+      $transaction: (fn: (t: unknown) => unknown) => fn(tx),
+      auditLog: root.auditLog,
+    },
     Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
     hasMinRole: (userRole: string, minRole: string) =>
       ROLE_ORDER.indexOf(userRole) >= ROLE_ORDER.indexOf(minRole),
@@ -54,6 +62,8 @@ beforeEach(() => {
   tx.detector.create.mockReset();
   tx.auditLog.create.mockReset();
   tx.auditLog.create.mockResolvedValue({});
+  root.auditLog.create.mockReset();
+  root.auditLog.create.mockResolvedValue({});
 });
 
 describe("createDetector", () => {
@@ -238,7 +248,18 @@ describe("createDetector", () => {
       select: { id: true, name: true, projectId: true, enabled: true, sampleRate: true },
     });
     expect(tx.detector.create).not.toHaveBeenCalled();
+    expect(root.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("audits through the root client, not the transaction, so a failed audit cannot roll the detector back", async () => {
+    mockAccess();
+    tx.detector.findFirst.mockResolvedValue(null);
+    tx.detector.create.mockResolvedValue(createdRow);
+    root.auditLog.create.mockRejectedValue(new Error("audit store down"));
+    const r = await run();
+    expect(r).toEqual({ ok: true, created: true, data: createdRow });
     expect(tx.auditLog.create).not.toHaveBeenCalled();
+    expect(root.auditLog.create).toHaveBeenCalled();
   });
 
   it("creates the detector without a nested trigger when conditions are absent", async () => {
@@ -263,7 +284,7 @@ describe("createDetector", () => {
       detectionProvider: null,
       detectionSource: null,
     });
-    expect(tx.auditLog.create).toHaveBeenCalledWith({
+    expect(root.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         actorUserId: "u1",
         operation: "create_detector",
@@ -308,7 +329,7 @@ describe("createDetector", () => {
         }),
       }),
     );
-    expect(tx.auditLog.create).toHaveBeenCalledWith({
+    expect(root.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ transport: "agent", agentSessionId: "as1" }),
     });
   });
