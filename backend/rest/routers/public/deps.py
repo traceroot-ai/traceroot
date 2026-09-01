@@ -886,11 +886,15 @@ _AccountAuth = Annotated[AuthResult, Depends(authenticate_account_caller)]
 async def authenticate_and_stamp_account_caller(request: Request, auth: _AccountAuth) -> AuthResult:
     """Authenticate an account-scope caller, then stamp a per-user rate-limit id.
 
-    Account ops have no workspace, so the bucket is keyed per user: an empty
-    ``workspace_id`` plus ``auth.user_id`` in the dedicated user slot of
+    These callers have no workspace resolved at auth time — account ops have
+    none at all, and the write routes leave the project's workspace to the
+    write service — so the bucket is keyed per user: an empty ``workspace_id``
+    plus ``auth.user_id`` in the dedicated user slot of
     :func:`set_rate_limit_identity`, which yields the clean key
-    ``rl:read:{plan}:{user_id}``. It runs during dependency resolution, before
-    slowapi evaluates the limit, so ``key_func`` sees the identity on
+    ``rl:{bucket}:{plan}:{user_id}``. The bucket is the route's own — ``read``
+    for the account reads, ``write`` for the account and project writes that
+    share this stamper. It runs during dependency resolution, before slowapi
+    evaluates the limit, so ``key_func`` sees the identity on
     ``request.state``.
 
     Args:
