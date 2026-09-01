@@ -375,6 +375,40 @@ export function resourceCardModel(
  * widgets are separate calls that land after it — so the transcript is the only
  * place that count exists without going back to the server for it.
  */
+/**
+ * The ids of tool-step messages whose widget card would duplicate a dashboard
+ * card shown earlier in the same transcript: the dashboard's miniature already
+ * draws every widget the transcript created into it, so those steps keep the
+ * plain tool line instead of a second card. A widget whose dashboard has no
+ * card here — created into a pre-existing dashboard — keeps its full card,
+ * because that card is the only receipt there is.
+ *
+ * A dashboard has a card exactly when its resource_created step is present,
+ * and only a dashboard step that PRECEDES the widget's suppresses it (the
+ * agent creates the dashboard before filling it, so anything else is a widget
+ * whose dashboard card the reader has not seen).
+ */
+export function suppressedWidgetStepIds(messages: readonly AIMessage[]): Set<string> {
+  const dashboardCards = new Set<string>();
+  const suppressed = new Set<string>();
+  for (const message of messages) {
+    const step = message.toolStep;
+    if (message.role !== "tool_step" || step === undefined) continue;
+    const details = resourceCreatedDetails(step.result);
+    if (details === null) continue;
+    if (details.resourceType === "dashboard") {
+      dashboardCards.add(details.resourceId);
+    } else if (
+      details.resourceType === "widget" &&
+      typeof details.dashboardId === "string" &&
+      dashboardCards.has(details.dashboardId)
+    ) {
+      suppressed.add(message.id);
+    }
+  }
+  return suppressed;
+}
+
 export function createdWidgetsByDashboard(
   messages: readonly AIMessage[],
 ): Map<string, ToolCallStep[]> {

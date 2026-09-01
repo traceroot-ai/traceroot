@@ -13,7 +13,10 @@ vi.mock("./widget-chart-preview", () => ({
 }));
 
 // Same for the miniature, exercised for real in dashboard-miniature.test.tsx.
-vi.mock("./dashboard-miniature", () => ({
+// Partial: the module also exports the chart tile aspect the card's dynamic
+// loading placeholder frames itself with, and that must stay real.
+vi.mock("./dashboard-miniature", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./dashboard-miniature")>()),
   DashboardMiniature: ({ tiles }: { tiles: { id: string }[] }) => (
     <div data-testid="miniature">{tiles.map((t) => t.id).join(",")}</div>
   ),
