@@ -113,7 +113,7 @@ describe("StreamPersister", () => {
 
     expect(calls).toHaveLength(1);
     expect(calls[0].role).toBe("tool_step");
-    expect(calls[0].metadata).toEqual({
+    expect(calls[0].metadata).toMatchObject({
       toolCallId: "t1",
       toolName: "download_traces",
       args: { query: "errors" },
@@ -121,6 +121,9 @@ describe("StreamPersister", () => {
       outputBytes: 11,
       isError: true,
     });
+    // Timing is recorded for every step. It matters most where output is
+    // withheld, which leaves duration and byte count as the only signal.
+    expect(typeof calls[0].metadata?.durationMs).toBe("number");
   });
 
   it("keeps thinking out of content and stores it in metadata", async () => {

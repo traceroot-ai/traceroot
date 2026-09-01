@@ -1,5 +1,5 @@
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
-import { applyCapturePolicy } from "@traceroot/core";
+import { applyCapturePolicy } from "@traceroot/core/capture-policy";
 import type { TokenUsageData, TurnAttribution } from "./session.js";
 
 /** Signature of SessionManager.appendMessage — injected so the persister is testable. */
@@ -30,6 +30,8 @@ export class StreamPersister {
   private chain: Promise<void> = Promise.resolve();
   private text = "";
   private thinking = "";
+  /** start timestamp by toolCallId, so the end event can record a duration */
+  private readonly pendingToolStart = new Map<string, number>();
   /** args by toolCallId, captured at tool_execution_start (end events lack args) */
   private pendingToolArgs = new Map<string, Record<string, unknown>>();
   /** Per-run capture-policy budget accumulator (see applyCapturePolicy). */
@@ -47,6 +49,7 @@ export class StreamPersister {
 
     if (event.type === "tool_execution_start") {
       this.pendingToolArgs.set(event.toolCallId, event.args ?? {});
+      this.pendingToolStart.set(event.toolCallId, Date.now());
       this.flushTextSegment();
       return;
     }
@@ -54,6 +57,12 @@ export class StreamPersister {
     if (event.type === "tool_execution_end") {
       const args = this.pendingToolArgs.get(event.toolCallId) ?? {};
       this.pendingToolArgs.delete(event.toolCallId);
+      // How long the step took. For a tool whose output is withheld this is
+      // most of what remains observable about it, alongside the byte count —
+      // "what ran and how much came back" needs a "how long" to be useful.
+      const startedAt = this.pendingToolStart.get(event.toolCallId);
+      this.pendingToolStart.delete(event.toolCallId);
+      const durationMs = startedAt === undefined ? undefined : Date.now() - startedAt;
       const captured = applyCapturePolicy(
         { toolName: event.toolName, args, result: event.result },
         this.captureState,
@@ -64,6 +73,7 @@ export class StreamPersister {
         args: captured.args,
         ...(captured.result !== undefined ? { result: captured.result } : {}),
         outputBytes: captured.outputBytes,
+        ...(durationMs !== undefined ? { durationMs } : {}),
         ...(captured.truncated ? { truncated: true } : {}),
         ...(captured.withheld ? { withheld: captured.withheld } : {}),
         isError: event.isError,

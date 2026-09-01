@@ -48,7 +48,6 @@ export * from "./model-pricing/index.ts";
 export * from "./types/index.ts";
 
 // Capture policy for persisted tool I/O (agent StreamPersister + SDK captureToolIo)
-export * from "./lib/capture-policy.ts";
 
 // NOTE: pi-ai Model resolver lives at `@traceroot/core/model-resolver` (subpath).
 // We do NOT re-export it here — pulling pi-ai into the main barrel would bundle
