@@ -206,7 +206,7 @@ describe("MessageList tool entries", () => {
     // spec chips appear nowhere, because that card was suppressed.
     expect(screen.getAllByText("Tokens by model")).toHaveLength(1);
     expect(screen.queryByText("view spans")).toBeNull();
-    expect(screen.getAllByText("Created")).toHaveLength(1);
+    expect(screen.queryByText("Created")).toBeNull();
   });
 
   it("keeps the full card for a widget whose dashboard has no card in the transcript", () => {
