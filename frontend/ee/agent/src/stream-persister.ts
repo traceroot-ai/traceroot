@@ -49,7 +49,10 @@ export class StreamPersister {
 
     if (event.type === "tool_execution_start") {
       this.pendingToolArgs.set(event.toolCallId, event.args ?? {});
-      this.pendingToolStart.set(event.toolCallId, Date.now());
+      // performance.now(), not Date.now(): a wall-clock step (NTP, DST, a manual
+      // change) between the two events would otherwise persist a wrong or
+      // negative duration.
+      this.pendingToolStart.set(event.toolCallId, performance.now());
       this.flushTextSegment();
       return;
     }
@@ -62,7 +65,8 @@ export class StreamPersister {
       // "what ran and how much came back" needs a "how long" to be useful.
       const startedAt = this.pendingToolStart.get(event.toolCallId);
       this.pendingToolStart.delete(event.toolCallId);
-      const durationMs = startedAt === undefined ? undefined : Date.now() - startedAt;
+      const durationMs =
+        startedAt === undefined ? undefined : Math.round(performance.now() - startedAt);
       const captured = applyCapturePolicy(
         { toolName: event.toolName, args, result: event.result },
         this.captureState,

@@ -108,4 +108,28 @@ describe("applyCapturePolicy", () => {
     );
     expect(state.spentBytes).toBeLessThanOrEqual(10_000);
   });
+
+  it("shares one step allowance across every args leaf and the result", () => {
+    // A per-leaf cap let an args object exceed perStepBytes by a multiple of
+    // its leaf count — five 1 KB leaves under a 1 KB step cap kept all 5 KB.
+    const state = { spentBytes: 0 };
+    const out = applyCapturePolicy(
+      {
+        toolName: "download_traces",
+        args: Object.fromEntries(
+          Array.from({ length: 5 }, (_, i) => [`f${i}`, "x".repeat(5_000)]),
+        ),
+        result: "y".repeat(5_000),
+      },
+      state,
+      { perStepBytes: 1_000, perRunBytes: 100_000 },
+    );
+    // Captured content only — a "[withheld: budget]" placeholder is metadata
+    // saying nothing was kept, not content, and is not charged.
+    const argBytes = Object.values(out.args as Record<string, string>)
+      .filter((v) => !v.startsWith("[withheld:"))
+      .reduce((n, v) => n + Buffer.byteLength(v, "utf8"), 0);
+    const resultBytes = Buffer.byteLength(out.result ?? "", "utf8");
+    expect(argBytes + resultBytes).toBeLessThanOrEqual(1_000);
+  });
 });

@@ -74,7 +74,10 @@ const TRUNCATION_MARKER_BYTES = Buffer.byteLength(TRUNCATION_MARKER, "utf8");
 function truncateTo(text: string, bytes: number): { text: string; truncated: boolean } {
   const buf = Buffer.from(text, "utf8");
   if (buf.length <= bytes) return { text, truncated: false };
-  const room = Math.max(0, bytes - TRUNCATION_MARKER_BYTES);
+  // Too little room for the marker itself: keep nothing rather than emit a
+  // marker that would put the result over the allowance it is bounded by.
+  if (bytes < TRUNCATION_MARKER_BYTES) return { text: "", truncated: true };
+  const room = bytes - TRUNCATION_MARKER_BYTES;
   return { text: buf.subarray(0, room).toString("utf8") + TRUNCATION_MARKER, truncated: true };
 }
 
@@ -92,7 +95,9 @@ export function applyCapturePolicy(
   // Args are captured for every tool, so they are the one thing every step
   // writes — and a `write` call carries its whole file body in them. Bound and
   // charge them like output, or the budgets only govern the smaller half.
-  const args = capArgs(redactDeep(input.args), state, budget);
+  // One step allowance, shared by the args and the result below.
+  const step = { remaining: budget.perStepBytes };
+  const args = capArgs(redactDeep(input.args), state, budget, step);
   const raw = toText(input.result);
   const outputBytes = Buffer.byteLength(raw, "utf8");
   if (!OUTPUT_ALLOWLIST.has(input.toolName)) {
@@ -106,7 +111,7 @@ export function applyCapturePolicy(
   // full step on top of an almost-exhausted budget.
   const { text, truncated } = truncateTo(
     redactSecrets(raw),
-    Math.min(budget.perStepBytes, remaining),
+    Math.min(step.remaining, remaining),
   );
   state.spentBytes += Buffer.byteLength(text, "utf8");
   return { args, result: text, outputBytes, truncated, withheld: null };
@@ -117,13 +122,24 @@ export function applyCapturePolicy(
  * kept. Serialising once and truncating the JSON would produce unparseable
  * metadata, so each string leaf is capped instead and the structure survives.
  */
-function capArgs(args: unknown, state: { spentBytes: number }, budget: CaptureBudget): unknown {
+function capArgs(
+  args: unknown,
+  state: { spentBytes: number },
+  budget: CaptureBudget,
+  step: { remaining: number },
+): unknown {
   const cap = (value: unknown): unknown => {
     if (typeof value === "string") {
-      const remaining = budget.perRunBytes - state.spentBytes;
+      // Both budgets bind: the step's remaining allowance is shared across every
+      // leaf (a per-leaf cap would let an args object with many strings exceed
+      // perStepBytes by a multiple of its leaf count), and the run's total is
+      // the hard ceiling.
+      const remaining = Math.min(step.remaining, budget.perRunBytes - state.spentBytes);
       if (remaining <= 0) return "[withheld: budget]";
-      const { text } = truncateTo(value, Math.min(budget.perStepBytes, remaining));
-      state.spentBytes += Buffer.byteLength(text, "utf8");
+      const { text } = truncateTo(value, remaining);
+      const spent = Buffer.byteLength(text, "utf8");
+      state.spentBytes += spent;
+      step.remaining -= spent;
       return text;
     }
     if (Array.isArray(value)) return value.map(cap);
