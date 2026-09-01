@@ -59,7 +59,10 @@ describe("withAgentTrace", () => {
       await fn();
       throw new Error("span close failed");
     });
-    await mod.withAgentTrace(meta, async () => { calls += 1; return 1; });
+    await mod.withAgentTrace(meta, async () => {
+      calls += 1;
+      return 1;
+    });
     expect(calls).toBe(1);
   });
 
@@ -83,7 +86,11 @@ describe("withAgentTrace", () => {
   it("still propagates fn's own error", async () => {
     // Once fn has entered, a rejection is the caller's failure, not tracing's.
     const boom = new Error("agent blew up");
-    await expect(mod.withAgentTrace(meta, async () => { throw boom; })).rejects.toBe(boom);
+    await expect(
+      mod.withAgentTrace(meta, async () => {
+        throw boom;
+      }),
+    ).rejects.toBe(boom);
   });
 
   it("runs fn inside observe with the forced trace id and returns available after flush", async () => {
@@ -158,7 +165,9 @@ describe("rcaSpanName", () => {
   });
 
   it("counts instead of listing once more than one fired", () => {
-    expect(mod.rcaSpanName(["Hallucination Detector", "Failure Detector"])).toBe("rca: 2 detectors");
+    expect(mod.rcaSpanName(["Hallucination Detector", "Failure Detector"])).toBe(
+      "rca: 2 detectors",
+    );
     expect(mod.rcaSpanName(["a", "b", "c", "d", "e"])).toBe("rca: 5 detectors");
   });
 
