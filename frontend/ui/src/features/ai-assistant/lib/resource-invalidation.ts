@@ -33,10 +33,15 @@ export function invalidationKeysForResult(result: unknown): QueryKey[] {
         ["dashboard", projectId, details.resourceId],
       ];
     case "widget":
-      // The dashboards list carries no widget count, so only the dashboard
-      // the widget landed on needs refetching.
+      // The widget's placement is written into the dashboard's layout, which
+      // bumps the update time the dashboards list displays — so the list is
+      // stale too. Matches useDashboardMutations.createWidget, whose
+      // invalidateDashboards stales both the list and the dashboard itself.
       if (projectId === undefined || dashboardId === undefined) return [];
-      return [["dashboard", projectId, dashboardId]];
+      return [
+        ["dashboards", projectId],
+        ["dashboard", projectId, dashboardId],
+      ];
     case "detector":
       // Coarse on purpose: the detector list, counts, and by-id queries all
       // hang off this prefix, matching what the feature's own mutations do.

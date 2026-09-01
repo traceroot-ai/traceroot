@@ -26,8 +26,13 @@ describe("invalidationKeysForResult", () => {
     ]);
   });
 
-  it("stales the parent dashboard for a widget, not the list", () => {
-    expect(invalidationKeysForResult(widget())).toEqual([["dashboard", "p1", "db1"]]);
+  it("stales the dashboards list and the parent dashboard for a widget", () => {
+    // The placement write bumps the dashboard's update time, which the list
+    // displays — so the list is stale too, not just the dashboard itself.
+    expect(invalidationKeysForResult(widget())).toEqual([
+      ["dashboards", "p1"],
+      ["dashboard", "p1", "db1"],
+    ]);
   });
 
   it("stales the coarse detectors key", () => {

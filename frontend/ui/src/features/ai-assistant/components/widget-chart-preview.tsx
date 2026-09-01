@@ -16,7 +16,7 @@ import { useWidgetData } from "@/features/dashboards/hooks/use-widget-data";
 import { DEFAULT_RANGE_ID, makeRange } from "@/features/dashboards/range-presets";
 import type { WidgetSpec } from "@/features/dashboards/types";
 import { FIELD_UNIT } from "@/features/filters/filter-controls";
-import { CHART_TILE_ASPECT } from "./dashboard-miniature";
+import { CHART_TILE_ASPECT, SNAPSHOT_QUERY_OPTIONS } from "./dashboard-miniature";
 
 interface WidgetChartPreviewProps {
   projectId: string;
@@ -31,7 +31,14 @@ function Plot({ projectId, widgetId, spec }: WidgetChartPreviewProps) {
   // receipt for a past action should not quietly slide its own axis while the
   // transcript stays open.
   const range = useMemo(() => makeRange(DEFAULT_RANGE_ID), []);
-  const { data, isPending, error } = useWidgetData(projectId, widgetId, spec, range);
+  const { data, isPending, error } = useWidgetData(
+    projectId,
+    widgetId,
+    spec,
+    range,
+    true,
+    SNAPSHOT_QUERY_OPTIONS,
+  );
 
   // isPending, not isLoading: while the auth session resolves the query is
   // disabled rather than fetching, and isLoading would leave the card blank.

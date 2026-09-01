@@ -302,6 +302,23 @@ describe("resourceCardModel", () => {
     expect(resourceCardModel(dashboard)?.created).toBe(false);
   });
 
+  it("gives a reused dashboard no miniature — transcript placements would lie", () => {
+    // The real grid laid this dashboard out before the transcript existed, so
+    // folding the transcript's widgets through an empty layout would draw
+    // positions the grid never assigned. The card keeps the count and the
+    // call's description instead.
+    const reused = step({
+      toolName: "create_dashboard",
+      args: { name: "Latency overview", description: "Where the latency lives" },
+      details: { ...created("dashboard", "db1", { projectId: "p1" }), created: false },
+    });
+    const model = resourceCardModel(reused, new Map([["db1", [widgetStep()]]]));
+    expect(model?.created).toBe(false);
+    expect(model?.body).toEqual({ kind: "dashboard", tiles: [] });
+    expect(model?.meta).toEqual(["Dashboard", "1 widget"]);
+    expect(model?.description).toBe("Where the latency lives");
+  });
+
   it("falls back to the resource id when the call carries no usable name", () => {
     const model = resourceCardModel(widgetStep({ title: { oops: true } }));
     expect(model?.title).toBe("w1");
@@ -586,6 +603,21 @@ describe("suppressedWidgetStepIds", () => {
       entry("tc2", widgetStep({}, "tc2")),
     ]);
     expect(suppressed).toEqual(new Set(["tc1", "tc2"]));
+  });
+
+  it("keeps a widget's card when its dashboard was reused, not created", () => {
+    // A reused dashboard's card has no miniature, so the widget cards are the
+    // only true receipt for the writes and must not be suppressed under it.
+    const reused = step({
+      toolName: "create_dashboard",
+      args: { name: "Latency overview" },
+      details: { ...created("dashboard", "db1"), created: false },
+    });
+    const suppressed = suppressedWidgetStepIds([
+      entry("tc0", reused),
+      entry("tc1", widgetStep({}, "tc1")),
+    ]);
+    expect(suppressed.size).toBe(0);
   });
 
   it("keeps a widget added to a dashboard with no card in the transcript", () => {
