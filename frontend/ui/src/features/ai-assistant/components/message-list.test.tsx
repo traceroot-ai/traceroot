@@ -11,6 +11,20 @@ vi.mock("@/lib/auth-client", () => ({
 }));
 vi.mock("@/features/dashboards/api");
 
+// Counts model builds without changing behavior, so a test can assert that a
+// streamed text delta does not rebuild every card in the transcript.
+const cardModelCalls = vi.hoisted(() => ({ count: 0 }));
+vi.mock("../lib/resource-card", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/resource-card")>();
+  return {
+    ...actual,
+    resourceCardModel: (...args: Parameters<typeof actual.resourceCardModel>) => {
+      cardModelCalls.count += 1;
+      return actual.resourceCardModel(...args);
+    },
+  };
+});
+
 // jsdom has no IntersectionObserver, so a widget card's chart preview stays
 // unqueried until a test scrolls it into view.
 const observers: (() => void)[] = [];
@@ -217,6 +231,61 @@ describe("MessageList tool entries", () => {
     expect(screen.getAllByText("Tokens by model")).toHaveLength(1);
     expect(screen.queryByText("view spans")).toBeNull();
     expect(screen.queryByText("Created")).toBeNull();
+  });
+
+  it("keeps widget cards under a reused dashboard's card — they are the only receipt", () => {
+    const reused: ToolCallStep = {
+      toolCallId: "tc0",
+      toolName: "create_dashboard",
+      args: { name: "Latency overview" },
+      result: {
+        content: [{ type: "text", text: "Reused dashboard" }],
+        details: {
+          kind: "resource_created",
+          resourceType: "dashboard",
+          resourceId: "db1",
+          created: false,
+          projectId: "p1",
+        },
+      },
+      isError: false,
+      status: "done",
+    };
+    const { container } = render(
+      <MessageList
+        messages={[toolEntry(reused), toolEntry(createWidgetStep(WIDGET_DETAILS, "tc1"))]}
+      />,
+    );
+    // The dashboard card keeps the count but draws no miniature — the real
+    // grid's placements are unknowable from this transcript.
+    expect(screen.getByText("Dashboard · 1 widget")).toBeTruthy();
+    expect(screen.getByText("Reused")).toBeTruthy();
+    expect(container.querySelector("[data-glyph]")).toBeNull();
+    // The widget keeps its full card — no miniature stands in for it.
+    expect(screen.getByText("Tokens by model")).toBeTruthy();
+    expect(screen.getByText("view spans")).toBeTruthy();
+    expect(screen.queryByText("(create_widget)")).toBeNull();
+  });
+
+  it("does not rebuild card models when a text delta streams in", () => {
+    const toolMsg = toolEntry(createWidgetStep(WIDGET_DETAILS));
+    const streaming = (content: string): AIMessage => ({
+      id: "a1",
+      role: "assistant",
+      content,
+      timestamp: "2026-01-02T03:04:06.000Z",
+      isStreaming: true,
+    });
+    const { rerender } = render(<MessageList messages={[toolMsg, streaming("Hel")]} />);
+    const afterFirstRender = cardModelCalls.count;
+    expect(afterFirstRender).toBeGreaterThan(0);
+
+    // A delta replaces the messages array and the streaming bubble but reuses
+    // the untouched tool-step entry object — exactly what the stream hook
+    // does — so the card models (and their query-holding subtrees) stand.
+    rerender(<MessageList messages={[toolMsg, streaming("Hello")]} />);
+    rerender(<MessageList messages={[toolMsg, streaming("Hello there")]} />);
+    expect(cardModelCalls.count).toBe(afterFirstRender);
   });
 
   it("keeps the full card for a widget whose dashboard has no card in the transcript", () => {

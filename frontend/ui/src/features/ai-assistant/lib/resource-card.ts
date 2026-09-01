@@ -105,7 +105,8 @@ export interface ResourceCardModel {
   /** Parts of the small header meta line, joined by the renderer. */
   meta: string[];
   /** A description the args carried, when the type has nothing else to show
-   *  (a pending dashboard — its widgets arrive as separate calls). */
+   *  (a pending dashboard — its widgets arrive as separate calls — or a
+   *  reused dashboard, whose miniature cannot be trusted). */
   description?: string;
   body: ResourceCardBody;
 }
@@ -320,7 +321,15 @@ function body(
       if (args === null) return { kind: "widget", chips: [], chart: null };
       return { kind: "widget", chips: widgetChips(args), chart: widgetChart(args, details) };
     case "dashboard":
-      return { kind: "dashboard", tiles: dashboardTiles(widgetSteps) };
+      // Only a freshly CREATED dashboard gets a miniature. A reused
+      // (idempotent-hit) dashboard was laid out before this transcript
+      // existed, so folding its new widgets through an empty layout would
+      // draw tile positions the real grid never assigned — the card keeps
+      // the count/description body instead.
+      return {
+        kind: "dashboard",
+        tiles: details.created !== false ? dashboardTiles(widgetSteps) : [],
+      };
     case "detector":
       return { kind: "detector", chips: args === null ? [] : detectorChips(args) };
     default:
@@ -375,12 +384,20 @@ export function resourceCardModel(
     if (template !== null) meta.push(templateLabel(template));
   }
 
+  // A reused dashboard draws no miniature (see body above), so its card gets
+  // what the pending card shows: the description the call carried, if any.
+  const description =
+    resourceType === "dashboard" && details.created === false && args !== null
+      ? str(args.description, MAX_DESCRIPTION_CHARS)
+      : null;
+
   return {
     resourceType,
     resourceId: details.resourceId,
     created: details.created !== false,
     title: displayName ?? str(details.resourceId, MAX_TITLE_CHARS) ?? "",
     meta,
+    ...(description === null ? {} : { description }),
     body: cardBody,
   };
 }
@@ -501,7 +518,10 @@ export function suppressedWidgetStepIds(messages: readonly AIMessage[]): Set<str
     const details = resourceCreatedDetails(step.result);
     if (details === null) continue;
     if (details.resourceType === "dashboard") {
-      dashboardCards.add(details.resourceId);
+      // Only a CREATED dashboard's card draws a miniature; a reused one has
+      // no picture of its widgets, so their own cards must stay — they are
+      // the only true receipt in the transcript.
+      if (details.created !== false) dashboardCards.add(details.resourceId);
     } else if (
       details.resourceType === "widget" &&
       typeof details.dashboardId === "string" &&

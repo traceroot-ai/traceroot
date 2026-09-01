@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import * as api from "@/features/dashboards/api";
@@ -185,11 +185,15 @@ describe("DashboardMiniature live tiles", () => {
 
   function renderLive(tiles: MiniatureTile[]) {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    return render(
+    // A fresh element per (re)render — reusing one element lets React bail
+    // out on identity and skip the re-render a test means to force.
+    const ui = () => (
       <QueryClientProvider client={client}>
         <DashboardMiniature tiles={tiles} />
-      </QueryClientProvider>,
+      </QueryClientProvider>
     );
+    const result = render(ui());
+    return { client, ...result, rerenderLive: () => result.rerender(ui()) };
   }
 
   it("issues no query while the miniature has never been visible", () => {
@@ -218,7 +222,10 @@ describe("DashboardMiniature live tiles", () => {
 
   it("freezes one shared window across every tile, the default 24 hours", async () => {
     vi.mocked(api.runWidgetQuery).mockResolvedValue({ columns: ["value"], rows: [[7]], meta: {} });
-    renderLive([liveTile({ id: "w1" }, "number"), liveTile({ id: "w2", x: 6 }, "line")]);
+    const { client, rerenderLive } = renderLive([
+      liveTile({ id: "w1" }, "number"),
+      liveTile({ id: "w2", x: 6 }, "line"),
+    ]);
     scrollIntoView();
 
     await waitFor(() => expect(api.runWidgetQuery).toHaveBeenCalledTimes(2));
@@ -226,6 +233,51 @@ describe("DashboardMiniature live tiles", () => {
     expect(first.start.getTime()).toBe(second.start.getTime());
     expect(first.end.getTime()).toBe(second.end.getTime());
     expect(first.end.getTime() - first.start.getTime()).toBe(24 * 60 * 60 * 1000);
+
+    // The freeze must hold beyond the first render: minutes later, a
+    // re-render plus a forced refetch still queries the window frozen at
+    // first visibility — never one recomputed at the new "now".
+    try {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(Date.now() + 5 * 60_000);
+      rerenderLive();
+      await act(() => client.invalidateQueries());
+    } finally {
+      vi.useRealTimers();
+    }
+    await waitFor(() =>
+      expect(vi.mocked(api.runWidgetQuery).mock.calls.length).toBeGreaterThanOrEqual(4),
+    );
+    for (const call of vi.mocked(api.runWidgetQuery).mock.calls) {
+      expect(call[2].start.getTime()).toBe(first.start.getTime());
+      expect(call[2].end.getTime()).toBe(first.end.getTime());
+    }
+  });
+
+  it("refires no tile query on window focus — a card is a snapshot, not a dashboard", async () => {
+    vi.mocked(api.runWidgetQuery).mockResolvedValue({ columns: ["value"], rows: [[7]], meta: {} });
+    renderLive([liveTile({ id: "w1" }, "number"), liveTile({ id: "w2", x: 6 }, "line")]);
+    scrollIntoView();
+    await waitFor(() => expect(api.runWidgetQuery).toHaveBeenCalledTimes(2));
+
+    // Minutes pass, then the user tabs away and back. Every ever-visible card
+    // in the transcript holds a live query, so a focus refetch here would
+    // refire the whole accumulated transcript against ClickHouse.
+    try {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(Date.now() + 10 * 60_000);
+      act(() => {
+        focusManager.setFocused(false);
+        focusManager.setFocused(true);
+      });
+      // The focus subscriber checks staleness asynchronously; the fake clock
+      // stays advanced until it has had the chance to (wrongly) refetch.
+      await act(() => new Promise((resolve) => setTimeout(resolve, 25)));
+      expect(api.runWidgetQuery).toHaveBeenCalledTimes(2);
+    } finally {
+      focusManager.setFocused(undefined);
+      vi.useRealTimers();
+    }
   });
 
   it("renders a number tile's fetched value small, in tabular figures", async () => {
@@ -355,6 +407,14 @@ describe("DashboardMiniature live tiles", () => {
     scrollIntoView();
 
     await waitFor(() => expect(container.querySelectorAll("[data-live-mini] path").length).toBe(2));
+    // The actual arc geometry, not just "two slices exist": 3:1 splits the
+    // r=14 circle at twelve o'clock into a 270° major arc ending at nine
+    // o'clock (large-arc flag set) and a 90° minor arc back to the top.
+    const [major, minor] = [...container.querySelectorAll("[data-live-mini] path")].map((p) =>
+      p.getAttribute("d"),
+    );
+    expect(major).toBe("M20,20 L20,6 A14,14 0 1 1 6,20 Z");
+    expect(minor).toBe("M20,20 L6,20 A14,14 0 0 1 20,6 Z");
   });
 
   it("lists a table tile's first fetched rows", async () => {

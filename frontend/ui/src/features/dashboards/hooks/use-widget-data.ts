@@ -37,12 +37,25 @@ export function quantizeRange(range: TimeRange): TimeRange {
   return { start: new Date(start), end: new Date(Math.max(end, start + MINUTE)) };
 }
 
+/**
+ * Per-call refetch overrides for {@link useWidgetData}. A dashboard tile keeps
+ * the defaults (minute-fresh, refetching on focus); a caller rendering a
+ * frozen snapshot of a past query — e.g. the assistant panel's resource cards
+ * — pins staleness and switches the event-driven refetches off.
+ */
+export interface WidgetDataRefetchOptions {
+  staleTime?: number;
+  refetchOnWindowFocus?: boolean;
+  refetchOnReconnect?: boolean;
+}
+
 export function useWidgetData(
   projectId: string,
   widgetId: string,
   spec: WidgetSpec,
   range: TimeRange,
   enabled = true,
+  refetchOptions: WidgetDataRefetchOptions = {},
 ) {
   const { user, sessionReady } = useTraceApiUser();
   const floored = quantizeRange(range);
@@ -61,6 +74,7 @@ export function useWidgetData(
     retry: 1,
     staleTime: MINUTE,
     placeholderData: keepPreviousData,
+    ...refetchOptions,
   });
 }
 

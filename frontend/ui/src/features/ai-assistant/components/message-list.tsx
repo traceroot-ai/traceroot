@@ -3,6 +3,7 @@
 import {
   Children,
   isValidElement,
+  memo,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -415,6 +416,99 @@ function ToolStepItem({ step, isActive }: { step: ToolCallStep; isActive: boolea
   );
 }
 
+/**
+ * One tool-step row of the transcript, with the card model derived inside so
+ * it lives behind this memo boundary. Streamed text deltas rebuild the
+ * messages array many times a second, but every prop here is stable across a
+ * delta-only update (the step objects survive by identity, and the derived
+ * maps are pinned by useStableToolSteps) — so neither the model derivation
+ * nor the miniature/preview subtrees rerun per delta.
+ */
+const ToolStepEntry = memo(function ToolStepEntry({
+  step,
+  suppressed,
+  widgetsByDashboard,
+  projectId,
+  onDecision,
+  isActive,
+  bubbleMaxWidth,
+}: {
+  step: ToolCallStep;
+  /** True when this widget's card would duplicate a dashboard card above it. */
+  suppressed: boolean;
+  widgetsByDashboard: ReadonlyMap<string, readonly ToolCallStep[]>;
+  projectId?: string;
+  onDecision?: MessageListProps["onDecision"];
+  isActive: boolean;
+  bubbleMaxWidth: string;
+}) {
+  // A parked write shows the card BEFORE the resource exists, with the
+  // create/skip decision; the tool result (or a posted decision) clears
+  // `pending` and the step falls through to the receipt flow.
+  const pendingCard = useMemo(
+    () => (step.pending ? pendingCardModel(step, projectId) : null),
+    [step, projectId],
+  );
+  // A write that created something we can show becomes its card; every other
+  // step — and every write we can't read a resource out of, or whose card
+  // would duplicate a dashboard card above it — keeps the plain expandable
+  // tool line.
+  const card = useMemo(
+    () => (pendingCard !== null || suppressed ? null : resourceCardModel(step, widgetsByDashboard)),
+    [pendingCard, suppressed, step, widgetsByDashboard],
+  );
+  const pending = step.pending;
+  return (
+    <AnimatedItem>
+      <div className="flex justify-start">
+        {/* Cards span the message column — the width text bubbles get — so
+            every card shares one edge instead of each sizing to its content. */}
+        <div
+          className={cn("min-w-0", (card !== null || pendingCard !== null) && "w-full")}
+          style={{ maxWidth: bubbleMaxWidth }}
+        >
+          {pendingCard && pending ? (
+            <PendingResourceCard
+              // Keyed by the decision: a superseding pending event replaces
+              // the card in place AND re-arms its buttons.
+              key={pending.decisionId}
+              model={pendingCard}
+              onDecide={(action) =>
+                onDecision?.({
+                  toolCallId: step.toolCallId,
+                  decisionId: pending.decisionId,
+                  action,
+                }) ?? Promise.resolve(false)
+              }
+            />
+          ) : card ? (
+            <ResourceCard model={card} />
+          ) : (
+            <ToolStepItem step={step} isActive={isActive} />
+          )}
+        </div>
+      </div>
+    </AnimatedItem>
+  );
+});
+
+/**
+ * The transcript's tool-step entries, identity-stable across renders that
+ * changed none of them. A streamed delta replaces the messages array on every
+ * tick while reusing each untouched tool-step object, so pinning this list to
+ * its previous identity (when its members are unchanged) lets everything
+ * derived from the tool steps — and the memoized rows above — stand still
+ * under streaming text.
+ */
+function useStableToolSteps(messages: readonly AIMessage[]): readonly AIMessage[] {
+  const prevRef = useRef<readonly AIMessage[]>([]);
+  const next = messages.filter((m) => m.role === "tool_step" && m.toolStep !== undefined);
+  const prev = prevRef.current;
+  const unchanged = prev.length === next.length && next.every((m, i) => m === prev[i]);
+  if (!unchanged) prevRef.current = next;
+  return unchanged ? prev : next;
+}
+
 function AssistantBubble({ msg, panelWidth }: { msg: AIMessage; panelWidth: number }) {
   const normalizedContent = useMemo(
     () =>
@@ -516,13 +610,17 @@ export function MessageList({
   const userScrolledRef = useRef(false);
   const [panelWidth, setPanelWidth] = useState(400);
   const isStreaming = messages.some((m) => m.isStreaming);
+  // Derived off the identity-stable tool-step list, not `messages`: a delta
+  // replaces the array per tick, and rebuilding these maps then would churn
+  // the memoized rows' props on every keystroke of streamed text.
+  const toolSteps = useStableToolSteps(messages);
   // A dashboard's widget count lives nowhere in its own call — the widgets are
   // separate calls that land after it — so it is read back off the transcript.
-  const widgetsByDashboard = useMemo(() => createdWidgetsByDashboard(messages), [messages]);
+  const widgetsByDashboard = useMemo(() => createdWidgetsByDashboard(toolSteps), [toolSteps]);
   // A widget created into a dashboard carded earlier in this transcript keeps
   // the plain tool line: the dashboard's miniature already draws it, and a
   // second card right under that miniature reads as a duplicate.
-  const suppressedWidgets = useMemo(() => suppressedWidgetStepIds(messages), [messages]);
+  const suppressedWidgets = useMemo(() => suppressedWidgetStepIds(toolSteps), [toolSteps]);
   // True when the session is active but no text bubble is open - the LLM is processing
   // a tool result before it starts writing its next response.
   const isWaiting = sessionStreaming && !isStreaming;
@@ -586,52 +684,17 @@ export function MessageList({
       <div ref={innerRef}>
         {messages.map((msg) => {
           if (msg.role === "tool_step" && msg.toolStep) {
-            const step = msg.toolStep;
-            // A parked write shows the card BEFORE the resource exists, with
-            // the create/skip decision; the tool result (or a posted decision)
-            // clears `pending` and the step falls through to the receipt flow.
-            const pendingCard = step.pending ? pendingCardModel(step, projectId) : null;
-            // A write that created something we can show becomes its card; every
-            // other step — and every write we can't read a resource out of, or
-            // whose card would duplicate a dashboard card above it — keeps the
-            // plain expandable tool line.
-            const card =
-              pendingCard !== null || suppressedWidgets.has(msg.id)
-                ? null
-                : resourceCardModel(step, widgetsByDashboard);
-            const pending = step.pending;
             return (
-              <AnimatedItem key={msg.id}>
-                <div className="flex justify-start">
-                  {/* Cards span the message column — the width text bubbles
-                      get — so every card shares one edge instead of each
-                      sizing to its content. */}
-                  <div
-                    className={cn("min-w-0", (card !== null || pendingCard !== null) && "w-full")}
-                    style={{ maxWidth: bubbleMaxWidth }}
-                  >
-                    {pendingCard && pending ? (
-                      <PendingResourceCard
-                        // Keyed by the decision: a superseding pending event
-                        // replaces the card in place AND re-arms its buttons.
-                        key={pending.decisionId}
-                        model={pendingCard}
-                        onDecide={(action) =>
-                          onDecision?.({
-                            toolCallId: step.toolCallId,
-                            decisionId: pending.decisionId,
-                            action,
-                          }) ?? Promise.resolve(false)
-                        }
-                      />
-                    ) : card ? (
-                      <ResourceCard model={card} />
-                    ) : (
-                      <ToolStepItem step={step} isActive={msg.id === activeToolStepId} />
-                    )}
-                  </div>
-                </div>
-              </AnimatedItem>
+              <ToolStepEntry
+                key={msg.id}
+                step={msg.toolStep}
+                suppressed={suppressedWidgets.has(msg.id)}
+                widgetsByDashboard={widgetsByDashboard}
+                projectId={projectId}
+                onDecision={onDecision}
+                isActive={msg.id === activeToolStepId}
+                bubbleMaxWidth={bubbleMaxWidth}
+              />
             );
           }
           return (
