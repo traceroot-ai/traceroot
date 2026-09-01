@@ -5,6 +5,7 @@ import {
   DASHBOARD_DESCRIPTION_MAX,
   DASHBOARD_NAME_MAX,
   WIDGET_TITLE_MAX,
+  WIDGET_TYPE_MESSAGE,
   WIDGET_TYPES,
   WidgetSpecSchema,
   type WidgetType,
@@ -62,9 +63,7 @@ const dashboardSchema = z.object({
 
 const widgetSchema = z.object({
   title: boundedName("title", WIDGET_TITLE_MAX),
-  // Values from the shared list; the wording stays hand-written because it is
-  // part of the public API's error contract.
-  type: z.enum(WIDGET_TYPES, 'type must be "query" or "trace_feed"'),
+  type: z.enum(WIDGET_TYPES, WIDGET_TYPE_MESSAGE),
   // Shape check only here (a JSON object, matching the cookie widgets route);
   // the deep check against the canonical widget spec schema follows in
   // createWidget, so the create paths share one rule set instead of each
