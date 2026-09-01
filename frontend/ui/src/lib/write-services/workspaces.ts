@@ -1,5 +1,5 @@
 import { prisma, Role } from "@traceroot/core";
-import { writeAudit, type AuditEntry } from "./audit";
+import { writeAudit } from "./audit";
 import type { Provenance, ServiceResult } from "./types";
 
 export interface WorkspaceCreated {
@@ -21,7 +21,6 @@ export async function createWorkspace(input: {
       error: "name must be a non-empty string (max 100 chars)",
     };
   }
-  let audit: AuditEntry | null = null;
   const result = await prisma.$transaction(async (tx) => {
     // Idempotent create: same actor + same name returns the workspace they
     // already administer, so agent/CLI retries can't fan out duplicates.
@@ -51,25 +50,24 @@ export async function createWorkspace(input: {
         role: Role.ADMIN,
       },
     });
-    audit = {
-      actorUserId: input.actorUserId,
-      operation: "create_workspace",
-      resourceType: "workspace",
-      resourceId: ws.id,
-      workspaceId: ws.id,
-      summary: { name },
-      transport: input.provenance.transport,
-      agentSessionId: input.provenance.agentSessionId ?? null,
-    };
     return {
       ok: true as const,
       created: true,
       data: { id: ws.id, name: ws.name, role: "ADMIN" as const },
     };
   });
-  // Audit only after the transaction commits: a failed auditLog insert inside
-  // the transaction would abort it, rolling back the resource write — the
-  // best-effort swallow in writeAudit is only real outside the transaction.
-  if (audit) await writeAudit(prisma, audit);
+
+  if (result.ok && result.created) {
+    await writeAudit(prisma, {
+      actorUserId: input.actorUserId,
+      operation: "create_workspace",
+      resourceType: "workspace",
+      resourceId: result.data.id,
+      workspaceId: result.data.id,
+      summary: { name },
+      transport: input.provenance.transport,
+      agentSessionId: input.provenance.agentSessionId ?? null,
+    });
+  }
   return result;
 }

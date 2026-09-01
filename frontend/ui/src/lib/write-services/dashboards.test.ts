@@ -5,21 +5,24 @@ import {
   WIDGET_TITLE_MAX,
 } from "@/features/dashboards/types";
 
-const tx = {
-  project: { findUnique: vi.fn() },
-  workspaceMember: { findUnique: vi.fn() },
-  dashboard: { findFirst: vi.fn(), create: vi.fn() },
-  widget: { create: vi.fn() },
-};
-// Audit rows are written on the root client after the transaction commits, so
-// the tx mock deliberately has no auditLog.
-const auditLogCreate = vi.fn();
+// The transaction client and the root client carry separate auditLog mocks so
+// the tests can tell which one the audit row was written through.
+const { tx, root } = vi.hoisted(() => ({
+  tx: {
+    project: { findUnique: vi.fn() },
+    workspaceMember: { findUnique: vi.fn() },
+    dashboard: { findFirst: vi.fn(), create: vi.fn() },
+    widget: { create: vi.fn() },
+    auditLog: { create: vi.fn() },
+  },
+  root: { auditLog: { create: vi.fn() } },
+}));
 vi.mock("@traceroot/core", () => {
   const ROLE_ORDER = ["VIEWER", "MEMBER", "ADMIN"];
   return {
     prisma: {
       $transaction: (fn: (t: unknown) => unknown) => fn(tx),
-      auditLog: { create: (args: unknown) => auditLogCreate(args) },
+      auditLog: root.auditLog,
     },
     Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
     hasMinRole: (userRole: string, minRole: string) =>
@@ -76,8 +79,10 @@ beforeEach(() => {
   tx.dashboard.findFirst.mockReset();
   tx.dashboard.create.mockReset();
   tx.widget.create.mockReset();
-  auditLogCreate.mockReset();
-  auditLogCreate.mockResolvedValue({});
+  tx.auditLog.create.mockReset();
+  tx.auditLog.create.mockResolvedValue({});
+  root.auditLog.create.mockReset();
+  root.auditLog.create.mockResolvedValue({});
 });
 
 describe("createDashboard", () => {
@@ -165,7 +170,18 @@ describe("createDashboard", () => {
       select: { id: true, name: true, projectId: true },
     });
     expect(tx.dashboard.create).not.toHaveBeenCalled();
-    expect(auditLogCreate).not.toHaveBeenCalled();
+    expect(root.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("audits through the root client, not the transaction, so a failed audit cannot roll the dashboard back", async () => {
+    mockAccess();
+    tx.dashboard.findFirst.mockResolvedValue(null);
+    tx.dashboard.create.mockResolvedValue(dashboardRow);
+    root.auditLog.create.mockRejectedValue(new Error("audit store down"));
+    const r = await runDashboard();
+    expect(r).toEqual({ ok: true, created: true, data: dashboardRow });
+    expect(tx.auditLog.create).not.toHaveBeenCalled();
+    expect(root.auditLog.create).toHaveBeenCalled();
   });
 
   it("creates the dashboard with a null description and writes the audit row", async () => {
@@ -185,7 +201,7 @@ describe("createDashboard", () => {
       },
       select: { id: true, name: true, projectId: true },
     });
-    expect(auditLogCreate).toHaveBeenCalledWith({
+    expect(root.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         actorUserId: "u1",
         operation: "create_dashboard",
@@ -214,7 +230,7 @@ describe("createDashboard", () => {
         data: expect.objectContaining({ description: "Spend at a glance" }),
       }),
     );
-    expect(auditLogCreate).toHaveBeenCalledWith({
+    expect(root.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ transport: "agent", agentSessionId: "as1" }),
     });
   });
@@ -308,6 +324,17 @@ describe("createWidget", () => {
     });
   });
 
+  it("audits through the root client, not the transaction, so a failed audit cannot roll the widget back", async () => {
+    mockAccess();
+    mockDashboard();
+    tx.widget.create.mockResolvedValue(widgetRow);
+    root.auditLog.create.mockRejectedValue(new Error("audit store down"));
+    const r = await runWidget();
+    expect(r).toEqual({ ok: true, created: true, data: widgetRow });
+    expect(tx.auditLog.create).not.toHaveBeenCalled();
+    expect(root.auditLog.create).toHaveBeenCalled();
+  });
+
   it("creates the widget with a defaulted displayConfig and writes the audit row", async () => {
     mockAccess();
     mockDashboard();
@@ -326,7 +353,7 @@ describe("createWidget", () => {
       },
       select: { id: true, dashboardId: true, title: true, type: true },
     });
-    expect(auditLogCreate).toHaveBeenCalledWith({
+    expect(root.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         actorUserId: "u1",
         operation: "create_widget",
@@ -359,7 +386,7 @@ describe("createWidget", () => {
         }),
       }),
     );
-    expect(auditLogCreate).toHaveBeenCalledWith({
+    expect(root.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ transport: "agent", agentSessionId: "as1" }),
     });
   });

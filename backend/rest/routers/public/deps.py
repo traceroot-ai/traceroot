@@ -95,7 +95,7 @@ def _is_jwt(token: str) -> bool:
     return len(parts) == 3 and all(parts)
 
 
-async def _verify_access_jwt(token: str) -> tuple[str, str | None]:
+async def _verify_access_jwt(token: str) -> tuple[str, str]:
     """Verify a CLI access JWT offline and return its subject and session id.
 
     The trust anchor for the CLI JWT path. Pins ``EdDSA`` (rejecting
@@ -110,13 +110,14 @@ async def _verify_access_jwt(token: str) -> tuple[str, str | None]:
         token (str): The raw JWT (already known to be JWT-shaped).
 
     Returns:
-        tuple[str, str | None]: The verified ``sub`` claim (the user id) and
-            the ``sid`` claim, or ``None`` when ``sid`` is absent/malformed.
+        tuple[str, str]: The verified ``sub`` claim (the user id) and the
+            ``sid`` claim (the minting session's row id).
 
     Raises:
         HTTPException: 401 for any verification failure (bad signature, expired,
-            wrong issuer/audience, missing claims, unknown/absent/malformed ``kid``); 503
-            (fail closed) if the JWKS cannot be fetched.
+            wrong issuer/audience, missing claims including ``sid``,
+            unknown/absent/malformed ``kid``); 503 (fail closed) if the JWKS
+            cannot be fetched.
     """
     invalid = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -166,12 +167,13 @@ async def _verify_access_jwt(token: str) -> tuple[str, str | None]:
     if not sub or not isinstance(sub, str):
         raise invalid
 
-    # sid is advisory (it only ever tightens the write path), so never fail a
-    # verified token over its shape — treat anything but a non-empty string as
-    # absent.
+    # The write path checks this against the live session row, and skips the
+    # check whenever it is absent. Treating a missing/malformed sid as "no
+    # session to check" would let a token that carries none write past a revoked
+    # session, so reject it here instead: every token this issuer mints has one.
     sid = claims.get("sid")
-    if not sid or not isinstance(sid, str):
-        sid = None
+    if not isinstance(sid, str) or not sid:
+        raise invalid
     return sub, sid
 
 
@@ -980,8 +982,10 @@ async def require_live_session(auth: _AccountAuth) -> None:
     Reads keep the JWT's offline verification (cheap, no extra hop); writes are
     higher-stakes, so a JWT credential additionally checks its ``sid`` against
     the live session row — revoking the session takes effect instantly where it
-    matters. Session-token credentials carry no ``session_id`` (introspection
-    already proved the session live) and skip the hop entirely, as do API keys.
+    matters. Verification rejects a JWT without a ``sid``, so a token can never
+    reach this check with nothing to verify. Session-token credentials carry no
+    ``session_id`` (introspection already proved the session live) and skip the
+    hop entirely, as do API keys.
 
     Depend on this alongside the stamped auth annotation on write routes; the
     inner account-auth dependency is shared with the stamped variant, so the
