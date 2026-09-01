@@ -291,6 +291,12 @@ export function generateRegistry(doc: OpenApiDocument): RegistryEntry[] {
       }
       const inputSchema = buildInputSchema(op);
       if (method === "get") {
+        // The policy vocabulary is write-only. The schema build rejects a GET
+        // that carries one, so reject it here too rather than silently
+        // dropping it and letting the two generators disagree.
+        if (tool.policy !== undefined) {
+          throw new Error(`Enabled read tool on GET ${path}: x-tool policy is write-only`);
+        }
         entries.push({
           name: tool.name,
           description: tool.description,

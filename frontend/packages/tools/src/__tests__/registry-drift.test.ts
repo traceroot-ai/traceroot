@@ -22,11 +22,13 @@ describe("committed registry", () => {
       "create_widget",
       "create_workspace",
       "export_trace",
+      "get_dashboard",
       "get_detector",
       "get_finding",
       "get_finding_by_trace",
       "get_session",
       "get_trace",
+      "list_dashboards",
       "list_detectors",
       "list_findings",
       "list_projects",
@@ -36,5 +38,25 @@ describe("committed registry", () => {
       "list_workspaces",
       "whoami",
     ]);
+  });
+
+  it("generates the dashboard reads as pure GET tools", () => {
+    const list = REGISTRY.find((entry) => entry.name === "list_dashboards")!;
+    expect(list.method).toBe("get");
+    expect(list.path).toBe("/api/v1/public/dashboards");
+    expect(list.bodyParams).toBeUndefined();
+    expect(list.policy).toBeUndefined();
+    // The only parameter is the dual-credential project scope, optional so an
+    // API key (which fixes its own project) can omit it.
+    expect(Object.keys(list.inputSchema.properties)).toEqual(["project_id"]);
+    expect(list.inputSchema.required).toEqual([]);
+
+    const get = REGISTRY.find((entry) => entry.name === "get_dashboard")!;
+    expect(get.method).toBe("get");
+    expect(get.path).toBe("/api/v1/public/dashboards/{dashboard_id}");
+    expect(get.bodyParams).toBeUndefined();
+    expect(get.policy).toBeUndefined();
+    expect(Object.keys(get.inputSchema.properties).sort()).toEqual(["dashboard_id", "project_id"]);
+    expect(get.inputSchema.required).toEqual(["dashboard_id"]);
   });
 });

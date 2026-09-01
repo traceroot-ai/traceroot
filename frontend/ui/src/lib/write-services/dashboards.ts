@@ -67,6 +67,11 @@ const widgetSchema = z.object({
 
 type Tx = Prisma.TransactionClient;
 
+/** What a create transaction returns: the caller's result plus the audit entry
+ *  to record once the transaction has committed. Writing the audit row inside
+ *  the transaction would let a failed INSERT abort it and discard the resource. */
+type TxOutcome<T> = Promise<{ result: ServiceResult<T>; audit?: AuditEntry }>;
+
 // Shared by both writes: the target project must exist (and not be
 // soft-deleted) and the actor must hold at least MEMBER in its workspace.
 async function requireProjectMember(
@@ -114,17 +119,14 @@ export async function createDashboard(input: {
   description?: string | null;
   provenance: Provenance;
 }): Promise<ServiceResult<DashboardCreated>> {
-  let audit: AuditEntry | null = null;
-  const result = await prisma.$transaction(async (tx) => {
+  const { result, audit } = await prisma.$transaction(async (tx): TxOutcome<DashboardCreated> => {
     const access = await requireProjectMember(tx, input.projectId, input.actorUserId);
-    if (!access.ok) return access;
+    if (!access.ok) return { result: access };
 
     const parsed = dashboardSchema.safeParse(input);
     if (!parsed.success) {
       return {
-        ok: false as const,
-        status: 400 as const,
-        error: parsed.error.issues[0].message,
+        result: { ok: false, status: 400, error: parsed.error.issues[0].message },
       };
     }
     const name = parsed.data.name.trim();
@@ -137,7 +139,7 @@ export async function createDashboard(input: {
       select: { id: true, name: true, projectId: true },
     });
     if (existing) {
-      return { ok: true as const, created: false, data: existing };
+      return { result: { ok: true, created: false, data: existing } };
     }
 
     const dashboard = await tx.dashboard.create({
@@ -149,20 +151,25 @@ export async function createDashboard(input: {
       },
       select: { id: true, name: true, projectId: true },
     });
-    audit = {
-      actorUserId: input.actorUserId,
-      operation: "create_dashboard",
-      resourceType: "dashboard",
-      resourceId: dashboard.id,
-      workspaceId: access.workspaceId,
-      projectId: input.projectId,
-      summary: { name },
-      transport: input.provenance.transport,
-      agentSessionId: input.provenance.agentSessionId ?? null,
+    return {
+      result: { ok: true, created: true, data: dashboard },
+      audit: {
+        actorUserId: input.actorUserId,
+        operation: "create_dashboard",
+        resourceType: "dashboard",
+        resourceId: dashboard.id,
+        workspaceId: access.workspaceId,
+        projectId: input.projectId,
+        summary: { name },
+        transport: input.provenance.transport,
+        agentSessionId: input.provenance.agentSessionId ?? null,
+      },
     };
-    return { ok: true as const, created: true, data: dashboard };
   });
-  if (audit) await writeAudit(prisma, audit);
+
+  if (audit) {
+    await writeAudit(prisma, audit);
+  }
   return result;
 }
 
@@ -176,10 +183,9 @@ export async function createWidget(input: {
   displayConfig?: Record<string, unknown>;
   provenance: Provenance;
 }): Promise<ServiceResult<WidgetCreated>> {
-  let audit: AuditEntry | null = null;
-  const result = await prisma.$transaction(async (tx) => {
+  const { result, audit } = await prisma.$transaction(async (tx): TxOutcome<WidgetCreated> => {
     const access = await requireProjectMember(tx, input.projectId, input.actorUserId);
-    if (!access.ok) return access;
+    if (!access.ok) return { result: access };
 
     // Scoped through the project so a dashboard id from another project 404s
     // instead of leaking a cross-project write.
@@ -188,15 +194,13 @@ export async function createWidget(input: {
       select: { id: true },
     });
     if (!dashboard) {
-      return { ok: false as const, status: 404 as const, error: "Dashboard not found" };
+      return { result: { ok: false, status: 404, error: "Dashboard not found" } };
     }
 
     const parsed = widgetSchema.safeParse(input);
     if (!parsed.success) {
       return {
-        ok: false as const,
-        status: 400 as const,
-        error: parsed.error.issues[0].message,
+        result: { ok: false, status: 400, error: parsed.error.issues[0].message },
       };
     }
     const title = parsed.data.title.trim();
@@ -243,19 +247,24 @@ export async function createWidget(input: {
       },
       select: { id: true, dashboardId: true, title: true, type: true },
     });
-    audit = {
-      actorUserId: input.actorUserId,
-      operation: "create_widget",
-      resourceType: "widget",
-      resourceId: widget.id,
-      workspaceId: access.workspaceId,
-      projectId: input.projectId,
-      summary: { title, type, dashboardId: input.dashboardId },
-      transport: input.provenance.transport,
-      agentSessionId: input.provenance.agentSessionId ?? null,
+    return {
+      result: { ok: true, created: true, data: widget },
+      audit: {
+        actorUserId: input.actorUserId,
+        operation: "create_widget",
+        resourceType: "widget",
+        resourceId: widget.id,
+        workspaceId: access.workspaceId,
+        projectId: input.projectId,
+        summary: { title, type, dashboardId: input.dashboardId },
+        transport: input.provenance.transport,
+        agentSessionId: input.provenance.agentSessionId ?? null,
+      },
     };
-    return { ok: true as const, created: true, data: widget };
   });
-  if (audit) await writeAudit(prisma, audit);
+
+  if (audit) {
+    await writeAudit(prisma, audit);
+  }
   return result;
 }

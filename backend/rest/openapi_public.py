@@ -131,6 +131,14 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
             op["responses"].setdefault("404", _error_response("Finding not found"))
             op["responses"].setdefault("500", _error_response("Failed to read finding"))
 
+    # Dashboard read error contract (matches the route code): the proxy passes
+    # the internal route's 404 through; ambiguity fails closed as the shared 503.
+    dashboard_get_op = (
+        schema["paths"].get("/api/v1/public/dashboards/{dashboard_id}", {}).get("get")
+    )
+    if dashboard_get_op is not None:
+        dashboard_get_op["responses"].setdefault("404", _error_response("Dashboard not found"))
+
     # Session read error contract (matches the route code).
     sessions_list_op = schema["paths"].get("/api/v1/public/sessions", {}).get("get")
     if sessions_list_op is not None:
@@ -334,6 +342,24 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         "description": (
             "Fetch one detector's full configuration by id: prompt, output schema, "
             "sample rate, RCA and detection settings, and trigger conditions."
+        ),
+        "enabled": True,
+    },
+    "list_dashboards": {
+        "name": "list_dashboards",
+        "description": (
+            "List the project's dashboards (id, name, description, default "
+            "flag, creator, widget count, timestamps). To resolve a dashboard "
+            "by name, list here and match its name — never guess a dashboard id."
+        ),
+        "enabled": True,
+    },
+    "get_dashboard": {
+        "name": "get_dashboard",
+        "description": (
+            "Fetch one dashboard with its widgets (id, title, type, query "
+            "spec, creation time). Resolve the dashboard id by listing the "
+            "project's dashboards and matching the name — never guess an id."
         ),
         "enabled": True,
     },
