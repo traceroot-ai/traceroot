@@ -16,7 +16,6 @@ repos:
       - id: trailing-whitespace
       - id: check-toml
       - id: check-yaml
-        exclude: ^deploy/helm/templates/
 
   # Python: Ruff (lint + format)
   - repo: https://github.com/astral-sh/ruff-pre-commit
