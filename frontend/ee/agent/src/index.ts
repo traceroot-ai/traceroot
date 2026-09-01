@@ -62,7 +62,14 @@ app.post("/api/v1/projects/:projectId/sessions", async (c) => {
   // an execution: confirm it exists under this project before storing it. A
   // malformed id is rejected here rather than surfacing later as an FK error
   // on the session's first message.
-  if (body.executionId && !(await executionBelongsToProject(prisma, body.executionId, projectId))) {
+  // Normalise before validating: an empty string is falsy, so a truthiness
+  // guard would skip the check AND store "", which then fails the foreign key
+  // on the session's first message instead of returning this 400.
+  const executionId =
+    typeof body.executionId === "string" && body.executionId.trim() !== ""
+      ? body.executionId
+      : undefined;
+  if (executionId && !(await executionBelongsToProject(prisma, executionId, projectId))) {
     return c.json({ error: "executionId does not belong to this project" }, 400);
   }
 
@@ -71,7 +78,7 @@ app.post("/api/v1/projects/:projectId/sessions", async (c) => {
     workspaceId,
     userId, // undefined → stored as null for system/RCA sessions
     title: body.title,
-    executionId: body.executionId,
+    executionId,
   });
   return c.json(session, 201);
 });
