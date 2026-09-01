@@ -7,9 +7,11 @@ fresh session needs to pick the work up.
 
 Every run of a TraceRoot-operated agent — automatic RCA, follow-up and manual
 chat, the worker's digest-summary call — becomes a trace in the customer's own
-project, stored under `source='agent'`, reachable from the finding that produced
-it. Internal traces cannot re-trigger a detector and never appear in a customer's
-trace list.
+project, reachable from the finding that produced it. The agent service's runs
+land under `source='agent'`; the worker's digest-summary call authenticates with
+the platform secret and therefore lands under `source='detector'` (source is
+derived from the credential — rule 1 below). Internal traces cannot re-trigger a
+detector and never appear in a customer's trace list.
 
 Design: [design doc](https://claude.ai/code/artifact/8ef0e8c7-113a-43b5-add5-83d354ffd3af)
 · [implementation notes](https://claude.ai/code/artifact/6233ce7a-d738-48c4-9dd0-f294f3eb1f33)
