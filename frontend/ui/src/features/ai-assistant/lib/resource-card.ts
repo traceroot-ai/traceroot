@@ -18,6 +18,8 @@
 
 import { DETECTOR_TEMPLATES } from "@/features/detectors/templates";
 import { triggerFieldDef, triggerOpLabel } from "@/features/detectors/trigger-fields";
+import { DEFAULT_RANGE_LABEL } from "@/features/dashboards/range-presets";
+import { parseSpec, type WidgetSpec } from "@/features/dashboards/types";
 import { resourceCreatedDetails, type ResourceCreatedDetails } from "./resource-navigation";
 import type { AIMessage, ToolCallStep } from "../types";
 
@@ -39,12 +41,23 @@ export interface ReceiptRow {
 }
 
 /**
+ * What a widget card needs to draw the widget itself: the spec the model asked
+ * for and the project to run it against. Null on a card that has no chart to
+ * draw — a trace feed, a spec the widget schema rejects, or details that never
+ * said which project the widget landed in.
+ */
+export interface WidgetChart {
+  projectId: string;
+  spec: WidgetSpec;
+}
+
+/**
  * The card body for each resource type. The dashboard body is deliberately
  * empty: its name and widget count sit in the header, and the scaled-down grid
  * that fills it is a separate change.
  */
 export type ResourceCardBody =
-  | { kind: "widget"; chips: string[] }
+  | { kind: "widget"; chips: string[]; chart: WidgetChart | null }
   | { kind: "dashboard" }
   | { kind: "receipt"; rows: ReceiptRow[] }
   | { kind: "detector"; chips: string[] };
@@ -126,6 +139,28 @@ function widgetChips(args: Record<string, unknown>): string[] {
 }
 
 /**
+ * What the card needs to draw the widget the model just created, or null when
+ * it can't be drawn. The spec goes through the dashboard's own schema, so the
+ * preview runs exactly the spec a dashboard tile would — a trace feed's spec
+ * (rows and filters, no view or metric) fails that parse, which is why a feed
+ * card keeps its chips and never queries.
+ *
+ * The project comes from the structured details, not the arguments: it is the
+ * scope the write actually landed in, and a query is aimed by it.
+ */
+function widgetChart(
+  args: Record<string, unknown>,
+  details: ResourceCreatedDetails,
+): WidgetChart | null {
+  // Not str(): this id addresses a request rather than being printed, so it is
+  // checked but never capped.
+  const projectId = typeof details.projectId === "string" ? details.projectId.trim() : "";
+  if (projectId === "") return null;
+  const spec = parseSpec(args.spec);
+  return spec === null ? null : { projectId, spec };
+}
+
+/**
  * One trigger condition in the detector editor's own vocabulary ("Latency ≥
  * 30000"), or null when the condition is not the shape the editor writes.
  */
@@ -191,7 +226,8 @@ function body(
 ): ResourceCardBody {
   switch (resourceType) {
     case "widget":
-      return { kind: "widget", chips: args === null ? [] : widgetChips(args) };
+      if (args === null) return { kind: "widget", chips: [], chart: null };
+      return { kind: "widget", chips: widgetChips(args), chart: widgetChart(args, details) };
     case "dashboard":
       return { kind: "dashboard" };
     case "detector":
@@ -224,7 +260,11 @@ export function resourceCardModel(
   const displayName =
     args === null ? null : (str(args.title, MAX_TITLE_CHARS) ?? str(args.name, MAX_TITLE_CHARS));
 
+  const cardBody = body(resourceType, args, details);
+
   const meta: string[] = [RESOURCE_TYPE_LABELS[resourceType]];
+  // A chart is a number without context until the window it covers is named.
+  if (cardBody.kind === "widget" && cardBody.chart !== null) meta.push(DEFAULT_RANGE_LABEL);
   if (resourceType === "dashboard") {
     const widgetCount = widgetsByDashboard?.get(details.resourceId)?.length ?? 0;
     if (widgetCount > 0) meta.push(widgetCount === 1 ? "1 widget" : `${widgetCount} widgets`);
@@ -240,7 +280,7 @@ export function resourceCardModel(
     created: details.created !== false,
     title: displayName ?? details.resourceId,
     meta,
-    body: body(resourceType, args, details),
+    body: cardBody,
   };
 }
 
