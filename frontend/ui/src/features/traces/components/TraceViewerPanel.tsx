@@ -553,22 +553,22 @@ export function TraceViewerPanel({
                 when embedded — the assistant it toggles is outside this
                 container. */}
             {!embedded && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setAiContext(traceOverride ? null : { traceId });
-                // Bot button always opens a fresh chat; an active RCA session
-                // would otherwise hijack the next message into the worker's
-                // session instead of starting a new one.
-                setAiInitialSessionId(undefined);
-                setAiPanelOpen(!aiPanelOpen);
-              }}
-              className="h-7 w-7 p-0"
-              title="AI Assistant"
-            >
-              <DOMAIN_ICONS.assistant className="h-4 w-4" />
-            </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setAiContext(traceOverride ? null : { traceId });
+                  // Bot button always opens a fresh chat; an active RCA session
+                  // would otherwise hijack the next message into the worker's
+                  // session instead of starting a new one.
+                  setAiInitialSessionId(undefined);
+                  setAiPanelOpen(!aiPanelOpen);
+                }}
+                className="h-7 w-7 p-0"
+                title="AI Assistant"
+              >
+                <DOMAIN_ICONS.assistant className="h-4 w-4" />
+              </Button>
             )}
             <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0">
               <X className="h-4 w-4" />

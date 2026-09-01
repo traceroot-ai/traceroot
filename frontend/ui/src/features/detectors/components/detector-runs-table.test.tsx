@@ -186,7 +186,11 @@ describe("DetectorRunsTable", () => {
     const onRunClick = vi.fn();
     const onTraceClick = vi.fn();
     const onFindingClick = vi.fn();
-    const run = { ...triggeredRun, self_traced: true, execution_trace_status: "available" as const };
+    const run = {
+      ...triggeredRun,
+      self_traced: true,
+      execution_trace_status: "available" as const,
+    };
     render(
       <DetectorRunsTable
         rows={[run]}

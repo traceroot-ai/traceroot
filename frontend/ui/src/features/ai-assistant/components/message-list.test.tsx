@@ -2,7 +2,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
-vi.mock("react-markdown", () => ({ default: ({ children }: { children: string }) => <>{children}</> }));
+vi.mock("react-markdown", () => ({
+  default: ({ children }: { children: string }) => <>{children}</>,
+}));
 vi.mock("remark-gfm", () => ({ default: () => {} }));
 
 import { MessageList } from "./message-list";
