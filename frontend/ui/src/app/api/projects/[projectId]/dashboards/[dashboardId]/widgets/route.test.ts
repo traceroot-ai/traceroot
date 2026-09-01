@@ -11,20 +11,34 @@ const dashboardFindFirstMock = vi.fn();
 const dashboardUpdateMock = vi.fn();
 const widgetCreateMock = vi.fn();
 const queryRawMock = vi.fn();
+const transactionMock = vi.fn();
+// Any write that reaches the root client instead of the transaction.
+const outsideTransactionMock = vi.fn();
 
 vi.mock("@traceroot/core", () => {
+  // The transaction client is a DIFFERENT object from `prisma`, and only it
+  // carries the write spies. A write issued outside the transaction lands on
+  // outsideTransactionMock instead, so dropping the $transaction wrapper
+  // fails this suite rather than silently releasing the row lock at
+  // autocommit — which is the whole point of taking the lock.
+  const tx = {
+    dashboard: { update: (...args: unknown[]) => dashboardUpdateMock(...args) },
+    widget: { create: (...args: unknown[]) => widgetCreateMock(...args) },
+    $queryRaw: (...args: unknown[]) => queryRawMock(...args),
+  };
   const client = {
     dashboard: {
       findFirst: (...args: unknown[]) => dashboardFindFirstMock(...args),
-      update: (...args: unknown[]) => dashboardUpdateMock(...args),
+      update: (...args: unknown[]) => outsideTransactionMock("dashboard.update", ...args),
     },
     widget: {
-      create: (...args: unknown[]) => widgetCreateMock(...args),
+      create: (...args: unknown[]) => outsideTransactionMock("widget.create", ...args),
     },
-    $queryRaw: (...args: unknown[]) => queryRawMock(...args),
-    // The route's writes run in one transaction; the mock hands the same
-    // client to the callback so every call lands on the same spies.
-    $transaction: (fn: (tx: unknown) => unknown) => fn(client),
+    $queryRaw: (...args: unknown[]) => outsideTransactionMock("$queryRaw", ...args),
+    $transaction: (fn: (tx: unknown) => unknown) => {
+      transactionMock();
+      return fn(tx);
+    },
   };
   return { Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" }, prisma: client };
 });
@@ -44,6 +58,7 @@ vi.mock("@/lib/auth-helpers", () => ({
   }),
 }));
 
+import { WIDGET_TYPES } from "@/features/dashboards/types";
 import { POST } from "./route";
 
 function makeRequest(body?: unknown) {
@@ -87,6 +102,8 @@ beforeEach(() => {
   dashboardUpdateMock.mockReset();
   widgetCreateMock.mockReset();
   queryRawMock.mockReset();
+  transactionMock.mockReset();
+  outsideTransactionMock.mockReset();
   // Default: the locking read finds an empty layout.
   queryRawMock.mockResolvedValue([{ layout: [] }]);
   requireAuthMock.mockReset();
@@ -328,6 +345,33 @@ describe("POST /dashboards/[dashboardId]/widgets", () => {
     expect(widgetCreateMock.mock.invocationCallOrder[0]).toBeLessThan(
       dashboardUpdateMock.mock.invocationCallOrder[0],
     );
+  });
+
+  it("runs the lock, the insert and the layout write in one transaction", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    widgetCreateMock.mockResolvedValue(fakeWidget);
+
+    await POST(makeRequest({ title: "W", type: "query", spec: {} }), makeParams());
+    expect(transactionMock).toHaveBeenCalledTimes(1);
+    // Every write went through the transaction client, none to the root one:
+    // a lock taken outside the transaction is released at autocommit and
+    // serializes nothing.
+    expect(outsideTransactionMock).not.toHaveBeenCalled();
+    expect(queryRawMock).toHaveBeenCalledTimes(1);
+    expect(widgetCreateMock).toHaveBeenCalledTimes(1);
+    expect(dashboardUpdateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a type outside the shared widget-type list, naming the allowed ones", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    const res = (await POST(
+      makeRequest({ title: "W", type: "detector", spec: {} }),
+      makeParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe(`type must be one of ${WIDGET_TYPES.join(", ")}`);
+    expect(widgetCreateMock).not.toHaveBeenCalled();
   });
 
   it("neither locks nor rewrites the layout when the body is rejected", async () => {

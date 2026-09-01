@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { WIDGET_TYPES } from "./types";
 import { appendWidgetPlacement } from "./widget-placement";
 
 const query = { id: "w-new", type: "query" as const };
@@ -77,6 +78,16 @@ describe("appendWidgetPlacement", () => {
       { i: "w1", x: 0, y: 0, w: 6, h: 4 },
       { i: "w-new", x: 6, y: 0, w: 6, h: 4 },
     ]);
+  });
+
+  // The type union and this table come from one list, so a new widget kind is
+  // a compile error here rather than a crash on the first create. This is the
+  // runtime half of that guard.
+  it.each(WIDGET_TYPES)("has a default tile size for widget type %s", (type) => {
+    const [placement] = appendWidgetPlacement([], { id: "w-new", type }) ?? [];
+    expect(placement).toMatchObject({ i: "w-new", x: 0, y: 0 });
+    expect(placement.w).toBeGreaterThan(0);
+    expect(placement.h).toBeGreaterThan(0);
   });
 
   it("treats a layout that is not an array as empty", () => {
