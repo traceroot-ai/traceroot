@@ -347,6 +347,61 @@ describe("POST /dashboards/[dashboardId]/widgets", () => {
     );
   });
 
+  // Same vocabulary gate as the API/agent write path: a spec naming fields the
+  // registry doesn't know stores fine and then fails at query time forever.
+  it("rejects a query spec the field registry doesn't know, listing the valid options", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    const res = (await POST(
+      makeRequest({
+        title: "W",
+        type: "query",
+        spec: {
+          view: "spans",
+          filters: [],
+          metric: { measure: "spans", agg: "count" },
+          breakdown: null,
+          display: { type: "number" },
+        },
+      }),
+      makeParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/^unknown measure "spans" for view "spans" — valid measures: /);
+    expect(widgetCreateMock).not.toHaveBeenCalled();
+    expect(transactionMock).not.toHaveBeenCalled();
+  });
+
+  it("stores a builder-shaped query spec the registry knows", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    widgetCreateMock.mockResolvedValue(fakeWidget);
+    const spec = {
+      view: "spans",
+      filters: [{ field: "span_kind", op: "=", value: "LLM" }],
+      metric: { measure: "duration_ms", agg: "p95" },
+      breakdown: "model_name",
+      display: { type: "bar" },
+    };
+    const res = (await POST(
+      makeRequest({ title: "W", type: "query", spec }),
+      makeParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(201);
+    // Stored as sent — the route validates the vocabulary without rewriting.
+    const data = (widgetCreateMock.mock.calls[0][0] as { data: Record<string, unknown> }).data;
+    expect(data.spec).toEqual(spec);
+  });
+
+  it("leaves trace_feed specs to their own validation", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    widgetCreateMock.mockResolvedValue(fakeWidget);
+    const res = (await POST(
+      makeRequest({ title: "W", type: "trace_feed", spec: { metric: { measure: "spans" } } }),
+      makeParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(201);
+  });
+
   it("runs the lock, the insert and the layout write in one transaction", async () => {
     dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
     widgetCreateMock.mockResolvedValue(fakeWidget);

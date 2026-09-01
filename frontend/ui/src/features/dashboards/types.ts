@@ -31,6 +31,11 @@ export type WidgetType = (typeof WIDGET_TYPES)[number];
 export const isWidgetType = (value: unknown): value is WidgetType =>
   (WIDGET_TYPES as readonly unknown[]).includes(value);
 
+// The write API's rejection message. Its wording is part of that API's error
+// contract, but the type names come from the list above so a new kind can
+// never leave it naming the wrong set.
+export const WIDGET_TYPE_MESSAGE = `type must be ${WIDGET_TYPES.map((t) => `"${t}"`).join(" or ")}`;
+
 export const AGGS = ["count", "sum", "avg", "min", "max", "p50", "p95", "p99"] as const;
 
 export const WidgetFilterSchema = z.object({
