@@ -28,8 +28,8 @@ main
                └── #2070  executions   14   open
                     └── #2071  attribution  29      draft
                          └── #2072  emit    44      draft   ← the risky one
-                              └── #2073  ui  53     draft
-                                   └── #2074  span-focus  57  draft
+                              └── #2082  ui  53     draft   (replaces #2073, auto-closed by GitHub during a force-push)
+                                   └── #2083  span-focus  57  draft   (replaces #2074, same)
 
 #2075  digest       2 commits  open   ← base main, independent, mergeable today
 feat/agent-trace-all  59 commits      ← integration reference, not a PR
@@ -49,7 +49,7 @@ git diff --stat verify/sum feat/agent-trace-all   # expect only HANDOFF*.md + sc
 ## Why each PR is a draft
 
 - **#2068** — touches `BillingTab.tsx`; the user wants UX reviewed before it opens.
-- **#2071–#2074** — same reason, plus #2071 currently carries 10 commits from
+- **#2071, #2072, #2082, #2083** — same reason, plus #2071 currently carries 10 commits from
   #1960/#1961 (see below).
 - **#2072** — additionally blocked: two commits pin `@traceroot-ai/traceroot` to
   a **local `file:` tarball**. 0.4.0 has the instrumentation but is not on npm
@@ -107,7 +107,7 @@ introduced a subtler version of the same bug, so **re-check for new comments
 after pushing**:
 
 ```bash
-for n in 2067 2068 2069 2070 2071 2072 2073 2074 2075; do
+for n in 2067 2068 2069 2070 2071 2072 2082 2083 2075; do
   gh api "repos/traceroot-ai/traceroot/pulls/$n/comments" --paginate 2>/dev/null | python3 -c "
 import json,sys
 cs=json.load(sys.stdin)
@@ -138,7 +138,7 @@ done
   `@traceroot-ai/tools` release.
 - **traceroot-ts#150** — carries two asks: publish 0.4.0, and add a side channel
   reporting `{ toolCallId, spanId, exitCode? }` per tool span. Without it a tool
-  step cannot deep-link to its span (that is why #2074's SDK half is still open)
+  step cannot deep-link to its span (that is why #2083's (né #2074) SDK half is still open)
   and a withheld-output step records no exit status.
 
 ## Open design questions (in the doc, none blocking)
