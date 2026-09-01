@@ -5,7 +5,9 @@ import {
   DASHBOARD_DESCRIPTION_MAX,
   DASHBOARD_NAME_MAX,
   WIDGET_TITLE_MAX,
+  WIDGET_TYPES,
   WidgetSpecSchema,
+  type WidgetType,
 } from "@/features/dashboards/types";
 import { parseTraceFeedSpec } from "@/features/dashboards/trace-feed-spec";
 import { validateWidgetSpecVocabulary } from "@/features/dashboards/widget-spec-vocabulary";
@@ -60,10 +62,9 @@ const dashboardSchema = z.object({
 
 const widgetSchema = z.object({
   title: boundedName("title", WIDGET_TITLE_MAX),
-  type: z.union(
-    [z.literal("query"), z.literal("trace_feed")],
-    'type must be "query" or "trace_feed"',
-  ),
+  // Values from the shared list; the wording stays hand-written because it is
+  // part of the public API's error contract.
+  type: z.enum(WIDGET_TYPES, 'type must be "query" or "trace_feed"'),
   // Shape check only here (a JSON object, matching the cookie widgets route);
   // the deep check against the canonical widget spec schema follows in
   // createWidget, so the create paths share one rule set instead of each
@@ -161,7 +162,7 @@ export async function createWidget(input: {
   projectId: string;
   dashboardId: string;
   title: string;
-  type: "query" | "trace_feed";
+  type: WidgetType;
   spec: Record<string, unknown>;
   displayConfig?: Record<string, unknown>;
   provenance: Provenance;

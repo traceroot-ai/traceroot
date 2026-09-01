@@ -5,6 +5,7 @@
 
 import type { Prisma } from "@prisma/client";
 import { appendWidgetPlacement } from "@/features/dashboards/widget-placement";
+import type { WidgetType } from "@/features/dashboards/types";
 
 type Tx = Pick<Prisma.TransactionClient, "dashboard" | "$queryRaw">;
 
@@ -32,7 +33,7 @@ type Tx = Pick<Prisma.TransactionClient, "dashboard" | "$queryRaw">;
  */
 export async function createWidgetWithPlacement<T extends { id: string }>(
   tx: Tx,
-  widget: { dashboardId: string; type: "query" | "trace_feed" },
+  widget: { dashboardId: string; type: WidgetType },
   createWidget: () => Promise<T>,
 ): Promise<T> {
   // Raw because Prisma has no row-lock API. Column and table names are the

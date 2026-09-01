@@ -5,6 +5,8 @@
 // narrow column forever. Creating a widget therefore also writes it a real
 // placement.
 
+import type { WidgetType } from "./types";
+
 export type WidgetPlacement = { i: string; x: number; y: number; w: number; h: number };
 
 // Mirrors DashboardGrid's 12-column grid: tiles are half-width, two per row.
@@ -14,7 +16,9 @@ const SLOT_X = [0, SLOT_W];
 
 // Starting tile sizes in grid units, following the seeded dashboard's
 // proportions — a feed needs more rows than a chart to show a useful list.
-const DEFAULT_SIZE: Record<"query" | "trace_feed", { w: number; h: number }> = {
+// Keyed by WidgetType: a new widget kind doesn't compile until it has a size
+// here, rather than crashing on the first create.
+const DEFAULT_SIZE: Record<WidgetType, { w: number; h: number }> = {
   query: { w: SLOT_W, h: 4 },
   trace_feed: { w: SLOT_W, h: 6 },
 };
@@ -53,7 +57,7 @@ const overlaps = (a: WidgetPlacement, b: WidgetPlacement) =>
  */
 export function appendWidgetPlacement(
   layout: unknown,
-  widget: { id: string; type: "query" | "trace_feed" },
+  widget: { id: string; type: WidgetType },
 ): WidgetPlacement[] | null {
   const entries = (Array.isArray(layout) ? layout : [])
     .map(asPlacement)
