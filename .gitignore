@@ -194,6 +194,8 @@ traceroot.db
 /certs/
 test-results/
 web/test-results/*
+# Per-run transcripts from the agent eval harness
+frontend/ee/agent/evals/.results/
 
 # ===================
 # System Files
