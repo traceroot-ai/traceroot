@@ -200,10 +200,15 @@ export class AgentClient {
     const parser = createSseParser();
     const decoder = new TextDecoder();
     const reader = body.getReader();
-    let complete = false;
+    // `agent_end` ends the run and is the last frame the service actually
+    // sends; `done` is kept because index.ts still tries to write one.
+    let ended = false;
+    // `turn_end` alone is enough to accept a clean close: the run finished
+    // even if the stream was cut before its final frame.
+    let sawTurnEnd = false;
 
     try {
-      while (!complete) {
+      while (!ended) {
         const chunk = await reader.read();
         if (chunk.done) break;
 
@@ -214,19 +219,28 @@ export class AgentClient {
           if (frame.event === "error") {
             throw new AgentTurnError(`agent reported: ${errorEventMessage(data)}`);
           }
-          if (frame.event === "done") {
-            complete = true;
+
+          // Accumulate before terminating, so the frames carrying the tool
+          // calls and the answer text are never dropped on the way out.
+          applyEvent(turn, frame.event, data);
+
+          if (frame.event === "turn_end") sawTurnEnd = true;
+          if (frame.event === "agent_end" || frame.event === "done") {
+            ended = true;
             break;
           }
-          applyEvent(turn, frame.event, data);
         }
       }
     } finally {
       await reader.cancel().catch(() => {});
     }
 
-    if (!complete) {
-      throw new AgentTurnError("the SSE stream ended before the agent emitted done");
+    // A close with no terminal signal at all means the turn was cut short —
+    // scoring whatever partial work arrived would be worse than failing.
+    if (!ended && !sawTurnEnd) {
+      throw new AgentTurnError(
+        "the SSE stream closed without agent_end, turn_end or done — the turn did not finish",
+      );
     }
     return turn;
   }

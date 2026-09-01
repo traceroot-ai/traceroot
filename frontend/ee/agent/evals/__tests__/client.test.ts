@@ -29,6 +29,45 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+const frame = (event: string, data: unknown) =>
+  `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+
+const textDelta = (delta: string) =>
+  frame("message_update", {
+    type: "message_update",
+    assistantMessageEvent: { type: "text_delta", delta },
+  });
+
+/**
+ * One real turn, reproducing the event census captured from the running
+ * service: agent_start 1, turn_start 1, message_start 2, message_update 4,
+ * message_end 2, turn_end 1, agent_end 1 — and no `done` frame anywhere.
+ * The stream simply closes after agent_end.
+ */
+const REAL_TURN_STREAM = [
+  frame("agent_start", { type: "agent_start" }),
+  frame("turn_start", { type: "turn_start" }),
+  frame("message_start", { type: "message_start", message: { role: "assistant" } }),
+  frame("message_update", {
+    type: "message_update",
+    assistantMessageEvent: { type: "thinking_delta", delta: "considering" },
+  }),
+  textDelta("Added "),
+  frame("message_end", {
+    type: "message_end",
+    message: { model: "claude-sonnet-4-5", stopReason: "endTurn", usage: { input: 10, output: 4 } },
+  }),
+  frame("message_start", { type: "message_start", message: { role: "assistant" } }),
+  textDelta("the failure "),
+  textDelta("detector."),
+  frame("message_end", {
+    type: "message_end",
+    message: { model: "claude-sonnet-4-5", stopReason: "endTurn", usage: { input: 12, output: 6 } },
+  }),
+  frame("turn_end", { type: "turn_end", toolResults: [] }),
+  frame("agent_end", { type: "agent_end", messages: [] }),
+].join("");
+
 function makeClient(fetchImpl: ReturnType<typeof vi.fn>) {
   return new AgentClient({
     baseUrl: "http://agent.test",
@@ -201,6 +240,106 @@ describe("AgentClient.sendMessage", () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ error: "session not found" }, 404));
     await expect(makeClient(fetchImpl).sendMessage("proj-1", "sess-1", "hi")).rejects.toThrow(
       /404/,
+    );
+  });
+
+  it("completes on the real stream, which ends at agent_end and never emits done", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(sseResponse([REAL_TURN_STREAM]));
+
+    const turn = await makeClient(fetchImpl).sendMessage("proj-1", "sess-1", "Add a detector.");
+
+    expect(turn.assistantText).toBe("Added the failure detector.");
+    expect(turn.events.at(-1)?.event).toBe("agent_end");
+    expect(turn.events.filter((event) => event.event === "done")).toEqual([]);
+    // The census counts, so a fixture edit cannot quietly stop being the real shape.
+    const census = turn.events.reduce<Record<string, number>>((counts, event) => {
+      counts[event.event] = (counts[event.event] ?? 0) + 1;
+      return counts;
+    }, {});
+    expect(census).toEqual({
+      agent_start: 1,
+      turn_start: 1,
+      message_start: 2,
+      message_update: 4,
+      message_end: 2,
+      turn_end: 1,
+      agent_end: 1,
+    });
+  });
+
+  it("captures tool calls on a stream that terminates at agent_end", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      sseResponse([
+        frame("tool_execution_start", {
+          type: "tool_execution_start",
+          toolCallId: "tc-1",
+          toolName: "create_detector",
+          args: { name: "Failures", template: "failure" },
+        }),
+        frame("tool_execution_end", {
+          type: "tool_execution_end",
+          toolCallId: "tc-1",
+          toolName: "create_detector",
+          result: { content: [{ type: "text", text: "Created detector" }] },
+          isError: false,
+        }),
+        textDelta("Done."),
+        frame("agent_end", { type: "agent_end", messages: [] }),
+      ]),
+    );
+
+    const turn = await makeClient(fetchImpl).sendMessage("proj-1", "sess-1", "hi");
+
+    expect(turn.toolCalls).toEqual([
+      {
+        toolCallId: "tc-1",
+        name: "create_detector",
+        args: { name: "Failures", template: "failure" },
+      },
+    ]);
+    expect(turn.toolResults[0]?.isError).toBe(false);
+    expect(turn.assistantText).toBe("Done.");
+  });
+
+  it("completes on a clean close after turn_end, even without agent_end", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      sseResponse([
+        `event: message_update\ndata: ${JSON.stringify({
+          type: "message_update",
+          assistantMessageEvent: { type: "text_delta", delta: "partial" },
+        })}\n\n`,
+        `event: turn_end\ndata: ${JSON.stringify({ type: "turn_end", toolResults: [] })}\n\n`,
+      ]),
+    );
+
+    const turn = await makeClient(fetchImpl).sendMessage("proj-1", "sess-1", "hi");
+    expect(turn.assistantText).toBe("partial");
+  });
+
+  it("still accepts a done frame, so a future build that emits one keeps working", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(
+        sseResponse([`event: agent_start\ndata: {}\n\n`, "event: done\ndata: {}\n\n"]),
+      );
+
+    await expect(
+      makeClient(fetchImpl).sendMessage("proj-1", "sess-1", "hi"),
+    ).resolves.toMatchObject({ sessionId: "sess-1" });
+  });
+
+  it("fails on an error frame even after a terminal signal already arrived", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(
+        sseResponse([
+          `event: turn_end\ndata: ${JSON.stringify({ type: "turn_end" })}\n\n`,
+          `event: error\ndata: ${JSON.stringify({ message: "provider exploded" })}\n\n`,
+        ]),
+      );
+
+    await expect(makeClient(fetchImpl).sendMessage("proj-1", "sess-1", "hi")).rejects.toThrow(
+      /provider exploded/,
     );
   });
 
