@@ -1,3 +1,4 @@
+import { REGISTRY } from "@traceroot-ai/tools";
 import type {
   CreatedRows,
   EvalPrisma,
@@ -19,10 +20,41 @@ export function toolCallsNamed(turns: TurnTranscript[], name: string): EvalToolC
   return turns.flatMap((turn) => turn.toolCalls).filter((call) => call.name === name);
 }
 
+/** Every registry tool that changes state, so a read-only turn still counts as "no write". */
+const WRITE_TOOL_NAMES = new Set(
+  REGISTRY.filter((entry) => entry.method !== "get").map((entry) => entry.name),
+);
+
+/** How much of the agent's answer a failure message quotes. */
+const ANSWER_EXCERPT_CHARS = 240;
+
+function excerptOf(text: string): string {
+  const collapsed = text.replace(/\s+/g, " ").trim();
+  if (collapsed.length <= ANSWER_EXCERPT_CHARS) return collapsed;
+  return `${collapsed.slice(0, ANSWER_EXCERPT_CHARS)}…`;
+}
+
+/**
+ * Why `name` produced no call.
+ *
+ * An agent that answered without writing anything asked instead of acting —
+ * a scenario-design problem, not the broken tool a bare "was never called"
+ * implies. Quoting the answer tells the two apart without opening the
+ * transcript.
+ */
+function neverCalledMessage(turns: TurnTranscript[], name: string): string {
+  const answer = assistantText(turns).trim();
+  const wrote = turns.some((turn) =>
+    turn.toolCalls.some((call) => WRITE_TOOL_NAMES.has(call.name)),
+  );
+  if (wrote || answer.length === 0) return `${name} was never called`;
+  return `${name} was never called: the agent answered without calling any write tool — "${excerptOf(answer)}"`;
+}
+
 /** The one call to `name`; fails when the model made none or several. */
 export function onlyToolCall(turns: TurnTranscript[], name: string): EvalToolCall {
   const calls = toolCallsNamed(turns, name);
-  expectThat(calls.length > 0, `${name} was never called`);
+  expectThat(calls.length > 0, neverCalledMessage(turns, name));
   expectThat(calls.length === 1, `${name} was called ${calls.length} times; expected exactly one`);
   return calls[0]!;
 }

@@ -84,8 +84,18 @@ export const SCENARIOS: Scenario[] = [
   },
   {
     // The mirror image: genuinely custom instructions must survive verbatim.
+    //
+    // Two turns, in one session. The opening ask is genuinely ambiguous — a
+    // judged prompt that says "over 30 seconds" and a hard numeric trigger on
+    // duration_ms are different detectors — so asking which one is correct
+    // behavior, and the follow-up picks the prompt. Every other scenario stays
+    // single-turn on purpose: an unambiguous ask should produce action, and a
+    // canned follow-up everywhere would hide an agent that asks needlessly.
     name: "custom-detector",
-    messages: ["Add a failure detector that only flags timeouts over 30 seconds."],
+    messages: [
+      "Add a failure detector that only flags timeouts over 30 seconds.",
+      "Go with the custom prompt — write the instructions so it only flags timeouts over 30 seconds.",
+    ],
     assert: (ctx) => {
       const call = onlyToolCall(ctx.turns, "create_detector");
       const prompt = call.args.prompt;
