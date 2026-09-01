@@ -18,6 +18,8 @@ import { ChevronRight, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { AIMessage, ToolCallStep } from "../types";
 import { PANEL_MAX_WIDTH } from "../constants";
+import { createdWidgetsByDashboard, resourceCardModel } from "../lib/resource-card";
+import { ResourceCard } from "./resource-card";
 
 // ---------------------------------------------------------------------------
 // Lightweight markdown normalization for streamed, partial content.
@@ -478,6 +480,9 @@ export function MessageList({ messages, sessionStreaming = false }: MessageListP
   const userScrolledRef = useRef(false);
   const [panelWidth, setPanelWidth] = useState(400);
   const isStreaming = messages.some((m) => m.isStreaming);
+  // A dashboard's widget count lives nowhere in its own call — the widgets are
+  // separate calls that land after it — so it is read back off the transcript.
+  const widgetsByDashboard = useMemo(() => createdWidgetsByDashboard(messages), [messages]);
   // True when the session is active but no text bubble is open - the LLM is processing
   // a tool result before it starts writing its next response.
   const isWaiting = sessionStreaming && !isStreaming;
@@ -541,11 +546,19 @@ export function MessageList({ messages, sessionStreaming = false }: MessageListP
       <div ref={innerRef}>
         {messages.map((msg) => {
           if (msg.role === "tool_step" && msg.toolStep) {
+            // A write that created something we can show becomes its card; every
+            // other step — and every write we can't read a resource out of —
+            // keeps the plain expandable tool line.
+            const card = resourceCardModel(msg.toolStep, widgetsByDashboard);
             return (
               <AnimatedItem key={msg.id}>
                 <div className="flex justify-start">
                   <div className="min-w-0" style={{ maxWidth: bubbleMaxWidth }}>
-                    <ToolStepItem step={msg.toolStep} isActive={msg.id === activeToolStepId} />
+                    {card ? (
+                      <ResourceCard model={card} />
+                    ) : (
+                      <ToolStepItem step={msg.toolStep} isActive={msg.id === activeToolStepId} />
+                    )}
                   </div>
                 </div>
               </AnimatedItem>
