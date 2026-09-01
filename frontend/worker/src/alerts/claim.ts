@@ -73,10 +73,19 @@ function nextRunAtCase(tick: AlertTick): Prisma.Sql {
  *
  * `FOR UPDATE SKIP LOCKED` replaces the per-row CAS on `lastClaimedAt` as the mutex,
  * and it has to sit in its own scan because a locking clause cannot share a query
- * level with a window function. Overlapping ticks pass over each other's rows rather
- * than blocking on them; the loser simply claims fewer than the budget, which is what
- * losing the CAS already cost it. `MATERIALIZED` so the lock is taken once, over the
+ * level with a window function. `MATERIALIZED` so the lock is taken once, over the
  * chosen set, rather than folded back into the `UPDATE`.
+ *
+ * `locked` repeats the `due` predicate rather than trusting `picked`'s membership:
+ * `picked` was read from a snapshot taken at the *start* of this statement, and
+ * SKIP LOCKED alone only excludes a row a concurrent tick is still holding, not one
+ * a concurrent tick already claimed and committed before this statement reached its
+ * own lock. Postgres re-evaluates a `FOR UPDATE` query's own WHERE clause against the
+ * row's latest committed version before granting the lock (`READ COMMITTED`'s
+ * `EvalPlanQual`) — so restating the predicate here, on the exact scan doing the
+ * locking, is what makes a row an intervening commit already re-armed drop out,
+ * rather than being claimed a second time on top of it. Losing that race costs a
+ * tick fewer than the budget, same as losing the old CAS did.
  *
  * `"window"` and `"view"` are quoted because both are reserved words.
  */
@@ -105,7 +114,11 @@ function claimStatement(tick: AlertTick): Prisma.Sql {
       LIMIT ${ALERT_CLAIM_LIMIT}
     ),
     locked AS MATERIALIZED (
-      SELECT id FROM alerts WHERE id IN (SELECT id FROM picked) FOR UPDATE SKIP LOCKED
+      SELECT id FROM alerts
+      WHERE id IN (SELECT id FROM picked)
+        AND status = ${ACTIVE}
+        AND (next_run_at IS NULL OR next_run_at <= ${utc(tick.now)})
+      FOR UPDATE SKIP LOCKED
     )
     UPDATE alerts SET
       last_claimed_at = ${utc(tick.now)},

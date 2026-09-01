@@ -152,6 +152,20 @@ describe("claimDueAlerts — taking ownership", () => {
     expect(sql).toContain(`last_claimed_at = '${NOW.toISOString()}'::timestamp`);
   });
 
+  it("re-checks due-ness at lock time, not just membership in the stale picked set", async () => {
+    await claimDueAlerts(TICK);
+    const sql = claimSql();
+
+    // `picked` is a snapshot from the start of the statement. SKIP LOCKED alone only
+    // excludes a row a concurrent tick still holds, not one it already claimed and
+    // committed before this statement reached its own lock — so `locked` repeats the
+    // predicate, and Postgres's EvalPlanQual re-checks it against the row's latest
+    // committed version before granting the lock.
+    const locked = sql.slice(sql.indexOf("locked AS MATERIALIZED"), sql.indexOf("FOR UPDATE"));
+    expect(locked).toContain("status = 'ACTIVE'");
+    expect(locked).toContain(`next_run_at <= '${NOW.toISOString()}'::timestamp`);
+  });
+
   it("re-arms each row on its own window rather than on one cadence for the tick", async () => {
     await claimDueAlerts(TICK);
     const sql = claimSql();
