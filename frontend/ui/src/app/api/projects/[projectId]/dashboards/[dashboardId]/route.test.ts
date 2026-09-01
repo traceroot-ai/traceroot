@@ -49,6 +49,7 @@ vi.mock("@/lib/auth-helpers", () => ({
   }),
 }));
 
+import { appendWidgetPlacement } from "@/features/dashboards/widget-placement";
 import { GET, PATCH, DELETE } from "./route";
 import { POST as widgetPOST } from "./widgets/route";
 import { PATCH as widgetPATCH, DELETE as widgetDELETE } from "./widgets/[widgetId]/route";
@@ -569,6 +570,20 @@ describe("mutation hardening", () => {
       makeParams(),
     )) as MockResponse;
     expect(ok.status).toBe(200);
+  });
+
+  it("accepts and stores auto-placed entries verbatim", async () => {
+    // Auto-placement writes straight to the dashboard row, so PATCH is the
+    // contract those entries have to keep satisfying once a member drags them.
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    dashboardUpdateMock.mockResolvedValue(fakeDashboard);
+    const first = appendWidgetPlacement([], { id: "w1", type: "query" });
+    const layout = appendWidgetPlacement(first, { id: "w2", type: "trace_feed" });
+
+    const res = (await PATCH(makeRequest({ layout }), makeParams())) as MockResponse;
+    expect(res.status).toBe(200);
+    const [call] = dashboardUpdateMock.mock.calls;
+    expect((call[0] as { data: { layout: unknown } }).data.layout).toEqual(layout);
   });
 
   it("rejects negative coordinates and strips unknown keys from layout entries", async () => {

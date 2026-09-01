@@ -9,6 +9,7 @@ import {
 } from "@/features/dashboards/types";
 import { parseTraceFeedSpec } from "@/features/dashboards/trace-feed-spec";
 import { validateWidgetSpecVocabulary } from "@/features/dashboards/widget-spec-vocabulary";
+import { appendWidgetPlacement } from "@/features/dashboards/widget-placement";
 import { writeAudit, type AuditEntry } from "./audit";
 import type { Provenance, ServiceResult } from "./types";
 
@@ -192,7 +193,7 @@ export async function createWidget(input: {
     // instead of leaking a cross-project write.
     const dashboard = await tx.dashboard.findFirst({
       where: { id: input.dashboardId, projectId: input.projectId },
-      select: { id: true },
+      select: { id: true, layout: true },
     });
     if (!dashboard) {
       return { result: { ok: false, status: 404, error: "Dashboard not found" } };
@@ -259,6 +260,16 @@ export async function createWidget(input: {
       },
       select: { id: true, dashboardId: true, title: true, type: true },
     });
+    // Same transaction as the widget row: a widget that exists without a
+    // placement renders through the grid's unpersisted fallback, i.e. as a
+    // narrow left-edge stack. Callers pass no layout — placement is ours.
+    const nextLayout = appendWidgetPlacement(dashboard.layout, { id: widget.id, type });
+    if (nextLayout) {
+      await tx.dashboard.update({
+        where: { id: input.dashboardId },
+        data: { layout: nextLayout },
+      });
+    }
     return {
       result: { ok: true, created: true, data: widget },
       audit: {
