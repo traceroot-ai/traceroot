@@ -379,12 +379,18 @@ export function createdWidgetsByDashboard(
   messages: readonly AIMessage[],
 ): Map<string, ToolCallStep[]> {
   const byDashboard = new Map<string, ToolCallStep[]>();
+  const seen = new Set<string>();
   for (const message of messages) {
     const step = message.toolStep;
     if (message.role !== "tool_step" || step === undefined) continue;
     const details = resourceCreatedDetails(step.result);
     if (details === null || details.resourceType !== "widget") continue;
     if (typeof details.dashboardId !== "string") continue;
+    // A replayed create (same widget id twice) keeps its first step, the same
+    // convention the miniature applies — otherwise the dashboard meta would
+    // count one widget twice while the miniature draws a single tile.
+    if (seen.has(details.resourceId)) continue;
+    seen.add(details.resourceId);
     const siblings = byDashboard.get(details.dashboardId);
     if (siblings === undefined) byDashboard.set(details.dashboardId, [step]);
     else siblings.push(step);

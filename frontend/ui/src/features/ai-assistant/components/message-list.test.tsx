@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import * as api from "@/features/dashboards/api";
 import { MessageList } from "./message-list";
 import type { AIMessage, ToolCallStep } from "../types";
@@ -88,7 +88,7 @@ describe("MessageList tool entries", () => {
     expect(screen.queryByText("(create_widget)")).toBeNull();
   });
 
-  it("counts the widgets created into a dashboard on the dashboard's card", () => {
+  it("counts a replayed widget create once on the dashboard's card", () => {
     const dashboard: ToolCallStep = {
       toolCallId: "tc0",
       toolName: "create_dashboard",
@@ -106,6 +106,8 @@ describe("MessageList tool entries", () => {
       isError: false,
       status: "done",
     };
+    // Both steps carry the same widget id — a replayed create — so the card
+    // counts one widget, matching the single tile the miniature draws.
     render(
       <MessageList
         messages={[
@@ -115,7 +117,7 @@ describe("MessageList tool entries", () => {
         ]}
       />,
     );
-    expect(screen.getByText("Dashboard · 2 widgets")).toBeTruthy();
+    expect(screen.getByText("Dashboard · 1 widget")).toBeTruthy();
   });
 
   it("keeps the plain tool step for a resource type it has no card for", () => {
@@ -161,6 +163,9 @@ describe("MessageList tool entries", () => {
         />
       </QueryClientProvider>,
     );
+    // The preview arrives through next/dynamic, so its observer registers a
+    // tick after render; only then can the card be scrolled into view.
+    await waitFor(() => expect(observers.length).toBeGreaterThan(0));
     intersect();
 
     // The dashboard's query hook retries once, so the message lands a

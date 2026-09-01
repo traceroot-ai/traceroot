@@ -1,10 +1,22 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { DashboardMiniature } from "./dashboard-miniature";
-import { WidgetChartPreview } from "./widget-chart-preview";
 import type { ResourceCardBody, ResourceCardModel } from "../lib/resource-card";
+
+// Loaded dynamically because the preview pulls in the dashboards renderers —
+// and with them recharts — while this card sits in the assistant panel, which
+// every page's layout mounts. A static import would drag the charting library
+// into the shared layout chunk; the dynamic edge keeps it in its own chunk,
+// fetched only when a widget card actually has a chart to draw. The loading
+// placeholder mirrors the preview's fixed frame so the transcript doesn't
+// jump when the module arrives.
+const WidgetChartPreview = dynamic(
+  () => import("./widget-chart-preview").then((mod) => mod.WidgetChartPreview),
+  { ssr: false, loading: () => <div className="h-36 min-w-0" /> },
+);
 
 /**
  * The receipt for a resource the agent just created, shown in the transcript
@@ -20,10 +32,12 @@ function Chips({ chips }: { chips: string[] }) {
   if (chips.length === 0) return null;
   return (
     <div className="flex flex-wrap gap-1">
-      {chips.map((chip) => (
+      {chips.map((chip, index) => (
+        // Keyed by index: chips are model-supplied text and can repeat (two
+        // identical trigger conditions), and the list never reorders.
         // Badges are single-line by default; a spec value can be long enough
         // to need two, and wrapping beats widening the panel.
-        <Badge key={chip} variant="outline" className="whitespace-normal [overflow-wrap:anywhere]">
+        <Badge key={index} variant="outline" className="whitespace-normal [overflow-wrap:anywhere]">
           {chip}
         </Badge>
       ))}
