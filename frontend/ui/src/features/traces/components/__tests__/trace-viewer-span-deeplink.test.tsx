@@ -34,8 +34,12 @@ const trace = {
   ],
 };
 
+// Mutable so a test can model spans arriving after the first render (they
+// stream in over SSE) and the loading state that distinguishes "not yet" from
+// "not in this trace".
+const queryState = { data: trace as unknown, isLoading: false };
 vi.mock("@tanstack/react-query", () => ({
-  useQuery: () => ({ data: trace, isLoading: false, error: null }),
+  useQuery: () => ({ data: queryState.data, isLoading: queryState.isLoading, error: null }),
 }));
 vi.mock("@/lib/api", () => ({ getTrace: vi.fn() }));
 vi.mock("../../hooks/use-trace-stream", () => ({ useTraceStream: vi.fn() }));
@@ -80,7 +84,11 @@ vi.mock("@/components/ui/resizable", () => ({
 
 import { TraceViewerPanel } from "../TraceViewerPanel";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  queryState.data = trace;
+  queryState.isLoading = false;
+});
 
 /**
  * `initialSpanId` is how a sidebar tool step's "Open span" asks the sheet to
@@ -113,22 +121,53 @@ it("keeps the deep-linked span selected on mount", async () => {
   expect(selectedSpan(container)).toBe("s2");
 });
 
-it("falls back to the trace when the deep-linked span is not in this trace", async () => {
-  const { container, findByTestId } = render(
-    <TraceViewerPanel
-      projectId="p1"
-      traceId={trace.trace_id}
-      source="agent"
-      initialSpanId="span-from-another-trace"
-      onClose={vi.fn()}
-      onNavigate={vi.fn()}
-      canNavigateUp={false}
-      canNavigateDown={false}
-    />,
+it("clears a selected span when a stale deep link is not in this trace", async () => {
+  // Mount with a valid deep link so a span is genuinely selected, then rerender
+  // with an id from another trace: the fallback has to *clear* that selection.
+  // Asserting on a fresh mount would pass even if the fallback did nothing,
+  // since selection starts at { type: "trace" }.
+  const props = {
+    projectId: "p1",
+    traceId: trace.trace_id,
+    source: "agent" as const,
+    onClose: vi.fn(),
+    onNavigate: vi.fn(),
+    canNavigateUp: false,
+    canNavigateDown: false,
+  };
+  const { container, rerender, findByTestId } = render(
+    <TraceViewerPanel {...props} initialSpanId="s2" />,
   );
   await findByTestId("span-info");
-  // Not a stale span from a previous selection — the trace itself.
+  expect(selectedSpan(container)).toBe("s2");
+
+  rerender(<TraceViewerPanel {...props} initialSpanId="span-from-another-trace" />);
+  await findByTestId("span-info");
   expect(selectedSpan(container)).toBe("none");
+});
+
+it("still applies the deep link when the span arrives after the first render", async () => {
+  // Spans stream in: the trace can render before the deep-linked span lands.
+  // Treating that first miss as final would strand the viewer on the root.
+  queryState.data = { ...trace, spans: [trace.spans[0]] };
+  const props = {
+    projectId: "p1",
+    traceId: trace.trace_id,
+    source: "agent" as const,
+    initialSpanId: "s2",
+    onClose: vi.fn(),
+    onNavigate: vi.fn(),
+    canNavigateUp: false,
+    canNavigateDown: false,
+  };
+  const { container, rerender, findByTestId } = render(<TraceViewerPanel {...props} />);
+  await findByTestId("span-info");
+  expect(selectedSpan(container)).toBe("none");
+
+  queryState.data = trace;
+  rerender(<TraceViewerPanel {...props} />);
+  await findByTestId("span-info");
+  expect(selectedSpan(container)).toBe("s2");
 });
 
 it("selects the trace when nothing is deep-linked", async () => {
