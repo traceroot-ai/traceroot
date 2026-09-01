@@ -1,6 +1,6 @@
 import type { Prisma, PrismaClient } from "@prisma/client";
 
-/** The subset of the client the writer needs — a transaction client qualifies. */
+/** The subset of the client the writer needs. */
 export type PrismaTxLike = Pick<PrismaClient, "auditLog">;
 
 export interface AuditEntry {
@@ -16,10 +16,13 @@ export interface AuditEntry {
 }
 
 // Best-effort by design: losing an audit row is better than failing the
-// user's write after the resource already exists.
-export async function writeAudit(tx: PrismaTxLike, entry: AuditEntry): Promise<void> {
+// user's write after the resource already exists. Call this only with the root
+// client once the resource transaction has committed — inside a transaction a
+// failed INSERT aborts the whole transaction, so catching the error here would
+// still discard the resource the caller was told it created.
+export async function writeAudit(db: PrismaTxLike, entry: AuditEntry): Promise<void> {
   try {
-    await tx.auditLog.create({
+    await db.auditLog.create({
       data: {
         actorUserId: entry.actorUserId,
         operation: entry.operation,

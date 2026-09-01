@@ -1,14 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-const tx = {
-  workspaceMember: { findUnique: vi.fn() },
-  project: { findFirst: vi.fn(), create: vi.fn() },
-  auditLog: { create: vi.fn().mockResolvedValue({}) },
-};
+// The transaction client and the root client carry separate auditLog mocks so
+// the tests can tell which one the audit row was written through.
+const { tx, root } = vi.hoisted(() => ({
+  tx: {
+    workspaceMember: { findUnique: vi.fn() },
+    project: { findFirst: vi.fn(), create: vi.fn() },
+    auditLog: { create: vi.fn() },
+  },
+  root: { auditLog: { create: vi.fn() } },
+}));
 vi.mock("@traceroot/core", () => {
   const ROLE_ORDER = ["VIEWER", "MEMBER", "ADMIN"];
   return {
-    prisma: { $transaction: (fn: (t: unknown) => unknown) => fn(tx) },
+    prisma: {
+      $transaction: (fn: (t: unknown) => unknown) => fn(tx),
+      auditLog: root.auditLog,
+    },
     Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
     hasMinRole: (userRole: string, minRole: string) =>
       ROLE_ORDER.indexOf(userRole) >= ROLE_ORDER.indexOf(minRole),
@@ -22,6 +30,8 @@ beforeEach(() => {
   tx.project.create.mockReset();
   tx.auditLog.create.mockReset();
   tx.auditLog.create.mockResolvedValue({});
+  root.auditLog.create.mockReset();
+  root.auditLog.create.mockResolvedValue({});
 });
 
 describe("createProject", () => {
@@ -52,7 +62,7 @@ describe("createProject", () => {
         traceTtlDays: 30,
       }),
     });
-    expect(tx.auditLog.create).toHaveBeenCalledWith({
+    expect(root.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         actorUserId: "u1",
         operation: "create_project",
@@ -114,7 +124,54 @@ describe("createProject", () => {
       select: { id: true, name: true, workspaceId: true },
     });
     expect(tx.project.create).not.toHaveBeenCalled();
+    expect(root.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("leaves the stored traceTtlDays untouched when an idempotent hit passes a different one", async () => {
+    tx.workspaceMember.findUnique.mockResolvedValue({ role: "MEMBER" });
+    tx.project.findFirst.mockResolvedValue({
+      id: "p0",
+      name: "Checkout",
+      workspaceId: "w1",
+    });
+    const r = await createProject({
+      actorUserId: "u1",
+      workspaceId: "w1",
+      name: "Checkout",
+      traceTtlDays: 7,
+      provenance: { transport: "public-api" },
+    });
+    expect(r).toEqual({
+      ok: true,
+      created: false,
+      data: { id: "p0", name: "Checkout", workspaceId: "w1" },
+    });
+    expect(tx.project.create).not.toHaveBeenCalled();
+    expect(root.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("audits through the root client, not the transaction, so a failed audit cannot roll the project back", async () => {
+    tx.workspaceMember.findUnique.mockResolvedValue({ role: "MEMBER" });
+    tx.project.findFirst.mockResolvedValue(null);
+    tx.project.create.mockResolvedValue({
+      id: "p1",
+      name: "Checkout",
+      workspaceId: "w1",
+    });
+    root.auditLog.create.mockRejectedValue(new Error("audit store down"));
+    const r = await createProject({
+      actorUserId: "u1",
+      workspaceId: "w1",
+      name: "Checkout",
+      provenance: { transport: "public-api" },
+    });
+    expect(r).toEqual({
+      ok: true,
+      created: true,
+      data: { id: "p1", name: "Checkout", workspaceId: "w1" },
+    });
     expect(tx.auditLog.create).not.toHaveBeenCalled();
+    expect(root.auditLog.create).toHaveBeenCalled();
   });
 
   it("rejects a non-member with 403", async () => {
