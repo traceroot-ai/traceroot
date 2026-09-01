@@ -205,6 +205,11 @@ describe("alertStateReset", () => {
       lastEvaluatedAt: null,
       nextRunAt: RESET_AT,
       lastClaimedAt: null,
+      lastError: null,
+      lastErrorAt: null,
+      lastNotifyStatus: null,
+      lastNotifyError: null,
+      lastNotifyAt: null,
     });
   });
 
