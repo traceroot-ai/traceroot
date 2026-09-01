@@ -20,10 +20,12 @@ import type { AIMessage, ToolCallStep } from "../types";
 import { PANEL_MAX_WIDTH } from "../constants";
 import {
   createdWidgetsByDashboard,
+  pendingCardModel,
   resourceCardModel,
   suppressedWidgetStepIds,
 } from "../lib/resource-card";
 import { ResourceCard } from "./resource-card";
+import { PendingResourceCard, type PendingDecisionAction } from "./pending-resource-card";
 
 // ---------------------------------------------------------------------------
 // Lightweight markdown normalization for streamed, partial content.
@@ -349,13 +351,25 @@ function ToolStepItem({ step, isActive }: { step: ToolCallStep; isActive: boolea
         onClick={() => setIsOpen((v) => !v)}
         className="flex w-full cursor-pointer select-none items-center gap-1.5 rounded px-1 py-0.5 hover:bg-muted/50"
       >
-        {step.status === "running" && (
-          <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground/60" />
+        {/* A skipped call was declined, not broken — its line stays muted. */}
+        {step.skipped ? (
+          <XCircle className="h-3 w-3 shrink-0 text-muted-foreground/50" />
+        ) : (
+          <>
+            {step.status === "running" && (
+              <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground/60" />
+            )}
+            {step.status === "done" && (
+              <CheckCircle2 className="h-3 w-3 shrink-0 text-green-500/70" />
+            )}
+            {step.status === "error" && (
+              <XCircle className="h-3 w-3 shrink-0 text-destructive/70" />
+            )}
+          </>
         )}
-        {step.status === "done" && <CheckCircle2 className="h-3 w-3 shrink-0 text-green-500/70" />}
-        {step.status === "error" && <XCircle className="h-3 w-3 shrink-0 text-destructive/70" />}
         <span className="italic text-muted-foreground/80">{formatToolName(step.toolName)}</span>
         <span className="font-mono text-[10px] text-muted-foreground/40">({step.toolName})</span>
+        {step.skipped && <span className="text-muted-foreground/60">skipped</span>}
         <ChevronRight
           className={cn(
             "ml-auto h-3 w-3 shrink-0 text-muted-foreground/30 transition-transform duration-200",
@@ -382,10 +396,12 @@ function ToolStepItem({ step, isActive }: { step: ToolCallStep; isActive: boolea
                 <p
                   className={cn(
                     "mb-0.5",
-                    step.isError ? "text-destructive/70" : "text-muted-foreground/50",
+                    step.isError && !step.skipped
+                      ? "text-destructive/70"
+                      : "text-muted-foreground/50",
                   )}
                 >
-                  {step.isError ? "Error" : "Result"}
+                  {step.skipped ? "Skipped" : step.isError ? "Error" : "Result"}
                 </p>
                 <pre className="max-h-[200px] overflow-auto rounded bg-background/70 px-2 py-1.5 font-mono text-[10px] leading-relaxed text-foreground/60">
                   {resultStr}
@@ -476,9 +492,25 @@ function UsageFooter({ msg }: { msg: AIMessage }) {
 interface MessageListProps {
   messages: AIMessage[];
   sessionStreaming?: boolean;
+  /** The project the panel is mounted in — a pending widget card aims its
+   *  chart preview here, the scope the proposed write would land in. */
+  projectId?: string;
+  /** Posts the user's decision on a parked write. Resolves true when the
+   *  decision settled (the card keeps its buttons disabled and waits to be
+   *  replaced), false when it should offer the buttons again. */
+  onDecision?: (params: {
+    toolCallId: string;
+    decisionId: string;
+    action: PendingDecisionAction;
+  }) => Promise<boolean>;
 }
 
-export function MessageList({ messages, sessionStreaming = false }: MessageListProps) {
+export function MessageList({
+  messages,
+  sessionStreaming = false,
+  projectId,
+  onDecision,
+}: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
   const userScrolledRef = useRef(false);
@@ -554,13 +586,20 @@ export function MessageList({ messages, sessionStreaming = false }: MessageListP
       <div ref={innerRef}>
         {messages.map((msg) => {
           if (msg.role === "tool_step" && msg.toolStep) {
+            const step = msg.toolStep;
+            // A parked write shows the card BEFORE the resource exists, with
+            // the create/skip decision; the tool result (or a posted decision)
+            // clears `pending` and the step falls through to the receipt flow.
+            const pendingCard = step.pending ? pendingCardModel(step, projectId) : null;
             // A write that created something we can show becomes its card; every
             // other step — and every write we can't read a resource out of, or
             // whose card would duplicate a dashboard card above it — keeps the
             // plain expandable tool line.
-            const card = suppressedWidgets.has(msg.id)
-              ? null
-              : resourceCardModel(msg.toolStep, widgetsByDashboard);
+            const card =
+              pendingCard !== null || suppressedWidgets.has(msg.id)
+                ? null
+                : resourceCardModel(step, widgetsByDashboard);
+            const pending = step.pending;
             return (
               <AnimatedItem key={msg.id}>
                 <div className="flex justify-start">
@@ -568,13 +607,27 @@ export function MessageList({ messages, sessionStreaming = false }: MessageListP
                       get — so every card shares one edge instead of each
                       sizing to its content. */}
                   <div
-                    className={cn("min-w-0", card !== null && "w-full")}
+                    className={cn("min-w-0", (card !== null || pendingCard !== null) && "w-full")}
                     style={{ maxWidth: bubbleMaxWidth }}
                   >
-                    {card ? (
+                    {pendingCard && pending ? (
+                      <PendingResourceCard
+                        // Keyed by the decision: a superseding pending event
+                        // replaces the card in place AND re-arms its buttons.
+                        key={pending.decisionId}
+                        model={pendingCard}
+                        onDecide={(action) =>
+                          onDecision?.({
+                            toolCallId: step.toolCallId,
+                            decisionId: pending.decisionId,
+                            action,
+                          }) ?? Promise.resolve(false)
+                        }
+                      />
+                    ) : card ? (
                       <ResourceCard model={card} />
                     ) : (
-                      <ToolStepItem step={msg.toolStep} isActive={msg.id === activeToolStepId} />
+                      <ToolStepItem step={step} isActive={msg.id === activeToolStepId} />
                     )}
                   </div>
                 </div>

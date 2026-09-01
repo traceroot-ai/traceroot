@@ -112,6 +112,7 @@ export function AiAssistantPanel({
     setHistoryOpen,
     setModelSelection,
     handleSend,
+    handleDecision,
     handleAbort,
     handleNewSession,
     handleClose,
@@ -238,7 +239,12 @@ export function AiAssistantPanel({
             <div className="m-auto py-6">{emptyState}</div>
           </div>
         ) : (
-          <MessageList messages={messages} sessionStreaming={isStreaming} />
+          <MessageList
+            messages={messages}
+            sessionStreaming={isStreaming}
+            projectId={projectId}
+            onDecision={handleDecision}
+          />
         )}
 
         {/* Input */}

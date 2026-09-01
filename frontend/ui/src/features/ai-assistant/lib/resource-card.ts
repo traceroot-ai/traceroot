@@ -104,6 +104,9 @@ export interface ResourceCardModel {
   title: string;
   /** Parts of the small header meta line, joined by the renderer. */
   meta: string[];
+  /** A description the args carried, when the type has nothing else to show
+   *  (a pending dashboard — its widgets arrive as separate calls). */
+  description?: string;
   body: ResourceCardBody;
 }
 
@@ -379,6 +382,93 @@ export function resourceCardModel(
     title: displayName ?? str(details.resourceId, MAX_TITLE_CHARS) ?? "",
     meta,
     body: cardBody,
+  };
+}
+
+/** The confirm-class write tools and the resource each would create. */
+const PENDING_TOOL_RESOURCE_TYPES: Readonly<Record<string, CardResourceType>> = {
+  create_widget: "widget",
+  create_dashboard: "dashboard",
+  create_project: "project",
+  create_workspace: "workspace",
+  create_detector: "detector",
+};
+
+/** A pending dashboard's description is prose, so it gets more room than a chip. */
+const MAX_DESCRIPTION_CHARS = 200;
+
+/**
+ * The card for a write the agent has PROPOSED but not run — the same card the
+ * receipt shows, built from the arguments alone, because the resource does not
+ * exist yet and there are no `details` to read. Everything shown is what the
+ * args carry; nothing is invented:
+ * - a widget draws its real chart (the query endpoint is stateless, so the
+ *   spec needn't exist), aimed at the panel's own project — the scope the
+ *   write would land in;
+ * - a dashboard can only show its name and description — its widgets arrive
+ *   as separate pending calls;
+ * - a project or workspace is header-only (its id doesn't exist yet).
+ * Null for a tool this panel has no card for; the caller keeps the plain tool
+ * line, matching the receipt convention.
+ */
+export function pendingCardModel(
+  step: ToolCallStep,
+  panelProjectId: string | undefined,
+): ResourceCardModel | null {
+  const resourceType = PENDING_TOOL_RESOURCE_TYPES[step.toolName];
+  if (resourceType === undefined) return null;
+
+  const args = plainObject(step.args);
+  const displayName =
+    args === null ? null : (str(args.title, MAX_TITLE_CHARS) ?? str(args.name, MAX_TITLE_CHARS));
+
+  let body: ResourceCardBody;
+  switch (resourceType) {
+    case "widget": {
+      const spec = args === null ? null : parseSpec(args.spec);
+      body = {
+        kind: "widget",
+        chips: args === null ? [] : widgetChips(args),
+        chart:
+          spec === null || panelProjectId === undefined
+            ? null
+            : { projectId: panelProjectId, spec },
+      };
+      break;
+    }
+    case "dashboard":
+      body = { kind: "dashboard", tiles: [] };
+      break;
+    case "detector":
+      body = { kind: "detector", chips: args === null ? [] : detectorChips(args) };
+      break;
+    default:
+      // A project or workspace has no id yet, so there is no receipt to print.
+      body = { kind: "receipt", rows: [] };
+  }
+
+  const meta: string[] = [RESOURCE_TYPE_LABELS[resourceType]];
+  if (body.kind === "widget" && body.chart !== null) meta.push(DEFAULT_RANGE_LABEL);
+  if (resourceType === "detector" && args !== null) {
+    const template = str(args.template);
+    if (template !== null) meta.push(templateLabel(template));
+  }
+
+  const description =
+    resourceType === "dashboard" && args !== null
+      ? str(args.description, MAX_DESCRIPTION_CHARS)
+      : null;
+
+  return {
+    resourceType,
+    // The call's own id: unique and stable, it keys the chart preview's query
+    // until the real widget id exists.
+    resourceId: step.toolCallId,
+    created: true,
+    title: displayName ?? RESOURCE_TYPE_LABELS[resourceType],
+    meta,
+    ...(description === null ? {} : { description }),
+    body,
   };
 }
 
