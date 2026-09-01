@@ -8,7 +8,7 @@ import {
 const tx = {
   project: { findUnique: vi.fn() },
   workspaceMember: { findUnique: vi.fn() },
-  dashboard: { findFirst: vi.fn(), create: vi.fn() },
+  dashboard: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
   widget: { create: vi.fn() },
 };
 // Audit rows are written on the root client after the transaction commits, so
@@ -85,6 +85,7 @@ beforeEach(() => {
   tx.workspaceMember.findUnique.mockReset();
   tx.dashboard.findFirst.mockReset();
   tx.dashboard.create.mockReset();
+  tx.dashboard.update.mockReset();
   tx.widget.create.mockReset();
   auditLogCreate.mockReset();
   auditLogCreate.mockResolvedValue({});
@@ -231,8 +232,8 @@ describe("createDashboard", () => {
 });
 
 describe("createWidget", () => {
-  function mockDashboard() {
-    tx.dashboard.findFirst.mockResolvedValue({ id: "dash1" });
+  function mockDashboard(layout: unknown = []) {
+    tx.dashboard.findFirst.mockResolvedValue({ id: "dash1", layout });
   }
 
   it("returns 404 when the project does not exist", async () => {
@@ -270,7 +271,7 @@ describe("createWidget", () => {
     expect(r).toEqual({ ok: false, status: 404, error: "Dashboard not found" });
     expect(tx.dashboard.findFirst).toHaveBeenCalledWith({
       where: { id: "dash1", projectId: "p1" },
-      select: { id: true },
+      select: { id: true, layout: true },
     });
     expect(tx.widget.create).not.toHaveBeenCalled();
   });
@@ -514,6 +515,42 @@ describe("createWidget", () => {
       expect(auditLogCreate).not.toHaveBeenCalled();
     },
   );
+
+  it("places the new widget in the dashboard layout in the same transaction", async () => {
+    mockAccess();
+    mockDashboard();
+    tx.widget.create.mockResolvedValue(widgetRow);
+    const r = await runWidget();
+    expect(r).toEqual({ ok: true, created: true, data: widgetRow });
+    expect(tx.dashboard.update).toHaveBeenCalledWith({
+      where: { id: "dash1" },
+      data: { layout: [{ i: "wid1", x: 0, y: 0, w: 6, h: 4 }] },
+    });
+  });
+
+  it("packs the new widget beside the tile already on the bottom row", async () => {
+    mockAccess();
+    mockDashboard([{ i: "other", x: 0, y: 4, w: 6, h: 4 }]);
+    tx.widget.create.mockResolvedValue(widgetRow);
+    await runWidget({ type: "trace_feed", spec: { filters: [], limit: 5 } });
+    expect(tx.dashboard.update).toHaveBeenCalledWith({
+      where: { id: "dash1" },
+      data: {
+        layout: [
+          { i: "other", x: 0, y: 4, w: 6, h: 4 },
+          { i: "wid1", x: 6, y: 4, w: 6, h: 6 },
+        ],
+      },
+    });
+  });
+
+  it("leaves the layout untouched when the widget is rejected", async () => {
+    mockAccess();
+    mockDashboard();
+    const r = await runWidget({ spec: { ...validSpec, view: "nope" } });
+    expect(r).toMatchObject({ ok: false, status: 400 });
+    expect(tx.dashboard.update).not.toHaveBeenCalled();
+  });
 
   it("creates a spans widget broken down by model_name (the vocabulary for 'by model')", async () => {
     mockAccess();
