@@ -21,7 +21,7 @@ export async function createWorkspace(input: {
       error: "name must be a non-empty string (max 100 chars)",
     };
   }
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     // Idempotent create: same actor + same name returns the workspace they
     // already administer, so agent/CLI retries can't fan out duplicates.
     const existing = await tx.workspace.findFirst({
@@ -50,20 +50,24 @@ export async function createWorkspace(input: {
         role: Role.ADMIN,
       },
     });
-    await writeAudit(tx, {
-      actorUserId: input.actorUserId,
-      operation: "create_workspace",
-      resourceType: "workspace",
-      resourceId: ws.id,
-      workspaceId: ws.id,
-      summary: { name },
-      transport: input.provenance.transport,
-      agentSessionId: input.provenance.agentSessionId ?? null,
-    });
     return {
       ok: true as const,
       created: true,
       data: { id: ws.id, name: ws.name, role: "ADMIN" as const },
     };
   });
+
+  if (result.ok && result.created) {
+    await writeAudit(prisma, {
+      actorUserId: input.actorUserId,
+      operation: "create_workspace",
+      resourceType: "workspace",
+      resourceId: result.data.id,
+      workspaceId: result.data.id,
+      summary: { name },
+      transport: input.provenance.transport,
+      agentSessionId: input.provenance.agentSessionId ?? null,
+    });
+  }
+  return result;
 }
