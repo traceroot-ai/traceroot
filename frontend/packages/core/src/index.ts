@@ -2,7 +2,6 @@
 export { prisma } from "./lib/prisma.ts";
 export { PrismaClient, Prisma } from "@prisma/client";
 export * from "./ee/billing/index.ts";
-export * from "./rca-executions.ts";
 
 // Encryption
 export { encryptKey, decryptKey, maskKey } from "./lib/encryption.ts";

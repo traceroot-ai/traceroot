@@ -22,7 +22,13 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
     ? {
         id: row.id,
         findingId: row.findingId,
-        sessionId: row.latestExecution?.sessionId ?? row.sessionId,
+        // Legacy fallback only when there is NO execution row at all (an RCA
+        // that ran before executions existed). Once one exists it is the
+        // authority: a null session on the latest execution means that run has
+        // no chat, not that the previous attempt's chat should be opened —
+        // which would show the wrong run's conversation. Matches traceId /
+        // traceStatus below, which already never fall back.
+        sessionId: row.latestExecution ? row.latestExecution.sessionId : row.sessionId,
         status: row.status,
         result: row.result,
         completedAt: row.completedAt,
