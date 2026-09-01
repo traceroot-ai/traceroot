@@ -184,6 +184,128 @@ describe("StreamPersister", () => {
     expect(order).toEqual(["start:assistant", "end:assistant", "start:tool_step", "end:tool_step"]);
   });
 
+  it("persists parallel tool rows in start order even when they end out of order", async () => {
+    const { persister, calls } = makePersister();
+    persister.onEvent(toolStart("t1", { first: true }));
+    persister.onEvent(toolStart("t2", { second: true }));
+    // parallel execution: t2 completes before t1
+    persister.onEvent(toolEnd("t2", "t2 result"));
+    persister.onEvent(toolEnd("t1", "t1 result"));
+    await persister.finish();
+
+    expect(calls.map((c) => c.role)).toEqual(["tool_step", "tool_step"]);
+    expect(calls.map((c) => c.metadata?.toolCallId)).toEqual(["t1", "t2"]);
+    expect(calls[0].metadata).toMatchObject({ args: { first: true }, result: "t1 result" });
+    expect(calls[1].metadata).toMatchObject({ args: { second: true }, result: "t2 result" });
+  });
+
+  it("still flushes completed tool rows in start order when an earlier tool never ends", async () => {
+    const { persister, calls } = makePersister();
+    persister.onEvent(toolStart("t1"));
+    persister.onEvent(toolStart("t2"));
+    persister.onEvent(toolStart("t3"));
+    // the run dies while t1 is still executing; t3 then t2 completed
+    persister.onEvent(toolEnd("t3"));
+    persister.onEvent(toolEnd("t2"));
+    await persister.finish();
+
+    expect(calls.map((c) => c.metadata?.toolCallId)).toEqual(["t2", "t3"]);
+  });
+
+  it("persists a message_end error as a runError marker on the final segment", async () => {
+    const { persister, calls } = makePersister();
+    persister.onEvent(textDelta("partial answer"));
+    persister.onEvent({
+      type: "message_end",
+      message: { stopReason: "error", errorMessage: "boom" },
+    } as unknown as AgentEvent);
+    await persister.finish(USAGE);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      role: "assistant",
+      content: "partial answer",
+      metadata: { runError: "boom" },
+      tokenUsage: USAGE,
+    });
+  });
+
+  it("persists a run-level error recorded via recordError even with no other output", async () => {
+    const { persister, calls } = makePersister();
+    persister.recordError("model exploded");
+    await persister.finish();
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].role).toBe("assistant");
+    expect(calls[0].content).toBe("");
+    expect(calls[0].metadata).toEqual({ runError: "model exploded" });
+  });
+
+  it("keeps the first recorded error when message_end and onError both report", async () => {
+    const { persister, calls } = makePersister();
+    persister.onEvent({
+      type: "message_end",
+      message: { stopReason: "error", errorMessage: "specific API error" },
+    } as unknown as AgentEvent);
+    persister.recordError("run failed");
+    await persister.finish();
+
+    expect(calls[0].metadata).toEqual({ runError: "specific API error" });
+  });
+
+  it("does not attach runError to rows of a run that succeeded", async () => {
+    const { persister, calls } = makePersister();
+    persister.onEvent(textDelta("fine"));
+    persister.onEvent({
+      type: "message_end",
+      message: { stopReason: "stop" },
+    } as unknown as AgentEvent);
+    await persister.finish(USAGE);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].metadata).toBeUndefined();
+  });
+
+  it("replaces oversized tool args and result values with a truncation marker", async () => {
+    const big = "x".repeat(10 * 1024);
+    const { persister, calls } = makePersister();
+    persister.onEvent(toolStart("t1", { query: big, small: "kept" }));
+    persister.onEvent(
+      toolEnd("t1", {
+        content: big,
+        details: { resourceType: "dashboard", resourceId: "d1" },
+      }),
+    );
+    await persister.finish();
+
+    expect(calls).toHaveLength(1);
+    const md = calls[0].metadata as {
+      args: { query: unknown; small: unknown };
+      result: { content: unknown; details: unknown };
+    };
+    // the oversized string is replaced by a detectable marker
+    expect(md.args.query).toMatchObject({ truncated: true, bytes: expect.any(Number) });
+    expect((md.args.query as { preview: string }).preview).toBe("x".repeat(256));
+    expect((md.args.query as { bytes: number }).bytes).toBeGreaterThanOrEqual(10 * 1024);
+    // sibling small values survive untouched
+    expect(md.args.small).toBe("kept");
+    // result: the large content is capped, the small structured details are not
+    expect(md.result.content).toMatchObject({ truncated: true });
+    expect(md.result.details).toEqual({ resourceType: "dashboard", resourceId: "d1" });
+  });
+
+  it("leaves small args and results exactly as captured (no marker under the cap)", async () => {
+    const { persister, calls } = makePersister();
+    persister.onEvent(toolStart("t1", { query: "errors" }));
+    persister.onEvent(toolEnd("t1", { details: { resourceId: "d1" } }));
+    await persister.finish();
+
+    expect(calls[0].metadata).toMatchObject({
+      args: { query: "errors" },
+      result: { details: { resourceId: "d1" } },
+    });
+  });
+
   it("keeps persisting later rows when an earlier insert fails", async () => {
     const calls: string[] = [];
     let call = 0;
