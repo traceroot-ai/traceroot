@@ -19,6 +19,7 @@ from typing import Annotated, Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from pydantic import ValidationError
 
 from rest.rate_limit import (
     BUCKET_WRITE,
@@ -68,9 +69,9 @@ def _write_service_error() -> HTTPException:
     """Build the controlled 503 used whenever the write service is ambiguous.
 
     A shared fail-closed error so any upstream ambiguity — an unexpected
-    status, malformed JSON, or a response missing the resource envelope —
-    surfaces as a 503, never an uncaught 500 (parity with the account-read
-    sibling).
+    status, malformed JSON, or a response whose resource envelope is missing
+    or wrongly typed — surfaces as a 503, never an uncaught 500 (parity with
+    the account-read sibling).
 
     Returns:
         HTTPException: A 503 with a generic ``Write service error`` detail.
@@ -200,7 +201,7 @@ async def create_workspace(
         return CreateWorkspaceResponse(
             id=ws["id"], name=ws["name"], role=ws["role"], created=data["created"]
         )
-    except (KeyError, TypeError) as e:
+    except (KeyError, TypeError, ValidationError) as e:
         raise _write_service_error() from e
 
 
@@ -256,5 +257,5 @@ async def create_project(
             workspace_id=project["workspaceId"],
             created=data["created"],
         )
-    except (KeyError, TypeError) as e:
+    except (KeyError, TypeError, ValidationError) as e:
         raise _write_service_error() from e

@@ -185,6 +185,28 @@ def test_create_detector_malformed_upstream_body_is_503():
     assert resp.status_code == 503
 
 
+@respx.mock
+def test_create_detector_wrong_typed_envelope_is_503():
+    """A 200 envelope whose fields are wrongly typed fails closed, never a 500.
+
+    The response model rejects these, and that rejection must map to the same
+    controlled 503 as a missing envelope.
+    """
+    _mock_account_auth()
+    _mock_write(
+        DETECTOR_WRITE_URL,
+        {"created": True, "detector": {**DETECTOR_ROW, "sampleRate": "twenty-five"}},
+    )
+
+    resp = _client().post(
+        "/api/v1/public/detectors",
+        json={"project_id": "proj-1", "name": "D", "template": "custom", "prompt": "p"},
+        headers=USER_HEADER,
+    )
+
+    assert resp.status_code == 503
+
+
 # ── dashboard ───────────────────────────────────────────────────────────
 
 

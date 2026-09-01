@@ -103,8 +103,7 @@ async def _verify_access_jwt(token: str) -> tuple[str, str]:
     audience, and expiry, and requires ``sub``. The signing key is resolved by
     ``kid`` from the cached JWKS. The ``sid`` claim (the minting session's id)
     is surfaced alongside so the write path can check the session is still
-    live; it is optional and shape-tolerant — a missing or non-string ``sid``
-    degrades to ``None`` rather than failing an otherwise-valid token.
+    live, and is required: a token without one would silently skip that check.
 
     Args:
         token (str): The raw JWT (already known to be JWT-shaped).
