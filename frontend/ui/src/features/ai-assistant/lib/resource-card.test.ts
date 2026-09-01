@@ -143,17 +143,18 @@ describe("resourceCardModel", () => {
       details: created("widget", "w2", { projectId: "p1", dashboardId: "db1" }),
     });
     const widgets = new Map([["db1", [widgetStep(), second]]]);
+    const chart = { projectId: "p1", spec: { ...WIDGET_SPEC, filters: [] } };
     expect(resourceCardModel(dashboard, widgets)).toEqual({
       resourceType: "dashboard",
       resourceId: "db1",
       created: true,
       title: "Latency overview",
-      meta: ["Dashboard", "2 widgets"],
+      meta: ["Dashboard", "2 widgets", "Last 24 hours"],
       body: {
         kind: "dashboard",
         tiles: [
-          { id: "w1", title: "Tokens by model", glyph: "bar", x: 0, y: 0, w: 6, h: 4 },
-          { id: "w2", title: "Cost", glyph: "bar", x: 6, y: 0, w: 6, h: 4 },
+          { id: "w1", title: "Tokens by model", glyph: "bar", chart, x: 0, y: 0, w: 6, h: 4 },
+          { id: "w2", title: "Cost", glyph: "bar", chart, x: 6, y: 0, w: 6, h: 4 },
         ],
       },
     });
@@ -168,6 +169,7 @@ describe("resourceCardModel", () => {
     expect(resourceCardModel(dashboard, new Map([["db1", [widgetStep()]]]))?.meta).toEqual([
       "Dashboard",
       "1 widget",
+      "Last 24 hours",
     ]);
     expect(resourceCardModel(dashboard)?.meta).toEqual(["Dashboard"]);
   });
@@ -476,11 +478,35 @@ describe("dashboard miniature tiles", () => {
       id: "w1",
       title: "w1",
       glyph: "unknown",
+      chart: null,
       x: 0,
       y: 0,
       w: 6,
       h: 4,
     });
+  });
+
+  it("carries the live query behind a chart tile — project and parsed spec", () => {
+    const [tileOf] = tilesOf([query("w1", "p95")]);
+    expect(tileOf.chart).toEqual({
+      projectId: "p1",
+      spec: { ...WIDGET_SPEC, filters: [], display: { type: "line" } },
+    });
+  });
+
+  it("gives a feed tile and an unparseable spec no query to run", () => {
+    expect(tilesOf([feed("w1", "Recent")])[0].chart).toBeNull();
+    const odd = widget("w2", {
+      title: "t",
+      type: "query",
+      spec: { ...WIDGET_SPEC, display: { type: "sparkline" } },
+    });
+    expect(tilesOf([odd])[0].chart).toBeNull();
+  });
+
+  it("labels the card's window only when a tile will chart live data", () => {
+    expect(dashboardModel([query("w1", "p95")])?.meta).toContain("Last 24 hours");
+    expect(dashboardModel([feed("w1", "Recent")])?.meta).not.toContain("Last 24 hours");
   });
 
   it("has no tiles when the transcript created no widgets in the dashboard", () => {
