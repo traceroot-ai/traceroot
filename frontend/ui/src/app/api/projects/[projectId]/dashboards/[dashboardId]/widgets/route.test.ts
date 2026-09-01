@@ -8,19 +8,26 @@ vi.mock("next/server", () => ({ NextRequest: class {} }));
 vi.mock("@/env", () => ({ env: { INTERNAL_API_SECRET: "test-secret" } }));
 
 const dashboardFindFirstMock = vi.fn();
+const dashboardUpdateMock = vi.fn();
 const widgetCreateMock = vi.fn();
+const queryRawMock = vi.fn();
 
-vi.mock("@traceroot/core", () => ({
-  Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
-  prisma: {
+vi.mock("@traceroot/core", () => {
+  const client = {
     dashboard: {
       findFirst: (...args: unknown[]) => dashboardFindFirstMock(...args),
+      update: (...args: unknown[]) => dashboardUpdateMock(...args),
     },
     widget: {
       create: (...args: unknown[]) => widgetCreateMock(...args),
     },
-  },
-}));
+    $queryRaw: (...args: unknown[]) => queryRawMock(...args),
+    // The route's writes run in one transaction; the mock hands the same
+    // client to the callback so every call lands on the same spies.
+    $transaction: (fn: (tx: unknown) => unknown) => fn(client),
+  };
+  return { Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" }, prisma: client };
+});
 
 const requireAuthMock = vi.fn();
 const requireProjectAccessMock = vi.fn();
@@ -77,7 +84,11 @@ const fakeWidget = {
 
 beforeEach(() => {
   dashboardFindFirstMock.mockReset();
+  dashboardUpdateMock.mockReset();
   widgetCreateMock.mockReset();
+  queryRawMock.mockReset();
+  // Default: the locking read finds an empty layout.
+  queryRawMock.mockResolvedValue([{ layout: [] }]);
   requireAuthMock.mockReset();
   requireProjectAccessMock.mockReset();
   // Default: authenticated with project access.
@@ -267,6 +278,67 @@ describe("POST /dashboards/[dashboardId]/widgets", () => {
     expect(data.spec).toEqual({ view: "spans" });
     // displayConfig defaults to {} when omitted.
     expect(data.displayConfig).toEqual({});
+  });
+
+  it("gives the created widget a placement in the dashboard layout", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    widgetCreateMock.mockResolvedValue(fakeWidget);
+
+    const res = (await POST(
+      makeRequest({ title: "My Widget", type: "query", spec: { view: "spans" } }),
+      makeParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(201);
+    expect(dashboardUpdateMock).toHaveBeenCalledWith({
+      where: { id: "dash-1" },
+      data: { layout: [{ i: "widget-1", x: 0, y: 0, w: 6, h: 4 }] },
+    });
+  });
+
+  it("packs the placement beside the tile already on the bottom row", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    widgetCreateMock.mockResolvedValue({ ...fakeWidget, type: "trace_feed" });
+    queryRawMock.mockResolvedValue([{ layout: [{ i: "w0", x: 0, y: 4, w: 6, h: 4 }] }]);
+
+    await POST(makeRequest({ title: "W", type: "trace_feed", spec: {} }), makeParams());
+    expect(dashboardUpdateMock).toHaveBeenCalledWith({
+      where: { id: "dash-1" },
+      data: {
+        layout: [
+          { i: "w0", x: 0, y: 4, w: 6, h: 4 },
+          { i: "widget-1", x: 6, y: 4, w: 6, h: 6 },
+        ],
+      },
+    });
+  });
+
+  it("locks the dashboard row before the widget insert and the layout read", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    widgetCreateMock.mockResolvedValue(fakeWidget);
+
+    await POST(makeRequest({ title: "W", type: "query", spec: {} }), makeParams());
+    const [strings, ...values] = queryRawMock.mock.calls[0] as [string[], ...unknown[]];
+    const sql = strings.join("?");
+    expect(sql).toMatch(/SELECT layout FROM dashboards WHERE id = \? FOR UPDATE/);
+    expect(sql).not.toContain("dash-1");
+    expect(values).toEqual(["dash-1"]);
+    expect(queryRawMock.mock.invocationCallOrder[0]).toBeLessThan(
+      widgetCreateMock.mock.invocationCallOrder[0],
+    );
+    expect(widgetCreateMock.mock.invocationCallOrder[0]).toBeLessThan(
+      dashboardUpdateMock.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("neither locks nor rewrites the layout when the body is rejected", async () => {
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    const res = (await POST(
+      makeRequest({ title: "W", type: "bad_type", spec: {} }),
+      makeParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(400);
+    expect(queryRawMock).not.toHaveBeenCalled();
+    expect(dashboardUpdateMock).not.toHaveBeenCalled();
   });
 
   it("persists a provided displayConfig as-is", async () => {
