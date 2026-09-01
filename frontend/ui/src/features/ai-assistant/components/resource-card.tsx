@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { DashboardMiniature } from "./dashboard-miniature";
+import { CHART_TILE_ASPECT, DashboardMiniature } from "./dashboard-miniature";
 import type { ResourceCardBody, ResourceCardModel } from "../lib/resource-card";
 
 // Loaded dynamically because the preview pulls in the dashboards renderers —
@@ -11,11 +11,14 @@ import type { ResourceCardBody, ResourceCardModel } from "../lib/resource-card";
 // every page's layout mounts. A static import would drag the charting library
 // into the shared layout chunk; the dynamic edge keeps it in its own chunk,
 // fetched only when a widget card actually has a chart to draw. The loading
-// placeholder mirrors the preview's fixed frame so the transcript doesn't
+// placeholder mirrors the preview's aspect frame so the transcript doesn't
 // jump when the module arrives.
 const WidgetChartPreview = dynamic(
   () => import("./widget-chart-preview").then((mod) => mod.WidgetChartPreview),
-  { ssr: false, loading: () => <div className="h-36 min-w-0" /> },
+  {
+    ssr: false,
+    loading: () => <div className="min-w-0" style={{ aspectRatio: CHART_TILE_ASPECT }} />,
+  },
 );
 
 /**

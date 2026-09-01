@@ -175,6 +175,105 @@ describe("MessageList tool entries", () => {
     expect(screen.getByText("Tokens by model")).toBeTruthy();
   });
 
+  it("keeps the plain tool line for a widget whose dashboard carded earlier in the transcript", () => {
+    const dashboard: ToolCallStep = {
+      toolCallId: "tc0",
+      toolName: "create_dashboard",
+      args: { name: "Latency overview" },
+      result: {
+        content: [{ type: "text", text: "Created dashboard" }],
+        details: {
+          kind: "resource_created",
+          resourceType: "dashboard",
+          resourceId: "db1",
+          created: true,
+          projectId: "p1",
+        },
+      },
+      isError: false,
+      status: "done",
+    };
+    render(
+      <MessageList
+        messages={[toolEntry(dashboard), toolEntry(createWidgetStep(WIDGET_DETAILS, "tc1"))]}
+      />,
+    );
+    // The dashboard card still counts (and its miniature draws) the widget;
+    // the widget's own step stays a traceable tool line, not a second card.
+    expect(screen.getByText("Dashboard · 1 widget")).toBeTruthy();
+    expect(screen.getByText("(create_widget)")).toBeTruthy();
+    // The title appears once — the miniature's tile — and the widget card's
+    // spec chips appear nowhere, because that card was suppressed.
+    expect(screen.getAllByText("Tokens by model")).toHaveLength(1);
+    expect(screen.queryByText("view spans")).toBeNull();
+    expect(screen.getAllByText("Created")).toHaveLength(1);
+  });
+
+  it("keeps the full card for a widget whose dashboard has no card in the transcript", () => {
+    // dashboardId db1 appears nowhere else — the widget landed in a
+    // pre-existing dashboard, so its card is the only receipt there is.
+    render(<MessageList messages={[toolEntry(createWidgetStep(WIDGET_DETAILS))]} />);
+    expect(screen.getByText("Tokens by model")).toBeTruthy();
+    expect(screen.queryByText("(create_widget)")).toBeNull();
+  });
+
+  it("sizes every card to the message column's width", () => {
+    const project: ToolCallStep = {
+      toolCallId: "tc7",
+      toolName: "create_project",
+      args: { name: "checkout-service" },
+      result: {
+        content: [{ type: "text", text: "Created project" }],
+        details: {
+          kind: "resource_created",
+          resourceType: "project",
+          resourceId: "p9",
+          created: true,
+          workspaceId: "ws1",
+        },
+      },
+      isError: false,
+      status: "done",
+    };
+    const dashboard: ToolCallStep = {
+      toolCallId: "tc8",
+      toolName: "create_dashboard",
+      args: { name: "Latency overview" },
+      result: {
+        content: [{ type: "text", text: "Created dashboard" }],
+        details: {
+          kind: "resource_created",
+          resourceType: "dashboard",
+          resourceId: "db2",
+          created: true,
+          projectId: "p1",
+        },
+      },
+      isError: false,
+      status: "done",
+    };
+    // Three card kinds; the widget's dashboard (db1) has no card here, so its
+    // own card stays.
+    render(
+      <MessageList
+        messages={[
+          toolEntry(project),
+          toolEntry(dashboard),
+          toolEntry(createWidgetStep(WIDGET_DETAILS)),
+        ]}
+      />,
+    );
+    const wrappers = ["checkout-service", "Latency overview", "Tokens by model"].map(
+      (title) => screen.getByText(title).closest("div[style]") as HTMLElement,
+    );
+    const widths = new Set(wrappers.map((wrapper) => wrapper.style.maxWidth));
+    expect(widths.size).toBe(1);
+    expect(widths.has("")).toBe(false);
+    for (const wrapper of wrappers) {
+      expect(wrapper.className).toContain("w-full");
+    }
+  });
+
   it("leaves ordinary bubbles alone", () => {
     render(
       <MessageList
