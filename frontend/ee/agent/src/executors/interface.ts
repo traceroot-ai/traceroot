@@ -52,10 +52,11 @@ export interface Executor {
   destroy(): Promise<void>;
 
   /**
-   * Clone a git repository using native SDK support (optional).
-   * Falls back to exec('git clone ...') if not implemented.
+   * Clone a git repository. Required: git_clone relies on this so that no
+   * caller-supplied value is ever interpolated into a shell command. There is
+   * deliberately no exec() fallback — that path was the CWE-78 sink.
    */
-  cloneRepo?(
+  cloneRepo(
     url: string,
     path: string,
     options?: {
