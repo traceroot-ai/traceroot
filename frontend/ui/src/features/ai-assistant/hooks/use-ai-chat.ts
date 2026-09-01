@@ -2,9 +2,12 @@
 
 import { useRef, useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { useLocalStorage } from "@/lib/hooks/use-local-storage";
+import { broadcastQueryInvalidation } from "@/lib/cross-tab-sync";
 import { useAIStream, type LiveToolResult, type TurnCompletion } from "./use-ai-stream";
 import { createdDashboardRoute, isCreatedDashboardResult } from "../lib/resource-navigation";
+import { invalidationKeysForResult } from "../lib/resource-invalidation";
 import type { AISession, AIMessage, AiTraceContext } from "../types";
 import type { ModelSelection } from "../components/model-selector";
 
@@ -22,6 +25,7 @@ export function useAiChat({
   initialSessionId,
 }: UseAiChatOptions) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const sessionIdRef = useRef<string | null>(null);
 
   // When the agent creates (or reuses) a DASHBOARD, remember it here and take
@@ -33,11 +37,24 @@ export function useAiChat({
   // navigation from a cut-short turn dies here unfired.
   const pendingDashboardNavRef = useRef<{ result: unknown; sessionId: string } | null>(null);
 
-  const handleToolResult = useCallback((event: LiveToolResult) => {
-    if (isCreatedDashboardResult(event.result)) {
-      pendingDashboardNavRef.current = { result: event.result, sessionId: event.sessionId };
-    }
-  }, []);
+  const handleToolResult = useCallback(
+    (event: LiveToolResult) => {
+      // Refetch whatever the write just made stale, immediately: the agent
+      // wrote server-side, so no cached list knows the resource exists, and a
+      // user watching the panel never produces a focus refetch. Unlike the
+      // deferred navigation below this runs per tool result and without the
+      // session/project guards — a background session's write still leaves
+      // that project's cache stale, and refetching can only ever be harmless.
+      for (const queryKey of invalidationKeysForResult(event.result)) {
+        void queryClient.invalidateQueries({ queryKey });
+        broadcastQueryInvalidation(queryKey);
+      }
+      if (isCreatedDashboardResult(event.result)) {
+        pendingDashboardNavRef.current = { result: event.result, sessionId: event.sessionId };
+      }
+    },
+    [queryClient],
+  );
 
   // Fire point for the deferred navigation. createdDashboardRoute holds the
   // guards — dashboards only, active session only, same project only — and is

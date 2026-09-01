@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { LiveToolResult, TurnCompletion, UseAIStreamOptions } from "./use-ai-stream";
 
 const mocks = vi.hoisted(() => ({
@@ -50,6 +52,14 @@ const dashboardDetails = (overrides: Record<string, unknown> = {}) => ({
   ...overrides,
 });
 
+// The hook invalidates the react-query cache on write results, so it needs a
+// client in scope; navigation behavior is independent of it.
+const queryClient = new QueryClient();
+
+function wrapper({ children }: { children: ReactNode }) {
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+}
+
 /** Complete session s1's turn (the deferred-navigation fire point). */
 function endTurn(overrides: Partial<TurnCompletion> = {}) {
   act(() => mocks.onTurnComplete!({ sessionId: "s1", projectId: "p1", ...overrides }));
@@ -61,7 +71,7 @@ async function renderActiveChat() {
     "fetch",
     vi.fn(async () => ({ ok: true, json: async () => ({ id: "s1" }) })),
   );
-  const rendered = renderHook(() => useAiChat({ projectId: "p1" }));
+  const rendered = renderHook(() => useAiChat({ projectId: "p1" }), { wrapper });
   await act(() => rendered.result.current.handleSend("make a dashboard", PICK));
   return rendered;
 }
@@ -169,6 +179,7 @@ describe("useAiChat dashboard auto-navigation", () => {
     );
     const { result, rerender } = renderHook(({ projectId }) => useAiChat({ projectId }), {
       initialProps: { projectId: "p1" },
+      wrapper,
     });
     await act(() => result.current.handleSend("make a dashboard", PICK));
     act(() => mocks.onToolResult!(toolResult(dashboardDetails())));
