@@ -55,6 +55,12 @@ spec:
                   key: {{ .Values.redis.secretKeys.url }}
             - name: BACKEND_INTERNAL_URL
               value: "http://{{ include "traceroot.fullname" . }}-rest:{{ .Values.rest.port }}"
+            # The alert scheduler's kill switch. The code defaults to on and
+            # Helm is what runs production, so the chart pins it — falling
+            # back to "false", never to the code's default: alerting starting
+            # itself on first deploy would page every workspace with a rule.
+            - name: ALERTS_SCHEDULER_ENABLED
+              value: {{ .Values.detector.alertsSchedulerEnabled | default "false" | quote }}
             - name: AGENT_SERVICE_URL
               value: "http://{{ include "traceroot.fullname" . }}-agent:{{ .Values.agent.port }}"
             - name: TRACEROOT_UI_URL

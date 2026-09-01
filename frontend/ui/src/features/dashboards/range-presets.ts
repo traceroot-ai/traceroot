@@ -1,7 +1,12 @@
-import { DATE_FILTER_OPTIONS, DEFAULT_DATE_FILTER, findDateFilterOption } from "@/lib/date-filter";
+import {
+  DATE_FILTER_OPTIONS,
+  DEFAULT_DATE_FILTER,
+  findDateFilterOption,
+  type DateFilterOption,
+} from "@/lib/date-filter";
 import type { TimeRange } from "./types";
 
-// The widget builder's preview-window presets ARE the shared trace-list
+// The preview-window presets ARE the shared trace-list
 // date-filter options (minus "custom", which needs the full range-picker UI
 // the preview doesn't have). This module used to hold its own hand-rolled
 // 24h/7d/30d list with a 7-day default, which silently diverged from the
@@ -12,6 +17,15 @@ export const RANGE_PRESETS = DATE_FILTER_OPTIONS.filter((o) => o.durationMinutes
 
 // The same default the trace list and dashboard page resolve to (24 hours).
 export const DEFAULT_RANGE_ID = DEFAULT_DATE_FILTER.id;
+
+// Falls back to the default preset so an unmatched id reads as the window
+// makeRange actually builds for it.
+export function findRangePreset(optionId: string): DateFilterOption {
+  return (
+    RANGE_PRESETS.find((p) => p.id === optionId) ??
+    RANGE_PRESETS.find((p) => p.id === DEFAULT_RANGE_ID)!
+  );
+}
 
 export function makeRange(optionId: string): TimeRange {
   // findDateFilterOption falls back to the default option for unknown ids;

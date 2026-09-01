@@ -342,11 +342,13 @@ def _membership_semijoin(idx: int, col: FilterColumn, pred: Predicate, params: d
 _METADATA_MAP_COLUMN = "metadata_map"
 
 
-def _keyed_map_match(map_ref: str, key_ref: str, value_ref: str, op: str) -> str:
+def keyed_map_match(map_ref: str, key_ref: str, value_ref: str, op: str) -> str:
     """The key/value comparison against one ``metadata_map`` column.
 
     Written once and applied to both the traces row and the spans row so the two halves of a
-    metadata predicate cannot drift apart in operator handling.
+    metadata predicate cannot drift apart in operator handling. Public because the widget
+    query engine lowers its keyed filter through it too, so both surfaces answer the same
+    filter identically.
 
     ``mapContains`` is not redundant with the comparison: ClickHouse's map subscript returns
     the value type's default for an absent key, so without the guard a predicate looking for
@@ -398,8 +400,8 @@ def _keyed_metadata_condition(idx: int, col: FilterColumn, pred: Predicate, para
         params[vname] = f"%{escape_ilike(pred.value)}%"
     else:
         params[vname] = pred.value  # EQ — exact match
-    trace_half = _keyed_map_match(f"t.{_METADATA_MAP_COLUMN}", key_ref, value_ref, pred.op)
-    span_where = f"WHERE {_keyed_map_match(_METADATA_MAP_COLUMN, key_ref, value_ref, pred.op)}"
+    trace_half = keyed_map_match(f"t.{_METADATA_MAP_COLUMN}", key_ref, value_ref, pred.op)
+    span_where = f"WHERE {keyed_map_match(_METADATA_MAP_COLUMN, key_ref, value_ref, pred.op)}"
     span_half = _span_semijoin((_METADATA_MAP_COLUMN,), span_where, params)
     # Parenthesise the OR as one unit before it joins the shared conditions list. That list is
     # AND-joined, and OR binds looser than AND: unparenthesised, this predicate's span half
