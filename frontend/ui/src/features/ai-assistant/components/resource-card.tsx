@@ -2,6 +2,7 @@
 
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { DashboardMiniature } from "./dashboard-miniature";
 import { WidgetChartPreview } from "./widget-chart-preview";
 import type { ResourceCardBody, ResourceCardModel } from "../lib/resource-card";
 
@@ -65,9 +66,10 @@ function CardBody({ body, resourceId }: { body: ResourceCardBody; resourceId: st
         </dl>
       );
     case "dashboard":
-      // The scaled-down grid of the dashboard's widgets belongs here; it is a
-      // separate change, and a header-only card reads fine without it.
-      return null;
+      // The dashboard itself, shrunk. When the transcript created no widgets
+      // there is nothing to shrink, and the header-only card reads fine.
+      if (body.tiles.length === 0) return null;
+      return <DashboardMiniature tiles={body.tiles} />;
   }
 }
 

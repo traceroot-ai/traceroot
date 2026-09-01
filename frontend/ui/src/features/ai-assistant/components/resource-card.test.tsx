@@ -12,6 +12,13 @@ vi.mock("./widget-chart-preview", () => ({
   ),
 }));
 
+// Same for the miniature, exercised for real in dashboard-miniature.test.tsx.
+vi.mock("./dashboard-miniature", () => ({
+  DashboardMiniature: ({ tiles }: { tiles: { id: string }[] }) => (
+    <div data-testid="miniature">{tiles.map((t) => t.id).join(",")}</div>
+  ),
+}));
+
 afterEach(cleanup);
 
 const CHART: WidgetChart = {
@@ -120,19 +127,40 @@ describe("ResourceCard", () => {
     expect(screen.getByText("p9")).toBeTruthy();
   });
 
-  it("renders a dashboard as a header-only card until its miniature exists", () => {
-    const { container } = render(
+  it("renders a dashboard's miniature grid from its tiles", () => {
+    render(
       <ResourceCard
         model={model({
           resourceType: "dashboard",
           title: "Latency overview",
           meta: ["Dashboard", "2 widgets"],
-          body: { kind: "dashboard" },
+          body: {
+            kind: "dashboard",
+            tiles: [
+              { id: "w1", title: "p95", glyph: "line", x: 0, y: 0, w: 6, h: 4 },
+              { id: "w2", title: "Recent", glyph: "trace_feed", x: 6, y: 0, w: 6, h: 6 },
+            ],
+          },
+        })}
+      />,
+    );
+    expect(screen.getByTestId("miniature").textContent).toBe("w1,w2");
+  });
+
+  it("keeps the header-only card for a dashboard with no widgets", () => {
+    const { container } = render(
+      <ResourceCard
+        model={model({
+          resourceType: "dashboard",
+          title: "Latency overview",
+          meta: ["Dashboard"],
+          body: { kind: "dashboard", tiles: [] },
         })}
       />,
     );
     expect(screen.getByText("Latency overview")).toBeTruthy();
-    expect(container.textContent).toBe("Latency overviewCreatedDashboard · 2 widgets");
+    expect(screen.queryByTestId("miniature")).toBeNull();
+    expect(container.textContent).toBe("Latency overviewCreatedDashboard");
   });
 
   it("renders a body-less card when the arguments left nothing to show", () => {

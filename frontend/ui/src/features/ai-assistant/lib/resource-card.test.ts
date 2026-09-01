@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { appendWidgetPlacement } from "@/features/dashboards/widget-placement";
+import { DISPLAY_TYPES } from "@/features/dashboards/types";
 import { createdWidgetsByDashboard, resourceCardModel } from "./resource-card";
+import type { MiniatureTile } from "./resource-card";
 import type { AIMessage, ToolCallStep } from "../types";
 
 function step(overrides: {
@@ -129,14 +132,26 @@ describe("resourceCardModel", () => {
       args: { name: "Latency overview" },
       details: created("dashboard", "db1", { projectId: "p1" }),
     });
-    const widgets = new Map([["db1", [widgetStep(), widgetStep({}, "tc2")]]]);
+    const second = step({
+      toolCallId: "tc2",
+      toolName: "create_widget",
+      args: { title: "Cost", type: "query", spec: WIDGET_SPEC },
+      details: created("widget", "w2", { projectId: "p1", dashboardId: "db1" }),
+    });
+    const widgets = new Map([["db1", [widgetStep(), second]]]);
     expect(resourceCardModel(dashboard, widgets)).toEqual({
       resourceType: "dashboard",
       resourceId: "db1",
       created: true,
       title: "Latency overview",
       meta: ["Dashboard", "2 widgets"],
-      body: { kind: "dashboard" },
+      body: {
+        kind: "dashboard",
+        tiles: [
+          { id: "w1", title: "Tokens by model", glyph: "bar", x: 0, y: 0, w: 6, h: 4 },
+          { id: "w2", title: "Cost", glyph: "bar", x: 6, y: 0, w: 6, h: 4 },
+        ],
+      },
     });
   });
 
@@ -342,6 +357,110 @@ describe("resourceCardModel", () => {
         status: "running",
       }),
     ).toBeNull();
+  });
+});
+
+describe("dashboard miniature tiles", () => {
+  function widget(id: string, args: Record<string, unknown>): ToolCallStep {
+    return step({
+      toolCallId: `tc-${id}`,
+      toolName: "create_widget",
+      args,
+      details: created("widget", id, { projectId: "p1", dashboardId: "db1" }),
+    });
+  }
+
+  function dashboardModel(widgets: ToolCallStep[]) {
+    const dashboard = step({
+      toolName: "create_dashboard",
+      args: { name: "Latency overview" },
+      details: created("dashboard", "db1", { projectId: "p1" }),
+    });
+    return resourceCardModel(dashboard, new Map([["db1", widgets]]));
+  }
+
+  function tilesOf(widgets: ToolCallStep[]): MiniatureTile[] {
+    const body = dashboardModel(widgets)?.body;
+    if (body?.kind !== "dashboard") throw new Error("expected a dashboard body");
+    return body.tiles;
+  }
+
+  const query = (id: string, title: string, display = "line") =>
+    widget(id, { title, type: "query", spec: { ...WIDGET_SPEC, display: { type: display } } });
+  const feed = (id: string, title: string) =>
+    widget(id, { title, type: "trace_feed", spec: { filters: [], limit: 10 } });
+
+  it("places tiles exactly as the service's placement function would", () => {
+    const tiles = tilesOf([query("w1", "p95"), feed("w2", "Recent"), query("w3", "Errors")]);
+
+    // The reference layout, folded through the real placement function the
+    // widget create route uses — the miniature must agree with it entry by
+    // entry, id and geometry both.
+    let layout: unknown = [];
+    for (const w of [
+      { id: "w1", type: "query" as const },
+      { id: "w2", type: "trace_feed" as const },
+      { id: "w3", type: "query" as const },
+    ]) {
+      layout = appendWidgetPlacement(layout, w);
+    }
+    expect(tiles.map(({ id, x, y, w, h }) => ({ i: id, x, y, w, h }))).toEqual(layout);
+
+    // And concretely: charts sit half-width at 6x4, feeds at 6x6.
+    expect(tiles[0]).toMatchObject({ x: 0, y: 0, w: 6, h: 4 });
+    expect(tiles[1]).toMatchObject({ x: 6, y: 0, w: 6, h: 6 });
+    expect(tiles[2]).toMatchObject({ x: 0, y: 6, w: 6, h: 4 });
+  });
+
+  it("gives every display type its own glyph and a feed its list glyph", () => {
+    for (const display of DISPLAY_TYPES) {
+      expect(tilesOf([query("w1", "t", display)])[0].glyph).toBe(display);
+    }
+    expect(tilesOf([feed("w1", "Recent")])[0].glyph).toBe("trace_feed");
+  });
+
+  it("falls back to a neutral tile for a display it does not know", () => {
+    const odd = widget("w1", {
+      title: "t",
+      type: "query",
+      spec: { ...WIDGET_SPEC, display: { type: "sparkline" } },
+    });
+    expect(tilesOf([odd])[0].glyph).toBe("unknown");
+  });
+
+  it("shows a widget once even when its create call was replayed", () => {
+    const tiles = tilesOf([query("w1", "p95"), query("w1", "p95 again")]);
+    expect(tiles).toHaveLength(1);
+    expect(tiles[0]).toMatchObject({ id: "w1", title: "p95" });
+  });
+
+  it("tiles a widget whose arguments did not survive, at a chart's size", () => {
+    const unreadable = step({
+      toolName: "create_widget",
+      args: "…elided…",
+      details: created("widget", "w1", { dashboardId: "db1" }),
+    });
+    expect(tilesOf([unreadable])[0]).toEqual({
+      id: "w1",
+      title: "w1",
+      glyph: "unknown",
+      x: 0,
+      y: 0,
+      w: 6,
+      h: 4,
+    });
+  });
+
+  it("has no tiles when the transcript created no widgets in the dashboard", () => {
+    expect(tilesOf([])).toEqual([]);
+    const body = resourceCardModel(
+      step({
+        toolName: "create_dashboard",
+        args: { name: "Empty" },
+        details: created("dashboard", "db9"),
+      }),
+    )?.body;
+    expect(body).toEqual({ kind: "dashboard", tiles: [] });
   });
 });
 
