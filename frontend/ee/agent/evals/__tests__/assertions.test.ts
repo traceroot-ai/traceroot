@@ -69,6 +69,49 @@ describe("onlyToolCall", () => {
     const turns = [turn({ toolCalls: [call("create_detector"), call("create_detector")] })];
     expect(() => onlyToolCall(turns, "create_detector")).toThrow(/2 times/);
   });
+
+  it("reports an agent that answered instead of writing, and quotes what it said", () => {
+    const turns = [
+      turn({ assistantText: "Do you want a judged prompt, or a hard trigger on duration_ms?" }),
+    ];
+    expect(() => onlyToolCall(turns, "create_detector")).toThrow(
+      /answered without calling any write tool/,
+    );
+    expect(() => onlyToolCall(turns, "create_detector")).toThrow(/hard trigger on duration_ms/);
+  });
+
+  it("counts only write tools, so a read-only turn still reads as ask-instead-of-act", () => {
+    const turns = [turn({ toolCalls: [call("list_detectors")], assistantText: "Which template?" })];
+    expect(() => onlyToolCall(turns, "create_detector")).toThrow(
+      /answered without calling any write tool/,
+    );
+  });
+
+  it("keeps the plain message when the agent wrote something else", () => {
+    const turns = [turn({ toolCalls: [call("create_dashboard")], assistantText: "Done." })];
+    expect(() => onlyToolCall(turns, "create_detector")).toThrow(
+      /^create_detector was never called/,
+    );
+  });
+
+  it("keeps the plain message when the agent said nothing at all", () => {
+    expect(() => onlyToolCall([turn()], "create_detector")).toThrow(
+      /^create_detector was never called/,
+    );
+  });
+
+  it("collapses and truncates a long answer so the failure stays readable", () => {
+    const turns = [turn({ assistantText: `First line.\n\n${"word ".repeat(200)}` })];
+    let message = "";
+    try {
+      onlyToolCall(turns, "create_detector");
+    } catch (failure) {
+      message = (failure as Error).message;
+    }
+    expect(message).toContain("First line. word");
+    expect(message).toContain("…");
+    expect(message.length).toBeLessThan(400);
+  });
 });
 
 describe("assistantText", () => {
