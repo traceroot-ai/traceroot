@@ -246,6 +246,15 @@ describe("generateRegistry", () => {
       expect("policy" in entry).toBe(false);
     }
   });
+
+  it("throws on an enabled GET that carries a policy", () => {
+    // The schema build rejects this too; dropping it silently here would let
+    // the two generators disagree about the same curation entry.
+    const doc = fakeDoc();
+    const get = Object.values(doc.paths).find((ops) => ops.get?.["x-tool"]?.enabled)!.get!;
+    get["x-tool"]!.policy = { approvalClass: "none", minRole: "VIEWER", tenancy: "account" };
+    expect(() => generateRegistry(doc)).toThrow("x-tool policy is write-only");
+  });
 });
 
 /** Minimal fake of the public document's write-operation shapes. */
