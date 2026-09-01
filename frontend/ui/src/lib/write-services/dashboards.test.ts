@@ -10,6 +10,8 @@ const tx = {
   workspaceMember: { findUnique: vi.fn() },
   dashboard: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
   widget: { create: vi.fn() },
+  // The locking read of the layout column; see lib/dashboard-layout.
+  $queryRaw: vi.fn(),
 };
 // Audit rows are written on the root client after the transaction commits, so
 // the tx mock deliberately has no auditLog.
@@ -87,6 +89,8 @@ beforeEach(() => {
   tx.dashboard.create.mockReset();
   tx.dashboard.update.mockReset();
   tx.widget.create.mockReset();
+  tx.$queryRaw.mockReset();
+  tx.$queryRaw.mockResolvedValue([{ layout: [] }]);
   auditLogCreate.mockReset();
   auditLogCreate.mockResolvedValue({});
 });
@@ -233,7 +237,8 @@ describe("createDashboard", () => {
 
 describe("createWidget", () => {
   function mockDashboard(layout: unknown = []) {
-    tx.dashboard.findFirst.mockResolvedValue({ id: "dash1", layout });
+    tx.dashboard.findFirst.mockResolvedValue({ id: "dash1" });
+    tx.$queryRaw.mockResolvedValue([{ layout }]);
   }
 
   it("returns 404 when the project does not exist", async () => {
@@ -271,7 +276,7 @@ describe("createWidget", () => {
     expect(r).toEqual({ ok: false, status: 404, error: "Dashboard not found" });
     expect(tx.dashboard.findFirst).toHaveBeenCalledWith({
       where: { id: "dash1", projectId: "p1" },
-      select: { id: true, layout: true },
+      select: { id: true },
     });
     expect(tx.widget.create).not.toHaveBeenCalled();
   });
@@ -544,12 +549,35 @@ describe("createWidget", () => {
     });
   });
 
+  it("locks the dashboard row before the widget insert and the layout read", async () => {
+    mockAccess();
+    mockDashboard();
+    tx.widget.create.mockResolvedValue(widgetRow);
+    await runWidget();
+    const [strings, ...values] = tx.$queryRaw.mock.calls[0] as [string[], ...unknown[]];
+    const sql = strings.join("?");
+    expect(sql).toMatch(/SELECT layout FROM dashboards WHERE id = \? FOR UPDATE/);
+    // The id is a bound parameter, never interpolated into the statement.
+    expect(sql).not.toContain("dash1");
+    expect(values).toEqual(["dash1"]);
+    // Taking the lock after the insert would deadlock: the insert's foreign
+    // key already holds a weaker lock on the same row.
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.widget.create.mock.invocationCallOrder[0],
+    );
+    expect(tx.widget.create.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.dashboard.update.mock.invocationCallOrder[0],
+    );
+  });
+
   it("leaves the layout untouched when the widget is rejected", async () => {
     mockAccess();
     mockDashboard();
     const r = await runWidget({ spec: { ...validSpec, view: "nope" } });
     expect(r).toMatchObject({ ok: false, status: 400 });
     expect(tx.dashboard.update).not.toHaveBeenCalled();
+    // Nothing is written, so the dashboard row is never locked either.
+    expect(tx.$queryRaw).not.toHaveBeenCalled();
   });
 
   it("creates a spans widget broken down by model_name (the vocabulary for 'by model')", async () => {
