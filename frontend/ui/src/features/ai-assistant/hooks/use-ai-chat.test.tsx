@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, waitFor, cleanup } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -10,6 +11,14 @@ vi.mock("next/navigation", () => ({
 import { useAiChat } from "./use-ai-chat";
 import type { AISession } from "../types";
 import type { ModelSelection } from "../components/model-selector";
+
+// The hook invalidates the react-query cache on write results, so every render
+// needs a client in scope; nothing asserted here depends on its contents.
+const queryClient = new QueryClient();
+
+function wrapper({ children }: { children: ReactNode }) {
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+}
 
 function createSSE() {
   let controller!: ReadableStreamDefaultController<Uint8Array>;
@@ -111,7 +120,7 @@ describe("useAiChat session switching", () => {
     vi.unstubAllGlobals();
   });
 
-  const renderChat = () => renderHook(() => useAiChat({ projectId: "p1" }));
+  const renderChat = () => renderHook(() => useAiChat({ projectId: "p1" }), { wrapper });
 
   const startStreamInA = async (result: ReturnType<typeof renderChat>["result"]) => {
     await act(async () => {
@@ -124,10 +133,9 @@ describe("useAiChat session switching", () => {
   };
 
   it("loads an initialSessionId's history into its bucket on mount", async () => {
-    const { result } = renderHook(
-      () => useAiChat({ projectId: "p1", initialSessionId: "rca-1" }),
-      {},
-    );
+    const { result } = renderHook(() => useAiChat({ projectId: "p1", initialSessionId: "rca-1" }), {
+      wrapper,
+    });
     expect(result.current.currentSessionId).toBe("rca-1");
     await waitFor(() =>
       expect(result.current.messages.some((m) => m.content === "history of rca-1")).toBe(true),
@@ -357,6 +365,7 @@ describe("useAiChat session switching", () => {
     });
     const { result, rerender } = renderHook(({ projectId }) => useAiChat({ projectId }), {
       initialProps: { projectId: "p1" },
+      wrapper,
     });
 
     // p1's creation is still in flight when the user switches projects
@@ -659,7 +668,7 @@ describe("useAiChat session switching", () => {
     const { result, rerender } = renderHook(
       ({ initialSessionId }: { initialSessionId?: string }) =>
         useAiChat({ projectId: "p1", initialSessionId }),
-      { initialProps: {} as { initialSessionId?: string } },
+      { initialProps: {} as { initialSessionId?: string }, wrapper },
     );
 
     let send!: Promise<void>;
@@ -739,18 +748,18 @@ describe("useAiChat model selection", () => {
   });
 
   it("starts empty and exposes a setter", () => {
-    const { result } = renderHook(() => useAiChat({ projectId: "p1" }));
+    const { result } = renderHook(() => useAiChat({ projectId: "p1" }), { wrapper });
     expect(result.current.modelSelection.model).toBe("");
     act(() => result.current.setModelSelection(PICK));
     expect(result.current.modelSelection).toEqual(PICK);
   });
 
   it("restores the selection for the same project after a remount", () => {
-    const first = renderHook(() => useAiChat({ projectId: "p1" }));
+    const first = renderHook(() => useAiChat({ projectId: "p1" }), { wrapper });
     act(() => first.result.current.setModelSelection(PICK));
     first.unmount();
 
-    const second = renderHook(() => useAiChat({ projectId: "p1" }));
+    const second = renderHook(() => useAiChat({ projectId: "p1" }), { wrapper });
     expect(second.result.current.modelSelection).toEqual(PICK);
   });
 
@@ -767,7 +776,7 @@ describe("useAiChat model selection", () => {
         }, [projectId, model]);
         return chat;
       },
-      { initialProps: { projectId: "p1" } },
+      { initialProps: { projectId: "p1" }, wrapper },
     );
     act(() => result.current.setModelSelection(PICK));
     rerender({ projectId: "p2" });
@@ -781,11 +790,11 @@ describe("useAiChat model selection", () => {
   });
 
   it("keeps selections separate per project", () => {
-    const a = renderHook(() => useAiChat({ projectId: "p1" }));
+    const a = renderHook(() => useAiChat({ projectId: "p1" }), { wrapper });
     act(() => a.result.current.setModelSelection(PICK));
     a.unmount();
 
-    const b = renderHook(() => useAiChat({ projectId: "p2" }));
+    const b = renderHook(() => useAiChat({ projectId: "p2" }), { wrapper });
     expect(b.result.current.modelSelection.model).toBe("");
   });
 });
