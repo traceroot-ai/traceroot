@@ -66,7 +66,15 @@ export class ApiClient {
       signal: signals.length > 0 ? AbortSignal.any(signals) : undefined,
     };
     if (opts.body !== undefined) {
-      init.headers = { ...this.options.headers, "content-type": "application/json" };
+      // Header names are case-insensitive but plain-object keys are not, so a
+      // caller-supplied "Content-Type" would survive alongside ours and fetch
+      // would join the two values. Drop any spelling of it first.
+      const headers = Object.fromEntries(
+        Object.entries(this.options.headers).filter(
+          ([name]) => name.toLowerCase() !== "content-type",
+        ),
+      );
+      init.headers = { ...headers, "content-type": "application/json" };
       init.body = JSON.stringify(opts.body);
     }
 

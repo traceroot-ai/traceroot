@@ -24,6 +24,10 @@ BINDINGS = {
     "/api/v1/public/detectors/{detector_id}": (
         "/api/v1/projects/{project_id}/detectors/{detector_id}"
     ),
+    "/api/v1/public/dashboards": "/api/v1/projects/{project_id}/dashboards",
+    "/api/v1/public/dashboards/{dashboard_id}": (
+        "/api/v1/projects/{project_id}/dashboards/{dashboard_id}"
+    ),
 }
 
 

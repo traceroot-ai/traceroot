@@ -181,6 +181,18 @@ describe("POST /api/internal/write/detectors", () => {
     expect(body).toEqual({ error: "condition 1 has an unknown field" });
   });
 
+  it.each([
+    ["triggerConditions", "triggerConditions must be an array"],
+    ["outputSchema", "outputSchema must be an array"],
+  ])("rejects a non-array %s with the service's own message", async (field, message) => {
+    const res = await POST(makeRequest({ ...validBody, [field]: "not-an-array" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body).toEqual({ error: message });
+    expect(createDetectorMock).not.toHaveBeenCalled();
+  });
+
   it("returns the created detector and forwards provenance", async () => {
     const detector = {
       id: "d1",

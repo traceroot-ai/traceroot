@@ -10,6 +10,7 @@ account-write module's proxy helper, error mapping, and passthrough semantics.
 from typing import Any
 
 from fastapi import APIRouter, Request, Response
+from pydantic import ValidationError
 
 from rest.rate_limit import (
     BUCKET_WRITE,
@@ -104,7 +105,7 @@ async def create_detector(
             sample_rate=detector["sampleRate"],
             created=data["created"],
         )
-    except (KeyError, TypeError) as e:
+    except (KeyError, TypeError, ValidationError) as e:
         raise _write_service_error() from e
 
 
@@ -158,7 +159,7 @@ async def create_dashboard(
             project_id=dashboard["projectId"],
             created=data["created"],
         )
-    except (KeyError, TypeError) as e:
+    except (KeyError, TypeError, ValidationError) as e:
         raise _write_service_error() from e
 
 
@@ -220,5 +221,5 @@ async def create_widget(
             type=widget["type"],
             created=data["created"],
         )
-    except (KeyError, TypeError) as e:
+    except (KeyError, TypeError, ValidationError) as e:
         raise _write_service_error() from e
