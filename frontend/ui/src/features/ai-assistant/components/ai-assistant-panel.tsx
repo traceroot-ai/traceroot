@@ -109,6 +109,7 @@ export function AiAssistantPanel({
     historyOpen,
     currentSessionId,
     modelSelection,
+    hasPendingDecision,
     setHistoryOpen,
     setModelSelection,
     handleSend,
@@ -254,6 +255,8 @@ export function AiAssistantPanel({
           onModelChange={setModelSelection}
           disabled={!projectId || !hasModels}
           workspaceId={workspaceId}
+          // While a proposal awaits a decision, a typed reply revises it.
+          placeholder={hasPendingDecision ? "Reply to revise, or use the buttons" : undefined}
           actions={
             isStreaming && (
               <button
