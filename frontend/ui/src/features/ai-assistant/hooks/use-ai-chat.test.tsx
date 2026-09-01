@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
@@ -21,24 +22,32 @@ import { useAiChat } from "./use-ai-chat";
 
 const PICK = { model: "kimi-k3", provider: "Moonshot", source: "byok" as const, adapter: "openai" };
 
+// The hook invalidates the react-query cache on write results, so it needs a
+// client in scope; model selection is independent of it.
+const queryClient = new QueryClient();
+
+function wrapper({ children }: { children: ReactNode }) {
+  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+}
+
 afterEach(() => {
   window.localStorage.clear();
 });
 
 describe("useAiChat model selection", () => {
   it("starts empty and exposes a setter", () => {
-    const { result } = renderHook(() => useAiChat({ projectId: "p1" }));
+    const { result } = renderHook(() => useAiChat({ projectId: "p1" }), { wrapper });
     expect(result.current.modelSelection.model).toBe("");
     act(() => result.current.setModelSelection(PICK));
     expect(result.current.modelSelection).toEqual(PICK);
   });
 
   it("restores the selection for the same project after a remount", () => {
-    const first = renderHook(() => useAiChat({ projectId: "p1" }));
+    const first = renderHook(() => useAiChat({ projectId: "p1" }), { wrapper });
     act(() => first.result.current.setModelSelection(PICK));
     first.unmount();
 
-    const second = renderHook(() => useAiChat({ projectId: "p1" }));
+    const second = renderHook(() => useAiChat({ projectId: "p1" }), { wrapper });
     expect(second.result.current.modelSelection).toEqual(PICK);
   });
 
@@ -55,7 +64,7 @@ describe("useAiChat model selection", () => {
         }, [projectId, model]);
         return chat;
       },
-      { initialProps: { projectId: "p1" } },
+      { initialProps: { projectId: "p1" }, wrapper },
     );
     act(() => result.current.setModelSelection(PICK));
     rerender({ projectId: "p2" });
@@ -69,11 +78,11 @@ describe("useAiChat model selection", () => {
   });
 
   it("keeps selections separate per project", () => {
-    const a = renderHook(() => useAiChat({ projectId: "p1" }));
+    const a = renderHook(() => useAiChat({ projectId: "p1" }), { wrapper });
     act(() => a.result.current.setModelSelection(PICK));
     a.unmount();
 
-    const b = renderHook(() => useAiChat({ projectId: "p2" }));
+    const b = renderHook(() => useAiChat({ projectId: "p2" }), { wrapper });
     expect(b.result.current.modelSelection.model).toBe("");
   });
 });
