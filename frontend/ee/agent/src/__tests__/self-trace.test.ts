@@ -40,6 +40,29 @@ const meta = {
 };
 
 describe("withAgentTrace", () => {
+  it("keeps a completed turn when tracing fails on the way out", async () => {
+    // fn succeeded; observe then threw while closing spans. Treating that as
+    // fn's failure would abort a turn that already worked — and the caller
+    // would never see the answer the agent produced.
+    observe.mockImplementationOnce(async (_o: any, fn: any) => {
+      await fn();
+      throw new Error("span close failed");
+    });
+    const r = await mod.withAgentTrace(meta, async () => 99);
+    expect(r).toEqual({ value: 99, trace: "failed" });
+  });
+
+  it("does not rerun a turn that already ran", async () => {
+    // The untraced-fallback path must only fire when fn never started.
+    let calls = 0;
+    observe.mockImplementationOnce(async (_o: any, fn: any) => {
+      await fn();
+      throw new Error("span close failed");
+    });
+    await mod.withAgentTrace(meta, async () => { calls += 1; return 1; });
+    expect(calls).toBe(1);
+  });
+
   it("latches off when the SDK initialized but tracing never became active", async () => {
     // initialize() not throwing does not mean spans flow: the SDK no-ops when
     // disabled, and declines to register when another provider owns the global.

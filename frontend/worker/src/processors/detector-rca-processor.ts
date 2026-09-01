@@ -11,7 +11,7 @@ import {
 import {
   allocateExecution,
   advanceLatest,
-  isLatestExecution,
+  failFindingIfLatest,
   setExecutionTraceStatus,
 } from "@traceroot/core/rca-executions";
 import { fetchProviderConfig, resolvePiModel } from "@traceroot/core/model-resolver";
@@ -487,18 +487,14 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
         data: { result: `RCA failed: ${message}`, finishedAt: new Date() },
       })
       .catch(() => {}); // best-effort
-    if (await isLatestExecution(prisma, findingId, execution.executionId)) {
-      await prisma.detectorRca
-        .update({
-          where: { findingId },
-          data: {
-            status: "failed",
-            result: `RCA failed: ${message}`,
-            completedAt: new Date(),
-          },
-        })
-        .catch(() => {}); // best-effort
-    }
+    // Conditional on this attempt still owning the finding, in one statement:
+    // a read-then-write would let a newer attempt advance the pointer in the gap
+    // and have its result overwritten by this failure.
+    await failFindingIfLatest(prisma, {
+      findingId,
+      executionId: execution.executionId,
+      message,
+    }).catch(() => {}); // best-effort
     await setExecutionTraceStatus(prisma, execution.executionId, "failed").catch(() => {});
 
     await scheduleDigestFlush();

@@ -81,23 +81,33 @@ export async function finishFindingIfLatest(
 }
 
 /**
- * Whether `executionId` is still the finding's latest execution.
+ * Record a failure on the finding, but only while this attempt still owns it.
  *
- * A finding row is shared by every attempt, so only the current one may write
- * its status — otherwise a slow older attempt finishing last overwrites a newer
- * attempt's result. The success path enforces this through advanceLatest's
- * compare-and-set; failure paths, which write the finding directly, ask here.
+ * A finding row is shared by every attempt, so a slow older attempt finishing
+ * after a newer one succeeded must not replace that success with its own
+ * failure. Reading the pointer and then updating would leave a window for the
+ * newer attempt to advance it in between; this is one conditional write, so the
+ * database decides. `latestExecutionId: null` is included: a finding whose first
+ * attempt is still running has no pointer yet, and that attempt does speak for
+ * it.
+ *
+ * @returns whether the write applied — false means a newer attempt owns the
+ *   finding and this failure belongs only to its own execution row.
  */
-export async function isLatestExecution(
+export async function failFindingIfLatest(
   db: Db,
-  findingId: string,
-  executionId: string,
+  params: { findingId: string; executionId: string; message: string },
 ): Promise<boolean> {
-  const current = await db.detectorRca.findUnique({
-    where: { findingId },
-    select: { latestExecutionId: true },
+  const res = await db.detectorRca.updateMany({
+    where: {
+      findingId: params.findingId,
+      OR: [{ latestExecutionId: params.executionId }, { latestExecutionId: null }],
+    },
+    data: {
+      status: "failed",
+      result: `RCA failed: ${params.message}`,
+      completedAt: new Date(),
+    },
   });
-  // No pointer yet means nothing newer has claimed the finding: this attempt,
-  // the only one to have finished, speaks for it.
-  return current?.latestExecutionId == null || current.latestExecutionId === executionId;
+  return res.count === 1;
 }

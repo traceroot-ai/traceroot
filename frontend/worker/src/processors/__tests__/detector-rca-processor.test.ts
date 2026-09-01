@@ -16,7 +16,7 @@ const setExecutionTraceStatusMock = vi.fn().mockResolvedValue(undefined);
 const detectorRcaExecutionUpdateMock = vi.fn().mockResolvedValue({});
 // Default true: most tests have a single attempt, which is always the latest.
 // The concurrency test flips it to assert an older attempt keeps quiet.
-const isLatestExecutionMock = vi.fn().mockResolvedValue(true);
+const failFindingIfLatestMock = vi.fn().mockResolvedValue(true);
 
 vi.mock("@traceroot/core/model-resolver", async () => ({
   fetchProviderConfig: (...args: any[]) => fetchProviderConfigMock(...args),
@@ -32,7 +32,7 @@ vi.mock("@traceroot/core/rca-executions", () => ({
   allocateExecution: (...a: any[]) => allocateExecutionMock(...a),
   advanceLatest: (...a: any[]) => advanceLatestMock(...a),
   setExecutionTraceStatus: (...a: any[]) => setExecutionTraceStatusMock(...a),
-  isLatestExecution: (...a: any[]) => isLatestExecutionMock(...a),
+  failFindingIfLatest: (...a: any[]) => failFindingIfLatestMock(...a),
 }));
 vi.mock("@traceroot/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@traceroot/core")>();
@@ -52,7 +52,7 @@ vi.mock("@traceroot/core", async (importOriginal) => {
     allocateExecution: (...a: any[]) => allocateExecutionMock(...a),
     advanceLatest: (...a: any[]) => advanceLatestMock(...a),
     setExecutionTraceStatus: (...a: any[]) => setExecutionTraceStatusMock(...a),
-  isLatestExecution: (...a: any[]) => isLatestExecutionMock(...a),
+  failFindingIfLatest: (...a: any[]) => failFindingIfLatestMock(...a),
   };
 });
 
@@ -605,14 +605,13 @@ describe("processRcaJob", () => {
       } as any),
     ).rejects.toThrow("Prisma error");
 
-    expect(detectorRcaUpdate).toHaveBeenCalledWith(
+    // The finding is failed through the conditional helper, so a superseded
+    // attempt cannot overwrite a newer one's result.
+    expect(failFindingIfLatestMock).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
-        where: { findingId: "f1" },
-        data: expect.objectContaining({
-          status: "failed",
-          result: expect.stringContaining("Prisma error"),
-          completedAt: expect.any(Date),
-        }),
+        findingId: "f1",
+        message: expect.stringContaining("Prisma error"),
       }),
     );
     // A failed RCA must still alert: scheduleDigestFlush runs from the catch
@@ -655,14 +654,11 @@ describe("processRcaJob", () => {
       } as any),
     ).rejects.toThrow(/Invalid API key for provider/);
 
-    expect(detectorRcaUpdate).toHaveBeenCalledWith(
+    expect(failFindingIfLatestMock).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
-        where: { findingId: "f1" },
-        data: expect.objectContaining({
-          status: "failed",
-          result: expect.stringContaining("Invalid API key for provider"),
-          completedAt: expect.any(Date),
-        }),
+        findingId: "f1",
+        message: expect.stringContaining("Invalid API key for provider"),
       }),
     );
     // A failed RCA must still alert: scheduleDigestFlush runs from the catch

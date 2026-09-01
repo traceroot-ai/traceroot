@@ -169,13 +169,23 @@ export async function withAgentTrace<T>(
   // fn's own and belongs to the caller. Without this distinction a tracing
   // failure would abort the agent run, which is the one thing self-tracing
   // must never do.
-  let entered = false;
+  // Three states, not two. `entered` alone says fn started, which is not enough:
+  // if fn succeeded and observe then threw while closing spans, treating that as
+  // fn's failure would abort a turn that already worked. So the outcome is
+  // captured as fn produces it, and only a rejection with no outcome is fn's own.
+  let outcome: { ok: true; value: T } | { ok: false; error: unknown } | undefined;
   const traced = async (): Promise<T> => {
-    entered = true;
     const root = trace.getActiveSpan();
     const input = boundedText(meta.input);
     if (root && input !== undefined) root.setAttribute("traceroot.span.input", input);
-    const value = await fn();
+    let value: T;
+    try {
+      value = await fn();
+    } catch (err) {
+      outcome = { ok: false, error: err };
+      throw err; // let observe close its spans with the error
+    }
+    outcome = { ok: true, value };
     try {
       const output = boundedText(options.recordOutput?.(value));
       if (root && output !== undefined) root.setAttribute("traceroot.span.output", output);
@@ -201,7 +211,17 @@ export async function withAgentTrace<T>(
       ),
     );
   } catch (err) {
-    if (entered) throw err; // fn's own failure — the caller's to handle
+    // fn ran and failed: its error is the caller's, and observe rethrowing it is
+    // expected.
+    if (outcome && !outcome.ok) throw outcome.error;
+    // fn ran and succeeded, but tracing threw while closing out. The turn
+    // happened; losing it to a tracing failure is exactly what must not occur.
+    if (outcome?.ok) {
+      console.error("[AgentTrace] tracing failed after the run completed:", err);
+      return { value: outcome.value, trace: "failed" };
+    }
+    // fn never ran — observe failed during setup. Run the turn untraced; never
+    // rerun one that already happened.
     console.error("[AgentTrace] observe failed before the run; running untraced:", err);
     return { value: await fn(), trace: "failed" };
   }
