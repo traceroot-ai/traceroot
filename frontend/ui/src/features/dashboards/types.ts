@@ -36,6 +36,14 @@ export const WidgetFilterSchema = z.object({
 // query collapses to a single unlabeled datum and there is nothing to chart.
 export const BREAKDOWN_REQUIRED_DISPLAYS: ReadonlySet<DisplayType> = new Set(["pie", "bar"]);
 
+// A number tile renders exactly one value and a histogram compiles to its own
+// bin shape — the query engine rejects a breakdown on either rather than
+// silently dropping every group but the first.
+export const BREAKDOWN_UNSUPPORTED_DISPLAYS: ReadonlySet<DisplayType> = new Set([
+  "number",
+  "histogram",
+]);
+
 export const WidgetSpecSchema = z
   .object({
     view: z.enum(["spans", "traces"]),

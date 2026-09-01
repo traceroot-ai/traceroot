@@ -1,4 +1,5 @@
 import registrySnapshot from "./widget-registry.generated.json";
+import { BREAKDOWN_UNSUPPORTED_DISPLAYS, DISPLAY_TYPES } from "./types";
 import type { WidgetSpec, WidgetSchemaField } from "./types";
 
 /**
@@ -28,6 +29,10 @@ const COMPILER_FLOAT_RE = new RegExp(
   `^[+-]?(?:inf(?:inity)?|nan|(?:${DIGITS}(?:\\.(?:${DIGITS})?)?|\\.${DIGITS})(?:[eE][+-]?${DIGITS})?)$`,
   "i",
 );
+
+const BREAKDOWN_DISPLAYS = DISPLAY_TYPES.filter(
+  (type) => !BREAKDOWN_UNSUPPORTED_DISPLAYS.has(type),
+).join(", ");
 
 const names = (
   fields: Record<string, WidgetSchemaField>,
@@ -67,6 +72,16 @@ export function validateWidgetSpecVocabulary(spec: WidgetSpec): VocabularyResult
   }
 
   if (spec.breakdown !== null) {
+    // The compiler settles the display/breakdown pairing before it resolves
+    // the breakdown field, so this precedes the vocabulary checks below.
+    if (BREAKDOWN_UNSUPPORTED_DISPLAYS.has(spec.display.type)) {
+      return {
+        ok: false,
+        error:
+          `display "${spec.display.type}" does not support a breakdown dimension — ` +
+          `displays that support a breakdown: ${BREAKDOWN_DISPLAYS}`,
+      };
+    }
     const breakdown = fields[spec.breakdown];
     const valid = `valid breakdowns: ${names(fields, (f) => f.groupable)}`;
     if (!breakdown) {

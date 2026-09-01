@@ -26,6 +26,7 @@ import { DEFAULT_RANGE_ID, RANGE_PRESETS, makeRange } from "../range-presets";
 import { readStoredDateFilter, writeStoredDateFilter } from "@/lib/date-filter-storage";
 import {
   BREAKDOWN_REQUIRED_DISPLAYS,
+  BREAKDOWN_UNSUPPORTED_DISPLAYS,
   DISPLAY_TYPES,
   generateWidgetTitle,
   isSpecComplete,
@@ -245,7 +246,7 @@ export function WidgetBuilderPage({
       display: { type: t },
       // histogram has its own shape and a number tile shows a single value —
       // neither can express a breakdown, so clear it automatically
-      ...(t === "histogram" || t === "number" ? { breakdown: null } : {}),
+      ...(BREAKDOWN_UNSUPPORTED_DISPLAYS.has(t) ? { breakdown: null } : {}),
     }));
   }
 
@@ -405,7 +406,9 @@ export function WidgetBuilderPage({
                   value={draft.breakdown ?? NONE_SENTINEL}
                   onValueChange={handleBreakdownChange}
                   disabled={
-                    !view || draft.display?.type === "histogram" || draft.display?.type === "number"
+                    !view ||
+                    (!!draft.display?.type &&
+                      BREAKDOWN_UNSUPPORTED_DISPLAYS.has(draft.display.type))
                   }
                 >
                   <SelectTrigger className="h-7 text-[12px]">
@@ -440,7 +443,7 @@ export function WidgetBuilderPage({
                     )}
                   </SelectContent>
                 </Select>
-                {(draft.display?.type === "histogram" || draft.display?.type === "number") && (
+                {draft.display?.type && BREAKDOWN_UNSUPPORTED_DISPLAYS.has(draft.display.type) && (
                   <p className="mt-1 text-[10.5px] text-muted-foreground">
                     Not available for this display type
                   </p>
