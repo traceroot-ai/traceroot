@@ -103,7 +103,8 @@ def test_every_spans_or_traces_reader_is_classified():
                 unclassified.append(f"{rel}:{line}")
     assert not unclassified, (
         "Unclassified spans/traces reads (add customer_traffic_only() next to the query, "
-        "or an ALLOW_UNFILTERED entry for the file with a reason): " + ", ".join(sorted(unclassified))
+        "or an ALLOW_UNFILTERED entry for the file with a reason): "
+        + ", ".join(sorted(unclassified))
     )
 
 

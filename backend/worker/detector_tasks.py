@@ -293,9 +293,9 @@ DETECTOR_TARGET_SOURCES = frozenset({"user"})
 # parameterise an IN list here without changing the query shape; the values are
 # ours, not user input, and the assertion below keeps them safe to inline.
 assert all(s.isalpha() for s in DETECTOR_TARGET_SOURCES), "sources must be bare identifiers"
-DETECTOR_TARGET_SOURCE_SQL = "source IN (" + ", ".join(
-    f"'{s}'" for s in sorted(DETECTOR_TARGET_SOURCES)
-) + ")"
+DETECTOR_TARGET_SOURCE_SQL = (
+    "source IN (" + ", ".join(f"'{s}'" for s in sorted(DETECTOR_TARGET_SOURCES)) + ")"
+)
 
 
 def is_detector_target_source(source: str | None) -> bool:
