@@ -75,7 +75,7 @@ export interface DetectorRca {
   result: string | null;
   completedAt: string | null;
   createTime: string;
-  /** Latest execution's agent trace; null on legacy rows. */
+  /** Current (highest-attempt) execution's agent trace; null when the finding has no execution row. */
   traceId: string | null;
   traceStatus: TraceStatus | null;
   attempt: number | null;

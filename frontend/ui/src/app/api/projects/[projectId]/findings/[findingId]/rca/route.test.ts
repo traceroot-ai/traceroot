@@ -17,8 +17,13 @@ vi.mock("@traceroot/core", () => ({
 
 import { GET } from "./route";
 
+const call = () =>
+  GET(new Request("http://x") as any, {
+    params: Promise.resolve({ projectId: "p1", findingId: "f1" }),
+  });
+
 describe("GET /findings/:id/rca", () => {
-  it("returns the latest execution's trace fields", async () => {
+  it("returns the current (highest-attempt) execution's trace fields", async () => {
     findFirst.mockResolvedValue({
       id: "r1",
       findingId: "f1",
@@ -27,25 +32,33 @@ describe("GET /findings/:id/rca", () => {
       result: "x",
       completedAt: null,
       createTime: new Date(0),
-      latestExecution: { traceId: "abc", traceStatus: "available", attempt: 2 },
+      executions: [{ sessionId: "s2", traceId: "abc", traceStatus: "available", attempt: 2 }],
     });
-    const res = await GET(new Request("http://x") as any, {
-      params: Promise.resolve({ projectId: "p1", findingId: "f1" }),
-    });
-    const body = await res.json();
+    const body = await (await call()).json();
     expect(body.rca).toMatchObject({
       status: "done",
+      sessionId: "s2",
       traceId: "abc",
       traceStatus: "available",
       attempt: 2,
     });
+    // Highest attempt only, and only the four fields the response uses.
     expect(findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ include: { latestExecution: true } }),
+      expect.objectContaining({
+        include: {
+          executions: {
+            orderBy: { attempt: "desc" },
+            take: 1,
+            select: { sessionId: true, traceId: true, traceStatus: true, attempt: true },
+          },
+        },
+      }),
     );
   });
-  it("does not fall back to the legacy session when the latest execution has none", async () => {
-    // A re-run opens a new session; if that run has no chat yet, the answer is
-    // "no session", not the previous attempt's. Falling back would open the
+
+  it("does not fall back to the legacy session when the current execution has none", async () => {
+    // A re-run is the highest attempt while it runs; if it has no chat yet the
+    // answer is "no session", not the previous attempt's — that would open the
     // wrong run's conversation.
     findFirst.mockResolvedValue({
       id: "r1",
@@ -55,34 +68,24 @@ describe("GET /findings/:id/rca", () => {
       result: null,
       completedAt: null,
       createTime: new Date(0),
-      latestExecution: {
-        sessionId: null,
-        traceId: "t2",
-        traceStatus: "pending",
-        attempt: 2,
-      },
+      executions: [{ sessionId: null, traceId: "t2", traceStatus: "pending", attempt: 2 }],
     });
-    const res = await GET(new Request("http://x") as any, {
-      params: Promise.resolve({ projectId: "p1", findingId: "f1" }),
-    });
-    expect((await res.json()).rca).toMatchObject({ sessionId: null, attempt: 2 });
+    expect((await (await call()).json()).rca).toMatchObject({ sessionId: null, attempt: 2 });
   });
 
   it("is null-safe for legacy rows without an execution", async () => {
     findFirst.mockResolvedValue({
       id: "r1",
       findingId: "f1",
-      sessionId: null,
+      sessionId: "legacy-session",
       status: "failed",
       result: null,
       completedAt: null,
       createTime: new Date(0),
-      latestExecution: null,
+      executions: [],
     });
-    const res = await GET(new Request("http://x") as any, {
-      params: Promise.resolve({ projectId: "p1", findingId: "f1" }),
-    });
-    expect((await res.json()).rca).toMatchObject({
+    expect((await (await call()).json()).rca).toMatchObject({
+      sessionId: "legacy-session",
       traceId: null,
       traceStatus: null,
       attempt: null,
