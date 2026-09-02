@@ -35,6 +35,59 @@ describe("redactSecrets", () => {
   it("leaves ordinary assignments alone", () => {
     expect(redactSecrets("count=42")).toBe("count=42");
     expect(redactSecrets("monkey=business")).toBe("monkey=business");
+    expect(redactSecrets("token_count: 12")).toBe("token_count: 12");
+    expect(redactSecrets("https://example.com:8080/path")).toBe("https://example.com:8080/path");
+  });
+
+  it("redacts quoted assignment values", () => {
+    // .env files and shell exports quote their values; the value class used to
+    // stop at the opening quote and let the whole thing through.
+    const cases: Array<[string, string]> = [
+      ['PASSWORD="hunter2xx"', "PASSWORD=[REDACTED]"],
+      ["export DB_PASSWORD='hunter2xx'", "export DB_PASSWORD=[REDACTED]"],
+      ['API_KEY = "abc123def456"', "API_KEY=[REDACTED]"],
+      ['PASSWORD=""', "PASSWORD=[REDACTED]"],
+    ];
+    for (const [input, expected] of cases) expect(redactSecrets(input)).toBe(expected);
+  });
+
+  it("redacts the colon form: JSON, YAML and header names", () => {
+    const cases: Array<[string, string]> = [
+      [
+        '{"password":"hunter2xx","api_key":"abc123def456","n":1}',
+        '{"password":[REDACTED],"api_key":[REDACTED],"n":1}',
+      ],
+      ['API_KEY: "abc123def456"', "API_KEY: [REDACTED]"],
+      ["db_password: hunter2xx\nhost: db", "db_password: [REDACTED]\nhost: db"],
+      ["x-api-key: abc123def456", "x-api-key: [REDACTED]"],
+      [
+        '{"http.request.header.authorization":"Bearer abc.def.ghi"}',
+        '{"http.request.header.authorization":"Bearer [REDACTED]"}',
+      ],
+    ];
+    for (const [input, expected] of cases) expect(redactSecrets(input)).toBe(expected);
+  });
+
+  it("redacts Stripe keys in both live and test shapes", () => {
+    expect(redactSecrets("sk_live_abcdefghijklmnop")).toBe("sk_live_[REDACTED]");
+    expect(redactSecrets("sk_test_abcdefghijklmnop")).toBe("sk_test_[REDACTED]");
+    expect(redactSecrets("STRIPE_KEY: sk_live_abcdefghijklmnop")).toBe("STRIPE_KEY: [REDACTED]");
+  });
+
+  it("redacts the password segment of a connection URL", () => {
+    expect(redactSecrets("postgres://app:hunter2xx@db.internal:5432/app")).toBe(
+      "postgres://app:[REDACTED]@db.internal:5432/app",
+    );
+  });
+
+  it("redacts a PEM private-key block, with or without its footer", () => {
+    const key = "-----BEGIN RSA PRIVATE KEY-----\nMIIEow\nAAAA\n-----END RSA PRIVATE KEY-----";
+    expect(redactSecrets(`cert:\n${key}\nend`)).toBe(
+      "cert:\n-----BEGIN PRIVATE KEY-----[REDACTED]-----END PRIVATE KEY-----\nend",
+    );
+    expect(redactSecrets("-----BEGIN PRIVATE KEY-----\nMIIEow\ncut off")).toBe(
+      "-----BEGIN PRIVATE KEY-----[REDACTED]-----END PRIVATE KEY-----",
+    );
   });
 });
 
@@ -70,6 +123,22 @@ describe("applyCapturePolicy", () => {
     expect(r.result).toBeUndefined();
     expect(r.withheld).toBe("budget");
   });
+  it("redacts a JSON-stringified result before keeping it", () => {
+    // Allowlisted output is span data, which routinely carries credential-shaped
+    // attributes; results are serialised before redaction so the colon form is
+    // what the pattern must catch.
+    const r = applyCapturePolicy(
+      {
+        toolName: "download_traces",
+        args: {},
+        result: { spans: [{ attributes: { "db.password": "hunter2xx", "db.name": "app" } }] },
+      },
+      { spentBytes: 0 },
+    );
+    expect(r.result).not.toContain("hunter2xx");
+    expect(r.result).toBe('{"spans":[{"attributes":{"db.password":[REDACTED],"db.name":"app"}}]}');
+  });
+
   it("redacts inside args too", () => {
     const r = applyCapturePolicy(
       {

@@ -17,23 +17,47 @@ export const OUTPUT_ALLOWLIST: ReadonlySet<string> = new Set([
   "submit_result",
 ]);
 
+// A credential name is the bare word or ends with `_word`, so `monkey=` and
+// `token_count=` stay readable while `api_key=` and `DB_PASSWORD=` do not.
+// Known false positives, accepted for the sake of a short pattern: `sort_key=`,
+// `primary_key=` and a URL's `?key=` are redacted too (display only — tool_step
+// rows are never fed back to the model, see SessionManager.buildContext).
+const SECRET_NAME =
+  "([A-Za-z0-9]+(?:_[A-Za-z0-9]+)*_)?(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?)";
+// A value is a double- or single-quoted string, or a run of non-space characters.
+// `.env` files and shell exports are usually quoted, and a JSON-stringified
+// result always is; an earlier version stopped at the opening quote and let
+// `PASSWORD="…"` through.
+const SECRET_VALUE = `(?:"[^"]*"|'[^']*'|[^\\s"',}]+)`;
+
 const PATTERNS: Array<[RegExp, string | ((...args: never[]) => string)]> = [
   [/\b(gh[pousr]_)[A-Za-z0-9]{20,}/g, "$1[REDACTED]"],
-  [/\bsk-[A-Za-z0-9_-]{16,}/g, "sk-[REDACTED]"],
+  // OpenAI-style `sk-…` and Stripe `sk_live_…` / `sk_test_…`.
+  [/\b(sk[-_](?:live_|test_)?)[A-Za-z0-9_-]{16,}/g, "$1[REDACTED]"],
   [/\bAKIA[0-9A-Z]{12,}/g, "AKIA[REDACTED]"],
   // Case-insensitive: an `authorization: bearer …` header is as much a
   // credential as `Bearer …`, and tools echo headers in whatever case they got.
   [/(bearer\s+)[A-Za-z0-9._~+/=-]{8,}/gi, "$1[REDACTED]"],
-  // Assignment form, e.g. `API_KEY=…`, `token=…`, `db_password=…`. Case-
-  // insensitive, and the name need not be prefixed: an earlier version required
-  // three leading uppercase characters, which let bare `TOKEN=`, `PASSWORD=`
-  // and lowercase `api_key=` through — the most common shapes in a .env file
-  // or a printed environment.
-  // The name is either the bare word or ends with `_word`, so `monkey=` and
-  // `token_count=` stay readable while `api_key=` and `DB_PASSWORD=` do not.
+  // Assignment form: `API_KEY=…`, `token=…`, `export DB_PASSWORD='…'`.
   [
-    /\b([A-Za-z0-9]+(?:_[A-Za-z0-9]+)*_)?(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?)\s*=\s*[^\s'"]+/gi,
+    new RegExp(`\\b${SECRET_NAME}\\s*=\\s*${SECRET_VALUE}`, "gi"),
     (_m: string, prefix: string | undefined, word: string) => `${prefix ?? ""}${word}=[REDACTED]`,
+  ],
+  // Colon form: JSON `"password":"…"`, YAML `api_key: …`, a header `x-api-key: …`.
+  // Results are JSON-stringified before redaction, so this is the shape most
+  // allowlisted output (span attributes) arrives in.
+  [
+    new RegExp(`\\b${SECRET_NAME}("?)(\\s*:\\s*)${SECRET_VALUE}`, "gi"),
+    (_m: string, prefix: string | undefined, word: string, quote: string, sep: string) =>
+      `${prefix ?? ""}${word}${quote}${sep}[REDACTED]`,
+  ],
+  // `scheme://user:pass@host` — the password segment of a connection URL.
+  [/(:\/\/[^\s/:@]+:)[^@\s/]+@/g, "$1[REDACTED]@"],
+  // A PEM private key, header to footer (or to the end of the text if the
+  // footer is missing — the block is never worth keeping partially).
+  [
+    /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g,
+    "-----BEGIN PRIVATE KEY-----[REDACTED]-----END PRIVATE KEY-----",
   ],
 ];
 
