@@ -588,11 +588,15 @@ export function MessageList({ messages, sessionStreaming = false, onOpenTrace }:
             // trace that does not contain this span.
             const turnEnd = messages.findIndex((m, i) => i > index && m.role === "user");
             const turn = messages.slice(index + 1, turnEnd === -1 ? undefined : turnEnd);
-            const turnAssistant = turn.find((m) => m.role === "assistant");
-            // Same gate as the turn's own "View trace" link: a pending or failed
-            // export has no trace to open.
-            const turnTraceId =
-              turnAssistant?.traceStatus === "available" ? turnAssistant.traceId : undefined;
+            // The trace outcome is stamped on the run's LAST text segment only
+            // (persister and live hook alike), so in a text → tool → text turn
+            // the bubble right after this step has none — look for the one that
+            // carries it. Same gate as the turn's own "View trace" link: a
+            // pending or failed export has no trace to open.
+            const turnAssistant = turn.find(
+              (m) => m.role === "assistant" && m.traceStatus === "available",
+            );
+            const turnTraceId = turnAssistant?.traceId;
             const onOpenSpan =
               onOpenTrace && turnTraceId
                 ? (spanId: string) => onOpenTrace(turnTraceId, spanId)
