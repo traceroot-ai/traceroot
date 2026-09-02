@@ -4,52 +4,39 @@
  *
  * The SDK owns the OTel pipeline: initialize() registers the global provider
  * with the internal OTLP exporter (X-Internal-Secret to the internal route),
- * observe() forces trace_id = dashless run id and carries the per-root
+ * observe() forces the caller's trace id on the root and carries the per-root
  * projectId that the SDK's span processor stamps as traceroot.project_id on
  * every span in the tree — the backend's detector-only wrapper routes each
  * span to its project by that attribute, so one worker process serves every
  * project over one exporter.
  *
- * withSelfTrace() records fn's execution live: the detector-run root is
- * active for fn's whole duration, so spans created inside — the traced pi-ai
- * judge call, any future auto-instrumented spans — parent into the
- * self-trace. Everything here is strictly best-effort: tracing failures log
- * and degrade to selfTraced=false; fn always runs exactly once; nothing
- * throws into a detector run.
+ * withSelfTrace() records fn's execution live: the root is active for fn's
+ * whole duration, so spans created inside — the traced pi-ai call, any future
+ * auto-instrumented spans — parent into the self-trace. Everything here is
+ * strictly best-effort: tracing failures log and degrade to selfTraced=false;
+ * fn always runs exactly once; nothing throws into the caller's run.
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { SpanStatusCode, trace } from "@opentelemetry/api";
 import { TraceRoot, observe } from "@traceroot-ai/traceroot";
 
-export interface DetectorRunMeta {
-  /** Run id; its dashless form is forced as the self-trace's trace id. */
-  runId: string;
-  projectId: string;
-  detectorId: string;
-  detectorName: string;
-  /** The customer trace this run scanned. */
-  scannedTraceId: string;
-}
-
-/** A non-detector self-trace root (e.g. the worker's digest-summary LLM call):
- *  the caller picks the trace id and the root's name/metadata directly, rather
- *  than having them derived from a detector run's identity. */
-export interface GenericSelfTraceMeta {
+/** Identity of one self-trace root. The caller owns all of it: a detector run
+ *  forces its dashless run id as the trace id and names the root after the
+ *  detector; the digest draws a fresh id per flush. */
+export interface SelfTraceMeta {
+  /** 32-hex id forced on the root and inherited by every span under it. */
   traceId: string;
   projectId: string;
+  /** Root span name; the trace record inherits it. */
   name: string;
+  /** Stamped on the root; the transform promotes it to the trace record. */
   metadata: Record<string, unknown>;
 }
 
-export type SelfTraceRunMeta = DetectorRunMeta | GenericSelfTraceMeta;
-
-/** GenericSelfTraceMeta is the only variant that carries its own traceId. */
-const isGeneric = (m: SelfTraceRunMeta): m is GenericSelfTraceMeta => "traceId" in m;
-
 /** Active self-trace scope, visible to instrumentation (e.g. tracedComplete). */
 export interface SelfTraceScope {
-  /** Forced trace id — the dashless run id. */
+  /** The forced trace id. */
   traceId: string;
   /** Project every span of this self-trace must be attributed to. */
   projectId: string;
@@ -186,14 +173,14 @@ async function runPlain<T>(fn: () => Promise<T>): Promise<SelfTracedRun<T>> {
 }
 
 /**
- * Record fn's execution as the run's self-trace: a detector-run root span is
- * live for fn's whole duration, so spans created inside parent into it. fn
- * runs exactly once in every path; a tracing failure degrades to
- * selfTraced=false rather than affecting the run. The returned selfTraced is
- * optimistic — the SDK's batch processor exports asynchronously later.
+ * Record fn's execution as a self-trace: the root span is live for fn's whole
+ * duration, so spans created inside parent into it. fn runs exactly once in
+ * every path; a tracing failure degrades to selfTraced=false rather than
+ * affecting the run. The returned selfTraced is optimistic — the SDK's batch
+ * processor exports asynchronously later.
  */
 export async function withSelfTrace<T>(
-  meta: SelfTraceRunMeta,
+  meta: SelfTraceMeta,
   fn: () => Promise<T>,
   options: SelfTraceOptions<T> = {},
 ): Promise<SelfTracedRun<T>> {
@@ -211,14 +198,7 @@ export async function withSelfTrace<T>(
   }
   if (!initialized) return runPlain(fn);
 
-  let traceId: string;
-  try {
-    traceId = isGeneric(meta) ? meta.traceId : meta.runId.replaceAll("-", "");
-  } catch (err) {
-    console.error("[Detector] self-trace setup failed:", err);
-    return runPlain(fn);
-  }
-  const scope: SelfTraceScope = { traceId, projectId: meta.projectId };
+  const scope: SelfTraceScope = { traceId: meta.traceId, projectId: meta.projectId };
 
   // Tracks how far fn itself got: if observe's machinery throws BEFORE
   // reaching fn, we must still run fn exactly once (plainly); if it throws
@@ -253,19 +233,10 @@ export async function withSelfTrace<T>(
     const value = await selfTraceScope.run(scope, () =>
       observe(
         {
-          // The trace record inherits this name, so both the trace node and
-          // the root row read "which detector's run" (or the generic caller's
-          // own name) at a glance.
-          name: isGeneric(meta) ? meta.name : `detector-run: ${meta.detectorName}`,
-          traceId,
+          name: meta.name,
+          traceId: meta.traceId,
           projectId: meta.projectId,
-          metadata: isGeneric(meta)
-            ? meta.metadata
-            : {
-                detectorId: meta.detectorId,
-                detectorName: meta.detectorName,
-                scannedTraceId: meta.scannedTraceId,
-              },
+          metadata: meta.metadata,
           // recordIo owns the root's output (bounded); the SDK's default
           // capture would store fn's full result unbounded.
           captureOutput: false,
