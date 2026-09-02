@@ -31,7 +31,7 @@ import {
   appendWidgetPlacement,
   type WidgetPlacement,
 } from "@/features/dashboards/widget-placement";
-import { resourceCreatedDetails, type ResourceCreatedDetails } from "./resource-navigation";
+import { resourceCreatedDetails, type ResourceCreatedDetails } from "./resource-created";
 import type { AIMessage, ToolCallStep } from "../types";
 
 /** The resource types that have a card body; anything else keeps the tool line. */
