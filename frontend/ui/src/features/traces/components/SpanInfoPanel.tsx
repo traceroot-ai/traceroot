@@ -9,6 +9,7 @@ import { formatDuration, formatDate, buildUrlWithFilters } from "@/lib/utils";
 import { TokenChip } from "./TokenChip";
 import { CostChip } from "./CostChip";
 import { SpanStatus } from "@traceroot/core";
+import type { TraceSource } from "@/lib/api/traces";
 import type { TraceDetail } from "@/types/api";
 import type { TraceSelection } from "../types";
 import {
@@ -55,18 +56,19 @@ interface SpanInfoPanelProps {
    */
   extraTags?: ReactNode;
   /**
-   * When set, the trace-level chip row grows a "Root cause analysis" chip that
-   * swaps the viewer to the finding's agent trace. Only passed for a trace with
-   * a completed, available RCA — absent, the chip row is byte-identical to
-   * main's.
+   * The one hop an internal trace offers — "Analyzed trace" on an RCA or
+   * detector-run trace (to the customer trace it analyzed), "Analysis" on a
+   * follow-up (to the analysis it continues). Rendered as a chip in the
+   * trace-level row; absent (every customer trace), the row is byte-identical
+   * to main's. `onOpen` lets the host page re-point its own selection; without
+   * it the chip deep-links the target on the project's traces page.
    */
-  onViewAnalysisTrace?: () => void;
-  /**
-   * When set (viewing an RCA agent trace that was swapped in from a customer
-   * trace), the chip row grows an "Analyzed trace" chip linking back to it —
-   * the return leg of `onViewAnalysisTrace`.
-   */
-  analyzedTrace?: { traceId: string; onClick: () => void };
+  linkedTrace?: {
+    label: string;
+    traceId: string;
+    source: TraceSource;
+    onOpen?: (target: { traceId: string; source: TraceSource }) => void;
+  };
 }
 
 /** Drop internal `traceroot.span.*` keys so the Metadata panel shows only user metadata. */
@@ -98,8 +100,7 @@ export function SpanInfoPanel({
   spanActions,
   headerAction,
   extraTags,
-  onViewAnalysisTrace,
-  analyzedTrace,
+  linkedTrace,
 }: SpanInfoPanelProps) {
   const router = useRouter();
 
@@ -278,8 +279,8 @@ export function SpanInfoPanel({
           </div>
         )}
 
-        {/* Row 3: User/Session links, plus the analysis-trace hop (both legs) */}
-        {isTrace && (trace.user_id || trace.session_id || onViewAnalysisTrace || analyzedTrace) && (
+        {/* Row 3: User/Session links, plus an internal trace's linked-trace hop */}
+        {isTrace && (trace.user_id || trace.session_id || linkedTrace) && (
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {trace.user_id && (
               <button
@@ -319,28 +320,29 @@ export function SpanInfoPanel({
                 <ChevronRight className="h-3 w-3 text-muted-foreground" />
               </button>
             )}
-            {onViewAnalysisTrace && (
+            {linkedTrace && (
               <button
                 type="button"
-                onClick={onViewAnalysisTrace}
-                title="Open the trace of the RCA agent run that analyzed this finding"
-                className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border bg-muted/40 py-1 pl-2.5 pr-1.5 text-xs transition-colors hover:bg-muted"
-              >
-                <DOMAIN_ICONS.agent className="h-3 w-3 text-muted-foreground" />
-                <span className="font-medium">Root cause analysis</span>
-                <ChevronRight className="h-3 w-3 text-muted-foreground" />
-              </button>
-            )}
-            {analyzedTrace && (
-              <button
-                type="button"
-                onClick={analyzedTrace.onClick}
-                title="Back to the trace this analysis was run on"
+                onClick={() => {
+                  const target = { traceId: linkedTrace.traceId, source: linkedTrace.source };
+                  if (linkedTrace.onOpen) {
+                    linkedTrace.onOpen(target);
+                    return;
+                  }
+                  onClose?.();
+                  router.push(
+                    buildUrl(`/projects/${projectId}/traces`, {
+                      traceId: target.traceId,
+                      ...(target.source === "user" ? {} : { source: target.source }),
+                    }),
+                  );
+                }}
+                title={`Open the ${linkedTrace.label.toLowerCase()}`}
                 className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border bg-muted/40 py-1 pl-2.5 pr-1.5 text-xs transition-colors hover:bg-muted"
               >
                 <DOMAIN_ICONS.trace className="h-3 w-3 text-muted-foreground" />
-                <span className="text-muted-foreground">Analyzed trace:</span>
-                <span className="font-mono font-medium">{analyzedTrace.traceId.slice(0, 8)}</span>
+                <span className="text-muted-foreground">{linkedTrace.label}:</span>
+                <span className="font-mono font-medium">{linkedTrace.traceId.slice(0, 8)}</span>
                 <ChevronRight className="h-3 w-3 text-muted-foreground" />
               </button>
             )}

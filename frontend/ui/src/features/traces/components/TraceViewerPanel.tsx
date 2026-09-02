@@ -126,6 +126,18 @@ interface TraceViewerPanelProps {
    * SELF_TRACE_PENDING_WINDOW_MS. Omit when unknown.
    */
   runTimestamp?: string;
+  /**
+   * Takes the click on an internal trace's linked-trace chip ("Analyzed trace"
+   * on an RCA or detector-run trace, "Analysis" on a follow-up) so the host
+   * page can re-point its own selection. Without it the chip navigates to the
+   * project's traces page with the target deep-linked.
+   */
+  onOpenLinkedTrace?: (target: LinkedTraceTarget) => void;
+}
+
+export interface LinkedTraceTarget {
+  traceId: string;
+  source: TraceSource;
 }
 
 /**
@@ -177,6 +189,7 @@ export function TraceViewerPanel({
   autoOpenRca,
   initialFullscreen,
   embedded,
+  onOpenLinkedTrace,
   newTabPath,
   traceOverride,
   hideDetectors,
@@ -255,31 +268,16 @@ export function TraceViewerPanel({
   const { data: rcaData } = useRca(projectId, traceFinding?.finding_id ?? "");
   const hasRca = !!traceFinding && !!rcaData?.rca;
   const rcaSessionId = rcaData?.rca?.sessionId ?? undefined;
-  // The RCA's own agent trace — only openable once its export has landed.
-  const agentTrace = rcaData?.rca?.traceStatus === "available" ? rcaData.rca.traceId : null;
-  const [viewingAgentTrace, setViewingAgentTrace] = useState(false);
-  // Effective fetch target: the customer trace, or — when the user asked for the
-  // analysis — the RCA execution's trace under the opt-in agent scope.
-  const effectiveTraceId = viewingAgentTrace && agentTrace ? agentTrace : traceId;
-  const effectiveSource: TraceSource | undefined =
-    viewingAgentTrace && agentTrace ? "agent" : source;
-  // A different trace was selected (navigation, or a fresh panel) — drop back
-  // to viewing it rather than carrying the previous trace's agent view over.
-  useEffect(() => {
-    setViewingAgentTrace(false);
-  }, [traceId]);
 
   // Detectors never target internal traces (the judge's read asserts
   // source = 'user' server-side), so a detector self-trace or an agent (RCA)
   // trace can never carry findings — the tab would only ever render empty.
   // Also hidden under an eval override, whose synthetic id backs no rows.
   const detectorsHidden =
-    !!traceOverride ||
-    !!hideDetectors ||
-    effectiveSource === "detector" ||
-    effectiveSource === "agent";
-  // If the tab disappears while active (e.g. swapping to the RCA's agent trace
-  // from the Detectors tab), fall back to the tree view instead of a blank pane.
+    !!traceOverride || !!hideDetectors || source === "detector" || source === "agent";
+  // If the tab disappears while active (the detectors page keeps one panel
+  // mounted and re-points it from an original trace to a self/agent trace),
+  // fall back to the tree view instead of a blank pane.
   useEffect(() => {
     if (detectorsHidden && viewMode === "detectors") setViewMode("tree");
   }, [detectorsHidden, viewMode]);
@@ -307,36 +305,61 @@ export function TraceViewerPanel({
     isLoading: isFetching,
     error,
   } = useQuery({
-    queryKey: traceQueryKey(projectId, effectiveTraceId, effectiveSource),
-    queryFn: () => getTrace(projectId, effectiveTraceId, "", undefined, effectiveSource),
+    queryKey: traceQueryKey(projectId, traceId, source),
+    queryFn: () => getTrace(projectId, traceId, "", undefined, source),
     enabled: !traceOverride,
   });
   const trace = traceOverride ?? fetchedTrace;
   const isLoading = traceOverride ? false : isFetching;
 
   // source must match the query key above, or SSE span merging silently no-ops.
-  useTraceStream(projectId, effectiveTraceId, !traceOverride, effectiveSource);
+  useTraceStream(projectId, traceId, !traceOverride, source);
 
-  // Root trace metadata written by the RCA/follow-up/chat emitters (Tasks 12/13):
-  // kind, finding_id, execution_id, attempt, session_id, parent_trace_id. Only
-  // parsed for an agent-scoped trace — a user trace's metadata is opaque here.
-  // Keyed on effectiveSource, not the raw prop: swapping into the RCA's agent
-  // trace via "View analysis trace" must show the same header as a trace opened
-  // directly with source="agent".
-  const agentMeta = useMemo(() => {
-    if (effectiveSource !== "agent" || !trace?.metadata) return null;
+  // Root trace metadata written by our own emitters. Agent traces (RCA,
+  // follow-up, chat): kind, finding_id, execution_id, attempt, session_id,
+  // scanned_trace_id, parent_trace_id. Detector-run self-traces: detectorId,
+  // detectorName, scannedTraceId. Only parsed for an internal trace — a user
+  // trace's metadata is opaque here.
+  const internalMeta = useMemo(() => {
+    if ((source !== "agent" && source !== "detector") || !trace?.metadata) return null;
     try {
       return JSON.parse(trace.metadata) as {
         kind?: string;
         finding_id?: string;
         attempt?: number;
+        scanned_trace_id?: string;
         parent_trace_id?: string;
         session_id?: string;
+        scannedTraceId?: string;
       };
     } catch {
       return null;
     }
-  }, [effectiveSource, trace?.metadata]);
+  }, [source, trace?.metadata]);
+  // The one hop an internal trace offers, read from its own metadata so it is
+  // there however the trace was opened (finding page, chat footer, popout,
+  // detector runs): an RCA or detector-run trace links to the customer trace it
+  // analyzed; a follow-up links to the analysis it continues. Customer traces
+  // carry no chip — the way into an analysis is the finding, not the trace.
+  const linkedTrace = useMemo(() => {
+    if (!internalMeta) return null;
+    if (source === "detector") {
+      return internalMeta.scannedTraceId
+        ? { label: "Analyzed trace", traceId: internalMeta.scannedTraceId, source: "user" as const }
+        : null;
+    }
+    if (internalMeta.kind === "rca" && internalMeta.scanned_trace_id) {
+      return {
+        label: "Analyzed trace",
+        traceId: internalMeta.scanned_trace_id,
+        source: "user" as const,
+      };
+    }
+    if (internalMeta.kind === "followup" && internalMeta.parent_trace_id) {
+      return { label: "Analysis", traceId: internalMeta.parent_trace_id, source: "agent" as const };
+    }
+    return null;
+  }, [internalMeta, source]);
 
   // Reset when the displayed trace changes — navigating the list, or swapping
   // between the customer trace and the RCA's agent trace. Keyed on the
@@ -346,7 +369,7 @@ export function TraceViewerPanel({
   useEffect(() => {
     setSelection({ type: "trace" });
     setCollapsedIds(new Set());
-  }, [effectiveTraceId]);
+  }, [traceId]);
 
   useEffect(() => {
     if (viewMode !== "timeline") return;
@@ -444,7 +467,7 @@ export function TraceViewerPanel({
             <DOMAIN_ICONS.trace className="h-4 w-4 shrink-0 text-muted-foreground" />
             <span className="shrink-0 text-sm font-medium">{headerIdentity?.label ?? "Trace"}</span>
             <span className="truncate font-mono text-xs text-muted-foreground">
-              {headerIdentity?.value ?? effectiveTraceId}
+              {headerIdentity?.value ?? traceId}
             </span>
             {/* Copy affordance for the header id. Only offered when an identity is
                 supplied (offline-eval's test case); the standard trace header is
@@ -456,24 +479,24 @@ export function TraceViewerPanel({
                 title={`Copy ${headerIdentity.label.toLowerCase()} id`}
               />
             )}
-            {effectiveSource === "agent" && (
+            {source === "agent" && (
               <span className="shrink-0 rounded bg-emerald-600/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
                 Agent
               </span>
             )}
-            {effectiveSource === "agent" && agentMeta && (
+            {source === "agent" && internalMeta && (
               <span className="truncate text-xs text-muted-foreground">
-                {agentMeta.kind === "rca" &&
-                  agentMeta.finding_id &&
-                  `Analysis for finding ${agentMeta.finding_id.replaceAll("-", "")}${
-                    agentMeta.attempt && agentMeta.attempt > 1
-                      ? ` · attempt ${agentMeta.attempt}`
+                {internalMeta.kind === "rca" &&
+                  internalMeta.finding_id &&
+                  `Analysis for finding ${internalMeta.finding_id.replaceAll("-", "")}${
+                    internalMeta.attempt && internalMeta.attempt > 1
+                      ? ` · attempt ${internalMeta.attempt}`
                       : ""
                   }`}
-                {agentMeta.kind === "followup" &&
-                  agentMeta.finding_id &&
-                  `Follow-up · finding ${agentMeta.finding_id.replaceAll("-", "")}`}
-                {agentMeta.kind === "chat" && "Chat turn"}
+                {internalMeta.kind === "followup" &&
+                  internalMeta.finding_id &&
+                  `Follow-up · finding ${internalMeta.finding_id.replaceAll("-", "")}`}
+                {internalMeta.kind === "chat" && "Chat turn"}
               </span>
             )}
           </div>
@@ -483,10 +506,8 @@ export function TraceViewerPanel({
               <button
                 type="button"
                 onClick={() => {
-                  // Deliberately the customer trace id, not effectiveTraceId:
-                  // the assistant's tools read customer traffic only, and the
-                  // RCA chat is about the analyzed trace even while its agent
-                  // trace is the one on screen.
+                  // The customer trace: the assistant's tools read customer
+                  // traffic only, and the RCA chat is about the analyzed trace.
                   setAiContext(traceOverride ? null : { traceId });
                   setAiInitialSessionId(rcaSessionId);
                   setAiPanelOpen(true);
@@ -541,14 +562,10 @@ export function TraceViewerPanel({
                       // A self-trace or agent trace's id matches no list row's
                       // trace_id, so the receiving page needs the source to
                       // reopen it as one instead of looking it up as an original.
-                      // Uses the effective id/source, not the raw props, so
-                      // popping out while viewing the RCA's agent trace (via
-                      // "View analysis trace") reopens THAT trace, not the
-                      // original one underneath it.
                       extraParams:
-                        effectiveSource === "detector" || effectiveSource === "agent"
-                          ? { traceId: effectiveTraceId, fullscreen: "1", source: effectiveSource }
-                          : { traceId: effectiveTraceId, fullscreen: "1" },
+                        source === "detector" || source === "agent"
+                          ? { traceId: traceId, fullscreen: "1", source: source }
+                          : { traceId: traceId, fullscreen: "1" },
                     }),
                     "_blank",
                   )
@@ -702,9 +719,9 @@ export function TraceViewerPanel({
                     />
                   ) : error || !trace ? (
                     <div className="flex h-full items-center justify-center">
-                      {(effectiveSource === "detector" || effectiveSource === "agent") &&
+                      {(source === "detector" || source === "agent") &&
                       (!error || (error instanceof ApiError && error.status === 404)) ? (
-                        effectiveSource === "agent" ? (
+                        source === "agent" ? (
                           // Every way into an agent trace — the Alert chip, a Finding ID
                           // cell, the sidebar's View trace — gates on the execution's
                           // traceStatus being "available", i.e. the agent already reported
@@ -751,19 +768,8 @@ export function TraceViewerPanel({
                       headerAction={spanHeaderAction?.(selection)}
                       extraTags={spanExtraTags?.(selection)}
                       isEvalShaped={!!traceOverride}
-                      onViewAnalysisTrace={
-                        hasRca && agentTrace && !viewingAgentTrace
-                          ? () => setViewingAgentTrace(true)
-                          : undefined
-                      }
-                      // Keyed on what is displayed, not on the intent: if the RCA
-                      // refetch drops `agentTrace` while the swap is on, the panel
-                      // is already back on the customer trace and a back-chip to
-                      // itself would be nonsense.
-                      analyzedTrace={
-                        effectiveTraceId !== traceId
-                          ? { traceId, onClick: () => setViewingAgentTrace(false) }
-                          : undefined
+                      linkedTrace={
+                        linkedTrace ? { ...linkedTrace, onOpen: onOpenLinkedTrace } : undefined
                       }
                     />
                   ) : (

@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
+import type { TraceSource } from "@/lib/api/traces";
 import { X, Inbox, AlertTriangle, Plus } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { SearchFilterBar } from "@/components/search-filter-bar";
@@ -80,6 +81,17 @@ export default function TracesPage() {
   } = useListPageState({ retentionDays: retention.retentionDays });
 
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(traceIdFromUrl);
+  // Scope of the open trace. The list is customer-only, so selecting a row
+  // always means "user"; the two ways to open an internal trace here are the
+  // ?traceId=&source=agent deep link (an RCA agent trace popped out of a
+  // viewer) and a linked-trace chip inside the viewer itself.
+  const [selectedSource, setSelectedSource] = useState<TraceSource>(
+    traceIdFromUrl && sourceFromUrl === "agent" ? "agent" : "user",
+  );
+  const selectTrace = (traceId: string | null, source: TraceSource = "user") => {
+    setSelectedTraceId(traceId);
+    setSelectedSource(source);
+  };
   // Warm the span→dataset chip data as soon as a trace is selected, so the
   // "Dataset:" chip is ready before the user opens a span (no per-span latency).
   useTraceTestCases(projectId, selectedTraceId ?? "");
@@ -294,7 +306,7 @@ export default function TracesPage() {
                 <TraceListTable
                   traces={traces}
                   selectedTraceId={selectedTraceId}
-                  onSelectTrace={setSelectedTraceId}
+                  onSelectTrace={selectTrace}
                   visibleColumns={visibleColumns}
                 />
               </div>
@@ -323,7 +335,7 @@ export default function TracesPage() {
           projectId={projectId}
           traceId={selectedTraceId}
           onClose={() => {
-            setSelectedTraceId(null);
+            selectTrace(null);
             setStartFullscreen(false);
           }}
           onNavigate={(direction) => {
@@ -331,9 +343,9 @@ export default function TracesPage() {
               (t: TraceListItem) => t.trace_id === selectedTraceId,
             );
             if (direction === "up" && currentIndex > 0) {
-              setSelectedTraceId(traces[currentIndex - 1].trace_id);
+              selectTrace(traces[currentIndex - 1].trace_id);
             } else if (direction === "down" && currentIndex < traces.length - 1) {
-              setSelectedTraceId(traces[currentIndex + 1].trace_id);
+              selectTrace(traces[currentIndex + 1].trace_id);
             }
           }}
           canNavigateUp={traces.findIndex((t: TraceListItem) => t.trace_id === selectedTraceId) > 0}
@@ -384,14 +396,11 @@ export default function TracesPage() {
           // the reader already defaults to customer traffic, so this is defense in depth,
           // and it also pins the trace-detail cache key this panel shares with the live
           // SSE writer. Self-traces are reached from the detector runs surface, which
-          // asks for source="detector" explicitly. The one exception is an RCA agent
-          // trace popped out of this page's own viewer (?traceId=…&source=agent): it
-          // is opened under the agent scope, but only while the selection IS that
-          // deep-linked id — the list stays customer-only, and navigating to a row
-          // drops back to "user".
-          source={
-            traceIdFromUrl === selectedTraceId && sourceFromUrl === "agent" ? "agent" : "user"
-          }
+          // asks for source="detector" explicitly; here an internal trace is open only
+          // via the ?source=agent deep link or a linked-trace chip (selectedSource),
+          // and navigating to a list row drops back to "user".
+          source={selectedSource}
+          onOpenLinkedTrace={({ traceId, source }) => selectTrace(traceId, source)}
         />
       )}
 
