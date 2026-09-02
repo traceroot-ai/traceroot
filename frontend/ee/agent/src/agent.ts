@@ -74,8 +74,13 @@ export async function getOrCreateAgent(config: AgentRunnerConfig): Promise<{
   // per-request context (projectId from the URL, the current executor), and
   // the agent cache outlives it — a stale closure would aim write tools at
   // the wrong project — so refresh the tools with this request's closures.
+  // The system prompt carries the same per-request context (current
+  // trace/session/project) and pi-agent-core reads state.systemPrompt at
+  // prompt time, so refresh it the same way — a stale prompt would have the
+  // model reason about one context while its tools bind to another.
   if (existingAgent && existingManager && cachedModel === cacheKeyModel) {
     existingAgent.state.tools = config.tools;
+    existingAgent.state.systemPrompt = config.systemPrompt;
     return { agent: existingAgent, sessionManager: existingManager };
   }
 
