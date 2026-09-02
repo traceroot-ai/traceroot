@@ -1146,6 +1146,19 @@ class TestUsageBillsEveryStoredRow:
         )
         assert resp.status_code == 403
 
+    def test_non_ascii_configured_secret_matches_its_utf8_wire_bytes(
+        self, client, mock_ch, monkeypatch
+    ):
+        """The wire carries the secret's UTF-8 bytes; Starlette's latin-1 str must still match."""
+        monkeypatch.setattr(settings, "internal_api_secret", "sécret")
+        mock_ch.query.side_effect = [_make_query_result([(0,)], ["total"])]
+        resp = client.get(
+            "/api/v1/internal/usage/total",
+            params=self.PARAMS,
+            headers={b"X-Internal-Secret": "sécret".encode()},
+        )
+        assert resp.status_code == 200
+
 
 # =============================================================================
 # self_traced flag on detector runs
