@@ -55,11 +55,18 @@ interface SpanInfoPanelProps {
    */
   extraTags?: ReactNode;
   /**
-   * When set, the trace-level chip row grows an "Analysis: RCA" chip that swaps
-   * the viewer to the finding's agent trace. Only passed for a trace with a
-   * completed, available RCA — absent, the chip row is byte-identical to main's.
+   * When set, the trace-level chip row grows a "Root cause analysis" chip that
+   * swaps the viewer to the finding's agent trace. Only passed for a trace with
+   * a completed, available RCA — absent, the chip row is byte-identical to
+   * main's.
    */
   onViewAnalysisTrace?: () => void;
+  /**
+   * When set (viewing an RCA agent trace that was swapped in from a customer
+   * trace), the chip row grows an "Analyzed trace" chip linking back to it —
+   * the return leg of `onViewAnalysisTrace`.
+   */
+  analyzedTrace?: { traceId: string; onClick: () => void };
 }
 
 /** Drop internal `traceroot.span.*` keys so the Metadata panel shows only user metadata. */
@@ -92,6 +99,7 @@ export function SpanInfoPanel({
   headerAction,
   extraTags,
   onViewAnalysisTrace,
+  analyzedTrace,
 }: SpanInfoPanelProps) {
   const router = useRouter();
 
@@ -270,8 +278,8 @@ export function SpanInfoPanel({
           </div>
         )}
 
-        {/* Row 3: User/Session links, plus the analysis-trace entry point */}
-        {isTrace && (trace.user_id || trace.session_id || onViewAnalysisTrace) && (
+        {/* Row 3: User/Session links, plus the analysis-trace hop (both legs) */}
+        {isTrace && (trace.user_id || trace.session_id || onViewAnalysisTrace || analyzedTrace) && (
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {trace.user_id && (
               <button
@@ -315,12 +323,24 @@ export function SpanInfoPanel({
               <button
                 type="button"
                 onClick={onViewAnalysisTrace}
-                title="View the root-cause analysis agent trace for this finding"
+                title="Open the trace of the RCA agent run that analyzed this finding"
                 className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border bg-muted/40 py-1 pl-2.5 pr-1.5 text-xs transition-colors hover:bg-muted"
               >
                 <DOMAIN_ICONS.agent className="h-3 w-3 text-muted-foreground" />
-                <span className="text-muted-foreground">Analysis:</span>
-                <span className="font-medium">RCA trace</span>
+                <span className="font-medium">Root cause analysis</span>
+                <ChevronRight className="h-3 w-3 text-muted-foreground" />
+              </button>
+            )}
+            {analyzedTrace && (
+              <button
+                type="button"
+                onClick={analyzedTrace.onClick}
+                title="Back to the trace this analysis was run on"
+                className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border bg-muted/40 py-1 pl-2.5 pr-1.5 text-xs transition-colors hover:bg-muted"
+              >
+                <DOMAIN_ICONS.trace className="h-3 w-3 text-muted-foreground" />
+                <span className="text-muted-foreground">Analyzed trace:</span>
+                <span className="font-mono font-medium">{analyzedTrace.traceId.slice(0, 8)}</span>
                 <ChevronRight className="h-3 w-3 text-muted-foreground" />
               </button>
             )}

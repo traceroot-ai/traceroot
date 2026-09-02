@@ -21,8 +21,8 @@ const trace = {
   spans: [],
 } as unknown as TraceDetail;
 
-describe("SpanInfoPanel analysis chip", () => {
-  it("renders the Analysis: RCA trace chip and fires the callback on click", () => {
+describe("SpanInfoPanel analysis chips", () => {
+  it("renders the Root cause analysis chip and fires the callback on click", () => {
     const onView = vi.fn();
     render(
       <SpanInfoPanel
@@ -33,15 +33,32 @@ describe("SpanInfoPanel analysis chip", () => {
       />,
     );
 
-    const chip = screen.getByRole("button", { name: /analysis:\s*rca trace/i });
+    const chip = screen.getByRole("button", { name: /root cause analysis/i });
     fireEvent.click(chip);
     expect(onView).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders the Analyzed trace return chip with the shortened id and fires its callback", () => {
+    const onBack = vi.fn();
+    render(
+      <SpanInfoPanel
+        projectId="p1"
+        trace={trace}
+        selection={{ type: "trace" }}
+        analyzedTrace={{ traceId: "6fe16353eb854df6756b27b8b5a45dbb", onClick: onBack }}
+      />,
+    );
+
+    const chip = screen.getByRole("button", { name: /analyzed trace:\s*6fe16353/i });
+    fireEvent.click(chip);
+    expect(onBack).toHaveBeenCalledTimes(1);
   });
 
   it("renders no chip row at all when the trace has no RCA, user, or session", () => {
     render(<SpanInfoPanel projectId="p1" trace={trace} selection={{ type: "trace" }} />);
 
-    expect(screen.queryByText(/analysis:/i)).toBeNull();
+    expect(screen.queryByText(/root cause analysis/i)).toBeNull();
+    expect(screen.queryByText(/analyzed trace:/i)).toBeNull();
     expect(screen.queryByText(/user:/i)).toBeNull();
   });
 });
