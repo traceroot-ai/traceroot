@@ -562,6 +562,7 @@ describe("processRcaJob", () => {
 
   it("skips RCA when workspace is free plan and rcaBlocked", async () => {
     const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
     vi.spyOn(p.workspace, "findUnique").mockResolvedValue({
       billingPlan: "free",
       rcaBlocked: true,
@@ -580,12 +581,27 @@ describe("processRcaJob", () => {
       },
     } as any);
 
-    expect(detectorRcaUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { findingId: "f1" },
-        data: expect.objectContaining({ status: "failed" }),
-      }),
-    );
+    // A quota-skipped run is still a run: it allocates and records an
+    // execution (marked disabled — no agent run happened), then writes the
+    // finding ONLY through the latest-attempt-guarded helper. It never writes
+    // detectorRca directly (that bypassed the guard — see the High finding
+    // this replaces: a delayed quota check redelivered after a newer attempt
+    // completed could clobber that attempt's result).
+    expect(allocateExecutionMock).toHaveBeenCalledWith(expect.anything(), {
+      findingId: "f1",
+      projectId: "p1",
+    });
+    expect(detectorRcaExecutionUpdateMock).toHaveBeenCalledWith({
+      where: { id: "exec-1" },
+      data: { traceStatus: "disabled", finishedAt: expect.any(Date) },
+    });
+    expect(finishFindingIfLatestMock).toHaveBeenCalledWith(expect.anything(), {
+      findingId: "f1",
+      attempt: 1,
+      status: "failed",
+      result: "Skipped — Free plan RCA quota exceeded. Upgrade to continue.",
+    });
+    expect(detectorRcaUpdate).not.toHaveBeenCalled();
     expect(projectFindUnique).not.toHaveBeenCalled();
   });
 

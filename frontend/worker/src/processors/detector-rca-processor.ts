@@ -346,6 +346,17 @@ Output your findings in this format:
 export async function processRcaJob(job: Job<DetectorRcaJob>) {
   const { findingId, projectId, traceId, workspaceId, findings, findingTimestamp } = job.data;
 
+  // The finding row must exist before allocation, on every path — including
+  // quota-skipped below, which now allocates an execution too (executions
+  // reference this row and allocation locks it). detector-run-processor's
+  // seed is best-effort. Status is not touched here: only the latest attempt
+  // (through the guarded helpers below) may write it.
+  await prisma.detectorRca.upsert({
+    where: { findingId },
+    create: { findingId, projectId, status: "pending" },
+    update: { projectId },
+  });
+
   // Free-plan RCA cap enforcement — read the cached `rcaBlocked` flag
   // set by the hourly billing job (same pattern as `detectorBlocked` in
   // detector-run-processor). Worst-case overshoot: ~1h of RCA runs
@@ -355,34 +366,29 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
     select: { billingPlan: true, rcaBlocked: true },
   });
   if (ws?.rcaBlocked && (ws.billingPlan as PlanType) === PlanType.FREE) {
-    // detector-run-processor pre-seeds a DetectorRca row with
-    // status="pending" before enqueuing; mark it terminal so the UI
-    // doesn't show a permanently-stuck "in progress" RCA.
-    await prisma.detectorRca
-      .update({
-        where: { findingId },
-        data: {
-          status: "failed",
-          result: "Skipped — Free plan RCA quota exceeded. Upgrade to continue.",
-          completedAt: new Date(),
-        },
-      })
-      .catch(() => {}); // best-effort; row may not exist if pre-seed failed
+    // A quota-skipped run is still a run: allocate its execution like any
+    // other attempt and mark it disabled (no agent run happened), then finish
+    // the finding ONLY through the latest-attempt-guarded helper. Writing the
+    // shared finding row directly here (as before) bypassed that guard — a
+    // delayed/stalled quota check redelivered after a newer attempt already
+    // completed could overwrite that attempt's result with "Skipped...".
+    const execution = await allocateExecution(prisma, { findingId, projectId });
+    await prisma.detectorRcaExecution.update({
+      where: { id: execution.executionId },
+      data: { traceStatus: "disabled", finishedAt: new Date() },
+    });
+    await finishFindingIfLatest(prisma, {
+      findingId,
+      attempt: execution.attempt,
+      status: "failed",
+      result: "Skipped — Free plan RCA quota exceeded. Upgrade to continue.",
+    });
     console.log(
       `[RCA] Workspace ${workspaceId} is rca-blocked (Free plan cap exceeded); ` +
         `skipping RCA for finding ${findingId}`,
     );
     return;
   }
-
-  // The finding row must exist before allocation (executions reference it and
-  // allocation locks it); detector-run-processor's seed is best-effort. Status
-  // is not touched here: only the latest attempt may write it, below.
-  await prisma.detectorRca.upsert({
-    where: { findingId },
-    create: { findingId, projectId, status: "pending" },
-    update: { projectId },
-  });
 
   // Fix attempt + trace id BEFORE the agent runs. A crash between export and the
   // status write must not let the retry reuse this trace id: the retry allocates

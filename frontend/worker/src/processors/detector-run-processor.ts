@@ -515,11 +515,17 @@ async function evaluateTrace(
   const rcaFindings: DetectorRcaFinding[] = buildRcaFindings(triggered);
 
   if (shouldRunRca(triggered, detectors)) {
+    // `update` never touches lifecycle status on an existing row: with the
+    // deterministic jobId below and `removeOnComplete: 100`, a re-detection
+    // over an already-completed finding can dedupe against the retained
+    // completed job and never run — resetting status to "pending" here would
+    // then leave the finding stuck at "pending" forever over a done result. A
+    // new attempt's own markFindingRunningIfLatest is what sets "running".
     await prisma.detectorRca
       .upsert({
         where: { findingId },
         create: { findingId, projectId, status: "pending" },
-        update: { projectId, status: "pending" },
+        update: { projectId },
       })
       .catch((e) =>
         console.error(`[Detector] Failed to seed DetectorRca for finding ${findingId}:`, e),
