@@ -158,9 +158,15 @@ describe("processRcaJob execution lifecycle", () => {
     const msgBody = JSON.parse(mockFetch.mock.calls[1][1].body as string);
     expect(msgBody.agentTrace).toMatchObject({ traceId: "f".repeat(32), kind: "rca" });
 
-    // One execution-row write carrying the trace outcome, the session and the end time.
-    expect(detectorRcaExecutionUpdate).toHaveBeenCalledTimes(1);
-    expect(detectorRcaExecutionUpdate).toHaveBeenCalledWith({
+    // Two execution-row writes: the session id, stamped as soon as the agent
+    // session is created (so a chat stays reachable even if the run later
+    // fails), then the trace outcome, session and end time at completion.
+    expect(detectorRcaExecutionUpdate).toHaveBeenCalledTimes(2);
+    expect(detectorRcaExecutionUpdate).toHaveBeenNthCalledWith(1, {
+      where: { id: "exec-1" },
+      data: { sessionId: "s1" },
+    });
+    expect(detectorRcaExecutionUpdate).toHaveBeenNthCalledWith(2, {
       where: { id: "exec-1" },
       data: { traceStatus: "available", sessionId: "s1", finishedAt: expect.any(Date) },
     });
@@ -246,7 +252,9 @@ describe("processRcaJob execution lifecycle", () => {
     const { processRcaJob } = await import("../detector-rca-processor.js");
     await expect(processRcaJob(job)).resolves.toBeUndefined();
 
-    expect(detectorRcaExecutionUpdate).toHaveBeenCalledTimes(1);
+    // The session-id write plus the completion write — both against this
+    // attempt's own execution row, regardless of which attempt owns the finding.
+    expect(detectorRcaExecutionUpdate).toHaveBeenCalledTimes(2);
     expect(detectorRcaUpdate).not.toHaveBeenCalled();
     expect(log).toHaveBeenCalledWith(expect.stringContaining("newer attempt owns the finding"));
     // The digest still goes out: a finding must never fail silently.
@@ -260,6 +268,15 @@ describe("processRcaJob execution lifecycle", () => {
     const { processRcaJob } = await import("../detector-rca-processor.js");
     await expect(processRcaJob(job)).rejects.toThrow(/agent down/);
 
+    // The session was created before the agent's stream reported failure, and
+    // its id is stamped onto the execution row immediately — not only on
+    // success — so the RCA route's chat link survives a failed run (it treats
+    // the execution row as authoritative over the legacy DetectorRca.sessionId
+    // once one exists).
+    expect(detectorRcaExecutionUpdate).toHaveBeenCalledWith({
+      where: { id: "exec-1" },
+      data: { sessionId: "s1" },
+    });
     expect(detectorRcaExecutionUpdate).toHaveBeenCalledWith({
       where: { id: "exec-1" },
       data: { traceStatus: "failed", finishedAt: expect.any(Date) },
@@ -293,7 +310,13 @@ describe("processRcaJob execution lifecycle", () => {
   });
 
   it("rethrows the agent's error even when the failure writes themselves fail", async () => {
-    detectorRcaExecutionUpdate.mockRejectedValueOnce(new Error("db down"));
+    // First call is the sessionId write inside runRcaSession (succeeds, so the
+    // agent's own error is what surfaces); the SECOND call is the catch
+    // block's own best-effort write — that one fails, which must not swallow
+    // the agent's error.
+    detectorRcaExecutionUpdate
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(new Error("db down"));
     finishFindingIfLatest.mockRejectedValueOnce(new Error("db down"));
     agentReplies([{ event: "error", data: { message: "agent down" } }]);
 

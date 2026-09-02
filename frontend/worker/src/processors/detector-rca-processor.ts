@@ -165,6 +165,16 @@ export async function runRcaSession(params: {
     },
     update: { sessionId: session.id },
   });
+  // Also stamp it onto this attempt's own execution row, and do so on this
+  // same success path a failure takes: the RCA route treats an execution row
+  // as authoritative over the legacy DetectorRca.sessionId once one exists
+  // (rca/route.ts), so a failed run that only updated the legacy column would
+  // leave that row's sessionId null and its chat unreachable even though the
+  // session was created and holds the prompt/partial output.
+  await prisma.detectorRcaExecution.update({
+    where: { id: params.executionId },
+    data: { sessionId: session.id },
+  });
 
   const findingsList = params.findings
     .map((f, i) => `${i + 1}. Detector "${f.detectorName}" fired:\n   ${f.summary}`)
