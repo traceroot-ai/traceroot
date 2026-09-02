@@ -43,6 +43,7 @@ const scrollIntoView = () => act(() => observed.forEach((o) => o.fire()));
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  window.localStorage.clear();
 });
 
 function spec(display: WidgetSpec["display"]["type"], measure = "total_tokens"): WidgetSpec {
@@ -252,6 +253,21 @@ describe("DashboardMiniature live tiles", () => {
       expect(call[2].start.getTime()).toBe(first.start.getTime());
       expect(call[2].end.getTime()).toBe(first.end.getTime());
     }
+  });
+
+  it("freezes the range the site's picker stored for the tiles' project", async () => {
+    // The tiles query project p1, so the shared window comes from p1's stored
+    // selection — the same slot the trace list and dashboard pages persist.
+    window.localStorage.setItem("traceroot:date-filter:v1:p1", JSON.stringify({ id: "14d" }));
+    vi.mocked(api.runWidgetQuery).mockResolvedValue({ columns: ["value"], rows: [[7]], meta: {} });
+    renderLive([liveTile({ id: "w1" }, "number"), liveTile({ id: "w2", x: 6 }, "line")]);
+    scrollIntoView();
+
+    await waitFor(() => expect(api.runWidgetQuery).toHaveBeenCalledTimes(2));
+    const [first, second] = vi.mocked(api.runWidgetQuery).mock.calls.map((c) => c[2]);
+    expect(first.end.getTime() - first.start.getTime()).toBe(14 * 24 * 60 * 60 * 1000);
+    expect(second.start.getTime()).toBe(first.start.getTime());
+    expect(second.end.getTime()).toBe(first.end.getTime());
   });
 
   it("refires no tile query on window focus — a card is a snapshot, not a dashboard", async () => {
