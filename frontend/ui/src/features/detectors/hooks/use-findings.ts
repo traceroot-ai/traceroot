@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import type { TraceStatus } from "@traceroot/core";
 import { ApiError } from "@/lib/api/client";
 
 /** Snake-case shape returned by the backend for a trace's findings */
@@ -64,8 +65,6 @@ async function fetchTraceFindings(
   }
   return res.json() as Promise<{ findings: BackendFinding[] }>;
 }
-
-export type TraceStatus = "disabled" | "pending" | "available" | "failed";
 
 export interface DetectorRca {
   id: string;
