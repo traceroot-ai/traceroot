@@ -255,17 +255,20 @@ describe("resourceCardModel", () => {
       meta: ["Detector", "Failure"],
       body: {
         kind: "detector",
-        chips: ["template prompt", "sample 25%", "RCA on", "Latency ≥ 30000"],
+        chips: ["sample 25%", "RCA on", "Latency ≥ 30000"],
+        // The prompt was omitted, so the detector runs the template's
+        // canonical instructions — the card says so instead of staying mute.
+        prompt: { kind: "standard", templateLabel: "Failure" },
       },
     });
   });
 
-  it("marks a detector that was given its own prompt, and one that is off", () => {
+  it("shows the actual prompt of a detector that was given its own, and its off switches", () => {
     const detector = step({
       toolName: "create_detector",
       args: {
         name: "Timeout failures",
-        template: "custom",
+        template: "blank",
         prompt: "Only report a timeout past 30 seconds.",
         enable_rca: false,
         enabled: false,
@@ -273,11 +276,69 @@ describe("resourceCardModel", () => {
       details: created("detector", "d1"),
     });
     const model = resourceCardModel(detector);
-    expect(model?.meta).toEqual(["Detector", "custom"]);
+    // A blank-template detector is a custom one — the meta says "Custom",
+    // never the internal id "blank".
+    expect(model?.meta).toEqual(["Detector", "Custom"]);
     expect(model?.body).toEqual({
       kind: "detector",
-      chips: ["custom prompt", "RCA off", "disabled"],
+      chips: ["RCA off", "paused"],
+      prompt: { kind: "custom", text: "Only report a timeout past 30 seconds." },
     });
+  });
+
+  it("keeps a custom prompt over the template default when both are present", () => {
+    const detector = step({
+      toolName: "create_detector",
+      args: { name: "Picky failures", template: "failure", prompt: "Only tool errors count." },
+      details: created("detector", "d1"),
+    });
+    const model = resourceCardModel(detector);
+    expect(model?.meta).toEqual(["Detector", "Failure"]);
+    expect(model?.body).toMatchObject({
+      prompt: { kind: "custom", text: "Only tool errors count." },
+    });
+  });
+
+  it("chips the detection model and an explicit enabled state", () => {
+    const detector = step({
+      toolName: "create_detector",
+      args: {
+        name: "Failures",
+        template: "failure",
+        detection_model: "gpt-4o-mini",
+        enabled: true,
+      },
+      details: created("detector", "d1"),
+    });
+    expect(resourceCardModel(detector)?.body).toMatchObject({
+      chips: ["enabled", "model gpt-4o-mini"],
+    });
+  });
+
+  it("claims no prompt for a blank detector whose args carry none", () => {
+    const detector = step({
+      toolName: "create_detector",
+      args: { name: "Mystery", template: "blank" },
+      details: created("detector", "d1"),
+    });
+    expect(resourceCardModel(detector)?.body).toEqual({
+      kind: "detector",
+      chips: [],
+      prompt: null,
+    });
+  });
+
+  it("caps a runaway prompt so the card cannot flood the transcript", () => {
+    const detector = step({
+      toolName: "create_detector",
+      args: { name: "Big", template: "blank", prompt: "x".repeat(5000) },
+      details: created("detector", "d1"),
+    });
+    const body = resourceCardModel(detector)?.body;
+    expect(body?.kind).toBe("detector");
+    if (body?.kind !== "detector" || body.prompt?.kind !== "custom") throw new Error("no prompt");
+    expect(body.prompt.text.length).toBeLessThanOrEqual(2001);
+    expect(body.prompt.text.endsWith("…")).toBe(true);
   });
 
   it("caps the trigger chips so a long condition list cannot flood the card", () => {
@@ -293,9 +354,9 @@ describe("resourceCardModel", () => {
       args: { name: "Noisy", template: "failure", trigger_conditions: conditions },
       details: created("detector", "d1"),
     });
-    expect(resourceCardModel(detector)?.body).toEqual({
+    expect(resourceCardModel(detector)?.body).toMatchObject({
       kind: "detector",
-      chips: ["template prompt", "Latency ≥ 1", "Cost > 2", "Tokens < 3", "+2 more"],
+      chips: ["Latency ≥ 1", "Cost > 2", "Tokens < 3", "+2 more"],
     });
   });
 
@@ -309,9 +370,9 @@ describe("resourceCardModel", () => {
       },
       details: created("detector", "d1"),
     });
-    expect(resourceCardModel(detector)?.body).toEqual({
+    expect(resourceCardModel(detector)?.body).toMatchObject({
       kind: "detector",
-      chips: ["template prompt"],
+      chips: [],
     });
   });
 
@@ -770,7 +831,7 @@ describe("pendingCardModel", () => {
     });
   });
 
-  it("builds a pending detector card with its template and chips", () => {
+  it("builds a pending detector card with the same body a receipt gets", () => {
     const model = pendingCardModel(
       runningStep("create_detector", {
         name: "Slow spans",
@@ -786,7 +847,28 @@ describe("pendingCardModel", () => {
       created: true,
       title: "Slow spans",
       meta: ["Detector", "Failure"],
-      body: { kind: "detector", chips: ["template prompt", "sample 25%", "RCA on"] },
+      body: {
+        kind: "detector",
+        chips: ["sample 25%", "RCA on"],
+        prompt: { kind: "standard", templateLabel: "Failure" },
+      },
+    });
+  });
+
+  it("shows the pending detector's own prompt on the gate card", () => {
+    const model = pendingCardModel(
+      runningStep("create_detector", {
+        name: "Slow spans",
+        template: "blank",
+        prompt: "Flag traces slower than 30s.",
+      }),
+      "p1",
+    );
+    expect(model?.meta).toEqual(["Detector", "Custom"]);
+    expect(model?.body).toEqual({
+      kind: "detector",
+      chips: [],
+      prompt: { kind: "custom", text: "Flag traces slower than 30s." },
     });
   });
 
