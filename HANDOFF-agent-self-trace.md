@@ -203,6 +203,24 @@ straight through the internal ingest route — no agent service, no SDK, no LLM
 key. That is the fixture for testing M3's surfaces before #2072 can merge, and
 it is why the UI work is not blocked on the SDK release.
 
+## End-to-end checks
+
+`tests/e2e/` runs against the live dev stack and is skipped unless `TRACEROOT_E2E=1`.
+`test_agent_self_trace_journey.py` walks finding → execution → trace → seam; it reads
+the execution through the app's finding endpoint (a signed-in session), because the
+public findings API deliberately exposes only `rca.status`/`rca.result`.
+
+```bash
+INTERNAL_API_SECRET=… INTERNAL_API_SECRET_AGENT=… \
+TRACEROOT_E2E=1 TRACEROOT_E2E_PROJECT_ID=<project> TRACEROOT_E2E_API_KEY=tr-… \
+TRACEROOT_E2E_EMAIL=<member email> TRACEROOT_E2E_PASSWORD=… \
+TRACEROOT_REDIS_URL=redis://localhost:6379/0 \
+  uv run --directory backend pytest ../tests/e2e -q
+```
+
+Needs at least one finding whose RCA has finished; the digest test skips until a
+digest window has flushed (`alert_emails` set, window closed).
+
 ## Loose ends
 
 - The user's **OpenAI key is stored in Langfuse Cloud** under an `openai-judge`
