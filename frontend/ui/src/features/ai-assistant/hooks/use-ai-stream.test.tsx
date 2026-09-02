@@ -26,6 +26,14 @@ function createSSE() {
         // stream already cancelled — fine, tests assert on hook state
       }
     },
+    /** Push a NAMED SSE event (`event: name` + `data:`), like the agent's final trace event. */
+    emitNamed(name: string, data: Record<string, unknown>) {
+      try {
+        controller.enqueue(encoder.encode(`event: ${name}\ndata: ${JSON.stringify(data)}\n\n`));
+      } catch {
+        // stream already cancelled
+      }
+    },
     close() {
       try {
         controller.close();
@@ -219,5 +227,59 @@ describe("useAIStream per-session isolation", () => {
     });
     expect(result.current.messagesBySession["C"]).toHaveLength(1);
     expect(result.current.messagesBySession["C"]![0].content).toBe("three");
+  });
+});
+
+describe("final trace event annotation", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("annotates the live assistant message with traceId/traceStatus so View trace appears without a reload", async () => {
+    const sse = createSSE();
+    fetchMock.mockResolvedValueOnce(sse.response);
+    const { result } = renderHook(() => useAIStream());
+    act(() => {
+      void result.current.sendMessage({ sessionId: "T", message: "hi", projectId: "p1" });
+    });
+
+    sse.emit(textDelta("answer"));
+    sse.emitNamed("trace", { status: "available", traceId: "abc123" });
+    sse.close();
+
+    await waitFor(() => {
+      const msgs = result.current.messagesBySession["T"];
+      const assistant = msgs?.find((m) => m.role === "assistant");
+      expect(assistant?.traceId).toBe("abc123");
+      expect(assistant?.traceStatus).toBe("available");
+    });
+  });
+
+  it("leaves the message unannotated when tracing was disabled for the run", async () => {
+    const sse = createSSE();
+    fetchMock.mockResolvedValueOnce(sse.response);
+    const { result } = renderHook(() => useAIStream());
+    act(() => {
+      void result.current.sendMessage({ sessionId: "T2", message: "hi", projectId: "p1" });
+    });
+
+    sse.emit(textDelta("answer"));
+    sse.emitNamed("trace", { status: "disabled", traceId: "abc123" });
+    sse.close();
+
+    await waitFor(() => {
+      const msgs = result.current.messagesBySession["T2"];
+      expect(msgs?.some((m) => m.role === "assistant" && m.content === "answer")).toBe(true);
+    });
+    const assistant = result.current.messagesBySession["T2"]!.find((m) => m.role === "assistant");
+    expect(assistant?.traceId).toBeUndefined();
   });
 });

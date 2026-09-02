@@ -128,18 +128,27 @@ export function DetectorRunsTable({
                       ? `${findingId} — open the analysis trace`
                       : run.execution_trace_status === "pending"
                         ? `${findingId} — analysis trace is being recorded`
-                        : run.execution_trace_status != null
-                          ? `${findingId} — analysis trace unavailable`
-                          : // No execution trace status. Absent means different
-                            // things depending on whether an analysis ran at
-                            // all, and saying "before tracing was enabled" for
-                            // a finding that was never analysed is simply
-                            // wrong — rca_status is what distinguishes them.
-                            run.rca_status == null
-                            ? `${findingId} — not analyzed`
-                            : run.rca_status === "done"
-                              ? `${findingId} — no analysis trace (analysis ran before tracing was enabled)`
-                              : `${findingId} — analysis ${run.rca_status}; no trace`
+                        : run.execution_trace_status === "failed"
+                          ? `${findingId} — analysis trace failed to record`
+                          : run.execution_trace_status === "disabled"
+                            ? `${findingId} — analysis ran with tracing disabled`
+                            : run.execution_trace_status != null
+                              ? `${findingId} — analysis trace unavailable`
+                              : // No execution trace status. Absent means different
+                                // things depending on whether an analysis ran at
+                                // all, and saying "before tracing was enabled" for
+                                // a finding that was never analysed is simply
+                                // wrong — rca_status is what distinguishes them.
+                                // undefined ≠ null here: the enrichment writes an
+                                // explicit null for "no RCA row", so an absent
+                                // field means the lookup itself failed.
+                                run.rca_status === undefined
+                                ? `${findingId} — analysis status unavailable`
+                                : run.rca_status === null
+                                  ? `${findingId} — not analyzed`
+                                  : run.rca_status === "done"
+                                    ? `${findingId} — no analysis trace (analysis ran before tracing was enabled)`
+                                    : `${findingId} — analysis ${run.rca_status}; no trace`
                   }
                   onOpen={
                     run.execution_trace_status === "available"

@@ -232,6 +232,11 @@ export function useAIStream() {
         run.reader = reader;
         const decoder = new TextDecoder();
         let buffer = "";
+        // Name from the preceding `event:` line, consumed by the next `data:`
+        // line. The agent's final trace event is a NAMED event whose payload
+        // has no `type` field, so without this it would be silently skipped
+        // and the live message would never grow its "View trace" link.
+        let namedEvent = "";
 
         while (true) {
           const { done, value } = await reader.read();
@@ -242,9 +247,33 @@ export function useAIStream() {
           buffer = lines.pop() || "";
 
           for (const line of lines) {
+            if (line.startsWith("event: ")) {
+              namedEvent = line.slice(7).trim();
+              continue;
+            }
             if (line.startsWith("data: ")) {
               try {
                 const eventData = JSON.parse(line.slice(6));
+
+                if (namedEvent === "trace") {
+                  // {status, traceId} — same fields the persisted row carries,
+                  // so the reloaded session renders the identical footer link.
+                  if (eventData.traceId && eventData.status !== "disabled") {
+                    const lastId = currentTextId ?? lastFrozenId;
+                    if (lastId) {
+                      safeUpdate((prev) =>
+                        prev.map((m) =>
+                          m.id === lastId
+                            ? { ...m, traceId: eventData.traceId, traceStatus: eventData.status }
+                            : m,
+                        ),
+                      );
+                    }
+                  }
+                  namedEvent = "";
+                  continue;
+                }
+                namedEvent = "";
 
                 if (eventData.type === "message_update") {
                   const delta = eventData.assistantMessageEvent;
