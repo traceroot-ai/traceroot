@@ -351,11 +351,15 @@ model AISession {
   updateTime    DateTime               @default(now()) @updatedAt @map("update_time") @db.Timestamp(6)
   messages      AIMessage[]
   project       Project                @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  rcaExecutions DetectorRcaExecution[]
+  execution     DetectorRcaExecution?  @relation("sessionExecution", fields: [executionId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  // Executions that recorded this session as theirs once they completed (see
+  // DetectorRcaExecution.sessionId) — the reverse of `execution` above.
+  rcaExecutions DetectorRcaExecution[] @relation("executionSession")
 
   @@index([projectId], map: "ix_ai_session_project_id")
   @@index([workspaceId], map: "ix_ai_session_workspace_id")
   @@index([userId], map: "ix_ai_session_user_id")
+  @@index([executionId], map: "ix_ai_session_execution_id")
   @@map("ai_sessions")
 }
 
@@ -369,10 +373,10 @@ enum TurnKind {
 
 // AI Messages - Individual messages within an AI session
 model AIMessage {
-  id          String @id @default(cuid()) @db.VarChar
-  workspaceId String @map("workspace_id") @db.VarChar // direct workspace pointer for per-kind aggregation (detector scans have no session)
-  sessionId   String? @map("session_id") @db.VarChar // nullable: detector scans have no chat session
-  kind        String @default("chat") @db.VarChar // "chat" | "rca" | "detector" | "digest-summary" — categorical tag; usage metering aggregates only chat|rca|detector (digest-summary is recorded, not metered)
+  id              String                @id @default(cuid()) @db.VarChar
+  workspaceId     String                @map("workspace_id") @db.VarChar // direct workspace pointer for per-kind aggregation (detector scans have no session)
+  sessionId       String?               @map("session_id") @db.VarChar // nullable: detector scans have no chat session
+  kind            String                @default("chat") @db.VarChar // "chat" | "rca" | "detector" | "digest-summary" — categorical tag; usage metering aggregates only chat|rca|detector (digest-summary is recorded, not metered)
   // Per-turn attribution. `kind` is kept one release for old readers and is
   // derived from turnKind at write time; metering will move to turnKind (E-09 follow-up).
   turnKind        TurnKind              @default(chat) @map("turn_kind")
@@ -390,11 +394,11 @@ model AIMessage {
   createTime      DateTime              @default(now()) @map("create_time") @db.Timestamp(6)
   workspace       Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   session         AISession?            @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
-  execution       DetectorRcaExecution? @relation(fields: [executionId], references: [id], onDelete: SetNull)
+  execution       DetectorRcaExecution? @relation(fields: [executionId], references: [id], onDelete: SetNull, onUpdate: NoAction)
 
   @@index([sessionId], map: "ix_ai_message_session_id")
   @@index([workspaceId, kind, createTime], map: "ix_ai_message_workspace_kind_time")
-  @@index([workspaceId, turnKind, createTime], map: "ix_ai_message_workspace_turnkind_time")
+  @@index([executionId], map: "ix_ai_message_execution_id")
   @@map("ai_messages")
 }
 
@@ -530,9 +534,12 @@ model DetectorRcaExecution {
   startedAt   DateTime    @default(now()) @map("started_at") @db.Timestamp(6)
   finishedAt  DateTime?   @map("finished_at") @db.Timestamp(6)
 
-  rca      DetectorRca @relation(fields: [findingId], references: [findingId], onDelete: Cascade, onUpdate: NoAction)
-  session  AISession?  @relation(fields: [sessionId], references: [id], onDelete: SetNull, onUpdate: NoAction)
-  messages AIMessage[]
+  rca            DetectorRca @relation(fields: [findingId], references: [findingId], onDelete: Cascade, onUpdate: NoAction)
+  session        AISession?  @relation("executionSession", fields: [sessionId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  // Sessions opened for this execution (AISession.executionId, set at creation)
+  // and the turns attributed to it (AIMessage.executionId).
+  openedSessions AISession[] @relation("sessionExecution")
+  messages       AIMessage[]
 
   @@unique([findingId, attempt], map: "uq_rca_execution_finding_attempt")
   @@map("detector_rca_executions")
