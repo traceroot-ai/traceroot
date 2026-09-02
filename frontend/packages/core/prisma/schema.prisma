@@ -789,6 +789,17 @@ model Widget {
   @@map("widgets")
 }
 
+// The audit trail for non-interactive writes: one append-only row per write
+// that changes account state — who (actorUserId), what (operation, resource,
+// summary), where (workspace/project), and HOW: `transport` distinguishes a
+// public-API call from an in-app agent action (with its session id), because
+// "who" alone stops identifying intent once machines write on a user's behalf.
+// This table is new with the public write paths — before them, every write was
+// a human in the UI on their own cookie session, so attribution was structural
+// (the actor WAS the session, the result was on screen). Once the CLI, agent,
+// and API can create resources with no human watching, provenance has to be
+// answerable from storage. UI writes join the trail (transport "ui") when the
+// cookie routes migrate onto the shared write services.
 // No relations on purpose: audit rows must survive resource deletion (an FK
 // cascade would erase history).
 model AuditLog {
