@@ -9,6 +9,14 @@ export interface ToolCallStep {
   status: "running" | "done" | "error";
   /** ClickHouse span id for this tool call, when the run was traced. */
   spanId?: string;
+  /**
+   * Capture-policy outcome on a persisted step (absent on the live stream,
+   * which shows the result in full): why the result was not kept, whether
+   * what was kept was cut, and how big the real output was.
+   */
+  withheld?: "not-allowlisted" | "budget" | null;
+  truncated?: boolean;
+  outputBytes?: number;
 }
 
 export interface AIMessage {

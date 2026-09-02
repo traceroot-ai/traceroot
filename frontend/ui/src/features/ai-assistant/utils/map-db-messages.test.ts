@@ -5,6 +5,8 @@ const base = { createTime: "2026-01-01T00:00:00Z" };
 
 describe("mapDbMessages", () => {
   it("maps persisted tool_step rows into the bubble shape the live stream produces", () => {
+    // The persister stores the result as JSON text; the live stream showed the
+    // parsed value, and the reloaded bubble must render the same way.
     const [msg] = mapDbMessages([
       {
         ...base,
@@ -15,7 +17,8 @@ describe("mapDbMessages", () => {
           toolCallId: "t1",
           toolName: "get_traces",
           args: { traceId: "abc" },
-          result: { spans: 3 },
+          result: '{"spans":3}',
+          outputBytes: 11,
           isError: false,
         },
       },
@@ -26,9 +29,66 @@ describe("mapDbMessages", () => {
       toolName: "get_traces",
       args: { traceId: "abc" },
       result: { spans: 3 },
+      outputBytes: 11,
       isError: false,
       status: "done",
     });
+  });
+
+  it("keeps a truncated result as text — a cut JSON string is not valid JSON — and passes the flag through", () => {
+    const [msg] = mapDbMessages([
+      {
+        ...base,
+        id: "row1",
+        role: "tool_step",
+        content: "",
+        metadata: {
+          toolCallId: "t1",
+          toolName: "get_traces",
+          args: {},
+          result: '{"spans":[{"span_id":"a"},{"span_… [truncated]',
+          truncated: true,
+          outputBytes: 90_000,
+        },
+      },
+    ]);
+    expect(msg.toolStep?.result).toBe('{"spans":[{"span_id":"a"},{"span_… [truncated]');
+    expect(msg.toolStep?.truncated).toBe(true);
+    expect(msg.toolStep?.outputBytes).toBe(90_000);
+  });
+
+  it("keeps a plain-string result as the string it was", () => {
+    const [msg] = mapDbMessages([
+      {
+        ...base,
+        id: "row1",
+        role: "tool_step",
+        content: "",
+        metadata: { toolCallId: "t1", toolName: "bash", args: {}, result: "total 0\n" },
+      },
+    ]);
+    expect(msg.toolStep?.result).toBe("total 0\n");
+  });
+
+  it("passes a withheld result's reason and size through, with no result", () => {
+    const [msg] = mapDbMessages([
+      {
+        ...base,
+        id: "row1",
+        role: "tool_step",
+        content: "",
+        metadata: {
+          toolCallId: "t1",
+          toolName: "bash",
+          args: { command: "ls" },
+          withheld: "not-allowlisted",
+          outputBytes: 44,
+          isError: false,
+        },
+      },
+    ]);
+    expect(msg.toolStep).toMatchObject({ withheld: "not-allowlisted", outputBytes: 44 });
+    expect(msg.toolStep?.result).toBeUndefined();
   });
 
   it("marks a failed tool step with error status", () => {
