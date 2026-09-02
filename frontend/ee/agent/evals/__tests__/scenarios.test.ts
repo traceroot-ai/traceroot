@@ -102,10 +102,10 @@ describe("the scenario suite", () => {
     ]);
   });
 
-  it("sends one user message per scenario, except the idempotency pair", () => {
+  it("sends one user message per scenario, except the two deliberate pairs", () => {
+    const pairs = new Set(["idempotency", "custom-detector"]);
     for (const scenario of SCENARIOS) {
-      const expected = scenario.name === "idempotency" ? 2 : 1;
-      expect(scenario.messages).toHaveLength(expected);
+      expect(scenario.messages).toHaveLength(pairs.has(scenario.name) ? 2 : 1);
     }
   });
 
@@ -172,9 +172,11 @@ describe("standard-detector", () => {
 
 describe("custom-detector", () => {
   const CUSTOM = "Flag only tool timeouts longer than 30 seconds.";
+  // The agent asks first, then writes once the follow-up picks the prompt.
   const passing = () =>
     makeCtx({
       turns: [
+        turn({ assistantText: "Do you want a judged prompt or a trigger on duration_ms?" }),
         turn({
           toolCalls: [
             toolCall("create_detector", {
@@ -188,19 +190,34 @@ describe("custom-detector", () => {
       created: { detectors: [detector({ prompt: CUSTOM })], dashboards: [], widgets: [] },
     });
 
+  it("follows the ambiguous ask up in the same session", () => {
+    const scenario = scenarioNamed("custom-detector");
+    expect(scenario.sessionPerMessage).toBeUndefined();
+    expect(scenario.messages[1]).toContain("30 seconds");
+  });
+
+  it("reports an agent that only ever asked, quoting the question", async () => {
+    const ctx = passing();
+    ctx.turns = [ctx.turns[0]!];
+    ctx.created.detectors = [];
+    await expect(run("custom-detector", ctx)).rejects.toThrow(
+      /answered without calling any write tool.*duration_ms/s,
+    );
+  });
+
   it("passes when the supplied prompt was stored verbatim", async () => {
     await expect(run("custom-detector", passing())).resolves.toBeUndefined();
   });
 
   it("fails when the model omitted the prompt the user asked for", async () => {
     const ctx = passing();
-    delete ctx.turns[0]!.toolCalls[0]!.args.prompt;
+    delete ctx.turns[1]!.toolCalls[0]!.args.prompt;
     await expect(run("custom-detector", ctx)).rejects.toThrow(/prompt/i);
   });
 
   it("fails when the prompt drops the constraint the user gave", async () => {
     const ctx = passing();
-    ctx.turns[0]!.toolCalls[0]!.args.prompt = "Flag tool timeouts.";
+    ctx.turns[1]!.toolCalls[0]!.args.prompt = "Flag tool timeouts.";
     ctx.created.detectors = [detector({ prompt: "Flag tool timeouts." })];
     await expect(run("custom-detector", ctx)).rejects.toThrow(/30/);
   });

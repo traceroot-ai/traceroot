@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Executor } from "../../executors/interface.js";
 import {
+  formatDashboardDetail,
+  formatDashboardList,
   formatDetectorDetail,
   formatDetectorList,
   formatFindingDetail,
@@ -25,7 +27,7 @@ describe("createRegistryReadTools", () => {
     return impl;
   }
 
-  it("exposes exactly the eight internally-bound read tools", () => {
+  it("exposes exactly the ten internally-bound read tools", () => {
     const names = createRegistryReadTools("p1", "u1").map((t) => t.name);
     expect(names).toEqual([
       "list_traces",
@@ -36,6 +38,8 @@ describe("createRegistryReadTools", () => {
       "list_findings",
       "get_finding",
       "get_finding_by_trace",
+      "list_dashboards",
+      "get_dashboard",
     ]);
   });
 
@@ -217,6 +221,61 @@ describe("createRegistryReadTools", () => {
     expect(result.content[0]!.text).toContain("Flag traces with elevated error rates");
   });
 
+  it("list_dashboards hits the internal dashboards route and runs the catalog formatter", async () => {
+    const impl = stubFetch({
+      data: [
+        {
+          id: "dash-1",
+          name: "Overview",
+          description: "Main overview.",
+          is_default: true,
+          creator: "Ada Lovelace",
+          create_time: "2026-08-01T00:00:00Z",
+          update_time: "2026-08-02T00:00:00Z",
+          widget_count: 4,
+        },
+      ],
+    });
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "list_dashboards")!;
+    const result = await tool.execute("id", { label: "x" });
+    const [url, init] = impl.mock.calls[0]!;
+    expect(String(url)).toBe("http://fastapi.test/api/v1/projects/p1/dashboards");
+    expect((init as RequestInit).headers).toMatchObject({
+      "X-Internal-Secret": "s3cret",
+      "x-user-id": "u1",
+    });
+    // Exact rendering is owned by the formatter tests; this proves dispatch + formatter wiring.
+    expect(result.content[0]!.text).toContain("Found 1 dashboards");
+    expect(result.content[0]!.text).toContain("dash-1");
+  });
+
+  it("get_dashboard hits the internal dashboard route and renders the widgets", async () => {
+    const impl = stubFetch({
+      id: "dash-1",
+      name: "Overview",
+      description: "Main overview.",
+      is_default: true,
+      creator: "Ada Lovelace",
+      create_time: "2026-08-01T00:00:00Z",
+      update_time: "2026-08-02T00:00:00Z",
+      widgets: [
+        {
+          id: "w-1",
+          title: "Cost over time",
+          type: "query",
+          spec: { view: "spans" },
+          create_time: "2026-08-01T00:00:00Z",
+        },
+      ],
+    });
+    const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_dashboard")!;
+    const result = await tool.execute("id", { label: "x", dashboard_id: "dash-1" });
+    const [url] = impl.mock.calls[0]!;
+    expect(String(url)).toBe("http://fastapi.test/api/v1/projects/p1/dashboards/dash-1");
+    expect(result.content[0]!.text).toContain("Dashboard: dash-1");
+    expect(result.content[0]!.text).toContain("Cost over time");
+  });
+
   it("returns HTTP failures as tool text instead of throwing", async () => {
     vi.stubGlobal(
       "fetch",
@@ -239,6 +298,8 @@ describe("createTools", () => {
     "list_findings",
     "get_finding",
     "get_finding_by_trace",
+    "list_dashboards",
+    "get_dashboard",
   ];
   const WRITE_TOOL_NAMES = [
     "create_workspace",
@@ -354,6 +415,79 @@ describe("formatters", () => {
     const line = text.split("\n").find((l) => l.startsWith("   Input:"))!;
     expect(line).toBe(`   Input:  ${"x".repeat(199)}`);
     expect(text).not.toContain("\ud83d");
+  });
+
+  it("formatDashboardList renders rows and reports the empty state", () => {
+    expect(formatDashboardList({})).toBe("No dashboards found in this project.");
+    expect(
+      formatDashboardList({
+        data: [
+          {
+            id: "dash-1",
+            name: "Overview",
+            description: "Main overview.",
+            is_default: true,
+            creator: "Ada Lovelace",
+            widget_count: 4,
+          },
+          {
+            id: "dash-2",
+            name: "Latency",
+            description: null,
+            is_default: false,
+            creator: null,
+            widget_count: 0,
+          },
+        ],
+      }),
+    ).toBe(
+      "Found 2 dashboards:\n" +
+        "- dash-1 | Overview (default) | 4 widgets | by Ada Lovelace — Main overview.\n" +
+        "- dash-2 | Latency | 0 widgets | by unknown",
+    );
+  });
+
+  it("formatDashboardDetail renders the overview and per-widget spec lines", () => {
+    expect(
+      formatDashboardDetail({
+        id: "dash-1",
+        name: "Overview",
+        description: "Main overview.",
+        is_default: true,
+        creator: "Ada Lovelace",
+        create_time: "2026-08-01T00:00:00Z",
+        update_time: "2026-08-02T00:00:00Z",
+        widgets: [
+          {
+            id: "w-1",
+            title: "Cost over time",
+            type: "query",
+            spec: { view: "spans" },
+            create_time: "2026-08-01T00:00:00Z",
+          },
+        ],
+      }),
+    ).toBe(
+      "Dashboard: dash-1 | Overview (default)\n" +
+        "Created by Ada Lovelace | created 2026-08-01T00:00:00Z | updated 2026-08-02T00:00:00Z\n" +
+        "Description: Main overview.\n" +
+        "\n" +
+        "Widgets (1):\n" +
+        '#1 w-1 | Cost over time | type: query\n   Spec: {"view":"spans"}',
+    );
+  });
+
+  it("formatDashboardDetail states the empty widget list explicitly", () => {
+    const text = formatDashboardDetail({
+      id: "dash-2",
+      name: "Latency",
+      description: null,
+      is_default: false,
+      creator: null,
+      widgets: [],
+    });
+    expect(text).toContain("Description: (none)");
+    expect(text).toContain("Widgets: (none — add one with create_widget)");
   });
 
   it("formatDetectorList renders rows and reports the empty state", () => {

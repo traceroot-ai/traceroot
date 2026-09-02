@@ -15,6 +15,7 @@ import time
 
 import httpx
 import jwt
+import pytest
 import respx
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi.testclient import TestClient
@@ -273,6 +274,45 @@ def test_create_workspace_malformed_upstream_body_is_503():
     assert resp.status_code == 503
 
 
+@respx.mock
+@pytest.mark.parametrize(
+    "workspace",
+    [
+        {"id": 123, "name": "Alpha", "role": "ADMIN"},  # non-string id
+        {"id": "ws-new", "name": None, "role": "ADMIN"},  # null name
+    ],
+)
+def test_create_workspace_wrong_typed_envelope_is_503(workspace):
+    """A 200 envelope whose fields are wrongly typed fails closed, never a 500.
+
+    The response model rejects these, and that rejection must map to the same
+    controlled 503 as a missing envelope.
+    """
+    _mock_account_auth()
+    _mock_workspace_write(body={"created": True, "workspace": workspace})
+
+    resp = _client().post("/api/v1/public/workspaces", json={"name": "Alpha"}, headers=USER_HEADER)
+
+    assert resp.status_code == 503
+
+
+@respx.mock
+def test_create_project_wrong_typed_envelope_is_503():
+    """A 200 project envelope with a wrongly typed field fails closed (503)."""
+    _mock_account_auth()
+    _mock_project_write(
+        body={"created": True, "project": {"id": "p", "name": "P1", "workspaceId": 7}}
+    )
+
+    resp = _client().post(
+        "/api/v1/public/projects",
+        json={"workspace_id": "ws-1", "name": "P1"},
+        headers=USER_HEADER,
+    )
+
+    assert resp.status_code == 503
+
+
 # ── CLI access JWT write path (offline verify + session liveness) ───────
 
 
@@ -338,13 +378,16 @@ def test_jwt_write_with_live_session_succeeds(monkeypatch):
 
 
 @respx.mock
-def test_jwt_without_sid_skips_the_liveness_check(monkeypatch):
-    """A JWT minted without a sid claim writes without the liveness hop — pins
-    the assumption that the mint route's sid stamping is what arms the check."""
+def test_jwt_without_sid_is_rejected(monkeypatch):
+    """A JWT carrying no sid is rejected rather than writing unchecked.
+
+    Without a sid there is no session to verify, so accepting the token would
+    let it write past a revoked session until it expired.
+    """
     priv = _install_jwt_signer(monkeypatch)
     live = respx.post(LIVE_URL).mock(return_value=Response(200, json={"live": True}))
-    _mock_workspace_write()
-    token = _mint_jwt(priv)
+    write = _mock_workspace_write()
+    token = _mint_jwt(priv, extra_claims={"sid": None})
 
     resp = _client().post(
         "/api/v1/public/workspaces",
@@ -352,5 +395,6 @@ def test_jwt_without_sid_skips_the_liveness_check(monkeypatch):
         headers={"Authorization": f"Bearer {token}"},
     )
 
-    assert resp.status_code == 200
+    assert resp.status_code == 401
     assert live.call_count == 0
+    assert write.call_count == 0

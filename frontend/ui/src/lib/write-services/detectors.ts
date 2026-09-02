@@ -71,6 +71,13 @@ const inputSchema = z
     });
   });
 
+/** What the create transaction returns: the caller's result plus the audit
+ *  entry to record once the transaction has committed. */
+type TxOutcome = Promise<{
+  result: ServiceResult<DetectorCreated>;
+  audit?: AuditEntry;
+}>;
+
 export async function createDetector(input: {
   actorUserId: string;
   projectId: string;
@@ -87,14 +94,17 @@ export async function createDetector(input: {
   enabled?: boolean;
   provenance: Provenance;
 }): Promise<ServiceResult<DetectorCreated>> {
-  let audit: AuditEntry | null = null;
-  const result = await prisma.$transaction(async (tx) => {
+  // The transaction hands the audit entry back rather than writing it: a failed
+  // audit INSERT would abort the transaction and discard the detector.
+  const { result, audit } = await prisma.$transaction(async (tx): TxOutcome => {
     const project = await tx.project.findUnique({
       where: { id: input.projectId },
       select: { workspaceId: true, deleteTime: true },
     });
     if (!project || project.deleteTime !== null) {
-      return { ok: false as const, status: 404 as const, error: "Project not found" };
+      return {
+        result: { ok: false, status: 404, error: "Project not found" },
+      };
     }
     const member = await tx.workspaceMember.findUnique({
       where: {
@@ -107,25 +117,19 @@ export async function createDetector(input: {
     });
     if (!member) {
       return {
-        ok: false as const,
-        status: 403 as const,
-        error: "Not a member of this workspace",
+        result: { ok: false, status: 403, error: "Not a member of this workspace" },
       };
     }
     if (!hasMinRole(member.role, Role.MEMBER)) {
       return {
-        ok: false as const,
-        status: 403 as const,
-        error: "Requires MEMBER role or higher",
+        result: { ok: false, status: 403, error: "Requires MEMBER role or higher" },
       };
     }
 
     const parsed = inputSchema.safeParse(input);
     if (!parsed.success) {
       return {
-        ok: false as const,
-        status: 400 as const,
-        error: parsed.error.issues[0].message,
+        result: { ok: false, status: 400, error: parsed.error.issues[0].message },
       };
     }
     const { name, template, detectionSource, enableRca, enabled } = parsed.data;
@@ -152,7 +156,7 @@ export async function createDetector(input: {
       select: { id: true, name: true, projectId: true, enabled: true, sampleRate: true },
     });
     if (existing) {
-      return { ok: true as const, created: false, data: existing };
+      return { result: { ok: true, created: false, data: existing } };
     }
 
     const detector = await tx.detector.create({
@@ -174,24 +178,29 @@ export async function createDetector(input: {
       },
       select: { id: true, name: true, projectId: true, enabled: true, sampleRate: true },
     });
-    audit = {
-      actorUserId: input.actorUserId,
-      operation: "create_detector",
-      resourceType: "detector",
-      resourceId: detector.id,
-      workspaceId: project.workspaceId,
-      projectId: input.projectId,
-      summary: {
-        name,
-        template,
-        sampleRate: resolvedSampleRate,
-        enabled: resolvedEnabled,
+    return {
+      result: { ok: true, created: true, data: detector },
+      audit: {
+        actorUserId: input.actorUserId,
+        operation: "create_detector",
+        resourceType: "detector",
+        resourceId: detector.id,
+        workspaceId: project.workspaceId,
+        projectId: input.projectId,
+        summary: {
+          name,
+          template,
+          sampleRate: resolvedSampleRate,
+          enabled: resolvedEnabled,
+        },
+        transport: input.provenance.transport,
+        agentSessionId: input.provenance.agentSessionId ?? null,
       },
-      transport: input.provenance.transport,
-      agentSessionId: input.provenance.agentSessionId ?? null,
     };
-    return { ok: true as const, created: true, data: detector };
   });
-  if (audit) await writeAudit(prisma, audit);
+
+  if (audit) {
+    await writeAudit(prisma, audit);
+  }
   return result;
 }

@@ -511,6 +511,28 @@ export const REGISTRY: readonly RegistryEntry[] = [
     },
   },
   {
+    name: "get_dashboard",
+    description:
+      "Fetch one dashboard with its widgets (id, title, type, query spec, creation time). Resolve the dashboard id by listing the project's dashboards and matching the name — never guess an id.",
+    method: "get",
+    path: "/api/v1/public/dashboards/{dashboard_id}",
+    inputSchema: {
+      type: "object",
+      properties: {
+        dashboard_id: {
+          type: "string",
+        },
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: ["dashboard_id"],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "get_detector",
     description:
       "Fetch one detector's full configuration by id: prompt, output schema, sample rate, RCA and detection settings, and trigger conditions.",
@@ -630,6 +652,25 @@ export const REGISTRY: readonly RegistryEntry[] = [
         },
       },
       required: ["trace_id"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_dashboards",
+    description:
+      "List the project's dashboards (id, name, description, default flag, creator, widget count, timestamps). To resolve a dashboard by name, list here and match its name — never guess a dashboard id.",
+    method: "get",
+    path: "/api/v1/public/dashboards",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project_id: {
+          type: "string",
+          description:
+            "Target project for the request. Required when authenticating with a user session token (a user credential is only meaningful scoped to a project); for an API key it is optional and, if given, must match the key's project.",
+        },
+      },
+      required: [],
       additionalProperties: false,
     },
   },

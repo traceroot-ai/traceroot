@@ -160,23 +160,36 @@ def _mint_jwt(priv, *, sub="u1", extra_claims=None):
 
 @respx.mock
 async def test_verify_access_jwt_returns_sid(monkeypatch):
-    """The verified (sub, sid) pair surfaces; an absent sid comes back None."""
+    """The verified (sub, sid) pair surfaces."""
     priv = _install_jwt_signer(monkeypatch)
 
     with_sid = _mint_jwt(priv, sub="u1", extra_claims={"sid": "sess-1"})
     assert await _verify_access_jwt(with_sid) == ("u1", "sess-1")
 
-    without_sid = _mint_jwt(priv, sub="u1")
-    assert await _verify_access_jwt(without_sid) == ("u1", None)
-
 
 @respx.mock
-async def test_verify_access_jwt_non_string_sid_is_none(monkeypatch):
-    """A malformed (non-string) sid never raises — it degrades to None."""
+@pytest.mark.parametrize(
+    "extra_claims",
+    [
+        {},  # sid absent entirely
+        {"sid": 123},  # non-string sid
+        {"sid": ""},  # empty sid
+        {"sid": None},  # null sid
+    ],
+)
+async def test_verify_access_jwt_rejects_missing_sid(monkeypatch, extra_claims):
+    """A signed token without a usable sid is rejected, never degraded to None.
+
+    Degrading would leave ``require_live_session`` nothing to check, so the
+    token would write past a revoked session until it expired.
+    """
     priv = _install_jwt_signer(monkeypatch)
 
-    token = _mint_jwt(priv, sub="u1", extra_claims={"sid": 123})
-    assert await _verify_access_jwt(token) == ("u1", None)
+    token = _mint_jwt(priv, sub="u1", extra_claims=extra_claims)
+    with pytest.raises(HTTPException) as exc_info:
+        await _verify_access_jwt(token)
+
+    assert exc_info.value.status_code == 401
 
 
 # ── write rate bucket ───────────────────────────────────────────────────
