@@ -143,4 +143,52 @@ describe("Alert panel → agent trace", () => {
     fireEvent.click(await screen.findByRole("button", { name: /analyzed trace:/i }));
     expect(await screen.findByRole("button", { name: /detectors/i })).toBeTruthy();
   });
+
+  it("falls back to the tree view when the Detectors tab disappears while active", async () => {
+    // The chip that swaps to the agent trace lives in the tree view, so the
+    // tab can only vanish under an active Detectors view through a prop
+    // change: the detectors page keeps one panel mounted and re-points it
+    // from an original trace to a Finding cell's agent trace.
+    const props = {
+      projectId: "p1",
+      onClose: () => {},
+      onNavigate: () => {},
+      canNavigateUp: false,
+      canNavigateDown: false,
+    };
+    const { rerender } = render(<TraceViewerPanel {...props} traceId="t1" source="user" />);
+    fireEvent.click(await screen.findByRole("button", { name: /detectors/i }));
+    expect(screen.getByTestId("detectors-tab")).toBeTruthy();
+    expect(screen.queryByTestId("span-info")).toBeNull();
+
+    rerender(<TraceViewerPanel {...props} traceId="f1f1" source="agent" />);
+
+    expect(screen.queryByRole("button", { name: /detectors/i })).toBeNull();
+    expect(screen.queryByTestId("detectors-tab")).toBeNull();
+    expect(await screen.findByTestId("span-info")).toBeTruthy();
+  });
+
+  it("pops the agent trace out under its own id and scope, so the new tab does not 404", async () => {
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    render(
+      <TraceViewerPanel
+        projectId="p1"
+        traceId="t1"
+        onClose={() => {}}
+        onNavigate={() => {}}
+        canNavigateUp={false}
+        canNavigateDown={false}
+        source="user"
+      />,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /root cause analysis/i }));
+    fireEvent.click(screen.getByTitle("Open in new tab"));
+
+    expect(open).toHaveBeenCalledTimes(1);
+    const url = new URL(open.mock.calls[0][0] as string, "http://localhost");
+    expect(url.pathname).toBe("/projects/p1/traces");
+    expect(url.searchParams.get("traceId")).toBe("f1f1");
+    expect(url.searchParams.get("source")).toBe("agent");
+    open.mockRestore();
+  });
 });

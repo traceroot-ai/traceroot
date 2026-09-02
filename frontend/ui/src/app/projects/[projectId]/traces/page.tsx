@@ -54,6 +54,11 @@ export default function TracesPage() {
   const { isPending: authPending } = useAuthSession();
   const userId = searchParams.get("user_id");
   const traceIdFromUrl = searchParams.get("traceId");
+  // Set alongside traceId when the popped-out trace is an RCA agent trace (the
+  // viewer was showing the analysis when "open in new tab" was clicked). Only
+  // the deep-linked id is ever opened under that scope — see the panel's
+  // `source` below.
+  const sourceFromUrl = searchParams.get("source");
   // Set when a trace is opened in a new tab via the panel's "open in new tab"
   // button, so the panel mounts already expanded to full width. Held as state
   // (not a derived value) so it only seeds the first trace opened from the URL:
@@ -379,8 +384,14 @@ export default function TracesPage() {
           // the reader already defaults to customer traffic, so this is defense in depth,
           // and it also pins the trace-detail cache key this panel shares with the live
           // SSE writer. Self-traces are reached from the detector runs surface, which
-          // asks for source="detector" explicitly.
-          source="user"
+          // asks for source="detector" explicitly. The one exception is an RCA agent
+          // trace popped out of this page's own viewer (?traceId=…&source=agent): it
+          // is opened under the agent scope, but only while the selection IS that
+          // deep-linked id — the list stays customer-only, and navigating to a row
+          // drops back to "user".
+          source={
+            traceIdFromUrl === selectedTraceId && sourceFromUrl === "agent" ? "agent" : "user"
+          }
         />
       )}
 
