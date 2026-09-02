@@ -126,6 +126,51 @@ describe("PendingDecisions", () => {
     decisions.unregisterChannel("s1", channel);
   });
 
+  it("keeps one session's decline out of another session's tool result", async () => {
+    // The store is one process-wide singleton and tool-call ids come from the
+    // provider — some number them per run, so two live sessions can hold the
+    // same id. Keyed on the id alone, s2's tool result would consume s1's
+    // decline and carry another user's revision text into its own stream.
+    const decisions = new PendingDecisions();
+    const s1 = parkOn(decisions, "s1");
+    decisions.decide(s1.decisionId, "s1", { action: "revise", text: "internal token" });
+    await s1.outcome;
+
+    // Same tool-call id, different session.
+    expect(decisions.takeDecline("s2", "tc-1")).toBeUndefined();
+    // s1's own record is untouched and still consumable exactly once.
+    expect(decisions.takeDecline("s1", "tc-1")).toEqual({
+      kind: "proposal_declined",
+      outcome: "revised",
+      text: "internal token",
+    });
+  });
+
+  it("takeDecline consumes the recorded decline exactly once", async () => {
+    const decisions = new PendingDecisions();
+    const { decisionId, outcome } = parkOn(decisions, "s1");
+    decisions.decide(decisionId, "s1", { action: "skip" });
+    await outcome;
+
+    expect(decisions.takeDecline("s1", "tc-1")).toEqual({
+      kind: "proposal_declined",
+      outcome: "skipped",
+    });
+    expect(decisions.takeDecline("s1", "tc-1")).toBeUndefined();
+  });
+
+  it("records a skipped decline for internal release paths too (timeout, run end)", async () => {
+    const decisions = new PendingDecisions();
+    const { outcome } = parkOn(decisions, "s1");
+    decisions.releaseSession("s1", "run ended");
+    await outcome;
+
+    expect(decisions.takeDecline("s1", "tc-1")).toEqual({
+      kind: "proposal_declined",
+      outcome: "skipped",
+    });
+  });
+
   it("unregisterChannel removes only the matching channel instance", () => {
     const decisions = new PendingDecisions();
     const stale = channelFor("u1");
