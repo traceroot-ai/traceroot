@@ -4,10 +4,6 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act, waitFor, cleanup } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn() }),
-}));
-
 import { useAiChat } from "./use-ai-chat";
 import type { AISession } from "../types";
 import type { ModelSelection } from "../components/model-selector";
