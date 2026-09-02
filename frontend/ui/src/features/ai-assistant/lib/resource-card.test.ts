@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { appendWidgetPlacement } from "@/features/dashboards/widget-placement";
 import { DISPLAY_TYPES } from "@/features/dashboards/types";
+import { dateFilterStorageKey } from "@/lib/date-filter-storage";
 import {
   createdWidgetsByDashboard,
   pendingCardModel,
@@ -891,5 +892,55 @@ describe("pendingCardModel", () => {
 
   it("returns null for a tool this panel has no pending card for", () => {
     expect(pendingCardModel(runningStep("update_dashboard_layout", {}), "p1")).toBeNull();
+  });
+});
+
+describe("meta window label follows the site's stored range", () => {
+  // Node environment — no real window. A stubbed one with the site's storage
+  // slot populated stands in for a browser where the user picked "Last 7 days"
+  // on the trace list or a dashboard page.
+  const stubStoredRange = (projectId: string, id: string) =>
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: (key: string) =>
+          key === dateFilterStorageKey(projectId) ? JSON.stringify({ id }) : null,
+      },
+    });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("labels a widget receipt with the stored range, not the default", () => {
+    stubStoredRange("p1", "7d");
+    expect(resourceCardModel(widgetStep())?.meta).toEqual(["Widget", "Last 7 days"]);
+  });
+
+  it("labels a dashboard miniature with the stored range of its tiles' project", () => {
+    stubStoredRange("p1", "7d");
+    const dashboard = step({
+      toolName: "create_dashboard",
+      args: { name: "Latency overview" },
+      details: created("dashboard", "db1", { projectId: "p1" }),
+    });
+    const model = resourceCardModel(dashboard, new Map([["db1", [widgetStep()]]]));
+    expect(model?.meta).toEqual(["Dashboard", "1 widget", "Last 7 days"]);
+  });
+
+  it("labels a pending widget card with the stored range of the panel's project", () => {
+    stubStoredRange("p1", "7d");
+    const pending = pendingCardModel(
+      {
+        toolCallId: "tcp1",
+        toolName: "create_widget",
+        args: { title: "Tokens by model", type: "query", spec: WIDGET_SPEC },
+        status: "running",
+      },
+      "p1",
+    );
+    expect(pending?.meta).toEqual(["Widget", "Last 7 days"]);
+  });
+
+  it("keeps the default label for an unknown stored id", () => {
+    stubStoredRange("p1", "eleventy");
+    expect(resourceCardModel(widgetStep())?.meta).toEqual(["Widget", "Last 24 hours"]);
   });
 });

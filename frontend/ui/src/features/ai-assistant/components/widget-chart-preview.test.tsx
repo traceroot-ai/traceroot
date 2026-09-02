@@ -84,6 +84,7 @@ describe("WidgetChartPreview", () => {
   afterEach(() => {
     cleanup();
     vi.unstubAllGlobals();
+    window.localStorage.clear();
   });
 
   it("issues no query for a card that has never been visible", () => {
@@ -119,6 +120,29 @@ describe("WidgetChartPreview", () => {
   });
 
   it("queries the default dashboard window, ending no earlier than a day back", async () => {
+    vi.mocked(api.runWidgetQuery).mockResolvedValue({ columns: ["value"], rows: [[7]], meta: {} });
+    renderPreview();
+    scrollIntoView();
+
+    await waitFor(() => expect(api.runWidgetQuery).toHaveBeenCalled());
+    const range = vi.mocked(api.runWidgetQuery).mock.calls[0][2];
+    expect(range.end.getTime() - range.start.getTime()).toBe(24 * 60 * 60 * 1000);
+  });
+
+  it("queries the range the site's picker stored for this project", async () => {
+    // The same slot the trace list and dashboard pages persist through.
+    window.localStorage.setItem("traceroot:date-filter:v1:p1", JSON.stringify({ id: "7d" }));
+    vi.mocked(api.runWidgetQuery).mockResolvedValue({ columns: ["value"], rows: [[7]], meta: {} });
+    renderPreview();
+    scrollIntoView();
+
+    await waitFor(() => expect(api.runWidgetQuery).toHaveBeenCalled());
+    const range = vi.mocked(api.runWidgetQuery).mock.calls[0][2];
+    expect(range.end.getTime() - range.start.getTime()).toBe(7 * 24 * 60 * 60 * 1000);
+  });
+
+  it("falls back to the default window for a stored id it doesn't know", async () => {
+    window.localStorage.setItem("traceroot:date-filter:v1:p1", JSON.stringify({ id: "eleventy" }));
     vi.mocked(api.runWidgetQuery).mockResolvedValue({ columns: ["value"], rows: [[7]], meta: {} });
     renderPreview();
     scrollIntoView();

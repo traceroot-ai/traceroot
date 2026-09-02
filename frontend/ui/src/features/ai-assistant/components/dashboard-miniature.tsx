@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { COLS, ROW_HEIGHT } from "@/features/dashboards/grid-constants";
 import { useWidgetData } from "@/features/dashboards/hooks/use-widget-data";
-import { DEFAULT_RANGE_ID, makeRange } from "@/features/dashboards/range-presets";
+import { makeRange, resolveSiteRange } from "@/features/dashboards/range-presets";
 import type { TimeRange, WidgetQueryResult } from "@/features/dashboards/types";
 import { DEFAULT_SIZE } from "@/features/dashboards/widget-placement";
 import { FIELD_UNIT, type FieldUnit } from "@/features/filters/filter-controls";
@@ -554,8 +554,19 @@ export function DashboardMiniature({ tiles }: { tiles: readonly MiniatureTile[] 
   // The shared window, frozen at first visibility: a receipt for a past
   // action should not quietly slide its own axis while the transcript stays
   // open — and one range means react-query can serve every tile's remount
-  // from cache. (`seen` only ever flips once, so this computes once.)
-  const range = useMemo(() => (seen ? makeRange(DEFAULT_RANGE_ID) : null), [seen]);
+  // from cache. (`seen` only ever flips once, so this computes once.) Which
+  // window gets frozen is the site's own stored selection for the project
+  // the tiles query (they all landed in one dashboard, so any charted tile
+  // names it), falling back to the default when nothing usable is stored.
+  // `tiles` is deliberately not a dependency: it is read only on the one
+  // seen=false→true computation, and a later tiles identity change must not
+  // thaw the frozen range.
+  const range = useMemo(() => {
+    if (!seen) return null;
+    const projectId = tiles.find((tile) => tile.chart !== null)?.chart?.projectId;
+    return makeRange(resolveSiteRange(projectId).id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seen]);
 
   // The caller keeps the header-only card for an empty dashboard; this guard
   // just keeps a frame with no tiles from ever rendering.
