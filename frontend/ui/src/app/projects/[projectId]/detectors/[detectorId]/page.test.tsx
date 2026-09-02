@@ -109,6 +109,7 @@ vi.mock("@/features/traces/components/TraceViewerPanel", () => ({
     onNavigate,
     canNavigateUp,
     canNavigateDown,
+    onOpenLinkedTrace,
   }: {
     traceId: string;
     autoOpenRca?: boolean;
@@ -118,6 +119,7 @@ vi.mock("@/features/traces/components/TraceViewerPanel", () => ({
     onNavigate: (d: "up" | "down") => void;
     canNavigateUp: boolean;
     canNavigateDown: boolean;
+    onOpenLinkedTrace?: (t: { traceId: string; source: "detector" | "agent" | "user" }) => void;
   }) => (
     <div
       data-testid="trace-panel"
@@ -134,6 +136,12 @@ vi.mock("@/features/traces/components/TraceViewerPanel", () => ({
       </button>
       <button type="button" disabled={!canNavigateDown} onClick={() => onNavigate("down")}>
         panel-down
+      </button>
+      <button
+        type="button"
+        onClick={() => onOpenLinkedTrace?.({ traceId: "f".repeat(32), source: "user" })}
+      >
+        panel-linked
       </button>
     </div>
   ),
@@ -342,6 +350,28 @@ describe("run_id → self-trace link", () => {
       true,
     );
     expect(within(panel).getByRole("button", { name: "panel-down" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+  });
+
+  it("keeps the panel open on a linked-trace hop whose target is not a row of the list", () => {
+    // The self-trace's "Analyzed trace" chip re-points the one mounted panel.
+    // Its target is a customer trace, opened by the hop rather than from a
+    // row — the leave-the-list clearing must not close it.
+    mocks.useRuns.mockImplementation(useRunsWithSelfRows);
+    render(<DetectorDetailPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Runs" }));
+    fireEvent.click(screen.getByRole("button", { name: /aaaa-bbbb/ }));
+    expect(screen.getByTestId("trace-panel").getAttribute("data-source")).toBe("detector");
+
+    fireEvent.click(screen.getByRole("button", { name: "panel-linked" }));
+
+    const panel = screen.getByTestId("trace-panel");
+    expect(within(panel).getByTestId("panel-trace").textContent).toBe("f".repeat(32));
+    expect(panel.getAttribute("data-source")).toBe("user");
+    // Not a row: no stepping through the list from here.
+    expect(within(panel).getByRole("button", { name: "panel-up" })).toHaveProperty(
       "disabled",
       true,
     );
