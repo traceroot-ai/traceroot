@@ -1,3 +1,4 @@
+import { proposalDeclined } from "./proposal-declined";
 import type { AIMessage } from "../types";
 
 /** AIMessage row as returned by GET /api/projects/:id/ai/sessions/:id/messages. */
@@ -48,6 +49,10 @@ export function mapDbMessages(rows: DbAiMessageRow[]): AIMessage[] {
   for (const m of rows) {
     if (m.role === "tool_step") {
       const md = (m.metadata ?? {}) as ToolStepMetadata;
+      // A declined proposal persists its outcome in the result's structured
+      // details — reload labels the step (skipped / revised) exactly as the
+      // live stream did instead of showing a plain failure.
+      const declined = proposalDeclined(md.result);
       out.push({
         id: m.id,
         role: "tool_step",
@@ -60,6 +65,8 @@ export function mapDbMessages(rows: DbAiMessageRow[]): AIMessage[] {
           result: md.result,
           isError: md.isError,
           status: md.isError ? "error" : "done",
+          ...(declined?.outcome === "skipped" ? { skipped: true } : {}),
+          ...(declined?.outcome === "revised" ? { revisedText: declined.text ?? "" } : {}),
         },
       });
       continue;

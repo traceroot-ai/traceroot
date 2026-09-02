@@ -579,6 +579,58 @@ describe("useAIStream confirmation_pending", () => {
     expect(findStep(result)?.skipped).toBeFalsy();
   });
 
+  it("labels a revision from its proposal_declined details, overriding the local skip", async () => {
+    const sse = createSSE();
+    const { result } = renderHook(() => useAIStream());
+    startSend(result, sse);
+
+    sse.emit(toolStart);
+    sse.emit(pendingEvent("d1"));
+    await waitFor(() => expect(findStep(result)?.pending).toBeDefined());
+
+    // The chat-revise path collapses the step locally as a skip first; the
+    // declined result's details must correct the label to revised.
+    act(() => {
+      result.current.resolvePendingDecision("s1", "tc1", "skip");
+    });
+    sse.emit({
+      type: "tool_execution_end",
+      toolCallId: "tc1",
+      toolName: "create_widget",
+      result: {
+        content: [{ type: "text", text: "This tool call was NOT executed." }],
+        details: { kind: "proposal_declined", outcome: "revised", text: "make it a bar chart" },
+      },
+      isError: true,
+    });
+
+    await waitFor(() => expect(findStep(result)?.revisedText).toBe("make it a bar chart"));
+    expect(findStep(result)?.skipped).toBeFalsy();
+    expect(findStep(result)?.pending).toBeUndefined();
+    expect(findStep(result)?.status).toBe("error");
+  });
+
+  it("marks a skip from its proposal_declined details even when never seen pending", async () => {
+    const sse = createSSE();
+    const { result } = renderHook(() => useAIStream());
+    startSend(result, sse);
+
+    sse.emit(toolStart);
+    sse.emit({
+      type: "tool_execution_end",
+      toolCallId: "tc1",
+      toolName: "create_widget",
+      result: {
+        content: [{ type: "text", text: "This tool call was NOT executed." }],
+        details: { kind: "proposal_declined", outcome: "skipped" },
+      },
+      isError: true,
+    });
+
+    await waitFor(() => expect(findStep(result)?.skipped).toBe(true));
+    expect(findStep(result)?.revisedText).toBeUndefined();
+  });
+
   it("resolvePendingDecision clears pending on create and marks skip as skipped", async () => {
     const sse = createSSE();
     const { result } = renderHook(() => useAIStream());

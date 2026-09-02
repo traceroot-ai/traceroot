@@ -22,6 +22,9 @@ export interface ToolCallStep {
   /** True when the call was declined as a skip (user's, or a server-side
    *  release) — the tool line notes it instead of reading as a failure. */
   skipped?: boolean;
+  /** The user's requested changes, when the call was declined as a revision
+   *  — the tool line notes "revised" with this text instead of "skipped". */
+  revisedText?: string;
 }
 
 export interface AIMessage {
