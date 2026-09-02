@@ -382,7 +382,11 @@ class TraceReaderService:
     _HAS_TRACES_CACHE_MAX = 1024
 
     def has_traces(self, project_id: str) -> bool:
-        """Check if a project has ever ingested any spans (ignores retention)."""
+        """Check if a project has ever ingested any customer spans (ignores retention).
+
+        Scoped like the list: a project holding only internal self-traces must not
+        report that traces exist while its trace list is empty.
+        """
         now = time.monotonic()
         cached = self._has_traces_cache.get(project_id)
         if cached is not None:
@@ -391,7 +395,8 @@ class TraceReaderService:
                 return value
 
         result = self._client.query(
-            "SELECT 1 FROM spans WHERE project_id = {project_id:String} LIMIT 1",
+            "SELECT 1 FROM spans WHERE project_id = {project_id:String} "
+            f"AND {customer_traffic_only()} LIMIT 1",
             parameters={"project_id": project_id},
         )
         found = len(result.result_rows) > 0
