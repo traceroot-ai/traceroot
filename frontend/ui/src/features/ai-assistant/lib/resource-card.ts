@@ -86,15 +86,25 @@ export interface MiniatureTile {
 }
 
 /**
+ * What the detector card says about the prompt the detector will run: the
+ * call's own instructions verbatim, or the name of the standard template
+ * whose canonical instructions apply because the call omitted a prompt.
+ */
+export type DetectorPrompt =
+  | { kind: "custom"; text: string }
+  | { kind: "standard"; templateLabel: string };
+
+/**
  * The card body for each resource type. A dashboard's body is the miniature
  * of itself: its widgets as placed tiles (empty when the transcript created
- * none, and the card stays header-only).
+ * none, and the card stays header-only). A detector's body is its prompt —
+ * the thing the detector actually is — over its settings chips.
  */
 export type ResourceCardBody =
   | { kind: "widget"; chips: string[]; chart: WidgetChart | null }
   | { kind: "dashboard"; tiles: MiniatureTile[] }
   | { kind: "receipt"; rows: ReceiptRow[] }
-  | { kind: "detector"; chips: string[] };
+  | { kind: "detector"; chips: string[]; prompt: DetectorPrompt | null };
 
 export interface ResourceCardModel {
   resourceType: CardResourceType;
@@ -121,6 +131,9 @@ const MAX_TRIGGER_CHIPS = 3;
  */
 const MAX_TITLE_CHARS = 120;
 const MAX_VALUE_CHARS = 64;
+/** A detector prompt is the card's main content, so it gets real room — but a
+ *  runaway payload is still cut rather than left to flood the transcript. */
+const MAX_PROMPT_CHARS = 2000;
 
 function isCardResourceType(value: string): value is CardResourceType {
   return Object.prototype.hasOwnProperty.call(RESOURCE_TYPE_LABELS, value);
@@ -214,16 +227,20 @@ function triggerChip(condition: unknown): string | null {
 }
 
 /**
- * A detector's settings as chips. Whether the prompt is the template's or the
- * model's own leads, because that is the choice most worth catching.
+ * A detector's settings as chips: how much traffic it samples, whether RCA
+ * runs, an explicit enabled/paused state, the model that judges, then the
+ * trigger conditions in the detector editor's own vocabulary. The prompt is
+ * not a chip — it is the card's body (see detectorPrompt).
  */
 function detectorChips(args: Record<string, unknown>): string[] {
-  const chips = [str(args.prompt) === null ? "template prompt" : "custom prompt"];
+  const chips: string[] = [];
   if (typeof args.sample_rate === "number" && Number.isFinite(args.sample_rate)) {
     chips.push(`sample ${args.sample_rate}%`);
   }
   if (typeof args.enable_rca === "boolean") chips.push(args.enable_rca ? "RCA on" : "RCA off");
-  if (args.enabled === false) chips.push("disabled");
+  if (typeof args.enabled === "boolean") chips.push(args.enabled ? "enabled" : "paused");
+  const detectionModel = str(args.detection_model);
+  if (detectionModel !== null) chips.push(`model ${detectionModel}`);
 
   if (Array.isArray(args.trigger_conditions)) {
     const triggers = args.trigger_conditions
@@ -305,9 +322,39 @@ function dashboardTiles(steps: readonly ToolCallStep[]): MiniatureTile[] {
   return tiles;
 }
 
-/** "failure" -> "Failure" when it names a standard template; the raw id otherwise. */
+/**
+ * "failure" -> "Failure" when it names a standard template; "blank" -> the
+ * word a reader understands — a blank-template detector is a custom one, and
+ * the internal id would read as a detector with nothing in it. The raw id
+ * stands for anything unrecognised.
+ */
 function templateLabel(template: string): string {
+  if (template === "blank") return "Custom";
   return DETECTOR_TEMPLATES.find((t) => t.id === template)?.label ?? template;
+}
+
+/**
+ * The prompt the detector will actually run, as the card presents it. A
+ * supplied prompt is shown verbatim (capped) — it overrides any template
+ * default. An omitted prompt on a standard template means the template's
+ * canonical instructions, so the card names them rather than staying mute.
+ * A blank template with no prompt has nothing to claim.
+ *
+ * Seam: when a supplied prompt is a modified copy of its standard template's
+ * default, a diff-vs-template treatment could show just what changed; for now
+ * a custom prompt always renders whole.
+ */
+function detectorPrompt(args: Record<string, unknown>): DetectorPrompt | null {
+  const prompt = str(args.prompt, MAX_PROMPT_CHARS);
+  if (prompt !== null) return { kind: "custom", text: prompt };
+  const template = str(args.template);
+  // The blank template's default prompt is empty, so requiring a non-empty
+  // template prompt excludes it without naming it.
+  const standard =
+    template === null
+      ? undefined
+      : DETECTOR_TEMPLATES.find((t) => t.id === template && t.prompt !== "");
+  return standard === undefined ? null : { kind: "standard", templateLabel: standard.label };
 }
 
 function body(
@@ -331,7 +378,11 @@ function body(
         tiles: details.created !== false ? dashboardTiles(widgetSteps) : [],
       };
     case "detector":
-      return { kind: "detector", chips: args === null ? [] : detectorChips(args) };
+      return {
+        kind: "detector",
+        chips: args === null ? [] : detectorChips(args),
+        prompt: args === null ? null : detectorPrompt(args),
+      };
     default:
       return { kind: "receipt", rows: receiptRows(details) };
   }
@@ -457,7 +508,13 @@ export function pendingCardModel(
       body = { kind: "dashboard", tiles: [] };
       break;
     case "detector":
-      body = { kind: "detector", chips: args === null ? [] : detectorChips(args) };
+      // The same body the receipt builds — the gate must show exactly what
+      // the write would create, prompt included.
+      body = {
+        kind: "detector",
+        chips: args === null ? [] : detectorChips(args),
+        prompt: args === null ? null : detectorPrompt(args),
+      };
       break;
     default:
       // A project or workspace has no id yet, so there is no receipt to print.
