@@ -5,7 +5,7 @@ import {
   type AlertSeverity,
   type AlertThresholdOperator,
 } from "@traceroot/core";
-import { escapeMrkdwn, formatWindowRange, truncate } from "./block-kit.ts";
+import { escapeMrkdwn, formatWindowRange, truncate, truncateEscaped } from "./block-kit.ts";
 
 const HEADER_LIMIT = 150;
 
@@ -121,7 +121,7 @@ export function buildAlertBlocks(params: AlertBlockParams): AlertSlackMessage {
 
   const blocks = [
     { type: "header", text: { type: "plain_text", text: truncate(title, HEADER_LIMIT) } },
-    { type: "section", text: { type: "mrkdwn", text: truncate(escapeMrkdwn(outcome)) } },
+    { type: "section", text: { type: "mrkdwn", text: truncateEscaped(escapeMrkdwn(outcome)) } },
     { type: "section", text: { type: "mrkdwn", text: truncate(links.join(" · ")) } },
     { type: "context", elements: [{ type: "mrkdwn", text: footer }] },
   ];
@@ -131,6 +131,6 @@ export function buildAlertBlocks(params: AlertBlockParams): AlertSlackMessage {
     color: ALERT_SEVERITY_COLORS[severity],
     // Slack parses the fallback text as mrkdwn, so it needs escaping too:
     // unescaped, an alert named "<!channel>" would broadcast.
-    text: truncate(escapeMrkdwn(`${title} — ${outcome}`), HEADER_LIMIT * 2),
+    text: truncateEscaped(escapeMrkdwn(`${title} — ${outcome}`), HEADER_LIMIT * 2),
   };
 }
