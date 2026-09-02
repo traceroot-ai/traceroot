@@ -400,6 +400,64 @@ def test_jwt_without_sid_is_rejected(monkeypatch):
     assert write.call_count == 0
 
 
+# ── liveness gate coverage across every write route ─────────────────────
+
+# The four write routes beyond create_workspace, each with its minimal valid
+# body and the internal write route it would reach if the gate failed open.
+_OTHER_WRITE_ROUTES = [
+    (
+        "/api/v1/public/projects",
+        {"workspace_id": "ws-1", "name": "P1"},
+        PROJECT_WRITE_URL,
+    ),
+    (
+        "/api/v1/public/detectors",
+        {"project_id": "proj-1", "name": "D", "template": "custom", "prompt": "p"},
+        f"{BASE_URL}/api/internal/write/detectors",
+    ),
+    (
+        "/api/v1/public/dashboards",
+        {"project_id": "proj-1", "name": "Spend"},
+        f"{BASE_URL}/api/internal/write/dashboards",
+    ),
+    (
+        "/api/v1/public/widgets",
+        {
+            "project_id": "proj-1",
+            "dashboard_id": "dash-1",
+            "title": "Cost",
+            "type": "query",
+            "spec": {},
+        },
+        f"{BASE_URL}/api/internal/write/widgets",
+    ),
+]
+
+
+@respx.mock
+@pytest.mark.parametrize(("path", "body", "write_url"), _OTHER_WRITE_ROUTES)
+def test_jwt_write_with_revoked_session_is_401_on_every_write_route(
+    monkeypatch, path, body, write_url
+):
+    """Every write route blocks a JWT whose minting session was revoked.
+
+    The liveness dependency is wired per route, so create_workspace passing
+    proves nothing about the other four — without this, deleting ``_live``
+    from any of them would let a revoked CLI session keep writing until its
+    JWT expired, with CI green.
+    """
+    priv = _install_jwt_signer(monkeypatch)
+    respx.post(LIVE_URL).mock(return_value=Response(200, json={"live": False}))
+    write = respx.post(write_url).mock(return_value=Response(200, json={}))
+    token = _mint_jwt(priv, extra_claims={"sid": "sess-1"})
+
+    resp = _client().post(path, json=body, headers={"Authorization": f"Bearer {token}"})
+
+    assert resp.status_code == 401
+    assert resp.json() == {"detail": "Session revoked or expired"}
+    assert write.call_count == 0
+
+
 # ── proxy encode backstop ───────────────────────────────────────────────
 
 
