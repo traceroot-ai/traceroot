@@ -108,7 +108,6 @@ app.include_router(traces_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
 app.include_router(sessions_router, prefix="/api/v1")
 app.include_router(dashboards_router, prefix="/api/v1")
-app.include_router(project_dashboards_router, prefix="/api/v1")
 app.include_router(detectors_router, prefix="/api/v1")
 
 # Live trace streaming (SSE, user auth)
@@ -137,8 +136,12 @@ app.include_router(public_account_read_router, prefix="/api/v1")
 app.include_router(public_account_write_router, prefix="/api/v1")
 app.include_router(public_project_write_router, prefix="/api/v1")
 
-# Internal API for worker/service communication (protected by secret)
+# Internal API for worker/service communication (protected by secret).
+# project_dashboards is the agent's catalog mirror — it lives on the
+# /api/v1/internal prefix the ingress fixed-404s, never the ALB-routed
+# /api/v1/projects surface.
 app.include_router(internal_router, prefix="/api/v1")
+app.include_router(project_dashboards_router, prefix="/api/v1")
 
 
 @app.get("/health", response_model=HealthResponse)

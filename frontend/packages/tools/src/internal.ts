@@ -14,6 +14,8 @@ export const INTERNAL_BINDINGS: Readonly<Record<string, string>> = {
   list_findings: "/api/v1/projects/{project_id}/detectors/findings",
   get_finding: "/api/v1/projects/{project_id}/detectors/findings/{finding_id}",
   get_finding_by_trace: "/api/v1/projects/{project_id}/detectors/traces/{trace_id}/finding",
-  list_dashboards: "/api/v1/projects/{project_id}/dashboards",
-  get_dashboard: "/api/v1/projects/{project_id}/dashboards/{dashboard_id}",
+  // The dashboard mirror is served from the /internal prefix (dropped by the
+  // ingress) with secret-only auth — it has no user-header surface at all.
+  list_dashboards: "/api/v1/internal/projects/{project_id}/dashboards",
+  get_dashboard: "/api/v1/internal/projects/{project_id}/dashboards/{dashboard_id}",
 };

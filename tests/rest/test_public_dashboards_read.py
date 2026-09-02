@@ -370,15 +370,16 @@ def test_get_dashboard_malformed_body_is_503():
 
 @respx.mock
 def test_internal_mirror_list_reads_like_the_public_route(monkeypatch):
-    """The internal `/projects/{id}/dashboards` mirror shares the public
-    handler body, authenticated by the trusted internal secret."""
+    """The internal mirror lives under `/api/v1/internal` (which the ingress
+    fixed-404s off the load balancer) and shares the public handler body,
+    authenticated by the trusted internal secret alone."""
     from shared.config import settings
 
     monkeypatch.setattr(settings, "internal_api_secret", "test-secret")
     listing = _mock_list()
     resp = TestClient(app).get(
-        "/api/v1/projects/proj-A/dashboards",
-        headers={"X-Internal-Secret": "test-secret", "x-user-id": "u1"},
+        "/api/v1/internal/projects/proj-A/dashboards",
+        headers={"X-Internal-Secret": "test-secret"},
     )
     assert resp.status_code == 200
     assert resp.json() == LIST_EXPECTED
@@ -392,8 +393,41 @@ def test_internal_mirror_detail_reads_like_the_public_route(monkeypatch):
     monkeypatch.setattr(settings, "internal_api_secret", "test-secret")
     _mock_detail()
     resp = TestClient(app).get(
-        "/api/v1/projects/proj-A/dashboards/dash-1",
-        headers={"X-Internal-Secret": "test-secret", "x-user-id": "u1"},
+        "/api/v1/internal/projects/proj-A/dashboards/dash-1",
+        headers={"X-Internal-Secret": "test-secret"},
     )
     assert resp.status_code == 200
     assert resp.json() == DETAIL_EXPECTED
+
+
+@respx.mock
+def test_internal_mirror_rejects_a_caller_without_the_secret(monkeypatch):
+    """An x-user-id header alone buys nothing: the mirror is secret-only."""
+    from shared.config import settings
+
+    monkeypatch.setattr(settings, "internal_api_secret", "test-secret")
+    listing = _mock_list()
+    client = TestClient(app, raise_server_exceptions=False)
+    resp = client.get(
+        "/api/v1/internal/projects/proj-A/dashboards",
+        headers={"x-user-id": "u1"},
+    )
+    assert resp.status_code == 403
+    assert listing.call_count == 0
+
+
+def test_dashboard_mirror_is_off_the_public_project_surface():
+    """The catalog mirror must not be mounted at `/api/v1/projects/...`.
+
+    That prefix is ALB-routed, and its project access check trusts a
+    caller-supplied x-user-id — anyone knowing a project id and a member id
+    could read the tenant's dashboard catalog (creator identities included)
+    with no token at all. Only the internal prefix, which the ingress drops,
+    may serve it.
+    """
+    from fastapi.routing import APIRoute
+
+    paths = {r.path for r in app.routes if isinstance(r, APIRoute)}
+    assert "/api/v1/projects/{project_id}/dashboards" not in paths
+    assert "/api/v1/projects/{project_id}/dashboards/{dashboard_id}" not in paths
+    assert "/api/v1/internal/projects/{project_id}/dashboards" in paths
