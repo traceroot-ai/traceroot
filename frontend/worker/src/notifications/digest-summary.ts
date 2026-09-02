@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { Type } from "@earendil-works/pi-ai";
 import type { Message, ProviderStreamOptions, Tool, ToolCall } from "@earendil-works/pi-ai";
 import { fetchProviderConfig, resolvePiModel } from "@traceroot/core/model-resolver";
@@ -7,19 +7,6 @@ import { formatWindowRange } from "@traceroot/slack";
 import { resolveDetectorApiKey } from "../detection/sandbox-eval.js";
 import { withSelfTrace } from "../detection/self-trace-emitter.js";
 import { tracedComplete } from "../detection/traced-complete.js";
-
-/** Deterministic trace id for one project's digest window — the same window
- *  flushed twice (a legacy re-enqueue) resolves to the same trace id. */
-export function digestTraceId(
-  projectId: string,
-  windowStartMs: number,
-  windowEndMs: number,
-): string {
-  return createHash("sha256")
-    .update(`${projectId}:${windowStartMs}:${windowEndMs}`)
-    .digest("hex")
-    .slice(0, 32);
-}
 
 export interface DigestSummaryDetectorInput {
   name: string;
@@ -143,9 +130,9 @@ export function parseDigestSummaryTimeoutMs(raw: string | undefined): number {
 }
 
 export interface DigestSummaryModelConfig {
-  // Self-trace root id (see digestTraceId) and project attribution — the
-  // digest-summary LLM call becomes a trace in this project, same as every
-  // other agent-self-trace root.
+  // Project attribution for the self-trace: the digest-summary LLM call
+  // becomes a detector-source trace in this project (the worker authenticates
+  // with INTERNAL_API_SECRET, and ingest stamps the source from that).
   projectId: string;
   workspaceId: string;
   rcaModel: string | null;
@@ -211,11 +198,11 @@ export async function generateDigestSummary(
       };
       const traced = await withSelfTrace(
         {
-          traceId: digestTraceId(
-            cfg.projectId,
-            input.windowStart.getTime(),
-            input.windowEnd.getTime(),
-          ),
+          // Fresh id per flush. A window can be flushed twice (dedupe key
+          // expired, stalled job re-run), and each flush makes its own LLM
+          // call with fresh span ids — reusing one trace id would stack two
+          // roots under it, so two flushes are two traces.
+          traceId: randomUUID().replaceAll("-", ""),
           projectId: cfg.projectId,
           name: "digest-summary",
           metadata: {
