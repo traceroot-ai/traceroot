@@ -54,6 +54,12 @@ interface SpanInfoPanelProps {
    * offline-eval's "Dataset:" chip). Unset in production.
    */
   extraTags?: ReactNode;
+  /**
+   * When set, the trace-level chip row grows an "Analysis: RCA" chip that swaps
+   * the viewer to the finding's agent trace. Only passed for a trace with a
+   * completed, available RCA — absent, the chip row is byte-identical to main's.
+   */
+  onViewAnalysisTrace?: () => void;
 }
 
 /** Drop internal `traceroot.span.*` keys so the Metadata panel shows only user metadata. */
@@ -85,6 +91,7 @@ export function SpanInfoPanel({
   spanActions,
   headerAction,
   extraTags,
+  onViewAnalysisTrace,
 }: SpanInfoPanelProps) {
   const router = useRouter();
 
@@ -263,8 +270,8 @@ export function SpanInfoPanel({
           </div>
         )}
 
-        {/* Row 3: User/Session links */}
-        {isTrace && (trace.user_id || trace.session_id) && (
+        {/* Row 3: User/Session links, plus the analysis-trace entry point */}
+        {isTrace && (trace.user_id || trace.session_id || onViewAnalysisTrace) && (
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {trace.user_id && (
               <button
@@ -301,6 +308,19 @@ export function SpanInfoPanel({
                 <DOMAIN_ICONS.session className="h-3 w-3 text-muted-foreground" />
                 <span className="text-muted-foreground">Session:</span>
                 <span className="font-medium">{trace.session_id}</span>
+                <ChevronRight className="h-3 w-3 text-muted-foreground" />
+              </button>
+            )}
+            {onViewAnalysisTrace && (
+              <button
+                type="button"
+                onClick={onViewAnalysisTrace}
+                title="View the root-cause analysis agent trace for this finding"
+                className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border bg-muted/40 py-1 pl-2.5 pr-1.5 text-xs transition-colors hover:bg-muted"
+              >
+                <DOMAIN_ICONS.agent className="h-3 w-3 text-muted-foreground" />
+                <span className="text-muted-foreground">Analysis:</span>
+                <span className="font-medium">RCA trace</span>
                 <ChevronRight className="h-3 w-3 text-muted-foreground" />
               </button>
             )}
