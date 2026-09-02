@@ -104,10 +104,12 @@ afterEach(() => {
 
 /**
  * `initialSpanId` is how a sidebar tool step's "Open span" asks the sheet to
- * land on that step's span. The panel declares the deep-link effect before the
- * "reset when the trace changes" effect, and React runs effects in declaration
- * order — so on mount the reset ran second and cleared what the deep link had
- * just applied, and every "Open span" landed on the trace root instead.
+ * land on that step's span. The panel treats it as a *pending* selection: armed
+ * whenever the (trace, span) pair changes, consumed once the span is in the
+ * loaded trace (spans stream in over SSE, so a miss is not final), and
+ * cancelled by a manual pick. The sheet's Drawer is non-modal, so the message
+ * list behind it stays clickable and these props change on a *mounted* panel —
+ * every rerender below is a reachable sequence of "Open span" / "View trace".
  *
  * SpanInfoPanel is stubbed to expose which span it was handed, which is the
  * selection the panel resolved.
@@ -115,6 +117,16 @@ afterEach(() => {
 function selectedSpan(container: HTMLElement): string {
   return container.querySelector("[data-testid=span-info]")?.getAttribute("data-span") ?? "missing";
 }
+
+const baseProps = {
+  projectId: "p1",
+  traceId: trace.trace_id,
+  source: "agent" as const,
+  onClose: vi.fn(),
+  onNavigate: vi.fn(),
+  canNavigateUp: false,
+  canNavigateDown: false,
+};
 
 it("keeps the deep-linked span selected on mount", async () => {
   const { container, findByTestId } = render(
@@ -207,18 +219,17 @@ it("still applies the deep link when the span arrives after the first render", a
   expect(selectedSpan(container)).toBe("s2");
 });
 
-it("selects the trace when nothing is deep-linked", async () => {
-  const { container, findByTestId } = render(
-    <TraceViewerPanel
-      projectId="p1"
-      traceId={trace.trace_id}
-      source="agent"
-      onClose={vi.fn()}
-      onNavigate={vi.fn()}
-      canNavigateUp={false}
-      canNavigateDown={false}
-    />,
+it("lands on the trace root when 'View trace' follows 'Open span' on the same trace", async () => {
+  // Same trace id, deep link withdrawn. Asserting on a fresh mount with no
+  // deep link would only check the useState initial value; a span has to be
+  // selected first for the reset to have anything to do.
+  const { container, rerender, findByTestId } = render(
+    <TraceViewerPanel {...baseProps} initialSpanId="s2" />,
   );
+  await findByTestId("span-info");
+  expect(selectedSpan(container)).toBe("s2");
+
+  rerender(<TraceViewerPanel {...baseProps} initialSpanId={undefined} />);
   await findByTestId("span-info");
   expect(selectedSpan(container)).toBe("none");
 });
@@ -254,4 +265,75 @@ it("does not keep clearing a manual selection while waiting for a late span", as
   rerender(<TraceViewerPanel {...props} />);
   await findByTestId("span-info");
   expect(selectedSpan(container)).toBe("s1");
+});
+
+it("applies the deep link when the panel mounts before the trace has fetched", async () => {
+  // The sheet opens on click; the trace query resolves after the first render.
+  queryState.data = undefined;
+  queryState.isLoading = true;
+  const { container, rerender, findByTestId, queryByTestId, getByText } = render(
+    <TraceViewerPanel {...baseProps} initialSpanId="s2" />,
+  );
+  expect(getByText("Loading trace...")).not.toBeNull();
+  expect(queryByTestId("span-info")).toBeNull();
+
+  queryState.data = trace;
+  queryState.isLoading = false;
+  rerender(<TraceViewerPanel {...baseProps} initialSpanId="s2" />);
+  await findByTestId("span-info");
+  expect(selectedSpan(container)).toBe("s2");
+});
+
+it("does not re-apply an applied deep link over a manual pick when an SSE batch lands", async () => {
+  const { container, rerender, findByTestId, getByTestId } = render(
+    <TraceViewerPanel {...baseProps} initialSpanId="s2" />,
+  );
+  await findByTestId("span-info");
+  expect(selectedSpan(container)).toBe("s2");
+
+  fireEvent.click(getByTestId("pick-s1"));
+  expect(selectedSpan(container)).toBe("s1");
+
+  // New object identity, same spans: the trace is still streaming.
+  queryState.data = { ...trace };
+  rerender(<TraceViewerPanel {...baseProps} initialSpanId="s2" />);
+  await findByTestId("span-info");
+  expect(selectedSpan(container)).toBe("s1");
+});
+
+it("lets a manual pick win over a deep-linked span that arrives later", async () => {
+  // The user picks s1 while s2 is still pending; s2 landing afterwards must not
+  // take the selection away from them.
+  queryState.data = { ...trace, spans: [trace.spans[0]] };
+  const { container, rerender, findByTestId, getByTestId } = render(
+    <TraceViewerPanel {...baseProps} initialSpanId="s2" />,
+  );
+  await findByTestId("span-info");
+  expect(selectedSpan(container)).toBe("none");
+
+  fireEvent.click(getByTestId("pick-s1"));
+  expect(selectedSpan(container)).toBe("s1");
+
+  queryState.data = trace;
+  rerender(<TraceViewerPanel {...baseProps} initialSpanId="s2" />);
+  await findByTestId("span-info");
+  expect(selectedSpan(container)).toBe("s1");
+});
+
+it("focuses the span again when the same 'Open span' is clicked after 'View trace'", async () => {
+  // A "done" marker keyed on (trace, span) would still match on the second
+  // click and silently skip it; the pending link is re-armed on every change.
+  const { container, rerender, findByTestId } = render(
+    <TraceViewerPanel {...baseProps} initialSpanId="s2" />,
+  );
+  await findByTestId("span-info");
+  expect(selectedSpan(container)).toBe("s2");
+
+  rerender(<TraceViewerPanel {...baseProps} initialSpanId={undefined} />);
+  await findByTestId("span-info");
+  expect(selectedSpan(container)).toBe("none");
+
+  rerender(<TraceViewerPanel {...baseProps} initialSpanId="s2" />);
+  await findByTestId("span-info");
+  expect(selectedSpan(container)).toBe("s2");
 });

@@ -301,69 +301,37 @@ export function TraceViewerPanel({
   });
   const trace = traceOverride ?? fetchedTrace;
 
-  // Deep link: select `initialSpanId` once its trace has loaded. Applied once
-  // per (trace, span) so a later manual selection isn't overridden by a
-  // re-render.
-  //
-  // "Not in the trace" and "not here yet" are different states and only the
-  // first is final. Spans arrive over SSE, so a trace can render before the
-  // deep-linked one has landed; marking the link applied on that first miss
-  // would make the later arrival a no-op and strand the viewer on the root.
-  // The key is therefore only committed once the span is found, and the
-  // fallback to the trace is what a *settled* miss resolves to — settled
-  // meaning the trace finished loading and the span still is not in it.
-  //
-  // This effect owns the selection whenever `initialSpanId` is set — see the
-  // reset effect below, which must not clear what this one just applied.
-  const appliedInitialSpanRef = useRef<string | null>(null);
-  /** Deep link whose fallback-to-trace has already been applied, so a retry does
-   *  not keep clobbering a selection the user made in the meantime. */
-  const fellBackForRef = useRef<string | null>(null);
-  useEffect(() => {
-    // Gate on the trace alone, not its spans: a trace that loads with zero
-    // spans (SSE delivers them later) must still resolve the link to the trace
-    // root below — skipping would leave a previous trace's span selected.
-    if (!initialSpanId || !trace) return;
-    const key = `${trace.trace_id}:${initialSpanId}`;
-    if (appliedInitialSpanRef.current === key) return;
-    const span = (trace.spans ?? []).find((s) => s.span_id === initialSpanId);
-    if (span) {
-      appliedInitialSpanRef.current = key;
-      setSelection({ type: "span", span });
-      return;
-    }
-    // A miss is not final while spans are still arriving, so the key stays
-    // uncommitted and the effect re-runs on the next batch. The fallback still
-    // runs — a stale id must not leave a span from a previous trace selected —
-    // but only once per link: repeating it on every SSE batch would keep
-    // resetting a span the user picked by hand while waiting for one that never
-    // arrives.
-    if (fellBackForRef.current !== key) {
-      fellBackForRef.current = key;
-      setSelection({ type: "trace" });
-    }
-  }, [initialSpanId, trace]);
   const isLoading = traceOverride ? false : isFetching;
 
   // source must match the query key above, or SSE span merging silently no-ops.
   useTraceStream(projectId, traceId, !traceOverride, source);
 
-  // Reset when the displayed trace changes — navigating the list, or swapping
-  // between the customer trace and the RCA's agent trace. Keyed on the
-  // EFFECTIVE id: the analysis swap changes what is displayed without changing
-  // `traceId`, and a customer span carried across would render its data (and
-  // fetch its I/O) against the wrong trace.
-  //
-  // Selection is only cleared when nothing is deep-linking into this trace.
-  // React runs effects in declaration order, so on mount this runs *after* the
-  // deep-link effect above: clearing unconditionally discarded the span
-  // "Open span" had just selected and landed the sheet on the root every time.
-  // When `initialSpanId` is set the deep-link effect owns the selection — it
-  // resolves to the span, or to the trace when the id isn't in this trace.
+  // Reset when the displayed trace (effective id — the analysis swap changes
+  // it without changing `traceId`) or the deep link changes, then apply the
+  // deep link: `initialSpanId` is a *pending* selection, armed on each
+  // (trace, span) change, consumed once the span is in the loaded trace (spans
+  // stream in over SSE, so a miss is not final), and cancelled by a manual
+  // pick. One effect owns both writes, so there is no ordering to get right.
+  const deepLinkRef = useRef<{ key: string; pending: string | null } | null>(null);
   useEffect(() => {
-    setCollapsedIds(new Set());
-    if (!initialSpanId) setSelection({ type: "trace" });
-  }, [traceId, initialSpanId]);
+    const key = `${traceId}:${initialSpanId ?? ""}`;
+    if (deepLinkRef.current?.key !== key) {
+      deepLinkRef.current = { key, pending: initialSpanId ?? null };
+      setCollapsedIds(new Set());
+      setSelection({ type: "trace" });
+    }
+    const pending = deepLinkRef.current.pending;
+    if (!pending || !trace) return;
+    const span = (trace.spans ?? []).find((s) => s.span_id === pending);
+    if (!span) return;
+    deepLinkRef.current.pending = null;
+    setSelection({ type: "span", span });
+  }, [traceId, initialSpanId, trace]);
+  // A manual pick wins over a deep link that has not resolved yet.
+  const selectManually = useCallback((sel: TraceSelection) => {
+    if (deepLinkRef.current) deepLinkRef.current.pending = null;
+    setSelection(sel);
+  }, []);
 
   useEffect(() => {
     if (viewMode !== "timeline") return;
@@ -400,15 +368,18 @@ export function TraceViewerPanel({
    * model, so it resolves the span's index and scroll position itself — this
    * panel no longer duplicates the collapse-visibility walk or row-height math.
    */
-  const handleTimelineSelect = useCallback((sel: TraceSelection) => {
-    setSelection(sel);
-    setViewMode("tree");
-    if (sel.type === "span") {
-      // Defer a frame so the tree has its up-to-date (non-compact) row model
-      // before the virtualizer scrolls.
-      requestAnimationFrame(() => treeViewRef.current?.scrollToSpan(sel.span.span_id));
-    }
-  }, []);
+  const handleTimelineSelect = useCallback(
+    (sel: TraceSelection) => {
+      selectManually(sel);
+      setViewMode("tree");
+      if (sel.type === "span") {
+        // Defer a frame so the tree has its up-to-date (non-compact) row model
+        // before the virtualizer scrolls.
+        requestAnimationFrame(() => treeViewRef.current?.scrollToSpan(sel.span.span_id));
+      }
+    },
+    [selectManually],
+  );
 
   // Sync tree scroll → timeline
   const handleTreeScroll = useCallback(() => {
@@ -657,7 +628,7 @@ export function TraceViewerPanel({
                         trace={trace}
                         scrollRef={treeScrollRef}
                         selection={selection}
-                        onSelect={viewMode === "tree" ? setSelection : handleTimelineSelect}
+                        onSelect={viewMode === "tree" ? selectManually : handleTimelineSelect}
                         collapsedIds={collapsedIds}
                         onToggleCollapse={handleToggleCollapse}
                         compact={viewMode === "timeline"}
