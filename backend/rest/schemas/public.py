@@ -105,7 +105,12 @@ class DetectorResultItem(BaseModel):
 
 
 class RCAResult(BaseModel):
-    """Free-text root-cause analysis for a finding (Postgres ``detector_rcas``)."""
+    """Free-text root-cause analysis for a finding (Postgres ``detector_rcas``).
+
+    The agent trace behind an RCA (``detector_rca_executions``) is internal and
+    deliberately not part of this contract: its trace id is not readable through
+    the public trace endpoints, so advertising it here would be misleading.
+    """
 
     status: str
     result: str | None
