@@ -493,4 +493,46 @@ describe("generateRegistry write operations", () => {
     expect(entry.inputSchema.properties).toEqual({});
     expect(entry.inputSchema.required).toEqual([]);
   });
+
+  it("throws on a union request-body schema instead of emitting empty bodyParams", () => {
+    // A discriminated create body has no top-level properties; silently
+    // emitting bodyParams [] would ship a write tool that POSTs no body.
+    const doc = fakeWriteDoc();
+    doc.components!.schemas!.CreateWorkspaceRequest = {
+      anyOf: [{ $ref: "#/components/schemas/VariantA" }, { $ref: "#/components/schemas/VariantB" }],
+      discriminator: { propertyName: "kind" },
+    };
+    doc.components!.schemas!.VariantA = {
+      type: "object",
+      properties: { kind: { type: "string" } },
+    };
+    doc.components!.schemas!.VariantB = {
+      type: "object",
+      properties: { kind: { type: "string" } },
+    };
+    expect(() => generateRegistry(doc)).toThrow(
+      "Enabled tool on POST /api/v1/public/workspaces: request-body schema has no top-level " +
+        "properties — extend the generator before enabling this operation",
+    );
+  });
+
+  it("throws on a $ref-to-$ref alias request-body schema", () => {
+    const doc = fakeWriteDoc();
+    const real = doc.components!.schemas!.CreateWorkspaceRequest!;
+    doc.components!.schemas!.CreateWorkspaceRequest = {
+      $ref: "#/components/schemas/RealWorkspaceRequest",
+    };
+    doc.components!.schemas!.RealWorkspaceRequest = real;
+    expect(() => generateRegistry(doc)).toThrow("request-body schema has no top-level properties");
+  });
+
+  it("throws on an allOf wrapper request-body schema", () => {
+    const doc = fakeWriteDoc();
+    const real = doc.components!.schemas!.CreateWorkspaceRequest!;
+    doc.components!.schemas!.CreateWorkspaceRequest = {
+      allOf: [{ $ref: "#/components/schemas/RealWorkspaceRequest" }],
+    };
+    doc.components!.schemas!.RealWorkspaceRequest = real;
+    expect(() => generateRegistry(doc)).toThrow("request-body schema has no top-level properties");
+  });
 });

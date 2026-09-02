@@ -142,7 +142,22 @@ function mergeBodySchema(
     return [];
   }
   const resolved = resolveSchemaRef(bodySchema, doc, path);
-  const properties = (resolved.properties ?? {}) as Record<string, Record<string, unknown>>;
+  // A resolved body schema without top-level properties is a shape the
+  // generator does not understand (a union body, a $ref alias, an allOf
+  // wrapper): emitting empty bodyParams would ship a write tool that POSTs no
+  // body at all. Fail closed like every other unexpected body shape.
+  if (
+    resolved.properties === undefined ||
+    resolved.properties === null ||
+    typeof resolved.properties !== "object" ||
+    Array.isArray(resolved.properties)
+  ) {
+    throw new Error(
+      `Enabled tool on POST ${path}: request-body schema has no top-level properties — ` +
+        "extend the generator before enabling this operation",
+    );
+  }
+  const properties = resolved.properties as Record<string, Record<string, unknown>>;
   for (const [name, propSchema] of Object.entries(properties)) {
     const flattened = stripOversizedNumericBounds(
       flattenParamSchema(resolveSchemaRef(propSchema, doc, path)),
