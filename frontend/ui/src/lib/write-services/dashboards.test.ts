@@ -15,13 +15,14 @@ const { tx, root } = vi.hoisted(() => ({
     widget: { create: vi.fn() },
     auditLog: { create: vi.fn() },
   },
-  root: { auditLog: { create: vi.fn() } },
+  root: { dashboard: { findFirst: vi.fn() }, auditLog: { create: vi.fn() } },
 }));
 vi.mock("@traceroot/core", () => {
   const ROLE_ORDER = ["VIEWER", "MEMBER", "ADMIN"];
   return {
     prisma: {
       $transaction: (fn: (t: unknown) => unknown) => fn(tx),
+      dashboard: root.dashboard,
       auditLog: root.auditLog,
     },
     Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
@@ -81,11 +82,45 @@ beforeEach(() => {
   tx.widget.create.mockReset();
   tx.auditLog.create.mockReset();
   tx.auditLog.create.mockResolvedValue({});
+  root.dashboard.findFirst.mockReset();
   root.auditLog.create.mockReset();
   root.auditLog.create.mockResolvedValue({});
 });
 
+/** A duck-typed Prisma unique-violation, as the P2002 handlers match it. */
+const p2002 = () => Object.assign(new Error("Unique constraint failed"), { code: "P2002" });
+
 describe("createDashboard", () => {
+  it("returns the raced dashboard as created=false when the insert loses the unique race", async () => {
+    mockAccess();
+    tx.dashboard.findFirst.mockResolvedValue(null);
+    tx.dashboard.create.mockRejectedValue(p2002());
+    root.dashboard.findFirst.mockResolvedValue(dashboardRow);
+    const r = await runDashboard();
+    expect(r).toEqual({ ok: true, created: false, data: dashboardRow });
+    expect(root.dashboard.findFirst).toHaveBeenCalledWith({
+      where: { projectId: "p1", name: "Cost overview" },
+      select: { id: true, name: true, projectId: true },
+    });
+    expect(root.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("rethrows a P2002 whose winner vanished before the re-read", async () => {
+    mockAccess();
+    tx.dashboard.findFirst.mockResolvedValue(null);
+    tx.dashboard.create.mockRejectedValue(p2002());
+    root.dashboard.findFirst.mockResolvedValue(null);
+    await expect(runDashboard()).rejects.toMatchObject({ code: "P2002" });
+  });
+
+  it("propagates non-P2002 transaction failures without a re-read", async () => {
+    mockAccess();
+    tx.dashboard.findFirst.mockResolvedValue(null);
+    tx.dashboard.create.mockRejectedValue(new Error("connection lost"));
+    await expect(runDashboard()).rejects.toThrow("connection lost");
+    expect(root.dashboard.findFirst).not.toHaveBeenCalled();
+  });
+
   it("returns 404 when the project does not exist", async () => {
     tx.project.findUnique.mockResolvedValue(null);
     const r = await runDashboard();

@@ -93,3 +93,24 @@ describe("project PATCH alert_window", () => {
     expect((await res.json()).alert_window).toBe("30m");
   });
 });
+
+describe("project PATCH rename collisions", () => {
+  beforeEach(() => {
+    findFirst.mockReset().mockResolvedValue({ id: "p1", name: "Proj" });
+    update.mockReset();
+  });
+
+  it("maps a rename collision (Prisma P2002) to 409 instead of 500", async () => {
+    update.mockRejectedValue(
+      Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
+    );
+    const res = await patch({ name: "Taken" });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe("A project with this name already exists");
+  });
+
+  it("propagates non-P2002 update failures", async () => {
+    update.mockRejectedValue(new Error("connection lost"));
+    await expect(patch({ name: "Renamed" })).rejects.toThrow("connection lost");
+  });
+});

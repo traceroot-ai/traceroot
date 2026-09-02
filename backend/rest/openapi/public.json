@@ -6638,6 +6638,16 @@
             },
             "description": "Not found"
           },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Name already used by a workspace the user no longer administers"
+          },
           "422": {
             "content": {
               "application/json": {
