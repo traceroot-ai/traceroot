@@ -94,10 +94,13 @@ async function requireProjectMember(
     select: { role: true },
   });
   if (!member) {
+    // Same status and message as a missing project: a 403 here would tell a
+    // signed-in outsider that the project id exists in someone else's
+    // workspace, which the read paths deliberately never reveal.
     return {
       ok: false as const,
-      status: 403 as const,
-      error: "Not a member of this workspace",
+      status: 404 as const,
+      error: "Project not found",
     };
   }
   if (!hasMinRole(member.role, Role.MEMBER)) {
