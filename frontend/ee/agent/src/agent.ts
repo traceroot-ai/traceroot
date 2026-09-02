@@ -26,7 +26,8 @@ import { recordToolSpan, currentCaptureState } from "./self-trace.js";
 instrumentPiAgentCore(piAgentCore, {
   captureContent: true,
   captureToolIo: (toolName, args, result) => {
-    // Share the run's budget so spans and persisted step rows stop capturing
+    // Charge the run's budget — the same accumulator the route hands its
+    // StreamPersister — so spans and persisted step rows stop capturing
     // together; a fresh accumulator here would reset the per-run cap on every
     // tool call. Undefined outside a run (SDK used standalone).
     const c = applyCapturePolicy(

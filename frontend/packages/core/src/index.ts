@@ -24,6 +24,7 @@ export type {
   GitHubInstallation,
   ModelProvider,
   TurnKind,
+  TraceStatus,
   // Offline evaluation
   Dataset,
   DatasetVersion,

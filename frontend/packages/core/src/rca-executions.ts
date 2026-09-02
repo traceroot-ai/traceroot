@@ -81,33 +81,27 @@ export async function finishFindingIfLatest(
 }
 
 /**
- * Record a failure on the finding, but only while this attempt still owns it.
+ * Flip the finding to `running` for this attempt, but only while no higher
+ * attempt exists. A superseded attempt (a stalled job redelivered after its
+ * retry was allocated) must not drag a finding the newer attempt already
+ * finished back to `running`.
  *
- * A finding row is shared by every attempt, so a slow older attempt finishing
- * after a newer one succeeded must not replace that success with its own
- * failure. Reading the pointer and then updating would leave a window for the
- * newer attempt to advance it in between; this is one conditional write, so the
- * database decides. `latestExecutionId: null` is included: a finding whose first
- * attempt is still running has no pointer yet, and that attempt does speak for
- * it.
+ * One conditional UPDATE, no row lock: unlike finishFindingIfLatest a lost
+ * race here is harmless — a retry allocated after the guard's snapshot writes
+ * its own `running` and then its own terminal state, both later than this.
  *
- * @returns whether the write applied — false means a newer attempt owns the
- *   finding and this failure belongs only to its own execution row.
+ * @returns whether the write applied — false means a newer attempt owns the finding.
  */
-export async function failFindingIfLatest(
-  db: Db,
-  params: { findingId: string; executionId: string; message: string },
+export async function markFindingRunningIfLatest(
+  db: Pick<PrismaClient, "detectorRca">,
+  params: { findingId: string; projectId: string; attempt: number },
 ): Promise<boolean> {
   const res = await db.detectorRca.updateMany({
     where: {
       findingId: params.findingId,
-      OR: [{ latestExecutionId: params.executionId }, { latestExecutionId: null }],
+      executions: { none: { attempt: { gt: params.attempt } } },
     },
-    data: {
-      status: "failed",
-      result: `RCA failed: ${params.message}`,
-      completedAt: new Date(),
-    },
+    data: { status: "running", projectId: params.projectId },
   });
   return res.count === 1;
 }

@@ -17,7 +17,9 @@ import { StreamPersister } from "./stream-persister.js";
 import { UsageAccumulator } from "./usage-accumulator.js";
 import {
   withAgentTrace,
+  currentCaptureState,
   currentToolSpanIds,
+  isAgentTraceEnabled,
   turnTraceId,
   rcaSpanName,
   type AgentTraceMeta,
@@ -35,6 +37,13 @@ const PORT = parseInt(new URL(AGENT_SERVICE_URL).port || "8100", 10);
 
 // Per-session executor cache (executor lifecycle tied to session)
 const sessionExecutors = new Map<string, Executor>();
+
+/** The self-trace kind of a turn is its attribution's turn kind (the three this route produces). */
+const TRACE_KIND: Record<"rca_execution" | "rca_followup" | "chat", AgentTraceKind> = {
+  rca_execution: "rca",
+  rca_followup: "followup",
+  chat: "chat",
+};
 
 // Health check
 app.get("/health", (c) => {
@@ -202,20 +211,21 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
   // Attribution is computed once per turn and applied to every row it
   // produces (the user message, and every assistant/tool_step row the
   // persister writes below) so a turn reads as one attributed unit.
-  const attribution: TurnAttribution =
+  const attribution = (
     ownedSession.userId === null
       ? userId
         ? {
-            turnKind: "rca_followup",
+            turnKind: "rca_followup" as const,
             executionId: ownedSession.executionId,
             initiatorUserId: userId,
           }
         : {
-            turnKind: "rca_execution",
+            turnKind: "rca_execution" as const,
             executionId: ownedSession.executionId,
             initiatorUserId: null,
           }
-      : { turnKind: "chat", initiatorUserId: userId || null };
+      : { turnKind: "chat" as const, initiatorUserId: userId || null }
+  ) satisfies TurnAttribution;
 
   // Persist user message to DB via SessionManager. The created row's id is
   // this turn's messageId, used below to derive a deterministic trace id for
@@ -229,34 +239,63 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     await updateSessionTitle(sessionId, title);
   }
 
-  // For a system (RCA) session, a follow-up turn's trace is a child of the
-  // execution that opened the session — carry its trace/finding ids into the
-  // follow-up's own trace metadata so the two are linkable in the UI.
-  const exec = ownedSession.executionId
-    ? await prisma.detectorRcaExecution.findUnique({
+  // The trace kind is the attribution's turn kind under another name — one
+  // source of truth for what this turn is. The worker's agentTrace (forced
+  // trace id + finding metadata) is only honoured on an execution turn.
+  const kind = TRACE_KIND[attribution.turnKind];
+  const rcaTrace = kind === "rca" ? body.agentTrace : undefined;
+
+  // A follow-up on a system (RCA) session is a child of the execution that
+  // opened the session — carry its trace/finding ids into the follow-up's own
+  // trace metadata so the two are linkable in the UI. A tracing-only read: it
+  // is skipped when the follow-up will not be traced and can never fail the
+  // turn.
+  let parent: { traceId: string; findingId: string } | null = null;
+  if (kind === "followup" && ownedSession.executionId && isAgentTraceEnabled(kind)) {
+    try {
+      parent = await prisma.detectorRcaExecution.findUnique({
         where: { id: ownedSession.executionId },
         select: { traceId: true, findingId: true },
-      })
-    : null;
-  const parentTraceId = exec?.traceId ?? null;
-  const findingIdForSession = exec?.findingId ?? null;
+      });
+    } catch (err) {
+      console.error(`[AgentTrace] parent execution lookup failed for session ${sessionId}:`, err);
+    }
+  }
+
+  const traceMeta: AgentTraceMeta = {
+    traceId: rcaTrace?.traceId ?? turnTraceId(sessionId, userRow.id),
+    projectId,
+    kind,
+    name: kind === "rca" ? rcaSpanName(rcaTrace?.metadata.detectors as string[] | undefined) : kind,
+    input: body.message,
+    metadata: {
+      ...rcaTrace?.metadata,
+      session_id: sessionId,
+      ...(ownedSession.executionId ? { execution_id: ownedSession.executionId } : {}),
+      ...(parent ? { finding_id: parent.findingId, parent_trace_id: parent.traceId } : {}),
+    },
+  };
 
   return streamSSE(c, async (stream) => {
-    // Mirrors the run into AIMessage rows (text segments, tool steps) so
-    // reloaded history matches what the live stream rendered. toolSpanIds
-    // stamps each tool_step row with the OTel span id the instrumentation
-    // reported for that tool call.
-    const persister = new StreamPersister(
-      (role, content, metadata, tokenUsage) =>
-        sessionManager.appendMessage(role, content, attribution, metadata, tokenUsage),
-      { toolSpanIds: currentToolSpanIds },
-    );
     // Accumulates token usage across all message_end events (tool-use loops)
     const usageAccumulator = new UsageAccumulator();
     let loggedFirstUpdate = false;
 
+    // Runs the agent and resolves with the persister that mirrored the run
+    // into AIMessage rows (text segments, tool steps) so reloaded history
+    // matches what the live stream rendered. The persister is built inside
+    // the run because withAgentTrace's scope is only live in here: it charges
+    // the run's capture budget (so rows and spans stop capturing together)
+    // and stamps each tool_step row with the OTel span id the instrumentation
+    // reported for that tool call. Outside a traced run both are undefined
+    // and the persister keeps a budget of its own.
     const run = () =>
-      new Promise<void>((resolve) => {
+      new Promise<{ persister: StreamPersister }>((resolve) => {
+        const persister = new StreamPersister(
+          (role, content, metadata, tokenUsage) =>
+            sessionManager.appendMessage(role, content, attribution, metadata, tokenUsage),
+          { state: currentCaptureState(), toolSpanIds: currentToolSpanIds },
+        );
         runAgent(agent, body.message, {
           onEvent: (event) => {
             if (event.type === "message_update") {
@@ -301,51 +340,18 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
               event: "error",
               data: JSON.stringify({ message: error.message }),
             });
-            resolve();
+            resolve({ persister });
           },
           onDone: () => {
-            resolve();
+            resolve({ persister });
           },
         });
       });
 
-    // RCA execution runs carry agentTrace from the worker (Task 12); every
-    // other turn (follow-up on a system session, or a plain chat turn) gets
-    // its own deterministic trace id keyed on this turn's user message.
-    const kind: AgentTraceKind = body.agentTrace
-      ? "rca"
-      : ownedSession.userId === null
-        ? "followup"
-        : "chat";
-    const traceMeta: AgentTraceMeta = body.agentTrace
-      ? {
-          traceId: body.agentTrace.traceId,
-          projectId,
-          kind: "rca",
-          name: rcaSpanName(body.agentTrace.metadata.detectors as string[] | undefined),
-          metadata: { ...body.agentTrace.metadata, session_id: sessionId },
-          input: body.message,
-        }
-      : {
-          traceId: turnTraceId(sessionId, userRow.id),
-          projectId,
-          kind,
-          name: kind === "followup" ? "followup" : "chat",
-          input: body.message,
-          metadata: {
-            session_id: sessionId,
-            message_id: userRow.id,
-            initiator_user_id: userId || null,
-            ...(ownedSession.executionId ? { execution_id: ownedSession.executionId } : {}),
-            ...(parentTraceId
-              ? { finding_id: findingIdForSession, parent_trace_id: parentTraceId }
-              : {}),
-          },
-        };
-
     const outcome = await withAgentTrace(traceMeta, run, {
-      recordOutput: () => persister.finalText() || undefined,
+      recordOutput: ({ persister }) => persister.finalText() || undefined,
     });
+    const { persister } = outcome.value;
 
     // Flush the trailing text segment (or the usage-only row) — stamped with
     // this turn's trace outcome — and wait for all rows to land. Runs once
