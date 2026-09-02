@@ -8,10 +8,10 @@
 // with nothing new beside them. Never re-generate it (`-u`) once agent-trace
 // changes land.
 //
-// Scope, stated plainly: "byte-identical" holds for customer traces WITHOUT
-// an available RCA. A customer trace whose finding has a completed, exported
-// analysis intentionally gains the "Root cause analysis" chip in this row —
-// that is the feature's entry point, not a leak.
+// Scope, stated plainly: "byte-identical" holds for EVERY customer trace. The
+// linked-trace chip in this row is derived from an internal trace's own
+// metadata, so a customer trace — with or without an analysis — never gains
+// one; the way into an analysis is the finding, not the trace.
 process.env.TZ = "UTC";
 
 import { describe, expect, it, vi } from "vitest";

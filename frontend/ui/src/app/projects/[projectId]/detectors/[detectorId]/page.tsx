@@ -326,6 +326,14 @@ export default function DetectorDetailPage() {
           autoOpenRca={selectedTrace.kind === "original"}
           initialFullscreen={startFullscreen}
           newTabPath={`/projects/${projectId}/detectors/${detectorId}`}
+          // A self-trace's "Analyzed trace" chip (or a follow-up's "Analysis")
+          // re-points this one mounted panel rather than leaving the page.
+          onOpenLinkedTrace={({ traceId, source }) =>
+            setSelectedTrace({
+              traceId,
+              kind: source === "detector" ? "self" : source === "agent" ? "finding" : "original",
+            })
+          }
           source={
             selectedTrace.kind === "self"
               ? "detector"
