@@ -246,33 +246,42 @@ export async function createSession(params: {
 }
 
 /**
+ * Both access branches are project-scoped when the caller names a project:
+ * an owned session addressed through a different project's path must be as
+ * invisible as a missing one, or the request would proceed with two
+ * unreconciled tenancies (projectId from the URL, workspaceId from the
+ * session). System sessions (userId=null) keep their existing semantics —
+ * reachable only through their own project.
+ *
+ * Prisma omits `undefined` fields, which would turn `{ userId: null,
+ * projectId: undefined }` into `{ userId: null }` — matching every system
+ * session across every project — so without a projectId only the owner
+ * branch survives, unscoped.
+ */
+function sessionAccessBranches(userId: string, projectId?: string): Array<Record<string, unknown>> {
+  if (!projectId) return [{ userId }];
+  return [
+    { userId, projectId },
+    { userId: null, projectId },
+  ];
+}
+
+/**
  * Get a session by ID.
- * For user sessions: requires userId match.
+ * For user sessions: requires userId match, and projectId match when given.
  * For system sessions (userId=null): scoped to the same projectId so a user
  * from another project cannot read RCA sessions they don't own.
  */
 export async function getSession(id: string, userId: string, projectId?: string) {
-  // System-session OR branch is only safe when projectId scopes the lookup.
-  // Prisma omits `undefined` fields, which would turn `{ userId: null,
-  // projectId: undefined }` into `{ userId: null }` — matching every system
-  // session across every project. Drop the OR branch when projectId is
-  // missing so unscoped callers cannot accidentally read other projects'
-  // RCA sessions.
-  const orBranches: Array<Record<string, unknown>> = [{ userId }];
-  if (projectId) orBranches.push({ userId: null, projectId });
-
   return prisma.aISession.findFirst({
-    where: { id, OR: orBranches },
+    where: { id, OR: sessionAccessBranches(userId, projectId) },
     include: { messages: { orderBy: { createTime: "asc" } } },
   });
 }
 
 export async function getSessionMessages(sessionId: string, userId: string, projectId?: string) {
-  const orBranches: Array<Record<string, unknown>> = [{ userId }];
-  if (projectId) orBranches.push({ userId: null, projectId });
-
   const session = await prisma.aISession.findFirst({
-    where: { id: sessionId, OR: orBranches },
+    where: { id: sessionId, OR: sessionAccessBranches(userId, projectId) },
     include: { messages: { orderBy: { createTime: "asc" } } },
   });
   if (!session) return null;
@@ -291,10 +300,11 @@ export async function listSessions(params: { projectId: string; userId: string; 
   });
 }
 
-export async function deleteSession(id: string, userId: string) {
-  // Verify ownership before deleting — only the session owner can delete
+export async function deleteSession(id: string, userId: string, projectId?: string) {
+  // Verify ownership before deleting — only the session owner can delete,
+  // and only through the project the session actually belongs to.
   const session = await prisma.aISession.findFirst({
-    where: { id, userId },
+    where: { id, userId, ...(projectId ? { projectId } : {}) },
   });
   if (!session) return null;
   return prisma.aISession.delete({ where: { id } });
