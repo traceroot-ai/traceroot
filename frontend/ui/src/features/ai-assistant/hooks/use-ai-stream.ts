@@ -247,15 +247,25 @@ export function useAIStream() {
           buffer = lines.pop() || "";
 
           for (const line of lines) {
+            // A blank line ends the SSE event: a name with no data line of
+            // its own must not leak onto the next event's data.
+            if (line === "") {
+              namedEvent = "";
+              continue;
+            }
             if (line.startsWith("event: ")) {
               namedEvent = line.slice(7).trim();
               continue;
             }
             if (line.startsWith("data: ")) {
+              // The name is consumed by this data line whether or not it
+              // parses (`event: error` can carry a raw string).
+              const eventName = namedEvent;
+              namedEvent = "";
               try {
                 const eventData = JSON.parse(line.slice(6));
 
-                if (namedEvent === "trace") {
+                if (eventName === "trace") {
                   // {status, traceId} — same fields the persisted row carries,
                   // so the reloaded session renders the identical footer link.
                   if (eventData.traceId && eventData.status !== "disabled") {
@@ -270,10 +280,8 @@ export function useAIStream() {
                       );
                     }
                   }
-                  namedEvent = "";
                   continue;
                 }
-                namedEvent = "";
 
                 if (eventData.type === "message_update") {
                   const delta = eventData.assistantMessageEvent;

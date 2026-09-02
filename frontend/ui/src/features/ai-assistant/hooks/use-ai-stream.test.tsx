@@ -34,6 +34,14 @@ function createSSE() {
         // stream already cancelled
       }
     },
+    /** Push raw wire text, for malformed or partial SSE frames. */
+    emitRaw(text: string) {
+      try {
+        controller.enqueue(encoder.encode(text));
+      } catch {
+        // stream already cancelled
+      }
+    },
     close() {
       try {
         controller.close();
@@ -284,6 +292,33 @@ describe("final trace event annotation", () => {
     });
     const assistant = result.current.messagesBySession["T2"]!.find((m) => m.role === "assistant");
     expect(assistant?.content).toBe("answer");
+    expect(assistant?.traceId).toBeUndefined();
+  });
+
+  it("scopes an event name to its own frame: a dataless or non-JSON named event never swallows the next data line", async () => {
+    const sse = createSSE();
+    fetchMock.mockResolvedValueOnce(sse.response);
+    const { result } = renderHook(() => useAIStream());
+    act(() => {
+      void result.current.sendMessage({ sessionId: "T3", message: "hi", projectId: "p1" });
+    });
+
+    // A named event with no data line, closed by the blank line. With the
+    // name left set, the delta that follows was read as the trace payload
+    // and dropped.
+    sse.emitRaw("event: trace\n\n");
+    sse.emit(textDelta("first"));
+    // A named event whose data is not JSON (the agent's `event: error` can
+    // carry a raw string): the parse failure must still consume the name.
+    sse.emitRaw("event: trace\ndata: not json\n\n");
+    sse.emit(textDelta(" second"));
+    sse.close();
+
+    await waitFor(() => {
+      expect(result.current.streamingSessions["T3"]).toBeFalsy();
+    });
+    const assistant = result.current.messagesBySession["T3"]!.find((m) => m.role === "assistant");
+    expect(assistant?.content).toBe("first second");
     expect(assistant?.traceId).toBeUndefined();
   });
 });
