@@ -60,6 +60,16 @@ describe("getSystemPrompt", () => {
     expect(prompt).toContain("GENERATION|SPAN|EVENT");
   });
 
+  it("explains the confirmation flow so declined calls are never narrated as done", () => {
+    const prompt = getSystemPrompt({ projectId: "proj-123" });
+    expect(prompt).toContain("## Write Confirmations");
+    expect(prompt).toContain("NOT executed");
+    expect(prompt).toContain("nothing was created or written");
+    expect(prompt).toContain("acknowledge the skip and continue without retrying");
+    expect(prompt).toContain("propose the same tool call again with those changes applied");
+    expect(prompt).toContain("Never claim a skipped or revised call succeeded");
+  });
+
   it("includes current date in UTC", () => {
     const today = new Date().toISOString().split("T")[0];
     const prompt = getSystemPrompt({ projectId: "proj-123" });
