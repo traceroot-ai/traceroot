@@ -239,7 +239,7 @@ describe("createRegistryReadTools", () => {
     const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "list_dashboards")!;
     const result = await tool.execute("id", { label: "x" });
     const [url, init] = impl.mock.calls[0]!;
-    expect(String(url)).toBe("http://fastapi.test/api/v1/projects/p1/dashboards");
+    expect(String(url)).toBe("http://fastapi.test/api/v1/internal/projects/p1/dashboards");
     expect((init as RequestInit).headers).toMatchObject({
       "X-Internal-Secret": "s3cret",
       "x-user-id": "u1",
@@ -271,7 +271,7 @@ describe("createRegistryReadTools", () => {
     const tool = createRegistryReadTools("p1", "u1").find((t) => t.name === "get_dashboard")!;
     const result = await tool.execute("id", { label: "x", dashboard_id: "dash-1" });
     const [url] = impl.mock.calls[0]!;
-    expect(String(url)).toBe("http://fastapi.test/api/v1/projects/p1/dashboards/dash-1");
+    expect(String(url)).toBe("http://fastapi.test/api/v1/internal/projects/p1/dashboards/dash-1");
     expect(result.content[0]!.text).toContain("Dashboard: dash-1");
     expect(result.content[0]!.text).toContain("Cost over time");
   });
