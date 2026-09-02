@@ -136,4 +136,99 @@ describe("CopyButton", () => {
     expect(clearTimeoutSpy.mock.calls.length).toBeGreaterThan(callsBeforeUnmount);
     clearTimeoutSpy.mockRestore();
   });
+
+  it("a stale (older) click's late failure must not override a newer click's success", async () => {
+    // Two overlapping writes can settle out of order — e.g. the older one is
+    // still waiting on a permission prompt when a newer one completes first.
+    // Only the latest click's result may ever apply.
+    let rejectFirst: ((err: Error) => void) | undefined;
+    let resolveSecond: (() => void) | undefined;
+    const writeText = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            rejectFirst = reject;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveSecond = resolve;
+          }),
+      );
+    Object.assign(navigator, { clipboard: { writeText } });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { container } = render(<CopyButton value="hello" />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button")); // click 1: will fail, but later
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button")); // click 2: will succeed, sooner
+    });
+
+    // The newer click settles first, with success.
+    await act(async () => {
+      resolveSecond?.();
+    });
+    expect(container.querySelector(".text-green-600")).not.toBeNull();
+    expect(container.querySelector(".text-destructive")).toBeNull();
+
+    // The older (stale) click settles after, with a failure — it must be ignored.
+    await act(async () => {
+      rejectFirst?.(new Error("denied"));
+    });
+    expect(container.querySelector(".text-green-600")).not.toBeNull();
+    expect(container.querySelector(".text-destructive")).toBeNull();
+
+    errorSpy.mockRestore();
+  });
+
+  it("clears the pending reset the moment a new click starts, even before it resolves", async () => {
+    vi.useFakeTimers();
+    let resolveSecond: (() => void) | undefined;
+    const writeText = vi
+      .fn()
+      .mockResolvedValueOnce(undefined) // click 1 succeeds immediately, schedules a 2s reset
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveSecond = resolve;
+          }),
+      ); // click 2 stays pending
+    Object.assign(navigator, { clipboard: { writeText } });
+    const { container } = render(<CopyButton value="hello" />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button"));
+    });
+    expect(container.querySelector(".text-green-600")).not.toBeNull();
+
+    // Partway through click 1's reset window.
+    await act(async () => {
+      vi.advanceTimersByTime(1000);
+    });
+
+    // Click 2 starts, still unresolved — must cancel click 1's reset now,
+    // not wait for click 2 to settle.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button"));
+    });
+
+    // Advance past click 1's original reset time (1000 + 1500 > 2000) while
+    // click 2 is STILL unresolved. If click 1's timer weren't canceled at
+    // the start of click 2, it would fire here and revert to idle.
+    await act(async () => {
+      vi.advanceTimersByTime(1500);
+    });
+    expect(container.querySelector(".text-green-600")).not.toBeNull();
+
+    await act(async () => {
+      resolveSecond?.();
+    });
+    expect(container.querySelector(".text-green-600")).not.toBeNull();
+
+    vi.useRealTimers();
+  });
 });

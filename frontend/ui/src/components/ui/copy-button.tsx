@@ -22,6 +22,10 @@ const CopyButton = React.forwardRef<HTMLButtonElement, CopyButtonProps>(
   ({ value, onCopy, className, iconClassName, variant = "ghost", size = "sm", ...props }, ref) => {
     const [status, setStatus] = React.useState<CopyStatus>("idle");
     const resetTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    // Identifies the most recent click. A click's async result is only
+    // applied if this still matches the id it captured when it started —
+    // otherwise a newer click has since begun and this one is stale.
+    const clickIdRef = React.useRef(0);
 
     // Clear any pending reset on unmount so it never fires setState after
     // the button is gone.
@@ -40,12 +44,23 @@ const CopyButton = React.forwardRef<HTMLButtonElement, CopyButtonProps>(
     };
 
     const handleCopy = async () => {
+      const clickId = ++clickIdRef.current;
+      // A new click supersedes whatever the previous one was showing —
+      // don't let its reset fire mid-flight of this one, and don't let this
+      // one apply its result if a still-newer click starts before it settles.
+      if (resetTimeoutRef.current) clearTimeout(resetTimeoutRef.current);
+
       try {
         await navigator.clipboard.writeText(value);
+        // Two overlapping writes can settle out of order (e.g. the older one
+        // is still waiting on a permission prompt when a newer one
+        // completes first): only the latest click's result may apply.
+        if (clickIdRef.current !== clickId) return;
         setStatus("copied");
         onCopy?.();
         scheduleReset();
       } catch (err) {
+        if (clickIdRef.current !== clickId) return;
         // A rejected write must not become an unhandled promise rejection,
         // and must not be mistaken for success — surface it as its own icon
         // state instead of silently leaving the idle Copy icon.
