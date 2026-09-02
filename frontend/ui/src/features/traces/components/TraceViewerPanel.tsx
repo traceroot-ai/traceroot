@@ -328,11 +328,15 @@ export function TraceViewerPanel({
     }
   }, [effectiveSource, trace?.metadata]);
 
-  // Reset when navigating to a different trace
+  // Reset when the displayed trace changes — navigating the list, or swapping
+  // between the customer trace and the RCA's agent trace. Keyed on the
+  // EFFECTIVE id: the analysis swap changes what is displayed without changing
+  // `traceId`, and a customer span carried across would render its data (and
+  // fetch its I/O) against the wrong trace.
   useEffect(() => {
     setSelection({ type: "trace" });
     setCollapsedIds(new Set());
-  }, [traceId]);
+  }, [effectiveTraceId]);
 
   useEffect(() => {
     if (viewMode !== "timeline") return;
@@ -478,16 +482,6 @@ export function TraceViewerPanel({
               >
                 Alert
               </button>
-            )}
-            {viewingAgentTrace && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-xs"
-                onClick={() => setViewingAgentTrace(false)}
-              >
-                ← Back to trace
-              </Button>
             )}
             <Button
               variant="outline"
@@ -734,6 +728,11 @@ export function TraceViewerPanel({
                       onViewAnalysisTrace={
                         hasRca && agentTrace && !viewingAgentTrace
                           ? () => setViewingAgentTrace(true)
+                          : undefined
+                      }
+                      analyzedTrace={
+                        viewingAgentTrace
+                          ? { traceId, onClick: () => setViewingAgentTrace(false) }
                           : undefined
                       }
                     />

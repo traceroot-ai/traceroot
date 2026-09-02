@@ -51,13 +51,22 @@ vi.mock("@/components/layout/app-layout", () => ({
 }));
 vi.mock("../SpanTreeView", () => ({ SpanTreeView: () => null }));
 vi.mock("../SpanInfoPanel", () => ({
-  // Surface the analysis-trace wiring as a real button so the test can click
-  // the same entry point the chip exposes, without rendering the full panel.
-  SpanInfoPanel: (props: { onViewAnalysisTrace?: () => void }) => (
+  // Surface the analysis-trace wiring (both legs) as real buttons so the test
+  // can click the same entry points the chips expose, without rendering the
+  // full panel.
+  SpanInfoPanel: (props: {
+    onViewAnalysisTrace?: () => void;
+    analyzedTrace?: { traceId: string; onClick: () => void };
+  }) => (
     <div data-testid="span-info">
       {props.onViewAnalysisTrace && (
         <button type="button" onClick={props.onViewAnalysisTrace}>
-          Analysis: RCA trace
+          Root cause analysis
+        </button>
+      )}
+      {props.analyzedTrace && (
+        <button type="button" onClick={props.analyzedTrace.onClick}>
+          Analyzed trace: {props.analyzedTrace.traceId.slice(0, 8)}
         </button>
       )}
     </div>
@@ -87,7 +96,7 @@ afterEach(() => {
 });
 
 describe("Alert panel → agent trace", () => {
-  it("shows the Analysis chip when the RCA trace is available, and swaps the viewer to source=agent", async () => {
+  it("shows the Root cause analysis chip when the RCA trace is available, and swaps the viewer to source=agent", async () => {
     render(
       <TraceViewerPanel
         projectId="p1"
@@ -98,7 +107,7 @@ describe("Alert panel → agent trace", () => {
         canNavigateDown={false}
       />,
     );
-    const link = await screen.findByRole("button", { name: /analysis:\s*rca trace/i });
+    const link = await screen.findByRole("button", { name: /root cause analysis/i });
     fireEvent.click(link);
 
     // The effective query now targets the RCA's agent trace.
@@ -106,7 +115,7 @@ describe("Alert panel → agent trace", () => {
     await mocks.lastQuery!.queryFn();
     expect(mocks.getTrace).toHaveBeenLastCalledWith("p1", "f1f1", "", undefined, "agent");
 
-    expect(await screen.findByRole("button", { name: /back to trace/i })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /analyzed trace:/i })).toBeTruthy();
 
     // The header now reflects the agent trace being viewed — same as a panel
     // mounted directly with source="agent" (Task 18), not just the fetch target.
@@ -127,11 +136,11 @@ describe("Alert panel → agent trace", () => {
     // Present on the customer trace…
     expect(await screen.findByRole("button", { name: /detectors/i })).toBeTruthy();
 
-    fireEvent.click(await screen.findByRole("button", { name: /analysis:\s*rca trace/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /root cause analysis/i }));
 
     // …gone on the agent trace, and back once the user returns.
     expect(screen.queryByRole("button", { name: /detectors/i })).toBeNull();
-    fireEvent.click(await screen.findByRole("button", { name: /back to trace/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /analyzed trace:/i }));
     expect(await screen.findByRole("button", { name: /detectors/i })).toBeTruthy();
   });
 });
