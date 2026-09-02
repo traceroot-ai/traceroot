@@ -24,16 +24,15 @@ import {
   withSelfTrace,
   currentSelfTraceScope,
   shutdownSelfTraceEmitter,
-  type SelfTraceRunMeta,
+  type SelfTraceMeta,
 } from "../self-trace-emitter.js";
 
-function meta(over: Partial<SelfTraceRunMeta> = {}): SelfTraceRunMeta {
+function meta(over: Partial<SelfTraceMeta> = {}): SelfTraceMeta {
   return {
-    runId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+    traceId: "aaaaaaaabbbbccccddddeeeeeeeeeeee",
     projectId: "proj-1",
-    detectorId: "det-1",
-    detectorName: "Latency spike",
-    scannedTraceId: "trace-1",
+    name: "detector-run: Latency spike",
+    metadata: { detectorId: "det-1", detectorName: "Latency spike", scannedTraceId: "trace-1" },
     ...over,
   };
 }
@@ -99,7 +98,7 @@ describe("with a secret (SDK-traced path)", () => {
     expect(opts.globalAttributes?.["traceroot.source"]).toBeUndefined();
   });
 
-  it("observes the run with the forced dashless run id and its project", async () => {
+  it("hands the caller's trace id, name, metadata and project to observe verbatim", async () => {
     const run = await withSelfTrace(meta(), async () => 42);
     expect(run).toEqual({ ok: true, value: 42, selfTraced: true });
     const opts = mockObserve.mock.calls[0][0];
@@ -113,6 +112,28 @@ describe("with a secret (SDK-traced path)", () => {
     });
     // recordIo owns the root output; the SDK default capture is unbounded.
     expect(opts.captureOutput).toBe(false);
+  });
+
+  it("does not shape the meta for a non-detector caller either", async () => {
+    // The digest hands over a random id and its own name/metadata; the emitter
+    // must not derive or rewrite any of it.
+    const digest = {
+      traceId: "0123456789abcdef0123456789abcdef",
+      projectId: "proj-2",
+      name: "digest-summary",
+      metadata: { kind: "digest", window_start: 1000, window_end: 2000 },
+    };
+    let seen: unknown;
+    await withSelfTrace(digest, async () => {
+      seen = currentSelfTraceScope()?.traceId;
+      return null;
+    });
+    expect(seen).toBe("0123456789abcdef0123456789abcdef");
+    const opts = mockObserve.mock.calls[0][0];
+    expect(opts.traceId).toBe("0123456789abcdef0123456789abcdef");
+    expect(opts.projectId).toBe("proj-2");
+    expect(opts.name).toBe("digest-summary");
+    expect(opts.metadata).toBe(digest.metadata);
   });
 
   it("exposes the scope to code running inside fn, and clears it outside", async () => {
@@ -210,19 +231,6 @@ describe("with a secret (SDK-traced path)", () => {
     });
     expect(calls).toBe(1);
     expect(run).toEqual({ ok: true, value: "verdict", selfTraced: false });
-  });
-
-  it("still runs fn once when the meta is unusable (never throws into the run)", async () => {
-    const bad = meta();
-    (bad as { runId: unknown }).runId = undefined;
-    let calls = 0;
-    const run = await withSelfTrace(bad, async () => {
-      calls += 1;
-      return "survived";
-    });
-    expect(calls).toBe(1);
-    expect(run.ok).toBe(true);
-    expect(run.selfTraced).toBe(false);
   });
 
   it("shutdown flushes then shuts down, never rejects, safe to call twice", async () => {
