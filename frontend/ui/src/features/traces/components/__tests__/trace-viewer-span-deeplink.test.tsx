@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 
 const trace = {
   trace_id: "f".repeat(32),
@@ -57,7 +57,19 @@ vi.mock("@/components/layout/app-layout", () => ({
     sidebarCollapsed: false,
   }),
 }));
-vi.mock("../SpanTreeView", () => ({ SpanTreeView: () => null }));
+vi.mock("../SpanTreeView", () => ({
+  // Expose the tree's selection path: clicking the button is the test's stand-in
+  // for the user picking the root span by hand in the tree.
+  SpanTreeView: (props: {
+    onSelect?: (sel: { type: "span"; span: (typeof trace.spans)[number] }) => void;
+  }) => (
+    <button
+      type="button"
+      data-testid="pick-s1"
+      onClick={() => props.onSelect?.({ type: "span", span: trace.spans[0] })}
+    />
+  ),
+}));
 vi.mock("../SpanInfoPanel", () => ({
   SpanInfoPanel: (props: { selection?: { type: string; span?: { span_id?: string } } }) => (
     <div
@@ -146,6 +158,31 @@ it("clears a selected span when a stale deep link is not in this trace", async (
   expect(selectedSpan(container)).toBe("none");
 });
 
+it("falls back to the trace root even when the trace loads with zero spans", async () => {
+  // A span from the previous trace is selected, then the next trace arrives
+  // with an empty span list (SSE delivers spans later). Gating the fallback on
+  // spans being present would leave the stale span selected.
+  const props = {
+    projectId: "p1",
+    traceId: trace.trace_id,
+    source: "agent" as const,
+    onClose: vi.fn(),
+    onNavigate: vi.fn(),
+    canNavigateUp: false,
+    canNavigateDown: false,
+  };
+  const { container, rerender, findByTestId } = render(
+    <TraceViewerPanel {...props} initialSpanId="s2" />,
+  );
+  await findByTestId("span-info");
+  expect(selectedSpan(container)).toBe("s2");
+
+  queryState.data = { ...trace, spans: [] };
+  rerender(<TraceViewerPanel {...props} initialSpanId="span-from-another-trace" />);
+  await findByTestId("span-info");
+  expect(selectedSpan(container)).toBe("none");
+});
+
 it("still applies the deep link when the span arrives after the first render", async () => {
   // Spans stream in: the trace can render before the deep-linked span lands.
   // Treating that first miss as final would strand the viewer on the root.
@@ -201,14 +238,20 @@ it("does not keep clearing a manual selection while waiting for a late span", as
     canNavigateUp: false,
     canNavigateDown: false,
   };
-  const { container, rerender, findByTestId } = render(<TraceViewerPanel {...props} />);
+  const { container, rerender, findByTestId, getByTestId } = render(
+    <TraceViewerPanel {...props} />,
+  );
   await findByTestId("span-info");
   expect(selectedSpan(container)).toBe("none");
 
-  // A later batch adds an unrelated span; the fallback must not fire again.
-  const before = container.querySelector("[data-testid=span-info]")?.outerHTML;
+  // The user picks a span by hand while the deep-linked one is still missing…
+  fireEvent.click(getByTestId("pick-s1"));
+  expect(selectedSpan(container)).toBe("s1");
+
+  // …then a later batch adds an unrelated span. The fallback must not fire
+  // again and clobber the manual selection back to the trace root.
   queryState.data = { ...trace };
   rerender(<TraceViewerPanel {...props} />);
   await findByTestId("span-info");
-  expect(container.querySelector("[data-testid=span-info]")?.outerHTML).toBe(before);
+  expect(selectedSpan(container)).toBe("s1");
 });
