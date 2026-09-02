@@ -17,16 +17,22 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
   const row = await prisma.detectorRca.findFirst({
     where: { findingId, projectId },
     include: {
-      // The current execution is the highest attempt; during a re-run that is
-      // the running attempt (its session may still be null).
+      // Newest first. A finding has one execution per attempt, so this is a
+      // handful of rows at most.
       executions: {
         orderBy: { attempt: "desc" },
-        take: 1,
         select: { sessionId: true, traceId: true, traceStatus: true, attempt: true },
       },
     },
   });
-  const execution = row?.executions[0] ?? null;
+  // The current execution is the highest attempt; during a re-run that is the
+  // running attempt (its session may still be null, its trace still pending).
+  const current = row?.executions[0] ?? null;
+  // The trace link must survive a retry: while attempt n+1 is pending, attempt
+  // n's trace is still the one that can be opened. Fall back to the current
+  // execution's (pending/failed/disabled) status only when no attempt has an
+  // available trace.
+  const trace = row?.executions.find((e) => e.traceStatus === "available") ?? current;
   const rca = row
     ? {
         id: row.id,
@@ -35,14 +41,14 @@ export async function GET(_req: NextRequest, { params }: RouteParams) {
         // that ran before executions existed). Once one exists it is the
         // authority: a null session on it means that run has no chat, not that
         // an older attempt's chat should be opened.
-        sessionId: execution ? execution.sessionId : row.sessionId,
+        sessionId: current ? current.sessionId : row.sessionId,
         status: row.status,
         result: row.result,
         completedAt: row.completedAt,
         createTime: row.createTime,
-        traceId: execution?.traceId ?? null,
-        traceStatus: execution?.traceStatus ?? null,
-        attempt: execution?.attempt ?? null,
+        traceId: trace?.traceId ?? null,
+        traceStatus: trace?.traceStatus ?? null,
+        attempt: current?.attempt ?? null,
       }
     : null;
   return successResponse({ rca });

@@ -75,9 +75,15 @@ export interface DetectorRca {
   result: string | null;
   completedAt: string | null;
   createTime: string;
-  /** Current (highest-attempt) execution's agent trace; null when the finding has no execution row. */
+  /**
+   * Agent trace of the newest execution whose trace is `available`, so the link
+   * survives a pending retry; when none is, the current (highest-attempt)
+   * execution's trace and its pending/failed/disabled status. Null when the
+   * finding has no execution row.
+   */
   traceId: string | null;
   traceStatus: TraceStatus | null;
+  /** Current (highest) attempt; null when the finding has no execution row. */
   attempt: number | null;
 }
 

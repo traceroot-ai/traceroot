@@ -42,18 +42,64 @@ describe("GET /findings/:id/rca", () => {
       traceStatus: "available",
       attempt: 2,
     });
-    // Highest attempt only, and only the four fields the response uses.
+    // Newest first, and only the four fields the response uses.
     expect(findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         include: {
           executions: {
             orderBy: { attempt: "desc" },
-            take: 1,
             select: { sessionId: true, traceId: true, traceStatus: true, attempt: true },
           },
         },
       }),
     );
+  });
+
+  it("keeps the previous attempt's available trace while a retry is pending", async () => {
+    // Status, attempt and session follow the current (highest) attempt; the
+    // trace link follows the newest attempt whose trace is actually available,
+    // so a retry does not blank out a link that still works.
+    findFirst.mockResolvedValue({
+      id: "r1",
+      findingId: "f1",
+      sessionId: "s1",
+      status: "running",
+      result: "answer from attempt 1",
+      completedAt: null,
+      createTime: new Date(0),
+      executions: [
+        { sessionId: null, traceId: "t2", traceStatus: "pending", attempt: 2 },
+        { sessionId: "s1", traceId: "t1", traceStatus: "available", attempt: 1 },
+      ],
+    });
+    expect((await (await call()).json()).rca).toMatchObject({
+      status: "running",
+      attempt: 2,
+      sessionId: null,
+      traceId: "t1",
+      traceStatus: "available",
+    });
+  });
+
+  it("reports the current attempt's pending trace when no attempt has an available one", async () => {
+    findFirst.mockResolvedValue({
+      id: "r1",
+      findingId: "f1",
+      sessionId: null,
+      status: "running",
+      result: null,
+      completedAt: null,
+      createTime: new Date(0),
+      executions: [
+        { sessionId: null, traceId: "t2", traceStatus: "pending", attempt: 2 },
+        { sessionId: "s1", traceId: "t1", traceStatus: "failed", attempt: 1 },
+      ],
+    });
+    expect((await (await call()).json()).rca).toMatchObject({
+      attempt: 2,
+      traceId: "t2",
+      traceStatus: "pending",
+    });
   });
 
   it("does not fall back to the legacy session when the current execution has none", async () => {

@@ -480,9 +480,11 @@ model DetectorRca {
   // DetectorAlertConfig when a project is deleted.
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  // The current execution is the one with the highest attempt (see
-  // rca-executions.ts). Empty on legacy rows created before executions existed
-  // (no backfill by design).
+  // The current execution (status, attempt) is the one with the highest
+  // attempt; the trace to link is the highest attempt whose trace_status is
+  // `available`, so a pending retry does not hide a working trace (see
+  // rca-executions.ts and the findings/[findingId]/rca route). Empty on legacy
+  // rows created before executions existed (no backfill by design).
   executions DetectorRcaExecution[]
 
   @@index([projectId], map: "ix_detector_rcas_project_id")
