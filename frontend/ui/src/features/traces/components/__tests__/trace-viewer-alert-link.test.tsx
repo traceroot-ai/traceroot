@@ -22,7 +22,13 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@tanstack/react-query", () => ({
   useQuery: (opts: { queryKey: unknown[]; queryFn: () => unknown }) => {
     mocks.lastQuery = opts;
-    return { data: undefined, isLoading: false, error: null };
+    // A minimal loaded trace, so the panel reaches the tree view and mounts
+    // SpanInfoPanel — the chip that swaps to the agent trace lives there now.
+    return {
+      data: { trace_id: "t1", name: "root", trace_start_time: "2026-09-01T00:00:00Z", spans: [] },
+      isLoading: false,
+      error: null,
+    };
   },
 }));
 vi.mock("@/lib/api", () => ({ getTrace: mocks.getTrace }));
@@ -44,7 +50,19 @@ vi.mock("@/components/layout/app-layout", () => ({
   }),
 }));
 vi.mock("../SpanTreeView", () => ({ SpanTreeView: () => null }));
-vi.mock("../SpanInfoPanel", () => ({ SpanInfoPanel: () => <div data-testid="span-info" /> }));
+vi.mock("../SpanInfoPanel", () => ({
+  // Surface the analysis-trace wiring as a real button so the test can click
+  // the same entry point the chip exposes, without rendering the full panel.
+  SpanInfoPanel: (props: { onViewAnalysisTrace?: () => void }) => (
+    <div data-testid="span-info">
+      {props.onViewAnalysisTrace && (
+        <button type="button" onClick={props.onViewAnalysisTrace}>
+          Analysis: RCA trace
+        </button>
+      )}
+    </div>
+  ),
+}));
 vi.mock("../SpanTimelineView", () => ({ SpanTimelineView: () => <div data-testid="timeline" /> }));
 vi.mock("../TraceDetectorsTab", () => ({
   TraceDetectorsTab: () => <div data-testid="detectors-tab" />,
@@ -69,7 +87,7 @@ afterEach(() => {
 });
 
 describe("Alert panel → agent trace", () => {
-  it("shows View analysis trace when the RCA trace is available, and swaps the viewer to source=agent", async () => {
+  it("shows the Analysis chip when the RCA trace is available, and swaps the viewer to source=agent", async () => {
     render(
       <TraceViewerPanel
         projectId="p1"
@@ -80,7 +98,7 @@ describe("Alert panel → agent trace", () => {
         canNavigateDown={false}
       />,
     );
-    const link = await screen.findByRole("button", { name: /view analysis trace/i });
+    const link = await screen.findByRole("button", { name: /analysis:\s*rca trace/i });
     fireEvent.click(link);
 
     // The effective query now targets the RCA's agent trace.

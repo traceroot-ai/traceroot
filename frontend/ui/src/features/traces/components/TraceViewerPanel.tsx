@@ -464,16 +464,6 @@ export function TraceViewerPanel({
                 Alert
               </button>
             )}
-            {hasRca && agentTrace && !viewingAgentTrace && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 px-2 text-xs"
-                onClick={() => setViewingAgentTrace(true)}
-              >
-                View analysis trace
-              </Button>
-            )}
             {viewingAgentTrace && (
               <Button
                 variant="ghost"
@@ -729,6 +719,11 @@ export function TraceViewerPanel({
                       headerAction={spanHeaderAction?.(selection)}
                       extraTags={spanExtraTags?.(selection)}
                       isEvalShaped={!!traceOverride}
+                      onViewAnalysisTrace={
+                        hasRca && agentTrace && !viewingAgentTrace
+                          ? () => setViewingAgentTrace(true)
+                          : undefined
+                      }
                     />
                   ) : (
                     <SpanTimelineView
