@@ -259,6 +259,21 @@ export function TraceViewerPanel({
     setViewingAgentTrace(false);
   }, [traceId]);
 
+  // Detectors never target internal traces (the judge's read asserts
+  // source = 'user' server-side), so a detector self-trace or an agent (RCA)
+  // trace can never carry findings — the tab would only ever render empty.
+  // Also hidden under an eval override, whose synthetic id backs no rows.
+  const detectorsHidden =
+    !!traceOverride ||
+    !!hideDetectors ||
+    effectiveSource === "detector" ||
+    effectiveSource === "agent";
+  // If the tab disappears while active (e.g. swapping to the RCA's agent trace
+  // from the Detectors tab), fall back to the tree view instead of a blank pane.
+  useEffect(() => {
+    if (detectorsHidden && viewMode === "detectors") setViewMode("tree");
+  }, [detectorsHidden, viewMode]);
+
   // Auto-open chat with RCA session loaded when arriving from /detectors.
   // Waits for rcaSessionId so the chat opens already pointing at the session,
   // avoiding a fresh-chat flash before the id resolves.
@@ -591,10 +606,7 @@ export function TraceViewerPanel({
             >
               <SquareGanttChart className="h-3.5 w-3.5" /> Timeline
             </button>
-            {/* Detectors fetch by traceId, which under an override is the synthetic
-                eval-<resultId> — no ClickHouse row can ever back it, so the tab is
-                hidden rather than firing a doomed request. */}
-            {!traceOverride && !hideDetectors && (
+            {!detectorsHidden && (
               <button
                 onClick={() => setViewMode("detectors")}
                 className={cn(
@@ -668,7 +680,7 @@ export function TraceViewerPanel({
                   {/* Detectors fetches its own data by traceId, so it renders
                     ahead of the trace-load guards — a slow or failed *trace*
                     fetch must not hide independently-loaded detector data. */}
-                  {viewMode === "detectors" && !traceOverride && !hideDetectors ? (
+                  {viewMode === "detectors" && !detectorsHidden ? (
                     <TraceDetectorsTab projectId={projectId} traceId={traceId} />
                   ) : isLoading ? (
                     <div className="flex h-full items-center justify-center">
