@@ -91,7 +91,6 @@ export async function flushDigest(job: DigestFlushJob): Promise<void> {
           name: nameById.get(id) ?? id,
           findingCount: summary[id].finding_count,
           sampleSummaries: summary[id].sample_summaries ?? [],
-          sampleTraceIds: summary[id].sample_trace_ids ?? [],
         })),
       },
       {
