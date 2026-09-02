@@ -34,6 +34,13 @@ export interface AgentTraceMeta {
 /** Root-span I/O cap (spec B8): the root carries the prompt and the final answer, bounded. */
 const ROOT_IO_CAP = 16_384;
 
+/** Root attribute ingest promotes to the trace record's `metadata` (otel_transform.py). */
+const TRACE_METADATA = "traceroot.trace.metadata";
+
+function rootMetadata(meta: AgentTraceMeta): Record<string, unknown> {
+  return { kind: meta.kind, ...meta.metadata };
+}
+
 function boundedText(text: string | undefined): string | undefined {
   if (!text) return undefined;
   const redacted = redactSecrets(text);
@@ -227,6 +234,12 @@ export async function withAgentTrace<T>(
   let outcome: { ok: true; value: T } | { ok: false; error: unknown } | undefined;
   const traced = async (): Promise<T> => {
     const root = trace.getActiveSpan();
+    // observe() stamps `metadata` on the root SPAN only. The trace record's
+    // metadata — what the viewer reads (kind, finding_id, attempt,
+    // scanned_trace_id …) — is filled by ingest from this separate root
+    // attribute, so stamp it here too. Set before fn runs so it survives a
+    // failed run.
+    if (root) root.setAttribute(TRACE_METADATA, JSON.stringify(rootMetadata(meta)));
     const input = boundedText(meta.input);
     if (root && input !== undefined) root.setAttribute("traceroot.span.input", input);
     let value: T;
@@ -259,7 +272,7 @@ export async function withAgentTrace<T>(
           type: "agent",
           traceId: meta.traceId,
           projectId: meta.projectId,
-          metadata: { kind: meta.kind, ...meta.metadata },
+          metadata: rootMetadata(meta),
           captureInput: false,
           captureOutput: false,
         },

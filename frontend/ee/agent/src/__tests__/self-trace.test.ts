@@ -233,6 +233,30 @@ describe("withAgentTrace root I/O", () => {
     spy.mockRestore();
   });
 
+  it("stamps the trace-level metadata on the root, before the run, so ingest promotes it", async () => {
+    // observe() only sets the span-level metadata; the trace record's
+    // metadata (what the viewer reads) comes from traceroot.trace.metadata.
+    const setAttribute = vi.fn();
+    const { trace } = await import("@opentelemetry/api");
+    const spy = vi.spyOn(trace, "getActiveSpan").mockReturnValue({ setAttribute } as never);
+    const rcaMeta = {
+      ...meta,
+      metadata: { finding_id: "f1", attempt: 2, scanned_trace_id: "b".repeat(32) },
+    };
+    await expect(
+      mod.withAgentTrace(rcaMeta, async () => {
+        // Already stamped when fn starts: a failed run keeps it.
+        expect(Object.fromEntries(setAttribute.mock.calls)["traceroot.trace.metadata"]).toBe(
+          JSON.stringify({ kind: "rca", ...rcaMeta.metadata }),
+        );
+        throw new Error("run failed");
+      }),
+    ).rejects.toThrow("run failed");
+    // Same document observe() got for the span-level metadata.
+    expect(observe.mock.calls[0][0].metadata).toEqual({ kind: "rca", ...rcaMeta.metadata });
+    spy.mockRestore();
+  });
+
   it("marks the root ERROR when the run resolved with an error", async () => {
     // The route resolves (not rejects) when the agent fails, so its rows still
     // persist; the root span must not read as a successful run.
