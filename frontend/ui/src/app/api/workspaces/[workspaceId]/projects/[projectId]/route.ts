@@ -150,7 +150,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       include: { alertConfig: true },
     });
   } catch (e) {
-    if (!isPrismaKnownError(e, "P2002")) throw e;
+    // Only a rename can hit the project-name unique index; a P2002 raised while
+    // this PATCH carries no name (e.g. the alertConfig upsert racing its own
+    // first insert) must not be mislabeled as a name conflict.
+    if (!isPrismaKnownError(e, "P2002") || name === undefined) throw e;
     return errorResponse("A project with this name already exists", 409);
   }
 

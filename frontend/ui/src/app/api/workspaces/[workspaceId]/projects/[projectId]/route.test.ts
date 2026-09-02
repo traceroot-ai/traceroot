@@ -113,4 +113,15 @@ describe("project PATCH rename collisions", () => {
     update.mockRejectedValue(new Error("connection lost"));
     await expect(patch({ name: "Renamed" })).rejects.toThrow("connection lost");
   });
+
+  it("rethrows a P2002 when the PATCH carries no name — not every unique violation is a rename", async () => {
+    // The update spans the alertConfig upsert; its rare concurrent-first-insert
+    // P2002 must not surface as "A project with this name already exists".
+    update.mockRejectedValue(
+      Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
+    );
+    await expect(patch({ alert_emails: ["a@example.com"] })).rejects.toThrow(
+      "Unique constraint failed",
+    );
+  });
 });
