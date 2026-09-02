@@ -40,9 +40,12 @@ def test_internal_route_table_is_exactly_the_expected_set():
 
 
 def test_every_internal_route_requires_the_internal_secret():
+    # route.dependant covers both attachment styles: router-level
+    # `dependencies=[Depends(...)]` and a signature parameter such as the ingest
+    # route's `caller: Annotated[InternalCaller, Depends(verify_internal_secret)]`.
     for route in _internal_routes():
-        dependencies = [d.dependency for d in route.dependencies]
-        assert verify_internal_secret in dependencies, f"{sorted(route.methods)} {route.path}"
+        calls = [d.call for d in route.dependant.dependencies]
+        assert verify_internal_secret in calls, f"{sorted(route.methods)} {route.path}"
 
 
 def test_unset_server_secret_fails_closed_with_503(monkeypatch):
