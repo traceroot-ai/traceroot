@@ -10,7 +10,40 @@ Every response carries a ``created`` flag: ``True`` for a fresh row, ``False``
 when an idempotent re-create returned the existing one.
 """
 
-from pydantic import BaseModel
+import json
+from typing import Annotated, Any
+
+from pydantic import AfterValidator, BaseModel
+
+
+def _require_encodable_json(value: Any) -> Any:
+    """Reject payloads no strict JSON encoder can serialize.
+
+    ``json.loads`` accepts bare ``NaN``/``Infinity`` tokens, but the proxy's
+    httpx client re-encodes bodies with ``allow_nan=False`` — a non-finite
+    float that got past validation would raise there and surface as a 500.
+    Catch it here so the caller gets a 422 naming the field instead.
+
+    Args:
+        value (Any): The parsed JSON payload (dict or list) to check.
+
+    Returns:
+        Any: ``value`` unchanged when it is strictly JSON-encodable.
+
+    Raises:
+        ValueError: When the payload contains NaN or Infinity.
+    """
+    try:
+        json.dumps(value, allow_nan=False)
+    except ValueError as e:
+        raise ValueError("must not contain NaN or Infinity") from e
+    return value
+
+
+# JSON payload fields forwarded verbatim to the write service. Shape-level
+# only, per the module docstring — but they must survive strict re-encoding.
+JsonPayloadDict = Annotated[dict, AfterValidator(_require_encodable_json)]
+JsonPayloadList = Annotated[list, AfterValidator(_require_encodable_json)]
 
 
 class CreateWorkspaceRequest(BaseModel):
@@ -53,8 +86,8 @@ class CreateDetectorRequest(BaseModel):
     template: str
     prompt: str
     sample_rate: int | None = None
-    output_schema: list | None = None
-    trigger_conditions: list | None = None
+    output_schema: JsonPayloadList | None = None
+    trigger_conditions: JsonPayloadList | None = None
     detection_source: str | None = None
     detection_model: str | None = None
     detection_provider: str | None = None
@@ -97,8 +130,8 @@ class CreateWidgetRequest(BaseModel):
     dashboard_id: str
     title: str
     type: str
-    spec: dict
-    display_config: dict | None = None
+    spec: JsonPayloadDict
+    display_config: JsonPayloadDict | None = None
 
 
 class CreateWidgetResponse(BaseModel):

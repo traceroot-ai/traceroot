@@ -29,7 +29,13 @@ class WidgetFilter(_StrictModel):
     op: Literal["=", "contains", ">", ">=", "<", "<="]
     # min_length mirrors the frontend schema: an empty value means the filter
     # was never completed and would silently match only empty-valued rows.
-    value: Annotated[str, StringConstraints(min_length=1)] | float
+    # allow_inf_nan=False: json.loads accepts bare NaN/Infinity tokens, but a
+    # stored non-finite float can never be re-encoded by a strict JSON encoder
+    # (the write proxy's httpx client included) — reject it at validation.
+    value: (
+        Annotated[str, StringConstraints(min_length=1)]
+        | Annotated[float, Field(allow_inf_nan=False)]
+    )
 
 
 class WidgetMetric(_StrictModel):

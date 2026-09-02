@@ -12,6 +12,7 @@ service-message parity.
 import json
 
 import httpx
+import pytest
 import respx
 from fastapi.testclient import TestClient
 from httpx import Response
@@ -381,3 +382,50 @@ def test_create_widget_forwards_upstream_400_message():
 
     assert resp.status_code == 400
     assert resp.json() == {"detail": "title is required"}
+
+
+# ── non-finite floats (NaN / Infinity) ──────────────────────────────────
+
+_JSON_HEADERS = {**USER_HEADER, "Content-Type": "application/json"}
+
+_NON_FINITE_BODIES = [
+    (
+        "/api/v1/public/widgets",
+        '{"project_id": "proj-1", "dashboard_id": "dash-1", "title": "Cost",'
+        ' "type": "query", "spec": {"value": NaN}}',
+    ),
+    (
+        "/api/v1/public/widgets",
+        '{"project_id": "proj-1", "dashboard_id": "dash-1", "title": "Cost",'
+        ' "type": "query", "spec": {}, "display_config": {"a": Infinity}}',
+    ),
+    (
+        "/api/v1/public/detectors",
+        '{"project_id": "proj-1", "name": "D", "template": "custom",'
+        ' "prompt": "p", "output_schema": [-Infinity]}',
+    ),
+    (
+        "/api/v1/public/detectors",
+        '{"project_id": "proj-1", "name": "D", "template": "custom",'
+        ' "prompt": "p", "trigger_conditions": [{"value": NaN}]}',
+    ),
+]
+
+
+@respx.mock
+@pytest.mark.parametrize(("path", "body"), _NON_FINITE_BODIES)
+def test_non_finite_floats_are_a_422_not_a_500(path, body):
+    """Bare NaN/Infinity tokens in a JSON payload field are a clean 422.
+
+    ``json.loads`` accepts the bare tokens, but the proxy's httpx client
+    re-encodes with ``allow_nan=False`` — without schema-level rejection the
+    encode raises an uncaught ValueError and the route 500s. The schema layer
+    must turn these into a validation error instead.
+    """
+    _mock_account_auth()
+    _mock_write(DETECTOR_WRITE_URL, {"created": True, "detector": DETECTOR_ROW})
+    _mock_write(WIDGET_WRITE_URL, {"created": True, "widget": WIDGET_ROW})
+
+    resp = _client().post(path, content=body, headers=_JSON_HEADERS)
+
+    assert resp.status_code == 422

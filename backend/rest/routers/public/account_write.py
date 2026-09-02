@@ -122,6 +122,14 @@ async def _post_internal_write(path: str, payload: dict) -> dict:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Write service unavailable",
         ) from e
+    except ValueError as e:
+        # Backstop: httpx encodes the body with allow_nan=False, so a
+        # non-finite float that slipped past schema validation raises here.
+        # The schemas reject NaN/Infinity with a 422, making this
+        # unreachable in practice — but if it ever fires, fail closed
+        # instead of letting the ValueError escape as an uncaught 500.
+        logger.error(f"Write payload failed strict JSON encoding: {e}")
+        raise _write_service_error() from e
 
     if response.status_code in _PASSTHROUGH_FALLBACKS:
         fallback = _PASSTHROUGH_FALLBACKS[response.status_code]

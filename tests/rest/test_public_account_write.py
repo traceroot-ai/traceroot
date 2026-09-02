@@ -398,3 +398,28 @@ def test_jwt_without_sid_is_rejected(monkeypatch):
     assert resp.status_code == 401
     assert live.call_count == 0
     assert write.call_count == 0
+
+
+# ── proxy encode backstop ───────────────────────────────────────────────
+
+
+@respx.mock
+def test_post_internal_write_unencodable_payload_fails_closed_as_503():
+    """A payload httpx cannot JSON-encode fails closed as a controlled 503.
+
+    The schema layer rejects non-finite floats with a 422, so this backstop
+    should be unreachable — but if a NaN ever slips through, the encode's
+    ValueError must map to the shared 503, never escape as an uncaught 500.
+    """
+    import asyncio
+
+    from fastapi import HTTPException
+
+    from rest.routers.public.account_write import _post_internal_write
+
+    with pytest.raises(HTTPException) as exc_info:
+        asyncio.run(
+            _post_internal_write("/api/internal/write/widgets", {"spec": {"v": float("nan")}})
+        )
+
+    assert exc_info.value.status_code == 503
