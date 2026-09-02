@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { applyCapturePolicy, redactSecrets } from "../lib/capture-policy.ts";
 
+// A truncated result may carry one uncharged "[withheld: budget]" (or "…")
+// placeholder capArgs doesn't bill to the budget, plus the string-escaping
+// bytes the byte accounting approximates rather than counts exactly (see the
+// capArgs doc comment). This bounds that gap in the tests below.
+const BUDGET_SLACK_BYTES = 64;
+
 describe("redactSecrets", () => {
   it.each([
     ["ghp_abcdefghijklmnopqrstuvwxyz0123456789", "ghp_[REDACTED]"],
@@ -197,17 +203,19 @@ describe("applyCapturePolicy", () => {
       expect(state.spentBytes).toBeLessThanOrEqual(perRunBytes);
       expect(r.result).not.toContain("�");
     }
-    // Args leaves take the same path.
+    // Args leaves take the same path. The budget now also charges the `{`/`}`
+    // and the `"command":` key (11 bytes total), so it needs headroom beyond
+    // the multibyte content itself, unlike the result-only cases above.
     const state = { spentBytes: 0 };
     const r = applyCapturePolicy(
       { toolName: "bash", args: { command: "日本語".repeat(100) }, result: "" },
       state,
-      { perStepBytes: 10, perRunBytes: 10 },
+      { perStepBytes: 20, perRunBytes: 20 },
     );
     expect(Buffer.byteLength((r.args as { command: string }).command, "utf8")).toBeLessThanOrEqual(
-      10,
+      20,
     );
-    expect(state.spentBytes).toBeLessThanOrEqual(10);
+    expect(state.spentBytes).toBeLessThanOrEqual(20);
   });
 
   it("reports cut args as truncated, and withholds the result the args used up", () => {
@@ -260,5 +268,107 @@ describe("applyCapturePolicy", () => {
       .reduce((n, v) => n + Buffer.byteLength(v, "utf8"), 0);
     const resultBytes = Buffer.byteLength(out.result ?? "", "utf8");
     expect(argBytes + resultBytes).toBeLessThanOrEqual(1_000);
+  });
+
+  it("redacts a value by its key, not just by matching its shape", () => {
+    // The other redaction tests use values that independently look like a
+    // secret (a token shape, or a colon-form "key":"value" once serialised).
+    // An ordinary value under a credential-shaped key has no such shape of
+    // its own for redactSecrets to catch once the two are separated.
+    const r = applyCapturePolicy(
+      { toolName: "bash", args: { password: "hunter2" }, result: "" },
+      { spentBytes: 0 },
+    );
+    const args = r.args as Record<string, string>;
+    expect(args.password).toBe("[REDACTED]");
+    expect(Object.keys(args)).toEqual(["password"]); // the key itself survives
+  });
+
+  it("redacts a credential-shaped key at any depth, whatever the value's type", () => {
+    const r = applyCapturePolicy(
+      { toolName: "bash", args: { db: { connection: { passwd: 123 } } }, result: "" },
+      { spentBytes: 0 },
+    );
+    const args = r.args as { db: { connection: { passwd: unknown } } };
+    expect(args.db.connection.passwd).toBe("[REDACTED]");
+  });
+
+  it("recognizes a credential key regardless of separator or camelCase", () => {
+    const r = applyCapturePolicy(
+      {
+        toolName: "bash",
+        args: {
+          apiKey: "abc",
+          API_KEY: "def",
+          "api-key": "ghi",
+          dbPassword: "jkl",
+          plain: "kept",
+        },
+        result: "",
+      },
+      { spentBytes: 0 },
+    );
+    const args = r.args as Record<string, string>;
+    expect(args.apiKey).toBe("[REDACTED]");
+    expect(args.API_KEY).toBe("[REDACTED]");
+    expect(args["api-key"]).toBe("[REDACTED]");
+    expect(args.dbPassword).toBe("[REDACTED]");
+    expect(args.plain).toBe("kept");
+  });
+
+  it("charges a long key against the budget like any other content", () => {
+    // Previously only string VALUES were charged; an arbitrarily long key
+    // name cost nothing, so a tiny value under a huge key still fit whole.
+    const longKey = "x".repeat(100);
+    const state = { spentBytes: 0 };
+    const out = applyCapturePolicy(
+      { toolName: "bash", args: { [longKey]: "v" }, result: "" },
+      state,
+      { perStepBytes: 50, perRunBytes: 50 },
+    );
+    expect(JSON.stringify(out.args)).not.toContain(longKey);
+    expect(out.truncated).toBe(true);
+    expect(state.spentBytes).toBeLessThanOrEqual(50);
+    expect(() => JSON.parse(JSON.stringify(out.args))).not.toThrow();
+  });
+
+  it("charges structural bytes for numeric and boolean payloads, not just strings", () => {
+    // Before, only string leaves were charged: a 100,000-number array came
+    // back at ~590 KB serialized with spentBytes=0 and truncated=false.
+    const payloads = [
+      { nums: Array.from({ length: 100_000 }, (_, i) => i) },
+      { flags: Array.from({ length: 100_000 }, (_, i) => i % 2 === 0) },
+    ];
+    for (const args of payloads) {
+      const state = { spentBytes: 0 };
+      const budget = { perStepBytes: 2_000, perRunBytes: 2_000 };
+      const out = applyCapturePolicy({ toolName: "bash", args, result: "" }, state, budget);
+      const serializedBytes = Buffer.byteLength(JSON.stringify(out.args), "utf8");
+      expect(serializedBytes).toBeLessThanOrEqual(budget.perStepBytes + BUDGET_SLACK_BYTES);
+      expect(out.truncated).toBe(true);
+      expect(state.spentBytes).toBeGreaterThan(0);
+    }
+  });
+
+  it("stays valid, parseable JSON when the budget runs out in the middle of a mixed object", () => {
+    const state = { spentBytes: 0 };
+    const out = applyCapturePolicy(
+      {
+        toolName: "bash",
+        args: {
+          a: "x".repeat(200),
+          b: 12345,
+          c: [1, 2, 3, "y".repeat(200)],
+          d: { nested: "z".repeat(200) },
+          e: "kept only if room remains",
+        },
+        result: "",
+      },
+      state,
+      { perStepBytes: 300, perRunBytes: 300 },
+    );
+    expect(() => JSON.parse(JSON.stringify(out.args))).not.toThrow();
+    expect(out.truncated).toBe(true);
+    expect(state.spentBytes).toBeLessThanOrEqual(300);
   });
 });

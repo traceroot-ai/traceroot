@@ -32,18 +32,21 @@ const SECRET_NAME =
 // `PASSWORD="…"` through.
 const SECRET_VALUE = `(?:"[^"]*"|'[^']*'|[^\\s"',}]+)`;
 
+/** The marker every redaction — text-pattern or key-aware — replaces a secret with. */
+const REDACTED = "[REDACTED]";
+
 const PATTERNS: Array<[RegExp, string | ((...args: never[]) => string)]> = [
-  [/\b(gh[pousr]_)[A-Za-z0-9]{20,}/g, "$1[REDACTED]"],
+  [/\b(gh[pousr]_)[A-Za-z0-9]{20,}/g, `$1${REDACTED}`],
   // OpenAI-style `sk-…` and Stripe `sk_live_…` / `sk_test_…`.
-  [/\b(sk[-_](?:live_|test_)?)[A-Za-z0-9_-]{16,}/g, "$1[REDACTED]"],
-  [/\bAKIA[0-9A-Z]{12,}/g, "AKIA[REDACTED]"],
+  [/\b(sk[-_](?:live_|test_)?)[A-Za-z0-9_-]{16,}/g, `$1${REDACTED}`],
+  [/\bAKIA[0-9A-Z]{12,}/g, `AKIA${REDACTED}`],
   // Case-insensitive: an `authorization: bearer …` header is as much a
   // credential as `Bearer …`, and tools echo headers in whatever case they got.
-  [/(bearer\s+)[A-Za-z0-9._~+/=-]{8,}/gi, "$1[REDACTED]"],
+  [/(bearer\s+)[A-Za-z0-9._~+/=-]{8,}/gi, `$1${REDACTED}`],
   // Assignment form: `API_KEY=…`, `token=…`, `export DB_PASSWORD='…'`.
   [
     new RegExp(`\\b${SECRET_NAME}\\s*=\\s*${SECRET_VALUE}`, "gi"),
-    (_m: string, prefix: string | undefined, word: string) => `${prefix ?? ""}${word}=[REDACTED]`,
+    (_m: string, prefix: string | undefined, word: string) => `${prefix ?? ""}${word}=${REDACTED}`,
   ],
   // Colon form: JSON `"password":"…"`, YAML `api_key: …`, a header `x-api-key: …`.
   // Results are JSON-stringified before redaction, so this is the shape most
@@ -51,17 +54,31 @@ const PATTERNS: Array<[RegExp, string | ((...args: never[]) => string)]> = [
   [
     new RegExp(`\\b${SECRET_NAME}("?)(\\s*:\\s*)${SECRET_VALUE}`, "gi"),
     (_m: string, prefix: string | undefined, word: string, quote: string, sep: string) =>
-      `${prefix ?? ""}${word}${quote}${sep}[REDACTED]`,
+      `${prefix ?? ""}${word}${quote}${sep}${REDACTED}`,
   ],
   // `scheme://user:pass@host` — the password segment of a connection URL.
-  [/(:\/\/[^\s/:@]+:)[^@\s/]+@/g, "$1[REDACTED]@"],
+  [/(:\/\/[^\s/:@]+:)[^@\s/]+@/g, `$1${REDACTED}@`],
   // A PEM private key, header to footer (or to the end of the text if the
   // footer is missing — the block is never worth keeping partially).
   [
     /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g,
-    "-----BEGIN PRIVATE KEY-----[REDACTED]-----END PRIVATE KEY-----",
+    `-----BEGIN PRIVATE KEY-----${REDACTED}-----END PRIVATE KEY-----`,
   ],
 ];
+
+// Credential-shaped object KEYS, checked independently of the text patterns
+// above: `capArgs` walks object entries and, when a key matches, redacts the
+// WHOLE value regardless of type — a key like `password` is damning on its
+// own, unlike free text where a value shape is needed too. Matches only at
+// the end of the key, case-insensitively: folding case is what makes
+// `dbPassword`, `DB_PASSWORD` and `db-password` all match without a separate
+// branch per separator style. Deliberately narrower than SECRET_NAME above —
+// no bare `key`/`secret(s)` alternation beyond what's listed — because a
+// false positive here silently blanks an entire args field (e.g. a tool's
+// ordinary `sort_key` or `session_id` argument), not just a substring of
+// logged text.
+export const CREDENTIAL_KEY =
+  /(?:password|passwd|pwd|secret|token|api[_-]?key|authorization|auth|cookie|session|private[_-]?key|access[_-]?key|credentials?|bearer|signature)$/i;
 
 export function redactSecrets(text: string): string {
   let out = text;
@@ -138,11 +155,36 @@ export function applyCapturePolicy(
   return { args, result: text, outputBytes, truncated: argsTruncated || truncated, withheld: null };
 }
 
+/** What `capArgs` substitutes for a value it can't fit any more of the budget into. */
+const WITHHELD_BUDGET = "[withheld: budget]";
+
 /**
  * Redact and bound captured args against the same budgets as output, charging
- * what is kept. Serialising once and truncating the JSON would produce
- * unparseable metadata, so each string leaf is handled instead and the
- * structure survives.
+ * what is kept — not just string leaves, but every byte the eventual
+ * `JSON.stringify(args)` will actually contain: keys, punctuation, and
+ * numbers/booleans/nulls too. A number-only or boolean-only payload (a
+ * 100,000-element array, say) has no string leaves to charge against a
+ * leaf-only budget and would otherwise be captured for free.
+ *
+ * Byte accounting here is close but not exact:
+ *  - a key costs `JSON.stringify(key)` bytes plus 1 for its colon;
+ *  - a scalar (number/boolean/null) costs `JSON.stringify(value)` bytes;
+ *  - a string costs `redactSecrets`+`truncateTo`'s cut, plus 2 for the
+ *    quotes `JSON.stringify` will wrap it in — the cut itself reserves those
+ *    2 bytes first, so a string that gets cut lands on the budget exactly;
+ *  - `{`/`}`/`[`/`]` cost 2 bytes per container, and each element after the
+ *    first costs 1 for its separating comma.
+ * What's NOT charged: escape sequences a string's own content might need
+ * (`"`, `\`, control characters) beyond the 2 quote bytes. Serialising once
+ * and truncating the JSON would dodge that gap but produce unparseable
+ * metadata on a mid-string cut, which is worse than a slightly-approximate
+ * budget.
+ *
+ * When a container's budget runs out partway through, the walk stops
+ * descending into it and appends ONE placeholder for everything after —
+ * `"[withheld: budget]"` as a final array element, or a `"…"` key holding it
+ * in an object — instead of a placeholder per dropped element, so a huge
+ * array/object degrades to one sentinel rather than thousands.
  */
 function capArgs(
   args: unknown,
@@ -151,33 +193,102 @@ function capArgs(
   step: { remaining: number },
 ): { args: unknown; truncated: boolean } {
   let truncated = false;
-  const cap = (value: unknown): unknown => {
-    if (typeof value === "string") {
-      // Both budgets bind: the step's remaining allowance is shared across every
-      // leaf (a per-leaf cap would let an args object with many strings exceed
-      // perStepBytes by a multiple of its leaf count), and the run's total is
-      // the hard ceiling.
-      const remaining = Math.min(step.remaining, budget.perRunBytes - state.spentBytes);
-      if (remaining <= 0) {
-        truncated = true;
-        return "[withheld: budget]";
-      }
-      // Redact before cutting: a cut could otherwise split a token and defeat a
-      // pattern.
-      const cut = truncateTo(redactSecrets(value), remaining);
-      truncated ||= cut.truncated;
-      const spent = Buffer.byteLength(cut.text, "utf8");
-      state.spentBytes += spent;
-      step.remaining -= spent;
-      return cut.text;
-    }
-    if (Array.isArray(value)) return value.map(cap);
-    if (value && typeof value === "object") {
-      return Object.fromEntries(
-        Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, cap(v)]),
-      );
-    }
-    return value;
+  // Both budgets bind everywhere below: the step's remaining allowance is
+  // shared across every leaf (a per-leaf cap would let an args object with
+  // many leaves exceed perStepBytes by a multiple of its leaf count), and the
+  // run's total is the hard ceiling.
+  const remaining = () => Math.min(step.remaining, budget.perRunBytes - state.spentBytes);
+  const spend = (bytes: number) => {
+    state.spentBytes += bytes;
+    step.remaining -= bytes;
   };
-  return { args: cap(args), truncated };
+
+  // `exhausted` means the budget ran out ON this node, not merely inside a
+  // descendant of it — it tells the caller (a container) to stop adding
+  // siblings after this one rather than recurse into more nodes that would
+  // each need their own placeholder.
+  const cap = (value: unknown): { value: unknown; exhausted: boolean } => {
+    if (typeof value === "string") {
+      const room = remaining();
+      if (room <= 0) {
+        truncated = true;
+        return { value: WITHHELD_BUDGET, exhausted: true };
+      }
+      // Redact before cutting: a cut could otherwise split a token and defeat
+      // a pattern. Reserve the 2 quote bytes JSON.stringify will add so a cut
+      // string's charge — cut bytes + 2 — lands exactly on `room`.
+      const cut = truncateTo(redactSecrets(value), Math.max(0, room - 2));
+      truncated ||= cut.truncated;
+      spend(Buffer.byteLength(JSON.stringify(cut.text), "utf8"));
+      return { value: cut.text, exhausted: false };
+    }
+    if (value === null || typeof value === "number" || typeof value === "boolean") {
+      const bytes = Buffer.byteLength(JSON.stringify(value), "utf8");
+      if (bytes > remaining()) {
+        truncated = true;
+        return { value: WITHHELD_BUDGET, exhausted: true };
+      }
+      spend(bytes);
+      return { value, exhausted: false };
+    }
+    // `undefined` (and functions/symbols, which tool args never carry) are
+    // dropped by JSON.stringify itself and cost nothing.
+    if (value === undefined) return { value: undefined, exhausted: false };
+    if (Array.isArray(value)) {
+      if (remaining() < 2) {
+        truncated = true;
+        return { value: WITHHELD_BUDGET, exhausted: true };
+      }
+      spend(2); // '[' + ']'
+      const out: unknown[] = [];
+      for (const el of value) {
+        const sep = out.length > 0 ? 1 : 0;
+        if (remaining() < sep) {
+          truncated = true;
+          out.push(WITHHELD_BUDGET);
+          break;
+        }
+        spend(sep);
+        const capped = cap(el);
+        out.push(capped.value);
+        if (capped.exhausted) {
+          truncated = true;
+          break;
+        }
+      }
+      return { value: out, exhausted: false };
+    }
+    if (typeof value === "object") {
+      if (remaining() < 2) {
+        truncated = true;
+        return { value: WITHHELD_BUDGET, exhausted: true };
+      }
+      spend(2); // '{' + '}'
+      const out: Record<string, unknown> = {};
+      let first = true;
+      for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+        const sep = first ? 0 : 1;
+        const keyBytes = Buffer.byteLength(JSON.stringify(k), "utf8") + 1; // + ':'
+        if (remaining() < sep + keyBytes) {
+          truncated = true;
+          out["…"] = WITHHELD_BUDGET;
+          break;
+        }
+        spend(sep + keyBytes);
+        first = false;
+        // A credential-shaped key is damning on its own: replace the whole
+        // value — whatever its type — rather than recursing into it. Charged
+        // like any other string leaf, via the same `cap`.
+        const capped = CREDENTIAL_KEY.test(k) ? cap(REDACTED) : cap(v);
+        out[k] = capped.value;
+        if (capped.exhausted) {
+          truncated = true;
+          break;
+        }
+      }
+      return { value: out, exhausted: false };
+    }
+    return { value, exhausted: false };
+  };
+  return { args: cap(args).value, truncated };
 }
