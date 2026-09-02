@@ -1,11 +1,11 @@
 import { prisma } from "@traceroot/core";
 
 /**
- * Resolve dashboard creator ids to display names for the internal read
- * routes. Dashboards are shared across a project's members, so reads show who
- * created each one. createdBy holds a bare user id (no relation on the
- * model); resolve display names in one batch — a deleted account resolves to
- * null.
+ * Resolve dashboard creator ids to display names for the dashboard read
+ * routes (cookie list and internal mirrors). Dashboards are shared across a
+ * project's members, so reads show who created each one. createdBy holds a
+ * bare user id (no relation on the model); resolve display names in one
+ * batch — a deleted account resolves to null.
  */
 export async function resolveCreatorNames(ids: string[]): Promise<Map<string, string>> {
   const users = await prisma.user.findMany({

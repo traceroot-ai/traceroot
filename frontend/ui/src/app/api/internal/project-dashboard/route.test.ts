@@ -113,6 +113,7 @@ describe("POST /api/internal/project-dashboard", () => {
     // simply isn't found — and widgets come back in creation order.
     expect(dashboardFindFirstMock.mock.calls[0][0]).toMatchObject({
       where: { id: "dash-1", projectId: "proj-1" },
+      select: { widgets: { orderBy: { createTime: "asc" } } },
     });
   });
 
