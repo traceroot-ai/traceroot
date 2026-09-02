@@ -26,7 +26,7 @@ export function AgentTraceSheet({
   projectId: string;
   traceId: string | null;
   /** Span to focus when the sheet opens (a tool step's "Open span"). */
-  spanId?: string | null;
+  spanId?: string;
   onClose: () => void;
 }) {
   return (
@@ -50,7 +50,7 @@ export function AgentTraceSheet({
             traceId={traceId}
             source="agent"
             embedded
-            initialSpanId={spanId ?? undefined}
+            initialSpanId={spanId}
             onClose={onClose}
             onNavigate={() => {}}
             canNavigateUp={false}
