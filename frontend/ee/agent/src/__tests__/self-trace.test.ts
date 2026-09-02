@@ -342,6 +342,51 @@ describe("withAgentTrace flush", () => {
     await expect(b).resolves.toEqual({ value: "b", trace: "available" });
     expect(maxInFlight).toBe(1);
   });
+
+  it("keeps the queue chained to the flush's real settlement, not to its timeout", async () => {
+    // A timeout only stops THIS caller from waiting — it must not let the
+    // queue move on while the process-wide TraceRoot.flush() it started is
+    // still running, or the next queued flush can start and overlap it,
+    // resurrecting the cross-turn attribution race serialisation exists to
+    // prevent. Mock flush() as never settling on its own; the test settles
+    // each call by hand so it can assert on what happened in between.
+    vi.useFakeTimers();
+    try {
+      const deferred: Array<() => void> = [];
+      flush.mockImplementation(
+        () =>
+          new Promise<void>((resolve) => {
+            deferred.push(resolve);
+          }),
+      );
+
+      const a = mod.withAgentTrace(meta, async () => "a");
+      await vi.advanceTimersByTimeAsync(0); // let turn a reach its flush
+      expect(flush).toHaveBeenCalledTimes(1);
+
+      // The 30s flush timeout fires: the caller sees a failure...
+      await vi.advanceTimersByTimeAsync(30_000);
+      await expect(a).resolves.toEqual({ value: "a", trace: "failed" });
+
+      // ...but the real flush() call it started is still pending (deferred[0]
+      // untouched), so a second turn's flush must not start yet.
+      const b = mod.withAgentTrace({ ...meta, traceId: "b".repeat(32) }, async () => "b");
+      await vi.advanceTimersByTimeAsync(0);
+      expect(flush).toHaveBeenCalledTimes(1); // b's flush has NOT started
+
+      // Only once turn a's real flush() finally settles (a slow export
+      // completing well after its own caller stopped waiting) does the queue
+      // advance and let turn b's flush begin.
+      deferred[0]!();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(flush).toHaveBeenCalledTimes(2);
+
+      deferred[1]!();
+      await expect(b).resolves.toEqual({ value: "b", trace: "available" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("rcaSpanName", () => {

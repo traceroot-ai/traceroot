@@ -182,9 +182,19 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
 // turn whose spans were in flight instead of to whichever turn awaited it.
 let flushQueue: Promise<void> = Promise.resolve();
 function flushSerialised(): Promise<void> {
-  const flush = flushQueue.then(() => withTimeout(TraceRoot.flush(), FLUSH_TIMEOUT_MS));
-  flushQueue = flush.catch(() => {});
-  return flush;
+  // The queue advances on the ACTUAL settlement of TraceRoot.flush(), not on
+  // a timed-out view of it: the exporter is process-wide, so if a timeout let
+  // the queue move on while the real flush was still running, the next
+  // queued flush could start and overlap it — reopening the cross-turn
+  // attribution race serialisation exists to close. The caller gets its own
+  // timed-out view of that same underlying call; a timeout it sees does not
+  // mean the underlying flush stopped, only that this call stopped waiting.
+  const underlying = flushQueue.then(() => TraceRoot.flush());
+  flushQueue = underlying.then(
+    () => {},
+    () => {},
+  );
+  return withTimeout(underlying, FLUSH_TIMEOUT_MS);
 }
 
 export async function withAgentTrace<T>(
