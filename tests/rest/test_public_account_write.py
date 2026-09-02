@@ -458,6 +458,106 @@ def test_jwt_write_with_revoked_session_is_401_on_every_write_route(
     assert write.call_count == 0
 
 
+# ── write rate bucket enforcement (route level) ─────────────────────────
+
+# Success envelope per internal write route, so throttle tests see clean 200s
+# until the bucket trips.
+_WRITE_ENVELOPES = {
+    WS_WRITE_URL: {"created": True, "workspace": WORKSPACE_ROW},
+    PROJECT_WRITE_URL: {"created": True, "project": PROJECT_ROW},
+    f"{BASE_URL}/api/internal/write/detectors": {
+        "created": True,
+        "detector": {
+            "id": "d1",
+            "name": "D",
+            "projectId": "proj-1",
+            "enabled": True,
+            "sampleRate": 10,
+        },
+    },
+    f"{BASE_URL}/api/internal/write/dashboards": {
+        "created": True,
+        "dashboard": {"id": "da1", "name": "Spend", "projectId": "proj-1"},
+    },
+    f"{BASE_URL}/api/internal/write/widgets": {
+        "created": True,
+        "widget": {"id": "w1", "dashboardId": "dash-1", "title": "Cost", "type": "query"},
+    },
+}
+
+_ALL_WRITE_ROUTES = [
+    ("/api/v1/public/workspaces", {"name": "Alpha"}, WS_WRITE_URL)
+] + _OTHER_WRITE_ROUTES
+
+
+@pytest.fixture()
+def _enabled_memory_limiter(monkeypatch):
+    """Enable the app's REAL limiter on fresh in-memory storage.
+
+    The route decorators captured the module-level limiter instance at import
+    time, so the fixture flips that instance on and swaps its storage/strategy
+    for a per-test MemoryStorage — hermetic (no Redis), reset every test, and
+    exercising the exact decorators production runs. The free write tier is
+    pinned to 2/minute so the third request trips the bucket.
+    """
+    from limits.storage import MemoryStorage
+    from limits.strategies import FixedWindowRateLimiter
+
+    from rest import rate_limit
+    from shared.config import _PLAN_LIMITS_WRITE
+
+    storage = MemoryStorage()
+    monkeypatch.setattr(rate_limit.limiter, "enabled", True)
+    monkeypatch.setattr(rate_limit.limiter, "_storage", storage)
+    monkeypatch.setattr(rate_limit.limiter, "_limiter", FixedWindowRateLimiter(storage))
+    monkeypatch.setitem(_PLAN_LIMITS_WRITE, "free", "2/minute")
+
+
+@respx.mock
+@pytest.mark.parametrize(("path", "body", "write_url"), _ALL_WRITE_ROUTES)
+def test_every_write_route_throttles_on_the_write_bucket(
+    _enabled_memory_limiter, path, body, write_url
+):
+    """Each of the five write routes 429s once the write bucket is exhausted.
+
+    The decorator is wired per route, so a unit test of ``key_write``'s key
+    string proves nothing about the routes — without this, dropping the
+    decorator (or a ``scope=`` typo) would silently turn a public write into
+    an unmetered create endpoint with CI green.
+    """
+    _mock_account_auth()
+    respx.post(write_url).mock(return_value=Response(200, json=_WRITE_ENVELOPES[write_url]))
+    client = _client()
+
+    statuses = [client.post(path, json=body, headers=USER_HEADER).status_code for _ in range(3)]
+
+    assert statuses == [200, 200, 429]
+
+
+@respx.mock
+def test_reads_do_not_consume_the_write_bucket(_enabled_memory_limiter):
+    """Read traffic and write traffic draw from independent buckets."""
+    _mock_account_auth()
+    respx.post(f"{BASE_URL}/api/internal/user-memberships").mock(
+        return_value=Response(200, json={"workspaces": []})
+    )
+    _mock_workspace_write()
+    client = _client()
+
+    # A read first: if it drew from the write bucket, the writes below would
+    # trip one request early.
+    assert client.get("/api/v1/public/workspaces", headers=USER_HEADER).status_code == 200
+    statuses = [
+        client.post(
+            "/api/v1/public/workspaces", json={"name": "Alpha"}, headers=USER_HEADER
+        ).status_code
+        for _ in range(3)
+    ]
+    assert statuses == [200, 200, 429]
+    # And the exhausted write bucket does not throttle reads either.
+    assert client.get("/api/v1/public/workspaces", headers=USER_HEADER).status_code == 200
+
+
 # ── proxy encode backstop ───────────────────────────────────────────────
 
 
