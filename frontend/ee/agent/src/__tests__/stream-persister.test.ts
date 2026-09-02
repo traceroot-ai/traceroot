@@ -261,7 +261,9 @@ describe("StreamPersister", () => {
     // The agent shares one accumulator between the SDK's span capture and the
     // persisted rows so both stop capturing together; a budget of the
     // persister's own would double the effective run cap.
-    const state = { spentBytes: 262_144 - 3 };
+    // Room for exactly the empty args object (2 bytes: `{}`) plus the six
+    // result bytes, so the charge lands on the run cap.
+    const state = { spentBytes: 262_144 - 8 };
     const p = new StreamPersister(async () => {}, { state });
     p.onEvent(toolStart("1", {}, "download_traces"));
     p.onEvent(toolEnd("1", "abcdef", false, "download_traces"));
