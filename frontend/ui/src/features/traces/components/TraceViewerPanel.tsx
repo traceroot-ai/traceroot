@@ -243,8 +243,14 @@ export function TraceViewerPanel({
   // RCA-disabled detector has no analysis to open (gate on the record, not the
   // sessionId, so the button doesn't flicker while the RCA is still pending).
   // With an override we render hardcoded data and touch no network: disable the
-  // findings lookup (empty id), the trace fetch, and the live SSE stream.
-  const { data: traceFindingsData } = useTraceFindings(projectId, traceOverride ? "" : traceId);
+  // findings lookup (empty id), the trace fetch, and the live SSE stream. The
+  // lookup is also skipped for an internal trace opened directly (a detector
+  // self-trace, an agent trace): detectors never target those, so the answer
+  // is always empty.
+  const { data: traceFindingsData } = useTraceFindings(
+    projectId,
+    traceOverride || source === "detector" || source === "agent" ? "" : traceId,
+  );
   const traceFinding = traceFindingsData?.findings?.[0];
   const { data: rcaData } = useRca(projectId, traceFinding?.finding_id ?? "");
   const hasRca = !!traceFinding && !!rcaData?.rca;
@@ -477,6 +483,10 @@ export function TraceViewerPanel({
               <button
                 type="button"
                 onClick={() => {
+                  // Deliberately the customer trace id, not effectiveTraceId:
+                  // the assistant's tools read customer traffic only, and the
+                  // RCA chat is about the analyzed trace even while its agent
+                  // trace is the one on screen.
                   setAiContext(traceOverride ? null : { traceId });
                   setAiInitialSessionId(rcaSessionId);
                   setAiPanelOpen(true);
@@ -560,6 +570,7 @@ export function TraceViewerPanel({
                 variant="outline"
                 size="sm"
                 onClick={() => {
+                  // The customer trace id on purpose (see the Alert button).
                   setAiContext(traceOverride ? null : { traceId });
                   // Bot button always opens a fresh chat; an active RCA session
                   // would otherwise hijack the next message into the worker's
@@ -745,8 +756,12 @@ export function TraceViewerPanel({
                           ? () => setViewingAgentTrace(true)
                           : undefined
                       }
+                      // Keyed on what is displayed, not on the intent: if the RCA
+                      // refetch drops `agentTrace` while the swap is on, the panel
+                      // is already back on the customer trace and a back-chip to
+                      // itself would be nonsense.
                       analyzedTrace={
-                        viewingAgentTrace
+                        effectiveTraceId !== traceId
                           ? { traceId, onClick: () => setViewingAgentTrace(false) }
                           : undefined
                       }

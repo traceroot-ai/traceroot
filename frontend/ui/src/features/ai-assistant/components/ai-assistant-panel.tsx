@@ -247,7 +247,11 @@ export function AiAssistantPanel({
           <MessageList
             messages={messages}
             sessionStreaming={isStreaming}
-            onOpenTrace={(traceId, spanId) => setOpenTrace({ traceId, spanId })}
+            // The sheet below mounts only with a projectId; without one the
+            // links would open nothing.
+            onOpenTrace={
+              projectId ? (traceId, spanId) => setOpenTrace({ traceId, spanId }) : undefined
+            }
           />
         )}
 
