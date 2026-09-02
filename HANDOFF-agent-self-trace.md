@@ -162,6 +162,18 @@ done
   - Process: PR bodies of #2069/#2070/#2072/#2075/#2083 describe superseded
     implementations; #2068/#2082/#2083 change UI without screenshots.
 
+- **Linked-trace chip (2026-09-02).** The customer trace viewer no longer offers a
+  forward "Root cause analysis" chip; the way into an analysis is the finding (or
+  the chat footer's View trace). An internal trace shows exactly one chip, read
+  from its own trace-record metadata: RCA and detector-run traces link to the
+  customer trace they analyzed ("Analyzed trace"), a follow-up links to the
+  analysis it continues ("Analysis"). The host page takes the click
+  (`onOpenLinkedTrace`). Internal traces ingested BEFORE this round have no chip
+  and no "Analysis for finding …" header: both emitters only stamped
+  `traceroot.span.metadata`, and ingest fills the trace record from
+  `traceroot.trace.metadata` (`otel_transform.py`), so the trace-level metadata
+  was null. Both emitters now stamp it; existing rows are not backfilled.
+
 ## Open design questions (in the doc, none blocking)
 
 Per-project credential scoping for internal ingest · opt-in visibility of
