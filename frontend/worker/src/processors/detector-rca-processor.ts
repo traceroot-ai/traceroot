@@ -15,6 +15,7 @@ import {
   markFindingRunningIfLatest,
 } from "@traceroot/core/rca-executions";
 import { fetchProviderConfig, resolvePiModel } from "@traceroot/core/model-resolver";
+import { publicErrorMessage } from "@traceroot/core/public-error";
 import type { DetectorRcaJob } from "../queues/detector-run-queue.js";
 import { DETECTOR_RCA_QUEUE, createRedisConnection } from "../queues/detector-run-queue.js";
 import {
@@ -501,12 +502,21 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
       result: rcaResult,
     });
     if (!applied) {
+      // Execution rows don't store `result` — only the shared finding row
+      // does, and a newer attempt already owns it. This attempt's answer is
+      // discarded; its session transcript (AISession/AIMessage, linked via
+      // this execution's sessionId) is what remains of it.
       console.log(
-        `[RCA] finding ${findingId}: attempt ${execution.attempt} finished but a newer attempt owns the finding; result kept on its execution row only`,
+        `[RCA] finding ${findingId}: attempt ${execution.attempt} finished but a newer attempt owns the finding; its result is discarded, its session transcript remains`,
       );
     }
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
+    // The raw error can carry provider/database internals (connection
+    // strings, stack frames) — log it in full server-side, but persist only
+    // a sanitised first line: `result` is returned to project users by the
+    // RCA route.
+    console.error(`[RCA] finding ${findingId}: run failed:`, e);
+    const message = publicErrorMessage(e);
     await prisma.detectorRcaExecution
       .update({
         where: { id: execution.executionId },

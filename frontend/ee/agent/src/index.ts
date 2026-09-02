@@ -2,6 +2,7 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { prisma, syncStandardPrices, ModelSource } from "@traceroot/core";
+import { publicErrorMessage } from "@traceroot/core/public-error";
 import {
   createSession,
   getSession,
@@ -340,10 +341,14 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
             persister.onEvent(event);
           },
           onError: (error) => {
-            console.error(`[Agent] ERROR:`, error.message);
+            // Log the full error server-side; the raw provider/agent message
+            // can carry internal detail (connection strings, stack frames)
+            // and this SSE frame reaches the browser, so only a sanitised
+            // form goes out over it.
+            console.error(`[Agent] ERROR:`, error);
             stream.writeSSE({
               event: "error",
-              data: JSON.stringify({ message: error.message }),
+              data: JSON.stringify({ message: publicErrorMessage(error) }),
             });
             // Resolve, not reject: the run happened and its rows persist below.
             // The error still marks the root span so the trace reads as failed.

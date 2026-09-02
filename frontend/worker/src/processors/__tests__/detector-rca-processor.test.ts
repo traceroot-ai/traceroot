@@ -683,6 +683,10 @@ describe("processRcaJob", () => {
       } as any),
     ).rejects.toThrow(/Invalid API key for provider/);
 
+    // The persisted result goes through publicErrorMessage (sanitised, capped,
+    // first-line-only); this particular message happens to have no secret or
+    // second line, so it survives unchanged — the case below proves the
+    // sanitiser actually does something.
     expect(finishFindingIfLatestMock).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -695,6 +699,52 @@ describe("processRcaJob", () => {
     // A failed RCA must still alert: scheduleDigestFlush runs from the catch
     // block so the finding isn't silently dropped from the digest.
     expect(digestAddMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("sanitises a secret-shaped, multi-line agent error before persisting it", async () => {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.workspace, "findUnique").mockResolvedValue({
+      billingPlan: "pro",
+      rcaBlocked: false,
+    } as any);
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(p.gitHubInstallation, "count").mockResolvedValue(0);
+    vi.spyOn(p.project, "findUnique").mockResolvedValue({
+      rcaModel: null,
+      rcaProvider: null,
+      rcaSource: null,
+      alertConfig: { alertWindow: "30m" },
+    } as any);
+
+    const rawMessage =
+      "Auth failed for sk-abcdefghijklmnopqrstuvwxyz0123456789\nRetrying with backup key at internal-host:5432";
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce(sseBody([{ event: "error", data: { message: rawMessage } }]));
+
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    await expect(
+      processRcaJob({
+        data: {
+          findingId: "f1",
+          projectId: "p1",
+          traceId: "t1",
+          workspaceId: "ws1",
+          findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+        },
+      } as any),
+    ).rejects.toThrow();
+
+    const [, data] = finishFindingIfLatestMock.mock.calls[0] as [unknown, { result: string }];
+    // The credential is redacted, the second line (an internal host) is
+    // dropped entirely — only the first line survives, sanitised.
+    expect(data.result).not.toContain("abcdefghijklmnopqrstuvwxyz0123456789");
+    expect(data.result).not.toContain("internal-host");
+    expect(data.result).toContain("sk-[REDACTED]");
+    // The full raw error — secret and all — is still logged server-side.
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("run failed"), expect.anything());
+    errorSpy.mockRestore();
   });
 });
 

@@ -18,6 +18,10 @@
       "types": "./src/lib/capture-policy.ts",
       "default": "./src/lib/capture-policy.ts"
     },
+    "./public-error": {
+      "types": "./src/lib/public-error.ts",
+      "default": "./src/lib/public-error.ts"
+    },
     "./llm-providers": {
       "types": "./src/llm-providers.ts",
       "default": "./src/llm-providers.ts"
