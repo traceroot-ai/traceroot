@@ -186,6 +186,26 @@ describe("with a secret (SDK-traced path)", () => {
     expect(run).toEqual({ ok: true, value: "survived", selfTraced: false });
   });
 
+  it("stamps the trace-level metadata on the root before fn runs, so ingest promotes it", async () => {
+    // observe() only sets the span-level metadata; the trace record's
+    // metadata (what the viewer reads) comes from traceroot.trace.metadata.
+    const fakeSpan = { setAttribute: vi.fn(), setStatus: vi.fn() };
+    const spy = vi.spyOn(trace, "getActiveSpan").mockReturnValue(fakeSpan as never);
+    try {
+      const run = await withSelfTrace(meta(), async () => {
+        // Already there when fn starts: a failed run keeps it.
+        expect(fakeSpan.setAttribute).toHaveBeenCalledWith(
+          "traceroot.trace.metadata",
+          JSON.stringify(meta().metadata),
+        );
+        throw new Error("judge failed");
+      });
+      expect(run.ok).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("marks the root errored when recordIo reports an eval failure result", async () => {
     const fakeSpan = { setAttribute: vi.fn(), setStatus: vi.fn() };
     const spy = vi.spyOn(trace, "getActiveSpan").mockReturnValue(fakeSpan as never);

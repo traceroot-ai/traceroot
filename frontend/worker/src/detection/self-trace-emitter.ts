@@ -24,13 +24,16 @@ import { TraceRoot, observe } from "@traceroot-ai/traceroot";
 /** Identity of one self-trace root. The caller owns all of it: a detector run
  *  forces its dashless run id as the trace id and names the root after the
  *  detector; the digest draws a fresh id per flush. */
+/** Root attribute ingest promotes to the trace record's `metadata` (otel_transform.py). */
+const TRACE_METADATA = "traceroot.trace.metadata";
+
 export interface SelfTraceMeta {
   /** 32-hex id forced on the root and inherited by every span under it. */
   traceId: string;
   projectId: string;
   /** Root span name; the trace record inherits it. */
   name: string;
-  /** Stamped on the root; the transform promotes it to the trace record. */
+  /** Stamped on the root span, and as traceroot.trace.metadata so ingest promotes it to the trace record. */
   metadata: Record<string, unknown>;
 }
 
@@ -208,6 +211,15 @@ export async function withSelfTrace<T>(
   let fnValue: T | undefined;
   const wrapped = async (): Promise<T> => {
     fnRan = true;
+    // observe() stamps `metadata` on the root SPAN only. The trace record's
+    // metadata — what the viewer reads (detectorId, scannedTraceId, …) — is
+    // filled by ingest from this separate root attribute, so stamp it here
+    // too, before fn runs so it survives a failed run.
+    try {
+      trace.getActiveSpan()?.setAttribute(TRACE_METADATA, JSON.stringify(meta.metadata));
+    } catch (err) {
+      console.error("[Detector] self-trace metadata stamp failed:", err);
+    }
     const value = await fn();
     fnValue = value;
     fnCompleted = true;
