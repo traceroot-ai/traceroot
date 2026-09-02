@@ -112,4 +112,26 @@ describe("Alert panel → agent trace", () => {
     // mounted directly with source="agent" (Task 18), not just the fetch target.
     expect(await screen.findByText("Agent")).toBeTruthy();
   });
+
+  it("hides the Detectors tab while viewing the agent trace — detectors never target internal traces", async () => {
+    render(
+      <TraceViewerPanel
+        projectId="p1"
+        traceId="t1"
+        onClose={() => {}}
+        onNavigate={() => {}}
+        canNavigateUp={false}
+        canNavigateDown={false}
+      />,
+    );
+    // Present on the customer trace…
+    expect(await screen.findByRole("button", { name: /detectors/i })).toBeTruthy();
+
+    fireEvent.click(await screen.findByRole("button", { name: /analysis:\s*rca trace/i }));
+
+    // …gone on the agent trace, and back once the user returns.
+    expect(screen.queryByRole("button", { name: /detectors/i })).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: /back to trace/i }));
+    expect(await screen.findByRole("button", { name: /detectors/i })).toBeTruthy();
+  });
 });
