@@ -178,6 +178,68 @@ describe("applyCapturePolicy", () => {
     expect(state.spentBytes).toBeLessThanOrEqual(10_000);
   });
 
+  it("never returns or charges more bytes than the budget for multibyte text", () => {
+    // Cutting the byte buffer mid-codepoint made the decoder emit a 3-byte
+    // U+FFFD for the fragment, so both the result and spentBytes overshot.
+    for (const [perStepBytes, perRunBytes] of [
+      [5, 5],
+      [8, 100],
+      [1_000, 1_006],
+    ]) {
+      const state = { spentBytes: 0 };
+      const r = applyCapturePolicy(
+        { toolName: "download_traces", args: {}, result: "😀".repeat(500) },
+        state,
+        { perStepBytes, perRunBytes },
+      );
+      expect(r.truncated).toBe(true);
+      expect(Buffer.byteLength(r.result!, "utf8")).toBeLessThanOrEqual(perStepBytes);
+      expect(state.spentBytes).toBeLessThanOrEqual(perRunBytes);
+      expect(r.result).not.toContain("�");
+    }
+    // Args leaves take the same path.
+    const state = { spentBytes: 0 };
+    const r = applyCapturePolicy(
+      { toolName: "bash", args: { command: "日本語".repeat(100) }, result: "" },
+      state,
+      { perStepBytes: 10, perRunBytes: 10 },
+    );
+    expect(Buffer.byteLength((r.args as { command: string }).command, "utf8")).toBeLessThanOrEqual(
+      10,
+    );
+    expect(state.spentBytes).toBeLessThanOrEqual(10);
+  });
+
+  it("reports cut args as truncated, and withholds the result the args used up", () => {
+    // Before, a 20 KB `bash` command cut to the step allowance came back with
+    // `truncated: false`, and a result with no allowance left came back as
+    // `result: ""` — an empty string that reads as real output — instead of
+    // the `withheld: "budget"` a spent run budget yields.
+    const withheld = applyCapturePolicy(
+      { toolName: "download_traces", args: { q: "x".repeat(5_000) }, result: "rows" },
+      { spentBytes: 0 },
+      { perStepBytes: 1_000, perRunBytes: 100_000 },
+    );
+    expect(withheld.truncated).toBe(true);
+    expect(withheld.result).toBeUndefined();
+    expect(withheld.withheld).toBe("budget");
+
+    const cutArgs = applyCapturePolicy(
+      { toolName: "bash", args: { command: "x".repeat(5_000) }, result: "out" },
+      { spentBytes: 0 },
+      { perStepBytes: 1_000, perRunBytes: 100_000 },
+    );
+    expect(cutArgs.truncated).toBe(true);
+    expect(cutArgs.withheld).toBe("not-allowlisted");
+
+    const fits = applyCapturePolicy(
+      { toolName: "download_traces", args: { q: "short" }, result: "rows" },
+      { spentBytes: 0 },
+      { perStepBytes: 1_000, perRunBytes: 100_000 },
+    );
+    expect(fits).toMatchObject({ result: "rows", truncated: false, withheld: null });
+  });
+
   it("shares one step allowance across every args leaf and the result", () => {
     // A per-leaf cap let an args object exceed perStepBytes by a multiple of
     // its leaf count — five 1 KB leaves under a 1 KB step cap kept all 5 KB.

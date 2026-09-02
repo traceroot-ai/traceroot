@@ -103,7 +103,11 @@ function truncateTo(text: string, bytes: number): { text: string; truncated: boo
   // Too little room for the marker itself: keep nothing rather than emit a
   // marker that would put the result over the allowance it is bounded by.
   if (bytes < TRUNCATION_MARKER_BYTES) return { text: "", truncated: true };
-  const room = bytes - TRUNCATION_MARKER_BYTES;
+  let room = bytes - TRUNCATION_MARKER_BYTES;
+  // Back off to a codepoint boundary. Cutting inside a multibyte sequence makes
+  // the decoder emit a 3-byte U+FFFD for the fragment, which put the result —
+  // and what was charged to the budget — over `bytes`.
+  while (room > 0 && (buf[room] & 0xc0) === 0x80) room -= 1;
   return { text: buf.subarray(0, room).toString("utf8") + TRUNCATION_MARKER, truncated: true };
 }
 
@@ -115,6 +119,7 @@ export function applyCapturePolicy(
   args: unknown;
   result?: string;
   outputBytes: number;
+  /** Whether anything kept — an args leaf or the result — was cut. */
   truncated: boolean;
   withheld: "not-allowlisted" | "budget" | null;
 } {
@@ -123,21 +128,23 @@ export function applyCapturePolicy(
   // charge them like output, or the budgets only govern the smaller half.
   // One step allowance, shared by the args and the result below.
   const step = { remaining: budget.perStepBytes };
-  const args = capArgs(redactDeep(input.args), state, budget, step);
+  const { args, truncated: argsTruncated } = capArgs(redactDeep(input.args), state, budget, step);
   const raw = toText(input.result);
   const outputBytes = Buffer.byteLength(raw, "utf8");
   if (!OUTPUT_ALLOWLIST.has(input.toolName)) {
-    return { args, outputBytes, truncated: false, withheld: "not-allowlisted" };
-  }
-  const remaining = budget.perRunBytes - state.spentBytes;
-  if (remaining <= 0) {
-    return { args, outputBytes, truncated: false, withheld: "budget" };
+    return { args, outputBytes, truncated: argsTruncated, withheld: "not-allowlisted" };
   }
   // Never spend past the run budget: the last step gets what is left, not a
-  // full step on top of an almost-exhausted budget.
-  const { text, truncated } = truncateTo(redactSecrets(raw), Math.min(step.remaining, remaining));
+  // full step on top of an almost-exhausted budget. Either allowance being
+  // used up (by earlier steps, or by this step's own args) withholds the result
+  // outright rather than keeping an empty string that reads as real output.
+  const remaining = Math.min(step.remaining, budget.perRunBytes - state.spentBytes);
+  if (remaining <= 0) {
+    return { args, outputBytes, truncated: argsTruncated, withheld: "budget" };
+  }
+  const { text, truncated } = truncateTo(redactSecrets(raw), remaining);
   state.spentBytes += Buffer.byteLength(text, "utf8");
-  return { args, result: text, outputBytes, truncated, withheld: null };
+  return { args, result: text, outputBytes, truncated: argsTruncated || truncated, withheld: null };
 }
 
 /**
@@ -150,7 +157,8 @@ function capArgs(
   state: { spentBytes: number },
   budget: CaptureBudget,
   step: { remaining: number },
-): unknown {
+): { args: unknown; truncated: boolean } {
+  let truncated = false;
   const cap = (value: unknown): unknown => {
     if (typeof value === "string") {
       // Both budgets bind: the step's remaining allowance is shared across every
@@ -158,12 +166,16 @@ function capArgs(
       // perStepBytes by a multiple of its leaf count), and the run's total is
       // the hard ceiling.
       const remaining = Math.min(step.remaining, budget.perRunBytes - state.spentBytes);
-      if (remaining <= 0) return "[withheld: budget]";
-      const { text } = truncateTo(value, remaining);
-      const spent = Buffer.byteLength(text, "utf8");
+      if (remaining <= 0) {
+        truncated = true;
+        return "[withheld: budget]";
+      }
+      const cut = truncateTo(value, remaining);
+      truncated ||= cut.truncated;
+      const spent = Buffer.byteLength(cut.text, "utf8");
       state.spentBytes += spent;
       step.remaining -= spent;
-      return text;
+      return cut.text;
     }
     if (Array.isArray(value)) return value.map(cap);
     if (value && typeof value === "object") {
@@ -173,5 +185,5 @@ function capArgs(
     }
     return value;
   };
-  return cap(args);
+  return { args: cap(args), truncated };
 }
