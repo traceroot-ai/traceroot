@@ -10,7 +10,7 @@ the same one as every other. Three things have to hold together:
   still holds an old placeholder -- otherwise pulling this change turns a
   working local stack into a 503 loop;
 * Settings must treat a published value as unset, since both call sites
-  (routers/internal.py, routers/deps.py) already fail closed on an empty one.
+  (routers/internal/auth.py, routers/deps.py) already fail closed on an empty one.
 
 The equivalent check for the TypeScript side lives in frontend/ui/src/env.ts.
 """
