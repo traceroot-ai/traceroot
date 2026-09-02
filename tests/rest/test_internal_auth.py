@@ -73,3 +73,33 @@ def test_no_platform_secret_configured_is_503(monkeypatch):
         TestClient(app).get("/whoami", headers={"X-Internal-Secret": "agent-secret"}).status_code
         == 503
     )
+
+
+# ── Settings refuses one credential for two callers ──────────────────────
+
+
+def _settings(**overrides):
+    from shared.config import Settings
+
+    return Settings(**overrides)
+
+
+def test_equal_secrets_are_refused_at_startup():
+    """Same value twice would identify every agent request as the platform and
+    store agent traces as 'detector' with nothing reporting it."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="must differ"):
+        _settings(internal_api_secret="x" * 64, internal_api_secret_agent="x" * 64)
+
+
+def test_agent_secret_may_be_unset():
+    s = _settings(internal_api_secret="x" * 64, internal_api_secret_agent="")
+    assert s.internal_api_secret == "x" * 64 and s.internal_api_secret_agent == ""
+
+
+def test_platform_secret_unset_with_agent_set_is_accepted():
+    """Not equal, so Settings loads; verify_internal_secret then answers 503 for
+    every request (see test_no_platform_secret_configured_is_503)."""
+    s = _settings(internal_api_secret="", internal_api_secret_agent="y" * 64)
+    assert s.internal_api_secret == "" and s.internal_api_secret_agent == "y" * 64
