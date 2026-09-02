@@ -280,29 +280,6 @@ def _has_metadata_condition(detectors: list[dict]) -> bool:
     )
 
 
-# The one source detectors may evaluate. Named as an allowlist (not a fail-open
-# inequality against the detector marker) so every internal marker — present or
-# future — is refused the day it is introduced:
-# the same fail-closed shape as Langfuse's isEvalTargetEnvironmentAllowed. Enqueue
-# already only sees public-path traces, but this makes the judge's own read safe even
-# if enqueueing is ever wired to another path.
-DETECTOR_TARGET_SOURCES = frozenset({"user"})
-
-# The SQL predicate is generated from the same frozenset the helper checks, so the
-# allowlist has one definition. Written as a literal because ClickHouse cannot
-# parameterise an IN list here without changing the query shape; the values are
-# ours, not user input, and the assertion below keeps them safe to inline.
-assert all(s.isalpha() for s in DETECTOR_TARGET_SOURCES), "sources must be bare identifiers"
-DETECTOR_TARGET_SOURCE_SQL = (
-    "source IN (" + ", ".join(f"'{s}'" for s in sorted(DETECTOR_TARGET_SOURCES)) + ")"
-)
-
-
-def is_detector_target_source(source: str | None) -> bool:
-    """True only for customer traffic. Fails closed on None, '' and unknown values."""
-    return source in DETECTOR_TARGET_SOURCES
-
-
 def _get_trace_summaries(
     project_id: str,
     trace_ids: list[str],
@@ -317,6 +294,10 @@ def _get_trace_summaries(
     before aggregating because ReplacingMergeTree may still hold an unmerged
     replay of a row at read time. Returns {trace_id: summary_dict}.
 
+    Scoped to customer traffic with the same predicate every customer read uses, so
+    a trace whose spans are all internal telemetry gets no summary — and
+    ``enqueue_detector_runs`` treats "no summary" as "not a detector target".
+
     ``is_evaluation`` is the ingest-set flag, NOT ``environment``: ``environment`` is
     user-controlled free text, so a team that names a deployment "evaluation" must not
     have its detectors silently switched off. ``max(is_evaluation)`` over the trace's
@@ -325,6 +306,7 @@ def _get_trace_summaries(
     arrive) having landed yet.
     """
     from db.clickhouse.client import get_clickhouse_client
+    from rest.services.trace_reader import customer_traffic_only
     from rest.sql_utils import to_utc_naive
 
     if not trace_ids:
@@ -356,7 +338,7 @@ def _get_trace_summaries(
             FROM spans
             WHERE project_id = {{project_id:String}}
               AND trace_id IN {{trace_ids:Array(String)}}
-              AND {DETECTOR_TARGET_SOURCE_SQL}
+              AND {customer_traffic_only()}
             ORDER BY ch_update_time DESC
             LIMIT 1 BY project_id, trace_id, span_id
         )
@@ -584,6 +566,13 @@ def enqueue_detector_runs(project_id: str, traces_with_root: set[str]) -> None:
             else {}
         )
         for trace_id in root_traces:
+            # The summary query is scoped to source = 'user', and the root span was
+            # inserted before this call, so a customer trace always has a summary
+            # here. One without is internal telemetry: skip it before the claim,
+            # rather than let a detector with no conditions evaluate it.
+            if detectors and trace_id not in summaries:
+                logger.debug(f"Trace {trace_id} has no customer spans; not a detector target")
+                continue
             # Per-trace try/except so an unexpected per-trace failure (Redis,
             # BullMQ) only drops the offending trace — remaining traces in the
             # batch still get enqueued. Malformed conditions no longer raise:
