@@ -689,14 +689,25 @@ export function TraceViewerPanel({
                     <div className="flex h-full items-center justify-center">
                       {(effectiveSource === "detector" || effectiveSource === "agent") &&
                       (!error || (error instanceof ApiError && error.status === 404)) ? (
-                        // self_traced is set optimistically at emit time (detector), and an
-                        // agent trace id is allocated before the run (RCA/follow-up/chat) —
-                        // in both cases the SDK export is batched, so the trace may not be
-                        // ingested yet and a 404 miss here is expected, not an error. A
-                        // non-404 failure still surfaces as a real error below. Once the
-                        // export window has passed, the stamp is stale: the export failed
-                        // and nothing will arrive, so say so instead of telling the user to
-                        // keep waiting.
+                        effectiveSource === "agent" ? (
+                          // Every way into an agent trace — the Alert chip, a Finding ID
+                          // cell, the sidebar's View trace — gates on the execution's
+                          // traceStatus being "available", i.e. the agent already reported
+                          // a successful export. So a 404 here is ingest lag, never a
+                          // failed export, and the detector run's timestamp window below
+                          // says nothing about it: the analysis starts after the run and
+                          // takes minutes.
+                          <p className="text-sm text-muted-foreground">
+                            This analysis trace has been exported but isn&rsquo;t ingested yet.
+                            Check back in a moment.
+                          </p>
+                        ) : // self_traced is set optimistically at emit time, and the SDK
+                        // export is batched, so the trace may not be ingested yet and a
+                        // 404 miss here is expected, not an error. A non-404 failure
+                        // still surfaces as a real error below. Once the export window
+                        // has passed, the stamp is stale: the export failed and nothing
+                        // will arrive, so say so instead of telling the user to keep
+                        // waiting.
                         isSelfTracePending(runTimestamp) ? (
                           <p className="text-sm text-muted-foreground">
                             This detector run&rsquo;s trace is still being recorded. Check back in a

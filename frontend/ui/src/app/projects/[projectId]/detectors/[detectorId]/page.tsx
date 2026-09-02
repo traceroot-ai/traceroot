@@ -333,7 +333,12 @@ export default function DetectorDetailPage() {
                 ? "agent"
                 : "user"
           }
-          runTimestamp={activeRows[selectedIndex]?.timestamp}
+          // The run's timestamp bounds the self-trace "still being recorded"
+          // window. It says nothing about the finding's analysis trace, which
+          // starts after the run and takes minutes — so it is withheld there.
+          runTimestamp={
+            selectedTrace.kind === "finding" ? undefined : activeRows[selectedIndex]?.timestamp
+          }
         />
       )}
 
