@@ -247,13 +247,7 @@ def test_detail_by_finding_id_returns_results_and_rca(client, reader):
     assert reader.last_get == ("proj-A", "f1")
     assert body["results"][0]["detector_id"] == "d1"
     assert body["results"][0]["identified"] is True
-    assert body["rca"] == {
-        "status": "done",
-        "result": "rc",
-        "trace_id": None,
-        "trace_status": None,
-        "attempt": None,
-    }
+    assert body["rca"] == {"status": "done", "result": "rc"}
 
 
 def test_detail_without_rca_returns_null(client, reader):

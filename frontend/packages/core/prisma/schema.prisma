@@ -480,12 +480,10 @@ model DetectorRca {
   // DetectorAlertConfig when a project is deleted.
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
-  // Pointer to the newest DetectorRcaExecution for this finding (CAS-advanced by
-  // advanceLatest — see rca-executions.ts). Null on legacy rows created before
-  // executions existed (no backfill by design).
-  latestExecutionId String?                @unique @map("latest_execution_id") @db.VarChar
-  latestExecution   DetectorRcaExecution?  @relation("latestExecution", fields: [latestExecutionId], references: [id], onDelete: SetNull)
-  executions        DetectorRcaExecution[] @relation("rcaExecutions")
+  // The current execution is the one with the highest attempt (see
+  // rca-executions.ts). Empty on legacy rows created before executions existed
+  // (no backfill by design).
+  executions DetectorRcaExecution[]
 
   @@index([projectId], map: "ix_detector_rcas_project_id")
   @@map("detector_rcas")
@@ -509,16 +507,13 @@ model DetectorRcaExecution {
   traceId     String      @map("trace_id") @db.VarChar // 32-hex; attempt 1 = dashless finding id
   traceStatus TraceStatus @default(pending) @map("trace_status")
   sessionId   String?     @map("session_id") @db.VarChar
-  result      String?     @db.Text
   startedAt   DateTime    @default(now()) @map("started_at") @db.Timestamp(6)
   finishedAt  DateTime?   @map("finished_at") @db.Timestamp(6)
 
-  rca      DetectorRca  @relation("rcaExecutions", fields: [findingId], references: [findingId], onDelete: Cascade)
-  session  AISession?   @relation(fields: [sessionId], references: [id], onDelete: SetNull)
-  latestOf DetectorRca? @relation("latestExecution")
+  rca     DetectorRca @relation(fields: [findingId], references: [findingId], onDelete: Cascade, onUpdate: NoAction)
+  session AISession?  @relation(fields: [sessionId], references: [id], onDelete: SetNull, onUpdate: NoAction)
 
   @@unique([findingId, attempt], map: "uq_rca_execution_finding_attempt")
-  @@index([projectId], map: "ix_rca_execution_project_id")
   @@map("detector_rca_executions")
 }
 

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import { allocateExecution, advanceLatest, executionTraceId } from "../rca-executions.ts";
+import { allocateExecution, executionTraceId, finishFindingIfLatest } from "../rca-executions.ts";
 
 describe("executionTraceId", () => {
   it("attempt 1 is the dashless finding id", () => {
@@ -18,89 +18,151 @@ describe("executionTraceId", () => {
   });
 });
 
-function fakeDb(
-  existingAttempts: number[],
-  latest: { executionId: string; attempt: number } | null,
-) {
-  const created: any[] = [];
-  const updates: any[] = [];
+type Execution = { id: string; findingId: string; attempt: number; traceId: string };
+
+/**
+ * A fake db backed by a real executions list: `aggregate` reflects prior
+ * `create`s and `create` enforces uq_rca_execution_finding_attempt, so the
+ * allocator's "next attempt" logic is exercised against real state rather than
+ * canned answers. `$executeRaw` evaluates finishFindingIfLatest's NOT EXISTS
+ * predicate against the same list.
+ */
+function fakeDb(executions: Execution[] = []) {
+  const sql: { text: string; values: unknown[] }[] = [];
   const db = {
     $transaction: async (fn: any) => fn(db),
-    $queryRaw: vi.fn(async () => [{ id: "rca-row" }]), // row lock
+    $queryRaw: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      sql.push({ text: strings.join("?"), values });
+      return [{ id: "rca-row" }];
+    }),
+    $executeRaw: vi.fn(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const text = strings.join("?");
+      sql.push({ text, values });
+      // Params, in template order: status, result, completed_at, finding_id, finding_id, attempt.
+      const [, , , findingId, , attempt] = values as [
+        string,
+        string | null,
+        Date,
+        string,
+        string,
+        number,
+      ];
+      const higher = executions.some((e) => e.findingId === findingId && e.attempt > attempt);
+      return higher ? 0 : 1;
+    }),
     detectorRcaExecution: {
-      aggregate: vi.fn(async () => ({
-        _max: { attempt: existingAttempts.length ? Math.max(...existingAttempts) : null },
-      })),
-      create: vi.fn(async ({ data }: any) => {
-        const row = { id: `exec-${data.attempt}`, ...data };
-        created.push(row);
-        return row;
+      aggregate: vi.fn(async ({ where }: any) => {
+        const attempts = executions
+          .filter((e) => e.findingId === where.findingId)
+          .map((e) => e.attempt);
+        return { _max: { attempt: attempts.length ? Math.max(...attempts) : null } };
       }),
-      findUnique: vi.fn(async ({ where }: any) => ({ attempt: Number(where.id.split("-")[1]) })),
-    },
-    detectorRca: {
-      findUnique: vi.fn(async () =>
-        latest
-          ? { latestExecutionId: latest.executionId, latestExecution: { attempt: latest.attempt } }
-          : { latestExecutionId: null, latestExecution: null },
-      ),
-      updateMany: vi.fn(async ({ where }: any) => {
-        updates.push(where);
-        return { count: where.latestExecutionId === (latest?.executionId ?? null) ? 1 : 0 };
+      create: vi.fn(async ({ data }: any) => {
+        if (executions.some((e) => e.findingId === data.findingId && e.attempt === data.attempt)) {
+          throw new Error("P2002: uq_rca_execution_finding_attempt");
+        }
+        const row = { id: `exec-${data.attempt}`, ...data };
+        executions.push(row);
+        return row;
       }),
     },
   };
-  return { db, created, updates };
+  return { db, executions, sql };
 }
 
 describe("allocateExecution", () => {
-  it("seeds attempt 1 from a legacy RCA row (no executions yet, RCA already done) and allocates attempt 2", async () => {
-    const { db, created } = fakeDb([], null);
-    db.detectorRca.findUnique = vi.fn(async () => ({
-      latestExecutionId: null,
-      latestExecution: null,
-      status: "done",
-      sessionId: "s-old",
-      result: "old answer",
-      createTime: new Date(0),
-      completedAt: new Date(1),
-    }));
-    const r = await allocateExecution(db as any, { findingId: "f-1", projectId: "p-1" });
-    expect(created[0]).toMatchObject({
-      attempt: 1,
-      traceStatus: "disabled",
-      sessionId: "s-old",
-      result: "old answer",
-      traceId: executionTraceId("f-1", 1),
-    });
-    expect(r.attempt).toBe(2);
-  });
   it("first allocation is attempt 1 with the finding-derived trace id", async () => {
-    const { db, created } = fakeDb([], null);
+    const { db, executions } = fakeDb();
     const r = await allocateExecution(db as any, { findingId: "f-1", projectId: "p-1" });
     expect(r.attempt).toBe(1);
     expect(r.traceId).toBe(executionTraceId("f-1", 1));
-    expect(created[0].traceStatus).toBe("pending");
+    expect(executions[0]).toMatchObject({ attempt: 1, traceStatus: "pending", projectId: "p-1" });
   });
-  it("second allocation is attempt 2 with a different trace id", async () => {
-    const { db } = fakeDb([1], { executionId: "exec-1", attempt: 1 });
-    const r = await allocateExecution(db as any, { findingId: "f-1", projectId: "p-1" });
-    expect(r.attempt).toBe(2);
-    expect(r.traceId).not.toBe(executionTraceId("f-1", 1));
+
+  it("consecutive allocations get n, n+1 and distinct trace ids without violating (finding, attempt)", async () => {
+    const { db, executions } = fakeDb();
+    const a = await allocateExecution(db as any, { findingId: "f-1", projectId: "p-1" });
+    const b = await allocateExecution(db as any, { findingId: "f-1", projectId: "p-1" });
+    expect([a.attempt, b.attempt]).toEqual([1, 2]);
+    expect(b.traceId).not.toBe(a.traceId);
+    expect(executions.map((e) => e.attempt)).toEqual([1, 2]);
+  });
+
+  it("takes the finding's row lock before reading the max attempt", async () => {
+    const { db, sql } = fakeDb();
+    await allocateExecution(db as any, { findingId: "f-1", projectId: "p-1" });
+    expect(sql[0].text).toMatch(/FROM detector_rcas WHERE finding_id = \? FOR UPDATE/);
+    expect(sql[0].values).toEqual(["f-1"]);
+    expect(db.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      db.detectorRcaExecution.aggregate.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("does not seed a synthetic attempt for a legacy finding: its first execution is attempt 1", async () => {
+    const { db, executions } = fakeDb();
+    const r = await allocateExecution(db as any, { findingId: "f-old", projectId: "p-1" });
+    expect(r.attempt).toBe(1);
+    expect(executions).toHaveLength(1);
   });
 });
 
-describe("advanceLatest (compare-and-set on attempt)", () => {
-  it("moves the pointer forward", async () => {
-    const { db } = fakeDb([1], { executionId: "exec-1", attempt: 1 });
+describe("finishFindingIfLatest", () => {
+  const exec = (attempt: number): Execution => ({
+    id: `exec-${attempt}`,
+    findingId: "f-1",
+    attempt,
+    traceId: executionTraceId("f-1", attempt),
+  });
+
+  it("writes when no higher attempt exists", async () => {
+    const { db } = fakeDb([exec(1), exec(2)]);
     expect(
-      await advanceLatest(db as any, { findingId: "f-1", executionId: "exec-2", attempt: 2 }),
+      await finishFindingIfLatest(db as any, {
+        findingId: "f-1",
+        attempt: 2,
+        status: "done",
+        result: "answer",
+      }),
     ).toBe(true);
   });
-  it("does not move the pointer backwards when an older run finishes last", async () => {
-    const { db } = fakeDb([1, 2], { executionId: "exec-2", attempt: 2 });
+
+  it("does not write when a higher attempt exists (older run finishing last)", async () => {
+    const { db } = fakeDb([exec(1), exec(2)]);
     expect(
-      await advanceLatest(db as any, { findingId: "f-1", executionId: "exec-1", attempt: 1 }),
+      await finishFindingIfLatest(db as any, {
+        findingId: "f-1",
+        attempt: 1,
+        status: "failed",
+        result: "RCA failed: timeout",
+      }),
     ).toBe(false);
+  });
+
+  it("is a single conditional UPDATE guarded by NOT EXISTS on a higher attempt", async () => {
+    const { db, sql } = fakeDb([exec(1)]);
+    const completedAt = new Date(5);
+    await finishFindingIfLatest(db as any, {
+      findingId: "f-1",
+      attempt: 1,
+      status: "done",
+      result: "answer",
+      completedAt,
+    });
+    expect(db.$executeRaw).toHaveBeenCalledTimes(1);
+    const text = sql[0].text.replace(/\s+/g, " ");
+    expect(text).toContain("UPDATE detector_rcas SET status = ?, result = ?, completed_at = ?");
+    expect(text).toContain(
+      "WHERE finding_id = ? AND NOT EXISTS ( SELECT 1 FROM detector_rca_executions WHERE finding_id = ? AND attempt > ? )",
+    );
+    expect(sql[0].values).toEqual(["done", "answer", completedAt, "f-1", "f-1", 1]);
+  });
+
+  it("defaults result to null and completedAt to now", async () => {
+    const { db, sql } = fakeDb([exec(1)]);
+    const before = Date.now();
+    await finishFindingIfLatest(db as any, { findingId: "f-1", attempt: 1, status: "failed" });
+    const [, result, completedAt] = sql[0].values as [string, unknown, Date];
+    expect(result).toBeNull();
+    expect(completedAt.getTime()).toBeGreaterThanOrEqual(before);
   });
 });

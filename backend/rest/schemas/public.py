@@ -1,7 +1,7 @@
 """Response schemas for the public, API-key-authenticated API."""
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -105,18 +105,10 @@ class DetectorResultItem(BaseModel):
 
 
 class RCAResult(BaseModel):
-    """Free-text root-cause analysis for a finding (Postgres ``detector_rcas``).
-
-    ``trace_id``/``trace_status``/``attempt`` describe the latest
-    ``detector_rca_executions`` row for this RCA and are ``None`` on legacy rows
-    created before executions existed.
-    """
+    """Free-text root-cause analysis for a finding (Postgres ``detector_rcas``)."""
 
     status: str
     result: str | None
-    trace_id: str | None = None
-    trace_status: Literal["disabled", "pending", "available", "failed"] | None = None
-    attempt: int | None = None
 
 
 class FindingSummary(BaseModel):
