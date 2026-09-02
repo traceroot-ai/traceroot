@@ -13,7 +13,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { QueryWidgetRenderer } from "@/features/dashboards/components/renderers";
 import { useWidgetData } from "@/features/dashboards/hooks/use-widget-data";
-import { DEFAULT_RANGE_ID, makeRange } from "@/features/dashboards/range-presets";
+import { makeRange, resolveSiteRange } from "@/features/dashboards/range-presets";
 import type { WidgetSpec } from "@/features/dashboards/types";
 import { FIELD_UNIT } from "@/features/filters/filter-controls";
 import { CHART_TILE_ASPECT, SNAPSHOT_QUERY_OPTIONS } from "./dashboard-miniature";
@@ -29,8 +29,10 @@ interface WidgetChartPreviewProps {
 function Plot({ projectId, widgetId, spec }: WidgetChartPreviewProps) {
   // The window is frozen at the moment the card first came into view: a
   // receipt for a past action should not quietly slide its own axis while the
-  // transcript stays open.
-  const range = useMemo(() => makeRange(DEFAULT_RANGE_ID), []);
+  // transcript stays open. Which window gets frozen is the site's own stored
+  // selection for this project (default when nothing usable is stored), so
+  // the preview charts the same range every other page is showing.
+  const range = useMemo(() => makeRange(resolveSiteRange(projectId).id), [projectId]);
   const { data, isPending, error } = useWidgetData(
     projectId,
     widgetId,
