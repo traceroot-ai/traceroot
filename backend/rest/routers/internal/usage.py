@@ -25,11 +25,17 @@ class UsageDetailsResponse(BaseModel):
     traces: int
     spans: int
     detector_runs: int = 0
-    # Attribution only. The totals above are what is billed (every stored row,
-    # whoever wrote it — 747562e2); this splits the same rows by writer so the
-    # Free ingestion cap can be applied to customer rows and the billing tab can
-    # show customers which rows are theirs.
+    # Attribution/display only: splits the same rows by writer so the billing
+    # tab can show customers which rows are theirs. The Free ingestion cap,
+    # quota notifier and Stripe quantity all read the unfiltered totals above
+    # (every stored row, whoever wrote it — 747562e2).
     by_source: dict[str, SourceCount] = {}
+
+
+def _empty_breakdown() -> dict[str, SourceCount]:
+    # Always seed all three buckets so every response has the same shape and
+    # consumers can index a bucket before its first row exists.
+    return {s: SourceCount() for s in ("user", "detector", "agent")}
 
 
 @router.get(
@@ -94,7 +100,9 @@ async def get_usage_details(
     project_id_list = [p.strip() for p in project_ids.split(",") if p.strip()]
 
     if not project_id_list:
-        return UsageDetailsResponse(traces=0, spans=0, detector_runs=0, by_source={})
+        return UsageDetailsResponse(
+            traces=0, spans=0, detector_runs=0, by_source=_empty_breakdown()
+        )
 
     ch = get_clickhouse_client()
 
@@ -183,7 +191,7 @@ async def get_usage_details(
         """,
         parameters={"project_ids": project_id_list, "start": start_str, "end": end_str},
     )
-    by_source: dict[str, SourceCount] = {s: SourceCount() for s in ("user", "detector", "agent")}
+    by_source = _empty_breakdown()
     for source, t, s in breakdown_result.result_rows:
         bucket = by_source.setdefault(str(source), SourceCount())
         bucket.traces += int(t)
