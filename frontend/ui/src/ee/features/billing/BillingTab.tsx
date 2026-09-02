@@ -284,7 +284,7 @@ export function BillingTab({
             {currentUsage?.bySource && (
               <>
                 <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>Your traces</span>
+                  <span>Your events</span>
                   <span>
                     {(
                       currentUsage.bySource.user.traces + currentUsage.bySource.user.spans
@@ -292,8 +292,8 @@ export function BillingTab({
                   </span>
                 </div>
                 <div className="flex justify-between text-xs text-muted-foreground">
-                  <span title="Detector scans and agent analyses run by TraceRoot in this project">
-                    Platform runs
+                  <span title="Traces and spans written by detector scans and agent analyses TraceRoot ran in this project">
+                    Platform events
                   </span>
                   <span>
                     {(
