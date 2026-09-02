@@ -15,28 +15,41 @@ from typing import Annotated, Any
 
 from pydantic import AfterValidator, BaseModel
 
+# Per-field byte ceiling for JSON payloads persisted verbatim into Postgres
+# JSONB (measured on the serialized form). The write rate bucket only limits
+# request COUNT, so without a size bound one caller could write unbounded
+# JSONB volume within their request budget. 32 KiB is orders of magnitude
+# above any legitimate widget spec, display config, or detector schema.
+MAX_JSON_PAYLOAD_BYTES = 32 * 1024
+
 
 def _require_encodable_json(value: Any) -> Any:
-    """Reject payloads no strict JSON encoder can serialize.
+    """Reject payloads no strict JSON encoder can serialize, and bound size.
 
     ``json.loads`` accepts bare ``NaN``/``Infinity`` tokens, but the proxy's
     httpx client re-encodes bodies with ``allow_nan=False`` — a non-finite
     float that got past validation would raise there and surface as a 500.
-    Catch it here so the caller gets a 422 naming the field instead.
+    Catch it here so the caller gets a 422 naming the field instead. The
+    same serialization pass measures the payload against
+    :data:`MAX_JSON_PAYLOAD_BYTES`.
 
     Args:
         value (Any): The parsed JSON payload (dict or list) to check.
 
     Returns:
-        Any: ``value`` unchanged when it is strictly JSON-encodable.
+        Any: ``value`` unchanged when it is strictly JSON-encodable and
+            within the size bound.
 
     Raises:
-        ValueError: When the payload contains NaN or Infinity.
+        ValueError: When the payload contains NaN or Infinity, or serializes
+            past the per-field byte cap.
     """
     try:
-        json.dumps(value, allow_nan=False)
+        encoded = json.dumps(value, allow_nan=False)
     except ValueError as e:
         raise ValueError("must not contain NaN or Infinity") from e
+    if len(encoded.encode("utf-8")) > MAX_JSON_PAYLOAD_BYTES:
+        raise ValueError(f"must serialize to at most {MAX_JSON_PAYLOAD_BYTES} bytes of JSON")
     return value
 
 

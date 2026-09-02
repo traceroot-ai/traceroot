@@ -429,3 +429,94 @@ def test_non_finite_floats_are_a_422_not_a_500(path, body):
     resp = _client().post(path, content=body, headers=_JSON_HEADERS)
 
     assert resp.status_code == 422
+
+
+# ── payload size bounds ─────────────────────────────────────────────────
+
+# Just over the 32 KiB per-field cap once serialized.
+_OVERSIZED_BLOB = "x" * (32 * 1024 + 1)
+
+_OVERSIZED_BODIES = [
+    (
+        "/api/v1/public/widgets",
+        {
+            "project_id": "proj-1",
+            "dashboard_id": "dash-1",
+            "title": "Cost",
+            "type": "query",
+            "spec": {"blob": _OVERSIZED_BLOB},
+        },
+    ),
+    (
+        "/api/v1/public/widgets",
+        {
+            "project_id": "proj-1",
+            "dashboard_id": "dash-1",
+            "title": "Cost",
+            "type": "query",
+            "spec": {},
+            "display_config": {"blob": _OVERSIZED_BLOB},
+        },
+    ),
+    (
+        "/api/v1/public/detectors",
+        {
+            "project_id": "proj-1",
+            "name": "D",
+            "template": "custom",
+            "prompt": "p",
+            "output_schema": [_OVERSIZED_BLOB],
+        },
+    ),
+    (
+        "/api/v1/public/detectors",
+        {
+            "project_id": "proj-1",
+            "name": "D",
+            "template": "custom",
+            "prompt": "p",
+            "trigger_conditions": [{"blob": _OVERSIZED_BLOB}],
+        },
+    ),
+]
+
+
+@respx.mock
+@pytest.mark.parametrize(("path", "body"), _OVERSIZED_BODIES)
+def test_oversized_json_payload_fields_are_a_422(path, body):
+    """A JSON payload field over the per-field byte cap is rejected with 422.
+
+    These fields are persisted verbatim into Postgres JSONB and the write
+    rate bucket only limits request count — without a size bound one caller
+    could write unbounded JSONB volume within their request budget.
+    """
+    _mock_account_auth()
+    _mock_write(DETECTOR_WRITE_URL, {"created": True, "detector": DETECTOR_ROW})
+    _mock_write(WIDGET_WRITE_URL, {"created": True, "widget": WIDGET_ROW})
+
+    resp = _client().post(path, json=body, headers=USER_HEADER)
+
+    assert resp.status_code == 422
+    assert "32768 bytes" in json.dumps(resp.json())
+
+
+@respx.mock
+def test_json_payload_field_at_the_cap_is_accepted():
+    """A payload just under the byte cap passes through unchanged."""
+    _mock_account_auth()
+    write = _mock_write(WIDGET_WRITE_URL, {"created": True, "widget": WIDGET_ROW})
+
+    resp = _client().post(
+        "/api/v1/public/widgets",
+        json={
+            "project_id": "proj-1",
+            "dashboard_id": "dash-1",
+            "title": "Cost",
+            "type": "query",
+            "spec": {"blob": "x" * (32 * 1024 - 100)},
+        },
+        headers=USER_HEADER,
+    )
+
+    assert resp.status_code == 200
+    assert write.call_count == 1
