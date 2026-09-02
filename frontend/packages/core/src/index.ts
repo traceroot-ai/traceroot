@@ -23,6 +23,7 @@ export type {
   Account,
   GitHubInstallation,
   ModelProvider,
+  TurnKind,
   // Offline evaluation
   Dataset,
   DatasetVersion,

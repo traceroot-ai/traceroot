@@ -1,14 +1,16 @@
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
 import { applyCapturePolicy } from "@traceroot/core/capture-policy";
-import type { TokenUsageData, TurnAttribution } from "./session.js";
+import type { TokenUsageData } from "./session.js";
 
-/** Signature of SessionManager.appendMessage — injected so the persister is testable. */
+/**
+ * How the persister writes a row — injected so it is testable. The route binds
+ * the turn's attribution into it; the persister never decides attribution.
+ */
 export type AppendMessageFn = (
   role: string,
   content: string,
   metadata?: Record<string, unknown>,
   tokenUsage?: TokenUsageData,
-  attribution?: TurnAttribution,
 ) => Promise<unknown>;
 
 /**

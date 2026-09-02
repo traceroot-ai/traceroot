@@ -210,7 +210,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
       : { turnKind: "chat", initiatorUserId: userId || null };
 
   // Persist user message to DB via SessionManager
-  await sessionManager.appendMessage("user", body.message, undefined, undefined, attribution);
+  await sessionManager.appendMessage("user", body.message, attribution);
 
   // Auto-generate session title from first user message (we already have
   // the session loaded above for the auth check — reuse it).
@@ -223,7 +223,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     // Mirrors the run into AIMessage rows (text segments, tool steps) so
     // reloaded history matches what the live stream rendered.
     const persister = new StreamPersister((role, content, metadata, tokenUsage) =>
-      sessionManager.appendMessage(role, content, metadata, tokenUsage, attribution),
+      sessionManager.appendMessage(role, content, attribution, metadata, tokenUsage),
     );
     // Accumulates token usage across all message_end events (tool-use loops)
     const usageAccumulator = new UsageAccumulator();

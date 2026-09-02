@@ -1,4 +1,4 @@
-import { prisma } from "@traceroot/core";
+import { prisma, type TurnKind } from "@traceroot/core";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, UserMessage, Message } from "@earendil-works/pi-ai";
 
@@ -19,8 +19,6 @@ export interface TokenUsageData {
   // final segment's metadata (no dedicated column), not aggregated for billing.
   totalTokens?: number;
 }
-
-export type TurnKind = "rca_execution" | "rca_followup" | "chat" | "detector" | "digest";
 
 export interface TurnAttribution {
   turnKind: TurnKind;
@@ -105,34 +103,35 @@ export class SessionManager {
    *
    * `workspaceId` and `kind` are required on every AIMessage row (see schema).
    * `kind` is derived from the turn's attribution (see LEGACY_KIND) and kept
-   * one release for old readers. Returns the created row so callers (e.g. the
-   * turn-trace wrapper) can key off its id.
+   * one release for old readers. The attribution is decided once per turn by
+   * the route and passed to every row the turn produces — there is no
+   * fallback here, so a row can never be attributed differently from the turn
+   * it belongs to. Returns the created row so callers (e.g. the turn-trace
+   * wrapper) can key off its id.
    */
   async appendMessage(
     role: string,
     content: string,
+    attribution: TurnAttribution,
     metadata?: Record<string, unknown>,
     tokenUsage?: TokenUsageData,
-    attribution?: TurnAttribution,
   ): Promise<Awaited<ReturnType<typeof prisma.aIMessage.create>>> {
     const session = await prisma.aISession.findUnique({
       where: { id: this.sessionId },
-      select: { workspaceId: true, userId: true, executionId: true },
+      select: { workspaceId: true },
     });
     if (!session) {
       throw new Error(`AISession not found: ${this.sessionId}`);
     }
 
-    const attr = attribution ?? (await this.deriveAttribution(session));
-
     return prisma.aIMessage.create({
       data: {
         sessionId: this.sessionId,
         workspaceId: session.workspaceId,
-        kind: LEGACY_KIND[attr.turnKind],
-        turnKind: attr.turnKind,
-        executionId: attr.executionId ?? null,
-        initiatorUserId: attr.initiatorUserId ?? null,
+        kind: LEGACY_KIND[attribution.turnKind],
+        turnKind: attribution.turnKind,
+        executionId: attribution.executionId ?? null,
+        initiatorUserId: attribution.initiatorUserId ?? null,
         role,
         content,
         metadata: metadata as any,
@@ -146,21 +145,6 @@ export class SessionManager {
         }),
       },
     });
-  }
-
-  /** Default attribution when the caller did not say: user sessions are chat; a system
-   *  session's turns are the execution until an assistant turn exists, then follow-ups. */
-  private async deriveAttribution(session: {
-    userId: string | null;
-    executionId: string | null;
-  }): Promise<TurnAttribution> {
-    if (session.userId !== null) return { turnKind: "chat", initiatorUserId: session.userId };
-    const priorAssistant = await prisma.aIMessage.count({
-      where: { sessionId: this.sessionId, role: "assistant", content: { not: "" } },
-    });
-    return priorAssistant === 0 && session.executionId
-      ? { turnKind: "rca_execution", executionId: session.executionId, initiatorUserId: null }
-      : { turnKind: "rca_followup", executionId: session.executionId, initiatorUserId: null };
   }
 }
 
