@@ -198,6 +198,20 @@ describe("buildAlertBlocks", () => {
     expect(outcome).toHaveLength(3000);
   });
 
+  it("never truncates the outcome mid-way through an escaped entity", () => {
+    // escapeMrkdwn runs before the 3000-char cut, so a measure built entirely
+    // of "&" expands to a run of "&amp;" that straddles the cut boundary —
+    // this repeat count lands the cut inside one, at "...&amp;&am".
+    const measure = "&".repeat(600);
+    const [outcome] = sectionTexts(
+      buildAlertBlocks({ ...alertBase, measure, aggregation: measure }),
+    );
+    expect(outcome.endsWith("…")).toBe(true);
+    // a dangling "&", "&am", "&l", "&gt" etc. right before the ellipsis would
+    // render as literal garbage in Slack instead of the character it stood for
+    expect(outcome).not.toMatch(/&[a-z]*…$/);
+  });
+
   it("colours the attachment by severity, with nothing purple and no emoji anywhere", () => {
     expect(buildAlertBlocks(alertBase).color).toBe(ALERT_SEVERITY_COLORS.ALERT);
     // a breach reads red and a recovery green; the two non-assertions share one neutral

@@ -8,9 +8,13 @@ export function escapeMrkdwn(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+// Cap after escaping; strip a trailing partial escape entity from the cut
+// string so a cap-hitting text never ends "…&am…". Safe unconditionally:
+// escapeMrkdwn never leaves a bare "&" behind, so any "&" this pattern can
+// still match is the start of one of its three entities, cut short.
 export function truncate(text: string, max = SECTION_LIMIT): string {
   if (text.length <= max) return text;
-  return text.slice(0, max - 1) + "…";
+  return text.slice(0, max - 1).replace(/&[a-z]*$/, "") + "…";
 }
 
 export interface DigestEntry {
@@ -86,13 +90,6 @@ export function buildDigestAlertBlocks(params: DigestAlertParams): unknown[] {
   const noun = total === 1 ? "finding" : "findings";
   const headerText = truncate(`${total} ${noun} in ${projectName}`, 150);
 
-  // Cap after escaping; strip a trailing partial escape entity from the cut
-  // string so a cap-hitting summary never ends "…&am…".
-  const capSummary = (s: string) =>
-    s.length > DIGEST_SUMMARY_RENDER_CAP
-      ? s.slice(0, DIGEST_SUMMARY_RENDER_CAP - 1).replace(/&[a-z]*$/, "") + "…"
-      : s;
-
   const summaryText = summary?.trim();
   const summaryBlocks = summaryText
     ? [
@@ -100,7 +97,7 @@ export function buildDigestAlertBlocks(params: DigestAlertParams): unknown[] {
           type: "section",
           text: {
             type: "mrkdwn",
-            text: capSummary(escapeMrkdwn(summaryText)),
+            text: truncate(escapeMrkdwn(summaryText), DIGEST_SUMMARY_RENDER_CAP),
           },
         },
       ]

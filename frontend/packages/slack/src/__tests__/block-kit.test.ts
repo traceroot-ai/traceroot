@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildDigestAlertBlocks } from "../block-kit.ts";
+import { buildDigestAlertBlocks, escapeMrkdwn, truncate } from "../block-kit.ts";
 
 const digestBase = {
   projectId: "proj_1",
@@ -191,5 +191,26 @@ describe("buildDigestAlertBlocks", () => {
     );
     expect(text).toContain("Latency");
     expect(text).not.toContain("latest:");
+  });
+});
+
+describe("truncate", () => {
+  it("leaves text under the limit untouched", () => {
+    expect(truncate("hello", 10)).toBe("hello");
+  });
+
+  it("cuts and marks plain text with an ellipsis", () => {
+    expect(truncate("x".repeat(10), 5)).toBe("xxxx…");
+  });
+
+  it("drops a trailing partial escape entity instead of splitting it", () => {
+    // escaped "&" becomes "&amp;" (5 chars): a cut at max=4 over "a&" lands
+    // the boundary inside it, at "a&a" — the fix drops the dangling "&a".
+    const escaped = escapeMrkdwn("a&");
+    expect(escaped).toBe("a&amp;");
+    expect(truncate(escaped, 4)).toBe("a…");
+
+    // a cut that lands exactly after a complete entity leaves it whole
+    expect(truncate(escapeMrkdwn("a&") + "bcdef", 7)).toBe("a&amp;…");
   });
 });
