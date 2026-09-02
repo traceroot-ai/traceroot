@@ -1192,6 +1192,30 @@ class TestUsageBillsEveryStoredRow:
         assert "source" not in traces_sql and "source" not in spans_sql
         assert "GROUP BY source" in breakdown_sql
 
+    def test_details_for_no_projects_returns_seeded_breakdown_without_querying(
+        self, client, mock_ch, secret
+    ):
+        """The projectless short-circuit must return the same shape as the
+        queried path — all three buckets present — so consumers never see two
+        shapes for one field."""
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params={**self.PARAMS, "project_ids": ""},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "traces": 0,
+            "spans": 0,
+            "detector_runs": 0,
+            "by_source": {
+                "user": {"traces": 0, "spans": 0},
+                "detector": {"traces": 0, "spans": 0},
+                "agent": {"traces": 0, "spans": 0},
+            },
+        }
+        mock_ch.query.assert_not_called()
+
 
 # =============================================================================
 # self_traced flag on detector runs
