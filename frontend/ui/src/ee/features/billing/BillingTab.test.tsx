@@ -56,6 +56,41 @@ describe("BillingTab", () => {
     expect(screen.getByText("1,500 tokens · < $0.01 (not billed)")).toBeTruthy();
   });
 
+  it("splits the event total into customer traffic and platform runs when bySource is present", () => {
+    const usage: UsageStats = {
+      traces: 110,
+      spans: 1090,
+      tokens: 0,
+      updatedAt: "2026-07-01T00:00:00.000Z",
+      bySource: {
+        user: { traces: 100, spans: 1000 },
+        detector: { traces: 8, spans: 80 },
+        agent: { traces: 2, spans: 10 },
+      },
+    };
+
+    render(<BillingTab workspaceId="ws_1" currentPlan={PlanType.PRO} currentUsage={usage} />);
+
+    // Customer rows: user traces + spans.
+    expect(screen.getByText("Your traces").nextSibling?.textContent).toBe("1,100");
+    // Platform rows: detector + agent, traces + spans.
+    expect(screen.getByText("Platform runs").nextSibling?.textContent).toBe("100");
+  });
+
+  it("omits the per-source breakdown for workspaces not yet re-metered (no bySource)", () => {
+    const usage: UsageStats = {
+      traces: 5,
+      spans: 50,
+      tokens: 0,
+      updatedAt: "2026-07-01T00:00:00.000Z",
+    };
+
+    render(<BillingTab workspaceId="ws_1" currentPlan={PlanType.PRO} currentUsage={usage} />);
+
+    expect(screen.queryByText("Your traces")).toBeNull();
+    expect(screen.queryByText("Platform runs")).toBeNull();
+  });
+
   it("hides unattributed unknown model rows", () => {
     const usage: UsageStats = {
       traces: 0,
