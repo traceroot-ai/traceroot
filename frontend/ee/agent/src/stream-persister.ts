@@ -31,10 +31,15 @@ export type AppendMessageFn = (
  */
 export interface StreamPersisterOptions {
   /**
-   * The capture-policy budget to charge (see applyCapturePolicy). Pass the
-   * run's own accumulator — the one the SDK's captureToolIo hook charges for
-   * spans — so rows and spans stop capturing together instead of each getting
-   * a full budget. Omitted, the persister keeps a budget of its own.
+   * The capture-policy budget to charge (see applyCapturePolicy). Deliberately
+   * NOT the accumulator the SDK's captureToolIo hook charges for spans (see
+   * self-trace.ts's currentCaptureState): the same tool event is
+   * policy-transformed once for the span and once for this row, and each sink
+   * needs its own perRunBytes budget — sharing one would halve each sink's
+   * effective cap and double-charge every payload. Pass an explicit state only
+   * to give the persister a budget scoped to something other than "one
+   * fresh state per run" (e.g. tests asserting on a known accumulator);
+   * omitted, the persister allocates its own fresh one.
    */
   state?: { spentBytes: number };
   /**

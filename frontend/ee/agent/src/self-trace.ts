@@ -109,12 +109,16 @@ export function recordToolSpan(info: { toolCallId: string; spanId: string }): vo
 }
 
 /**
- * The run's capture-budget accumulator, for the instrumentation's per-tool
- * callback. The callback is invoked once per tool call, so allocating a fresh
- * accumulator there would reset the per-run budget on every call and leave only
- * the per-step cap in force — spans would keep capturing long after the
- * persisted tool_step rows had stopped. Outside a run (a customer using the SDK
- * standalone) there is no budget to share; the caller allocates its own.
+ * The run's SPAN capture-budget accumulator, for the instrumentation's
+ * per-tool callback (agent.ts's captureToolIo). The callback is invoked once
+ * per tool call, so allocating a fresh accumulator there would reset the
+ * per-run budget on every call and leave only the per-step cap in force —
+ * spans would keep capturing without bound across a long run. This budget is
+ * scoped to the span sink only: the StreamPersister that mirrors the same
+ * events into AIMessage rows keeps its own separate accumulator (see
+ * StreamPersisterOptions.state) so the two sinks don't halve each other's
+ * effective cap. Outside a run (a customer using the SDK standalone) there is
+ * no budget to share; the caller allocates its own.
  */
 export function currentCaptureState(): { spentBytes: number } | undefined {
   return runScope.getStore()?.captureState;

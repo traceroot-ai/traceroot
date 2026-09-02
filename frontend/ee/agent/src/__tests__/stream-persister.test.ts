@@ -309,10 +309,11 @@ describe("StreamPersister", () => {
     expect(dl.result).toBe('{"spans":[]}');
   });
 
-  it("charges captured bytes to a shared budget when one is passed", async () => {
-    // The agent shares one accumulator between the SDK's span capture and the
-    // persisted rows so both stop capturing together; a budget of the
-    // persister's own would double the effective run cap.
+  it("charges captured bytes to an explicit budget when one is passed", async () => {
+    // The persister charges whatever accumulator it's given — index.ts hands
+    // it its OWN fresh one (deliberately not the span's currentCaptureState()
+    // — see capture-budget-independence.test.ts), but the option itself is
+    // just "charge this state", tested here directly.
     // Room for exactly the empty args object (2 bytes: `{}`) plus the six
     // result bytes, so the charge lands on the run cap.
     const state = { spentBytes: 262_144 - 8 };

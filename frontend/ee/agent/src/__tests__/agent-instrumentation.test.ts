@@ -89,7 +89,10 @@ describe("agent.ts instrumentation wiring", () => {
     expect((out.result as string).length).toBeLessThan(200_000);
   });
 
-  it("charges the run's shared budget, so spans and rows stop capturing together", async () => {
+  it("charges the run's SPAN budget — independent of the row budget the persister keeps for itself", async () => {
+    // See capture-budget-independence.test.ts for the cross-sink assertion:
+    // this only pins that the callback charges currentCaptureState() (the
+    // span accumulator), not that anything about rows follows from it.
     let before: number | undefined;
     let after: number | undefined;
     await selfTrace.withAgentTrace(meta, async () => {

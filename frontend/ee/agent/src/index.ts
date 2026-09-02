@@ -17,7 +17,6 @@ import { StreamPersister } from "./stream-persister.js";
 import { UsageAccumulator } from "./usage-accumulator.js";
 import {
   withAgentTrace,
-  currentCaptureState,
   currentToolSpanIds,
   isAgentTraceEnabled,
   turnTraceId,
@@ -284,17 +283,23 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     // Runs the agent and resolves with the persister that mirrored the run
     // into AIMessage rows (text segments, tool steps) so reloaded history
     // matches what the live stream rendered. The persister is built inside
-    // the run because withAgentTrace's scope is only live in here: it charges
-    // the run's capture budget (so rows and spans stop capturing together)
-    // and stamps each tool_step row with the OTel span id the instrumentation
-    // reported for that tool call. Outside a traced run both are undefined
-    // and the persister keeps a budget of its own.
+    // the run because withAgentTrace's scope is only live in here: it stamps
+    // each tool_step row with the OTel span id the instrumentation reported
+    // for that tool call. Its capture budget is its OWN fresh accumulator —
+    // deliberately NOT the span budget (currentCaptureState(), charged by
+    // agent.ts's captureToolIo callback). The same tool event is
+    // policy-transformed once for the span sink and once for the row sink;
+    // sharing one accumulator between them would charge both transforms
+    // against a single perRunBytes budget and roughly halve each sink's
+    // effective cap. Two independent accumulators mean each sink is bounded
+    // by perRunBytes on its own — total captured bytes across the two sinks
+    // is bounded by 2x perRunBytes, not perRunBytes.
     const run = () =>
       new Promise<{ persister: StreamPersister; error?: Error }>((resolve) => {
         const persister = new StreamPersister(
           (role, content, metadata, tokenUsage) =>
             sessionManager.appendMessage(role, content, attribution, metadata, tokenUsage),
-          { state: currentCaptureState(), toolSpanIds: currentToolSpanIds },
+          { toolSpanIds: currentToolSpanIds },
         );
         runAgent(agent, body.message, {
           onEvent: (event) => {
