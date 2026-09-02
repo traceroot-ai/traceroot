@@ -44,14 +44,18 @@ export async function allocateExecution(
  *
  * The finding row is shared by every attempt, so a slow older attempt finishing
  * after a newer one was allocated (BullMQ stalled-lock redelivery) must not
- * overwrite the newer attempt's state. One conditional statement, so there is
- * no read-then-write window; the database decides.
+ * overwrite the newer attempt's state. The check runs under the same
+ * DetectorRca row lock allocateExecution takes: a retry being allocated
+ * concurrently has either committed before the lock is granted here (and so
+ * is visible to the guard) or waits until this transaction ends. Without the
+ * lock, a single conditional UPDATE would evaluate its guard against a snapshot
+ * taken before that commit and let the older result overwrite the retry.
  *
  * @returns whether the write applied — false means a newer attempt owns the
  *   finding and this outcome belongs only to its own execution row.
  */
 export async function finishFindingIfLatest(
-  db: Pick<PrismaClient, "$executeRaw">,
+  db: Pick<PrismaClient, "$transaction" | "$queryRaw" | "$executeRaw">,
   params: {
     findingId: string;
     attempt: number;
@@ -60,15 +64,18 @@ export async function finishFindingIfLatest(
     completedAt?: Date;
   },
 ): Promise<boolean> {
-  const count = await db.$executeRaw`
-    UPDATE detector_rcas
-    SET status = ${params.status},
-        result = ${params.result ?? null},
-        completed_at = ${params.completedAt ?? new Date()}
-    WHERE finding_id = ${params.findingId}
-      AND NOT EXISTS (
-        SELECT 1 FROM detector_rca_executions
-        WHERE finding_id = ${params.findingId} AND attempt > ${params.attempt}
-      )`;
-  return count === 1;
+  return db.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM detector_rcas WHERE finding_id = ${params.findingId} FOR UPDATE`;
+    const count = await tx.$executeRaw`
+      UPDATE detector_rcas
+      SET status = ${params.status},
+          result = ${params.result ?? null},
+          completed_at = ${params.completedAt ?? new Date()}
+      WHERE finding_id = ${params.findingId}
+        AND NOT EXISTS (
+          SELECT 1 FROM detector_rca_executions
+          WHERE finding_id = ${params.findingId} AND attempt > ${params.attempt}
+        )`;
+    return count === 1;
+  });
 }
