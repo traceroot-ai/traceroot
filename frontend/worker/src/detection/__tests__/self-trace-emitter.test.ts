@@ -192,14 +192,18 @@ describe("with a secret (SDK-traced path)", () => {
     const fakeSpan = { setAttribute: vi.fn(), setStatus: vi.fn() };
     const spy = vi.spyOn(trace, "getActiveSpan").mockReturnValue(fakeSpan as never);
     try {
+      // Read inside fn, asserted outside it: withSelfTrace turns anything fn
+      // throws into ok:false, so an assertion failing inside fn would be
+      // swallowed and the test would pass without the stamp.
+      let stampedWhenFnStarted: unknown;
       const run = await withSelfTrace(meta(), async () => {
-        // Already there when fn starts: a failed run keeps it.
-        expect(fakeSpan.setAttribute).toHaveBeenCalledWith(
-          "traceroot.trace.metadata",
-          JSON.stringify(meta().metadata),
-        );
+        stampedWhenFnStarted = fakeSpan.setAttribute.mock.calls.find(
+          ([key]) => key === "traceroot.trace.metadata",
+        )?.[1];
         throw new Error("judge failed");
       });
+      // Already there when fn started, so a failed run keeps it.
+      expect(stampedWhenFnStarted).toBe(JSON.stringify(meta().metadata));
       expect(run.ok).toBe(false);
     } finally {
       spy.mockRestore();
