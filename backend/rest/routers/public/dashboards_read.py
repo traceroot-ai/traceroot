@@ -6,6 +6,12 @@ project) or a user credential (which names the project via ``project_id``); a
 dashboard outside the resolved project simply isn't found (404). Handler
 bodies live in rest.routers.dashboard_read_common, shared with the internal
 project-scoped mirror, so behavior cannot drift between the surfaces.
+
+``creator`` (a member's display name or email) is served to user credentials
+only: an API key is a project credential — often embedded client-side by
+design — and no other public response it can read carries a human identity.
+The redaction lives here, in the public layer, so the internal contract
+stays stable for the cookie UI and the agent mirror.
 """
 
 from fastapi import APIRouter, Request, Response
@@ -34,7 +40,11 @@ async def list_dashboards(
     auth: DualStampedAuth,
 ) -> PublicDashboardListResponse:
     """List the dashboards in the caller's project (default first)."""
-    return await list_dashboards_page(auth.project_id)
+    listing = await list_dashboards_page(auth.project_id)
+    if auth.kind == "api_key":
+        for item in listing.data:
+            item.creator = None
+    return listing
 
 
 @router.get("/{dashboard_id}", response_model=DashboardDetail, operation_id="get_dashboard")
@@ -48,4 +58,7 @@ async def get_dashboard(
     dashboard_id: str,
 ) -> DashboardDetail:
     """Get one dashboard with its widgets for the caller's project."""
-    return await get_dashboard_detail(auth.project_id, dashboard_id)
+    detail = await get_dashboard_detail(auth.project_id, dashboard_id)
+    if auth.kind == "api_key":
+        detail.creator = None
+    return detail

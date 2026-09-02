@@ -201,23 +201,28 @@ def test_get_dashboard_returns_dashboard_with_widgets():
 
 
 @respx.mock
-def test_list_dashboards_accepts_an_api_key():
-    """Dual-stamp: an API key fixes its own project and reads identically."""
+def test_list_dashboards_api_key_reads_with_creator_redacted():
+    """Dual-stamp: an API key fixes its own project and reads the same rows,
+    but ``creator`` is nulled — a project key is not a user credential, and
+    member names/emails must not be readable by whoever holds an ingest key."""
     _mock_key_auth()
     listing = _mock_list()
     resp = TestClient(app).get("/api/v1/public/dashboards", headers=KEY_HEADER)
     assert resp.status_code == 200
-    assert resp.json() == LIST_EXPECTED
+    expected = {
+        "data": [{**item, "creator": None} for item in LIST_EXPECTED["data"]],
+    }
+    assert resp.json() == expected
     assert json.loads(listing.calls.last.request.content) == {"projectId": "proj-A"}
 
 
 @respx.mock
-def test_get_dashboard_accepts_an_api_key():
+def test_get_dashboard_api_key_reads_with_creator_redacted():
     _mock_key_auth()
     _mock_detail()
     resp = TestClient(app).get("/api/v1/public/dashboards/dash-1", headers=KEY_HEADER)
     assert resp.status_code == 200
-    assert resp.json() == DETAIL_EXPECTED
+    assert resp.json() == {**DETAIL_EXPECTED, "creator": None}
 
 
 @respx.mock
