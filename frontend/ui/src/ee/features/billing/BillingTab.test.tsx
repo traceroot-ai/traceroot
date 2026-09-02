@@ -56,7 +56,7 @@ describe("BillingTab", () => {
     expect(screen.getByText("1,500 tokens · < $0.01 (not billed)")).toBeTruthy();
   });
 
-  it("splits the event total into customer traffic and platform runs when bySource is present", () => {
+  it("splits the event total into customer and platform events when bySource is present", () => {
     const usage: UsageStats = {
       traces: 110,
       spans: 1090,
@@ -72,9 +72,9 @@ describe("BillingTab", () => {
     render(<BillingTab workspaceId="ws_1" currentPlan={PlanType.PRO} currentUsage={usage} />);
 
     // Customer rows: user traces + spans.
-    expect(screen.getByText("Your traces").nextSibling?.textContent).toBe("1,100");
+    expect(screen.getByText("Your events").nextSibling?.textContent).toBe("1,100");
     // Platform rows: detector + agent, traces + spans.
-    expect(screen.getByText("Platform runs").nextSibling?.textContent).toBe("100");
+    expect(screen.getByText("Platform events").nextSibling?.textContent).toBe("100");
   });
 
   it("omits the per-source breakdown for workspaces not yet re-metered (no bySource)", () => {
@@ -87,8 +87,8 @@ describe("BillingTab", () => {
 
     render(<BillingTab workspaceId="ws_1" currentPlan={PlanType.PRO} currentUsage={usage} />);
 
-    expect(screen.queryByText("Your traces")).toBeNull();
-    expect(screen.queryByText("Platform runs")).toBeNull();
+    expect(screen.queryByText("Your events")).toBeNull();
+    expect(screen.queryByText("Platform events")).toBeNull();
   });
 
   it("hides unattributed unknown model rows", () => {
