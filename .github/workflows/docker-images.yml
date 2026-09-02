@@ -62,7 +62,7 @@ jobs:
           fetch-depth: 0
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           # Short-lived credentials minted per run via GitHub OIDC. The role can
           # push to traceroot-* ECR repositories and nothing else; there is no
