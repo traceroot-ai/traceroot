@@ -1,6 +1,6 @@
 "use client";
 
-import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
+import { Drawer, DrawerContent, DrawerDescription, DrawerTitle } from "@/components/ui/drawer";
 import { TraceViewerPanel } from "@/features/traces/components/TraceViewerPanel";
 
 /**
@@ -35,6 +35,9 @@ export function AgentTraceSheet({
     >
       <DrawerContent width="w-[min(90vw,1100px)]" className="p-0">
         <DrawerTitle className="sr-only">Trace</DrawerTitle>
+        <DrawerDescription className="sr-only">
+          The trace recorded for this assistant turn.
+        </DrawerDescription>
         {traceId && (
           <TraceViewerPanel
             projectId={projectId}

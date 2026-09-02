@@ -51,6 +51,10 @@ export function useTraceStream(
       return;
     }
 
+    // The live endpoint reads by (project, trace id) alone — it does not scope
+    // by source the way the trace-detail fetch does — so `source` goes into the
+    // cache key below but not into this URL. If live.py ever scopes its reads,
+    // forward `?source=` here too or internal traces will stop streaming.
     const url = `/api/projects/${projectId}/traces/${traceId}/live`;
     const es = new EventSource(url);
     eventSourceRef.current = es;
