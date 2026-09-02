@@ -306,8 +306,7 @@ export function TraceViewerPanel({
   // source must match the query key above, or SSE span merging silently no-ops.
   useTraceStream(projectId, traceId, !traceOverride, source);
 
-  // Reset when the displayed trace (effective id — the analysis swap changes
-  // it without changing `traceId`) or the deep link changes, then apply the
+  // Reset when the displayed trace or the deep link changes, then apply the
   // deep link: `initialSpanId` is a *pending* selection, armed on each
   // (trace, span) change, consumed once the span is in the loaded trace (spans
   // stream in over SSE, so a miss is not final), and cancelled by a manual
