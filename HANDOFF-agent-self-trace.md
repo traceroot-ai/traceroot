@@ -121,27 +121,46 @@ done
 
 ## Known-broken and open
 
-- **`make dev` hangs on this branch.** The two `20260901*` migrations omit
-  `ON UPDATE CASCADE` on their FKs while Prisma's datamodel expects Cascade, so
-  the DB is permanently drifted and `prisma migrate dev` stops at an interactive
-  "Enter a name for the new migration" prompt. `migrate deploy` (what the runbook
-  says) is unaffected. **Fix needs a DB reset** — the migration checksums change.
-  Not yet filed.
+- **`make dev` drift is fixed.** The two `20260901*` migrations and the Prisma
+  relations now both say `ON UPDATE NO ACTION`, so `prisma migrate dev` no longer
+  sees a drift. Because the migration checksums changed, a DB created from the
+  earlier revision must be reset once (`docker compose down -v`).
 - **#2077** — pre-existing billing bug found during review: `uniqExact(run_id)`
   cannot dedup across billing windows, and a retry writes the same `run_id` with
   a later timestamp, so one scan can be billed twice. On `main` today, not
   introduced here. Deliberately not fixed in this stack.
 - **#2066** (digest self-trace) is filed but its PR is **#2075**, which is
   independent and mergeable now.
-- **traceroot-cli#90** — the public API hands out an agent trace id and says
-  `trace_status: "available"`, but `traces get <id>` 404s without `source=agent`.
-  Decision 3 opens the server side; the CLI needs a `--source` flag (generated,
-  no CLI code) and one line in its finding renderer. Blocked on #2069 plus a
+- **traceroot-cli#90** — partly moot: the public findings API no longer
+  advertises the agent trace (`rca` is `status`/`result` only), so the CLI can no
+  longer hand out an id that 404s. A `--source` flag on `traces get` is still the
+  way for a member to read an agent trace from the CLI; blocked on #2069 plus a
   `@traceroot-ai/tools` release.
 - **traceroot-ts#150** — carries two asks: publish 0.4.0, and add a side channel
   reporting `{ toolCallId, spanId, exitCode? }` per tool span. Without it a tool
   step cannot deep-link to its span (that is why #2083's (né #2074) SDK half is still open)
   and a withheld-output step records no exit status.
+
+- **Deferred from the codex cross-review** (`scratchpad-review/CODEX-REVIEW.md`,
+  2026-09-02; the High items and three Mediums were fixed in the stack):
+  - `ROOT_IO_CAP` in `frontend/ee/agent/src/self-trace.ts` is a UTF-16 unit cap,
+    not bytes; switch to the byte-safe `truncateTo` from capture policy.
+  - `restoreResult` in `map-db-messages.ts` JSON-parses every intact string, so a
+    tool result that was the string `"42"` or `"true"` reloads as a number/boolean.
+    Persist the original type or JSON-encode every result uniformly.
+  - `get_span_io` / `get_trace_spans_io` in `backend/rest/services/trace_reader.py`
+    read spans by (project, trace id) with no `source` predicate. The public path is
+    safe because it hydrates only after a source-scoped `get_trace`, so this is a
+    collision-only, defence-in-depth gap; `tests/rest/test_source_consumers.py`
+    treats `trace_id IN (...)` narrowing as isolation and should not.
+  - #2083: after a manual span pick, repeating the exact same "Open span" request
+    does nothing (same scalar props, effect does not re-run). Needs a request nonce.
+  - `frontend/worker/src/ee/billing/__tests__/clickhouse.test.ts` asserts only
+    `detectorRuns` on the fallback shape, so an undefined `bySource` passes.
+  - Agent and worker still duplicate the self-trace init/latch/failure machinery
+    (`self-trace.ts` vs `self-trace-emitter.ts`).
+  - Process: PR bodies of #2069/#2070/#2072/#2075/#2083 describe superseded
+    implementations; #2068/#2082/#2083 change UI without screenshots.
 
 ## Open design questions (in the doc, none blocking)
 
