@@ -80,6 +80,26 @@ beforeEach(() => {
   mocks.runUsageQuotaNotifications.mockResolvedValue(undefined);
 });
 
+describe("runBillingJob with a projectless workspace", () => {
+  it("meters zero usage without querying ClickHouse and still writes the breakdown shape", async () => {
+    mocks.workspaceFindMany.mockResolvedValue([workspace({ projects: [] })]);
+    mocks.detectorRcaCount.mockResolvedValue(0);
+
+    await runBillingJob();
+
+    expect(mocks.getWorkspaceUsageDetails).not.toHaveBeenCalled();
+    expect(mocks.workspaceUpdate).toHaveBeenCalledTimes(1);
+    const written = mocks.workspaceUpdate.mock.calls[0][0].data.currentUsage;
+    expect(written.traces).toBe(0);
+    expect(written.spans).toBe(0);
+    expect(written.bySource).toEqual({
+      user: { traces: 0, spans: 0 },
+      detector: { traces: 0, spans: 0 },
+      agent: { traces: 0, spans: 0 },
+    });
+  });
+});
+
 describe("runBillingJob usage-quota notification wiring", () => {
   it("calls the notifier for a free workspace with the metered usage and free-plan caps", async () => {
     await runBillingJob();
