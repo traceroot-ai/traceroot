@@ -18,7 +18,7 @@
 
 import { DETECTOR_TEMPLATES } from "@/features/detectors/templates";
 import { triggerFieldDef, triggerOpLabel } from "@/features/detectors/trigger-fields";
-import { DEFAULT_RANGE_LABEL } from "@/features/dashboards/range-presets";
+import { resolveSiteRange } from "@/features/dashboards/range-presets";
 import {
   DISPLAY_TYPES,
   isWidgetType,
@@ -419,16 +419,20 @@ export function resourceCardModel(
   );
 
   const meta: string[] = [RESOURCE_TYPE_LABELS[resourceType]];
-  // A chart is a number without context until the window it covers is named.
-  if (cardBody.kind === "widget" && cardBody.chart !== null) meta.push(DEFAULT_RANGE_LABEL);
+  // A chart is a number without context until the window it covers is named —
+  // and the name must be the range the chart actually queries: the site's
+  // stored selection for the chart's own project, default otherwise.
+  if (cardBody.kind === "widget" && cardBody.chart !== null) {
+    meta.push(resolveSiteRange(cardBody.chart.projectId).label);
+  }
   if (resourceType === "dashboard") {
     const widgetCount = widgetsByDashboard?.get(details.resourceId)?.length ?? 0;
     if (widgetCount > 0) meta.push(widgetCount === 1 ? "1 widget" : `${widgetCount} widgets`);
     // One window label for the whole miniature — the tiles share a single
     // frozen range, so naming it per tile would be twelve copies of one fact.
-    if (cardBody.kind === "dashboard" && cardBody.tiles.some((tile) => tile.chart !== null)) {
-      meta.push(DEFAULT_RANGE_LABEL);
-    }
+    // Any charted tile names the project, the same way the miniature aims it.
+    const chartedTile = cardBody.kind === "dashboard" ? cardBody.tiles.find((t) => t.chart) : null;
+    if (chartedTile?.chart) meta.push(resolveSiteRange(chartedTile.chart.projectId).label);
   }
   if (resourceType === "detector" && args !== null) {
     const template = str(args.template);
@@ -522,7 +526,11 @@ export function pendingCardModel(
   }
 
   const meta: string[] = [RESOURCE_TYPE_LABELS[resourceType]];
-  if (body.kind === "widget" && body.chart !== null) meta.push(DEFAULT_RANGE_LABEL);
+  // The pending chart is aimed at the panel's project, so its window label
+  // resolves against the same project — what the preview will really query.
+  if (body.kind === "widget" && body.chart !== null) {
+    meta.push(resolveSiteRange(body.chart.projectId).label);
+  }
   if (resourceType === "detector" && args !== null) {
     const template = str(args.template);
     if (template !== null) meta.push(templateLabel(template));
