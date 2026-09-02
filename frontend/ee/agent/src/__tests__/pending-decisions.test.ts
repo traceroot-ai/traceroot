@@ -126,6 +126,31 @@ describe("PendingDecisions", () => {
     decisions.unregisterChannel("s1", channel);
   });
 
+  it("takeDecline consumes the recorded decline exactly once", async () => {
+    const decisions = new PendingDecisions();
+    const { decisionId, outcome } = parkOn(decisions, "s1");
+    decisions.decide(decisionId, "s1", { action: "skip" });
+    await outcome;
+
+    expect(decisions.takeDecline("tc-1")).toEqual({
+      kind: "proposal_declined",
+      outcome: "skipped",
+    });
+    expect(decisions.takeDecline("tc-1")).toBeUndefined();
+  });
+
+  it("records a skipped decline for internal release paths too (timeout, run end)", async () => {
+    const decisions = new PendingDecisions();
+    const { outcome } = parkOn(decisions, "s1");
+    decisions.releaseSession("s1", "run ended");
+    await outcome;
+
+    expect(decisions.takeDecline("tc-1")).toEqual({
+      kind: "proposal_declined",
+      outcome: "skipped",
+    });
+  });
+
   it("unregisterChannel removes only the matching channel instance", () => {
     const decisions = new PendingDecisions();
     const stale = channelFor("u1");

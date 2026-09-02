@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
+import { proposalDeclined } from "../utils/proposal-declined";
 import type { AIMessage } from "../types";
 
 /** Generate a UUID that works in both secure (HTTPS) and insecure (HTTP) contexts. */
@@ -451,6 +452,15 @@ export function useAIStream(options?: UseAIStreamOptions) {
                       isError: eventData.isError === true,
                     });
                   }
+                  // A declined proposal's result names its outcome in the
+                  // structured details — authoritative when present (it can
+                  // correct the provisional skip mark the chat-revise path
+                  // set locally). Without details, fall back to inference:
+                  // an error landing on a still-pending step is the decline
+                  // of a skip (the user's, or a server-side release like the
+                  // timeout backstop), and a step no longer pending keeps
+                  // its skipped mark from the local skip that cleared it.
+                  const declined = proposalDeclined(eventData.result);
                   safeUpdate((prev) =>
                     prev.map((m) =>
                       m.id === eventData.toolCallId
@@ -461,18 +471,18 @@ export function useAIStream(options?: UseAIStreamOptions) {
                               result: eventData.result,
                               isError: eventData.isError,
                               status: eventData.isError ? ("error" as const) : ("done" as const),
-                              // The result resolves the parked decision. An
-                              // error landing on a still-pending step is the
-                              // decline of a skip (the user's, or a server-side
-                              // release like the timeout backstop) — noted so
-                              // the line reads as skipped, not failed. A step
-                              // no longer pending keeps its skipped mark from
-                              // the local skip that cleared it.
+                              // The result resolves the parked decision.
                               pending: undefined,
-                              skipped:
-                                m.toolStep!.skipped ||
-                                (m.toolStep!.pending !== undefined && eventData.isError === true) ||
-                                undefined,
+                              skipped: declined
+                                ? declined.outcome === "skipped" || undefined
+                                : m.toolStep!.skipped ||
+                                  (m.toolStep!.pending !== undefined &&
+                                    eventData.isError === true) ||
+                                  undefined,
+                              revisedText:
+                                declined?.outcome === "revised"
+                                  ? (declined.text ?? "")
+                                  : m.toolStep!.revisedText,
                             },
                           }
                         : m,

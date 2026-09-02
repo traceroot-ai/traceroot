@@ -450,6 +450,36 @@ describe("MessageList pending confirmation entries", () => {
     expect(screen.queryByRole("button", { name: "Create widget" })).toBeNull();
   });
 
+  it("labels a revision-declined call with the user's requested changes, not skipped", () => {
+    const step: ToolCallStep = {
+      ...pendingWidgetStep(),
+      pending: undefined,
+      revisedText: "use p95 latency instead",
+      status: "error",
+      isError: true,
+      result: { content: [{ type: "text", text: "This tool call was NOT executed." }] },
+    };
+    render(<MessageList messages={[toolEntry(step)]} projectId="p1" onDecision={vi.fn()} />);
+
+    expect(screen.getByText("(create_widget)")).toBeTruthy();
+    expect(screen.getByText("revised — use p95 latency instead")).toBeTruthy();
+    expect(screen.queryByText("skipped")).toBeNull();
+    expect(screen.getByText("Revised")).toBeTruthy();
+  });
+
+  it("truncates a long revision text on the tool line", () => {
+    const step: ToolCallStep = {
+      ...pendingWidgetStep(),
+      pending: undefined,
+      revisedText: "x".repeat(200),
+      status: "error",
+      isError: true,
+    };
+    render(<MessageList messages={[toolEntry(step)]} projectId="p1" onDecision={vi.fn()} />);
+
+    expect(screen.getByText(`revised — ${"x".repeat(80)}…`)).toBeTruthy();
+  });
+
   it("shows the receipt card once the tool result replaces the pending entry", () => {
     // Same call, after the user chose create and the result landed.
     render(

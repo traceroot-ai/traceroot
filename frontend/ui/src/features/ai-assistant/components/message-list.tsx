@@ -330,6 +330,15 @@ function formatToolName(name: string): string {
   return name.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
 }
 
+/** Cap the revision text shown on the tool line; the full text stays in the result. */
+const REVISED_NOTE_MAX_CHARS = 80;
+
+function revisedNote(text: string): string {
+  const trimmed =
+    text.length > REVISED_NOTE_MAX_CHARS ? `${text.slice(0, REVISED_NOTE_MAX_CHARS)}…` : text;
+  return `revised — ${trimmed}`;
+}
+
 function ToolStepItem({ step, isActive }: { step: ToolCallStep; isActive: boolean }) {
   const [isOpen, setIsOpen] = useState(isActive);
 
@@ -352,8 +361,8 @@ function ToolStepItem({ step, isActive }: { step: ToolCallStep; isActive: boolea
         onClick={() => setIsOpen((v) => !v)}
         className="flex w-full cursor-pointer select-none items-center gap-1.5 rounded px-1 py-0.5 hover:bg-muted/50"
       >
-        {/* A skipped call was declined, not broken — its line stays muted. */}
-        {step.skipped ? (
+        {/* A declined call (skipped or revised) was not broken — its line stays muted. */}
+        {step.skipped || step.revisedText !== undefined ? (
           <XCircle className="h-3 w-3 shrink-0 text-muted-foreground/50" />
         ) : (
           <>
@@ -370,7 +379,15 @@ function ToolStepItem({ step, isActive }: { step: ToolCallStep; isActive: boolea
         )}
         <span className="italic text-muted-foreground/80">{formatToolName(step.toolName)}</span>
         <span className="font-mono text-[10px] text-muted-foreground/40">({step.toolName})</span>
-        {step.skipped && <span className="text-muted-foreground/60">skipped</span>}
+        {step.skipped ? (
+          <span className="text-muted-foreground/60">skipped</span>
+        ) : (
+          step.revisedText !== undefined && (
+            <span className="min-w-0 flex-1 truncate text-left text-muted-foreground/60">
+              {revisedNote(step.revisedText)}
+            </span>
+          )
+        )}
         <ChevronRight
           className={cn(
             "ml-auto h-3 w-3 shrink-0 text-muted-foreground/30 transition-transform duration-200",
@@ -397,12 +414,18 @@ function ToolStepItem({ step, isActive }: { step: ToolCallStep; isActive: boolea
                 <p
                   className={cn(
                     "mb-0.5",
-                    step.isError && !step.skipped
+                    step.isError && !step.skipped && step.revisedText === undefined
                       ? "text-destructive/70"
                       : "text-muted-foreground/50",
                   )}
                 >
-                  {step.skipped ? "Skipped" : step.isError ? "Error" : "Result"}
+                  {step.skipped
+                    ? "Skipped"
+                    : step.revisedText !== undefined
+                      ? "Revised"
+                      : step.isError
+                        ? "Error"
+                        : "Result"}
                 </p>
                 <pre className="max-h-[200px] overflow-auto rounded bg-background/70 px-2 py-1.5 font-mono text-[10px] leading-relaxed text-foreground/60">
                   {resultStr}
