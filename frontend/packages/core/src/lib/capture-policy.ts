@@ -1,8 +1,10 @@
 /**
  * One policy for what tool I/O may be persisted — used by the agent's StreamPersister
- * (ai_messages.tool_step rows) and by the SDK's captureToolIo hook (spans), so both
- * stores hold exactly the same content. Order matters: redact, then allowlist, then
- * truncate, then budget — truncating first could split a token and defeat a pattern.
+ * (ai_messages.tool_step rows) and by the SDK's captureToolIo hook (spans). Both apply
+ * the same redact/allowlist/truncate rules; whether they also stop capturing together
+ * depends on their being handed the same `state` — each caller passing its own gives
+ * each a full run budget. Order matters: redact, then allowlist, then truncate, then
+ * budget — truncating first could split a token and defeat a pattern.
  */
 export interface CaptureBudget {
   perStepBytes: number;

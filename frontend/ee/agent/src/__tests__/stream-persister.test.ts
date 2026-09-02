@@ -121,9 +121,6 @@ describe("StreamPersister", () => {
       outputBytes: 11,
       isError: true,
     });
-    // Timing is recorded for every step. It matters most where output is
-    // withheld, which leaves duration and byte count as the only signal.
-    expect(typeof calls[0].metadata?.durationMs).toBe("number");
   });
 
   it("keeps thinking out of content and stores it in metadata", async () => {
@@ -258,5 +255,28 @@ describe("StreamPersister", () => {
     expect(bash.withheld).toBe("not-allowlisted");
     const dl = calls.find((c) => c.metadata?.toolName === "download_traces")!.metadata!;
     expect(dl.result).toBe('{"spans":[]}');
+  });
+
+  it("charges captured bytes to a shared budget when one is passed", async () => {
+    // The agent shares one accumulator between the SDK's span capture and the
+    // persisted rows so both stop capturing together; a budget of the
+    // persister's own would double the effective run cap.
+    const state = { spentBytes: 262_144 - 3 };
+    const p = new StreamPersister(async () => {}, { state });
+    p.onEvent(toolStart("1", {}, "download_traces"));
+    p.onEvent(toolEnd("1", "abcdef", false, "download_traces"));
+    await p.finish();
+    expect(state.spentBytes).toBe(262_144);
+  });
+
+  it("keeps a budget of its own by default", async () => {
+    const calls: AppendCall[] = [];
+    const p = new StreamPersister(async (role, content, metadata) => {
+      calls.push({ role, content, metadata });
+    });
+    p.onEvent(toolStart("1", {}, "download_traces"));
+    p.onEvent(toolEnd("1", "abcdef", false, "download_traces"));
+    await p.finish();
+    expect(calls[0].metadata).toMatchObject({ result: "abcdef", outputBytes: 6 });
   });
 });

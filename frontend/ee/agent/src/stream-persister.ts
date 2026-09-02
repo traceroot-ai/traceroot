@@ -28,18 +28,30 @@ export type AppendMessageFn = (
  * fire-and-forget writes could land out of order and scramble history. A
  * failed insert is logged and skipped — later rows still persist.
  */
+export interface StreamPersisterOptions {
+  /**
+   * The capture-policy budget to charge (see applyCapturePolicy). Pass the
+   * run's own accumulator — the one the SDK's captureToolIo hook charges for
+   * spans — so rows and spans stop capturing together instead of each getting
+   * a full budget. Omitted, the persister keeps a budget of its own.
+   */
+  state?: { spentBytes: number };
+}
+
 export class StreamPersister {
   private chain: Promise<void> = Promise.resolve();
   private text = "";
   private thinking = "";
-  /** start timestamp by toolCallId, so the end event can record a duration */
-  private readonly pendingToolStart = new Map<string, number>();
   /** args by toolCallId, captured at tool_execution_start (end events lack args) */
   private pendingToolArgs = new Map<string, Record<string, unknown>>();
-  /** Per-run capture-policy budget accumulator (see applyCapturePolicy). */
-  private readonly captureState = { spentBytes: 0 };
+  private readonly captureState: { spentBytes: number };
 
-  constructor(private readonly append: AppendMessageFn) {}
+  constructor(
+    private readonly append: AppendMessageFn,
+    options: StreamPersisterOptions = {},
+  ) {
+    this.captureState = options.state ?? { spentBytes: 0 };
+  }
 
   onEvent(event: AgentEvent): void {
     if (event.type === "message_update") {
@@ -51,10 +63,6 @@ export class StreamPersister {
 
     if (event.type === "tool_execution_start") {
       this.pendingToolArgs.set(event.toolCallId, event.args ?? {});
-      // performance.now(), not Date.now(): a wall-clock step (NTP, DST, a manual
-      // change) between the two events would otherwise persist a wrong or
-      // negative duration.
-      this.pendingToolStart.set(event.toolCallId, performance.now());
       this.flushTextSegment();
       return;
     }
@@ -62,13 +70,6 @@ export class StreamPersister {
     if (event.type === "tool_execution_end") {
       const args = this.pendingToolArgs.get(event.toolCallId) ?? {};
       this.pendingToolArgs.delete(event.toolCallId);
-      // How long the step took. For a tool whose output is withheld this is
-      // most of what remains observable about it, alongside the byte count —
-      // "what ran and how much came back" needs a "how long" to be useful.
-      const startedAt = this.pendingToolStart.get(event.toolCallId);
-      this.pendingToolStart.delete(event.toolCallId);
-      const durationMs =
-        startedAt === undefined ? undefined : Math.round(performance.now() - startedAt);
       const captured = applyCapturePolicy(
         { toolName: event.toolName, args, result: event.result },
         this.captureState,
@@ -79,7 +80,6 @@ export class StreamPersister {
         args: captured.args,
         ...(captured.result !== undefined ? { result: captured.result } : {}),
         outputBytes: captured.outputBytes,
-        ...(durationMs !== undefined ? { durationMs } : {}),
         ...(captured.truncated ? { truncated: true } : {}),
         ...(captured.withheld ? { withheld: captured.withheld } : {}),
         isError: event.isError,
