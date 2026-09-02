@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { expect, it, vi } from "vitest";
-import { render } from "@testing-library/react";
+import { render, cleanup } from "@testing-library/react";
 
 const trace = {
   trace_id: "f".repeat(32),
@@ -34,13 +34,15 @@ vi.mock("@/features/detectors/hooks/use-findings", () => ({
   useTraceFindings: () => ({ data: { findings: [] } }),
   useRca: () => ({ data: { rca: null } }),
 }));
+const layoutMocks = vi.hoisted(() => ({ registerAiHost: vi.fn(() => () => {}) }));
 vi.mock("@/components/layout/app-layout", () => ({
   useLayout: () => ({
-    aiPanelOpen: false,
+    // Deliberately true: the state a real host page is in while the sheet is open.
+    aiPanelOpen: true,
     setAiPanelOpen: vi.fn(),
     setAiContext: vi.fn(),
     setAiInitialSessionId: vi.fn(),
-    registerAiHost: () => () => {},
+    registerAiHost: layoutMocks.registerAiHost,
     sidebarCollapsed: false,
   }),
 }));
@@ -78,4 +80,25 @@ it("shows the Agent badge and the finding back-link for an agent trace", async (
   );
   expect(await findByText("Agent")).toBeTruthy();
   expect(await findByText(/Analysis for finding 3817f98c1876/)).toBeTruthy();
+});
+
+it("embedded: never claims the AI slot, never mounts a nested assistant, hides the AI button", async () => {
+  cleanup();
+  layoutMocks.registerAiHost.mockClear();
+  const { findByText, queryByTestId, queryByTitle } = render(
+    <TraceViewerPanel
+      projectId="p1"
+      traceId={"f".repeat(32)}
+      onClose={() => {}}
+      onNavigate={() => {}}
+      canNavigateUp={false}
+      canNavigateDown={false}
+      source="agent"
+      embedded
+    />,
+  );
+  await findByText("Agent");
+  expect(layoutMocks.registerAiHost).not.toHaveBeenCalled();
+  expect(queryByTestId("ai-panel")).toBeNull();
+  expect(queryByTitle("AI Assistant")).toBeNull();
 });

@@ -52,11 +52,12 @@ interface TraceViewerPanelProps {
   /** When true, the panel mounts already expanded to full width (e.g. opened in a new tab). */
   initialFullscreen?: boolean;
   /**
-   * Rendered inside another surface (the agent-trace sheet) rather than as the
-   * page's own overlay. Drops the fixed full-height positioning so the host
-   * controls the bounds, and hides the AI Assistant control: the assistant it
-   * would toggle lives outside this container, so the button either does
-   * nothing or opens a panel the user cannot see from here.
+   * Rendered inside another surface (the agent-trace sheet, which itself lives
+   * inside the assistant panel) rather than as the page's own overlay. Drops
+   * the fixed full-height positioning so the host controls the bounds, never
+   * claims the app's AI slot (that would hide or duplicate the very panel the
+   * sheet is in), and neither mounts a nested assistant nor shows the AI
+   * Assistant control that would toggle one.
    */
   embedded?: boolean;
   /**
@@ -216,8 +217,11 @@ export function TraceViewerPanel({
   // `registerAiHost()` returns its own cleanup, which we return from the effect
   // so React runs it on unmount and the rail comes back.
   useEffect(() => {
+    // Embedded (inside the assistant panel's sheet) the viewer must not claim
+    // the slot its own host lives in.
+    if (embedded) return;
     return registerAiHost();
-  }, [registerAiHost]);
+  }, [registerAiHost, embedded]);
 
   // Shared collapse state (SpanTreeView + SpanTimelineView stay in sync)
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
@@ -763,7 +767,7 @@ export function TraceViewerPanel({
               </ResizablePanelGroup>
             </ResizablePanel>
 
-            {aiPanelOpen && (
+            {!embedded && aiPanelOpen && (
               <>
                 <ResizableHandle />
                 <ResizablePanel

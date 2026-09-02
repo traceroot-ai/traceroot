@@ -33,9 +33,9 @@ import { PlanType } from "@traceroot/core";
 type SelectedTrace = { traceId: string; kind: "original" | "self" | "finding" } | null;
 
 // A self-trace is identified by its run row (dashless run_id), and a finding's
-// agent trace by its latest execution (or dashless finding id) — neither is a
-// trace_id in the list, so match on the right key per kind. Module-scope so
-// effects can use it without a dependency-list entry.
+// agent trace by its execution's available trace id — neither is a trace_id
+// in the list, so match on the right key per kind. Module-scope so effects
+// can use it without a dependency-list entry.
 const rowMatchesSelection = (r: BackendRun, sel: SelectedTrace) =>
   sel != null &&
   (sel.kind === "self"
