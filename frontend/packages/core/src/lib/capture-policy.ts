@@ -8,10 +8,10 @@ export interface CaptureBudget {
   perStepBytes: number;
   perRunBytes: number;
 }
-export const DEFAULT_CAPTURE_BUDGET: CaptureBudget = { perStepBytes: 8_192, perRunBytes: 262_144 };
+const DEFAULT_CAPTURE_BUDGET: CaptureBudget = { perStepBytes: 8_192, perRunBytes: 262_144 };
 
 /** Tools whose output is data the customer already owns inside TraceRoot. */
-export const OUTPUT_ALLOWLIST: ReadonlySet<string> = new Set([
+const OUTPUT_ALLOWLIST: ReadonlySet<string> = new Set([
   "download_traces",
   "download_session",
   "submit_result",
@@ -68,17 +68,6 @@ export function redactSecrets(text: string): string {
   return out;
 }
 
-function redactDeep(value: unknown): unknown {
-  if (typeof value === "string") return redactSecrets(value);
-  if (Array.isArray(value)) return value.map(redactDeep);
-  if (value && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, redactDeep(v)]),
-    );
-  }
-  return value;
-}
-
 function toText(value: unknown): string {
   if (typeof value === "string") return value;
   try {
@@ -128,7 +117,7 @@ export function applyCapturePolicy(
   // charge them like output, or the budgets only govern the smaller half.
   // One step allowance, shared by the args and the result below.
   const step = { remaining: budget.perStepBytes };
-  const { args, truncated: argsTruncated } = capArgs(redactDeep(input.args), state, budget, step);
+  const { args, truncated: argsTruncated } = capArgs(input.args, state, budget, step);
   const raw = toText(input.result);
   const outputBytes = Buffer.byteLength(raw, "utf8");
   if (!OUTPUT_ALLOWLIST.has(input.toolName)) {
@@ -148,9 +137,10 @@ export function applyCapturePolicy(
 }
 
 /**
- * Bound captured args against the same budgets as output, charging what is
- * kept. Serialising once and truncating the JSON would produce unparseable
- * metadata, so each string leaf is capped instead and the structure survives.
+ * Redact and bound captured args against the same budgets as output, charging
+ * what is kept. Serialising once and truncating the JSON would produce
+ * unparseable metadata, so each string leaf is handled instead and the
+ * structure survives.
  */
 function capArgs(
   args: unknown,
@@ -170,7 +160,9 @@ function capArgs(
         truncated = true;
         return "[withheld: budget]";
       }
-      const cut = truncateTo(value, remaining);
+      // Redact before cutting: a cut could otherwise split a token and defeat a
+      // pattern.
+      const cut = truncateTo(redactSecrets(value), remaining);
       truncated ||= cut.truncated;
       const spent = Buffer.byteLength(cut.text, "utf8");
       state.spentBytes += spent;
