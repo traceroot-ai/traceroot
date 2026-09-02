@@ -490,4 +490,18 @@ describe("finding_id → RCA agent trace link", () => {
     expect(panel.getAttribute("data-source")).toBe("agent");
     expect(panel.getAttribute("data-auto-open-rca")).toBe("false");
   });
+
+  it("does not auto-open a deep-linked analysis trace whose export has not landed", () => {
+    // Same gate as the cell click: the row's execution id matches, but its
+    // trace is still pending, so there is nothing to open yet.
+    mocks.useRuns.mockImplementation(useRunsWithAnalyzedRows);
+    mocks.searchParam.mockImplementation((key: string) => {
+      if (key === "traceId") return "a".repeat(32);
+      if (key === "source") return "agent";
+      return null;
+    });
+    render(<DetectorDetailPage />);
+
+    expect(screen.queryByTestId("trace-panel")).toBeNull();
+  });
 });

@@ -154,11 +154,17 @@ export function selfTraceId(run: Pick<BackendRun, "run_id">): string {
   return run.run_id.replaceAll("-", "");
 }
 
-/** The agent trace behind a finding: its latest execution's trace id (attempt 1 = dashless finding id). */
+/**
+ * The openable agent trace behind a finding: its execution's trace id, only
+ * once that trace's export landed. Null while it is pending/failed/disabled
+ * or when the run is un-enriched — one gate shared by the Finding ID cell
+ * and the ?source=agent deep link, so neither can open a trace that is not
+ * there yet.
+ */
 export function agentTraceId(
-  run: Pick<BackendRun, "execution_trace_id" | "finding_id">,
+  run: Pick<BackendRun, "execution_trace_id" | "execution_trace_status">,
 ): string | null {
-  return run.execution_trace_id ?? run.finding_id?.replaceAll("-", "") ?? null;
+  return run.execution_trace_status === "available" ? (run.execution_trace_id ?? null) : null;
 }
 
 export interface RunsQuery {
