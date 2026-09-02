@@ -275,11 +275,15 @@ describe("final trace event annotation", () => {
     sse.emitNamed("trace", { status: "disabled", traceId: "abc123" });
     sse.close();
 
+    // Wait for the stream to END, not just for the text delta: the trace event
+    // is a separately enqueued chunk, so asserting after the delta alone would
+    // pass whether or not the disabled event was consumed. streamingSessions
+    // only goes falsy in the hook's finally, after the read loop has drained.
     await waitFor(() => {
-      const msgs = result.current.messagesBySession["T2"];
-      expect(msgs?.some((m) => m.role === "assistant" && m.content === "answer")).toBe(true);
+      expect(result.current.streamingSessions["T2"]).toBeFalsy();
     });
     const assistant = result.current.messagesBySession["T2"]!.find((m) => m.role === "assistant");
+    expect(assistant?.content).toBe("answer");
     expect(assistant?.traceId).toBeUndefined();
   });
 });
