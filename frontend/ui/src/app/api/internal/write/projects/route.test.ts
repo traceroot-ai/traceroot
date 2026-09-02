@@ -100,9 +100,7 @@ describe("POST /api/internal/write/projects", () => {
   });
 
   it("returns 400 when transport is omitted", async () => {
-    const res = await POST(
-      makeRequest({ actorUserId: "u1", workspaceId: "w1", name: "Checkout" }),
-    );
+    const res = await POST(makeRequest({ actorUserId: "u1", workspaceId: "w1", name: "Checkout" }));
     const body = await res.json();
 
     expect(res.status).toBe(400);

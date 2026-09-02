@@ -32,8 +32,7 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
   }
-  const { actorUserId, workspaceId, name, traceTtlDays, transport, agentSessionId } =
-    parsed.data;
+  const { actorUserId, workspaceId, name, traceTtlDays, transport, agentSessionId } = parsed.data;
   const result = await createProject({
     actorUserId,
     workspaceId,
