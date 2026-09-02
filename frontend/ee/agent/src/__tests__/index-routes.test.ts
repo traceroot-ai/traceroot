@@ -3,6 +3,7 @@ import { app } from "../index.js";
 import { pendingDecisions, SESSION_DELETED_SKIP_REASON } from "../pending-decisions.js";
 import { deleteSession, getSession } from "../session.js";
 import { runAgent, type AgentEventHandler } from "../agent.js";
+import { createTools } from "../tools/index.js";
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
 
 vi.mock("@traceroot/core", () => ({
@@ -105,6 +106,72 @@ describe("decisions endpoint is mounted on the service app", () => {
 
     expect(res.status).toBe(200);
     await expect(outcome).resolves.toEqual({ action: "create" });
+  });
+});
+
+describe("messages route tenancy", () => {
+  it("scopes the session lookup to the path's project and 404s a mismatch", async () => {
+    // getSession itself rejects an owned session addressed through another
+    // project (see session-tenancy tests); the route must feed it the path's
+    // projectId and treat the rejection exactly like a missing session.
+    mockedGetSession.mockResolvedValue(null as never);
+
+    const res = await app.request("/api/v1/projects/pB/sessions/s-owned/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-user-id": "u1" },
+      body: JSON.stringify({ message: "hello" }),
+    });
+
+    expect(res.status).toBe(404);
+    expect(mockedGetSession).toHaveBeenCalledWith("s-owned", "u1", "pB");
+    expect(vi.mocked(createTools)).not.toHaveBeenCalled();
+  });
+
+  it("builds tools from the ONE authorized session row, never a mixed tenancy", async () => {
+    // The session row is the single source of truth for both ids: even if the
+    // lookup constraint regressed (simulated here by a mock that ignores the
+    // path), tools must not combine the URL's projectId with the session's
+    // workspaceId.
+    mockedGetSession.mockResolvedValue({
+      id: "s-owned",
+      userId: "u1",
+      projectId: "p-session",
+      workspaceId: "w-session",
+      title: "t",
+    } as never);
+    mockedRunAgent.mockImplementation(async (_agent, _msg, handler: AgentEventHandler) => {
+      handler.onDone();
+    });
+
+    const res = await app.request("/api/v1/projects/p-url/sessions/s-owned/messages", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-user-id": "u1",
+        "x-workspace-id": "w-header",
+      },
+      body: JSON.stringify({ message: "hello" }),
+    });
+
+    expect(res.status).toBe(200);
+    await res.text();
+    expect(vi.mocked(createTools)).toHaveBeenCalledWith(
+      expect.objectContaining({ projectId: "p-session", workspaceId: "w-session" }),
+    );
+  });
+});
+
+describe("DELETE session tenancy", () => {
+  it("passes the path's project to the ownership check", async () => {
+    mockedDeleteSession.mockResolvedValue(null as never);
+
+    const res = await app.request("/api/v1/projects/pB/sessions/s-owned", {
+      method: "DELETE",
+      headers: { "x-user-id": "u1" },
+    });
+
+    expect(res.status).toBe(404);
+    expect(mockedDeleteSession).toHaveBeenCalledWith("s-owned", "u1", "pB");
   });
 });
 

@@ -77,11 +77,15 @@ describe("POST .../sessions/:sessionId/decisions", () => {
   });
 
   it("404s when the caller does not own the session — decision stays parked", async () => {
+    // getSession also rejects an owned session addressed through another
+    // project's path (see session-tenancy tests); the route must scope the
+    // lookup to the URL's project so that mismatch lands here as the same 404.
     mockedGetSession.mockResolvedValue(null as never);
     const { decisionId } = park("route-s1");
 
     const res = await post("route-s1", { decisionId, action: "create" });
     expect(res.status).toBe(404);
+    expect(mockedGetSession).toHaveBeenCalledWith("route-s1", "u1", "p1");
     expect(pendingDecisions.pendingCount("route-s1")).toBe(1);
   });
 
