@@ -30,7 +30,7 @@ import {
   DETECTOR_RUN_QUOTAS,
   EVENT_QUOTAS,
 } from "@traceroot/core";
-import { getWorkspaceUsageDetails, type SourceBreakdown } from "./clickhouse.js";
+import { getWorkspaceUsageDetails } from "./clickhouse.js";
 import { runUsageQuotaNotifications } from "./usageNotifications.js";
 
 let stripe: Stripe | null = null;
@@ -122,48 +122,26 @@ async function processWorkspace(
   // =========================================================================
   // 1. Query event usage (traces + spans + detector runs) from ClickHouse
   // =========================================================================
-  let usage: {
-    traces: number;
-    spans: number;
-    detectorRuns: number;
-    bySource: SourceBreakdown;
-  };
-  if (projectIds.length === 0) {
-    usage = {
-      traces: 0,
-      spans: 0,
-      detectorRuns: 0,
-      bySource: {
-        user: { traces: 0, spans: 0 },
-        detector: { traces: 0, spans: 0 },
-        agent: { traces: 0, spans: 0 },
-      },
-    };
+  // Free plan: total usage (all time)
+  // Paid plans: usage within current billing period (from Stripe webhook)
+  let start: Date;
+  let end: Date;
+
+  if (isFreePlan) {
+    start = ctx.allTimeStart;
+    end = ctx.now;
+  } else if (workspace.billingPeriodStart && workspace.billingPeriodEnd) {
+    // Use billing period dates from Stripe (updated via webhook each month)
+    start = workspace.billingPeriodStart;
+    end = workspace.billingPeriodEnd;
   } else {
-    // Free plan: total usage (all time)
-    // Paid plans: usage within current billing period (from Stripe webhook)
-    let start: Date;
-    let end: Date;
-
-    if (isFreePlan) {
-      start = ctx.allTimeStart;
-      end = ctx.now;
-    } else if (workspace.billingPeriodStart && workspace.billingPeriodEnd) {
-      // Use billing period dates from Stripe (updated via webhook each month)
-      start = workspace.billingPeriodStart;
-      end = workspace.billingPeriodEnd;
-    } else {
-      // Fallback to calendar month if no billing period set
-      start = new Date(ctx.now.getFullYear(), ctx.now.getMonth(), 1);
-      end = new Date(ctx.now.getFullYear(), ctx.now.getMonth() + 1, 1);
-    }
-
-    usage = await getWorkspaceUsageDetails({
-      projectIds,
-      start,
-      end,
-    });
+    // Fallback to calendar month if no billing period set
+    start = new Date(ctx.now.getFullYear(), ctx.now.getMonth(), 1);
+    end = new Date(ctx.now.getFullYear(), ctx.now.getMonth() + 1, 1);
   }
+
+  // A projectless workspace short-circuits to zeros inside getWorkspaceUsageDetails.
+  const usage = await getWorkspaceUsageDetails({ projectIds, start, end });
 
   // Every stored row, whoever wrote it (747562e2). usage.bySource splits the
   // same total for display; it deliberately does not feed the cap, so blocking

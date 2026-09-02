@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { getWorkspaceUsageDetails } from "../clickhouse.js";
 
 // getWorkspaceUsageDetails talks to the internal REST API over fetch; stub the
-// transport to pin the request contract and the by_source merge semantics.
+// transport to pin the request contract (path, query, auth header) and the
+// response mapping.
 function stubFetch(payload: unknown) {
   const fetchMock = vi.fn(async () => ({
     ok: true,
@@ -37,33 +38,26 @@ describe("getWorkspaceUsageDetails", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("fills an all-zero breakdown when the backend predates by_source", async () => {
-    stubFetch({ traces: 7, spans: 70, detector_runs: 3 });
-
-    const usage = await getWorkspaceUsageDetails({ projectIds: ["p1"], ...WINDOW });
-
-    expect(usage.traces).toBe(7);
-    expect(usage.detectorRuns).toBe(3);
-    expect(usage.bySource).toEqual({
-      user: { traces: 0, spans: 0 },
-      detector: { traces: 0, spans: 0 },
+  it("requests /usage/details with the project ids, ISO window and internal secret, and maps the response", async () => {
+    const bySource = {
+      user: { traces: 10, spans: 100 },
+      detector: { traces: 2, spans: 20 },
       agent: { traces: 0, spans: 0 },
-    });
-  });
-
-  it("merges a partial by_source over zeros so a missing bucket reads 0, not undefined", async () => {
-    stubFetch({
-      traces: 12,
-      spans: 120,
-      detector_runs: 4,
-      by_source: { user: { traces: 10, spans: 100 }, agent: { traces: 2, spans: 20 } },
-    });
+    };
+    const fetchMock = stubFetch({ traces: 12, spans: 120, detector_runs: 4, by_source: bySource });
 
     const usage = await getWorkspaceUsageDetails({ projectIds: ["p1", "p2"], ...WINDOW });
 
-    expect(usage.bySource.user).toEqual({ traces: 10, spans: 100 });
-    expect(usage.bySource.agent).toEqual({ traces: 2, spans: 20 });
-    expect(usage.bySource.detector).toEqual({ traces: 0, spans: 0 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const parsed = new URL(url);
+    expect(parsed.pathname).toBe("/api/v1/internal/usage/details");
+    expect(parsed.searchParams.get("project_ids")).toBe("p1,p2");
+    expect(parsed.searchParams.get("start")).toBe("2026-01-01T00:00:00.000Z");
+    expect(parsed.searchParams.get("end")).toBe("2026-02-01T00:00:00.000Z");
+    expect(init.headers).toMatchObject({ "X-Internal-Secret": expect.any(String) });
+
+    expect(usage).toEqual({ traces: 12, spans: 120, detectorRuns: 4, bySource });
   });
 
   it("defaults detector_runs to 0 when the backend omits it", async () => {
