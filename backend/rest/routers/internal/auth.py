@@ -26,6 +26,10 @@ def verify_internal_secret(
 
     Two credentials are recognised: the platform secret (worker, Next.js server;
     env INTERNAL_API_SECRET) and the agent-service secret (INTERNAL_API_SECRET_AGENT).
+    They differ in the `source` the ingest route stamps, not in privilege: either
+    one unlocks every internal route. The split keeps an external client from
+    choosing its source; it does not stop a process holding both secrets from
+    labelling its traces with the other one.
     Fails closed: a missing platform secret rejects every request with 503 rather
     than silently allowing them.
 

@@ -1,4 +1,4 @@
-"""Internal OTLP trace ingest (detector self-traces)."""
+"""Internal OTLP trace ingest (internal self-traces: detector, agent)."""
 
 import gzip
 import logging
@@ -36,10 +36,10 @@ async def ingest_internal_traces(
     ),
     x_project_id: Annotated[str | None, Header()] = None,
 ) -> dict:
-    """Ingest detector self-traces (OTLP protobuf) directly into ClickHouse.
+    """Ingest internal self-traces (detector, agent) as OTLP protobuf into ClickHouse.
 
-    Trusted, internal-only counterpart of the public OTLP ingest: the worker
-    posts here with the shared secret, spans run through the detector-only
+    Trusted, internal-only counterpart of the public OTLP ingest: the worker and
+    the agent service post here with their own secret, spans run through the internal-only
     multi-project wrapper (which calls the same transform as customer traffic,
     once per project group), and the rows are inserted in-process — no S3 hop and
     no detection enqueue, so a detector can never scan its own emission. Spans are inserted before the trace row
