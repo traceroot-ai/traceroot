@@ -59,6 +59,10 @@ const widgetSchema = z.object({
     [z.literal("query"), z.literal("trace_feed")],
     'type must be "query" or "trace_feed"',
   ),
+  // Structural check only, matching the cookie widgets route: deep spec
+  // validation happens in the query engine at execution time, which is the
+  // single source of truth — duplicating its rules here would let the two
+  // surfaces drift.
   spec: jsonObject("spec must be a JSON object", true),
   displayConfig: jsonObject("displayConfig must be a JSON object", false),
 });
