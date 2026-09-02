@@ -290,7 +290,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     // reported for that tool call. Outside a traced run both are undefined
     // and the persister keeps a budget of its own.
     const run = () =>
-      new Promise<{ persister: StreamPersister }>((resolve) => {
+      new Promise<{ persister: StreamPersister; error?: Error }>((resolve) => {
         const persister = new StreamPersister(
           (role, content, metadata, tokenUsage) =>
             sessionManager.appendMessage(role, content, attribution, metadata, tokenUsage),
@@ -340,7 +340,9 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
               event: "error",
               data: JSON.stringify({ message: error.message }),
             });
-            resolve({ persister });
+            // Resolve, not reject: the run happened and its rows persist below.
+            // The error still marks the root span so the trace reads as failed.
+            resolve({ persister, error });
           },
           onDone: () => {
             resolve({ persister });
@@ -350,6 +352,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
 
     const outcome = await withAgentTrace(traceMeta, run, {
       recordOutput: ({ persister }) => persister.finalText() || undefined,
+      runError: ({ error }) => error,
     });
     const { persister } = outcome.value;
 

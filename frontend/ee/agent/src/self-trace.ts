@@ -7,11 +7,19 @@
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash } from "node:crypto";
-import { trace } from "@opentelemetry/api";
+import { SpanStatusCode, trace } from "@opentelemetry/api";
 import { TraceRoot, observe } from "@traceroot-ai/traceroot";
 import { redactSecrets } from "@traceroot/core/capture-policy";
 
 export type AgentTraceKind = "rca" | "followup" | "chat";
+const AGENT_TRACE_KINDS: ReadonlySet<string> = new Set<AgentTraceKind>(["rca", "followup", "chat"]);
+/**
+ * `available` is optimistic: it means this turn's flush resolved, and flushes
+ * are serialised per process so a rejection lands on the turn whose spans were
+ * in flight — but the SDK's exporter is process-wide, so a batch holding this
+ * turn's spans can still fail after its flush resolved. Per-trace export
+ * confirmation needs SDK support.
+ */
 export type AgentTraceOutcome = "disabled" | "available" | "failed";
 export interface AgentTraceMeta {
   traceId: string;
@@ -24,7 +32,7 @@ export interface AgentTraceMeta {
 }
 
 /** Root-span I/O cap (spec B8): the root carries the prompt and the final answer, bounded. */
-export const ROOT_IO_CAP = 16_384;
+const ROOT_IO_CAP = 16_384;
 
 function boundedText(text: string | undefined): string | undefined {
   if (!text) return undefined;
@@ -34,14 +42,28 @@ function boundedText(text: string | undefined): string | undefined {
 
 const FLUSH_TIMEOUT_MS = 30_000;
 
+// Unknown AGENT_SELF_TRACE_KINDS tokens already warned about; a typo in a staged
+// rollout must be visible once, not on every turn.
+const warnedKindTokens = new Set<string>();
+
 export function isAgentTraceEnabled(kind: AgentTraceKind): boolean {
-  if (process.env.AGENT_SELF_TRACE !== "1") return false;
+  const flag = process.env.AGENT_SELF_TRACE;
+  if (flag !== "1" && flag !== "true") return false;
   const list = process.env.AGENT_SELF_TRACE_KINDS;
   if (!list) return true;
-  return list
+  const tokens = list
     .split(",")
     .map((s) => s.trim())
-    .includes(kind);
+    .filter(Boolean);
+  for (const token of tokens) {
+    if (!AGENT_TRACE_KINDS.has(token) && !warnedKindTokens.has(token)) {
+      warnedKindTokens.add(token);
+      console.warn(
+        `[AgentTrace] AGENT_SELF_TRACE_KINDS token "${token}" is not one of ${[...AGENT_TRACE_KINDS].join(", ")}; ignored`,
+      );
+    }
+  }
+  return tokens.includes(kind);
 }
 
 /** Longest a single detector name may occupy in a root span name. */
@@ -151,10 +173,25 @@ function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
   });
 }
 
+// TraceRoot.flush() is process-wide (one exporter for every turn), so
+// concurrent turns' flushes are serialised: a rejection then belongs to the
+// turn whose spans were in flight instead of to whichever turn awaited it.
+let flushQueue: Promise<void> = Promise.resolve();
+function flushSerialised(): Promise<void> {
+  const flush = flushQueue.then(() => withTimeout(TraceRoot.flush(), FLUSH_TIMEOUT_MS));
+  flushQueue = flush.catch(() => {});
+  return flush;
+}
+
 export async function withAgentTrace<T>(
   meta: AgentTraceMeta,
   fn: () => Promise<T>,
-  options: { recordOutput?: (value: T) => string | undefined } = {},
+  options: {
+    /** The run's final answer, recorded (redacted, capped) as the root span's output. */
+    recordOutput?: (value: T) => string | undefined;
+    /** An error the run resolved WITH (the agent failed but fn did not reject) — marks the root ERROR. */
+    runError?: (value: T) => Error | undefined;
+  } = {},
 ): Promise<{ value: T; trace: AgentTraceOutcome }> {
   if (!isAgentTraceEnabled(meta.kind) || !initOnce()) {
     return { value: await fn(), trace: "disabled" };
@@ -189,6 +226,11 @@ export async function withAgentTrace<T>(
     try {
       const output = boundedText(options.recordOutput?.(value));
       if (root && output !== undefined) root.setAttribute("traceroot.span.output", output);
+      const runError = options.runError?.(value);
+      if (root && runError) {
+        root.recordException(runError);
+        root.setStatus({ code: SpanStatusCode.ERROR, message: runError.message });
+      }
     } catch (err) {
       console.error("[AgentTrace] root output capture failed:", err);
     }
@@ -212,8 +254,14 @@ export async function withAgentTrace<T>(
     );
   } catch (err) {
     // fn ran and failed: its error is the caller's, and observe rethrowing it is
-    // expected.
-    if (outcome && !outcome.ok) throw outcome.error;
+    // expected. Anything else surfacing here is a tracing failure on top of
+    // it, which must not go unlogged.
+    if (outcome && !outcome.ok) {
+      if (err !== outcome.error) {
+        console.error("[AgentTrace] tracing failed while closing after the run's error:", err);
+      }
+      throw outcome.error;
+    }
     // fn ran and succeeded, but tracing threw while closing out. The turn
     // happened; losing it to a tracing failure is exactly what must not occur.
     if (outcome?.ok) {
@@ -226,7 +274,7 @@ export async function withAgentTrace<T>(
     return { value: await fn(), trace: "failed" };
   }
   try {
-    await withTimeout(TraceRoot.flush(), FLUSH_TIMEOUT_MS);
+    await flushSerialised();
     return { value, trace: "available" };
   } catch (err) {
     console.error(`[AgentTrace] export failed for trace ${meta.traceId}:`, err);

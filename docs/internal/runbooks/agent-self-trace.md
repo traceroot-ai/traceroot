@@ -14,12 +14,19 @@ off by default and controlled per kind.
 2. Apply the Prisma migrations `20260901000000_rca_executions` and
    `20260901000001_ai_message_attribution` (`pnpm db:migrate deploy` in
    `frontend/packages/core`). Both are additive; no backfill of executions is performed.
-3. Agent service env: `AGENT_SELF_TRACE=1`, then widen `AGENT_SELF_TRACE_KINDS` over a
-   few days: `rca` → `rca,followup` → `rca,followup,chat`. Unset means all kinds.
+3. Agent service env: `AGENT_SELF_TRACE=1` (or `true`), then widen
+   `AGENT_SELF_TRACE_KINDS` over a few days: `rca` → `rca,followup` → `rca,followup,chat`.
+   Unset means all kinds; a token that is not one of those three is ignored and warned
+   about once in the agent-service log (`[AgentTrace] AGENT_SELF_TRACE_KINDS token`).
 4. Confirm after the first RCA:
    `select attempt, trace_status, count(*) from detector_rca_executions
     where started_at > now() - interval '1 hour' group by 1,2` shows `available` and no
    `failed`; the finding's ID is clickable in the detector runs table.
+   `available` is optimistic: it means the turn's flush resolved. Flushes are serialised
+   per process so an export rejection lands on the turn whose spans were in flight, but
+   the exporter is process-wide, so a batch holding a turn's spans can still fail after
+   that turn was acked. Cross-check with the span volume query below; a link whose trace
+   never landed opens an empty trace.
 
 ## Observe (first week)
 
@@ -30,9 +37,9 @@ off by default and controlled per kind.
 - Customer surfaces: the Traces list and dashboards must show zero `agent` rows
   (`customer_traffic_only()` guards every customer read; `tests/rest/test_source_consumers.py`
   enforces the inventory).
-- Billing: `/api/v1/internal/usage/details` returns `by_source`; the Stripe quantity
-  follows the unfiltered total (stored rows are billed whoever wrote them), the Free
-  ingestion cap follows `by_source.user` only.
+- Billing: `/api/v1/internal/usage/details` returns `by_source` for display and
+  attribution only. Both the Stripe quantity and the Free ingestion cap read the
+  unfiltered total: stored rows count whoever wrote them.
 
 ## Disable
 
@@ -45,6 +52,6 @@ off by default and controlled per kind.
 
 - With the flag off the agent service, worker and REST behave as before emission; the
   only runtime differences that ship unflagged are the executions table, the attribution
-  columns, the capture policy on persisted tool output, and the Free cap counting
-  customer rows only. Reverting the agent-service emit change alone stops emission; the
+  columns, the capture policy on persisted tool output, and the per-source usage
+  breakdown. Reverting the agent-service emit change alone stops emission; the
   migrations are additive and can stay.
