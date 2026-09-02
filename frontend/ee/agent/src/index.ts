@@ -54,21 +54,20 @@ app.post("/api/v1/projects/:projectId/sessions", async (c) => {
   const projectId = c.req.param("projectId");
   const userId = c.req.header("x-user-id") || undefined;
   const workspaceId = c.req.header("x-workspace-id") || "";
-  const body = await c.req.json<{ title?: string; executionId?: string }>();
+  const body = await c.req.json<{ title?: string; executionId?: unknown }>();
 
   // Every message in this session inherits the session's executionId as its
   // attribution, so an id from another project would attribute this project's
   // turns to that one. The caller is trusted to reach the route, not to name
   // an execution: confirm it exists under this project before storing it. A
   // malformed id is rejected here rather than surfacing later as an FK error
-  // on the session's first message.
-  // Normalise before validating: an empty string is falsy, so a truthiness
-  // guard would skip the check AND store "", which then fails the foreign key
-  // on the session's first message instead of returning this 400.
-  const executionId =
-    typeof body.executionId === "string" && body.executionId.trim() !== ""
-      ? body.executionId
-      : undefined;
+  // on the session's first message — and rather than being dropped: a caller
+  // that sends an execution id of the wrong shape (a number, "") has a bug,
+  // and silently creating an unattributed session would hide it.
+  const { executionId } = body;
+  if (executionId !== undefined && (typeof executionId !== "string" || executionId.trim() === "")) {
+    return c.json({ error: "executionId must be a non-empty string" }, 400);
+  }
   if (executionId && !(await executionBelongsToProject(prisma, executionId, projectId))) {
     return c.json({ error: "executionId does not belong to this project" }, 400);
   }
