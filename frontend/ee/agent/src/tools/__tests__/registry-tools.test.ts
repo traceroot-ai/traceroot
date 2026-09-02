@@ -365,13 +365,7 @@ describe("createTools", () => {
     "list_alerts",
     "get_alert",
   ];
-  const WRITE_TOOL_NAMES = [
-    "create_workspace",
-    "create_project",
-    "create_detector",
-    "create_dashboard",
-    "create_widget",
-  ];
+  const WRITE_TOOL_NAMES = ["create_detector", "create_dashboard", "create_widget"];
   const OTHER_TOOL_NAMES = [
     "download_traces",
     "download_session",
