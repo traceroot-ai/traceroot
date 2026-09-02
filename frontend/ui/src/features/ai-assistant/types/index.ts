@@ -1,4 +1,4 @@
-import type { TraceStatus } from "@/features/detectors/hooks/use-findings";
+import type { TraceStatus } from "@traceroot/core";
 
 export interface ToolCallStep {
   toolCallId: string;

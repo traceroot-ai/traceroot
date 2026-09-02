@@ -1,5 +1,5 @@
 import type { AIMessage } from "../types";
-import type { TraceStatus } from "@/features/detectors/hooks/use-findings";
+import type { TraceStatus } from "@traceroot/core";
 
 /** AIMessage row as returned by GET /api/projects/:id/ai/sessions/:id/messages. */
 export interface DbAiMessageRow {

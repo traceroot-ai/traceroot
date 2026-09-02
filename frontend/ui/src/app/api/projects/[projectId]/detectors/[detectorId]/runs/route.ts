@@ -66,7 +66,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
 
   const data: unknown = await response.json();
 
-  // Enrich each triggered run with its stored RCA status and latest execution's
+  // Enrich each triggered run with its stored RCA status and its execution's
   // agent trace (one batched Postgres lookup) so the findings view (identified
   // runs) can show whether the agent analysis ran, and the runs table can open
   // that analysis trace directly. Same source of truth as the trace viewer's
@@ -88,16 +88,28 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
             select: {
               findingId: true,
               status: true,
-              latestExecution: { select: { traceId: true, traceStatus: true } },
+              // Newest attempt first; a finding has one row per attempt.
+              executions: {
+                orderBy: { attempt: "desc" },
+                select: { traceId: true, traceStatus: true },
+              },
             },
           });
           const byFinding = new Map(rcas.map((r) => [r.findingId, r]));
           for (const r of runs as Array<Record<string, unknown>>) {
             if (typeof r.finding_id === "string") {
               const rca = byFinding.get(r.finding_id);
+              // Same rule as the findings/[findingId]/rca route: the trace to
+              // link is the newest attempt whose export landed, so a pending
+              // retry does not hide a working trace; only when no attempt has
+              // one does the current (highest) attempt's status show.
+              const trace =
+                rca?.executions.find((e) => e.traceStatus === "available") ??
+                rca?.executions[0] ??
+                null;
               r.rca_status = rca?.status ?? null;
-              r.execution_trace_id = rca?.latestExecution?.traceId ?? null;
-              r.execution_trace_status = rca?.latestExecution?.traceStatus ?? null;
+              r.execution_trace_id = trace?.traceId ?? null;
+              r.execution_trace_status = trace?.traceStatus ?? null;
             }
           }
         } catch (err) {
