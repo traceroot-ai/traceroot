@@ -23,8 +23,13 @@ import { recordToolSpan, currentCaptureState } from "./self-trace.js";
 // Process-global, idempotent: patches Agent.prototype once. Spans only land inside an
 // active withAgentTrace() context; outside one the instrumentation opens roots that
 // the SDK drops as unattributed (no project id), so this is safe to install unconditionally.
+//
+// captureContent stays off: it would stamp the raw prompt and assistant text on the
+// child LLM spans, bypassing the redaction and cap the root span's I/O (self-trace.ts)
+// and the persisted tool I/O (capture policy) go through — a secret withheld from a
+// tool span would reappear verbatim once the model quoted it.
 instrumentPiAgentCore(piAgentCore, {
-  captureContent: true,
+  captureContent: false,
   captureToolIo: (toolName, args, result) => {
     // Charge the run's budget — the same accumulator the route hands its
     // StreamPersister — so spans and persisted step rows stop capturing
