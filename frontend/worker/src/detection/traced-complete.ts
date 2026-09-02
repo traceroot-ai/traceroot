@@ -1,8 +1,9 @@
 /**
  * Tracing wrapper around pi-ai's complete(): inside an active self-trace
- * scope it records the call as a real LLM span — actual (truncated)
- * transcript in, actual response content out, true model/token usage —
- * parented to whatever span is active (the detector-run root). Outside a
+ * scope it records the call as a real LLM span — actual (redacted,
+ * truncated) transcript in, actual (redacted, truncated) response content
+ * out, true model/token usage — parented to whatever span is active (the
+ * detector-run root). Outside a
  * scope it is a pure passthrough, so unit tests and any non-traced caller
  * see pi-ai behavior byte-identical.
  *
@@ -16,6 +17,7 @@
 
 import { complete } from "@earendil-works/pi-ai/compat";
 import { SpanStatusCode, context as otelContext, trace, type Span } from "@opentelemetry/api";
+import { redactSecrets } from "@traceroot/core/capture-policy";
 import { currentSelfTraceScope } from "./self-trace-emitter.js";
 
 /** Per-side cap on recorded transcript text. The judge input embeds up to
@@ -29,7 +31,12 @@ interface CompletionContextLike {
   messages?: unknown;
 }
 
-function truncate(text: string): string {
+function truncate(rawText: string): string {
+  // Redact BEFORE truncating: cutting first could split a credential and
+  // defeat a pattern (same ordering capture-policy uses for tool I/O). The
+  // detector prompt and the digest-summary transcript both flow through
+  // here, and neither is otherwise passed through the shared redactor.
+  const text = redactSecrets(rawText);
   if (text.length <= LLM_IO_CAP) return text;
   // Don't split a surrogate pair at the cap: a dangling high surrogate would
   // corrupt the recorded text's last character, so drop it instead.

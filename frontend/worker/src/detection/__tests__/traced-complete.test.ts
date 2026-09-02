@@ -158,6 +158,38 @@ describe("tracedComplete inside a self-trace scope", () => {
     expect(beforeEllipsis >= 0xd800 && beforeEllipsis <= 0xdbff).toBe(false);
   });
 
+  it("redacts credential-shaped text in the input transcript and the output", async () => {
+    // The detector prompt embeds sampled trace/finding data and the digest
+    // summarizer embeds sampled detector summaries — neither is otherwise
+    // passed through the shared redactor before landing in a self-trace span.
+    const credentialCtx = {
+      ...CTX,
+      messages: [
+        {
+          role: "user",
+          content: "api_key=sk-live-abcdefghijklmnop\nAuthorization: Bearer abc.def.ghi",
+          timestamp: 1,
+        },
+      ],
+    };
+    mockComplete.mockResolvedValue({
+      ...RESPONSE,
+      content: [{ type: "text", text: "found it: token=supersecretvalue123" }],
+    });
+    await withSelfTrace(META, () =>
+      tracedComplete(MODEL as never, credentialCtx as never, {} as never),
+    );
+
+    const llm = exporter.getFinishedSpans().find((s) => s.name.startsWith("chat"))!;
+    const input = String(llm.attributes["traceroot.span.input"]);
+    const output = String(llm.attributes["traceroot.span.output"]);
+    expect(input).not.toContain("abcdefghijklmnop");
+    expect(input).not.toContain("abc.def.ghi");
+    expect(input).toContain("[REDACTED]");
+    expect(output).not.toContain("supersecretvalue123");
+    expect(output).toContain("[REDACTED]");
+  });
+
   it("marks aborted (timed-out) responses as errored spans", async () => {
     // sandbox-eval's watchdog timeout resolves with stopReason "aborted"
     // instead of throwing — the span must not read as a healthy call.
