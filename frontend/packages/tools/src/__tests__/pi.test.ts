@@ -191,8 +191,6 @@ describe("INTERNAL_BINDINGS", () => {
 describe("INTERNAL_WRITE_BINDINGS", () => {
   it("covers exactly the agent's current write set with flat trusted-caller routes", () => {
     expect(INTERNAL_WRITE_BINDINGS).toEqual({
-      create_workspace: "/api/internal/write/workspaces",
-      create_project: "/api/internal/write/projects",
       create_detector: "/api/internal/write/detectors",
       create_dashboard: "/api/internal/write/dashboards",
       create_widget: "/api/internal/write/widgets",
