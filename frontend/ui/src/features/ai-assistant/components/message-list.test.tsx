@@ -112,6 +112,48 @@ describe("MessageList tool-step trace resolution", () => {
   });
 });
 
+describe("MessageList reloaded tool-step capture notes", () => {
+  const persistedStep = (toolStep: Record<string, unknown>): AIMessage =>
+    ({
+      id: "t1",
+      role: "tool_step",
+      content: "",
+      toolStep: { toolCallId: "t1", toolName: "read", args: {}, status: "done", ...toolStep },
+    }) as unknown as AIMessage;
+
+  it("explains a withheld result instead of showing a bubble with no output", () => {
+    render(
+      <MessageList
+        messages={[user("u1"), persistedStep({ withheld: "not-allowlisted", outputBytes: 44 })]}
+      />,
+    );
+    openSteps();
+    expect(screen.getByText("[output withheld: not-allowlisted · 44 bytes]")).toBeTruthy();
+    expect(screen.queryByText("Result")).toBeNull();
+  });
+
+  it("marks a truncated capture next to what was kept", () => {
+    render(
+      <MessageList
+        messages={[
+          user("u1"),
+          persistedStep({ result: "abc… [truncated]", truncated: true, outputBytes: 90000 }),
+        ]}
+      />,
+    );
+    openSteps();
+    expect(screen.getByText("Result")).toBeTruthy();
+    expect(screen.getByText("[captured I/O truncated · 90,000 bytes of output]")).toBeTruthy();
+  });
+
+  it("adds no note to a live step, which shows its result in full", () => {
+    render(<MessageList messages={[user("u1"), persistedStep({ result: { ok: true } })]} />);
+    openSteps();
+    expect(screen.getByText("Result")).toBeTruthy();
+    expect(screen.queryByText(/withheld|truncated/)).toBeNull();
+  });
+});
+
 describe("MessageList per-turn View trace", () => {
   it("renders View trace in the usage footer once the turn's trace is available, and opens it", () => {
     const onOpenTrace = vi.fn();

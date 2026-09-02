@@ -345,6 +345,15 @@ function ToolStepItem({
 
   const argsStr = JSON.stringify(step.args, null, 2);
   const resultStr = step.result != null ? JSON.stringify(step.result, null, 2) : null;
+  // A reloaded step carries the capture policy's verdict; the live stream
+  // showed everything, so say what is missing rather than render a bubble
+  // with no output and no explanation.
+  const sizeNote = step.outputBytes != null ? ` · ${step.outputBytes.toLocaleString()} bytes` : "";
+  const captureNote = step.withheld
+    ? `[output withheld: ${step.withheld}${sizeNote}]`
+    : step.truncated
+      ? `[captured I/O truncated${sizeNote ? `${sizeNote} of output` : ""}]`
+      : null;
 
   return (
     <div className="text-[11px]">
@@ -395,6 +404,7 @@ function ToolStepItem({
                 </pre>
               </div>
             )}
+            {captureNote && <p className="italic text-muted-foreground/50">{captureNote}</p>}
             {step.spanId && onOpenSpan && (
               <button
                 type="button"
