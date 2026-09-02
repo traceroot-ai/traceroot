@@ -320,10 +320,13 @@ export function TraceViewerPanel({
    *  not keep clobbering a selection the user made in the meantime. */
   const fellBackForRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!initialSpanId || !trace?.spans?.length) return;
+    // Gate on the trace alone, not its spans: a trace that loads with zero
+    // spans (SSE delivers them later) must still resolve the link to the trace
+    // root below — skipping would leave a previous trace's span selected.
+    if (!initialSpanId || !trace) return;
     const key = `${trace.trace_id}:${initialSpanId}`;
     if (appliedInitialSpanRef.current === key) return;
-    const span = trace.spans.find((s) => s.span_id === initialSpanId);
+    const span = (trace.spans ?? []).find((s) => s.span_id === initialSpanId);
     if (span) {
       appliedInitialSpanRef.current = key;
       setSelection({ type: "span", span });
