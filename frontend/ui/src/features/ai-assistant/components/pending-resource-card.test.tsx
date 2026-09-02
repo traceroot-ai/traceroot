@@ -12,7 +12,11 @@ const detectorModel: ResourceCardModel = {
   created: true,
   title: "Slow spans",
   meta: ["Detector", "Failure"],
-  body: { kind: "detector", chips: ["template prompt"] },
+  body: {
+    kind: "detector",
+    chips: ["sample 25%"],
+    prompt: { kind: "standard", templateLabel: "Failure" },
+  },
 };
 
 describe("PendingResourceCard", () => {
@@ -38,7 +42,9 @@ describe("PendingResourceCard", () => {
     render(<PendingResourceCard model={detectorModel} onDecide={vi.fn()} />);
 
     expect(screen.getByText("Slow spans")).toBeTruthy();
-    expect(screen.getByText("template prompt")).toBeTruthy();
+    // The shared body renders on the gate too: chips and the prompt line.
+    expect(screen.getByText("sample 25%")).toBeTruthy();
+    expect(screen.getByText("Uses the standard Failure prompt")).toBeTruthy();
 
     const buttons = screen.getAllByRole("button");
     expect(buttons).toHaveLength(2);
