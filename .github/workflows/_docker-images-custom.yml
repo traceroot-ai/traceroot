@@ -59,8 +59,9 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          # Short-lived credentials minted per run via GitHub OIDC. The role can
+          # push to traceroot-* ECR repositories and nothing else.
+          role-to-assume: arn:aws:iam::965747688757:role/traceroot-build-ecr
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
