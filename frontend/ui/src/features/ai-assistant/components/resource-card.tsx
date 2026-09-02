@@ -77,15 +77,15 @@ function DetectorPromptBlock({ prompt }: { prompt: DetectorPrompt }) {
     );
   }
   const clampable = promptNeedsClamp(prompt.text);
+  const promptClasses = [
+    "whitespace-pre-wrap break-words rounded-sm bg-muted/40 px-1.5 py-1 font-mono text-[10px] leading-relaxed text-foreground/80 [overflow-wrap:anywhere]",
+    clampable && !expanded ? "line-clamp-6" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
   return (
     <div className="space-y-0.5">
-      <pre
-        className={`whitespace-pre-wrap break-words rounded-sm bg-muted/40 px-1.5 py-1 font-mono text-[10px] leading-relaxed text-foreground/80 [overflow-wrap:anywhere]${
-          clampable && !expanded ? "line-clamp-6" : ""
-        }`}
-      >
-        {prompt.text}
-      </pre>
+      <pre className={promptClasses}>{prompt.text}</pre>
       {clampable && (
         <button
           type="button"
