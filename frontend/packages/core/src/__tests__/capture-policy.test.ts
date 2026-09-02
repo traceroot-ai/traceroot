@@ -371,4 +371,33 @@ describe("applyCapturePolicy", () => {
     expect(out.truncated).toBe(true);
     expect(state.spentBytes).toBeLessThanOrEqual(300);
   });
+
+  it("leaves one sentinel, not one per ancestor, when the budget runs out deep inside nested args", () => {
+    const state = { spentBytes: 0 };
+    const budget = { perStepBytes: 120, perRunBytes: 120 };
+    const args = {
+      outer: [[["x".repeat(500), "never"], "never"], "never"],
+      after: "never",
+    };
+    const out = applyCapturePolicy({ toolName: "bash", args, result: "" }, state, budget);
+    const serialized = JSON.stringify(out.args);
+    expect(serialized.match(/\[withheld: budget\]/g)?.length ?? 0).toBe(1);
+    expect(serialized).not.toContain("never");
+    expect(Buffer.byteLength(serialized, "utf8")).toBeLessThanOrEqual(
+      budget.perStepBytes + BUDGET_SLACK_BYTES,
+    );
+    expect(out.truncated).toBe(true);
+  });
+
+  it("bounds a quote- and backslash-heavy string by its escaped size, so the cap holds", () => {
+    const state = { spentBytes: 0 };
+    const budget = { perStepBytes: 200, perRunBytes: 200 };
+    const args = { cmd: '"\\'.repeat(400) };
+    const out = applyCapturePolicy({ toolName: "bash", args, result: "" }, state, budget);
+    expect(Buffer.byteLength(JSON.stringify(out.args), "utf8")).toBeLessThanOrEqual(
+      budget.perStepBytes,
+    );
+    expect(state.spentBytes).toBeLessThanOrEqual(budget.perRunBytes);
+    expect(out.truncated).toBe(true);
+  });
 });

@@ -33,7 +33,7 @@ const SECRET_NAME =
 const SECRET_VALUE = `(?:"[^"]*"|'[^']*'|[^\\s"',}]+)`;
 
 /** The marker every redaction — text-pattern or key-aware — replaces a secret with. */
-const REDACTED = "[REDACTED]";
+export const REDACTED = "[REDACTED]";
 
 const PATTERNS: Array<[RegExp, string | ((...args: never[]) => string)]> = [
   [/\b(gh[pousr]_)[A-Za-z0-9]{20,}/g, `$1${REDACTED}`],
@@ -174,17 +174,17 @@ const WITHHELD_BUDGET = "[withheld: budget]";
  *    2 bytes first, so a string that gets cut lands on the budget exactly;
  *  - `{`/`}`/`[`/`]` cost 2 bytes per container, and each element after the
  *    first costs 1 for its separating comma.
- * What's NOT charged: escape sequences a string's own content might need
- * (`"`, `\`, control characters) beyond the 2 quote bytes. Serialising once
- * and truncating the JSON would dodge that gap but produce unparseable
- * metadata on a mid-string cut, which is worse than a slightly-approximate
- * budget.
+ * A string's charge is its JSON-escaped size (quotes, `\"`, `\\`, control
+ * characters included), and the cut is shrunk until that escaped size fits,
+ * so a quote-heavy string cannot slip past either cap. Serialising once and
+ * truncating the JSON would make this exact for punctuation too, but would
+ * produce unparseable metadata on a mid-string cut.
  *
- * When a container's budget runs out partway through, the walk stops
- * descending into it and appends ONE placeholder for everything after —
- * `"[withheld: budget]"` as a final array element, or a `"…"` key holding it
- * in an object — instead of a placeholder per dropped element, so a huge
- * array/object degrades to one sentinel rather than thousands.
+ * When the budget runs out partway through a container, the walk stops and
+ * leaves ONE placeholder at the deepest node reached — `"[withheld: budget]"`
+ * as a final array element, or a `"…"` key holding it in an object — and
+ * every ancestor stops there too, so however deep the nesting, the result
+ * carries a single (uncharged) sentinel rather than one per level.
  */
 function capArgs(
   args: unknown,
@@ -210,16 +210,27 @@ function capArgs(
   const cap = (value: unknown): { value: unknown; exhausted: boolean } => {
     if (typeof value === "string") {
       const room = remaining();
-      if (room <= 0) {
+      // Less than the 2 quote bytes an empty string costs: nothing fits.
+      if (room < 2) {
         truncated = true;
         return { value: WITHHELD_BUDGET, exhausted: true };
       }
       // Redact before cutting: a cut could otherwise split a token and defeat
-      // a pattern. Reserve the 2 quote bytes JSON.stringify will add so a cut
-      // string's charge — cut bytes + 2 — lands exactly on `room`.
-      const cut = truncateTo(redactSecrets(value), Math.max(0, room - 2));
+      // a pattern. What is charged is the JSON-escaped size (quotes, `\"`,
+      // `\\`, control characters), so the cut is bounded by that size too:
+      // start from the raw allowance and shrink by the overshoot until the
+      // escaped form fits — a string with no escapes converges in one pass.
+      const redacted = redactSecrets(value);
+      let target = room - 2;
+      let cut = truncateTo(redacted, target);
+      let escapedBytes = Buffer.byteLength(JSON.stringify(cut.text), "utf8");
+      while (escapedBytes > room && target > 0) {
+        target = Math.max(0, target - (escapedBytes - room));
+        cut = truncateTo(redacted, target);
+        escapedBytes = Buffer.byteLength(JSON.stringify(cut.text), "utf8");
+      }
       truncated ||= cut.truncated;
-      spend(Buffer.byteLength(JSON.stringify(cut.text), "utf8"));
+      spend(escapedBytes);
       return { value: cut.text, exhausted: false };
     }
     if (value === null || typeof value === "number" || typeof value === "boolean") {
@@ -241,22 +252,27 @@ function capArgs(
       }
       spend(2); // '[' + ']'
       const out: unknown[] = [];
+      let exhausted = false;
       for (const el of value) {
         const sep = out.length > 0 ? 1 : 0;
         if (remaining() < sep) {
           truncated = true;
           out.push(WITHHELD_BUDGET);
+          exhausted = true;
           break;
         }
         spend(sep);
         const capped = cap(el);
         out.push(capped.value);
         if (capped.exhausted) {
+          // The sentinel already sits at the deepest node; report exhaustion
+          // upward so no ancestor appends an (uncharged) sentinel of its own.
           truncated = true;
+          exhausted = true;
           break;
         }
       }
-      return { value: out, exhausted: false };
+      return { value: out, exhausted };
     }
     if (typeof value === "object") {
       if (remaining() < 2) {
@@ -266,12 +282,14 @@ function capArgs(
       spend(2); // '{' + '}'
       const out: Record<string, unknown> = {};
       let first = true;
+      let exhausted = false;
       for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
         const sep = first ? 0 : 1;
         const keyBytes = Buffer.byteLength(JSON.stringify(k), "utf8") + 1; // + ':'
         if (remaining() < sep + keyBytes) {
           truncated = true;
           out["…"] = WITHHELD_BUDGET;
+          exhausted = true;
           break;
         }
         spend(sep + keyBytes);
@@ -283,10 +301,11 @@ function capArgs(
         out[k] = capped.value;
         if (capped.exhausted) {
           truncated = true;
+          exhausted = true;
           break;
         }
       }
-      return { value: out, exhausted: false };
+      return { value: out, exhausted };
     }
     return { value, exhausted: false };
   };

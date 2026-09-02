@@ -17,7 +17,7 @@
 
 import { complete } from "@earendil-works/pi-ai/compat";
 import { SpanStatusCode, context as otelContext, trace, type Span } from "@opentelemetry/api";
-import { redactSecrets } from "@traceroot/core/capture-policy";
+import { CREDENTIAL_KEY, REDACTED, redactSecrets } from "@traceroot/core/capture-policy";
 import { currentSelfTraceScope } from "./self-trace-emitter.js";
 
 /** Per-side cap on recorded transcript text. The judge input embeds up to
@@ -57,8 +57,14 @@ export function boundedJson(value: unknown): string {
     if (typeof v === "string") return truncate(v);
     if (Array.isArray(v)) return v.map(bound);
     if (v !== null && typeof v === "object") {
+      // Same key rule as captured tool args: a credential-shaped key blanks
+      // its whole value, whatever the type — the text patterns alone cannot
+      // see a `password` field once its value is separated from its key.
       return Object.fromEntries(
-        Object.entries(v as Record<string, unknown>).map(([k, x]) => [k, bound(x)]),
+        Object.entries(v as Record<string, unknown>).map(([k, x]) => [
+          k,
+          CREDENTIAL_KEY.test(k) ? REDACTED : bound(x),
+        ]),
       );
     }
     return v;

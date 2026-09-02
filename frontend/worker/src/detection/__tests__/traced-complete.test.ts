@@ -190,6 +190,32 @@ describe("tracedComplete inside a self-trace scope", () => {
     expect(output).toContain("[REDACTED]");
   });
 
+  it("redacts a structured credential field in the transcript by its key", async () => {
+    // A `password` value on its own has no shape the text patterns can
+    // recognise; the walker must blank it because of the key it sits under.
+    const structuredCtx = {
+      ...CTX,
+      messages: [
+        {
+          role: "user",
+          content: "sampled span",
+          metadata: { db: { password: "hunter2" }, api_token: 12345 },
+          timestamp: 1,
+        },
+      ],
+    };
+    await withSelfTrace(META, () =>
+      tracedComplete(MODEL as never, structuredCtx as never, {} as never),
+    );
+
+    const llm = exporter.getFinishedSpans().find((s) => s.name.startsWith("chat"))!;
+    const input = String(llm.attributes["traceroot.span.input"]);
+    expect(input).not.toContain("hunter2");
+    expect(input).not.toContain("12345");
+    expect(input).toContain('"password":"[REDACTED]"');
+    expect(input).toContain('"api_token":"[REDACTED]"');
+  });
+
   it("marks aborted (timed-out) responses as errored spans", async () => {
     // sandbox-eval's watchdog timeout resolves with stopReason "aborted"
     // instead of throwing — the span must not read as a healthy call.
