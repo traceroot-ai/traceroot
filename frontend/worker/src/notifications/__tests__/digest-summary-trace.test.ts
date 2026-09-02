@@ -42,7 +42,7 @@ vi.mock("@traceroot/core/llm-providers", () => ({
   DETECTOR_SYSTEM_DEFAULT_MODEL_ID: "m",
 }));
 
-import { digestTraceId, generateDigestSummary } from "../digest-summary.js";
+import { generateDigestSummary } from "../digest-summary.js";
 
 describe("digest summary self-trace", () => {
   it("runs the LLM call through tracedComplete inside a withSelfTrace scope named digest-summary", async () => {
@@ -61,7 +61,7 @@ describe("digest summary self-trace", () => {
     expect(out?.summary).toBe("3 findings");
     expect(withSelfTrace).toHaveBeenCalledWith(
       expect.objectContaining({
-        traceId: digestTraceId("p1", windowStart.getTime(), windowEnd.getTime()),
+        traceId: expect.stringMatching(/^[0-9a-f]{32}$/),
         projectId: "p1",
         name: "digest-summary",
         metadata: expect.objectContaining({ kind: "digest" }),
@@ -71,8 +71,28 @@ describe("digest summary self-trace", () => {
     expect(tracedComplete).toHaveBeenCalled();
   });
 
-  it("digestTraceId is 32 hex and deterministic", () => {
-    expect(digestTraceId("p", 1, 2)).toMatch(/^[0-9a-f]{32}$/);
-    expect(digestTraceId("p", 1, 2)).toBe(digestTraceId("p", 1, 2));
+  it("gives two flushes of the same window different trace ids", async () => {
+    // A re-flushed window makes a second LLM call with fresh span ids; sharing
+    // the trace id would stack a second root under the first trace.
+    const input = {
+      projectName: "Acme",
+      windowStart: new Date(1000),
+      windowEnd: new Date(2000),
+      detectors: [{ name: "D", findingCount: 2, sampleSummaries: ["a"] }],
+    };
+    const cfg = {
+      projectId: "p1",
+      workspaceId: "w1",
+      rcaModel: null,
+      rcaProvider: null,
+      rcaSource: null,
+    };
+    withSelfTrace.mockClear();
+    await generateDigestSummary(input, cfg);
+    await generateDigestSummary(input, cfg);
+    const [first, second] = withSelfTrace.mock.calls.map((c) => c[0].traceId as string);
+    expect(first).toMatch(/^[0-9a-f]{32}$/);
+    expect(second).toMatch(/^[0-9a-f]{32}$/);
+    expect(second).not.toBe(first);
   });
 });
