@@ -5,8 +5,13 @@ import { act, renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { LiveToolResult, UseAIStreamOptions } from "./use-ai-stream";
 
+// The panel must never navigate on agent writes — cache invalidation alone
+// surfaces created resources. The router mock stays observable so the tests
+// can assert it is untouched (and catch any reintroduction via useRouter).
+const routerPush = vi.hoisted(() => vi.fn());
+
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: routerPush }),
 }));
 
 // Captures the options useAiChat hands the stream so the test can drive
@@ -133,11 +138,36 @@ describe("useAiChat cache invalidation on agent writes", () => {
     ]);
   });
 
+  it("does not navigate when a turn that created a dashboard completes", async () => {
+    // Session s1 is active (a send committed it) and the panel is on the same
+    // project — the exact case the old auto-navigation fired for. Invalidation
+    // above is what surfaces the dashboard; the router must stay untouched.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, json: async () => ({ id: PANEL_SESSION }) })),
+    );
+    const { result } = renderHook(() => useAiChat({ projectId: PANEL_PROJECT }), { wrapper });
+    await act(() =>
+      result.current.handleSend("make a dashboard", {
+        model: "m",
+        provider: "p",
+        source: "system",
+        adapter: "a",
+      }),
+    );
+    emitToolResult(dashboardResult());
+    // The stream offers no turn-completion hook to defer a navigation onto,
+    // and the router was never touched at any point of the flow.
+    expect(stream.options && "onTurnComplete" in stream.options).toBe(false);
+    expect(routerPush).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
   it("stales per tool result rather than waiting for the turn to finish", () => {
     renderHook(() => useAiChat({ projectId: PANEL_PROJECT }), { wrapper });
     emitToolResult(dashboardResult());
     // The user must see the dashboard appear while the agent is still adding
-    // widgets, so the invalidation cannot be deferred to onTurnComplete.
+    // widgets, so the invalidation cannot wait for the turn to end.
     expect(invalidate).toHaveBeenCalled();
   });
 });
