@@ -98,8 +98,11 @@ export async function createDetector(input: {
       select: { role: true },
     });
     if (!member) {
+      // Same status and message as a missing project: a 403 here would tell a
+      // signed-in outsider that the project id exists in someone else's
+      // workspace, which the read paths deliberately never reveal.
       return {
-        result: { ok: false, status: 403, error: "Not a member of this workspace" },
+        result: { ok: false, status: 404, error: "Project not found" },
       };
     }
     if (!hasMinRole(member.role, Role.MEMBER)) {

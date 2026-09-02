@@ -84,15 +84,11 @@ describe("createDetector", () => {
     expect(tx.workspaceMember.findUnique).not.toHaveBeenCalled();
   });
 
-  it("rejects a non-member with 403", async () => {
+  it("returns the same 404 as a missing project for a non-member, so foreign project ids are not confirmed to exist", async () => {
     tx.project.findUnique.mockResolvedValue({ workspaceId: "w1", deleteTime: null });
     tx.workspaceMember.findUnique.mockResolvedValue(null);
     const r = await run();
-    expect(r).toEqual({
-      ok: false,
-      status: 403,
-      error: "Not a member of this workspace",
-    });
+    expect(r).toEqual({ ok: false, status: 404, error: "Project not found" });
     expect(tx.detector.create).not.toHaveBeenCalled();
   });
 
