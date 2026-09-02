@@ -30,7 +30,16 @@ import { PlanType } from "@traceroot/core";
  * "finding" (the RCA's own agent trace, opened from the Finding ID cell) also
  * opens quietly.
  */
-type SelectedTrace = { traceId: string; kind: "original" | "self" | "finding" } | null;
+type SelectedTrace = {
+  traceId: string;
+  kind: "original" | "self" | "finding";
+  /**
+   * Opened by a linked-trace hop from the viewer (an analysis's "Analyzed
+   * trace", a follow-up's "Analysis") rather than from a row. It need not be a
+   * row of the current list, so it is exempt from the leave-the-list clearing.
+   */
+  linked?: true;
+} | null;
 
 // A self-trace is identified by its run row (dashless run_id), and a finding's
 // agent trace by its execution's available trace id — neither is a trace_id
@@ -151,7 +160,11 @@ export default function DetectorDetailPage() {
   // Clear the selection if its run/trace is no longer in the active list (e.g. the
   // user paginated, refetched, switched tabs, or changed filters).
   useEffect(() => {
-    if (selectedTrace && !activeRows.some((r) => rowMatchesSelection(r, selectedTrace))) {
+    if (
+      selectedTrace &&
+      !selectedTrace.linked &&
+      !activeRows.some((r) => rowMatchesSelection(r, selectedTrace))
+    ) {
       setSelectedTrace(null);
     }
   }, [activeRows, selectedTrace]);
@@ -332,6 +345,7 @@ export default function DetectorDetailPage() {
             setSelectedTrace({
               traceId,
               kind: source === "detector" ? "self" : source === "agent" ? "finding" : "original",
+              linked: true,
             })
           }
           source={
