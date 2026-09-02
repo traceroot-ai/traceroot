@@ -70,6 +70,12 @@ export function formatWindowRange(start: Date, end: Date): string {
 // (one fewer when a summary section is rendered).
 const MAX_DIGEST_LINES = 46;
 
+// Leaves comfortable headroom under SECTION_LIMIT for the fixed URL and count
+// text around a detector name in its row, so the row's own truncate() below
+// is a last-resort net over raw text — not the thing actually shaping a
+// pathologically long name.
+const DETECTOR_NAME_CAP = 2000;
+
 // Deep-link to a detector's findings page, scoped to the digest window. Shared by
 // the Slack and email digests so the URL contract lives in one place.
 // date_filter=custom is REQUIRED — the detector page's useUrlDateFilter only
@@ -134,8 +140,12 @@ export function buildDigestAlertBlocks(params: DigestAlertParams): unknown[] {
     const shortTrace = e.latestTraceId.slice(0, 8);
     // Escape the detector name (user-controlled); URLs are built from encoded
     // params, so escaping them would mangle the query-string separators and
-    // break the Slack <url|text> link syntax.
-    const name = escapeMrkdwn(e.detectorName);
+    // break the Slack <url|text> link syntax. The row mixes that escaped name
+    // with raw URLs, so it needs its own entity-aware cap before it goes into
+    // the row: a cap over the whole row could just as easily split the name's
+    // own entity (truncate) or strip a raw URL "&" (truncateEscaped) — capping
+    // the name here keeps each kind of cut in its own lane.
+    const name = truncateEscaped(escapeMrkdwn(e.detectorName), DETECTOR_NAME_CAP);
     const text =
       `*<${findingsUrl}|${name}>* — ${e.findingCount} ${e.findingCount === 1 ? "finding" : "findings"}` +
       (e.latestTraceId

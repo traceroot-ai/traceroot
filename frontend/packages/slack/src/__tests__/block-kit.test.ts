@@ -100,6 +100,30 @@ describe("buildDigestAlertBlocks", () => {
     expect(text).toContain("date_filter=custom&start=");
   });
 
+  it("never splits the escaped detector name's entity, even in a pathologically long name", () => {
+    // a name built entirely of "&" expands well past DETECTOR_NAME_CAP once
+    // escaped, so a naive whole-row truncate would land inside one of its
+    // "&amp;" entities — the name needs its own cap, applied before the row
+    // mixes it with the row's raw URL text.
+    const blocks = buildDigestAlertBlocks({
+      ...digestBase,
+      total: 1,
+      entries: [
+        {
+          detectorId: "d1",
+          detectorName: "&".repeat(2500),
+          findingCount: 1,
+          latestTraceId: "a1b2c3d4",
+        },
+      ],
+    }) as any[];
+    const row = blocks[2].text.text as string; // header, divider, detector row
+    expect(row.includes("…")).toBe(true);
+    expect(row).not.toMatch(/&[a-z]*…/);
+    // the row's own URL separators are untouched by the name's cap
+    expect(row).toContain("date_filter=custom&start=");
+  });
+
   it("caps detector lines at the Slack 50-block limit and notes the overflow", () => {
     const entries = Array.from({ length: 50 }, (_, i) => ({
       detectorId: `d${i}`,
