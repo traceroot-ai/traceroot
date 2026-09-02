@@ -8,11 +8,21 @@ export function escapeMrkdwn(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-// Cap after escaping; strip a trailing partial escape entity from the cut
-// string so a cap-hitting text never ends "…&am…". Safe unconditionally:
-// escapeMrkdwn never leaves a bare "&" behind, so any "&" this pattern can
-// still match is the start of one of its three entities, cut short.
 export function truncate(text: string, max = SECTION_LIMIT): string {
+  if (text.length <= max) return text;
+  return text.slice(0, max - 1) + "…";
+}
+
+/**
+ * `truncate`, but for text that has already been through `escapeMrkdwn`: strips
+ * a trailing partial escape entity from the cut string so a cap-hitting text
+ * never ends "…&am…". Only safe on escaped text — `escapeMrkdwn` never leaves a
+ * bare "&" behind, so any "&" this pattern can still match there is the start of
+ * one of its three entities, cut short. On raw text a trailing "&" is just
+ * text (a URL's own "&start=" separator, "Ben & co", …), and this would delete
+ * it instead of fixing anything — callers with raw text want plain `truncate`.
+ */
+export function truncateEscaped(text: string, max = SECTION_LIMIT): string {
   if (text.length <= max) return text;
   return text.slice(0, max - 1).replace(/&[a-z]*$/, "") + "…";
 }
@@ -97,7 +107,7 @@ export function buildDigestAlertBlocks(params: DigestAlertParams): unknown[] {
           type: "section",
           text: {
             type: "mrkdwn",
-            text: truncate(escapeMrkdwn(summaryText), DIGEST_SUMMARY_RENDER_CAP),
+            text: truncateEscaped(escapeMrkdwn(summaryText), DIGEST_SUMMARY_RENDER_CAP),
           },
         },
       ]
