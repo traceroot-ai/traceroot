@@ -181,6 +181,15 @@ export async function runAgent(
 }
 
 /**
+ * Abort the session's in-flight run, if it has one. Used by session delete:
+ * the deleted session's turn has nobody left to narrate to, and every tool it
+ * would still run writes into a session row that no longer exists.
+ */
+export function abortSessionRun(sessionId: string): void {
+  sessionAgents.get(sessionId)?.abort();
+}
+
+/**
  * Remove a cached agent + session manager (on session delete).
  */
 export function removeAgent(sessionId: string): void {

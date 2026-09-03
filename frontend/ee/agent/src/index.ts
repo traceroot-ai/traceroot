@@ -10,12 +10,22 @@ import {
   deleteSession,
   updateSessionTitle,
 } from "./session.js";
-import { getOrCreateAgent, removeAgent, invalidateProviderCache } from "./agent.js";
+import {
+  getOrCreateAgent,
+  removeAgent,
+  abortSessionRun,
+  invalidateProviderCache,
+} from "./agent.js";
 import { decisionsRoute } from "./decisions-route.js";
 import { pendingDecisions, SESSION_DELETED_SKIP_REASON } from "./pending-decisions.js";
-import { claimRun, releaseRun, runAgentStream } from "./run-stream.js";
+import { claimRun, releaseRun, runAgentStream, waitForRunToSettle } from "./run-stream.js";
 import { getSystemPrompt } from "./prompts/system.js";
 import { createExecutor } from "./executors/index.js";
+import {
+  clearSessionDeleted,
+  fenceExecutorToSession,
+  markSessionDeleted,
+} from "./executors/deleted-session-fence.js";
 import { createTools } from "./tools/index.js";
 import type { Executor } from "./executors/interface.js";
 import type { Agent } from "@earendil-works/pi-agent-core";
@@ -104,18 +114,38 @@ app.delete("/api/v1/projects/:projectId/sessions/:sessionId", async (c) => {
   const result = await deleteSession(sessionId, userId, c.req.param("projectId"));
   if (!result) return c.json({ error: "not found" }, 404);
 
+  // Mark BEFORE anything resumes the run: releasing a parked decision below
+  // hands control back to the turn in a microtask, and the mark is what stops
+  // its next sandbox tool call from re-creating a container (see the fence).
+  markSessionDeleted(sessionId);
+  // The turn has nobody left to narrate to and would keep spending tokens.
+  abortSessionRun(sessionId);
   // The session is gone — any tool call still parked on a confirmation for
   // it can never receive a decision, so release it as a skip.
   pendingDecisions.releaseSession(sessionId, SESSION_DELETED_SKIP_REASON);
 
-  // Destroy executor if one exists for this session
-  const executor = sessionExecutors.get(sessionId);
-  if (executor) {
-    await executor.destroy();
-    sessionExecutors.delete(sessionId);
-  }
+  // Only now is the executor safe to tear down: destroying it while the
+  // resumed run is still executing tools would leave the sandbox that run
+  // re-creates untracked, and leaked for the life of the process.
+  const settled = await waitForRunToSettle(sessionId);
 
-  removeAgent(sessionId);
+  try {
+    const executor = sessionExecutors.get(sessionId);
+    if (executor) {
+      // Untracked before destroy: a teardown that throws must not leave a
+      // dead executor in the map for a later request to hand out.
+      sessionExecutors.delete(sessionId);
+      await executor.destroy();
+    }
+    removeAgent(sessionId);
+  } finally {
+    // The fence must never outlive the request that raised it, even when the
+    // teardown throws: a stale mark refuses every later run's sandbox. The one
+    // case it must outlive the request is a run that outlived the wait — it is
+    // still live, and its next sandbox call would create a container nothing
+    // tracks. That run drops its own mark when it settles.
+    if (settled) clearSessionDeleted(sessionId);
+  }
   return c.json({ ok: true });
 });
 
@@ -155,7 +185,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
   // Get or create executor for this session (lazy — not initialized until tool use)
   let executor = sessionExecutors.get(sessionId);
   if (!executor) {
-    executor = createExecutor();
+    executor = fenceExecutorToSession(createExecutor(), sessionId);
     sessionExecutors.set(sessionId, executor);
   }
 
