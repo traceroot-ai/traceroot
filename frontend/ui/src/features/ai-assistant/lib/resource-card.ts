@@ -236,10 +236,10 @@ function detectorChips(args: Record<string, unknown>): string[] {
  */
 function receiptRows(details: ResourceCreatedDetails): ReceiptRow[] {
   const rows: ReceiptRow[] = [];
-  if (typeof details.workspaceId === "string") {
-    rows.push({ label: "workspace", value: details.workspaceId });
-  }
-  rows.push({ label: "id", value: details.resourceId });
+  const workspaceId = str(details.workspaceId);
+  if (workspaceId !== null) rows.push({ label: "workspace", value: workspaceId });
+  const resourceId = str(details.resourceId);
+  if (resourceId !== null) rows.push({ label: "id", value: resourceId });
   return rows;
 }
 
@@ -281,7 +281,7 @@ function dashboardTiles(steps: readonly ToolCallStep[]): MiniatureTile[] {
     const { x, y, w, h } = layout[layout.length - 1];
     tiles.push({
       id: details.resourceId,
-      title: (args === null ? null : str(args.title)) ?? details.resourceId,
+      title: (args === null ? null : str(args.title)) ?? str(details.resourceId) ?? "",
       glyph: tileGlyph(args),
       x,
       y,
@@ -362,7 +362,7 @@ export function resourceCardModel(
     resourceType,
     resourceId: details.resourceId,
     created: details.created !== false,
-    title: displayName ?? details.resourceId,
+    title: displayName ?? str(details.resourceId, MAX_TITLE_CHARS) ?? "",
     meta,
     body: cardBody,
   };

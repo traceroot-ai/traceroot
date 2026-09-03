@@ -18,6 +18,9 @@ const intersect = () => act(() => observers.forEach((fire) => fire()));
 
 beforeEach(() => {
   observers.length = 0;
+  // The chart-query mock is per-test state: a test that makes it reject must
+  // not decide what the next test's card renders.
+  vi.mocked(api.runWidgetQuery).mockReset();
   vi.stubGlobal(
     "IntersectionObserver",
     class {
@@ -173,6 +176,13 @@ describe("MessageList tool entries", () => {
     await screen.findByText(/couldn't load/i, undefined, { timeout: 5000 });
     expect(screen.getByText("done")).toBeTruthy();
     expect(screen.getByText("Tokens by model")).toBeTruthy();
+  });
+
+  it("does not leak the failing chart query into the tests that follow", async () => {
+    // The rejection above is one test's stub. beforeEach resets the mock, so a
+    // later card's query resolves instead of replaying that failure.
+    const query = vi.mocked(api.runWidgetQuery);
+    await expect(Promise.resolve(query("p1", {} as never, {} as never))).resolves.toBeUndefined();
   });
 
   it("keeps the plain tool line for a widget whose dashboard carded earlier in the transcript", () => {
