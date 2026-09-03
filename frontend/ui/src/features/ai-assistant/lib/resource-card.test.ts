@@ -990,6 +990,13 @@ describe("pendingProposal", () => {
     pending: { decisionId: "d1" },
   });
 
+  it("leaves the title null when the args name nothing — the caller picks the fallback", () => {
+    expect(pendingProposal(parked("create_dashboard", {}))).toEqual({
+      resourceType: "dashboard",
+      title: null,
+    });
+  });
+
   it("names the resource a parked create would make, and its title", () => {
     expect(pendingProposal(parked("create_widget", { title: "Tokens by model" }))).toEqual({
       resourceType: "widget",
@@ -1005,11 +1012,8 @@ describe("pendingProposal", () => {
     });
   });
 
-  it("falls back to the resource label when the args carry no name", () => {
-    expect(pendingProposal(parked("create_widget", {}))?.title).toBe("Widget");
-    expect(pendingProposal(parked("create_detector", { name: { oops: 1 } }))?.title).toBe(
-      "Detector",
-    );
+  it("treats a non-string name as no name", () => {
+    expect(pendingProposal(parked("create_detector", { name: { oops: 1 } }))?.title).toBeNull();
   });
 
   it("is null for a tool that has no pending card", () => {

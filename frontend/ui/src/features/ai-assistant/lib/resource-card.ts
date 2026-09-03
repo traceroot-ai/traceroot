@@ -532,7 +532,7 @@ export type PendingResourceType = Extract<CardResourceType, "widget" | "dashboar
  * creates (project, workspace) are CLI/API surface and never park in chat, so
  * they have no pending card — only the receipt card, once created elsewhere.
  */
-export const PENDING_TOOL_RESOURCE_TYPES: Readonly<Record<string, PendingResourceType>> = {
+const PENDING_TOOL_RESOURCE_TYPES: Readonly<Record<string, PendingResourceType>> = {
   create_widget: "widget",
   create_dashboard: "dashboard",
   create_detector: "detector",
@@ -543,20 +543,22 @@ const MAX_DESCRIPTION_CHARS = 200;
 
 /**
  * What a parked write proposes, in the words the approval bar asks with: the
- * resource it would create and the name the call gave it (the type's label
- * when the args carry none). Null for a tool this panel has no proposal card
+ * resource it would create and the name the call gave it (null when the args
+ * carry none). Null for a tool this panel has no proposal card
  * for — the composer then offers no buttons, and only a typed reply can
  * answer the call.
  */
 export function pendingProposal(
   step: ToolCallStep,
-): { resourceType: PendingResourceType; title: string } | null {
+): { resourceType: PendingResourceType; title: string | null } | null {
   const resourceType = PENDING_TOOL_RESOURCE_TYPES[step.toolName];
   if (resourceType === undefined) return null;
   const args = plainObject(step.args);
-  const displayName =
+  // Null when the args name nothing: the card falls back to the type's label,
+  // while the composer's question simply asks by type.
+  const title =
     args === null ? null : (str(args.title, MAX_TITLE_CHARS) ?? str(args.name, MAX_TITLE_CHARS));
-  return { resourceType, title: displayName ?? RESOURCE_TYPE_LABELS[resourceType] };
+  return { resourceType, title };
 }
 
 /**
@@ -580,7 +582,8 @@ export function pendingCardModel(
 ): ResourceCardModel | null {
   const proposal = pendingProposal(step);
   if (proposal === null) return null;
-  const { resourceType, title } = proposal;
+  const { resourceType } = proposal;
+  const title = proposal.title ?? RESOURCE_TYPE_LABELS[resourceType];
   const args = plainObject(step.args);
 
   let body: ResourceCardBody;

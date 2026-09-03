@@ -485,7 +485,7 @@ describe("MessageList pending confirmation entries", () => {
     render(<MessageList messages={[toolEntry(createWidgetStep(WIDGET_DETAILS))]} projectId="p1" />);
     expect(screen.getByText("Tokens by model")).toBeTruthy();
     expect(screen.queryByText(/Proposed/)).toBeNull();
-    expect(screen.getByRole("link", { name: "Open" }).getAttribute("href")).toBe(
+    expect(screen.getByRole("link", { name: "Open widget" }).getAttribute("href")).toBe(
       "/projects/p1/dashboard/db1",
     );
   });

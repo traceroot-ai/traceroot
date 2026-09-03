@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { PendingDecisionBar } from "./pending-decision-bar";
 import type { PendingDecision } from "../hooks/use-ai-chat";
 
@@ -49,9 +49,20 @@ describe("PendingDecisionBar", () => {
     expect(onDecide).toHaveBeenCalledTimes(1);
 
     // A settled decision keeps the buttons disabled — the stream replaces the bar.
-    settle(true);
-    await waitFor(() => expect(onDecide).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      settle(true);
+    });
+    expect(button("Create detector").disabled).toBe(true);
     expect(button("Skip").disabled).toBe(true);
+  });
+
+  it("asks by type alone when the proposal carries no name", () => {
+    render(<PendingDecisionBar decision={{ ...decision, title: null }} onDecide={vi.fn()} />);
+
+    expect(screen.getByText(/Create detector/, { selector: "p" }).textContent).toBe(
+      "Create detector?",
+    );
+    expect(button("Create detector")).toBeTruthy();
   });
 
   it("posts skip and re-enables the buttons when the decision does not settle", async () => {

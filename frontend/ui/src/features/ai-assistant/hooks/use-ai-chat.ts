@@ -22,8 +22,12 @@ export interface PendingDecision {
   toolCallId: string;
   decisionId: string;
   resourceType: PendingResourceType;
-  title: string;
+  /** The name the call gave the resource; null when it gave none. */
+  title: string | null;
 }
+
+/** What the composer can answer a parked write with; a typed reply revises. */
+export type PendingDecisionAction = "create" | "skip";
 
 interface UseAiChatOptions extends AiTraceContext {
   projectId: string | undefined;
@@ -477,7 +481,7 @@ export function useAiChat({
     async (params: {
       toolCallId: string;
       decisionId: string;
-      action: "create" | "skip";
+      action: PendingDecisionAction;
     }): Promise<boolean> => {
       const sessionId = activeSessionIdRef.current;
       if (!projectId || !sessionId) return false;
