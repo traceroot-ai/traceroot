@@ -53,6 +53,11 @@ function park(sessionId: string) {
 
 afterEach(() => {
   vi.clearAllMocks();
+  // No test may leave a parked promise behind: an undecided park holds a
+  // timeout and a confirmation channel open into the next test.
+  for (const sessionId of ["del-1", "del-2", "mount-1", "sse-1"]) {
+    pendingDecisions.releaseSession(sessionId, "test cleanup");
+  }
 });
 
 describe("DELETE session — release path", () => {
@@ -84,7 +89,6 @@ describe("DELETE session — release path", () => {
 
     expect(res.status).toBe(404);
     expect(pendingDecisions.pendingCount("del-2")).toBe(1);
-    pendingDecisions.releaseSession("del-2", "test cleanup");
   });
 });
 
