@@ -9,7 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { CHART_TILE_ASPECT, DashboardMiniature } from "./dashboard-miniature";
+import { DashboardPreview } from "./dashboard-preview";
+import { CHART_TILE_ASPECT } from "./preview-constants";
 import type { DetectorPrompt, ResourceCardBody, ResourceCardModel } from "../lib/resource-card";
 
 // Loaded dynamically because the preview pulls in the dashboards renderers —
@@ -33,7 +34,7 @@ const WidgetChartPreview = dynamic(
  * otherwise be.
  *
  * The card IS the bubble: the resource itself — a widget's chart, a
- * dashboard's miniature, a detector's prompt — comes first, and one footer row
+ * dashboard scaled down, a detector's prompt — comes first, and one footer row
  * names it. The footer's title opens a definition panel with what the card
  * would otherwise have to say up front (the spec chips, a description), so
  * the picture is never pushed down by its own caption. Nothing here decides
@@ -147,12 +148,13 @@ function cardBody(body: ResourceCardBody, resourceId: string): ReactNode | null 
       // With no tiles — the transcript created no widgets, or the dashboard
       // was reused and its placements are unknowable — there is nothing to
       // shrink, and the card stands on its footer (plus the description a
-      // reused one carries, in the definition panel).
-      return body.tiles.length === 0 ? null : <DashboardMiniature tiles={body.tiles} />;
+      // reused one carries, in the definition panel). The preview's frame is
+      // light and imports statically; its tile bodies load dynamically.
+      return body.tiles.length === 0 ? null : <DashboardPreview tiles={body.tiles} />;
   }
 }
 
-/** True when the body is a picture the footer can hide: a chart or a miniature. */
+/** True when the body is a picture the footer can hide: a chart or a dashboard. */
 function hasPreview(body: ResourceCardBody): boolean {
   return (
     (body.kind === "widget" && body.chart !== null) ||

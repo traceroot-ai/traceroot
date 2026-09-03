@@ -6,8 +6,7 @@
 // so thin line strokes keep contrast on a light background.
 //
 // Lives apart from the chart renderers (which import recharts) so anything
-// that only needs the palette — the assistant's dashboard miniature, in the
-// shared layout chunk — can take it without dragging recharts along.
+// that only needs the palette can take it without dragging recharts along.
 export const SERIES_COLORS = [
   "#fb7185", // rose
   "#06b6d4", // cyan

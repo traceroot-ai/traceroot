@@ -16,7 +16,7 @@ import { useWidgetData } from "@/features/dashboards/hooks/use-widget-data";
 import { makeRange } from "@/features/dashboards/range-presets";
 import type { WidgetSpec } from "@/features/dashboards/types";
 import { FIELD_UNIT } from "@/features/filters/filter-controls";
-import { CHART_TILE_ASPECT, SNAPSHOT_QUERY_OPTIONS } from "./dashboard-miniature";
+import { CHART_TILE_ASPECT, SNAPSHOT_QUERY_OPTIONS } from "./preview-constants";
 
 interface WidgetChartPreviewProps {
   projectId: string;

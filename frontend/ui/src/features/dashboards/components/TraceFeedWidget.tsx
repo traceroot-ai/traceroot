@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { useTraceApiUser } from "@/lib/hooks/use-trace-api-user";
+import type { WidgetDataRefetchOptions } from "../hooks/use-widget-data";
 import { getTraces } from "@/lib/api/traces";
 import type { Predicate, TraceListItem } from "@/types/api";
 import { canonicalizeFilters, isValidPredicate } from "@/features/filters/predicate";
@@ -15,6 +16,9 @@ interface TraceFeedWidgetProps {
   // JSON, so entries are validated before they reach the query.
   spec: { limit?: number; filters?: Predicate[] };
   range: TimeRange;
+  // Same contract as the query widget's data hook: a frozen snapshot pins
+  // staleness and switches the event-driven refetches off.
+  queryOptions?: WidgetDataRefetchOptions;
 }
 
 // Error count, styled to match the trace-list "Errors" column: a red count
@@ -38,7 +42,7 @@ function fmtTime(iso: string): string {
   });
 }
 
-export function TraceFeedWidget({ projectId, spec, range }: TraceFeedWidgetProps) {
+export function TraceFeedWidget({ projectId, spec, range, queryOptions }: TraceFeedWidgetProps) {
   const router = useRouter();
   const limit = spec.limit ?? 10;
   const filters = (spec.filters ?? []).filter(isValidPredicate);
@@ -67,6 +71,7 @@ export function TraceFeedWidget({ projectId, spec, range }: TraceFeedWidgetProps
         user,
       ),
     enabled: sessionReady && !!projectId,
+    ...queryOptions,
   });
 
   // isPending (no data yet), not isLoading (pending AND fetching): while the
