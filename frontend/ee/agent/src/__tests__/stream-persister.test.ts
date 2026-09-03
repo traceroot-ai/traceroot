@@ -268,6 +268,18 @@ describe("StreamPersister", () => {
     expect(calls).toHaveLength(0);
   });
 
+  it("keeps a run billable when it reported a cost but no tokens", async () => {
+    // Cached-read-only turns and providers that price without reporting a
+    // token split still cost money: a positive cost is consumption, and
+    // dropping the usage would meter the run at nothing.
+    const { persister, calls } = makePersister();
+    const usage = { ...USAGE, inputTokens: 0, outputTokens: 0, cost: 0.004 };
+    await persister.finish(usage);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].tokenUsage).toEqual(usage);
+  });
+
   it("keeps an errored run billable when it consumed tokens before failing", async () => {
     const { persister, calls } = makePersister();
     persister.onEvent(toolStart("t1"));

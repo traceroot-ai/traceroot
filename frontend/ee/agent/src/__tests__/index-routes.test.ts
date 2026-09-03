@@ -4,6 +4,8 @@ import { pendingDecisions, SESSION_DELETED_SKIP_REASON } from "../pending-decisi
 import { deleteSession, getSession } from "../session.js";
 import { getOrCreateAgent, removeAgent, runAgent, type AgentEventHandler } from "../agent.js";
 import { createExecutor } from "../executors/index.js";
+import { clearSessionDeleted, isSessionDeleted } from "../executors/deleted-session-fence.js";
+import { waitForRunToSettle } from "../run-stream.js";
 import { createTools } from "../tools/index.js";
 import { createWritePolicyHook } from "../tools/write-policy.js";
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
@@ -29,14 +31,25 @@ vi.mock("../agent.js", () => ({
   })),
   runAgent: vi.fn(),
   removeAgent: vi.fn(),
+  abortSessionRun: vi.fn(),
   invalidateProviderCache: vi.fn(),
 }));
 vi.mock("../executors/index.js", () => ({
-  createExecutor: vi.fn(() => ({ destroy: vi.fn(async () => {}) })),
+  createExecutor: vi.fn(() => ({
+    init: vi.fn(async () => {}),
+    isReady: vi.fn(() => false),
+    destroy: vi.fn(async () => {}),
+  })),
 }));
 vi.mock("../tools/index.js", () => ({
   createTools: vi.fn(() => []),
 }));
+// Real run-stream, with one seam: a test needs the settle-wait to time out
+// without actually waiting the ten seconds the route allows it.
+vi.mock("../run-stream.js", async () => {
+  const actual = await vi.importActual<typeof import("../run-stream.js")>("../run-stream.js");
+  return { ...actual, waitForRunToSettle: vi.fn(actual.waitForRunToSettle) };
+});
 vi.mock("../prompts/system.js", () => ({
   getSystemPrompt: vi.fn(() => "system prompt"),
 }));
@@ -137,6 +150,160 @@ describe("DELETE session — release path", () => {
     expect(owner.status).toBe(200);
     expect(executor.destroy).toHaveBeenCalledTimes(1);
     expect(vi.mocked(removeAgent)).toHaveBeenCalledWith("del-3");
+  });
+
+  it("destroys the executor only after a parked run settles, and revives no sandbox", async () => {
+    // Deleting a session with a parked run releases that decision, which
+    // resumes the run in a microtask. Destroying the executor before the run
+    // settles lets the resumed run's next sandbox tool call re-init a
+    // container this service no longer tracks — leaked until the process dies.
+    mockedGetSession.mockResolvedValue({
+      id: "del-4",
+      userId: "u1",
+      projectId: "p1",
+      workspaceId: "w1",
+      title: "t",
+    } as never);
+
+    const order: string[] = [];
+    // The executor the session's tools actually hold — the fenced one, not
+    // the raw container handle.
+    const toolExecutor = () =>
+      vi.mocked(createTools).mock.calls[0][0].executor as { init: () => Promise<void> };
+    mockedRunAgent.mockImplementation(async (_agent, _msg, handler: AgentEventHandler) => {
+      // The run parks a confirm-class call and waits on the user's answer.
+      const { outcome } = pendingDecisions.park({
+        sessionId: "del-4",
+        toolCallId: "tc-4",
+        toolName: "create_detector",
+        args: {},
+      });
+      await outcome;
+      // Resumed: the next sandbox tool call would bring a container back.
+      order.push("run resumed");
+      try {
+        await toolExecutor().init();
+        order.push("sandbox re-inited");
+      } catch {
+        order.push("sandbox refused");
+      }
+      order.push("run settled");
+      handler.onDone();
+    });
+
+    const run = app.request("/api/v1/projects/p1/sessions/del-4/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-user-id": "u1" },
+      body: JSON.stringify({ message: "add a detector" }),
+    });
+    // Let the route reach runAgent and park before the delete lands.
+    const response = await run;
+    await vi.waitFor(() => expect(pendingDecisions.pendingCount("del-4")).toBe(1));
+    const container = vi.mocked(createExecutor).mock.results[0].value as {
+      init: Mock;
+      destroy: Mock;
+    };
+    container.destroy.mockImplementation(async () => {
+      order.push("executor destroyed");
+    });
+
+    mockedDeleteSession.mockResolvedValue({ id: "del-4" } as never);
+    const del = await app.request("/api/v1/projects/p1/sessions/del-4", {
+      method: "DELETE",
+      headers: { "x-user-id": "u1" },
+    });
+    await response.text();
+
+    expect(del.status).toBe(200);
+    // The teardown waits for the run; the resumed run gets no new sandbox.
+    expect(order).toEqual(["run resumed", "sandbox refused", "run settled", "executor destroyed"]);
+    expect(container.destroy).toHaveBeenCalledTimes(1);
+    // The fence refused before the container handle was ever touched.
+    expect(container.init).not.toHaveBeenCalled();
+    expect(vi.mocked(createExecutor)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(removeAgent)).toHaveBeenCalledWith("del-4");
+  });
+
+  it("keeps the deleted-session fence up when the run outlives the settle wait", async () => {
+    // The wait is bounded, so a run that will not settle cannot hang the
+    // DELETE. But the run is still live when the wait gives up: dropping the
+    // fence then would let its next sandbox call build a container nothing
+    // tracks — exactly the leak the fence exists to prevent.
+    mockedGetSession.mockResolvedValue({
+      id: "del-6",
+      userId: "u1",
+      projectId: "p1",
+      workspaceId: "w1",
+      title: "t",
+    } as never);
+    mockedRunAgent.mockImplementation(async (_agent, _msg, handler: AgentEventHandler) => {
+      handler.onDone();
+    });
+    await (
+      await app.request("/api/v1/projects/p1/sessions/del-6/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-user-id": "u1" },
+        body: JSON.stringify({ message: "hello" }),
+      })
+    ).text();
+
+    vi.mocked(waitForRunToSettle).mockResolvedValueOnce(false);
+    mockedDeleteSession.mockResolvedValue({ id: "del-6" } as never);
+    const del = await app.request("/api/v1/projects/p1/sessions/del-6", {
+      method: "DELETE",
+      headers: { "x-user-id": "u1" },
+    });
+
+    expect(del.status).toBe(200);
+    expect(isSessionDeleted("del-6")).toBe(true);
+
+    // Cleanup: in production releaseRun drops this mark when the run settles.
+    clearSessionDeleted("del-6");
+  });
+
+  it("clears the deleted-session fence and the executor entry even when the teardown throws", async () => {
+    // The fence must not outlive the request that raised it. A mark left
+    // behind refuses a sandbox to every later run in this process, and the
+    // executor map must not keep handing out a handle whose destroy failed.
+    mockedGetSession.mockResolvedValue({
+      id: "del-5",
+      userId: "u1",
+      projectId: "p1",
+      workspaceId: "w1",
+      title: "t",
+    } as never);
+    mockedRunAgent.mockImplementation(async (_agent, _msg, handler: AgentEventHandler) => {
+      handler.onDone();
+    });
+    const run = () =>
+      app.request("/api/v1/projects/p1/sessions/del-5/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-user-id": "u1" },
+        body: JSON.stringify({ message: "hello" }),
+      });
+    await (await run()).text();
+    const container = vi.mocked(createExecutor).mock.results[0].value as { destroy: Mock };
+    container.destroy.mockRejectedValue(new Error("sandbox host unreachable"));
+
+    mockedDeleteSession.mockResolvedValue({ id: "del-5" } as never);
+    const del = await app.request("/api/v1/projects/p1/sessions/del-5", {
+      method: "DELETE",
+      headers: { "x-user-id": "u1" },
+    });
+
+    // The caller still learns the teardown failed — the cleanup is not a
+    // swallow — but the process is left in a usable state.
+    expect(del.status).toBe(500);
+    expect(isSessionDeleted("del-5")).toBe(false);
+
+    // The next run for this id builds a fresh executor (the dead one was
+    // untracked before the destroy) and the cleared fence lets it init.
+    await (await run()).text();
+    expect(vi.mocked(createExecutor)).toHaveBeenCalledTimes(2);
+    const fenced = vi.mocked(createTools).mock.calls[1][0].executor as {
+      init: () => Promise<void>;
+    };
+    await expect(fenced.init()).resolves.toBeUndefined();
   });
 });
 

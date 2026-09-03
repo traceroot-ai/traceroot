@@ -189,8 +189,14 @@ export class StreamPersister {
     // a model with zero tokens: persisting that usage would meter a run the
     // user never got. Tool-only and errored runs that did consume tokens stay
     // billable, as does a text-producing run whose provider omitted usage.
+    // A positive cost is consumption too — a provider can price a turn
+    // without reporting a token split, and dropping it would meter that run
+    // at nothing.
     const consumedNothing =
-      tokenUsage !== undefined && tokenUsage.inputTokens === 0 && tokenUsage.outputTokens === 0;
+      tokenUsage !== undefined &&
+      tokenUsage.inputTokens === 0 &&
+      tokenUsage.outputTokens === 0 &&
+      tokenUsage.cost === 0;
     this.flushTextSegment(consumedNothing && !this.produced ? undefined : tokenUsage);
     await this.chain;
   }
