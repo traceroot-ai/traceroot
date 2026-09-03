@@ -497,3 +497,32 @@ def test_run_widget_query_sets_execution_guards(monkeypatch):
     assert settings["readonly"] == 1
     assert settings["max_execution_time"] == QUERY_TIMEOUT_S
     assert settings["max_bytes_before_external_group_by"] == GROUP_BY_SPILL_BYTES
+
+
+def test_additive_timeseries_metric_coalesces_fill_rows_to_zero():
+    """A sum over a Nullable column is Nullable, so its WITH FILL rows carry NULL —
+    the chart would then see one real bucket among gaps and draw nothing. The
+    stated contract is that a count or sum of nothing IS zero, so additive
+    timeseries metrics coalesce to 0; non-additive ones keep their NULL gaps.
+    """
+    sql, _ = compile_(
+        make_spec(
+            metric={"measure": "cost", "agg": "sum"}, display={"type": "line"}, breakdown=None
+        )
+    )
+    assert "ifNull(sum(cost), 0) AS value" in sql
+    assert "toNullable" not in sql
+
+    sql, _ = compile_(
+        make_spec(
+            metric={"measure": "duration_ms", "agg": "p95"},
+            display={"type": "line"},
+            breakdown=None,
+        )
+    )
+    assert "toNullable(quantile(0.95)(duration_ms)) AS value" in sql
+    assert "ifNull(quantile" not in sql
+
+    # Not a timeseries: no fill rows exist, so there is nothing to coalesce.
+    sql, _ = compile_(make_spec(metric={"measure": "cost", "agg": "sum"}, display={"type": "bar"}))
+    assert "ifNull(sum(cost), 0)" not in sql
