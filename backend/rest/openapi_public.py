@@ -131,6 +131,14 @@ def _apply_public_contract(schema: dict[str, Any]) -> None:
             op["responses"].setdefault("404", _error_response("Finding not found"))
             op["responses"].setdefault("500", _error_response("Failed to read finding"))
 
+    # Dashboard read error contract (matches the route code): the proxy passes
+    # the internal route's 404 through; ambiguity fails closed as the shared 503.
+    dashboard_get_op = (
+        schema["paths"].get("/api/v1/public/dashboards/{dashboard_id}", {}).get("get")
+    )
+    if dashboard_get_op is not None:
+        dashboard_get_op["responses"].setdefault("404", _error_response("Dashboard not found"))
+
     # Session read error contract (matches the route code).
     sessions_list_op = schema["paths"].get("/api/v1/public/sessions", {}).get("get")
     if sessions_list_op is not None:
@@ -337,17 +345,79 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         ),
         "enabled": True,
     },
+    "list_dashboards": {
+        "name": "list_dashboards",
+        "description": (
+            "List the project's dashboards (id, name, description, default "
+            "flag, creator, widget count, timestamps). To resolve a dashboard "
+            "by name, list here and match its name — never guess a dashboard id."
+        ),
+        "enabled": True,
+    },
+    "get_dashboard": {
+        "name": "get_dashboard",
+        "description": (
+            "Fetch one dashboard with its widgets (id, title, type, query "
+            "spec, creation time). Resolve the dashboard id by listing the "
+            "project's dashboards and matching the name — never guess an id."
+        ),
+        "enabled": True,
+    },
     # Evaluation reporting endpoints are SDK-facing writes, not agent tools (like ingest_traces).
     "register_run": {"enabled": False},
     "upsert_result": {"enabled": False},
     "complete_run": {"enabled": False},
-    # Public creates are API-facing writes; enabling them as agent tools is a
-    # deliberate later step.
-    "create_workspace": {"enabled": False},
-    "create_project": {"enabled": False},
-    "create_detector": {"enabled": False},
-    "create_dashboard": {"enabled": False},
-    "create_widget": {"enabled": False},
+    # Account-tenancy ops have no membership to gate; minRole VIEWER is the no-role-floor convention.
+    "create_workspace": {
+        "name": "create_workspace",
+        "description": (
+            "Create a workspace administered by the logged-in user. Idempotent: "
+            "re-creating a same-named workspace the caller already administers "
+            "returns it instead of duplicating."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "none", "minRole": "VIEWER", "tenancy": "account"},
+    },
+    "create_project": {
+        "name": "create_project",
+        "description": (
+            "Create a project in a workspace the logged-in user can write to "
+            "(idempotent on the project name within the workspace)."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "workspace"},
+        # API/CLI-visible but hidden from the agent: no UI form exposes the
+        # field, so the model shouldn't interrogate users about it.
+        "agentHiddenParams": ["trace_ttl_days"],
+    },
+    "create_detector": {
+        "name": "create_detector",
+        "description": (
+            "Create a detector (name, template, prompt, optional sampling/RCA "
+            "settings) in a project — idempotent on the detector name within "
+            "the project."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    "create_dashboard": {
+        "name": "create_dashboard",
+        "description": (
+            "Create a dashboard in a project (idempotent on the dashboard name "
+            "within the project); add charts to it with create_widget."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+    },
+    "create_widget": {
+        "name": "create_widget",
+        "description": (
+            "Add a widget (title, type, query spec) to an existing dashboard. "
+            "Strict create: every call adds a new widget."
+        ),
+        "enabled": True,
+        "policy": {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+    },
     "list_workspaces": {
         "name": "list_workspaces",
         "description": (
@@ -370,6 +440,115 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
 }
 
 
+# Legal values for each required write-tool policy key. Mirrors the registry
+# generator's validation exactly, so a policy mistake fails the schema build
+# here before the generated artifact can even drift.
+_POLICY_VALUES: dict[str, tuple[str, ...]] = {
+    "approvalClass": ("none", "approval"),
+    "minRole": ("VIEWER", "MEMBER", "ADMIN"),
+    "tenancy": ("account", "workspace", "project"),
+}
+
+
+def _validate_curation_policy(
+    entry: dict[str, Any], method: str, path: str, op_id: str | None
+) -> None:
+    """Enforce the write-only policy contract on one curation entry.
+
+    Args:
+        entry (dict[str, Any]): The ``_TOOL_CURATION`` entry for the operation.
+        method (str): Lowercase HTTP method of the operation.
+        path (str): Public path the operation lives on (for error messages).
+        op_id (str | None): The operation's ``operationId`` (for error messages).
+
+    Raises:
+        ValueError: If a GET entry carries a ``policy`` key (the vocabulary is
+            write-only), or if an enabled non-GET entry's ``policy`` is not a
+            dict with exactly the keys ``{approvalClass, minRole, tenancy}``
+            and legal values.
+    """
+    if method == "get":
+        if "policy" in entry:
+            raise ValueError(
+                f"read tool GET {path} ({op_id}): x-tool entries on GET "
+                "operations must not carry a policy — the vocabulary is write-only"
+            )
+        return
+    if not entry.get("enabled"):
+        return
+    policy = entry.get("policy")
+    valid = (
+        isinstance(policy, dict)
+        and set(policy) == set(_POLICY_VALUES)
+        and all(policy[key] in values for key, values in _POLICY_VALUES.items())
+    )
+    if not valid:
+        raise ValueError(
+            f"enabled write tool {method.upper()} {path} ({op_id}): x-tool policy "
+            "must be a dict with exactly the keys {approvalClass, minRole, tenancy} "
+            "and legal values"
+        )
+
+
+def _validate_agent_hidden_params(
+    entry: dict[str, Any],
+    op: dict[str, Any],
+    schema: dict[str, Any],
+    method: str,
+    path: str,
+    op_id: str | None,
+) -> None:
+    """Enforce the agent-hidden-params contract on one curation entry.
+
+    ``agentHiddenParams`` marks request-body fields that stay in the public
+    API/CLI contract but that the agent's tool factory must neither expose to
+    the model nor accept from it.
+
+    Args:
+        entry (dict[str, Any]): The ``_TOOL_CURATION`` entry for the operation.
+        op (dict[str, Any]): The OpenAPI operation (for its ``requestBody``).
+        schema (dict[str, Any]): The public-only document, used to resolve a
+            request-body ``$ref`` against ``components.schemas``.
+        method (str): Lowercase HTTP method of the operation.
+        path (str): Public path the operation lives on (for error messages).
+        op_id (str | None): The operation's ``operationId`` (for error messages).
+
+    Raises:
+        ValueError: If ``agentHiddenParams`` appears on a GET or disabled
+            entry, is not a non-empty list of strings, or names a field that
+            does not exist in the operation's JSON request-body properties
+            (stale after a field rename or removal).
+    """
+    hidden = entry.get("agentHiddenParams")
+    if hidden is None:
+        return
+    if method == "get" or not entry.get("enabled"):
+        raise ValueError(
+            f"tool {method.upper()} {path} ({op_id}): agentHiddenParams is only "
+            "legal on an enabled non-GET entry"
+        )
+    if not (isinstance(hidden, list) and hidden and all(isinstance(n, str) for n in hidden)):
+        raise ValueError(
+            f"enabled write tool {method.upper()} {path} ({op_id}): "
+            "agentHiddenParams must be a non-empty list of strings"
+        )
+    body_schema = (
+        op.get("requestBody", {}).get("content", {}).get("application/json", {}).get("schema", {})
+    )
+    ref = body_schema.get("$ref")
+    if isinstance(ref, str) and ref.startswith("#/components/schemas/"):
+        body_schema = (
+            (schema.get("components") or {}).get("schemas", {}).get(ref.rsplit("/", 1)[1], {})
+        )
+    properties = body_schema.get("properties", {})
+    for name in hidden:
+        if name not in properties:
+            raise ValueError(
+                f"enabled write tool {method.upper()} {path} ({op_id}): "
+                f"agentHiddenParams names unknown requestBody property {name!r}"
+            )
+
+
 def _apply_tool_curation(schema: dict[str, Any]) -> None:
     """Stamp the per-operation ``x-tool`` block from ``_TOOL_CURATION``.
 
@@ -379,9 +558,12 @@ def _apply_tool_curation(schema: dict[str, Any]) -> None:
 
     Raises:
         ValueError: If a public operation has no curation entry — forces every
-            new endpoint to make an explicit tool decision in the same PR — or
-            if a curation entry matches no public operation (stale after a
-            rename or removal).
+            new endpoint to make an explicit tool decision in the same PR — if
+            a curation entry matches no public operation (stale after a rename
+            or removal), if an entry violates the write-tool policy contract
+            (see :func:`_validate_curation_policy`), or if an entry violates
+            the agent-hidden-params contract (see
+            :func:`_validate_agent_hidden_params`).
     """
     consumed: set[str] = set()
     for path, item in schema["paths"].items():
@@ -395,6 +577,8 @@ def _apply_tool_curation(schema: dict[str, Any]) -> None:
                     f"public operation {method.upper()} {path} ({op_id}) has no "
                     "_TOOL_CURATION entry — add one (enabled or disabled)"
                 )
+            _validate_curation_policy(entry, method, path, op_id)
+            _validate_agent_hidden_params(entry, op, schema, method, path, op_id)
             consumed.add(op_id)
             op["x-tool"] = copy.deepcopy(entry)
     stale = set(_TOOL_CURATION) - consumed

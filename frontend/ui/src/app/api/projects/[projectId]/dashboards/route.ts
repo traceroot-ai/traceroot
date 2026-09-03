@@ -4,6 +4,7 @@ import { prisma, Role } from "@traceroot/core";
 import { errorResponse, successResponse } from "@/lib/auth-helpers";
 import { parseJsonObject, requireProjectAuth } from "@/lib/route-helpers";
 import { defaultDashboardId, seedWidgets } from "@/lib/dashboard-seed";
+import { resolveCreatorNames } from "@/lib/dashboard-read";
 import { DASHBOARD_DESCRIPTION_MAX, DASHBOARD_NAME_MAX } from "@/features/dashboards/types";
 
 type RouteParams = { params: Promise<{ projectId: string }> };
@@ -23,17 +24,9 @@ const listArgs = (projectId: string) => ({
 });
 
 // Dashboards are shared across a project's members, so the list shows who
-// created each one. createdBy holds a bare user id (no relation on the
-// model); resolve the display names in one batch and swap them in — a
-// deleted account resolves to null and renders as "—".
+// created each one; a deleted account resolves to null and renders as "—".
 async function withCreators<T extends { createdBy: string }>(dashboards: T[]) {
-  const ids = [...new Set(dashboards.map((d) => d.createdBy))];
-  const users = await prisma.user.findMany({
-    where: { id: { in: ids } },
-    select: { id: true, name: true, email: true },
-  });
-  // || not ??: an empty-string name must fall through to the email too.
-  const byId = new Map(users.map((u) => [u.id, u.name || u.email]));
+  const byId = await resolveCreatorNames(dashboards.map((d) => d.createdBy));
   return dashboards.map(({ createdBy, ...d }) => ({
     ...d,
     creator: byId.get(createdBy) ?? null,

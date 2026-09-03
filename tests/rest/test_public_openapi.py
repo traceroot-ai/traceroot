@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import rest.openapi_public as openapi_public
 from rest.main import app
 from rest.openapi_public import PUBLIC_PREFIX, _apply_tool_curation, build_public_schema, render
 
@@ -266,12 +267,34 @@ def test_session_read_routes_document_error_responses():
     assert responses["404"]["description"] == "Session not found"
 
 
+def test_dashboard_read_routes_document_error_responses():
+    paths = _schema()["paths"]
+    assert set(paths["/api/v1/public/dashboards"]["get"]["responses"]) >= {"200", "401", "503"}
+    responses = paths["/api/v1/public/dashboards/{dashboard_id}"]["get"]["responses"]
+    assert set(responses) >= {"200", "401", "404", "503"}
+    assert responses["404"]["description"] == "Dashboard not found"
+
+
+def test_dashboard_read_tools_steer_name_resolution():
+    """Both dashboard read tools tell the model to resolve a dashboard by
+    listing and matching its name — never to guess an id."""
+    paths = _schema()["paths"]
+    list_tool = paths["/api/v1/public/dashboards"]["get"]["x-tool"]
+    get_tool = paths["/api/v1/public/dashboards/{dashboard_id}"]["get"]["x-tool"]
+    for tool in (list_tool, get_tool):
+        assert tool["enabled"]
+        assert "never guess" in tool["description"]
+    assert "match its name" in list_tool["description"]
+    assert "matching the name" in get_tool["description"]
+
+
 _METHODS = {"get", "post", "put", "patch", "delete"}
 
 EXPECTED_OPERATION_IDS = {
     "/api/v1/public/projects": {"get": "list_projects", "post": "create_project"},
     "/api/v1/public/workspaces": {"get": "list_workspaces", "post": "create_workspace"},
-    "/api/v1/public/dashboards": {"post": "create_dashboard"},
+    "/api/v1/public/dashboards": {"get": "list_dashboards", "post": "create_dashboard"},
+    "/api/v1/public/dashboards/{dashboard_id}": {"get": "get_dashboard"},
     "/api/v1/public/widgets": {"post": "create_widget"},
     "/api/v1/public/detectors": {"get": "list_detectors", "post": "create_detector"},
     "/api/v1/public/detectors/findings": {"get": "list_findings"},
@@ -340,11 +363,6 @@ def test_x_tool_enabled_set_and_shape():
         "register_run",
         "upsert_result",
         "complete_run",
-        "create_workspace",
-        "create_project",
-        "create_detector",
-        "create_dashboard",
-        "create_widget",
     }
     assert set(enabled) == {
         "whoami",
@@ -359,8 +377,15 @@ def test_x_tool_enabled_set_and_shape():
         "list_findings",
         "get_finding",
         "get_finding_by_trace",
+        "list_dashboards",
+        "get_dashboard",
         "list_workspaces",
         "list_projects",
+        "create_workspace",
+        "create_project",
+        "create_detector",
+        "create_dashboard",
+        "create_widget",
     }
     for name, tool in enabled.items():
         assert tool["description"], f"{name} needs an agent-facing description"
@@ -380,6 +405,8 @@ _PROJECT_ID_READ_OPS = [
     "/api/v1/public/detectors/findings",
     "/api/v1/public/detectors/findings/{finding_id}",
     "/api/v1/public/detectors/traces/{trace_id}/finding",
+    "/api/v1/public/dashboards",
+    "/api/v1/public/dashboards/{dashboard_id}",
 ]
 
 
@@ -514,3 +541,149 @@ def test_stale_curation_entry_fails_build():
     fake = {"paths": {"/api/v1/public/whoami": {"get": {"operationId": "whoami"}}}}
     with pytest.raises(ValueError, match=r"stale _TOOL_CURATION.*list_traces"):
         _apply_tool_curation(fake)
+
+
+# --- Write-tool policy curation ----------------------------------------------
+
+_VALID_CREATE_POLICY = {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "workspace"}
+
+
+def test_enabled_write_entry_missing_policy_fails_build(monkeypatch):
+    monkeypatch.setitem(
+        openapi_public._TOOL_CURATION,
+        "create_project",
+        {"name": "create_project", "description": "Create a project.", "enabled": True},
+    )
+    with pytest.raises(ValueError, match=r"create_project.*policy"):
+        build_public_schema(app)
+
+
+def test_enabled_write_entry_illegal_approval_class_fails_build(monkeypatch):
+    monkeypatch.setitem(
+        openapi_public._TOOL_CURATION,
+        "create_project",
+        {
+            "name": "create_project",
+            "description": "Create a project.",
+            "enabled": True,
+            "policy": {**_VALID_CREATE_POLICY, "approvalClass": "auto"},
+        },
+    )
+    with pytest.raises(ValueError, match=r"create_project.*policy"):
+        build_public_schema(app)
+
+
+def test_enabled_write_entry_extra_policy_key_fails_build(monkeypatch):
+    monkeypatch.setitem(
+        openapi_public._TOOL_CURATION,
+        "create_project",
+        {
+            "name": "create_project",
+            "description": "Create a project.",
+            "enabled": True,
+            "policy": {**_VALID_CREATE_POLICY, "rateLimit": "write"},
+        },
+    )
+    with pytest.raises(ValueError, match=r"create_project.*policy"):
+        build_public_schema(app)
+
+
+def test_get_entry_carrying_policy_fails_build(monkeypatch):
+    # The policy vocabulary is write-only: a read tool carrying one is a
+    # curation mistake, not a harmless extra.
+    monkeypatch.setitem(
+        openapi_public._TOOL_CURATION,
+        "whoami",
+        {
+            "name": "whoami",
+            "description": "Identify the credential.",
+            "enabled": True,
+            "policy": dict(_VALID_CREATE_POLICY),
+        },
+    )
+    with pytest.raises(ValueError, match=r"whoami.*policy"):
+        build_public_schema(app)
+
+
+# --- Agent-hidden write params ------------------------------------------------
+
+
+def test_create_project_curation_carries_agent_hidden_params():
+    # trace_ttl_days stays in the public API/CLI contract; the key tells the
+    # agent's tool factory to keep it out of the model-visible schema.
+    tool = _schema()["paths"]["/api/v1/public/projects"]["post"]["x-tool"]
+    assert tool["agentHiddenParams"] == ["trace_ttl_days"]
+
+
+def test_agent_hidden_params_stale_name_fails_build(monkeypatch):
+    # A hidden name that no longer exists in the request body is a curation
+    # mistake (e.g. after a field rename) and must fail the build.
+    entry = deepcopy(openapi_public._TOOL_CURATION["create_project"])
+    entry["agentHiddenParams"] = ["not_a_body_field"]
+    monkeypatch.setitem(openapi_public._TOOL_CURATION, "create_project", entry)
+    with pytest.raises(ValueError, match=r"create_project.*not_a_body_field"):
+        build_public_schema(app)
+
+
+def test_agent_hidden_params_on_get_entry_fails_build(monkeypatch):
+    entry = deepcopy(openapi_public._TOOL_CURATION["whoami"])
+    entry["agentHiddenParams"] = ["anything"]
+    monkeypatch.setitem(openapi_public._TOOL_CURATION, "whoami", entry)
+    with pytest.raises(ValueError, match=r"whoami.*agentHiddenParams"):
+        build_public_schema(app)
+
+
+def test_agent_hidden_params_on_disabled_entry_fails_build(monkeypatch):
+    monkeypatch.setitem(
+        openapi_public._TOOL_CURATION,
+        "ingest_traces",
+        {"enabled": False, "agentHiddenParams": ["anything"]},
+    )
+    with pytest.raises(ValueError, match=r"ingest_traces.*agentHiddenParams"):
+        build_public_schema(app)
+
+
+@pytest.mark.parametrize("bad_value", [[], ["trace_ttl_days", 3], "trace_ttl_days"])
+def test_agent_hidden_params_must_be_nonempty_string_list(monkeypatch, bad_value):
+    entry = deepcopy(openapi_public._TOOL_CURATION["create_project"])
+    entry["agentHiddenParams"] = bad_value
+    monkeypatch.setitem(openapi_public._TOOL_CURATION, "create_project", entry)
+    with pytest.raises(ValueError, match=r"create_project.*agentHiddenParams"):
+        build_public_schema(app)
+
+
+# The five public creates, pinned to their exact write-tool policy. approvalClass
+# and minRole must match what the write service actually enforces; tenancy names
+# the scope the target resource lives in.
+_CREATE_TOOL_POLICIES = {
+    "create_workspace": (
+        "/api/v1/public/workspaces",
+        {"approvalClass": "none", "minRole": "VIEWER", "tenancy": "account"},
+    ),
+    "create_project": (
+        "/api/v1/public/projects",
+        {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "workspace"},
+    ),
+    "create_detector": (
+        "/api/v1/public/detectors",
+        {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+    ),
+    "create_dashboard": (
+        "/api/v1/public/dashboards",
+        {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+    ),
+    "create_widget": (
+        "/api/v1/public/widgets",
+        {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
+    ),
+}
+
+
+@pytest.mark.parametrize("op_id", sorted(_CREATE_TOOL_POLICIES))
+def test_create_ops_are_enabled_tools_with_pinned_policy(op_id):
+    path, policy = _CREATE_TOOL_POLICIES[op_id]
+    tool = _schema()["paths"][path]["post"]["x-tool"]
+    assert tool["enabled"] is True
+    assert tool["name"] == op_id
+    assert tool["description"], f"{op_id} needs an agent-facing description"
+    assert tool["policy"] == policy
