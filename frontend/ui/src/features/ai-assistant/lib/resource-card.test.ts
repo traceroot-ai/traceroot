@@ -273,7 +273,7 @@ describe("resourceCardModel", () => {
     });
   });
 
-  it("shows the actual prompt of a detector that was given its own, and its off switches", () => {
+  it("shows the actual prompt of a detector that was given its own, and its RCA switch", () => {
     const detector = step({
       toolName: "create_detector",
       args: {
@@ -291,7 +291,7 @@ describe("resourceCardModel", () => {
     expect(model?.meta).toEqual(["Detector", "Custom"]);
     expect(model?.body).toEqual({
       kind: "detector",
-      chips: ["RCA off", "paused"],
+      chips: ["RCA off"],
       prompt: { kind: "custom", text: "Only report a timeout past 30 seconds." },
     });
   });
@@ -309,7 +309,7 @@ describe("resourceCardModel", () => {
     });
   });
 
-  it("chips the detection model and an explicit enabled state", () => {
+  it("chips the detection model and never the enabled flag", () => {
     const detector = step({
       toolName: "create_detector",
       args: {
@@ -321,7 +321,7 @@ describe("resourceCardModel", () => {
       details: created("detector", "d1"),
     });
     expect(resourceCardModel(detector)?.body).toMatchObject({
-      chips: ["enabled", "model gpt-4o-mini"],
+      chips: ["model gpt-4o-mini"],
     });
   });
 
