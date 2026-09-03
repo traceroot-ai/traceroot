@@ -429,6 +429,7 @@ async function evaluateTrace(
         workspaceId,
         sessionId: null,
         kind: "detector",
+        turnKind: "detector" as const,
         role: "assistant",
         content: "", // detector scans don't have a chat-like content payload
         model: u.inferenceModel,

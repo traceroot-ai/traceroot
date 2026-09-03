@@ -1,7 +1,7 @@
 import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import { prisma, calculateCost, syncStandardPrices, ModelSource } from "@traceroot/core";
+import { prisma, syncStandardPrices, ModelSource } from "@traceroot/core";
 import {
   createSession,
   getSession,
@@ -9,8 +9,12 @@ import {
   listSessions,
   deleteSession,
   updateSessionTitle,
+  executionBelongsToProject,
+  type TurnAttribution,
 } from "./session.js";
 import { getOrCreateAgent, runAgent, removeAgent, invalidateProviderCache } from "./agent.js";
+import { StreamPersister } from "./stream-persister.js";
+import { UsageAccumulator } from "./usage-accumulator.js";
 import { getSystemPrompt } from "./prompts/system.js";
 import { createExecutor } from "./executors/index.js";
 import { createTools } from "./tools/index.js";
@@ -50,13 +54,30 @@ app.post("/api/v1/projects/:projectId/sessions", async (c) => {
   const projectId = c.req.param("projectId");
   const userId = c.req.header("x-user-id") || undefined;
   const workspaceId = c.req.header("x-workspace-id") || "";
-  const body = await c.req.json<{ title?: string }>();
+  const body = await c.req.json<{ title?: string; executionId?: unknown }>();
+
+  // Every message in this session inherits the session's executionId as its
+  // attribution, so an id from another project would attribute this project's
+  // turns to that one. The caller is trusted to reach the route, not to name
+  // an execution: confirm it exists under this project before storing it. A
+  // malformed id is rejected here rather than surfacing later as an FK error
+  // on the session's first message — and rather than being dropped: a caller
+  // that sends an execution id of the wrong shape (a number, "") has a bug,
+  // and silently creating an unattributed session would hide it.
+  const { executionId } = body;
+  if (executionId !== undefined && (typeof executionId !== "string" || executionId.trim() === "")) {
+    return c.json({ error: "executionId must be a non-empty string" }, 400);
+  }
+  if (executionId && !(await executionBelongsToProject(prisma, executionId, projectId))) {
+    return c.json({ error: "executionId does not belong to this project" }, 400);
+  }
 
   const session = await createSession({
     projectId,
     workspaceId,
     userId, // undefined → stored as null for system/RCA sessions
     title: body.title,
+    executionId,
   });
   return c.json(session, 201);
 });
@@ -169,8 +190,26 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
 
   console.log(`[Agent] Agent ready, running prompt: "${body.message.slice(0, 50)}"`);
 
+  // Attribution is computed once per turn and applied to every row it
+  // produces (the user message, and every assistant/tool_step row the
+  // persister writes below) so a turn reads as one attributed unit.
+  const attribution: TurnAttribution =
+    ownedSession.userId === null
+      ? userId
+        ? {
+            turnKind: "rca_followup",
+            executionId: ownedSession.executionId,
+            initiatorUserId: userId,
+          }
+        : {
+            turnKind: "rca_execution",
+            executionId: ownedSession.executionId,
+            initiatorUserId: null,
+          }
+      : { turnKind: "chat", initiatorUserId: userId || null };
+
   // Persist user message to DB via SessionManager
-  await sessionManager.appendMessage("user", body.message);
+  await sessionManager.appendMessage("user", body.message, attribution);
 
   // Auto-generate session title from first user message (we already have
   // the session loaded above for the auth check — reuse it).
@@ -180,17 +219,14 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
   }
 
   return streamSSE(c, async (stream) => {
-    let assistantText = "";
+    // Mirrors the run into AIMessage rows (text segments, tool steps) so
+    // reloaded history matches what the live stream rendered.
+    const persister = new StreamPersister((role, content, metadata, tokenUsage) =>
+      sessionManager.appendMessage(role, content, attribution, metadata, tokenUsage),
+    );
+    // Accumulates token usage across all message_end events (tool-use loops)
+    const usageAccumulator = new UsageAccumulator();
     let loggedFirstUpdate = false;
-
-    // Accumulate token usage across all message_end events (tool-use loops)
-    let totalInputTokens = 0;
-    let totalOutputTokens = 0;
-    let totalCacheReadTokens = 0;
-    let totalCacheWriteTokens = 0;
-    let totalCost = 0;
-    let responseModel: string | undefined;
-    let responseProvider: string | undefined;
 
     await new Promise<void>((resolve) => {
       runAgent(agent, body.message, {
@@ -205,7 +241,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
             // Skip noisy message_start, log other event types
             console.log(`[Agent] Event: ${event.type}`);
           }
-          // Log error details and accumulate token usage from message_end
+          // Log error details from message_end
           if (event.type === "message_end") {
             const msg = (event as any).message;
             console.log(
@@ -220,17 +256,6 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
             if (msg?.stopReason === "error") {
               console.error(`[Agent] API error:`, msg.errorMessage || "unknown");
             }
-            // Accumulate token usage
-            const usage = msg?.usage;
-            if (usage) {
-              totalInputTokens += usage.input ?? usage.inputTokens ?? 0;
-              totalOutputTokens += usage.output ?? usage.outputTokens ?? 0;
-              totalCacheReadTokens += usage.cacheRead ?? 0;
-              totalCacheWriteTokens += usage.cacheWrite ?? 0;
-              totalCost += usage.cost?.total ?? 0;
-            }
-            if (msg?.model) responseModel = msg.model;
-            if (msg?.provider) responseProvider = msg.provider;
           }
           // Forward all events to the frontend
           stream.writeSSE({
@@ -238,57 +263,30 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
             data: JSON.stringify(event),
           });
 
-          // Accumulate assistant text for DB persistence
-          if (event.type === "message_update") {
-            const msgEvent = event as any;
-            const delta = msgEvent.assistantMessageEvent;
-            if ((delta?.type === "text_delta" || delta?.type === "thinking_delta") && delta.delta) {
-              assistantText += delta.delta;
-            }
-          }
+          // Mirror the event into token totals and durable rows
+          usageAccumulator.onEvent(event);
+          persister.onEvent(event);
         },
-        onError: (error) => {
+        onError: async (error) => {
           console.error(`[Agent] ERROR:`, error.message);
           stream.writeSSE({
             event: "error",
             data: JSON.stringify({ message: error.message }),
           });
+          // Persist whatever the run produced before failing (text so far,
+          // completed tool steps) so reloaded history matches what was shown,
+          // with the usage accumulated before the failure so those tokens
+          // still count toward the run meters.
+          await persister.finish(
+            await usageAccumulator.toTokenUsage(body.source === ModelSource.BYOK),
+          );
           resolve();
         },
         onDone: async () => {
-          console.log(`[Agent] Done. Assistant text length: ${assistantText.length}`);
-          // Persist assistant response to DB via SessionManager
-          if (assistantText) {
-            // Use our pricing table if pi-ai returned 0 cost
-            const cost =
-              totalCost > 0
-                ? totalCost
-                : responseModel
-                  ? await calculateCost(
-                      responseModel,
-                      totalInputTokens,
-                      totalOutputTokens,
-                      totalCacheReadTokens,
-                      totalCacheWriteTokens,
-                    )
-                  : 0;
-            if (cost === 0 && responseModel && (totalInputTokens > 0 || totalOutputTokens > 0)) {
-              console.warn(
-                `[Agent] Standard model pricing missing for "${responseModel}", cost recorded as $0`,
-              );
-            }
-            const tokenUsage = responseModel
-              ? {
-                  model: responseModel,
-                  provider: responseProvider || "unknown",
-                  isByok: body.source === ModelSource.BYOK,
-                  inputTokens: totalInputTokens,
-                  outputTokens: totalOutputTokens,
-                  cost,
-                }
-              : undefined;
-            await sessionManager.appendMessage("assistant", assistantText, undefined, tokenUsage);
-          }
+          const tokenUsage = await usageAccumulator.toTokenUsage(body.source === ModelSource.BYOK);
+          // Flush the trailing text segment and wait for all rows to land
+          await persister.finish(tokenUsage);
+          console.log(`[Agent] Done. Run persisted for session ${sessionId}`);
           stream.writeSSE({ event: "done", data: "{}" });
           resolve();
         },

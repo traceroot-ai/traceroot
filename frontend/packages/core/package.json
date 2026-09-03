@@ -14,6 +14,10 @@
       "types": "./src/rca-executions.ts",
       "default": "./src/rca-executions.ts"
     },
+    "./capture-policy": {
+      "types": "./src/lib/capture-policy.ts",
+      "default": "./src/lib/capture-policy.ts"
+    },
     "./llm-providers": {
       "types": "./src/llm-providers.ts",
       "default": "./src/llm-providers.ts"
