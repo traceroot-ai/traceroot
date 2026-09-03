@@ -103,7 +103,9 @@ actually contains. Whichever lands first, the other drops its copy.
 ## Review state
 
 **All nine PRs are ready for review (2026-09-03)** and CI-green on their current
-heads. Each description carries the same "Stack" section with the merge order;
+heads, and linked as GitHub stack #2100 (`gh stack link`; the earlier stack #2076
+still held the auto-closed #2073/#2074, so it was dissolved and re-created). Each
+description carries the same "Stack" section with the merge order;
 #2072 is still blocked on `@traceroot-ai/traceroot` 0.4.0 reaching npm. The
 screenshots the descriptions embed live on the orphan branch
 `assets/agent-self-trace` (raw.githubusercontent URLs); delete it once the
