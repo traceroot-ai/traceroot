@@ -1,4 +1,5 @@
 import {
+  clampDateFilter,
   DATE_FILTER_OPTIONS,
   DEFAULT_DATE_FILTER,
   findDateFilterOption,
@@ -31,12 +32,53 @@ export const DEFAULT_RANGE_ID = DEFAULT_DATE_FILTER.id;
  * modes — readStoredDateFilter swallows those), an id no preset here knows,
  * and the custom option, whose explicit start/end these preset-only surfaces
  * have no picker to represent.
+ *
+ * The result is then clamped to the plan's retention window, the same way the
+ * picker's own pages clamp theirs: a 90d selection left in storage by a
+ * workspace that has since downgraded must not be queried or labeled. Pass
+ * `retentionDays` as undefined while the plan is still resolving — clamping
+ * against an unknown plan would narrow every window on a hard reload.
  */
-export function resolveSiteRange(projectId: string | null | undefined): DateFilterOption {
-  if (!projectId) return DEFAULT_DATE_FILTER;
-  const stored = readStoredDateFilter(projectId);
-  if (stored === null) return DEFAULT_DATE_FILTER;
-  return RANGE_PRESETS.find((option) => option.id === stored.id) ?? DEFAULT_DATE_FILTER;
+/**
+ * The date filter the current URL pins, if it carries one. A shared link's
+ * range wins over the stored selection on the page it targets — the same
+ * precedence useUrlDateFilter applies — and it is deliberately never written
+ * to storage, so a surface with no picker of its own can only see it here.
+ * Without this read, a page opened on ?date_filter=7d charts seven days while
+ * the cards beside it chart whatever was stored, naming two different windows
+ * for the same moment.
+ *
+ * Browser-only and non-reactive, exactly like readStoredDateFilter: callers
+ * snapshot their range once when a card is built, so there is nothing to
+ * subscribe to, and on the server there is no URL to read.
+ */
+function readUrlDateFilterId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const search = window.location?.search;
+    if (!search) return null;
+    return new URLSearchParams(search).get("date_filter");
+  } catch {
+    // Same swallow as readStoredDateFilter: a hostile or absent location must
+    // not take down a card that only wanted to name its window.
+    return null;
+  }
+}
+
+export function resolveSiteRange(
+  projectId: string | null | undefined,
+  retentionDays?: number | null,
+): DateFilterOption {
+  // URL first, storage second — the precedence the picker itself uses, so a
+  // link that pins a window is the window every surface on that page reports.
+  const pinnedId = readUrlDateFilterId();
+  const stored = projectId ? readStoredDateFilter(projectId) : null;
+  const selectedId = pinnedId ?? stored?.id ?? null;
+  const selected =
+    selectedId === null
+      ? DEFAULT_DATE_FILTER
+      : (RANGE_PRESETS.find((option) => option.id === selectedId) ?? DEFAULT_DATE_FILTER);
+  return clampDateFilter(selected, retentionDays);
 }
 
 export function makeRange(optionId: string): TimeRange {

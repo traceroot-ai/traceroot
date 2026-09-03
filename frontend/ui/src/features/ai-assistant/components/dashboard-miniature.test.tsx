@@ -5,6 +5,7 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import * as api from "@/features/dashboards/api";
 import { COLS, ROW_HEIGHT } from "@/features/dashboards/grid-constants";
 import { DISPLAY_TYPES, type WidgetSpec } from "@/features/dashboards/types";
+import { DATE_FILTER_OPTIONS, DEFAULT_DATE_FILTER } from "@/lib/date-filter";
 import {
   DashboardMiniature,
   REFERENCE_COL_WIDTH,
@@ -56,6 +57,8 @@ function spec(display: WidgetSpec["display"]["type"], measure = "total_tokens"):
   };
 }
 
+const preset = (id: string) => DATE_FILTER_OPTIONS.find((o) => o.id === id)!;
+
 function tile(overrides: Partial<MiniatureTile> = {}): MiniatureTile {
   return {
     id: "w1",
@@ -75,7 +78,11 @@ function liveTile(overrides: Partial<MiniatureTile> = {}, display = "line"): Min
   const glyph = display as MiniatureTile["glyph"];
   return tile({
     glyph,
-    chart: { projectId: "p1", spec: spec(display as WidgetSpec["display"]["type"]) },
+    chart: {
+      projectId: "p1",
+      spec: spec(display as WidgetSpec["display"]["type"]),
+      range: DEFAULT_DATE_FILTER,
+    },
     ...overrides,
   });
 }
@@ -255,12 +262,14 @@ describe("DashboardMiniature live tiles", () => {
     }
   });
 
-  it("freezes the range the site's picker stored for the tiles' project", async () => {
-    // The tiles query project p1, so the shared window comes from p1's stored
-    // selection — the same slot the trace list and dashboard pages persist.
-    window.localStorage.setItem("traceroot:date-filter:v1:p1", JSON.stringify({ id: "14d" }));
+  it("freezes the range the card snapshotted, not one it resolves itself", async () => {
+    // The card's header names the tiles' window; the miniature must draw that
+    // same snapshot even if the site's stored selection has since changed.
+    window.localStorage.setItem("traceroot:date-filter:v1:p1", JSON.stringify({ id: "30d" }));
     vi.mocked(api.runWidgetQuery).mockResolvedValue({ columns: ["value"], rows: [[7]], meta: {} });
-    renderLive([liveTile({ id: "w1" }, "number"), liveTile({ id: "w2", x: 6 }, "line")]);
+    const ranged = (id: string, x = 0) =>
+      liveTile({ id, x, chart: { projectId: "p1", spec: spec("number"), range: preset("14d") } });
+    renderLive([ranged("w1"), ranged("w2", 6)]);
     scrollIntoView();
 
     await waitFor(() => expect(api.runWidgetQuery).toHaveBeenCalledTimes(2));
@@ -316,7 +325,10 @@ describe("DashboardMiniature live tiles", () => {
       meta: {},
     });
     renderLive([
-      tile({ glyph: "number", chart: { projectId: "p1", spec: spec("number", "cost") } }),
+      tile({
+        glyph: "number",
+        chart: { projectId: "p1", spec: spec("number", "cost"), range: DEFAULT_DATE_FILTER },
+      }),
     ]);
     scrollIntoView();
 
@@ -500,7 +512,10 @@ describe("DashboardMiniature live tiles", () => {
       meta: {},
     });
     renderLive([
-      tile({ glyph: "number", chart: { projectId: "p1", spec: spec("number", "duration_ms") } }),
+      tile({
+        glyph: "number",
+        chart: { projectId: "p1", spec: spec("number", "duration_ms"), range: DEFAULT_DATE_FILTER },
+      }),
     ]);
     scrollIntoView();
 

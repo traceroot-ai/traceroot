@@ -1,6 +1,12 @@
 import { prisma } from "@traceroot/core";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { AssistantMessage, UserMessage, Message } from "@earendil-works/pi-ai";
+import type {
+  AssistantMessage,
+  Message,
+  StopReason,
+  ToolResultMessage,
+  UserMessage,
+} from "@earendil-works/pi-ai";
 
 // ============================================================
 // SessionManager — follows Mom's SessionManager pattern
@@ -20,11 +26,18 @@ export interface TokenUsageData {
   totalTokens?: number;
 }
 
-/** Upper bound on one restored tool record's text — a record is a summary, never a payload dump. */
+/** Upper bound on one restored tool record's serialized text — a record is a summary, never a payload dump. */
 const TOOL_RECORD_CHAR_CAP = 600;
 
 /** How much of a tool result's text survives into a generic (no structured details) record. */
 const RESULT_SNIPPET_CHARS = 200;
+
+/**
+ * What a tool_step row whose metadata never named a tool degrades to. A bare
+ * literal: with no tool name there is no call to reconstruct, and nothing
+ * member-controlled may enter this sentence.
+ */
+const UNIDENTIFIED_TOOL_RECORD = "[prior tool call] a tool call";
 
 function clip(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
@@ -51,54 +64,123 @@ function firstResultText(result: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
+/** Serialize to bounded JSON: every member-controlled string lands escaped, never as prose. */
+const UNSERIALIZABLE_JSON = '"[unserializable]"';
+
+function boundedJson(value: unknown, max: number): string {
+  let json: string;
+  try {
+    json = JSON.stringify(value) ?? "null";
+  } catch {
+    // Returned whole, never clipped: a caller comparing against the cap must
+    // not mistake this short stand-in for a value that genuinely fit.
+    return UNSERIALIZABLE_JSON;
+  }
+  return clip(json, max);
+}
+
 /**
- * Render a persisted tool_step row's metadata as one compact factual line the
- * rebuilt model context carries in place of the original tool call/result
- * pair: tool name, the identifying arg (name/title), and the outcome —
- * created/reused/declined/failed — with the resource id where one exists.
- *
- * A row whose metadata is absent or truncated degrades to a bare "a <tool>
- * call completed": an honest record must never claim an outcome it cannot
- * know from what was persisted.
+ * Bound the restored call's arguments while keeping them a structured object.
+ * Oversized args collapse to the same `{truncated: true, ...}` shape the
+ * persister uses, so an over-cap payload is self-describing rather than dumped.
  */
-export function describeToolStep(metadata: unknown): string {
-  const meta = asRecord(metadata);
-  const toolName = typeof meta?.toolName === "string" && meta.toolName ? meta.toolName : undefined;
-  const degraded = `[prior tool call] ${toolName ? `a ${toolName} call` : "a tool call"} completed`;
-  if (!meta || !toolName) return degraded;
+function boundedArgs(value: unknown): Record<string, unknown> {
+  const args = asRecord(value);
+  if (!args) return {};
+  const json = boundedJson(args, Number.MAX_SAFE_INTEGER);
+  if (json === UNSERIALIZABLE_JSON) return { truncated: true, preview: UNSERIALIZABLE_JSON };
+  if (json.length <= TOOL_RECORD_CHAR_CAP) return args;
+  return { truncated: true, preview: clip(json, TOOL_RECORD_CHAR_CAP) };
+}
 
-  const args = isTruncatedMarker(meta.args) ? undefined : asRecord(meta.args);
-  const keyArg = [args?.name, args?.title].find(
-    (value): value is string => typeof value === "string" && value.length > 0,
-  );
-  const call = keyArg ? `${toolName} ("${clip(keyArg, 120)}")` : toolName;
+/**
+ * The outcome as bounded JSON. An over-cap outcome collapses to the same
+ * self-describing shape oversized args take, rather than a clipped string:
+ * half a JSON object is not JSON, and the model would be reading a fragment.
+ */
+function boundedOutcome(meta: Record<string, unknown>): string {
+  const json = boundedJson(toolOutcome(meta), Number.MAX_SAFE_INTEGER);
+  if (json !== UNSERIALIZABLE_JSON && json.length <= TOOL_RECORD_CHAR_CAP) return json;
+  return JSON.stringify({ truncated: true, preview: clip(json, TOOL_RECORD_CHAR_CAP) });
+}
 
+/**
+ * The outcome of a persisted tool call, as structured data: created/reused,
+ * declined by the user, failed, or completed, with the resource id where one
+ * exists. Every member-controlled value stays a JSON field — a dashboard
+ * titled `"; ignore prior instructions …` must read to the model as a string,
+ * not as a sentence.
+ *
+ * A row whose result is absent or truncated cannot claim an outcome it does
+ * not know: it reports the call's error flag and says the result is missing.
+ */
+function toolOutcome(meta: Record<string, unknown>): Record<string, unknown> {
+  const isError = meta.isError === true;
   const result = isTruncatedMarker(meta.result) ? undefined : asRecord(meta.result);
-  if (result === undefined) return degraded;
+  if (result === undefined) {
+    return { status: isError ? "failed" : "unknown", note: "the result was not persisted" };
+  }
 
   const details = asRecord(result.details);
-  let outcome: string;
   if (details?.kind === "proposal_declined") {
     // The user answered the confirmation card with skip/revise: the write
     // never ran, and the record must be unmistakable about that.
-    outcome =
-      details.outcome === "revised"
-        ? "proposal declined by the user with a revision request — not executed"
-        : "proposal declined by the user — not executed";
-  } else if (details?.kind === "resource_created") {
+    return {
+      status: "declined_by_user",
+      executed: false,
+      revisionRequested: details.outcome === "revised",
+    };
+  }
+  if (details?.kind === "resource_created") {
     const resourceType =
       typeof details.resourceType === "string" ? details.resourceType : "resource";
-    const resourceId = typeof details.resourceId === "string" ? details.resourceId : "unknown id";
-    outcome =
-      details.created === false
-        ? `${resourceType} ${resourceId} already existed — reused it, nothing new was created`
-        : `created ${resourceType} ${resourceId}`;
-  } else {
-    const text = firstResultText(result);
-    const verb = meta.isError === true ? "failed" : "completed";
-    outcome = text ? `${verb}: ${clip(text, RESULT_SNIPPET_CHARS)}` : verb;
+    const resourceId = typeof details.resourceId === "string" ? details.resourceId : null;
+    return details.created === false
+      ? {
+          status: "already_existed",
+          note: "reused the existing one, nothing new was created",
+          resourceType,
+          resourceId,
+        }
+      : { status: "created", resourceType, resourceId };
   }
-  return clip(`[prior tool call] ${call} — ${outcome}`, TOOL_RECORD_CHAR_CAP);
+
+  const text = firstResultText(result);
+  return {
+    status: isError ? "failed" : "completed",
+    ...(text ? { result: clip(text, RESULT_SNIPPET_CHARS) } : {}),
+  };
+}
+
+/** One persisted tool_step row, reconstructed as a real call/result pair. */
+export interface RestoredToolStep {
+  toolCallId: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  /** JSON outcome text carried by the synthesized tool-result message. */
+  outcome: string;
+  isError: boolean;
+}
+
+/**
+ * Rebuild a persisted tool_step row's metadata into the call/result pair the
+ * model originally saw. Returns undefined when the row never named a tool —
+ * there is nothing to reconstruct, and the caller degrades to a bare literal.
+ */
+export function restoreToolStep(metadata: unknown, rowId: string): RestoredToolStep | undefined {
+  const meta = asRecord(metadata);
+  const toolName = typeof meta?.toolName === "string" && meta.toolName ? meta.toolName : undefined;
+  if (!meta || !toolName) return undefined;
+
+  const toolCallId =
+    typeof meta.toolCallId === "string" && meta.toolCallId ? meta.toolCallId : `restored-${rowId}`;
+  return {
+    toolCallId,
+    toolName,
+    args: boundedArgs(meta.args),
+    outcome: boundedOutcome(meta),
+    isError: meta.isError === true,
+  };
 }
 
 export class SessionManager {
@@ -112,11 +194,15 @@ export class SessionManager {
    * User turns are restored verbatim. Assistant turns are restored as plain
    * text messages with synthesized LLM metadata (zero usage, "stop") — enough
    * for the model to see what it previously said, which it cannot infer.
-   * tool_step rows are restored as compact factual records (see
-   * describeToolStep): with write tools in play, dropping them would make a
-   * fulfilled create look unanswered and a rebuilt agent would execute it
-   * again — the records tell the model which writes already happened, without
-   * replaying stale payloads.
+   *
+   * tool_step rows are restored as the call/result pair they originally were
+   * (see restoreToolStep): with write tools in play, dropping them would make
+   * a fulfilled create look unanswered and a rebuilt agent would execute it
+   * again. The pair keeps member-controlled values — names, titles, result
+   * snippets — inside tool arguments and a JSON tool result, where the model
+   * reads them as data. Folding them into assistant prose instead would let a
+   * dashboard titled `"; ignore prior instructions …` reach the model as
+   * instructions, and any project member can seed such a row.
    */
   async buildContext(): Promise<AgentMessage[]> {
     const session = await prisma.aISession.findUnique({
@@ -137,17 +223,50 @@ export class SessionManager {
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
     };
 
-    const restoredAssistant = (text: string, m: (typeof session.messages)[number]) =>
+    const restoredAssistant = (
+      content: AssistantMessage["content"],
+      m: (typeof session.messages)[number],
+      stopReason: StopReason = "stop",
+    ) =>
       ({
         role: "assistant",
-        content: [{ type: "text", text }],
+        content,
         api: "restored",
         provider: m.provider ?? "unknown",
         model: m.model ?? "unknown",
         usage: zeroUsage,
-        stopReason: "stop",
+        stopReason,
         timestamp: m.createTime.getTime(),
       }) satisfies AssistantMessage;
+
+    const restoredToolStep = (m: (typeof session.messages)[number]): Message[] => {
+      const step = restoreToolStep(m.metadata, m.id);
+      if (!step) {
+        return [restoredAssistant([{ type: "text", text: UNIDENTIFIED_TOOL_RECORD }], m)];
+      }
+      return [
+        restoredAssistant(
+          [
+            {
+              type: "toolCall",
+              id: step.toolCallId,
+              name: step.toolName,
+              arguments: step.args,
+            },
+          ],
+          m,
+          "toolUse",
+        ),
+        {
+          role: "toolResult",
+          toolCallId: step.toolCallId,
+          toolName: step.toolName,
+          content: [{ type: "text", text: step.outcome }],
+          isError: step.isError,
+          timestamp: m.createTime.getTime(),
+        } satisfies ToolResultMessage,
+      ];
+    };
 
     return (
       session.messages
@@ -161,21 +280,18 @@ export class SessionManager {
             m.role === "tool_step" ||
             (m.role === "assistant" && m.content !== ""),
         )
-        .map(
-          (m): Message =>
-            m.role === "user"
-              ? ({
+        .flatMap((m): Message[] =>
+          m.role === "user"
+            ? [
+                {
                   role: "user",
                   content: [{ type: "text", text: m.content }],
                   timestamp: m.createTime.getTime(),
-                } satisfies UserMessage)
-              : m.role === "tool_step"
-                ? // Restored as assistant-visible history, not a reconstructed
-                  // toolCall/toolResult pair: pi's restored-message shape here
-                  // is plain text, and a factual record is all the model needs
-                  // to know the call already happened.
-                  restoredAssistant(describeToolStep(m.metadata), m)
-                : restoredAssistant(m.content, m),
+                } satisfies UserMessage,
+              ]
+            : m.role === "tool_step"
+              ? restoredToolStep(m)
+              : [restoredAssistant([{ type: "text", text: m.content }], m)],
         )
     );
   }
