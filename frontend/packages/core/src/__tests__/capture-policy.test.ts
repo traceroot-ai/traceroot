@@ -81,8 +81,10 @@ describe("redactSecrets", () => {
   });
 
   it("redacts the password segment of a connection URL", () => {
-    expect(redactSecrets("postgres://app:hunter2xx@db.internal:5432/app")).toBe(
-      "postgres://app:[REDACTED]@db.internal:5432/app",
+    // The pattern is scheme-agnostic; a made-up scheme keeps this fixture from
+    // tripping secret scanners that recognise real database URL shapes.
+    expect(redactSecrets("svc://app:hunter2xx@db.internal:5432/app")).toBe(
+      "svc://app:[REDACTED]@db.internal:5432/app",
     );
   });
 
@@ -143,6 +145,30 @@ describe("applyCapturePolicy", () => {
     );
     expect(r.result).not.toContain("hunter2xx");
     expect(r.result).toBe('{"spans":[{"attributes":{"db.password":[REDACTED],"db.name":"app"}}]}');
+  });
+
+  it("redacts a structured result by key before serialising it, camelCase included", () => {
+    const state = { spentBytes: 0 };
+    const out = applyCapturePolicy(
+      {
+        toolName: "download_traces",
+        args: {},
+        result: {
+          rows: [{ dbPassword: "hunter2", apiToken: 12345, note: "plain" }],
+          Authorization: "Bearer abcdefghijklmnop",
+          text: "AKIAIOSFODNN7EXAMPLE inline",
+        },
+      },
+      state,
+    );
+    expect(out.result).not.toContain("hunter2");
+    expect(out.result).not.toContain("12345");
+    expect(out.result).not.toContain("abcdefghijklmnop");
+    expect(out.result).not.toContain("AKIAIOSFODNN7EXAMPLE");
+    expect(out.result).toContain('"dbPassword":"[REDACTED]"');
+    expect(out.result).toContain('"apiToken":"[REDACTED]"');
+    expect(out.result).toContain('"note":"plain"');
+    expect(JSON.parse(out.result!)).toBeTruthy();
   });
 
   it("redacts inside args too", () => {

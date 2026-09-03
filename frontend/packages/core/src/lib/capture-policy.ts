@@ -96,6 +96,28 @@ function toText(value: unknown): string {
   }
 }
 
+/**
+ * Key-aware redaction for a structured value (a tool result that is an object
+ * or array): a credential-shaped KEY blanks its whole value whatever the type,
+ * and every string leaf goes through the text patterns. The text patterns alone
+ * cannot see a `dbPassword` field once its value is serialised away from its
+ * key, and their assignment/colon forms deliberately require an `_`-separated
+ * name, so camelCase keys need this walk. Same rule `capArgs` applies to args.
+ */
+export function redactStructured(value: unknown): unknown {
+  if (typeof value === "string") return redactSecrets(value);
+  if (Array.isArray(value)) return value.map(redactStructured);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [
+        k,
+        CREDENTIAL_KEY.test(k) ? REDACTED : redactStructured(v),
+      ]),
+    );
+  }
+  return value;
+}
+
 /** The marker appended to a truncated capture; it is charged to the budget too. */
 const TRUNCATION_MARKER = "…";
 const TRUNCATION_MARKER_BYTES = Buffer.byteLength(TRUNCATION_MARKER, "utf8");
@@ -137,7 +159,14 @@ export function applyCapturePolicy(
   // One step allowance, shared by the args and the result below.
   const step = { remaining: budget.perStepBytes };
   const { args, truncated: argsTruncated } = capArgs(input.args, state, budget, step);
-  const raw = toText(input.result);
+  // A structured result is redacted by key before it is serialised (the text
+  // patterns below cannot see a credential-shaped key once it is just text);
+  // a string result only has the text patterns.
+  const raw = toText(
+    input.result !== null && typeof input.result === "object"
+      ? redactStructured(input.result)
+      : input.result,
+  );
   const outputBytes = Buffer.byteLength(raw, "utf8");
   if (!OUTPUT_ALLOWLIST.has(input.toolName)) {
     return { args, outputBytes, truncated: argsTruncated, withheld: "not-allowlisted" };
