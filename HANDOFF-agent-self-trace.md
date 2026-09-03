@@ -172,7 +172,27 @@ done
   and no "Analysis for finding …" header: both emitters only stamped
   `traceroot.span.metadata`, and ingest fills the trace record from
   `traceroot.trace.metadata` (`otel_transform.py`), so the trace-level metadata
-  was null. Both emitters now stamp it; existing rows are not backfilled.
+  was null. Both emitters now stamp it; existing rows are not backfilled by
+  the code. For a dev database, this one-off copies each internal root span's
+  metadata onto its trace record (new ReplacingMergeTree version, newest wins):
+
+  ```sql
+  INSERT INTO traces (trace_id, project_id, trace_start_time, name, user_id, session_id,
+    git_ref, git_repo, input, output, metadata, ch_create_time, ch_update_time, environment,
+    source, is_evaluation)
+  SELECT t.trace_id, t.project_id, t.trace_start_time, t.name, t.user_id, t.session_id,
+    t.git_ref, t.git_repo, t.input, t.output,
+    concat('{', arrayStringConcat(arrayMap(kv -> concat('"', kv.1, '":', kv.2),
+      arrayFilter(kv -> NOT startsWith(kv.1, 'traceroot.span.'),
+        JSONExtractKeysAndValuesRaw(assumeNotNull(s.meta)))), ','), '}'),
+    t.ch_create_time, now(), t.environment, t.source, t.is_evaluation
+  FROM (SELECT * FROM traces WHERE source IN ('agent','detector')
+        ORDER BY ch_update_time DESC LIMIT 1 BY trace_id) AS t
+  JOIN (SELECT trace_id, argMax(metadata, ch_update_time) AS meta FROM spans
+        WHERE source IN ('agent','detector') AND (parent_span_id = '' OR parent_span_id IS NULL)
+        GROUP BY trace_id) AS s ON s.trace_id = t.trace_id
+  WHERE t.metadata IS NULL AND s.meta IS NOT NULL AND s.meta != '';
+  ```
 
 ## Open design questions (in the doc, none blocking)
 
