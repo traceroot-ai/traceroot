@@ -993,6 +993,8 @@ describe("useAiChat revision by chat", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
   let decisionCalls: { url: string; body: unknown }[];
   let decisionResponse: () => Response | Promise<Response>;
+  /** The history load a session switch fires; withheld to probe live buckets. */
+  let historyResponse: () => Response | Promise<Response>;
   /** Every POST .../messages, in order — the run-starting sends. */
   let messagePosts: { sessionId: string; message: string }[];
 
@@ -1001,6 +1003,7 @@ describe("useAiChat revision by chat", () => {
     decisionCalls = [];
     messagePosts = [];
     decisionResponse = () => jsonResponse({ ok: true });
+    historyResponse = () => jsonResponse({ messages: [] });
     fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? "GET";
@@ -1018,7 +1021,7 @@ describe("useAiChat revision by chat", () => {
         return messagePosts.length === 1 ? sse.response : createEventSSE().response;
       }
       if (method === "GET" && messageMatch) {
-        return jsonResponse({ messages: [] });
+        return historyResponse();
       }
       if (method === "POST" && url.endsWith("/decisions")) {
         decisionCalls.push({ url, body: JSON.parse(String(init?.body)) });
@@ -1178,6 +1181,42 @@ describe("useAiChat revision by chat", () => {
     // …and the closed panel stays empty — no stray bubble writes.
     expect(result.current.messages).toEqual([]);
     expect(result.current.currentSessionId).toBeNull();
+  });
+
+  it("a revise landing after the session was deleted leaves no bucket behind", async () => {
+    let resolveDecision!: (r: Response) => void;
+    decisionResponse = () =>
+      new Promise<Response>((r) => {
+        resolveDecision = r;
+      });
+    // Hold the history load so the probe below reads the session's own bucket
+    // rather than a freshly fetched (and empty) transcript.
+    historyResponse = () => new Promise<Response>(() => {});
+    const { result } = await parkPendingCall();
+
+    let send!: Promise<void>;
+    act(() => {
+      send = result.current.handleSend("make it a bar chart", MODEL);
+    });
+    act(() => {
+      result.current.handleDeleteSession("A");
+    });
+    await act(async () => {
+      resolveDecision(jsonResponse({ ok: true }));
+      await send;
+    });
+
+    expect(decisionCalls).toHaveLength(1);
+    expect(result.current.messages).toEqual([]);
+    expect(result.current.currentSessionId).toBeNull();
+
+    // Reopening the deleted session finds nothing cached for it: the revision
+    // that landed after the delete must not have rebuilt its bucket.
+    act(() => {
+      void result.current.handleSelectSession({ ...sessionB, id: "A" });
+    });
+    await waitFor(() => expect(result.current.currentSessionId).toBe("A"));
+    expect(result.current.messages).toEqual([]);
   });
 
   it("exposes hasPendingDecision for the active session only", async () => {

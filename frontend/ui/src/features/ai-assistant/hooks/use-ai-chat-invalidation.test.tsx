@@ -80,6 +80,9 @@ beforeEach(() => {
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   invalidate = vi.spyOn(queryClient, "invalidateQueries");
   stream.options = undefined;
+  // A hoisted vi.fn() outlives restoreAllMocks, so its calls would accumulate
+  // across tests and pin the navigation assertion on the wrong one.
+  routerPush.mockClear();
 });
 
 afterEach(() => {
