@@ -321,6 +321,12 @@ describe("POST /dashboards/[dashboardId]/widgets", () => {
     const body = (await res.json()) as { widget: typeof fakeWidget };
     expect(body.widget).toEqual(fakeWidget);
     expect(widgetCreateMock).toHaveBeenCalledTimes(1);
+    // The created row must also land in the dashboard's stored layout —
+    // without an entry the grid falls back to its unpersisted client
+    // placement, which is the defect auto-placement exists to fix.
+    const [update] = dashboardUpdateMock.mock.calls;
+    const layout = (update[0] as { data: { layout: { i: string }[] } }).data.layout;
+    expect(layout.map((entry) => entry.i)).toContain(fakeWidget.id);
   });
 
   it("returns 400 for an invalid widget type", async () => {
