@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { DATE_FILTER_OPTIONS } from "@/lib/date-filter";
+import { DATE_FILTER_OPTIONS, DEFAULT_DATE_FILTER } from "@/lib/date-filter";
 import { ResourceCard } from "./resource-card";
 import type { PreviewTile, ResourceCardModel, WidgetChart } from "../lib/resource-card";
 
@@ -45,6 +45,7 @@ const TILES: PreviewTile[] = [
     title: "p95",
     projectId: "p1",
     widget: { type: "query", spec: {} },
+    range: DEFAULT_DATE_FILTER,
     x: 0,
     y: 0,
     w: 6,
@@ -55,6 +56,7 @@ const TILES: PreviewTile[] = [
     title: "Recent",
     projectId: "p1",
     widget: { type: "trace_feed", spec: {} },
+    range: DEFAULT_DATE_FILTER,
     x: 6,
     y: 0,
     w: 6,

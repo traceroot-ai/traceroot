@@ -9,6 +9,7 @@ import { quantizeRange } from "@/features/dashboards/hooks/use-widget-data";
 import type { TimeRange } from "@/features/dashboards/types";
 import { DashboardPreview, REFERENCE_WIDTH, gridHeight, tileFrame } from "./dashboard-preview";
 import { REFERENCE_COL_WIDTH } from "./preview-constants";
+import { DATE_FILTER_OPTIONS, DEFAULT_DATE_FILTER } from "@/lib/date-filter";
 import type { PreviewTile } from "../lib/resource-card";
 
 vi.mock("@/lib/auth-client", () => ({
@@ -85,6 +86,7 @@ function tile(overrides: Partial<PreviewTile> = {}): PreviewTile {
     title: "Tokens",
     projectId: "p1",
     widget: { type: "query", spec: SPEC },
+    range: DEFAULT_DATE_FILTER,
     x: 0,
     y: 0,
     w: 6,
@@ -292,11 +294,12 @@ describe("DashboardPreview", () => {
     }
   });
 
-  it("freezes the range the site's picker stored for the tiles' project", async () => {
-    // The same slot the trace list and dashboard pages persist through.
-    window.localStorage.setItem("traceroot:date-filter:v1:p1", JSON.stringify({ id: "14d" }));
+  it("freezes the range the card snapshotted, not one it resolves itself", async () => {
+    // The card's header names the tiles' window; the preview must draw that
+    // same snapshot even if the site's stored selection has since changed.
+    window.localStorage.setItem("traceroot:date-filter:v1:p1", JSON.stringify({ id: "30d" }));
     vi.mocked(api.runWidgetQuery).mockResolvedValue({ columns: ["value"], rows: [[7]], meta: {} });
-    renderPreview([tile()]);
+    renderPreview([tile({ range: DATE_FILTER_OPTIONS.find((o) => o.id === "14d")! })]);
     scrollIntoView();
 
     await waitFor(() => expect(api.runWidgetQuery).toHaveBeenCalledTimes(1));

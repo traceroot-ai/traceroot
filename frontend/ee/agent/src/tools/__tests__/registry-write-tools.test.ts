@@ -393,6 +393,12 @@ describe("createRegistryWriteTools", () => {
     const tool = makeTools(stubClient().client).find((t) => t.name === "create_dashboard")!;
     expect(tool.description).not.toMatch(/idempotent/i);
     expect(tool.description).toContain("(2)");
+    // The suffix goes on the REQUESTED name, and the result is trimmed to the
+    // name limit — promising a literal "<name> (2)" would have the model
+    // reason about a name a long request never gets.
+    expect(tool.description).toMatch(/requested name/i);
+    expect(tool.description).toMatch(/trimmed|shortened|fit/i);
+    expect(tool.description).not.toContain("<name> (2)");
     // Only the tool whose agent behaviour diverges from the public API is reworded.
     const detector = makeTools(stubClient().client).find((t) => t.name === "create_detector")!;
     expect(detector.description).toBe(

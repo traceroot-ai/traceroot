@@ -265,7 +265,7 @@ describe("createDashboard", () => {
   describe("agent transport", () => {
     const agent = { transport: "agent" as const, agentSessionId: "as1" };
 
-    it("creates under the bare name when nothing in the project starts with it", async () => {
+    it("creates under the bare name when a same-prefix dashboard exists but the exact name is free", async () => {
       mockAccess();
       tx.dashboard.findMany.mockResolvedValue([{ name: "Cost overview by model" }]);
       tx.dashboard.create.mockResolvedValue(dashboardRow);
