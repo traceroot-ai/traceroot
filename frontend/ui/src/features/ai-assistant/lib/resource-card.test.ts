@@ -210,6 +210,28 @@ describe("resourceCardModel", () => {
     });
   });
 
+  it("caps an oversized id wherever the card prints it", () => {
+    // The ids come from the payload, so a card must cap them like any other
+    // printed value — the identity it reports back stays whole.
+    const longProject = "p".repeat(200);
+    const longWorkspace = "w".repeat(200);
+    const project = step({
+      toolName: "create_project",
+      args: {},
+      details: created("project", longProject, { workspaceId: longWorkspace }),
+    });
+    const card = resourceCardModel(project);
+    expect(card?.resourceId).toBe(longProject);
+    expect(card?.title).toBe(`${"p".repeat(120)}\u2026`);
+    expect(card?.body).toEqual({
+      kind: "receipt",
+      rows: [
+        { label: "workspace", value: `${"w".repeat(64)}\u2026` },
+        { label: "id", value: `${"p".repeat(64)}\u2026` },
+      ],
+    });
+  });
+
   it("builds a detector card from its template, settings and triggers", () => {
     const detector = step({
       toolName: "create_detector",
@@ -414,6 +436,12 @@ describe("dashboard miniature tiles", () => {
     expect(tiles[0]).toMatchObject({ x: 0, y: 0, w: 6, h: 4 });
     expect(tiles[1]).toMatchObject({ x: 6, y: 0, w: 6, h: 6 });
     expect(tiles[2]).toMatchObject({ x: 0, y: 6, w: 6, h: 4 });
+  });
+
+  it("caps an oversized id standing in for a missing tile title", () => {
+    const longId = "w".repeat(200);
+    const tiles = tilesOf([widget(longId, { type: "query", spec: WIDGET_SPEC })]);
+    expect(tiles[0].title).toBe(`${"w".repeat(64)}\u2026`);
   });
 
   it("gives every display type its own glyph and a feed its list glyph", () => {
