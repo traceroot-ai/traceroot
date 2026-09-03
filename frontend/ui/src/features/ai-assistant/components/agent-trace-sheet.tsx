@@ -33,7 +33,10 @@ export function AgentTraceSheet({
         if (!o) onClose();
       }}
     >
-      <DrawerContent width="w-[min(90vw,1100px)]" className="p-0">
+      {/* The viewer's own header X closes the sheet (onClose below); the drawer's
+          built-in corner × would sit on top of that row as a second, differently
+          styled close. */}
+      <DrawerContent width="w-[min(90vw,1100px)]" className="p-0" hideClose>
         <DrawerTitle className="sr-only">Trace</DrawerTitle>
         <DrawerDescription className="sr-only">
           The trace recorded for this assistant turn.
