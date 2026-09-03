@@ -554,10 +554,13 @@ describe("DashboardMiniature live tiles", () => {
     const { container } = renderLive([liveTile({}, "area")]);
     scrollIntoView();
 
-    await waitFor(() => expect(container.querySelector("[data-live-mini] circle")).toBeTruthy());
-    const dot = container.querySelector("[data-live-mini] circle");
-    expect(dot?.getAttribute("cx")).toBe("48");
-    expect(dot?.getAttribute("cy")).toBe("2");
+    await waitFor(() => expect(container.querySelector("[data-mini-dot]")).toBeTruthy());
+    // The dot lives outside the stretched drawing so it keeps a fixed size —
+    // a circle inside the 96x40 viewBox scales into a blob at tile size.
+    const dot = container.querySelector("[data-mini-dot]") as HTMLElement;
+    expect(dot.style.left).toBe("50%");
+    expect(dot.style.top).toBe("5%");
+    expect(container.querySelector("[data-live-mini] circle")).toBeNull();
     expect(container.querySelector("[data-live-mini] polyline")).toBeNull();
     expect(container.querySelector("[data-live-mini] polygon")).toBeNull();
   });
@@ -637,8 +640,8 @@ describe("DashboardMiniature live tiles", () => {
     const { container } = renderLive([p95]);
     scrollIntoView();
 
-    await waitFor(() => expect(container.querySelector("[data-live-mini] circle")).toBeTruthy());
-    expect(container.querySelector("[data-live-mini] circle")?.getAttribute("cx")).toBe("48");
+    await waitFor(() => expect(container.querySelector("[data-mini-dot]")).toBeTruthy());
+    expect((container.querySelector("[data-mini-dot]") as HTMLElement).style.left).toBe("50%");
     expect(container.querySelector("[data-live-mini] polyline")).toBeNull();
   });
 });
