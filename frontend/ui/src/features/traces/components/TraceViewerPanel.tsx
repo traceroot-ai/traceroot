@@ -601,9 +601,13 @@ export function TraceViewerPanel({
                 <DOMAIN_ICONS.assistant className="h-4 w-4" />
               </Button>
             )}
-            <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0">
-              <X className="h-4 w-4" />
-            </Button>
+            {/* Embedded in another surface (the agent-trace sheet), that surface's
+                own close control sits in this corner; a second X here overlapped it. */}
+            {!embedded && (
+              <Button variant="ghost" size="sm" onClick={onClose} className="h-7 w-7 p-0">
+                <X className="h-4 w-4" />
+              </Button>
+            )}
           </div>
         </div>
 

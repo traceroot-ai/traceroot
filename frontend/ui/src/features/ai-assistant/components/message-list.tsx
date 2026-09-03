@@ -366,8 +366,12 @@ function ToolStepItem({
         )}
         {step.status === "done" && <CheckCircle2 className="h-3 w-3 shrink-0 text-green-500/70" />}
         {step.status === "error" && <XCircle className="h-3 w-3 shrink-0 text-destructive/70" />}
-        <span className="italic text-muted-foreground/80">{formatToolName(step.toolName)}</span>
-        <span className="font-mono text-[10px] text-muted-foreground/40">({step.toolName})</span>
+        <span className="shrink-0 whitespace-nowrap italic text-muted-foreground/80">
+          {formatToolName(step.toolName)}
+        </span>
+        <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground/40">
+          ({step.toolName})
+        </span>
         <ChevronRight
           className={cn(
             "ml-auto h-3 w-3 shrink-0 text-muted-foreground/30 transition-transform duration-200",
@@ -478,7 +482,7 @@ function UsageFooter({
   onOpenTrace?: (traceId: string, spanId?: string) => void;
 }) {
   return (
-    <div className="mt-1 flex items-center gap-2 px-1 text-[10px] text-muted-foreground/60">
+    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 whitespace-nowrap px-1 text-[10px] text-muted-foreground/60">
       <span title="Input tokens">{msg.inputTokens!.toLocaleString()} in</span>
       <span>&middot;</span>
       <span title="Output tokens">{msg.outputTokens!.toLocaleString()} out</span>
