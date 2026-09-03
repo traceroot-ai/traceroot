@@ -3,13 +3,16 @@ import { z } from "zod";
 import { verifyInternalSecret } from "@/lib/auth-helpers";
 import { createProject } from "@/lib/write-services/projects";
 
+// Shape-level checks only: the deep field validation (exact messages, ranges)
+// lives in the write service, whose 400s pass through unchanged. Re-declaring
+// a range here would shadow the service's message with zod's generic text.
 const bodySchema = z.object({
   // The string-typed error covers missing/wrong-type input too, so the
   // surfaced message is deterministic whether the field is absent or empty.
   actorUserId: z.string("actorUserId is required").min(1, "actorUserId is required"),
   workspaceId: z.string("workspaceId is required").min(1, "workspaceId is required"),
   name: z.string("name is required").min(1, "name is required"),
-  traceTtlDays: z.number().int().min(1).max(365).optional(),
+  traceTtlDays: z.number().optional(),
   transport: z.enum(["public-api", "agent"]),
   agentSessionId: z.string().min(1).optional(),
 });

@@ -274,6 +274,20 @@ def test_empty_filter_value_rejected_by_schema():
         )
 
 
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_filter_value_rejected_by_schema(value):
+    """NaN/Infinity filter values are rejected at validation time.
+
+    ``json.loads`` accepts the bare tokens, so without ``allow_inf_nan=False``
+    a stored spec could carry a float no JSON re-encoder (the internal write
+    proxy included) can serialize — an uncatchable 500 instead of a 422.
+    """
+    with pytest.raises(ValidationError):
+        WidgetSpec.model_validate(
+            make_spec(filters=[{"field": "duration_ms", "op": ">", "value": value}])
+        )
+
+
 def test_reversed_window_rejected():
     """start >= end would otherwise compile a negative LIMIT that CH rejects."""
     spec = WidgetSpec.model_validate(make_spec(display={"type": "line"}))

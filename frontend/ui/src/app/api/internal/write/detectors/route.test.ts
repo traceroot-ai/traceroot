@@ -88,6 +88,35 @@ describe("POST /api/internal/write/detectors", () => {
     expect(createDetectorMock).not.toHaveBeenCalled();
   });
 
+  // The route must not re-declare the sampleRate range: doing so shadows the
+  // service's canonical message with zod's generic "Too big"/"Too small" text.
+  it.each([-1, 101, 12.5])(
+    "forwards an out-of-range sampleRate (%s) so the service message surfaces",
+    async (sampleRate) => {
+      createDetectorMock.mockResolvedValue({
+        ok: false,
+        status: 400,
+        error: "sampleRate must be an integer between 0 and 100",
+      });
+
+      const res = await POST(makeRequest({ ...validBody, sampleRate }));
+      const body = await res.json();
+
+      expect(createDetectorMock).toHaveBeenCalledWith(expect.objectContaining({ sampleRate }));
+      expect(res.status).toBe(400);
+      expect(body.error).toBe("sampleRate must be an integer between 0 and 100");
+    },
+  );
+
+  it("still rejects a non-numeric sampleRate at the shape level", async () => {
+    const res = await POST(makeRequest({ ...validBody, sampleRate: "50" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body.error).toBe("Invalid input: expected number, received string");
+    expect(createDetectorMock).not.toHaveBeenCalled();
+  });
+
   it("maps a service failure to its status and error", async () => {
     createDetectorMock.mockResolvedValue({
       ok: false,

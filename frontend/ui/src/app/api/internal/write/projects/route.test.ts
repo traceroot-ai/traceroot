@@ -104,24 +104,52 @@ describe("POST /api/internal/write/projects", () => {
     const body = await res.json();
 
     expect(res.status).toBe(400);
-    expect(typeof body.error).toBe("string");
+    expect(body.error).toBe('Invalid option: expected one of "public-api"|"agent"');
     expect(createProjectMock).not.toHaveBeenCalled();
   });
 
-  it("returns 400 when traceTtlDays is out of range", async () => {
+  // The route must not re-declare the traceTtlDays range: doing so shadows the
+  // service's canonical message with zod's generic "Too small" text.
+  it.each([0, 366, 1.5])(
+    "forwards an out-of-range traceTtlDays (%s) so the service message surfaces",
+    async (traceTtlDays) => {
+      createProjectMock.mockResolvedValue({
+        ok: false,
+        status: 400,
+        error: "traceTtlDays must be an integer between 1 and 365",
+      });
+
+      const res = await POST(
+        makeRequest({
+          actorUserId: "u1",
+          workspaceId: "w1",
+          name: "Checkout",
+          traceTtlDays,
+          transport: "agent",
+        }),
+      );
+      const body = await res.json();
+
+      expect(createProjectMock).toHaveBeenCalledWith(expect.objectContaining({ traceTtlDays }));
+      expect(res.status).toBe(400);
+      expect(body.error).toBe("traceTtlDays must be an integer between 1 and 365");
+    },
+  );
+
+  it("still rejects a non-numeric traceTtlDays at the shape level", async () => {
     const res = await POST(
       makeRequest({
         actorUserId: "u1",
         workspaceId: "w1",
         name: "Checkout",
-        traceTtlDays: 0,
+        traceTtlDays: "30",
         transport: "agent",
       }),
     );
     const body = await res.json();
 
     expect(res.status).toBe(400);
-    expect(typeof body.error).toBe("string");
+    expect(body.error).toBe("Invalid input: expected number, received string");
     expect(createProjectMock).not.toHaveBeenCalled();
   });
 

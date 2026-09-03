@@ -103,8 +103,7 @@ async def _verify_access_jwt(token: str) -> tuple[str, str]:
     audience, and expiry, and requires ``sub``. The signing key is resolved by
     ``kid`` from the cached JWKS. The ``sid`` claim (the minting session's id)
     is surfaced alongside so the write path can check the session is still
-    live; it is optional and shape-tolerant — a missing or non-string ``sid``
-    degrades to ``None`` rather than failing an otherwise-valid token.
+    live, and is required: a token without one would silently skip that check.
 
     Args:
         token (str): The raw JWT (already known to be JWT-shaped).
@@ -886,11 +885,15 @@ _AccountAuth = Annotated[AuthResult, Depends(authenticate_account_caller)]
 async def authenticate_and_stamp_account_caller(request: Request, auth: _AccountAuth) -> AuthResult:
     """Authenticate an account-scope caller, then stamp a per-user rate-limit id.
 
-    Account ops have no workspace, so the bucket is keyed per user: an empty
-    ``workspace_id`` plus ``auth.user_id`` in the dedicated user slot of
+    These callers have no workspace resolved at auth time — account ops have
+    none at all, and the write routes leave the project's workspace to the
+    write service — so the bucket is keyed per user: an empty ``workspace_id``
+    plus ``auth.user_id`` in the dedicated user slot of
     :func:`set_rate_limit_identity`, which yields the clean key
-    ``rl:read:{plan}:{user_id}``. It runs during dependency resolution, before
-    slowapi evaluates the limit, so ``key_func`` sees the identity on
+    ``rl:{bucket}:{plan}:{user_id}``. The bucket is the route's own — ``read``
+    for the account reads, ``write`` for the account and project writes that
+    share this stamper. It runs during dependency resolution, before slowapi
+    evaluates the limit, so ``key_func`` sees the identity on
     ``request.state``.
 
     Args:
