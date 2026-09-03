@@ -26,7 +26,7 @@ import {
   suppressedWidgetStepIds,
 } from "../lib/resource-card";
 import { ResourceCard } from "./resource-card";
-import { PendingResourceCard, type PendingDecisionAction } from "./pending-resource-card";
+import { PendingResourceCard } from "./pending-resource-card";
 
 // ---------------------------------------------------------------------------
 // Lightweight markdown normalization for streamed, partial content.
@@ -453,7 +453,6 @@ const ToolStepEntry = memo(function ToolStepEntry({
   widgetsByDashboard,
   projectId,
   retentionDays,
-  onDecision,
   isActive,
   bubbleMaxWidth,
 }: {
@@ -466,12 +465,12 @@ const ToolStepEntry = memo(function ToolStepEntry({
   /** The plan's retention window, which clamps every card's charted range.
    *  Undefined while the plan is still resolving — nothing is clamped then. */
   retentionDays?: number | null;
-  onDecision?: MessageListProps["onDecision"];
   isActive: boolean;
   bubbleMaxWidth: string;
 }) {
-  // A parked write shows the card BEFORE the resource exists, with the
-  // create/skip buttons (a typed reply revises it); the tool result (or a
+  // A parked write shows the card BEFORE the resource exists, marked
+  // proposed; the decision itself is taken at the composer (create/skip
+  // buttons there, or a typed reply that revises). The tool result (or a
   // posted decision) clears `pending` and the step falls through to the
   // receipt flow.
   const pendingCard = useMemo(
@@ -489,7 +488,6 @@ const ToolStepEntry = memo(function ToolStepEntry({
         : resourceCardModel(step, widgetsByDashboard, retentionDays),
     [pendingCard, suppressed, step, widgetsByDashboard, retentionDays],
   );
-  const pending = step.pending;
   return (
     <AnimatedItem>
       <div className="flex justify-start">
@@ -499,20 +497,8 @@ const ToolStepEntry = memo(function ToolStepEntry({
           className={cn("min-w-0", (card !== null || pendingCard !== null) && "w-full")}
           style={{ maxWidth: bubbleMaxWidth }}
         >
-          {pendingCard && pending ? (
-            <PendingResourceCard
-              // Keyed by the decision: a superseding pending event replaces
-              // the card in place AND re-arms its buttons.
-              key={pending.decisionId}
-              model={pendingCard}
-              onDecide={(action) =>
-                onDecision?.({
-                  toolCallId: step.toolCallId,
-                  decisionId: pending.decisionId,
-                  action,
-                }) ?? Promise.resolve(false)
-              }
-            />
+          {pendingCard ? (
+            <PendingResourceCard model={pendingCard} />
           ) : card ? (
             <ResourceCard model={card} />
           ) : (
@@ -626,14 +612,6 @@ interface MessageListProps {
    *  downgraded is neither queried nor named. Undefined while the plan is
    *  still resolving, and with no project to look one up by. */
   retentionDays?: number | null;
-  /** Posts the user's decision on a parked write. Resolves true when the
-   *  decision settled (the card keeps its buttons disabled and waits to be
-   *  replaced), false when it should offer the buttons again. */
-  onDecision?: (params: {
-    toolCallId: string;
-    decisionId: string;
-    action: PendingDecisionAction;
-  }) => Promise<boolean>;
 }
 
 export function MessageList({
@@ -641,7 +619,6 @@ export function MessageList({
   sessionStreaming = false,
   projectId,
   retentionDays,
-  onDecision,
 }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const innerRef = useRef<HTMLDivElement>(null);
@@ -735,7 +712,6 @@ export function MessageList({
                 widgetsByDashboard={widgetsByDashboard}
                 projectId={projectId}
                 retentionDays={retentionDays}
-                onDecision={onDecision}
                 isActive={msg.id === activeToolStepId}
                 bubbleMaxWidth={bubbleMaxWidth}
               />
