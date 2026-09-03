@@ -195,7 +195,25 @@ describe("QueryWidgetRenderer", () => {
       const { container } = render(
         <QueryWidgetRenderer display="line" result={result} agg="p95" />,
       );
-      expect(container.querySelectorAll(".recharts-line-dot").length).toBe(1);
+      expect(container.querySelectorAll(".recharts-isolated-dot").length).toBe(1);
+    });
+
+    it("draws a lone real bucket of a non-additive AREA as a dot too", () => {
+      // recharts hands an area's points a [baseline, value] pair rather than
+      // the bare value, so the isolation check must read through the pair.
+      const result = makeResult(
+        ["bucket", "value"],
+        [
+          ["2026-06-01T00:00:00", null],
+          ["2026-06-02T00:00:00", 8597],
+          ["2026-06-03T00:00:00", null],
+        ],
+        { granularity: "day" },
+      );
+      const { container } = render(
+        <QueryWidgetRenderer display="area" result={result} agg="p95" />,
+      );
+      expect(container.querySelectorAll(".recharts-isolated-dot").length).toBe(1);
     });
 
     it("draws no dots along a connected series", () => {
@@ -211,7 +229,7 @@ describe("QueryWidgetRenderer", () => {
       const { container } = render(
         <QueryWidgetRenderer display="line" result={result} agg="p95" />,
       );
-      expect(container.querySelectorAll(".recharts-line-dot").length).toBe(0);
+      expect(container.querySelectorAll(".recharts-isolated-dot").length).toBe(0);
     });
 
     it("keeps a non-additive AREA off the zero baseline over gap buckets", () => {
