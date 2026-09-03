@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { DATE_FILTER_OPTIONS } from "@/lib/date-filter";
 import { ResourceCard } from "./resource-card";
-import type { MiniatureTile, ResourceCardModel, WidgetChart } from "../lib/resource-card";
+import type { PreviewTile, ResourceCardModel, WidgetChart } from "../lib/resource-card";
 
 // The preview is exercised for real in widget-chart-preview.test.tsx; here it
 // stands in for itself so these tests can assert what the card hands it.
@@ -18,13 +18,10 @@ vi.mock("./widget-chart-preview", () => ({
   ),
 }));
 
-// Same for the miniature, exercised for real in dashboard-miniature.test.tsx.
-// Partial: the module also exports the chart tile aspect the card's dynamic
-// loading placeholder frames itself with, and that must stay real.
-vi.mock("./dashboard-miniature", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("./dashboard-miniature")>()),
-  DashboardMiniature: ({ tiles }: { tiles: { id: string }[] }) => (
-    <div data-testid="miniature">{tiles.map((t) => t.id).join(",")}</div>
+// Same for the dashboard preview, exercised for real in dashboard-preview.test.tsx.
+vi.mock("./dashboard-preview", () => ({
+  DashboardPreview: ({ tiles }: { tiles: { id: string }[] }) => (
+    <div data-testid="preview-grid">{tiles.map((t) => t.id).join(",")}</div>
   ),
 }));
 
@@ -42,9 +39,27 @@ const CHART: WidgetChart = {
   range: DATE_FILTER_OPTIONS.find((o) => o.id === "7d")!,
 };
 
-const TILES: MiniatureTile[] = [
-  { id: "w1", title: "p95", glyph: "line", chart: null, x: 0, y: 0, w: 6, h: 4 },
-  { id: "w2", title: "Recent", glyph: "trace_feed", chart: null, x: 6, y: 0, w: 6, h: 6 },
+const TILES: PreviewTile[] = [
+  {
+    id: "w1",
+    title: "p95",
+    projectId: "p1",
+    widget: { type: "query", spec: {} },
+    x: 0,
+    y: 0,
+    w: 6,
+    h: 4,
+  },
+  {
+    id: "w2",
+    title: "Recent",
+    projectId: "p1",
+    widget: { type: "trace_feed", spec: {} },
+    x: 6,
+    y: 0,
+    w: 6,
+    h: 6,
+  },
 ];
 
 function model(overrides: Partial<ResourceCardModel> = {}): ResourceCardModel {
@@ -272,7 +287,7 @@ describe("ResourceCard body", () => {
     expect(await screen.findByTestId("preview")).toBeTruthy();
   });
 
-  it("hides and shows a dashboard's miniature the same way", () => {
+  it("hides and shows a dashboard's preview the same way", () => {
     render(
       <ResourceCard
         model={model({
@@ -283,11 +298,11 @@ describe("ResourceCard body", () => {
         })}
       />,
     );
-    expect(screen.getByTestId("miniature").textContent).toBe("w1,w2");
+    expect(screen.getByTestId("preview-grid").textContent).toBe("w1,w2");
     fireEvent.click(screen.getByRole("button", { name: "Hide preview" }));
-    expect(screen.queryByTestId("miniature")).toBeNull();
+    expect(screen.queryByTestId("preview-grid")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Show preview" }));
-    expect(screen.getByTestId("miniature")).toBeTruthy();
+    expect(screen.getByTestId("preview-grid")).toBeTruthy();
   });
 
   it("offers no hide toggle when the body has nothing to picture", () => {
@@ -368,7 +383,7 @@ describe("ResourceCard body", () => {
     expect(screen.getByText("p9")).toBeTruthy();
   });
 
-  it("renders a dashboard's miniature grid from its tiles", () => {
+  it("renders a dashboard's scaled-down preview from its tiles", () => {
     render(
       <ResourceCard
         model={model({
@@ -379,7 +394,7 @@ describe("ResourceCard body", () => {
         })}
       />,
     );
-    expect(screen.getByTestId("miniature").textContent).toBe("w1,w2");
+    expect(screen.getByTestId("preview-grid").textContent).toBe("w1,w2");
   });
 
   it("keeps the footer-only card for a dashboard with no widgets", () => {
@@ -394,7 +409,7 @@ describe("ResourceCard body", () => {
       />,
     );
     expect(screen.getByText("Latency overview")).toBeTruthy();
-    expect(screen.queryByTestId("miniature")).toBeNull();
+    expect(screen.queryByTestId("preview-grid")).toBeNull();
     expect(container.textContent).toBe("Latency overviewDashboard");
   });
 

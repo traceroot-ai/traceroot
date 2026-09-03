@@ -21,10 +21,8 @@ import { triggerFieldDef, triggerOpLabel } from "@/features/detectors/trigger-fi
 import { resolveSiteRange } from "@/features/dashboards/range-presets";
 import type { DateFilterOption } from "@/lib/date-filter";
 import {
-  DISPLAY_TYPES,
   isWidgetType,
   parseSpec,
-  type DisplayType,
   type WidgetSpec,
   type WidgetType,
 } from "@/features/dashboards/types";
@@ -71,22 +69,21 @@ export interface WidgetChart {
 }
 
 /**
- * What one tile of the dashboard miniature shows: the widget's name, the glyph
- * of its shape, its place on the real grid in grid units — and, when the
- * widget carries a runnable query, the query itself, so the tile can render
- * live data once the miniature scrolls into view. The glyph remains the tile's
- * loading and failure face: a feed, an unparseable spec, or a failed query
- * shows the shape rather than nothing.
+ * One tile of the dashboard preview: what the real tile body needs to draw
+ * the widget the dashboard's own way — its type and its spec exactly as the
+ * call supplied it (the body parses the spec itself, so one the schema
+ * rejects shows the dashboard's own invalid-spec face), the project its
+ * query runs against — plus its name and its place on the real grid in grid
+ * units.
  */
-export type MiniatureGlyph = DisplayType | "trace_feed" | "unknown";
-
-export interface MiniatureTile {
+export interface PreviewTile {
   id: string;
   title: string;
-  glyph: MiniatureGlyph;
-  /** The query behind the tile, or null when only the glyph can stand — a
-   *  trace feed, a spec the widget schema rejects, or an unknown project. */
-  chart: WidgetChart | null;
+  projectId: string;
+  widget: { type: WidgetType; spec: Record<string, unknown> };
+  /** The window this tile queries, snapshotted when the card model was built
+   *  so the card's header and the preview cannot name different ranges. */
+  range: DateFilterOption;
   x: number;
   y: number;
   w: number;
@@ -103,15 +100,16 @@ export type DetectorPrompt =
   | { kind: "standard"; templateLabel: string };
 
 /**
- * The card body for each resource type. A dashboard's body is the miniature
- * of itself: its widgets as placed tiles (empty when the transcript created
- * none, or when the dashboard was reused and its placements are unknowable —
- * the reused card shows its description instead). A detector's body is its
- * prompt — the thing the detector actually is — over its settings chips.
+ * The card body for each resource type. A dashboard's body is a scaled-down
+ * preview of itself: its widgets as placed tiles (empty when the transcript
+ * created none, or when the dashboard was reused and its placements are
+ * unknowable — the reused card shows its description instead). A detector's
+ * body is its prompt — the thing the detector actually is — over its
+ * settings chips.
  */
 export type ResourceCardBody =
   | { kind: "widget"; chips: string[]; chart: WidgetChart | null }
-  | { kind: "dashboard"; tiles: MiniatureTile[] }
+  | { kind: "dashboard"; tiles: PreviewTile[] }
   | { kind: "receipt"; rows: ReceiptRow[] }
   | { kind: "detector"; chips: string[]; prompt: DetectorPrompt | null };
 
@@ -129,7 +127,7 @@ export interface ResourceCardModel {
   href: string | null;
   /** A description the args carried, when the type has nothing else to show
    *  (a pending dashboard — its widgets arrive as separate calls — or a
-   *  reused dashboard, whose miniature cannot be trusted). */
+   *  reused dashboard, whose preview cannot be trusted). */
   description?: string;
   body: ResourceCardBody;
 }
@@ -203,24 +201,30 @@ function widgetChips(args: Record<string, unknown>): string[] {
 }
 
 /**
+ * The project a created widget's query is aimed at, or null when the details
+ * never said. It comes from the structured details, not the arguments: it is
+ * the scope the write actually landed in. Not str(): this id addresses a
+ * request rather than being printed, so it is checked but never capped.
+ */
+function scopeProjectId(details: ResourceCreatedDetails): string | null {
+  const projectId = typeof details.projectId === "string" ? details.projectId.trim() : "";
+  return projectId === "" ? null : projectId;
+}
+
+/**
  * What the card needs to draw the widget the model just created, or null when
  * it can't be drawn. The spec goes through the dashboard's own schema, so the
  * preview runs exactly the spec a dashboard tile would — a trace feed's spec
  * (rows and filters, no view or metric) fails that parse, which is why a feed
  * card keeps its chips and never queries.
- *
- * The project comes from the structured details, not the arguments: it is the
- * scope the write actually landed in, and a query is aimed by it.
  */
 function widgetChart(
   args: Record<string, unknown>,
   details: ResourceCreatedDetails,
   retentionDays?: number | null,
 ): WidgetChart | null {
-  // Not str(): this id addresses a request rather than being printed, so it is
-  // checked but never capped.
-  const projectId = typeof details.projectId === "string" ? details.projectId.trim() : "";
-  if (projectId === "") return null;
+  const projectId = scopeProjectId(details);
+  if (projectId === null) return null;
   const spec = parseSpec(args.spec);
   return spec === null
     ? null
@@ -286,34 +290,21 @@ function receiptRows(details: ResourceCreatedDetails): ReceiptRow[] {
 }
 
 /**
- * The glyph a miniature tile draws for one created widget. A trace feed is
- * list rows; a chart widget is the shape of its display type, read loosely —
- * the glyph needs only `spec.display.type`, so a spec the full schema would
- * reject can still show its shape. Anything unreadable is a neutral tile.
- */
-function tileGlyph(args: Record<string, unknown> | null): MiniatureGlyph {
-  if (args === null) return "unknown";
-  if (str(args.type) === "trace_feed") return "trace_feed";
-  const display = plainObject(plainObject(args.spec)?.display);
-  const displayType = display === null ? null : str(display.type);
-  return (DISPLAY_TYPES as readonly string[]).includes(displayType ?? "")
-    ? (displayType as DisplayType)
-    : "unknown";
-}
-
-/**
- * A dashboard's widgets as miniature tiles, placed by folding each creation
+ * A dashboard's widgets as preview tiles, placed by folding each creation
  * (in transcript order) through the same placement function the widget create
- * route uses — so the miniature and the real grid cannot disagree. An
+ * route uses — so the preview and the real grid cannot disagree. An
  * unreadable type falls back to a chart tile, the smaller of the two sizes;
- * a replayed create (same widget id twice) keeps its first tile.
+ * a replayed create (same widget id twice) keeps its first tile. A widget
+ * whose details name no project gets no tile — nothing could be queried for
+ * it — but still takes its place in the fold, because the real grid placed
+ * it and the tiles after it must land where they really did.
  */
 function dashboardTiles(
   steps: readonly ToolCallStep[],
   retentionDays?: number | null,
-): MiniatureTile[] {
+): PreviewTile[] {
   let layout: WidgetPlacement[] = [];
-  const tiles: MiniatureTile[] = [];
+  const tiles: PreviewTile[] = [];
   for (const step of steps) {
     const details = resourceCreatedDetails(step.result);
     if (details === null) continue;
@@ -323,15 +314,21 @@ function dashboardTiles(
     const next = appendWidgetPlacement(layout, { id: details.resourceId, type });
     if (next === null) continue;
     layout = next;
+    const projectId = scopeProjectId(details);
+    if (projectId === null) continue;
     const { x, y, w, h } = layout[layout.length - 1];
     tiles.push({
       id: details.resourceId,
       title: (args === null ? null : str(args.title)) ?? str(details.resourceId) ?? "",
-      glyph: tileGlyph(args),
-      // The same gate the widget card's own preview applies: a strict spec
-      // parse plus the project the write landed in — a feed's spec fails the
-      // parse, which is why a feed tile keeps its rows and never queries.
-      chart: args === null ? null : widgetChart(args, details, retentionDays),
+      projectId,
+      // The spec as supplied, unparsed: the tile body applies the dashboard's
+      // own schema and shows the dashboard's own face for a spec it rejects.
+      widget: { type, spec: plainObject(args?.spec) ?? {} },
+      // Resolved once here, not again by the preview: the card's header names
+      // this window at model-build time while the preview freezes it at first
+      // visibility, and a selection changed in between would leave the two
+      // naming different ranges.
+      range: resolveSiteRange(projectId, retentionDays),
       x,
       y,
       w,
@@ -428,7 +425,7 @@ function body(
         chart: widgetChart(args, details, retentionDays),
       };
     case "dashboard":
-      // Only a freshly CREATED dashboard gets a miniature. A reused
+      // Only a freshly CREATED dashboard gets a preview. A reused
       // (idempotent-hit) dashboard was laid out before this transcript
       // existed, so folding its new widgets through an empty layout would
       // draw tile positions the real grid never assigned — the card keeps
@@ -455,7 +452,7 @@ function body(
  * caller renders the plain tool step for every null.
  *
  * `widgetsByDashboard` supplies the widgets created into each dashboard, for
- * the card's count and its miniature; see createdWidgetsByDashboard.
+ * the card's count and its preview; see createdWidgetsByDashboard.
  *
  * `retentionDays` is the plan's window; it clamps the range every chart here
  * queries and every window label. Undefined while the plan is still
@@ -471,10 +468,14 @@ export function resourceCardModel(
   const resourceType = details.resourceType;
 
   const args = plainObject(step.args);
-  // Widgets carry a title; everything else carries a name. Neither survives an
-  // unreadable payload, so the id — always present — stands in for the name.
+  // The details say what the resource is really called — for a dashboard,
+  // possibly a suffixed name the args never asked for. Older rows carry no
+  // name, so the args stand in: widgets carry a title, everything else a
+  // name. Neither survives an unreadable payload, so the id — always
+  // present — stands in last.
   const displayName =
-    args === null ? null : (str(args.title, MAX_TITLE_CHARS) ?? str(args.name, MAX_TITLE_CHARS));
+    str(details.name, MAX_TITLE_CHARS) ??
+    (args === null ? null : (str(args.title, MAX_TITLE_CHARS) ?? str(args.name, MAX_TITLE_CHARS)));
 
   const cardBody = body(
     resourceType,
@@ -494,23 +495,29 @@ export function resourceCardModel(
   if (resourceType === "dashboard") {
     const widgetCount = widgetsByDashboard?.get(details.resourceId)?.length ?? 0;
     if (widgetCount > 0) meta.push(widgetCount === 1 ? "1 widget" : `${widgetCount} widgets`);
-    // One window label for the whole miniature — the tiles share a single
-    // frozen range, so naming it per tile would be twelve copies of one fact.
-    // Any charted tile names the project, the same way the miniature aims it.
-    const chartedTile = cardBody.kind === "dashboard" ? cardBody.tiles.find((t) => t.chart) : null;
-    if (chartedTile?.chart) meta.push(chartedTile.chart.range.label);
+    // One window label for the whole preview — every tile, feed included,
+    // queries the one frozen range, so naming it per tile would be twelve
+    // copies of one fact. The first tile carries the snapshot, the same one
+    // the preview draws over.
+    const [firstTile] = cardBody.kind === "dashboard" ? cardBody.tiles : [];
+    if (firstTile !== undefined) meta.push(firstTile.range.label);
   }
   if (resourceType === "detector" && args !== null) {
     const template = str(args.template);
     if (template !== null) meta.push(templateLabel(template));
   }
 
-  // A reused dashboard draws no miniature (see body above), so its card gets
+  // A reused dashboard draws no preview (see body above), so its card gets
   // what the pending card shows: the description the call carried, if any.
+  // A renamed one was created, so it keeps its preview; the definition panel
+  // instead explains why its title is not the name the call asked for.
+  const renamedFrom = str(details.renamedFrom, MAX_TITLE_CHARS);
   const description =
-    resourceType === "dashboard" && details.created === false && args !== null
-      ? str(args.description, MAX_DESCRIPTION_CHARS)
-      : null;
+    renamedFrom !== null
+      ? `Renamed from "${renamedFrom}": a ${resourceType} with that name already existed.`
+      : resourceType === "dashboard" && details.created === false && args !== null
+        ? str(args.description, MAX_DESCRIPTION_CHARS)
+        : null;
 
   return {
     resourceType,
@@ -654,13 +661,13 @@ export function pendingCardModel(
 /**
  * The ids of tool-step messages whose widget card would duplicate a CREATED
  * dashboard's card shown earlier in the same transcript: that dashboard's
- * miniature already draws every widget the transcript created into it, so
+ * preview already draws every widget the transcript created into it, so
  * those steps keep the plain tool line instead of a second card. A widget
  * whose dashboard has no card here — created into a pre-existing dashboard —
  * keeps its full card, because that card is the only receipt there is.
  *
  * A widget is suppressed only under a CREATED dashboard's card — the one that
- * draws a miniature; a reused dashboard's card draws none, so its widgets
+ * draws a preview; a reused dashboard's card draws none, so its widgets
  * keep their cards — and only when that dashboard step PRECEDES the widget's
  * (the agent creates the dashboard before filling it, so anything else is a
  * widget whose dashboard card the reader has not seen).
@@ -674,7 +681,7 @@ export function suppressedWidgetStepIds(messages: readonly AIMessage[]): Set<str
     const details = resourceCreatedDetails(step.result);
     if (details === null) continue;
     if (details.resourceType === "dashboard") {
-      // Only a CREATED dashboard's card draws a miniature; a reused one has
+      // Only a CREATED dashboard's card draws a preview; a reused one has
       // no picture of its widgets, so their own cards must stay — they are
       // the only true receipt in the transcript.
       if (details.created !== false) dashboardCards.add(details.resourceId);
@@ -708,8 +715,8 @@ export function createdWidgetsByDashboard(
     if (details === null || details.resourceType !== "widget") continue;
     if (typeof details.dashboardId !== "string") continue;
     // A replayed create (same widget id twice) keeps its first step, the same
-    // convention the miniature applies — otherwise the dashboard meta would
-    // count one widget twice while the miniature draws a single tile.
+    // convention the preview applies — otherwise the dashboard meta would
+    // count one widget twice while the preview draws a single tile.
     if (seen.has(details.resourceId)) continue;
     seen.add(details.resourceId);
     const siblings = byDashboard.get(details.dashboardId);

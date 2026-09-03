@@ -7,6 +7,11 @@ export interface ResourceCreatedDetails {
   kind: "resource_created";
   resourceType: string;
   resourceId: string;
+  /** The name the resource was actually created with, when the tool said. */
+  name?: string;
+  /** The name the call asked for, when the service created the resource
+   *  under a different one because that name was already taken. */
+  renamedFrom?: string;
   created: boolean;
   projectId?: string;
   workspaceId?: string;
