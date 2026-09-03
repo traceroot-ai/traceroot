@@ -788,3 +788,34 @@ model Widget {
   @@index([dashboardId], map: "ix_widget_dashboard_id")
   @@map("widgets")
 }
+
+// The audit trail for non-interactive writes: one append-only row per write
+// that changes account state — who (actorUserId), what (operation, resource,
+// summary), where (workspace/project), and HOW: `transport` distinguishes a
+// public-API call from an in-app agent action (with its session id), because
+// "who" alone stops identifying intent once machines write on a user's behalf.
+// This table is new with the public write paths — before them, every write was
+// a human in the UI on their own cookie session, so attribution was structural
+// (the actor WAS the session, the result was on screen). Once the CLI, agent,
+// and API can create resources with no human watching, provenance has to be
+// answerable from storage. UI writes join the trail (transport "ui") when the
+// cookie routes migrate onto the shared write services.
+// No relations on purpose: audit rows must survive resource deletion (an FK
+// cascade would erase history).
+model AuditLog {
+  id             String   @id @default(cuid()) @db.VarChar
+  actorUserId    String   @map("actor_user_id") @db.VarChar
+  operation      String   @db.VarChar // e.g. "create_detector"
+  resourceType   String   @map("resource_type") @db.VarChar
+  resourceId     String   @map("resource_id") @db.VarChar
+  workspaceId    String?  @map("workspace_id") @db.VarChar
+  projectId      String?  @map("project_id") @db.VarChar
+  summary        Json     @db.JsonB // payload summary, never secrets
+  transport      String   @db.VarChar // "public-api" | "agent"
+  agentSessionId String?  @map("agent_session_id") @db.VarChar
+  createTime     DateTime @default(now()) @map("create_time") @db.Timestamp(6)
+
+  @@index([workspaceId], map: "ix_audit_workspace_id")
+  @@index([actorUserId], map: "ix_audit_actor_user_id")
+  @@map("audit_logs")
+}
