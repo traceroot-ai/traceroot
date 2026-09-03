@@ -197,7 +197,8 @@ describe("ResourceCard definition panel", () => {
 describe("ResourceCard open link", () => {
   it("opens the resource's page from the footer", () => {
     render(<ResourceCard model={model({ href: "/projects/p1/dashboard/db1" })} />);
-    const link = screen.getByRole("link", { name: "Open" });
+    // The accessible name says what opens, since the footer row reads as a list.
+    const link = screen.getByRole("link", { name: "Open widget" });
     expect(link.getAttribute("href")).toBe("/projects/p1/dashboard/db1");
   });
 
@@ -213,7 +214,7 @@ describe("ResourceCard open link", () => {
         })}
       />,
     );
-    expect(screen.getByRole("link", { name: "Open" }).getAttribute("href")).toBe(
+    expect(screen.getByRole("link", { name: "Open detector" }).getAttribute("href")).toBe(
       "/projects/p1/detectors/d1",
     );
   });

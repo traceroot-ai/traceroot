@@ -3,9 +3,7 @@
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { PendingDecision } from "../hooks/use-ai-chat";
-
-export type PendingDecisionAction = "create" | "skip";
+import type { PendingDecision, PendingDecisionAction } from "../hooks/use-ai-chat";
 
 /**
  * The composer's approval bar for a write the agent has parked: one question
@@ -47,8 +45,14 @@ export function PendingDecisionBar({
   return (
     <div className="mx-3 mb-1 rounded-md border border-border bg-card px-2.5 py-2 text-xs">
       <p className="truncate font-medium text-foreground">
-        Create {decision.resourceType}{" "}
-        <span className="font-normal text-muted-foreground">{decision.title}</span>?
+        Create {decision.resourceType}
+        {decision.title !== null && (
+          <>
+            {" "}
+            <span className="font-normal text-muted-foreground">{decision.title}</span>
+          </>
+        )}
+        ?
       </p>
       <div className="mt-1.5 flex items-center gap-1.5">
         <Button
