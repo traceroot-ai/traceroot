@@ -85,8 +85,10 @@ const WRITE_TOOL_SPECS: Readonly<Record<string, WriteToolSpec>> = {
     // dashboard is created under a suffixed name rather than reused.
     description:
       "Create a dashboard in a project; add charts to it with create_widget. If a dashboard " +
-      'with the requested name already exists, the new one is created as "<name> (2)" (then ' +
-      '"(3)", …) and the result reports the name it was given.',
+      "with the requested name already exists, the new one is created under the requested " +
+      'name with " (2)" appended (then " (3)", …), trimmed to fit the name limit if the ' +
+      "requested name is long. The result reports the name it was given, so use that name " +
+      "afterwards rather than the one you asked for.",
     fieldMap: { name: "name", description: "description" },
     resourceKey: "dashboard",
     displayNameKey: "name",
