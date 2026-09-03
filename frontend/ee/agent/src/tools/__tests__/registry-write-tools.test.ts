@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApiClient, ApiError, REGISTRY } from "@traceroot-ai/tools";
+import { validateToolArguments } from "@earendil-works/pi-ai";
 import { createRegistryWriteTools } from "../registry-write-tools.js";
 
 function stubClient(response: unknown = {}) {
@@ -495,5 +496,49 @@ describe("createRegistryWriteTools construction", () => {
     ).toThrow("create_dashboard: unmapped registry field: color");
     vi.doUnmock("@traceroot-ai/tools");
     vi.resetModules();
+  });
+});
+
+describe("create_widget schema under pi's argument validation", () => {
+  const widgetTool = () => makeTools(stubClient().client).find((t) => t.name === "create_widget")!;
+  const call = (spec: Record<string, unknown>) => ({
+    id: "tc1",
+    name: "create_widget",
+    arguments: { label: "add", dashboard_id: "d1", title: "t", type: "query", spec },
+  });
+  const base = {
+    view: "traces",
+    metric: { agg: "count", measure: "count" },
+    display: { type: "number" },
+    breakdown: null,
+  };
+
+  it("accepts a numeric filter value — pi validates before the tool ever runs", () => {
+    // The filter value is a string-or-number union whose empty-string guard
+    // must not leak onto numbers: a leaked minLength failed every numeric
+    // filter with an empty error the model could not act on.
+    const tool = widgetTool();
+    expect(() =>
+      validateToolArguments(
+        tool,
+        call({ ...base, filters: [{ field: "duration_ms", op: ">", value: 5 }] }),
+      ),
+    ).not.toThrow();
+  });
+
+  it("accepts a string filter value and still rejects an empty one", () => {
+    const tool = widgetTool();
+    expect(() =>
+      validateToolArguments(
+        tool,
+        call({ ...base, filters: [{ field: "name", op: "contains", value: "checkout" }] }),
+      ),
+    ).not.toThrow();
+    expect(() =>
+      validateToolArguments(
+        tool,
+        call({ ...base, filters: [{ field: "name", op: "=", value: "" }] }),
+      ),
+    ).toThrow(/fewer than 1 characters/);
   });
 });

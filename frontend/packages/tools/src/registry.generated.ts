@@ -206,8 +206,16 @@ export const REGISTRY: readonly RegistryEntry[] = [
                         type: "string",
                       },
                       value: {
-                        minLength: 1,
                         type: ["string", "number"],
+                        anyOf: [
+                          {
+                            minLength: 1,
+                            type: "string",
+                          },
+                          {
+                            type: "number",
+                          },
+                        ],
                       },
                     },
                     required: ["field", "op", "value"],
@@ -297,8 +305,16 @@ export const REGISTRY: readonly RegistryEntry[] = [
                         type: "string",
                       },
                       value: {
-                        minLength: 1,
                         type: ["string", "number"],
+                        anyOf: [
+                          {
+                            minLength: 1,
+                            type: "string",
+                          },
+                          {
+                            type: "number",
+                          },
+                        ],
                       },
                     },
                     required: ["field", "op", "value"],
