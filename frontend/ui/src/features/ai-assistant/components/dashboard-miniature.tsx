@@ -568,8 +568,9 @@ export function DashboardMiniature({ tiles }: { tiles: readonly MiniatureTile[] 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seen]);
 
-  // The caller keeps the header-only card for an empty dashboard; this guard
-  // just keeps a frame with no tiles from ever rendering.
+  // The caller renders no miniature for a tile-less dashboard (none created,
+  // or reused with unknowable placements); this guard just keeps a frame with
+  // no tiles from ever rendering.
   if (tiles.length === 0) return null;
   return (
     <div

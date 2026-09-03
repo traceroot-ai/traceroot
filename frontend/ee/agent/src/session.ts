@@ -273,7 +273,8 @@ export class SessionManager {
         // Content-less assistant rows are usage carriers for runs that ended at
         // a tool boundary — there is no text to restore, so skip them. This
         // also drops thinking-only segments (empty content, thinking in
-        // metadata), which the UI renders but model context never restored.
+        // metadata) and the error-marker rows of failed runs (runError in
+        // metadata), which the UI renders but the model never needs.
         .filter(
           (m) =>
             m.role === "user" ||

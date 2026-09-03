@@ -45,7 +45,6 @@ export function createTools(params: {
         actorUserId: params.userId,
         agentSessionId: params.agentSessionId,
         projectId: params.projectId,
-        workspaceId: params.workspaceId,
       }),
     );
   }

@@ -13,7 +13,6 @@ function makeTools(client: ApiClient) {
     actorUserId: "u1",
     agentSessionId: "as1",
     projectId: "p1",
-    workspaceId: "w1",
   });
 }
 
@@ -158,7 +157,6 @@ describe("createRegistryWriteTools", () => {
       actorUserId: "u1",
       agentSessionId: "as1",
       projectId: "p1",
-      workspaceId: "w1",
     }).find((t) => t.name === "create_dashboard")!;
     expect(tool.parameters.properties).not.toHaveProperty("description");
     expect(tool.parameters.required).not.toContain("description");
@@ -408,7 +406,6 @@ describe("createRegistryWriteTools construction", () => {
         actorUserId: "u1",
         agentSessionId: "as1",
         projectId: "p1",
-        workspaceId: "w1",
       }),
     ).toThrow("registry entry missing: create_widget");
     vi.doUnmock("@traceroot-ai/tools");
@@ -433,9 +430,37 @@ describe("createRegistryWriteTools construction", () => {
         actorUserId: "u1",
         agentSessionId: "as1",
         projectId: "p1",
-        workspaceId: "w1",
       }),
     ).toThrow("registry entry missing policy: create_detector");
+    vi.doUnmock("@traceroot-ai/tools");
+    vi.resetModules();
+  });
+
+  it("throws at construction when a bound write entry is not project-scoped", async () => {
+    // The chat agent injects its session's project as the only ambient
+    // tenancy; a registry flip to another scope must fail loud, not inject
+    // the wrong id silently.
+    vi.resetModules();
+    vi.doMock("@traceroot-ai/tools", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("@traceroot-ai/tools")>();
+      return {
+        ...actual,
+        REGISTRY: actual.REGISTRY.map((e) =>
+          e.name === "create_dashboard" && e.policy
+            ? { ...e, policy: { ...e.policy, tenancy: "workspace" as const } }
+            : e,
+        ),
+      };
+    });
+    const { createRegistryWriteTools: create } = await import("../registry-write-tools.js");
+    expect(() =>
+      create({
+        client: {} as ApiClient,
+        actorUserId: "u1",
+        agentSessionId: "as1",
+        projectId: "p1",
+      }),
+    ).toThrow("create_dashboard: unsupported tenancy for the chat agent: workspace");
     vi.doUnmock("@traceroot-ai/tools");
     vi.resetModules();
   });
@@ -466,7 +491,6 @@ describe("createRegistryWriteTools construction", () => {
         actorUserId: "u1",
         agentSessionId: "as1",
         projectId: "p1",
-        workspaceId: "w1",
       }),
     ).toThrow("create_dashboard: unmapped registry field: color");
     vi.doUnmock("@traceroot-ai/tools");

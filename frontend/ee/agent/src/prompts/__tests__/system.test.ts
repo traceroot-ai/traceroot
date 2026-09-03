@@ -71,6 +71,13 @@ describe("getSystemPrompt", () => {
     expect(prompt).toContain("report it, never");
   });
 
+  it("lists the detector templates so coverage gaps get a create_detector offer", () => {
+    const prompt = getSystemPrompt({ projectId: "proj-123" });
+    expect(prompt).toContain("failure, hallucination, logic, task, safety");
+    expect(prompt).toContain("offer to add one with create_detector");
+    expect(prompt).not.toContain("Detectors page");
+  });
+
   it("includes current date in UTC", () => {
     const today = new Date().toISOString().split("T")[0];
     const prompt = getSystemPrompt({ projectId: "proj-123" });
