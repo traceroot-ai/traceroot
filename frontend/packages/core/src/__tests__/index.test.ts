@@ -28,4 +28,19 @@ describe("@traceroot/core entrypoint", () => {
     expect(core.UpdateDatasetRequestSchema).toBeDefined();
     expect(core.DATASET_VERSION_MAX_CHANGES).toBe(1000);
   });
+
+  it("keeps Node-only modules off the barrel", async () => {
+    // Client components import "@traceroot/core", so anything on the barrel is
+    // bundled for the browser. rca-executions imports node:crypto and prisma,
+    // which is why it ships as a subpath export instead — the same convention
+    // pi-ai already follows. Re-adding it here breaks the client bundle in a
+    // way that only shows up at build time.
+    const barrel = await import("../index.ts");
+    expect(Object.keys(barrel)).not.toContain("allocateExecution");
+
+    const pkg = (await import("../../package.json", { with: { type: "json" } })).default as {
+      exports: Record<string, unknown>;
+    };
+    expect(pkg.exports["./rca-executions"]).toBeDefined();
+  });
 });

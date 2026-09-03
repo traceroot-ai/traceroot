@@ -337,17 +337,18 @@ model SlackIntegration {
 
 // AI Sessions - Conversation sessions for the AI debugging assistant
 model AISession {
-  id          String      @id @default(cuid()) @db.VarChar
-  projectId   String      @map("project_id") @db.VarChar
-  workspaceId String      @map("workspace_id") @db.VarChar
-  userId      String?     @map("user_id") @db.VarChar // null for system/RCA sessions
-  title       String?     @db.VarChar
-  status      String      @default("active") @db.VarChar // active, completed, failed
-  metadata    Json?       @db.JsonB
-  createTime  DateTime    @default(now()) @map("create_time") @db.Timestamp(6)
-  updateTime  DateTime    @default(now()) @updatedAt @map("update_time") @db.Timestamp(6)
-  messages    AIMessage[]
-  project     Project     @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  id            String                 @id @default(cuid()) @db.VarChar
+  projectId     String                 @map("project_id") @db.VarChar
+  workspaceId   String                 @map("workspace_id") @db.VarChar
+  userId        String?                @map("user_id") @db.VarChar // null for system/RCA sessions
+  title         String?                @db.VarChar
+  status        String                 @default("active") @db.VarChar // active, completed, failed
+  metadata      Json?                  @db.JsonB
+  createTime    DateTime               @default(now()) @map("create_time") @db.Timestamp(6)
+  updateTime    DateTime               @default(now()) @updatedAt @map("update_time") @db.Timestamp(6)
+  messages      AIMessage[]
+  project       Project                @relation(fields: [projectId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  rcaExecutions DetectorRcaExecution[]
 
   @@index([projectId], map: "ix_ai_session_project_id")
   @@index([workspaceId], map: "ix_ai_session_workspace_id")
@@ -479,8 +480,43 @@ model DetectorRca {
   // DetectorAlertConfig when a project is deleted.
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
+  // The current execution (status, attempt) is the one with the highest
+  // attempt; the trace to link is the highest attempt whose trace_status is
+  // `available`, so a pending retry does not hide a working trace (see
+  // rca-executions.ts and the findings/[findingId]/rca route). Empty on legacy
+  // rows created before executions existed (no backfill by design).
+  executions DetectorRcaExecution[]
+
   @@index([projectId], map: "ix_detector_rcas_project_id")
   @@map("detector_rcas")
+}
+
+enum TraceStatus {
+  disabled
+  pending
+  available
+  failed
+}
+
+// One row per RCA agent run for a finding, append-only. Allocated BEFORE the run
+// so the attempt and trace id are fixed even if the process dies mid-run; a retry
+// allocates the next attempt instead of reusing the first trace id.
+model DetectorRcaExecution {
+  id          String      @id @default(cuid()) @db.VarChar
+  findingId   String      @map("finding_id") @db.VarChar
+  projectId   String      @map("project_id") @db.VarChar
+  attempt     Int
+  traceId     String      @map("trace_id") @db.VarChar // 32-hex; attempt 1 = dashless finding id
+  traceStatus TraceStatus @default(pending) @map("trace_status")
+  sessionId   String?     @map("session_id") @db.VarChar
+  startedAt   DateTime    @default(now()) @map("started_at") @db.Timestamp(6)
+  finishedAt  DateTime?   @map("finished_at") @db.Timestamp(6)
+
+  rca     DetectorRca @relation(fields: [findingId], references: [findingId], onDelete: Cascade, onUpdate: NoAction)
+  session AISession?  @relation(fields: [sessionId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@unique([findingId, attempt], map: "uq_rca_execution_finding_attempt")
+  @@map("detector_rca_executions")
 }
 
 // ---------------------------------------------------------------------------

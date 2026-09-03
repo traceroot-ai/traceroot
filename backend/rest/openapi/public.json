@@ -1160,7 +1160,7 @@
         "type": "object"
       },
       "RCAResult": {
-        "description": "Free-text root-cause analysis for a finding (Postgres ``detector_rcas``).",
+        "description": "Free-text root-cause analysis for a finding (Postgres ``detector_rcas``).\n\nThe agent trace behind an RCA (``detector_rca_executions``) is internal and\ndeliberately not part of this contract: its trace id is not readable through\nthe public trace endpoints, so advertising it here would be misleading.",
         "properties": {
           "result": {
             "anyOf": [
