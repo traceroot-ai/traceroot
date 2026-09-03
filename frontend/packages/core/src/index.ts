@@ -24,6 +24,7 @@ export type {
   GitHubInstallation,
   ModelProvider,
   TurnKind,
+  TraceStatus,
   // Offline evaluation
   Dataset,
   DatasetVersion,
@@ -49,8 +50,9 @@ export * from "./model-pricing/index.ts";
 export * from "./types/index.ts";
 
 // NOTE: pi-ai Model resolver lives at `@traceroot/core/model-resolver` (subpath),
-// and the capture policy for persisted tool I/O (agent StreamPersister + SDK
-// captureToolIo) at `@traceroot/core/capture-policy`. We do NOT re-export them
-// here — pulling pi-ai into the main barrel would bundle Node-only code
-// (`node:fs`, etc.) into the Next.js client. Server-side consumers (agent,
+// the capture policy for persisted tool I/O (agent StreamPersister + SDK
+// captureToolIo) at `@traceroot/core/capture-policy`, and the detector
+// execution helpers at `@traceroot/core/rca-executions`. We do NOT re-export
+// them here — pulling pi-ai or node:crypto/Buffer into the main barrel would
+// bundle Node-only code into the Next.js client. Server-side consumers (agent,
 // detector worker) import explicitly from the subpath.

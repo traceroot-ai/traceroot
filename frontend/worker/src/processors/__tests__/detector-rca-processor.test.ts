@@ -4,6 +4,21 @@ const fetchProviderConfigMock = vi.fn();
 const resolvePiModelMock = vi.fn();
 const modelProviderFindMany = vi.fn().mockResolvedValue([]);
 const digestAddMock = vi.fn().mockResolvedValue(undefined);
+// processRcaJob allocates an execution before every run and records its
+// trace status after. Defaulted here so every pre-existing test in this file
+// (none of which cares about executions) doesn't hit the real transactional
+// allocateExecution against a real Postgres connection.
+const allocateExecutionMock = vi
+  .fn()
+  .mockResolvedValue({ executionId: "exec-1", attempt: 1, traceId: "f".repeat(32) });
+const detectorRcaExecutionUpdateMock = vi.fn().mockResolvedValue({});
+// Default true: every test in this file has a single attempt, which is always
+// the latest. The older-attempt cases live in rca-execution-allocation.test.ts.
+const finishFindingIfLatestMock = vi.fn().mockResolvedValue(true);
+const markFindingRunningIfLatestMock = vi.fn().mockResolvedValue(true);
+// The execution identity processRcaJob passes to runRcaSession; direct
+// runRcaSession calls below supply the same.
+const EXEC = { executionId: "exec-1", attempt: 1, executionTraceId: "f".repeat(32) };
 
 vi.mock("@traceroot/core/model-resolver", async () => ({
   fetchProviderConfig: (...args: any[]) => fetchProviderConfigMock(...args),
@@ -15,6 +30,11 @@ vi.mock("../../queues/digest-queue.js", async (importOriginal) => {
   return { ...actual, createDetectorDigestQueue: () => ({ add: digestAddMock }) };
 });
 
+vi.mock("@traceroot/core/rca-executions", () => ({
+  allocateExecution: (...a: any[]) => allocateExecutionMock(...a),
+  finishFindingIfLatest: (...a: any[]) => finishFindingIfLatestMock(...a),
+  markFindingRunningIfLatest: (...a: any[]) => markFindingRunningIfLatestMock(...a),
+}));
 vi.mock("@traceroot/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@traceroot/core")>();
   return {
@@ -24,6 +44,10 @@ vi.mock("@traceroot/core", async (importOriginal) => {
       modelProvider: {
         ...actual.prisma.modelProvider,
         findMany: (...a: any[]) => modelProviderFindMany(...a),
+      },
+      detectorRcaExecution: {
+        ...actual.prisma.detectorRcaExecution,
+        update: (...a: any[]) => detectorRcaExecutionUpdateMock(...a),
       },
     },
   };
@@ -35,6 +59,12 @@ afterEach(() => {
   modelProviderFindMany.mockReset();
   modelProviderFindMany.mockResolvedValue([]);
   digestAddMock.mockReset().mockResolvedValue(undefined);
+  allocateExecutionMock
+    .mockReset()
+    .mockResolvedValue({ executionId: "exec-1", attempt: 1, traceId: "f".repeat(32) });
+  detectorRcaExecutionUpdateMock.mockReset().mockResolvedValue({});
+  finishFindingIfLatestMock.mockReset().mockResolvedValue(true);
+  markFindingRunningIfLatestMock.mockReset().mockResolvedValue(true);
 });
 
 describe("resolveProjectModel", () => {
@@ -196,6 +226,7 @@ describe("runRcaSession", () => {
       traceId: "t1",
       findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
       hasGitHub: false,
+      ...EXEC,
       rcaModel: "gpt-5.3",
       rcaProvider: "my-openai",
       rcaSource: "byok",
@@ -224,6 +255,7 @@ describe("runRcaSession", () => {
         traceId: "t1",
         findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
         hasGitHub: false,
+        ...EXEC,
       }),
     ).rejects.toThrow(/Invalid API key for provider/);
   });
@@ -255,6 +287,7 @@ describe("runRcaSession", () => {
         traceId: "t1",
         findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
         hasGitHub: false,
+        ...EXEC,
       }),
     ).rejects.toThrow(/Model overloaded/);
   });
@@ -283,6 +316,7 @@ describe("runRcaSession", () => {
         traceId: "t1",
         findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
         hasGitHub: false,
+        ...EXEC,
       }),
     ).rejects.toThrow(/no output/i);
   });
@@ -321,6 +355,7 @@ describe("runRcaSession", () => {
       traceId: "t1",
       findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
       hasGitHub: false,
+      ...EXEC,
     });
 
     expect(result.result).toBe("Root cause: found it. Code location: foo.ts:12.");
@@ -375,6 +410,7 @@ describe("runRcaSession", () => {
       traceId: "t1",
       findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
       hasGitHub: false,
+      ...EXEC,
     });
     const singleChunkResult = await runRcaSession({
       findingId: "f1",
@@ -383,6 +419,7 @@ describe("runRcaSession", () => {
       traceId: "t1",
       findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
       hasGitHub: false,
+      ...EXEC,
     });
 
     expect(chunkedResult.result).toBe("Root cause: found it. Code location: foo.ts:12.");
@@ -412,6 +449,7 @@ describe("runRcaSession", () => {
         traceId: "t1",
         findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
         hasGitHub: false,
+        ...EXEC,
       }),
     ).rejects.toThrow(/Invalid API key for provider/);
   });
@@ -448,6 +486,7 @@ describe("runRcaSession", () => {
         traceId: "t1",
         findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
         hasGitHub: false,
+        ...EXEC,
       }),
     ).rejects.toThrow(/Invalid API key for provider/);
   });
@@ -474,6 +513,7 @@ describe("runRcaSession", () => {
         traceId: "t1",
         findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
         hasGitHub: false,
+        ...EXEC,
       }),
     ).rejects.toThrow(/Unexpected token in provider response/);
   });
@@ -522,6 +562,7 @@ describe("processRcaJob", () => {
 
   it("skips RCA when workspace is free plan and rcaBlocked", async () => {
     const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
     vi.spyOn(p.workspace, "findUnique").mockResolvedValue({
       billingPlan: "free",
       rcaBlocked: true,
@@ -540,12 +581,27 @@ describe("processRcaJob", () => {
       },
     } as any);
 
-    expect(detectorRcaUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { findingId: "f1" },
-        data: expect.objectContaining({ status: "failed" }),
-      }),
-    );
+    // A quota-skipped run is still a run: it allocates and records an
+    // execution (marked disabled — no agent run happened), then writes the
+    // finding ONLY through the latest-attempt-guarded helper. It never writes
+    // detectorRca directly (that bypassed the guard — see the High finding
+    // this replaces: a delayed quota check redelivered after a newer attempt
+    // completed could clobber that attempt's result).
+    expect(allocateExecutionMock).toHaveBeenCalledWith(expect.anything(), {
+      findingId: "f1",
+      projectId: "p1",
+    });
+    expect(detectorRcaExecutionUpdateMock).toHaveBeenCalledWith({
+      where: { id: "exec-1" },
+      data: { traceStatus: "disabled", finishedAt: expect.any(Date) },
+    });
+    expect(finishFindingIfLatestMock).toHaveBeenCalledWith(expect.anything(), {
+      findingId: "f1",
+      attempt: 1,
+      status: "failed",
+      result: "Skipped — Free plan RCA quota exceeded. Upgrade to continue.",
+    });
+    expect(detectorRcaUpdate).not.toHaveBeenCalled();
     expect(projectFindUnique).not.toHaveBeenCalled();
   });
 
@@ -556,7 +612,10 @@ describe("processRcaJob", () => {
       rcaBlocked: false,
     } as any);
     vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
-    const detectorRcaUpdate = vi.spyOn(p.detectorRca, "update").mockResolvedValue({} as any);
+    const detectorRcaUpdate = vi
+      .spyOn(p.detectorRca, "update")
+      .mockClear()
+      .mockResolvedValue({} as any);
     vi.spyOn(p.project, "findUnique").mockRejectedValue(new Error("Prisma error"));
 
     const { processRcaJob } = await import("../detector-rca-processor.js");
@@ -572,16 +631,15 @@ describe("processRcaJob", () => {
       } as any),
     ).rejects.toThrow("Prisma error");
 
-    expect(detectorRcaUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { findingId: "f1" },
-        data: expect.objectContaining({
-          status: "failed",
-          result: expect.stringContaining("Prisma error"),
-          completedAt: expect.any(Date),
-        }),
-      }),
-    );
+    // The finding is failed through the conditional helper, so a superseded
+    // attempt cannot overwrite a newer one's result.
+    expect(finishFindingIfLatestMock).toHaveBeenCalledWith(expect.anything(), {
+      findingId: "f1",
+      attempt: 1,
+      status: "failed",
+      result: "RCA failed: Prisma error",
+    });
+    expect(detectorRcaUpdate).not.toHaveBeenCalled();
     // A failed RCA must still alert: scheduleDigestFlush runs from the catch
     // block so the finding isn't silently dropped from the digest.
     expect(digestAddMock).toHaveBeenCalledTimes(1);
@@ -594,7 +652,10 @@ describe("processRcaJob", () => {
       rcaBlocked: false,
     } as any);
     vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
-    const detectorRcaUpdate = vi.spyOn(p.detectorRca, "update").mockResolvedValue({} as any);
+    const detectorRcaUpdate = vi
+      .spyOn(p.detectorRca, "update")
+      .mockClear()
+      .mockResolvedValue({} as any);
     vi.spyOn(p.gitHubInstallation, "count").mockResolvedValue(0);
     vi.spyOn(p.project, "findUnique").mockResolvedValue({
       rcaModel: null,
@@ -622,19 +683,68 @@ describe("processRcaJob", () => {
       } as any),
     ).rejects.toThrow(/Invalid API key for provider/);
 
-    expect(detectorRcaUpdate).toHaveBeenCalledWith(
+    // The persisted result goes through publicErrorMessage (sanitised, capped,
+    // first-line-only); this particular message happens to have no secret or
+    // second line, so it survives unchanged — the case below proves the
+    // sanitiser actually does something.
+    expect(finishFindingIfLatestMock).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
-        where: { findingId: "f1" },
-        data: expect.objectContaining({
-          status: "failed",
-          result: expect.stringContaining("Invalid API key for provider"),
-          completedAt: expect.any(Date),
-        }),
+        findingId: "f1",
+        status: "failed",
+        result: expect.stringContaining("Invalid API key for provider"),
       }),
     );
+    expect(detectorRcaUpdate).not.toHaveBeenCalled();
     // A failed RCA must still alert: scheduleDigestFlush runs from the catch
     // block so the finding isn't silently dropped from the digest.
     expect(digestAddMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("sanitises a secret-shaped, multi-line agent error before persisting it", async () => {
+    const { prisma: p } = await import("@traceroot/core");
+    vi.spyOn(p.workspace, "findUnique").mockResolvedValue({
+      billingPlan: "pro",
+      rcaBlocked: false,
+    } as any);
+    vi.spyOn(p.detectorRca, "upsert").mockResolvedValue({} as any);
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(p.gitHubInstallation, "count").mockResolvedValue(0);
+    vi.spyOn(p.project, "findUnique").mockResolvedValue({
+      rcaModel: null,
+      rcaProvider: null,
+      rcaSource: null,
+      alertConfig: { alertWindow: "30m" },
+    } as any);
+
+    const rawMessage =
+      "Auth failed for sk-abcdefghijklmnopqrstuvwxyz0123456789\nRetrying with backup key at internal-host:5432";
+    mockFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "s1" }) })
+      .mockResolvedValueOnce(sseBody([{ event: "error", data: { message: rawMessage } }]));
+
+    const { processRcaJob } = await import("../detector-rca-processor.js");
+    await expect(
+      processRcaJob({
+        data: {
+          findingId: "f1",
+          projectId: "p1",
+          traceId: "t1",
+          workspaceId: "ws1",
+          findings: [{ detectorName: "d1", summary: "s1", detectorId: "did1" }],
+        },
+      } as any),
+    ).rejects.toThrow();
+
+    const [, data] = finishFindingIfLatestMock.mock.calls[0] as [unknown, { result: string }];
+    // The credential is redacted, the second line (an internal host) is
+    // dropped entirely — only the first line survives, sanitised.
+    expect(data.result).not.toContain("abcdefghijklmnopqrstuvwxyz0123456789");
+    expect(data.result).not.toContain("internal-host");
+    expect(data.result).toContain("sk-[REDACTED]");
+    // The full raw error — secret and all — is still logged server-side.
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("run failed"), expect.anything());
+    errorSpy.mockRestore();
   });
 });
 
@@ -758,8 +868,8 @@ describe("processRcaJob — digest scheduling at the flush seam", () => {
     ).rejects.toThrow("redis down"); // propagates so BullMQ retries
 
     // The RCA was marked done; the enqueue failure must NOT flip it to failed.
-    const statuses = updateSpy.mock.calls.map((c) => (c[0] as any)?.data?.status);
-    expect(statuses).toContain("done");
-    expect(statuses).not.toContain("failed");
+    const statuses = finishFindingIfLatestMock.mock.calls.map((c) => c[1].status);
+    expect(statuses).toEqual(["done"]);
+    expect(updateSpy).not.toHaveBeenCalled();
   });
 });

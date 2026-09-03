@@ -12,6 +12,7 @@ COPY frontend/ee/agent/package.json ./ee/agent/package.json
 COPY frontend/packages/core/package.json ./packages/core/package.json
 COPY frontend/packages/tools/package.json ./packages/tools/package.json
 
+COPY frontend/vendor ./vendor
 RUN pnpm install --frozen-lockfile
 
 FROM base AS builder
