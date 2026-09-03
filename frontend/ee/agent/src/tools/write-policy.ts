@@ -26,7 +26,7 @@ export interface WritePolicyHookOptions {
 /**
  * Build a beforeToolCall hook enforcing the registry's write policies.
  *
- * Fail-closed: only tools whose registry entry carries `approvalClass:
+ * Policy gate: only tools whose registry entry carries `approvalClass:
  * "none"` may execute unconditionally. `"confirm"` writes PARK: in an
  * attended session (the live run's channel carries a userId) the hook emits
  * a `confirmation_pending` SSE event and waits for the user's decision —
@@ -119,10 +119,3 @@ async function awaitConfirmation(
   }
   return { block: true, reason: decision.reason };
 }
-
-/**
- * Session-less hook over the shared registry: enforces the same policies but
- * can never park (no channel), so confirm-class calls fail closed. Agents
- * register a session-bound hook via createWritePolicyHook instead.
- */
-export const writePolicyHook = createWritePolicyHook();

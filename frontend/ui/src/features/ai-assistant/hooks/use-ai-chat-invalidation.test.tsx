@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { LiveToolResult, UseAIStreamOptions } from "./use-ai-stream";
+import type { UseAIStreamOptions } from "./use-ai-stream";
 
 // The panel must never navigate on agent writes — cache invalidation alone
 // surfaces created resources. The router mock stays observable so the tests
@@ -52,15 +52,9 @@ function invalidatedKeys(): unknown[] {
   return invalidate.mock.calls.map((call) => (call[0] as { queryKey: unknown }).queryKey);
 }
 
-function emitToolResult(result: unknown, overrides: Partial<LiveToolResult> = {}) {
+function emitToolResult(result: unknown) {
   act(() => {
-    stream.options?.onToolResult?.({
-      sessionId: PANEL_SESSION,
-      projectId: PANEL_PROJECT,
-      result,
-      isError: false,
-      ...overrides,
-    });
+    stream.options?.onToolResult?.({ result });
   });
 }
 
@@ -128,13 +122,10 @@ describe("useAiChat cache invalidation on agent writes", () => {
   });
 
   it("stales the OTHER project's keys for a background session's write", () => {
-    // Navigation is guarded to the panel's own session/project; invalidation is
-    // not — a background write still leaves that project's cache stale.
+    // Invalidation has no session/project guard — a background write still
+    // leaves that project's cache stale, keyed by the result's own project.
     renderHook(() => useAiChat({ projectId: PANEL_PROJECT }), { wrapper });
-    emitToolResult(dashboardResult({ projectId: "p2" }), {
-      sessionId: "s2",
-      projectId: "p2",
-    });
+    emitToolResult(dashboardResult({ projectId: "p2" }));
     expect(invalidatedKeys()).toEqual([
       ["dashboards", "p2"],
       ["dashboard", "p2", "db1"],

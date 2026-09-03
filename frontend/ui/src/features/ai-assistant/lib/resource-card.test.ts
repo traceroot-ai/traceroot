@@ -884,25 +884,20 @@ describe("pendingCardModel", () => {
     });
   });
 
-  it("builds a header-only pending card for a project", () => {
-    const model = pendingCardModel(runningStep("create_project", { name: "checkout" }), "p1");
-    expect(model).toEqual({
-      resourceType: "project",
-      resourceId: "tcp1",
-      created: true,
-      title: "checkout",
-      meta: ["Project"],
-      body: { kind: "receipt", rows: [] },
-    });
-  });
-
   it("falls back to the resource label when the args carry no name", () => {
-    const model = pendingCardModel(runningStep("create_workspace", {}), "p1");
-    expect(model?.title).toBe("Workspace");
+    const model = pendingCardModel(runningStep("create_dashboard", {}), "p1");
+    expect(model?.title).toBe("Dashboard");
   });
 
   it("returns null for a tool this panel has no pending card for", () => {
     expect(pendingCardModel(runningStep("update_dashboard_layout", {}), "p1")).toBeNull();
+  });
+
+  it("has no pending card for the structural creates, which never park in chat", () => {
+    // Project and workspace creation is CLI/API surface; only their receipts
+    // (resourceCardModel) ever render in the transcript.
+    expect(pendingCardModel(runningStep("create_project", { name: "checkout" }), "p1")).toBeNull();
+    expect(pendingCardModel(runningStep("create_workspace", {}), "p1")).toBeNull();
   });
 });
 

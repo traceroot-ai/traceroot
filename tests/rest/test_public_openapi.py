@@ -577,7 +577,7 @@ def test_stale_curation_entry_fails_build():
 
 # --- Write-tool policy curation ----------------------------------------------
 
-_VALID_CREATE_POLICY = {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "workspace"}
+_VALID_WRITE_POLICY = {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "workspace"}
 
 
 def test_enabled_write_entry_missing_policy_fails_build(monkeypatch):
@@ -598,7 +598,7 @@ def test_enabled_write_entry_illegal_approval_class_fails_build(monkeypatch):
             "name": "create_project",
             "description": "Create a project.",
             "enabled": True,
-            "policy": {**_VALID_CREATE_POLICY, "approvalClass": "auto"},
+            "policy": {**_VALID_WRITE_POLICY, "approvalClass": "auto"},
         },
     )
     with pytest.raises(ValueError, match=r"create_project.*policy"):
@@ -614,7 +614,7 @@ def test_enabled_write_entry_accepts_every_legal_approval_class(monkeypatch, app
             "name": "create_project",
             "description": "Create a project.",
             "enabled": True,
-            "policy": {**_VALID_CREATE_POLICY, "approvalClass": approval_class},
+            "policy": {**_VALID_WRITE_POLICY, "approvalClass": approval_class},
         },
     )
     schema = build_public_schema(app)
@@ -630,7 +630,7 @@ def test_enabled_write_entry_extra_policy_key_fails_build(monkeypatch):
             "name": "create_project",
             "description": "Create a project.",
             "enabled": True,
-            "policy": {**_VALID_CREATE_POLICY, "rateLimit": "write"},
+            "policy": {**_VALID_WRITE_POLICY, "rateLimit": "write"},
         },
     )
     with pytest.raises(ValueError, match=r"create_project.*policy"):
@@ -647,7 +647,7 @@ def test_get_entry_carrying_policy_fails_build(monkeypatch):
             "name": "whoami",
             "description": "Identify the credential.",
             "enabled": True,
-            "policy": dict(_VALID_CREATE_POLICY),
+            "policy": dict(_VALID_WRITE_POLICY),
         },
     )
     with pytest.raises(ValueError, match=r"whoami.*policy"):

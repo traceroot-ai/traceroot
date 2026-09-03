@@ -458,7 +458,8 @@ const ToolStepEntry = memo(function ToolStepEntry({
   bubbleMaxWidth,
 }: {
   step: ToolCallStep;
-  /** True when this widget's card would duplicate a dashboard card above it. */
+  /** True when this widget's card would duplicate the miniature of a CREATED
+   *  dashboard's card above it (a reused dashboard draws none). */
   suppressed: boolean;
   widgetsByDashboard: ReadonlyMap<string, readonly ToolCallStep[]>;
   projectId?: string;
@@ -470,16 +471,17 @@ const ToolStepEntry = memo(function ToolStepEntry({
   bubbleMaxWidth: string;
 }) {
   // A parked write shows the card BEFORE the resource exists, with the
-  // create/skip decision; the tool result (or a posted decision) clears
-  // `pending` and the step falls through to the receipt flow.
+  // create/skip buttons (a typed reply revises it); the tool result (or a
+  // posted decision) clears `pending` and the step falls through to the
+  // receipt flow.
   const pendingCard = useMemo(
     () => (step.pending ? pendingCardModel(step, projectId, retentionDays) : null),
     [step, projectId, retentionDays],
   );
   // A write that created something we can show becomes its card; every other
   // step — and every write we can't read a resource out of, or whose card
-  // would duplicate a dashboard card above it — keeps the plain expandable
-  // tool line.
+  // would duplicate a created dashboard's miniature above it — keeps the
+  // plain expandable tool line.
   const card = useMemo(
     () =>
       pendingCard !== null || suppressed
@@ -653,9 +655,11 @@ export function MessageList({
   // A dashboard's widget count lives nowhere in its own call — the widgets are
   // separate calls that land after it — so it is read back off the transcript.
   const widgetsByDashboard = useMemo(() => createdWidgetsByDashboard(toolSteps), [toolSteps]);
-  // A widget created into a dashboard carded earlier in this transcript keeps
-  // the plain tool line: the dashboard's miniature already draws it, and a
-  // second card right under that miniature reads as a duplicate.
+  // A widget created into a CREATED (not reused) dashboard carded earlier in
+  // this transcript keeps the plain tool line: that dashboard's miniature
+  // already draws it, and a second card right under the miniature reads as a
+  // duplicate. A reused dashboard's card draws no miniature, so its widget
+  // cards stay.
   const suppressedWidgets = useMemo(() => suppressedWidgetStepIds(toolSteps), [toolSteps]);
   // True when the session is active but no text bubble is open - the LLM is processing
   // a tool result before it starts writing its next response.

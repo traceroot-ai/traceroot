@@ -105,8 +105,9 @@ export type DetectorPrompt =
 /**
  * The card body for each resource type. A dashboard's body is the miniature
  * of itself: its widgets as placed tiles (empty when the transcript created
- * none, and the card stays header-only). A detector's body is its prompt —
- * the thing the detector actually is — over its settings chips.
+ * none, or when the dashboard was reused and its placements are unknowable —
+ * the reused card shows its description instead). A detector's body is its
+ * prompt — the thing the detector actually is — over its settings chips.
  */
 export type ResourceCardBody =
   | { kind: "widget"; chips: string[]; chart: WidgetChart | null }
@@ -482,12 +483,17 @@ export function resourceCardModel(
   };
 }
 
-/** The confirm-class write tools and the resource each would create. */
-const PENDING_TOOL_RESOURCE_TYPES: Readonly<Record<string, CardResourceType>> = {
+/** The resource types a proposal can park as a card in the chat. */
+type PendingResourceType = Extract<CardResourceType, "widget" | "dashboard" | "detector">;
+
+/**
+ * The confirm-class write tools and the resource each would create. Structural
+ * creates (project, workspace) are CLI/API surface and never park in chat, so
+ * they have no pending card — only the receipt card, once created elsewhere.
+ */
+const PENDING_TOOL_RESOURCE_TYPES: Readonly<Record<string, PendingResourceType>> = {
   create_widget: "widget",
   create_dashboard: "dashboard",
-  create_project: "project",
-  create_workspace: "workspace",
   create_detector: "detector",
 };
 
@@ -504,7 +510,7 @@ const MAX_DESCRIPTION_CHARS = 200;
  *   write would land in;
  * - a dashboard can only show its name and description — its widgets arrive
  *   as separate pending calls;
- * - a project or workspace is header-only (its id doesn't exist yet).
+ * - a detector shows the same body its receipt will.
  * Null for a tool this panel has no card for; the caller keeps the plain tool
  * line, matching the receipt convention.
  */
@@ -552,9 +558,6 @@ export function pendingCardModel(
         prompt: args === null ? null : detectorPrompt(args),
       };
       break;
-    default:
-      // A project or workspace has no id yet, so there is no receipt to print.
-      body = { kind: "receipt", rows: [] };
   }
 
   const meta: string[] = [RESOURCE_TYPE_LABELS[resourceType]];
@@ -587,24 +590,18 @@ export function pendingCardModel(
 }
 
 /**
- * The widget steps of a transcript, grouped by the dashboard each was added to.
+ * The ids of tool-step messages whose widget card would duplicate a CREATED
+ * dashboard's card shown earlier in the same transcript: that dashboard's
+ * miniature already draws every widget the transcript created into it, so
+ * those steps keep the plain tool line instead of a second card. A widget
+ * whose dashboard has no card here — created into a pre-existing dashboard —
+ * keeps its full card, because that card is the only receipt there is.
  *
- * The dashboard's own call never says how many widgets it will hold — the
- * widgets are separate calls that land after it — so the transcript is the only
- * place that count exists without going back to the server for it.
- */
-/**
- * The ids of tool-step messages whose widget card would duplicate a dashboard
- * card shown earlier in the same transcript: the dashboard's miniature already
- * draws every widget the transcript created into it, so those steps keep the
- * plain tool line instead of a second card. A widget whose dashboard has no
- * card here — created into a pre-existing dashboard — keeps its full card,
- * because that card is the only receipt there is.
- *
- * A dashboard has a card exactly when its resource_created step is present,
- * and only a dashboard step that PRECEDES the widget's suppresses it (the
- * agent creates the dashboard before filling it, so anything else is a widget
- * whose dashboard card the reader has not seen).
+ * A widget is suppressed only under a CREATED dashboard's card — the one that
+ * draws a miniature; a reused dashboard's card draws none, so its widgets
+ * keep their cards — and only when that dashboard step PRECEDES the widget's
+ * (the agent creates the dashboard before filling it, so anything else is a
+ * widget whose dashboard card the reader has not seen).
  */
 export function suppressedWidgetStepIds(messages: readonly AIMessage[]): Set<string> {
   const dashboardCards = new Set<string>();
@@ -630,6 +627,13 @@ export function suppressedWidgetStepIds(messages: readonly AIMessage[]): Set<str
   return suppressed;
 }
 
+/**
+ * The widget steps of a transcript, grouped by the dashboard each was added to.
+ *
+ * The dashboard's own call never says how many widgets it will hold — the
+ * widgets are separate calls that land after it — so the transcript is the only
+ * place that count exists without going back to the server for it.
+ */
 export function createdWidgetsByDashboard(
   messages: readonly AIMessage[],
 ): Map<string, ToolCallStep[]> {
