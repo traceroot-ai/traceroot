@@ -442,7 +442,9 @@ export function pendingCardModel(
   let body: ResourceCardBody;
   switch (resourceType) {
     case "widget": {
-      const spec = args === null ? null : parseSpec(args.spec);
+      // Only a chart widget has a chart to preview: a feed's spec can parse as
+      // a chart's, and previewing it would show a chart the write rejects.
+      const spec = args === null || str(args.type) !== "query" ? null : parseSpec(args.spec);
       body = {
         kind: "widget",
         chips: args === null ? [] : widgetChips(args),

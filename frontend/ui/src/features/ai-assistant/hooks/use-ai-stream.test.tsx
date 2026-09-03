@@ -376,6 +376,36 @@ describe("useAIStream live tool-result and turn-completion callbacks", () => {
     expect(onTurnComplete).not.toHaveBeenCalled();
   });
 
+  it("keeps the partial answer when a stream error interrupts the bubble", async () => {
+    // The persisted transcript keeps whatever the assistant already said, so a
+    // live bubble that replaced it with the error alone would not survive a
+    // reload of the same session.
+    const sse = createSSE();
+    const { result } = renderHook(() => useAIStream());
+    const send = startSend(result, sse);
+
+    sse.emit(textDelta("Half an answer"));
+    sse.emit({ type: "error", message: "boom" });
+    sse.close();
+    await act(() => send);
+
+    const assistant = result.current.messagesBySession["s1"]?.find((m) => m.role === "assistant");
+    expect(assistant?.content).toBe("Half an answer\n\nError: boom");
+  });
+
+  it("opens a bubble with the error alone when nothing had streamed yet", async () => {
+    const sse = createSSE();
+    const { result } = renderHook(() => useAIStream());
+    const send = startSend(result, sse);
+
+    sse.emit({ type: "error", message: "boom" });
+    sse.close();
+    await act(() => send);
+
+    const assistant = result.current.messagesBySession["s1"]?.find((m) => m.role === "assistant");
+    expect(assistant?.content).toBe("Error: boom");
+  });
+
   it("does not fire onTurnComplete when the turn ends with an errored message_end", async () => {
     const sse = createSSE();
     const onTurnComplete = vi.fn();

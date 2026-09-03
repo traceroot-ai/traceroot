@@ -7,7 +7,7 @@ import * as api from "@/features/dashboards/api";
 import { ROW_HEIGHT } from "@/features/dashboards/grid-constants";
 import type { WidgetSpec } from "@/features/dashboards/types";
 import { DEFAULT_SIZE } from "@/features/dashboards/widget-placement";
-import { REFERENCE_COL_WIDTH } from "./dashboard-miniature";
+import { REFERENCE_COL_WIDTH, SNAPSHOT_QUERY_OPTIONS } from "./dashboard-miniature";
 import { WidgetChartPreview } from "./widget-chart-preview";
 
 // The frame's shape, derived the way the dashboard miniature derives a tile's:
@@ -134,9 +134,15 @@ describe("WidgetChartPreview", () => {
     scrollIntoView();
     await waitFor(() => expect(api.runWidgetQuery).toHaveBeenCalledTimes(1));
 
-    // Minutes pass, then the user tabs away and back. Every ever-visible
-    // card keeps a live query, so a focus refetch would refire the whole
-    // accumulated transcript against ClickHouse.
+    // The frozen window keeps this query fresh forever on its own, so the run
+    // below cannot tell the focus switches from the staleTime. Assert them on
+    // the shared options the preview passes.
+    expect(SNAPSHOT_QUERY_OPTIONS.refetchOnWindowFocus).toBe(false);
+    expect(SNAPSHOT_QUERY_OPTIONS.refetchOnReconnect).toBe(false);
+
+    // And end to end: minutes pass, then the user tabs away and back. Every
+    // ever-visible card keeps a live query, so a focus refetch would refire
+    // the whole accumulated transcript against ClickHouse.
     try {
       vi.useFakeTimers({ toFake: ["Date"] });
       vi.setSystemTime(Date.now() + 10 * 60_000);
@@ -145,7 +151,7 @@ describe("WidgetChartPreview", () => {
         focusManager.setFocused(true);
       });
       // The focus subscriber checks staleness asynchronously; the fake clock
-      // stays advanced until it has had the chance to (wrongly) refetch.
+      // stays advanced until it has had the chance to refetch.
       await act(() => new Promise((resolve) => setTimeout(resolve, 25)));
       expect(api.runWidgetQuery).toHaveBeenCalledTimes(1);
     } finally {
