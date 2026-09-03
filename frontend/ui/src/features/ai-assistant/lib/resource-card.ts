@@ -240,9 +240,10 @@ function triggerChip(condition: unknown): string | null {
 
 /**
  * A detector's settings as chips: how much traffic it samples, whether RCA
- * runs, an explicit enabled/paused state, the model that judges, then the
- * trigger conditions in the detector editor's own vocabulary. The prompt is
- * not a chip — it is the card's body (see detectorPrompt).
+ * runs, the model that judges, then the trigger conditions in the detector
+ * editor's own vocabulary. The enabled flag is not a chip — a new detector
+ * is enabled by default and the UI never sets it at create time — and the
+ * prompt is not one either: it is the card's body (see detectorPrompt).
  */
 function detectorChips(args: Record<string, unknown>): string[] {
   const chips: string[] = [];
@@ -250,7 +251,6 @@ function detectorChips(args: Record<string, unknown>): string[] {
     chips.push(`sample ${args.sample_rate}%`);
   }
   if (typeof args.enable_rca === "boolean") chips.push(args.enable_rca ? "RCA on" : "RCA off");
-  if (typeof args.enabled === "boolean") chips.push(args.enabled ? "enabled" : "paused");
   const detectionModel = str(args.detection_model);
   if (detectionModel !== null) chips.push(`model ${detectionModel}`);
 
