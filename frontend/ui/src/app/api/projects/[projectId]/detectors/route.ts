@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { prisma } from "@traceroot/core";
+import { prisma, Role } from "@traceroot/core";
 import { DEFAULT_DETECTOR_SAMPLE_RATE } from "@/features/detectors/templates";
 import { validateTriggerConditions } from "@/features/detectors/trigger-fields";
 import {
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   const { user } = authResult;
 
   const { projectId } = await params;
-  const accessResult = await requireProjectAccess(user.id, projectId);
+  const accessResult = await requireProjectAccess(user.id, projectId, Role.MEMBER);
   if (accessResult.error) return accessResult.error;
 
   let body: unknown;
