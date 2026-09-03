@@ -90,6 +90,10 @@ _PLAN_LIMITS_EXPORT: dict[str, str] = {
 # Writes launch with the read numbers: control-plane writes are far rarer than
 # reads, so the read budget is a comfortable ceiling, and a separate bucket
 # means the tiers can tighten later without touching read quota.
+# NOTE: the write path stamps every account credential as "free" (see
+# ``_account_result_for_user`` in the public deps), so the "free" row is the
+# EFFECTIVE GLOBAL write limit for all tenants; the paid rows are unreachable
+# until per-request plan resolution lands. Tightening "free" tightens everyone.
 _PLAN_LIMITS_WRITE: dict[str, str] = {
     "free": "60/minute",
     "starter": "300/minute",
