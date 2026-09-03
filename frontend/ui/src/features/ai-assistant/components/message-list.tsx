@@ -452,6 +452,7 @@ const ToolStepEntry = memo(function ToolStepEntry({
   suppressed,
   widgetsByDashboard,
   projectId,
+  retentionDays,
   onDecision,
   isActive,
   bubbleMaxWidth,
@@ -461,6 +462,9 @@ const ToolStepEntry = memo(function ToolStepEntry({
   suppressed: boolean;
   widgetsByDashboard: ReadonlyMap<string, readonly ToolCallStep[]>;
   projectId?: string;
+  /** The plan's retention window, which clamps every card's charted range.
+   *  Undefined while the plan is still resolving — nothing is clamped then. */
+  retentionDays?: number | null;
   onDecision?: MessageListProps["onDecision"];
   isActive: boolean;
   bubbleMaxWidth: string;
@@ -469,16 +473,19 @@ const ToolStepEntry = memo(function ToolStepEntry({
   // create/skip decision; the tool result (or a posted decision) clears
   // `pending` and the step falls through to the receipt flow.
   const pendingCard = useMemo(
-    () => (step.pending ? pendingCardModel(step, projectId) : null),
-    [step, projectId],
+    () => (step.pending ? pendingCardModel(step, projectId, retentionDays) : null),
+    [step, projectId, retentionDays],
   );
   // A write that created something we can show becomes its card; every other
   // step — and every write we can't read a resource out of, or whose card
   // would duplicate a dashboard card above it — keeps the plain expandable
   // tool line.
   const card = useMemo(
-    () => (pendingCard !== null || suppressed ? null : resourceCardModel(step, widgetsByDashboard)),
-    [pendingCard, suppressed, step, widgetsByDashboard],
+    () =>
+      pendingCard !== null || suppressed
+        ? null
+        : resourceCardModel(step, widgetsByDashboard, retentionDays),
+    [pendingCard, suppressed, step, widgetsByDashboard, retentionDays],
   );
   const pending = step.pending;
   return (
@@ -612,6 +619,11 @@ interface MessageListProps {
   /** The project the panel is mounted in — a pending widget card aims its
    *  chart preview here, the scope the proposed write would land in. */
   projectId?: string;
+  /** The plan's retention window. It clamps the range every card charts and
+   *  labels, so a selection left in storage by a workspace that has since
+   *  downgraded is neither queried nor named. Undefined while the plan is
+   *  still resolving, and with no project to look one up by. */
+  retentionDays?: number | null;
   /** Posts the user's decision on a parked write. Resolves true when the
    *  decision settled (the card keeps its buttons disabled and waits to be
    *  replaced), false when it should offer the buttons again. */
@@ -626,6 +638,7 @@ export function MessageList({
   messages,
   sessionStreaming = false,
   projectId,
+  retentionDays,
   onDecision,
 }: MessageListProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -714,6 +727,7 @@ export function MessageList({
                 suppressed={suppressedWidgets.has(msg.id)}
                 widgetsByDashboard={widgetsByDashboard}
                 projectId={projectId}
+                retentionDays={retentionDays}
                 onDecision={onDecision}
                 isActive={msg.id === activeToolStepId}
                 bubbleMaxWidth={bubbleMaxWidth}

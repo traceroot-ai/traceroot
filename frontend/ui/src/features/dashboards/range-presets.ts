@@ -1,4 +1,5 @@
 import {
+  clampDateFilter,
   DATE_FILTER_OPTIONS,
   DEFAULT_DATE_FILTER,
   findDateFilterOption,
@@ -31,12 +32,23 @@ export const DEFAULT_RANGE_ID = DEFAULT_DATE_FILTER.id;
  * modes — readStoredDateFilter swallows those), an id no preset here knows,
  * and the custom option, whose explicit start/end these preset-only surfaces
  * have no picker to represent.
+ *
+ * The result is then clamped to the plan's retention window, the same way the
+ * picker's own pages clamp theirs: a 90d selection left in storage by a
+ * workspace that has since downgraded must not be queried or labeled. Pass
+ * `retentionDays` as undefined while the plan is still resolving — clamping
+ * against an unknown plan would narrow every window on a hard reload.
  */
-export function resolveSiteRange(projectId: string | null | undefined): DateFilterOption {
-  if (!projectId) return DEFAULT_DATE_FILTER;
-  const stored = readStoredDateFilter(projectId);
-  if (stored === null) return DEFAULT_DATE_FILTER;
-  return RANGE_PRESETS.find((option) => option.id === stored.id) ?? DEFAULT_DATE_FILTER;
+export function resolveSiteRange(
+  projectId: string | null | undefined,
+  retentionDays?: number | null,
+): DateFilterOption {
+  const stored = projectId ? readStoredDateFilter(projectId) : null;
+  const selected =
+    stored === null
+      ? DEFAULT_DATE_FILTER
+      : (RANGE_PRESETS.find((option) => option.id === stored.id) ?? DEFAULT_DATE_FILTER);
+  return clampDateFilter(selected, retentionDays);
 }
 
 export function makeRange(optionId: string): TimeRange {

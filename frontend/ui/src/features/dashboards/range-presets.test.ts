@@ -66,6 +66,28 @@ describe("resolveSiteRange", () => {
     expect(resolveSiteRange("p1")).toEqual(DEFAULT_DATE_FILTER);
   });
 
+  it("clamps a stored range that the plan's retention no longer allows", () => {
+    // A downgrade leaves the old 90d selection in storage. Neither the label
+    // nor the query it names may outrun the window the plan still covers.
+    stubStorage(() => JSON.stringify({ id: "90d" }));
+    expect(resolveSiteRange("p1", 30)).toEqual(RANGE_PRESETS.find((o) => o.id === "30d"));
+  });
+
+  it("keeps the stored range when retention allows it or is still unknown", () => {
+    stubStorage(() => JSON.stringify({ id: "90d" }));
+    const ninety = RANGE_PRESETS.find((o) => o.id === "90d");
+    expect(resolveSiteRange("p1", 90)).toEqual(ninety);
+    // Undefined means "retention hasn't resolved yet" — clamping then would
+    // narrow every window on a hard reload.
+    expect(resolveSiteRange("p1", undefined)).toEqual(ninety);
+    expect(resolveSiteRange("p1", null)).toEqual(ninety);
+  });
+
+  it("clamps the default fallback too, not just a stored pick", () => {
+    stubStorage(() => null);
+    expect(resolveSiteRange("p1", 0.25)).toEqual(RANGE_PRESETS.find((o) => o.id === "6h"));
+  });
+
   it("falls back with no window at all (SSR) and with no project to key by", () => {
     expect(resolveSiteRange("p1")).toEqual(DEFAULT_DATE_FILTER);
     expect(resolveSiteRange(undefined)).toEqual(DEFAULT_DATE_FILTER);

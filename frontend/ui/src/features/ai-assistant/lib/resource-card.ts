@@ -19,6 +19,7 @@
 import { DETECTOR_TEMPLATES } from "@/features/detectors/templates";
 import { triggerFieldDef, triggerOpLabel } from "@/features/detectors/trigger-fields";
 import { resolveSiteRange } from "@/features/dashboards/range-presets";
+import type { DateFilterOption } from "@/lib/date-filter";
 import {
   DISPLAY_TYPES,
   isWidgetType,
@@ -53,13 +54,20 @@ export interface ReceiptRow {
 
 /**
  * What a widget card needs to draw the widget itself: the spec the model asked
- * for and the project to run it against. Null on a card that has no chart to
- * draw — a trace feed, a spec the widget schema rejects, or details that never
- * said which project the widget landed in.
+ * for, the project to run it against, and the window to run it over. Null on a
+ * card that has no chart to draw — a trace feed, a spec the widget schema
+ * rejects, or details that never said which project the widget landed in.
+ *
+ * `range` is resolved once here and carried, rather than re-resolved by the
+ * plot: the card's header names the window at model-build time while the plot
+ * freezes it at first visibility, and a selection changed in between would
+ * leave the card labeled one window and drawn over another. One snapshot
+ * feeds both.
  */
 export interface WidgetChart {
   projectId: string;
   spec: WidgetSpec;
+  range: DateFilterOption;
 }
 
 /**
@@ -202,13 +210,16 @@ function widgetChips(args: Record<string, unknown>): string[] {
 function widgetChart(
   args: Record<string, unknown>,
   details: ResourceCreatedDetails,
+  retentionDays?: number | null,
 ): WidgetChart | null {
   // Not str(): this id addresses a request rather than being printed, so it is
   // checked but never capped.
   const projectId = typeof details.projectId === "string" ? details.projectId.trim() : "";
   if (projectId === "") return null;
   const spec = parseSpec(args.spec);
-  return spec === null ? null : { projectId, spec };
+  return spec === null
+    ? null
+    : { projectId, spec, range: resolveSiteRange(projectId, retentionDays) };
 }
 
 /**
@@ -292,7 +303,10 @@ function tileGlyph(args: Record<string, unknown> | null): MiniatureGlyph {
  * unreadable type falls back to a chart tile, the smaller of the two sizes;
  * a replayed create (same widget id twice) keeps its first tile.
  */
-function dashboardTiles(steps: readonly ToolCallStep[]): MiniatureTile[] {
+function dashboardTiles(
+  steps: readonly ToolCallStep[],
+  retentionDays?: number | null,
+): MiniatureTile[] {
   let layout: WidgetPlacement[] = [];
   const tiles: MiniatureTile[] = [];
   for (const step of steps) {
@@ -312,7 +326,7 @@ function dashboardTiles(steps: readonly ToolCallStep[]): MiniatureTile[] {
       // The same gate the widget card's own preview applies: a strict spec
       // parse plus the project the write landed in — a feed's spec fails the
       // parse, which is why a feed tile keeps its rows and never queries.
-      chart: args === null ? null : widgetChart(args, details),
+      chart: args === null ? null : widgetChart(args, details, retentionDays),
       x,
       y,
       w,
@@ -362,11 +376,16 @@ function body(
   args: Record<string, unknown> | null,
   details: ResourceCreatedDetails,
   widgetSteps: readonly ToolCallStep[],
+  retentionDays?: number | null,
 ): ResourceCardBody {
   switch (resourceType) {
     case "widget":
       if (args === null) return { kind: "widget", chips: [], chart: null };
-      return { kind: "widget", chips: widgetChips(args), chart: widgetChart(args, details) };
+      return {
+        kind: "widget",
+        chips: widgetChips(args),
+        chart: widgetChart(args, details, retentionDays),
+      };
     case "dashboard":
       // Only a freshly CREATED dashboard gets a miniature. A reused
       // (idempotent-hit) dashboard was laid out before this transcript
@@ -375,7 +394,7 @@ function body(
       // the count/description body instead.
       return {
         kind: "dashboard",
-        tiles: details.created !== false ? dashboardTiles(widgetSteps) : [],
+        tiles: details.created !== false ? dashboardTiles(widgetSteps, retentionDays) : [],
       };
     case "detector":
       return {
@@ -396,10 +415,15 @@ function body(
  *
  * `widgetsByDashboard` supplies the widgets created into each dashboard, for
  * the card's count and its miniature; see createdWidgetsByDashboard.
+ *
+ * `retentionDays` is the plan's window; it clamps the range every chart here
+ * queries and every window label. Undefined while the plan is still
+ * resolving, which clamps nothing.
  */
 export function resourceCardModel(
   step: ToolCallStep,
   widgetsByDashboard?: ReadonlyMap<string, readonly ToolCallStep[]>,
+  retentionDays?: number | null,
 ): ResourceCardModel | null {
   const details = resourceCreatedDetails(step.result);
   if (details === null || !isCardResourceType(details.resourceType)) return null;
@@ -416,6 +440,7 @@ export function resourceCardModel(
     args,
     details,
     widgetsByDashboard?.get(details.resourceId) ?? [],
+    retentionDays,
   );
 
   const meta: string[] = [RESOURCE_TYPE_LABELS[resourceType]];
@@ -423,7 +448,7 @@ export function resourceCardModel(
   // and the name must be the range the chart actually queries: the site's
   // stored selection for the chart's own project, default otherwise.
   if (cardBody.kind === "widget" && cardBody.chart !== null) {
-    meta.push(resolveSiteRange(cardBody.chart.projectId).label);
+    meta.push(cardBody.chart.range.label);
   }
   if (resourceType === "dashboard") {
     const widgetCount = widgetsByDashboard?.get(details.resourceId)?.length ?? 0;
@@ -432,7 +457,7 @@ export function resourceCardModel(
     // frozen range, so naming it per tile would be twelve copies of one fact.
     // Any charted tile names the project, the same way the miniature aims it.
     const chartedTile = cardBody.kind === "dashboard" ? cardBody.tiles.find((t) => t.chart) : null;
-    if (chartedTile?.chart) meta.push(resolveSiteRange(chartedTile.chart.projectId).label);
+    if (chartedTile?.chart) meta.push(chartedTile.chart.range.label);
   }
   if (resourceType === "detector" && args !== null) {
     const template = str(args.template);
@@ -486,6 +511,7 @@ const MAX_DESCRIPTION_CHARS = 200;
 export function pendingCardModel(
   step: ToolCallStep,
   panelProjectId: string | undefined,
+  retentionDays?: number | null,
 ): ResourceCardModel | null {
   const resourceType = PENDING_TOOL_RESOURCE_TYPES[step.toolName];
   if (resourceType === undefined) return null;
@@ -506,7 +532,11 @@ export function pendingCardModel(
         chart:
           spec === null || panelProjectId === undefined
             ? null
-            : { projectId: panelProjectId, spec },
+            : {
+                projectId: panelProjectId,
+                spec,
+                range: resolveSiteRange(panelProjectId, retentionDays),
+              },
       };
       break;
     }
@@ -531,7 +561,7 @@ export function pendingCardModel(
   // The pending chart is aimed at the panel's project, so its window label
   // resolves against the same project — what the preview will really query.
   if (body.kind === "widget" && body.chart !== null) {
-    meta.push(resolveSiteRange(body.chart.projectId).label);
+    meta.push(body.chart.range.label);
   }
   if (resourceType === "detector" && args !== null) {
     const template = str(args.template);
