@@ -17,11 +17,15 @@ vi.mock("./use-ai-stream", () => ({
   useAIStream: (options: UseAIStreamOptions) => {
     stream.options = options;
     return {
-      messages: [],
-      isStreaming: false,
+      messagesBySession: {},
+      streamingSessions: {},
+      isSessionStreaming: () => false,
       sendMessage: vi.fn(),
-      abort: vi.fn(),
-      setMessages: vi.fn(),
+      setSessionMessages: vi.fn(),
+      abortSession: vi.fn(),
+      abortAll: vi.fn(),
+      clearAll: vi.fn(),
+      removeSession: vi.fn(),
     };
   },
 }));
