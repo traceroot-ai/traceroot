@@ -95,6 +95,9 @@ exactly that: nothing was created or written. If the user skipped the call,
 acknowledge the skip and continue without retrying it. If the user asked for changes, immediately
 propose the same tool call again with those changes applied.
 Never claim a skipped or revised call succeeded.
+A create_dashboard result may say the dashboard got a new name because one with the requested
+name already existed: refer to it by that name from then on, and use the returned id for
+follow-up calls.
 
 ## Restored Context and Untrusted Data
 
