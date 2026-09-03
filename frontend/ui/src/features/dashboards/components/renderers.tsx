@@ -196,21 +196,16 @@ interface SeriesDotProps {
   stroke?: string;
   points: ReadonlyArray<{ value?: unknown }>;
 }
+// An area's points carry a [baseline, value] pair where a line's carry the
+// bare value; read through the pair so both charts see the same emptiness.
+const rawValue = (value: unknown) => (Array.isArray(value) ? value[1] : value);
 const hasValue = (point: { value?: unknown } | undefined) =>
-  point !== undefined && point.value !== null && point.value !== undefined;
+  point !== undefined && rawValue(point.value) !== null && rawValue(point.value) !== undefined;
 function isolatedDot({ cx, cy, index, value, stroke, points }: SeriesDotProps) {
-  if (cx === undefined || cy === undefined || value === null || value === undefined) return null;
+  if (cx === undefined || cy === undefined || !hasValue({ value })) return null;
   if (hasValue(points[index - 1]) || hasValue(points[index + 1])) return null;
   return (
-    <circle
-      key={index}
-      className="recharts-line-dot"
-      cx={cx}
-      cy={cy}
-      r={2.5}
-      fill={stroke}
-      stroke="none"
-    />
+    <circle className="recharts-isolated-dot" cx={cx} cy={cy} r={2.5} fill={stroke} stroke="none" />
   );
 }
 
@@ -476,7 +471,7 @@ function Bars({
   const data = useColoredRows(result);
   return (
     <ResponsiveContainer width="100%" height="100%" className={CHART_FOCUS_RESET}>
-      <BarChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+      <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
         <CartesianGrid strokeOpacity={0.15} vertical={false} />
         <XAxis dataKey="name" tick={{ fontSize: 10 }} />
         <YAxis
@@ -618,12 +613,12 @@ function HistogramView({
   }));
   return (
     <ResponsiveContainer width="100%" height="100%" className={CHART_FOCUS_RESET}>
-      <BarChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
+      <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
         <XAxis dataKey="name" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
         {/* The y-axis counts rows per bin (no unit), but large counts clip in
             the fixed gutter just like the other charts — compact them too. */}
         <YAxis
-          tick={{ fontSize: 10 }}
+          tick={Y_AXIS_TICK}
           width={Y_AXIS_WIDTH}
           tickFormatter={(v: unknown) => fmtAxisTick(v)}
         />
