@@ -662,8 +662,11 @@ export function MessageList({
   // cards stay.
   const suppressedWidgets = useMemo(() => suppressedWidgetStepIds(toolSteps), [toolSteps]);
   // True when the session is active but no text bubble is open - the LLM is processing
-  // a tool result before it starts writing its next response.
-  const isWaiting = sessionStreaming && !isStreaming;
+  // a tool result before it starts writing its next response. Not while a call is
+  // parked on a confirmation card: the run is alive, but it is waiting on the
+  // user, and a spinner there reads as "still generating".
+  const hasPendingDecision = toolSteps.some((m) => m.toolStep?.pending !== undefined);
+  const isWaiting = sessionStreaming && !isStreaming && !hasPendingDecision;
   const lastToolStepIdx = messages.reduce((acc, m, i) => (m.role === "tool_step" ? i : acc), -1);
   const hasTextAfterLastTool =
     lastToolStepIdx !== -1 &&
