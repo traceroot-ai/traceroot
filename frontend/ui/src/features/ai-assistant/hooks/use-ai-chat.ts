@@ -391,6 +391,10 @@ export function useAiChat({
       setSessions((prev) => prev.filter((s) => s.id !== sessionId));
       removeSession(sessionId);
       if (activeSessionIdRef.current === sessionId) {
+        // Deleting the session the user is on is a hard boundary like closing
+        // the panel: a decision POST already in flight for it must not write
+        // its dropped bucket back.
+        hardBoundaryEpochRef.current++;
         setActiveSessionId(null);
       }
     },
@@ -415,6 +419,11 @@ export function useAiChat({
     }): Promise<boolean> => {
       const sessionId = activeSessionIdRef.current;
       if (!projectId || !sessionId) return false;
+      const hardEpoch = hardBoundaryEpochRef.current;
+      // A hard boundary (close, project switch, deleting this session) crossed
+      // while the POST was in flight: the decision landed server-side, but the
+      // local bucket is gone — resolving it here would rebuild it.
+      const localBucketLives = () => hardEpoch === hardBoundaryEpochRef.current;
       try {
         const res = await fetch(`/api/projects/${projectId}/ai/sessions/${sessionId}/decisions`, {
           method: "POST",
@@ -422,12 +431,13 @@ export function useAiChat({
           body: JSON.stringify({ decisionId: params.decisionId, action: params.action }),
         });
         if (res.ok) {
-          resolvePendingDecision(sessionId, params.toolCallId, params.action);
+          if (localBucketLives())
+            resolvePendingDecision(sessionId, params.toolCallId, params.action);
           return true;
         }
         if (res.status === 409) return true;
         if (res.status === 404) {
-          resolvePendingDecision(sessionId, params.toolCallId, "skip");
+          if (localBucketLives()) resolvePendingDecision(sessionId, params.toolCallId, "skip");
           return true;
         }
         return false;

@@ -42,5 +42,9 @@ describe("resourceCreatedDetails", () => {
     expect(resourceCreatedDetails(dashboardResult({ kind: "other" }))).toBeNull();
     expect(resourceCreatedDetails(dashboardResult({ resourceId: 7 }))).toBeNull();
     expect(resourceCreatedDetails(dashboardResult({ resourceType: 7 }))).toBeNull();
+    // "created" decides whether a card reads as created or reused, so a
+    // non-boolean must not reach a consumer that only compares it to false.
+    expect(resourceCreatedDetails(dashboardResult({ created: "false" }))).toBeNull();
+    expect(resourceCreatedDetails(dashboardResult({ created: undefined }))).toBeNull();
   });
 });
