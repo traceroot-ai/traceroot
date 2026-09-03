@@ -209,6 +209,34 @@ describe("custom-detector", () => {
     await expect(run("custom-detector", passing())).resolves.toBeUndefined();
   });
 
+  it("fails when the detector was written on the ambiguous first ask", async () => {
+    // A judged "over 30 seconds" prompt and a duration_ms trigger are
+    // different detectors, so acting on the opening message is the failure
+    // this scenario exists to catch.
+    const ctx = passing();
+    ctx.turns[0]!.toolCalls = ctx.turns[1]!.toolCalls;
+    ctx.turns[1]!.toolCalls = [];
+    await expect(run("custom-detector", ctx)).rejects.toThrow(/first ask/i);
+  });
+
+  it("accepts a threshold written as 30s rather than 30 seconds", async () => {
+    const ctx = passing();
+    const prompt = "Flag only tool timeouts over 30s.";
+    ctx.turns[1]!.toolCalls[0]!.args.prompt = prompt;
+    ctx.created.detectors = [detector({ prompt })];
+    await expect(run("custom-detector", ctx)).resolves.toBeUndefined();
+  });
+
+  it("fails when the prompt keeps the digits but drops the unit", async () => {
+    // ".includes(\"30\")" passed on any prompt carrying those digits — a
+    // detector for the last 30 traces satisfied it without the threshold.
+    const ctx = passing();
+    const prompt = "Flag the 30 most recent tool timeouts.";
+    ctx.turns[1]!.toolCalls[0]!.args.prompt = prompt;
+    ctx.created.detectors = [detector({ prompt })];
+    await expect(run("custom-detector", ctx)).rejects.toThrow(/30-second/);
+  });
+
   it("fails when the model omitted the prompt the user asked for", async () => {
     const ctx = passing();
     delete ctx.turns[1]!.toolCalls[0]!.args.prompt;
@@ -317,6 +345,17 @@ describe("traces-by-model", () => {
 });
 
 describe("dashboard-compose", () => {
+  const P95_OVER_TIME = {
+    view: "traces",
+    metric: { measure: "duration_ms", agg: "p95" },
+    display: { type: "line" },
+  };
+  const ERRORS_OVER_TIME = {
+    view: "traces",
+    metric: { measure: "error_count", agg: "sum" },
+    display: { type: "bar" },
+  };
+
   const passing = () =>
     makeCtx({
       created: {
@@ -333,8 +372,8 @@ describe("dashboard-compose", () => {
           }),
         ],
         widgets: [
-          widget({ id: "w-1", dashboardId: "db-2", spec: { view: "traces" } }),
-          widget({ id: "w-2", dashboardId: "db-2", spec: { view: "traces" } }),
+          widget({ id: "w-1", dashboardId: "db-2", spec: P95_OVER_TIME }),
+          widget({ id: "w-2", dashboardId: "db-2", spec: ERRORS_OVER_TIME }),
         ],
       },
     });
@@ -369,12 +408,53 @@ describe("dashboard-compose", () => {
 
   it("does not probe a trace-feed widget, which has no query spec", async () => {
     const ctx = passing();
-    ctx.created.widgets[1] = widget({ id: "w-2", dashboardId: "db-2", type: "trace_feed" });
+    ctx.created.widgets.push(widget({ id: "w-3", dashboardId: "db-2", type: "trace_feed" }));
+    ctx.created.dashboards[0]!.layout = [
+      { i: "w-1", x: 0, y: 0, w: 6, h: 4 },
+      { i: "w-2", x: 6, y: 0, w: 6, h: 4 },
+      { i: "w-3", x: 0, y: 4, w: 6, h: 6 },
+    ];
     const probe = vi.fn(async () => 200);
     ctx.probeWidgetQuery = probe;
 
     await expect(run("dashboard-compose", ctx)).resolves.toBeUndefined();
-    expect(probe).toHaveBeenCalledTimes(1);
+    expect(probe).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails when neither widget measures latency at p95", async () => {
+    const ctx = passing();
+    ctx.created.widgets[0]!.spec = {
+      ...P95_OVER_TIME,
+      metric: { measure: "duration_ms", agg: "avg" },
+    };
+    await expect(run("dashboard-compose", ctx)).rejects.toThrow(/p95/);
+  });
+
+  it("fails when the p95 widget is a single-value tile rather than a time series", async () => {
+    const ctx = passing();
+    ctx.created.widgets[0]!.spec = { ...P95_OVER_TIME, display: { type: "number" } };
+    await expect(run("dashboard-compose", ctx)).rejects.toThrow(/p95/);
+  });
+
+  it("fails when no widget counts errors", async () => {
+    const ctx = passing();
+    ctx.created.widgets[1]!.spec = {
+      ...ERRORS_OVER_TIME,
+      metric: { measure: "count", agg: "count" },
+    };
+    await expect(run("dashboard-compose", ctx)).rejects.toThrow(/error_count/);
+  });
+
+  it("fails when the error count is not plotted over time", async () => {
+    const ctx = passing();
+    ctx.created.widgets[1]!.spec = { ...ERRORS_OVER_TIME, display: { type: "table" } };
+    await expect(run("dashboard-compose", ctx)).rejects.toThrow(/error_count/);
+  });
+
+  it("accepts an area chart as a time series", async () => {
+    const ctx = passing();
+    ctx.created.widgets[0]!.spec = { ...P95_OVER_TIME, display: { type: "area" } };
+    await expect(run("dashboard-compose", ctx)).resolves.toBeUndefined();
   });
 });
 

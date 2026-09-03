@@ -301,7 +301,10 @@ describe("AgentClient.sendMessage", () => {
     expect(turn.assistantText).toBe("Done.");
   });
 
-  it("completes on a clean close after turn_end, even without agent_end", async () => {
+  it("fails a stream that closes after turn_end with no agent_end or done", async () => {
+    // turn_end ends one assistant turn, not the run: the agent can still be
+    // mid-tool-loop. Accepting it would score a half-finished run as clean,
+    // so only agent_end and done terminate.
     const fetchImpl = vi.fn().mockResolvedValue(
       sseResponse([
         `event: message_update\ndata: ${JSON.stringify({
@@ -312,8 +315,24 @@ describe("AgentClient.sendMessage", () => {
       ]),
     );
 
-    const turn = await makeClient(fetchImpl).sendMessage("proj-1", "sess-1", "hi");
-    expect(turn.assistantText).toBe("partial");
+    await expect(
+      makeClient(fetchImpl).sendMessage("proj-1", "sess-1", "hi"),
+    ).rejects.toBeInstanceOf(AgentTurnError);
+  });
+
+  it("completes when agent_end follows turn_end, as the real stream does", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValue(
+        sseResponse([
+          `event: turn_end\ndata: ${JSON.stringify({ type: "turn_end", toolResults: [] })}\n\n`,
+          frame("agent_end", { type: "agent_end", messages: [] }),
+        ]),
+      );
+
+    await expect(
+      makeClient(fetchImpl).sendMessage("proj-1", "sess-1", "hi"),
+    ).resolves.toMatchObject({ sessionId: "sess-1" });
   });
 
   it("still accepts a done frame, so a future build that emits one keeps working", async () => {
