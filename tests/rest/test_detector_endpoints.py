@@ -1069,6 +1069,7 @@ class TestUsageBillsEveryStoredRow:
             _make_query_result([(3,)], ["total"]),  # traces
             _make_query_result([(9,)], ["total"]),  # spans
             _make_query_result([(2,)], ["total"]),  # detector_runs
+            _make_query_result([], ["source", "traces", "spans"]),  # breakdown
         ]
         resp = client.get(
             "/api/v1/internal/usage/details",
@@ -1104,6 +1105,7 @@ class TestUsageBillsEveryStoredRow:
             _make_query_result([(1,)], ["total"]),
             _make_query_result([(1,)], ["total"]),
             _make_query_result([(0,)], ["total"]),
+            _make_query_result([], ["source", "traces", "spans"]),  # breakdown
         ]
         resp = client.get(
             "/api/v1/internal/usage/details",
@@ -1158,6 +1160,61 @@ class TestUsageBillsEveryStoredRow:
             headers={b"X-Internal-Secret": "sécret".encode()},
         )
         assert resp.status_code == 200
+
+    def test_details_returns_per_source_breakdown_without_touching_totals(
+        self, client, mock_ch, secret
+    ):
+        mock_ch.query.side_effect = [
+            _make_query_result([(10,)], ["total"]),  # traces total (unfiltered)
+            _make_query_result([(100,)], ["total"]),  # spans total (unfiltered)
+            _make_query_result([(2,)], ["total"]),  # detector_runs
+            _make_query_result(  # breakdown: (source, traces, spans)
+                [("user", 7, 80), ("detector", 3, 20)], ["source", "traces", "spans"]
+            ),
+        ]
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params=self.PARAMS,
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["traces"] == 10 and body["spans"] == 100
+        assert body["by_source"] == {
+            "user": {"traces": 7, "spans": 80},
+            "detector": {"traces": 3, "spans": 20},
+            "agent": {"traces": 0, "spans": 0},
+        }
+        # Totals: still no source predicate (747562e2). Breakdown: must group by source.
+        traces_sql, spans_sql, _runs_sql, breakdown_sql = [
+            c.args[0] for c in mock_ch.query.call_args_list
+        ]
+        assert "source" not in traces_sql and "source" not in spans_sql
+        assert "GROUP BY source" in breakdown_sql
+
+    def test_details_for_no_projects_returns_seeded_breakdown_without_querying(
+        self, client, mock_ch, secret
+    ):
+        """The projectless short-circuit must return the same shape as the
+        queried path — all three buckets present — so consumers never see two
+        shapes for one field."""
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params={**self.PARAMS, "project_ids": ""},
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "traces": 0,
+            "spans": 0,
+            "detector_runs": 0,
+            "by_source": {
+                "user": {"traces": 0, "spans": 0},
+                "detector": {"traces": 0, "spans": 0},
+                "agent": {"traces": 0, "spans": 0},
+            },
+        }
+        mock_ch.query.assert_not_called()
 
 
 # =============================================================================
