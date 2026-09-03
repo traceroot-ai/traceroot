@@ -102,6 +102,16 @@ actually contains. Whichever lands first, the other drops its copy.
 
 ## Review state
 
+**All nine PRs are ready for review (2026-09-03)** and CI-green on their current
+heads. Each description carries the same "Stack" section with the merge order;
+#2072 is still blocked on `@traceroot-ai/traceroot` 0.4.0 reaching npm. The
+screenshots the descriptions embed live on the orphan branch
+`assets/agent-self-trace` (raw.githubusercontent URLs); delete it once the
+stack has merged. Beyond cubic, the stack had a full independent audit
+(`scratchpad/review/AUDIT.md`, artifact link in this doc's header) and a codex
+cross-review (`scratchpad-review/CODEX-REVIEW.md`); everything they raised is
+either fixed or listed under "Known-broken and open" below.
+
 49 automated review comments across the nine PRs: **27 fixed, 22 answered** with
 reasoning. All threads have a reply. Two rounds of follow-up review on the fixes
 themselves were also handled — twice the bot correctly caught that a fix had
