@@ -137,7 +137,7 @@ describe("runScenario", () => {
     expect(seen).toEqual(["d-1"]);
   });
 
-  it("scopes the widget probe to the fixture project", async () => {
+  it("passes the widget probe through to the assertions unchanged", async () => {
     const deps = makeDeps();
     await runScenario(
       scenario({
@@ -197,5 +197,24 @@ describe("runAll", () => {
     await runAll([scenario({ name: "a" })], makeDeps({ onResult } as never));
 
     expect(onResult).toHaveBeenCalledWith(expect.objectContaining({ name: "a" }));
+  });
+
+  it("keeps running the remaining scenarios when the transcript sink throws", async () => {
+    // The sink writes a file; a full disk or a bad path must not throw away
+    // the scenarios that have not run yet.
+    const onResult = vi.fn((result: { name: string }) => {
+      if (result.name === "a") throw new Error("ENOSPC");
+    });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const results = await runAll(
+      [scenario({ name: "a" }), scenario({ name: "b" })],
+      makeDeps({ onResult } as never),
+    );
+
+    expect(results.map((r) => r.name)).toEqual(["a", "b"]);
+    expect(results.every((r) => r.passed)).toBe(true);
+    expect(consoleError).toHaveBeenCalledWith(expect.stringContaining("ENOSPC"));
+    consoleError.mockRestore();
   });
 });

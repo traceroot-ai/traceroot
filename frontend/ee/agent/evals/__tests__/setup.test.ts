@@ -131,6 +131,43 @@ describe("createEvalProject", () => {
     });
   });
 
+  it("deletes the project when the dashboard it needs cannot be created", async () => {
+    // A half-built fixture is worse than none: the run aborts, teardown never
+    // runs, and the orphan project outlives it on a shared stack.
+    const prisma = makePrisma({
+      dashboard: {
+        create: vi.fn().mockRejectedValue(new Error("dashboard insert failed")),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+    });
+
+    await expect(createEvalProject(prisma, { user, runId: "abc123" })).rejects.toThrow(
+      /dashboard insert failed/,
+    );
+    const created = createdData(prisma.project.create);
+    expect(prisma.project.delete).toHaveBeenCalledWith({ where: { id: created.id } });
+  });
+
+  it("reports the original failure even when the rollback delete also fails", async () => {
+    const prisma = makePrisma({
+      dashboard: {
+        create: vi.fn().mockRejectedValue(new Error("dashboard insert failed")),
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      project: {
+        create: vi.fn(async (args: { data: { id: string; name: string } }) => ({
+          id: args.data.id,
+          name: args.data.name,
+        })),
+        delete: vi.fn().mockRejectedValue(new Error("delete failed")),
+      },
+    });
+
+    await expect(createEvalProject(prisma, { user, runId: "abc123" })).rejects.toThrow(
+      /dashboard insert failed/,
+    );
+  });
+
   it("seeds no starter widgets, so every widget row is agent-authored", async () => {
     const prisma = makePrisma();
     await createEvalProject(prisma, { user, runId: "abc123" });
