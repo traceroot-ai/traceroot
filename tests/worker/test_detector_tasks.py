@@ -129,7 +129,7 @@ class TestPrimaryEnqueue:
     def test_duplicate_root_delivery_noops(self, fake_redis, mock_add_job, monkeypatch):
         """Second root delivery loses the NX claim — exactly one job ever added."""
         _patch_detectors(monkeypatch, [_detector("d1")])
-        _patch_summaries(monkeypatch, {})
+        _patch_summaries(monkeypatch, {TRACE: {}})
 
         dt.enqueue_detector_runs(PROJECT, {TRACE})
         first_value = fake_redis.store[dt._lock_key(PROJECT, TRACE)]
@@ -142,7 +142,7 @@ class TestPrimaryEnqueue:
     def test_sampled_out_is_sticky(self, fake_redis, mock_add_job, monkeypatch):
         """A no-sample decision is recorded and a replay must not re-roll it."""
         _patch_detectors(monkeypatch, [_detector("d1", sample_rate=0)])
-        _patch_summaries(monkeypatch, {})
+        _patch_summaries(monkeypatch, {TRACE: {}})
 
         dt.enqueue_detector_runs(PROJECT, {TRACE})
         assert _lock_state(fake_redis)["state"] == "sampled_out"
@@ -180,7 +180,7 @@ class TestPrimaryEnqueue:
         added = []
         monkeypatch.setattr(dt, "_add_bullmq_job", lambda job_id, data: added.append(job_id))
         _patch_detectors(monkeypatch, [_detector("d1")])
-        _patch_summaries(monkeypatch, {})
+        _patch_summaries(monkeypatch, {TRACE: {}})
 
         threads = [
             threading.Thread(target=dt.enqueue_detector_runs, args=(PROJECT, {TRACE}))
@@ -203,7 +203,7 @@ class TestFailureRelease:
         self, fake_redis, mock_add_job, monkeypatch
     ):
         _patch_detectors(monkeypatch, [_detector("d1")])
-        _patch_summaries(monkeypatch, {})
+        _patch_summaries(monkeypatch, {TRACE: {}})
 
         mock_add_job.side_effect = RuntimeError("redis down")
         dt.enqueue_detector_runs(PROJECT, {TRACE})
@@ -218,7 +218,7 @@ class TestFailureRelease:
         """If another actor replaced the lock mid-attempt, the failing attempt
         must not delete the successor's state."""
         _patch_detectors(monkeypatch, [_detector("d1")])
-        _patch_summaries(monkeypatch, {})
+        _patch_summaries(monkeypatch, {TRACE: {}})
         key = dt._lock_key(PROJECT, TRACE)
         foreign = json.dumps({"state": "pending", "detector_ids": ["other"], "token": "zzz"})
 
@@ -460,16 +460,50 @@ class TestEvaluationTraceSkip:
         assert mock_add_job.call_count == 1
         assert mock_add_job.call_args.args[1]["traceId"] == prod_trace
 
-    def test_summary_missing_the_flag_is_treated_as_non_evaluation(
+
+# ── Internal traces are never detector targets ──────────────────────────
+
+
+class TestInternalTraceSkip:
+    """The summary query is scoped to ``source = 'user'``, so a trace with no summary
+    has no customer spans. ``enqueue_detector_runs`` must treat that as "not a
+    target" — a detector with no conditions passes ``_passes_trigger`` on an empty
+    summary, so without this gate an internal self-trace would still be enqueued.
+    """
+
+    def test_summary_less_trace_is_not_enqueued_even_without_conditions(
         self, fake_redis, mock_add_job, monkeypatch
     ):
-        """Fail-open: a trace with no spans row (empty summary) keeps running detectors."""
-        _patch_detectors(monkeypatch, [_detector("d1", sample_rate=100)])
+        _patch_detectors(monkeypatch, [_detector("d1", sample_rate=100, conditions=[])])
         _patch_summaries(monkeypatch, {})
 
         dt.enqueue_detector_runs(PROJECT, {TRACE})
 
+        mock_add_job.assert_not_called()
+        assert _lock_state(fake_redis) is None
+
+    def test_trace_with_summary_still_enqueues(self, fake_redis, mock_add_job, monkeypatch):
+        """Control: the same detector on a trace the scoped query did return."""
+        _patch_detectors(monkeypatch, [_detector("d1", sample_rate=100, conditions=[])])
+        _patch_summaries(monkeypatch, {TRACE: {"environment": None, "is_evaluation": False}})
+
+        dt.enqueue_detector_runs(PROJECT, {TRACE})
+
         mock_add_job.assert_called_once()
+        assert mock_add_job.call_args.args[1]["traceId"] == TRACE
+
+    def test_mixed_batch_skips_only_the_summary_less_trace(
+        self, fake_redis, mock_add_job, monkeypatch
+    ):
+        internal_trace = "cc" * 16
+        _patch_detectors(monkeypatch, [_detector("d1", sample_rate=100)])
+        _patch_summaries(monkeypatch, {TRACE: {"is_evaluation": False}})
+
+        dt.enqueue_detector_runs(PROJECT, {TRACE, internal_trace})
+
+        assert mock_add_job.call_count == 1
+        assert mock_add_job.call_args.args[1]["traceId"] == TRACE
+        assert _lock_state(fake_redis, trace_id=internal_trace) is None
 
 
 class TestTraceSummaryEvaluationFlag:
