@@ -109,4 +109,10 @@ describe("POST .../sessions/:sessionId/decisions", () => {
     expect((await post("route-s1", { action: "create" })).status).toBe(400);
     expect((await post("route-s1", "not json")).status).toBe(400);
   });
+
+  it("400s a body that is valid JSON but not an object", async () => {
+    ownSession("route-s1");
+    expect((await post("route-s1", null)).status).toBe(400);
+    expect((await post("route-s1", [])).status).toBe(400);
+  });
 });

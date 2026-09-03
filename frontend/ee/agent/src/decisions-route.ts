@@ -25,13 +25,22 @@ decisionsRoute.post("/api/v1/projects/:projectId/sessions/:sessionId/decisions",
   const sessionId = c.req.param("sessionId");
   const userId = c.req.header("x-user-id") || "";
 
-  let body: { decisionId?: unknown; action?: unknown; text?: unknown };
+  let body: unknown;
   try {
     body = await c.req.json();
   } catch {
     return c.json({ error: "invalid JSON body" }, 400);
   }
-  const { decisionId, action, text } = body;
+  // JSON null and arrays parse fine but have no fields to read, so they are
+  // rejected here rather than left to throw on the destructuring below.
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return c.json({ error: "invalid JSON body" }, 400);
+  }
+  const { decisionId, action, text } = body as {
+    decisionId?: unknown;
+    action?: unknown;
+    text?: unknown;
+  };
   if (typeof decisionId !== "string" || !decisionId || !isDecisionAction(action)) {
     return c.json({ error: 'decisionId and action ("create" | "skip" | "revise") required' }, 400);
   }
