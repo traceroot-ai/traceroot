@@ -169,6 +169,14 @@ describe("applyCapturePolicy", () => {
     expect(out.result).toContain('"apiToken":"[REDACTED]"');
     expect(out.result).toContain('"note":"plain"');
     expect(JSON.parse(out.result!)).toBeTruthy();
+    // The reported size is the tool's actual output, not the redacted text.
+    const original = JSON.stringify({
+      rows: [{ dbPassword: "hunter2", apiToken: 12345, note: "plain" }],
+      Authorization: "Bearer abcdefghijklmnop",
+      text: "AKIAIOSFODNN7EXAMPLE inline",
+    });
+    expect(out.outputBytes).toBe(Buffer.byteLength(original, "utf8"));
+    expect(out.outputBytes).not.toBe(Buffer.byteLength(out.result!, "utf8"));
   });
 
   it("redacts inside args too", () => {

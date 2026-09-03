@@ -159,6 +159,9 @@ export function applyCapturePolicy(
   // One step allowance, shared by the args and the result below.
   const step = { remaining: budget.perStepBytes };
   const { args, truncated: argsTruncated } = capArgs(input.args, state, budget, step);
+  // `outputBytes` is what the tool actually returned — the size a withheld
+  // step reports — so it is measured before any redaction changes the text.
+  const outputBytes = Buffer.byteLength(toText(input.result), "utf8");
   // A structured result is redacted by key before it is serialised (the text
   // patterns below cannot see a credential-shaped key once it is just text);
   // a string result only has the text patterns.
@@ -167,7 +170,6 @@ export function applyCapturePolicy(
       ? redactStructured(input.result)
       : input.result,
   );
-  const outputBytes = Buffer.byteLength(raw, "utf8");
   if (!OUTPUT_ALLOWLIST.has(input.toolName)) {
     return { args, outputBytes, truncated: argsTruncated, withheld: "not-allowlisted" };
   }
