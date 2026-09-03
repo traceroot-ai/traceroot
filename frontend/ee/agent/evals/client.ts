@@ -125,10 +125,9 @@ export class AgentClient {
   /**
    * Send one user message and consume the SSE stream to completion.
    *
-   * Tool calls are read from the stream rather than from the persisted
-   * messages: the service only writes the user text and the accumulated
-   * assistant text to `AIMessage`, so `tool_execution_*` events are the sole
-   * record of what the model actually invoked.
+   * Tool calls are read from the stream so the harness scores exactly what
+   * the model invoked live, independent of what the persister keeps (rows are
+   * bounded/truncated and land asynchronously).
    */
   async sendMessage(
     projectId: string,
@@ -200,11 +199,11 @@ export class AgentClient {
     const parser = createSseParser();
     const decoder = new TextDecoder();
     const reader = body.getReader();
-    // `agent_end` ends the run and is the last frame the service actually
-    // sends; `done` is kept because index.ts still tries to write one.
+    // `agent_end` is pi's own terminal frame; `done` is the service's terminal
+    // frame (run-stream.ts, written after persistence). Either ends the turn.
     let ended = false;
     // `turn_end` alone is enough to accept a clean close: the run finished
-    // even if the stream was cut before its final frame.
+    // even if the connection dropped before the service's final write.
     let sawTurnEnd = false;
 
     try {

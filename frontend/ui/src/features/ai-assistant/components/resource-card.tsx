@@ -140,8 +140,10 @@ function CardBody({ body, resourceId }: { body: ResourceCardBody; resourceId: st
         </dl>
       );
     case "dashboard":
-      // The dashboard itself, shrunk. When the transcript created no widgets
-      // there is nothing to shrink, and the header-only card reads fine.
+      // The dashboard itself, shrunk. With no tiles — the transcript created
+      // no widgets, or the dashboard was reused and its placements are
+      // unknowable — there is nothing to shrink, and the card stands on its
+      // header (plus the description a reused one carries).
       if (body.tiles.length === 0) return null;
       return <DashboardMiniature tiles={body.tiles} />;
   }

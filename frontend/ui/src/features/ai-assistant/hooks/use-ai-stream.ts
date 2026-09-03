@@ -29,12 +29,12 @@ interface SessionRun {
   reader: ReadableStreamDefaultReader<Uint8Array> | null;
 }
 
-/** A finished tool call observed on a live stream, tagged with its origin. */
+/**
+ * A finished tool call observed on a live stream: the call's result, handed
+ * to the caller so it can refresh whatever cache the write just made stale.
+ */
 export interface LiveToolResult {
-  sessionId: string;
-  projectId: string;
   result: unknown;
-  isError: boolean;
 }
 
 export interface UseAIStreamOptions {
@@ -120,7 +120,9 @@ export function useAIStream(options?: UseAIStreamOptions) {
    * Locally resolve a parked call once its decision was accepted server-side.
    * Create reverts the step to the plain running line (the tool now actually
    * executes; its result arrives on the stream as usual); skip collapses it to
-   * the skipped line immediately, ahead of the declined result.
+   * the skipped line immediately, ahead of the declined result. The chat-revise
+   * path also passes "skip": a provisional collapse that the declined result's
+   * proposal_declined details relabel as revised once it lands.
    */
   const resolvePendingDecision = useCallback(
     (sessionId: string, toolCallId: string, action: "create" | "skip") => {
@@ -426,12 +428,7 @@ export function useAIStream(options?: UseAIStreamOptions) {
 
                 if (eventData.type === "tool_execution_end") {
                   if (runsRef.current.get(sessionId)?.gen === myGen) {
-                    onToolResultRef.current?.({
-                      sessionId,
-                      projectId: params.projectId,
-                      result: eventData.result,
-                      isError: eventData.isError === true,
-                    });
+                    onToolResultRef.current?.({ result: eventData.result });
                   }
                   // A declined proposal's result names its outcome in the
                   // structured details — authoritative when present (it can

@@ -335,7 +335,7 @@ describe("createWidget", () => {
     expect(r).toEqual({ ok: false, status: 400, error: "spec must be a JSON object" });
   });
 
-  it("rejects a query spec with a hallucinated vocabulary with 400, no create, no audit", async () => {
+  it("rejects a query spec in a foreign dialect at the shape check with 400, no create, no audit", async () => {
     mockAccess();
     mockDashboard();
     const r = await runWidget({

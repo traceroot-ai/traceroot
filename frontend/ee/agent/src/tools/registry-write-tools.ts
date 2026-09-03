@@ -18,7 +18,7 @@ interface WriteToolSpec {
   /** Public snake_case field → internal camelCase body key (tenancy fields excluded). */
   fieldMap: Record<string, string>;
   /** Key holding the resource in the route's success payload. */
-  resourceKey: "workspace" | "project" | "detector" | "dashboard" | "widget";
+  resourceKey: "detector" | "dashboard" | "widget";
   /** Field naming the resource in the success text. */
   displayNameKey: "name" | "title";
 }
@@ -30,11 +30,18 @@ interface WriteToolSpec {
  */
 export interface ResourceCreatedDetails {
   kind: "resource_created";
-  resourceType: WriteToolSpec["resourceKey"];
+  /**
+   * Wider than WriteToolSpec["resourceKey"]: the chat agent no longer binds
+   * create_workspace / create_project, but older persisted tool_step rows
+   * from when it did still carry "workspace" and "project", and the UI's
+   * receipt cards keep rendering them.
+   */
+  resourceType: "workspace" | "project" | "detector" | "dashboard" | "widget";
   resourceId: string;
   /** false when the write was idempotent and an existing resource was reused. */
   created: boolean;
   projectId?: string;
+  /** Only on older persisted rows from the retired create_project tool; the UI still reads it. */
   workspaceId?: string;
   dashboardId?: string;
 }
@@ -85,8 +92,8 @@ export interface CreateRegistryWriteToolsOptions {
   actorUserId: string;
   /** The agent session recorded as write provenance. */
   agentSessionId: string;
+  /** The session's project, injected as the ambient tenancy of every write. */
   projectId: string;
-  workspaceId: string;
 }
 
 function requireWriteEntry(name: string): RegistryEntry & {
@@ -111,12 +118,12 @@ function humanizeName(name: string): string {
 
 /**
  * "Created detector "latency" (id d1)" / already-exists variant, plus the
- * structured details the UI consumes. `tenancyIds` is the ambient projectId /
- * workspaceId the tool injected into the write.
+ * structured details the UI consumes. `tenancyIds` is the ambient projectId
+ * the tool injected into the write.
  */
 function buildWriteSuccess(
   spec: WriteToolSpec,
-  tenancyIds: { projectId?: string; workspaceId?: string },
+  tenancyIds: { projectId: string },
   result: unknown,
 ): { text: string; details: ResourceCreatedDetails | undefined } {
   const payload = result as Record<string, unknown>;
@@ -175,19 +182,21 @@ function apiErrorMessage(error: ApiError): string {
  * dispatch(): its path/query/body partitioning is public-API-specific.
  */
 export function createRegistryWriteTools(opts: CreateRegistryWriteToolsOptions): AgentTool<any>[] {
-  const { client, actorUserId, agentSessionId, projectId, workspaceId } = opts;
+  const { client, actorUserId, agentSessionId, projectId } = opts;
 
   const bind = (name: string): AgentTool<any> => {
     const entry = requireWriteEntry(name);
     const spec = WRITE_TOOL_SPECS[name];
     const path = INTERNAL_WRITE_BINDINGS[name];
 
-    // The ambient tenancy field is injected, never model-supplied.
-    const tenancy = entry.policy.tenancy;
-    const hiddenField =
-      tenancy === "project" ? "project_id" : tenancy === "workspace" ? "workspace_id" : undefined;
-    const tenancyBody =
-      tenancy === "project" ? { projectId } : tenancy === "workspace" ? { workspaceId } : {};
+    // The ambient project is injected, never model-supplied. Only project-
+    // tenancy writes are bound here (see WRITE_TOOL_SPECS): fail loud at
+    // wiring time if the registry ever moves one of them to another scope.
+    if (entry.policy.tenancy !== "project") {
+      throw new Error(`${name}: unsupported tenancy for the chat agent: ${entry.policy.tenancy}`);
+    }
+    const hiddenField = "project_id";
+    const tenancyBody = { projectId };
 
     // Registry-curated fields the agent must neither show to the model nor
     // accept from it (the API/CLI keep them; the fieldMap may still know the
