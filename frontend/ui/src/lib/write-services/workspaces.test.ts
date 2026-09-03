@@ -82,7 +82,7 @@ describe("createWorkspace", () => {
       data: { id: "w0", name: "Acme", role: "ADMIN" },
     });
     expect(tx.workspace.create).not.toHaveBeenCalled();
-    expect(tx.auditLog.create).not.toHaveBeenCalled();
+    expect(root.auditLog.create).not.toHaveBeenCalled();
   });
 
   it("rejects an empty name with 400", async () => {

@@ -376,12 +376,13 @@ describe("SessionManager.buildContext", () => {
     expect(call.content[0].arguments).toEqual({ title: "p95 latency", dashboard_id: "d1" });
   });
 
-  it("skips content-less assistant rows (usage carriers of tool-only runs)", async () => {
+  it("skips content-less assistant rows (usage carriers and run-error markers)", async () => {
     mocks.findUnique.mockResolvedValue({
       id: "s1",
       messages: [
         row("1", "user", "check the trace"),
         row("2", "assistant", "", { model: "test-model", provider: "test-provider" }),
+        row("3", "assistant", "", { metadata: { runError: "model exploded" } }),
       ],
     });
 

@@ -39,10 +39,10 @@ const textDelta = (delta: string) =>
   });
 
 /**
- * One real turn, reproducing the event census captured from the running
- * service: agent_start 1, turn_start 1, message_start 2, message_update 4,
- * message_end 2, turn_end 1, agent_end 1 — and no `done` frame anywhere.
- * The stream simply closes after agent_end.
+ * One real turn as seen when the connection closes right after pi's
+ * agent_end, before the service's own `done` write lands: agent_start 1,
+ * turn_start 1, message_start 2, message_update 4, message_end 2, turn_end 1,
+ * agent_end 1 — and no `done` frame. The client must not depend on `done`.
  */
 const REAL_TURN_STREAM = [
   frame("agent_start", { type: "agent_start" }),
@@ -243,7 +243,7 @@ describe("AgentClient.sendMessage", () => {
     );
   });
 
-  it("completes on the real stream, which ends at agent_end and never emits done", async () => {
+  it("completes on a stream that closes after agent_end without the service's done frame", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(sseResponse([REAL_TURN_STREAM]));
 
     const turn = await makeClient(fetchImpl).sendMessage("proj-1", "sess-1", "Add a detector.");
@@ -335,7 +335,7 @@ describe("AgentClient.sendMessage", () => {
     ).resolves.toMatchObject({ sessionId: "sess-1" });
   });
 
-  it("still accepts a done frame, so a future build that emits one keeps working", async () => {
+  it("accepts the service's done frame as terminal", async () => {
     const fetchImpl = vi
       .fn()
       .mockResolvedValue(

@@ -243,7 +243,7 @@ const toolEndEvent = {
 
 const sendParams = { sessionId: "s1", message: "make a dashboard", projectId: "p1" };
 
-describe("useAIStream live tool-result and turn-completion callbacks", () => {
+describe("useAIStream live tool-result callback", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -269,7 +269,7 @@ describe("useAIStream live tool-result and turn-completion callbacks", () => {
     return send;
   };
 
-  it("reports live tool results with the run's session and project", async () => {
+  it("reports each live tool result to the callback", async () => {
     const sse = createSSE();
     const onToolResult = vi.fn();
     const { result } = renderHook(() => useAIStream({ onToolResult }));
@@ -279,12 +279,7 @@ describe("useAIStream live tool-result and turn-completion callbacks", () => {
     sse.close();
     await act(() => send);
 
-    expect(onToolResult).toHaveBeenCalledExactlyOnceWith({
-      sessionId: "s1",
-      projectId: "p1",
-      result: toolEndEvent.result,
-      isError: false,
-    });
+    expect(onToolResult).toHaveBeenCalledExactlyOnceWith({ result: toolEndEvent.result });
   });
 
   it("still records the tool step when no callback is given", async () => {
