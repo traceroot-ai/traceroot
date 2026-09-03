@@ -32,6 +32,9 @@ const TOOL_RECORD_CHAR_CAP = 600;
 /** How much of a tool result's text survives into a generic (no structured details) record. */
 const RESULT_SNIPPET_CHARS = 200;
 
+/** How much of the user's revision text survives into a revised proposal's record. */
+const REVISION_TEXT_CHARS = 300;
+
 /**
  * What a tool_step row whose metadata never named a tool degrades to. A bare
  * literal: with no tool name there is no call to reconstruct, and nothing
@@ -124,11 +127,17 @@ function toolOutcome(meta: Record<string, unknown>): Record<string, unknown> {
   const details = asRecord(result.details);
   if (details?.kind === "proposal_declined") {
     // The user answered the confirmation card with skip/revise: the write
-    // never ran, and the record must be unmistakable about that.
+    // never ran, and the record must be unmistakable about that. A revision
+    // carries the user's requested changes — without them a rebuilt agent
+    // would re-propose the original args. The text is the user's own, so it
+    // travels as a JSON field, never as prose.
+    const revision = typeof details.text === "string" && details.text ? details.text : undefined;
+    const revised = details.outcome === "revised";
     return {
       status: "declined_by_user",
       executed: false,
-      revisionRequested: details.outcome === "revised",
+      revisionRequested: revised,
+      ...(revised && revision ? { requestedChanges: clip(revision, REVISION_TEXT_CHARS) } : {}),
     };
   }
   if (details?.kind === "resource_created") {
