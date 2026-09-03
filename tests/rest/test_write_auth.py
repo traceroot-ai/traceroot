@@ -202,8 +202,14 @@ def _stamped_request(workspace_id: str, plan: str, user_id: str | None) -> Reque
     return request
 
 
-def test_key_write_shapes():
-    """key_write mirrors key_read's three key shapes under the write bucket."""
+def test_key_write_composition_format_only():
+    """key_write composes the three key shapes — FORMAT check only.
+
+    These hand-stamped identities pin the key-composition contract for the
+    future per-plan design; production cannot produce the paid/workspace
+    shapes today (every account credential is stamped plan="free" with no
+    workspace — see the reality test below).
+    """
     # Account scope (user, no workspace): per-user key.
     account = rate_limit.key_write(_stamped_request("", "free", "user-9"))
     assert account == "rl:write:free:user-9"
@@ -215,6 +221,28 @@ def test_key_write_shapes():
     # Key auth (no user stamped): workspace-only.
     key_auth = rate_limit.key_write(_stamped_request("ws-abc", "pro", None))
     assert key_auth == "rl:write:pro:ws-abc"
+
+
+@respx.mock
+async def test_write_key_reality_every_account_credential_is_free(monkeypatch):
+    """Production write keys are ``rl:write:free:{user_id}`` — nothing else.
+
+    Drives the real dependency chain the write routes use — credential →
+    ``authenticate_account_caller`` → ``authenticate_and_stamp_account_caller``
+    → ``key_write`` — with a verified CLI JWT. ``_account_result_for_user``
+    stamps every account credential as plan "free" with no workspace, so the
+    "free" row of ``_PLAN_LIMITS_WRITE`` is the effective global write limit.
+    If you land per-request plan resolution, this fails on purpose: update it
+    together with ``_PLAN_LIMITS_WRITE``'s comment and the format-only test above.
+    """
+    priv = _install_jwt_signer(monkeypatch)
+    token = _mint_jwt(priv, sub="user-42", extra_claims={"sid": "sess-1"})
+
+    auth = await deps.authenticate_account_caller(authorization=f"Bearer {token}")
+    request = Request({"type": "http", "headers": [], "state": {}})
+    await deps.authenticate_and_stamp_account_caller(request, auth)
+
+    assert rate_limit.key_write(request) == "rl:write:free:user-42"
 
 
 def test_key_write_stamps_write_bucket_on_request_state():
