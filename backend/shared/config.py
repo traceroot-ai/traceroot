@@ -87,6 +87,19 @@ _PLAN_LIMITS_EXPORT: dict[str, str] = {
     "pro": "1000/minute",
     "enterprise": "1000/minute",
 }
+# Writes launch with the read numbers: control-plane writes are far rarer than
+# reads, so the read budget is a comfortable ceiling, and a separate bucket
+# means the tiers can tighten later without touching read quota.
+# NOTE: the write path stamps every account credential as "free" (see
+# ``_account_result_for_user`` in the public deps), so the "free" row is the
+# EFFECTIVE GLOBAL write limit for all tenants; the paid rows are unreachable
+# until per-request plan resolution lands. Tightening "free" tightens everyone.
+_PLAN_LIMITS_WRITE: dict[str, str] = {
+    "free": "60/minute",
+    "starter": "300/minute",
+    "pro": "1000/minute",
+    "enterprise": "1000/minute",
+}
 
 
 def normalize_plan(plan: str | None) -> str:
@@ -110,7 +123,8 @@ class RateLimitSettings(BaseSettings):
     """Operational rate-limit settings for the public REST API.
 
     Plan tiers are a product decision and live as code constants
-    (``_PLAN_LIMITS_INGEST``, ``_PLAN_LIMITS_READ``, ``_PLAN_LIMITS_EXPORT`` above)
+    (``_PLAN_LIMITS_INGEST``, ``_PLAN_LIMITS_READ``, ``_PLAN_LIMITS_EXPORT``,
+    ``_PLAN_LIMITS_WRITE`` above)
     — not env-overridable.
     The knobs here are the operational ones an SRE legitimately needs at runtime.
 
@@ -138,6 +152,7 @@ class RateLimitSettings(BaseSettings):
         table = {
             "ingest": _PLAN_LIMITS_INGEST,
             "export": _PLAN_LIMITS_EXPORT,
+            "write": _PLAN_LIMITS_WRITE,
         }.get(bucket, _PLAN_LIMITS_READ)
         return table[normalize_plan(plan)]
 
