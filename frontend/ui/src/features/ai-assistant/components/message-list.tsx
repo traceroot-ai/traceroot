@@ -445,7 +445,7 @@ function ToolStepItem({ step, isActive }: { step: ToolCallStep; isActive: boolea
  * messages array many times a second, but every prop here is stable across a
  * delta-only update (the step objects survive by identity, and the derived
  * maps are pinned by useStableToolSteps) — so neither the model derivation
- * nor the miniature/preview subtrees rerun per delta.
+ * nor the preview subtrees rerun per delta.
  */
 const ToolStepEntry = memo(function ToolStepEntry({
   step,
@@ -457,7 +457,7 @@ const ToolStepEntry = memo(function ToolStepEntry({
   bubbleMaxWidth,
 }: {
   step: ToolCallStep;
-  /** True when this widget's card would duplicate the miniature of a CREATED
+  /** True when this widget's card would duplicate the preview of a CREATED
    *  dashboard's card above it (a reused dashboard draws none). */
   suppressed: boolean;
   widgetsByDashboard: ReadonlyMap<string, readonly ToolCallStep[]>;
@@ -479,7 +479,7 @@ const ToolStepEntry = memo(function ToolStepEntry({
   );
   // A write that created something we can show becomes its card; every other
   // step — and every write we can't read a resource out of, or whose card
-  // would duplicate a created dashboard's miniature above it — keeps the
+  // would duplicate a created dashboard's preview above it — keeps the
   // plain expandable tool line.
   const card = useMemo(
     () =>
@@ -633,9 +633,9 @@ export function MessageList({
   // separate calls that land after it — so it is read back off the transcript.
   const widgetsByDashboard = useMemo(() => createdWidgetsByDashboard(toolSteps), [toolSteps]);
   // A widget created into a CREATED (not reused) dashboard carded earlier in
-  // this transcript keeps the plain tool line: that dashboard's miniature
-  // already draws it, and a second card right under the miniature reads as a
-  // duplicate. A reused dashboard's card draws no miniature, so its widget
+  // this transcript keeps the plain tool line: that dashboard's preview
+  // already draws it, and a second card right under the preview reads as a
+  // duplicate. A reused dashboard's card draws no preview, so its widget
   // cards stay.
   const suppressedWidgets = useMemo(() => suppressedWidgetStepIds(toolSteps), [toolSteps]);
   // True when the session is active but no text bubble is open - the LLM is processing

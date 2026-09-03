@@ -125,7 +125,7 @@ describe("MessageList tool entries", () => {
       status: "done",
     };
     // Both steps carry the same widget id — a replayed create — so the card
-    // counts one widget, matching the single tile the miniature draws.
+    // counts one widget, matching the single tile the preview draws.
     render(
       <MessageList
         messages={[
@@ -135,7 +135,7 @@ describe("MessageList tool entries", () => {
         ]}
       />,
     );
-    expect(screen.getByText("Dashboard · 1 widget")).toBeTruthy();
+    expect(screen.getByText("Dashboard · 1 widget · Last 24 hours")).toBeTruthy();
   });
 
   it("keeps the plain tool step for a resource type it has no card for", () => {
@@ -223,11 +223,11 @@ describe("MessageList tool entries", () => {
         messages={[toolEntry(dashboard), toolEntry(createWidgetStep(WIDGET_DETAILS, "tc1"))]}
       />,
     );
-    // The dashboard card still counts (and its miniature draws) the widget;
+    // The dashboard card still counts (and its preview draws) the widget;
     // the widget's own step stays a traceable tool line, not a second card.
-    expect(screen.getByText("Dashboard · 1 widget")).toBeTruthy();
+    expect(screen.getByText("Dashboard · 1 widget · Last 24 hours")).toBeTruthy();
     expect(screen.getByText("(create_widget)")).toBeTruthy();
-    // The title appears once — the miniature's tile — and there is no card
+    // The title appears once — the preview's tile — and there is no card
     // footer (no definition toggle) for the widget, because its card was
     // suppressed.
     expect(screen.getAllByText("Tokens by model")).toHaveLength(1);
@@ -258,12 +258,12 @@ describe("MessageList tool entries", () => {
         messages={[toolEntry(reused), toolEntry(createWidgetStep(WIDGET_DETAILS, "tc1"))]}
       />,
     );
-    // The dashboard card keeps the count but draws no miniature — the real
+    // The dashboard card keeps the count but draws no preview — the real
     // grid's placements are unknowable from this transcript.
     expect(screen.getByText("Dashboard · 1 widget")).toBeTruthy();
     expect(screen.getByText("Reused")).toBeTruthy();
-    expect(container.querySelector("[data-glyph]")).toBeNull();
-    // The widget keeps its full card — no miniature stands in for it.
+    expect(container.querySelector("[data-preview-tile]")).toBeNull();
+    // The widget keeps its full card — no preview stands in for it.
     expect(screen.queryByText("(create_widget)")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Tokens by model" }));
     expect(screen.getByText("view spans")).toBeTruthy();
