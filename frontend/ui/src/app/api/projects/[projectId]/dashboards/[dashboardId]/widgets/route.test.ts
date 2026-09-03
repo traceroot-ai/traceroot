@@ -372,6 +372,30 @@ describe("POST /dashboards/[dashboardId]/widgets", () => {
     expect(transactionMock).not.toHaveBeenCalled();
   });
 
+  it("answers 400, not 500, for a measure named after an inherited property", async () => {
+    // The registry used to be indexed with the caller's name, so "toString"
+    // resolved to Object.prototype's method and the next access threw.
+    dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
+    const res = (await POST(
+      makeRequest({
+        title: "W",
+        type: "query",
+        spec: {
+          view: "spans",
+          filters: [],
+          metric: { measure: "toString", agg: "count" },
+          breakdown: null,
+          display: { type: "number" },
+        },
+      }),
+      makeParams(),
+    )) as MockResponse;
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toMatch(/^unknown measure "toString" for view "spans" — valid measures: /);
+    expect(widgetCreateMock).not.toHaveBeenCalled();
+  });
+
   it("stores a builder-shaped query spec the registry knows", async () => {
     dashboardFindFirstMock.mockResolvedValue(fakeDashboard);
     widgetCreateMock.mockResolvedValue(fakeWidget);

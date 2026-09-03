@@ -17,13 +17,40 @@ export function loadCatalogSource(): string {
   return readFileSync(CATALOG_PATH, "utf8");
 }
 
-/** Read a quoted literal, honoring backslash escapes, up to its closing quote. */
+// The single-character escapes a source literal can spell out. Anything else
+// after a backslash stands for itself (`\\`, `\"`, `\'`, a backtick, `\$`),
+// which is what JS itself does with an unrecognized escape.
+const ESCAPES: Record<string, string> = {
+  n: "\n",
+  t: "\t",
+  r: "\r",
+  b: "\b",
+  f: "\f",
+  v: "\v",
+  0: "\0",
+};
+
+/**
+ * Read a quoted literal up to its closing quote, decoding escapes.
+ *
+ * The stored prompt holds the DECODED text, so a source literal spelling a
+ * newline as `\n` has to come back as a newline — copying the escape through
+ * verbatim would make the comparison against the stored prompt fail for every
+ * template whose canonical text is written with escapes.
+ */
 function readLiteral(source: string, quote: string, templateId: string): string {
   let value = "";
   for (let i = 0; i < source.length; i += 1) {
     const char = source[i]!;
     if (char === "\\") {
-      value += source[i + 1] ?? "";
+      const escaped = source[i + 1] ?? "";
+      const hex = escaped === "u" ? source.slice(i + 2, i + 6) : "";
+      if (hex.length === 4 && /^[0-9a-fA-F]{4}$/.test(hex)) {
+        value += String.fromCharCode(parseInt(hex, 16));
+        i += 5;
+        continue;
+      }
+      value += ESCAPES[escaped] ?? escaped;
       i += 1;
       continue;
     }
@@ -32,6 +59,12 @@ function readLiteral(source: string, quote: string, templateId: string): string 
   }
   throw new Error(`detector template "${templateId}" has an unterminated prompt literal`);
 }
+
+// The next catalog entry's id field, anchored to the start of its own line.
+// Catalog entries are formatted one field per line, so an unanchored search
+// would also match `id: "` appearing inside a prompt's own text and cut the
+// entry short there.
+const NEXT_ENTRY_RE = /^[ \t]*id: "/m;
 
 /**
  * Pull one template's `prompt` text out of the catalog source.
@@ -47,7 +80,7 @@ export function extractTemplatePrompt(source: string, templateId: string): strin
   }
 
   const rest = source.slice(start + marker.length);
-  const nextEntry = rest.indexOf('id: "');
+  const nextEntry = rest.search(NEXT_ENTRY_RE);
   const entry = nextEntry === -1 ? rest : rest.slice(0, nextEntry);
 
   const promptAt = entry.indexOf("prompt:");

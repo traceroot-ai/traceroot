@@ -202,10 +202,9 @@ export class AgentClient {
     const reader = body.getReader();
     // `agent_end` ends the run and is the last frame the service actually
     // sends; `done` is kept because index.ts still tries to write one.
+    // `turn_end` is NOT terminal: it closes one assistant turn, and the agent
+    // may still be looping through tool calls after it.
     let ended = false;
-    // `turn_end` alone is enough to accept a clean close: the run finished
-    // even if the stream was cut before its final frame.
-    let sawTurnEnd = false;
 
     try {
       while (!ended) {
@@ -224,7 +223,6 @@ export class AgentClient {
           // calls and the answer text are never dropped on the way out.
           applyEvent(turn, frame.event, data);
 
-          if (frame.event === "turn_end") sawTurnEnd = true;
           if (frame.event === "agent_end" || frame.event === "done") {
             ended = true;
             break;
@@ -235,11 +233,11 @@ export class AgentClient {
       await reader.cancel().catch(() => {});
     }
 
-    // A close with no terminal signal at all means the turn was cut short —
-    // scoring whatever partial work arrived would be worse than failing.
-    if (!ended && !sawTurnEnd) {
+    // A close with no terminal frame means the run was cut short — scoring
+    // whatever partial work arrived would be worse than failing.
+    if (!ended) {
       throw new AgentTurnError(
-        "the SSE stream closed without agent_end, turn_end or done — the turn did not finish",
+        "the SSE stream closed without agent_end or done — the turn did not finish",
       );
     }
     return turn;

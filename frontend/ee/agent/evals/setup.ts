@@ -60,6 +60,10 @@ export async function resolveEvalUser(prisma: EvalPrisma, email: string): Promis
  * already break spans down by model, which would satisfy the traces-by-model
  * assertion before the agent did anything; keeping the dashboard empty means
  * every widget row in the project is one the agent wrote.
+ *
+ * The two inserts are all-or-nothing. A dashboard failure after the project
+ * row lands aborts the run before teardown ever runs, leaving a fixture
+ * project behind on a shared stack for every attempt.
  */
 export async function createEvalProject(
   prisma: EvalPrisma,
@@ -72,17 +76,25 @@ export async function createEvalProject(
     data: { id: randomUUID(), workspaceId: user.workspaceId, name: projectName },
   });
 
-  await prisma.dashboard.create({
-    data: {
-      id: `default_${project.id}`,
-      projectId: project.id,
-      name: "Default",
-      description: "Eval fixture dashboard.",
-      isDefault: true,
-      createdBy: user.id,
-      layout: [],
-    },
-  });
+  try {
+    await prisma.dashboard.create({
+      data: {
+        id: `default_${project.id}`,
+        projectId: project.id,
+        name: "Default",
+        description: "Eval fixture dashboard.",
+        isDefault: true,
+        createdBy: user.id,
+        layout: [],
+      },
+    });
+  } catch (failure) {
+    // Swallowed so the caller sees why the fixture could not be built, not
+    // why the cleanup of it failed. Nothing references the project yet, so
+    // there is no cascade to worry about.
+    await prisma.project.delete({ where: { id: project.id } }).catch(() => {});
+    throw failure;
+  }
 
   return { runId, user, projectId: project.id, projectName };
 }

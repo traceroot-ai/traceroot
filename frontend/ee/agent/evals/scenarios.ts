@@ -40,6 +40,23 @@ function displayTypeOf(widget: WidgetRow): unknown {
   return (specOf(widget).display as { type?: unknown } | undefined)?.type;
 }
 
+function metricOf(widget: WidgetRow): { measure?: unknown; agg?: unknown } {
+  return (specOf(widget).metric ?? {}) as { measure?: unknown; agg?: unknown };
+}
+
+/**
+ * The displays that plot a value against time. The spec has no separate time
+ * axis: choosing one of these IS what makes a widget a series over time, so a
+ * request for something "over time" is only satisfied by one of them.
+ */
+const TIME_SERIES_DISPLAYS = new Set<unknown>(["line", "area", "bar"]);
+
+/** How a widget reads in a failure message, so a miss says what was built instead. */
+function describeWidget(widget: WidgetRow): string {
+  const metric = metricOf(widget);
+  return `${widget.title}: ${String(metric.agg)}(${String(metric.measure)}) as ${String(displayTypeOf(widget))}`;
+}
+
 /** The `i` keys of a dashboard's grid layout; react-grid-layout matches widgets on these. */
 function layoutKeys(layout: unknown): string[] {
   if (!Array.isArray(layout)) return [];
@@ -97,14 +114,21 @@ export const SCENARIOS: Scenario[] = [
       "Go with the custom prompt — write the instructions so it only flags timeouts over 30 seconds.",
     ],
     assert: (ctx) => {
+      expectThat(
+        toolCallsNamed(ctx.turns.slice(0, 1), "create_detector").length === 0,
+        "create_detector ran on the ambiguous first ask; the agent has to settle judged prompt vs. duration trigger before writing",
+      );
+
       const call = onlyToolCall(ctx.turns, "create_detector");
       const prompt = call.args.prompt;
       expectThat(
         typeof prompt === "string" && prompt.length > 0,
         "create_detector omitted the prompt even though the user gave custom instructions",
       );
+      // The unit has to survive, not just the digits: "the 30 most recent
+      // traces" is a different detector that carries the same number.
       expectThat(
-        (prompt as string).includes("30"),
+        /\b30\s*(s|sec|seconds?)\b/i.test(prompt as string),
         `the supplied prompt dropped the user's 30-second threshold: ${JSON.stringify(prompt)}`,
       );
 
@@ -199,9 +223,27 @@ export const SCENARIOS: Scenario[] = [
         );
       }
 
-      for (const widget of widgets) {
-        // Only query widgets carry a spec the query route understands.
-        if (widget.type !== "query") continue;
+      // The ask named two specific widgets, so "two widgets exist" is not
+      // enough: a pair of trace-count tiles would satisfy the count alone.
+      const queries = widgets.filter((widget) => widget.type === "query");
+      const built = queries.map(describeWidget).join("; ");
+      expectThat(
+        queries.some(
+          (widget) =>
+            metricOf(widget).agg === "p95" && TIME_SERIES_DISPLAYS.has(displayTypeOf(widget)),
+        ),
+        `no p95 widget on a time-series display; built: ${built}`,
+      );
+      expectThat(
+        queries.some(
+          (widget) =>
+            metricOf(widget).measure === "error_count" &&
+            TIME_SERIES_DISPLAYS.has(displayTypeOf(widget)),
+        ),
+        `no error_count widget on a time-series display; built: ${built}`,
+      );
+
+      for (const widget of queries) {
         const status = await ctx.probeWidgetQuery(specOf(widget));
         expectThat(
           status === 200,

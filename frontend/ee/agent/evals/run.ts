@@ -65,9 +65,12 @@ async function main(): Promise<number> {
   // Preflight before anything is written, so a stopped stack leaves no trace.
   await client.checkHealth();
 
-  const fixture = await createEvalProject(db, { user, runId });
+  // Before the fixture, not after: a failing mkdir here would otherwise abort
+  // the run with a project already created and teardown not yet wired up.
   const resultsDir = join(RESULTS_ROOT, runId);
   mkdirSync(resultsDir, { recursive: true });
+
+  const fixture = await createEvalProject(db, { user, runId });
 
   console.log(`run ${runId}  user ${user.email}  project ${fixture.projectName}`);
   console.log(`agent ${AGENT_SERVICE_URL}  backend ${TRACE_API_URL}\n`);

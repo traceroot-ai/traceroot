@@ -85,7 +85,15 @@ export async function runAll(scenarios: Scenario[], deps: RunnerDeps): Promise<S
   for (const scenario of scenarios) {
     const result = await runScenario(scenario, deps);
     results.push(result);
-    await deps.onResult?.(result);
+    // The sink writes a transcript file. A failure there says nothing about
+    // the scenario that just passed and must not cost the ones still queued,
+    // so it is logged and the run carries on.
+    try {
+      await deps.onResult?.(result);
+    } catch (failure) {
+      const reason = failure instanceof Error ? failure.message : String(failure);
+      console.error(`could not report the result for "${scenario.name}": ${reason}`);
+    }
   }
   return results;
 }

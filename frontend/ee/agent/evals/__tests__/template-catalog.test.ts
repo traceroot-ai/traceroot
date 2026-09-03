@@ -1,4 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// The catalog is read through `readFileSync`, so counting reads is the only
+// way to prove the memoized lookup does not re-read the file per template.
+const readFileSyncSpy = vi.hoisted(() => vi.fn());
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  readFileSyncSpy.mockImplementation(actual.readFileSync);
+  return { ...actual, readFileSync: readFileSyncSpy };
+});
+
 import {
   extractTemplatePrompt,
   loadCatalogSource,
@@ -56,6 +66,33 @@ describe("extractTemplatePrompt", () => {
     expect(extractTemplatePrompt(source, "x")).toBe('say "hi" now');
   });
 
+  it("decodes the JS escapes a source literal spells out", () => {
+    const source = String.raw`[{ id: "x", prompt: "line\nnext\ttab\\slash\u00e9", }]`;
+    expect(extractTemplatePrompt(source, "x")).toBe("line\nnext\ttab\\slash\u00e9");
+  });
+
+  it("decodes an escaped single quote", () => {
+    const source = String.raw`[{ id: "x", prompt: "it\'s here", }]`;
+    expect(extractTemplatePrompt(source, "x")).toBe("it's here");
+  });
+
+  it("does not treat prompt text containing an id field as the next entry", () => {
+    // A prompt that quotes catalog JSON would otherwise cut the entry short
+    // and the prompt would come back truncated or unreadable.
+    const source = [
+      "[",
+      '  { id: "x",',
+      '    prompt: `Reply with id: "y" when unsure.',
+      "Second line.`,",
+      "  },",
+      '  { id: "y", prompt: "other", },',
+      "]",
+    ].join("\n");
+    expect(extractTemplatePrompt(source, "x")).toBe(
+      'Reply with id: "y" when unsure.\nSecond line.',
+    );
+  });
+
   it("throws when the prompt literal is never closed", () => {
     expect(() => extractTemplatePrompt('[{ id: "x", prompt: "unclosed', "x")).toThrow(
       /unterminated/,
@@ -93,7 +130,11 @@ describe("makeCanonicalPrompt", () => {
   });
 
   it("reads the catalog once and reuses it across lookups", () => {
+    readFileSyncSpy.mockClear();
     const canonicalPrompt = makeCanonicalPrompt();
+
     expect(canonicalPrompt("failure")).toBe(canonicalPrompt("failure"));
+    expect(canonicalPrompt("hallucination").length).toBeGreaterThan(0);
+    expect(readFileSyncSpy).toHaveBeenCalledTimes(1);
   });
 });
