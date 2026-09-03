@@ -113,6 +113,7 @@ function CardBody({ body, resourceId }: { body: ResourceCardBody; resourceId: st
               projectId={body.chart.projectId}
               widgetId={resourceId}
               spec={body.chart.spec}
+              rangeId={body.chart.range.id}
             />
           )}
         </div>

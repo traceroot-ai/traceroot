@@ -1,14 +1,20 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { DATE_FILTER_OPTIONS } from "@/lib/date-filter";
 import { ResourceCard } from "./resource-card";
 import type { ResourceCardModel, WidgetChart } from "../lib/resource-card";
 
 // The preview is exercised for real in widget-chart-preview.test.tsx; here it
 // stands in for itself so these tests can assert what the card hands it.
 vi.mock("./widget-chart-preview", () => ({
-  WidgetChartPreview: ({ projectId, widgetId, spec }: WidgetChart & { widgetId: string }) => (
-    <div data-testid="preview">{`${projectId}/${widgetId}/${spec.display.type}`}</div>
+  WidgetChartPreview: ({
+    projectId,
+    widgetId,
+    spec,
+    rangeId,
+  }: Omit<WidgetChart, "range"> & { widgetId: string; rangeId: string }) => (
+    <div data-testid="preview">{`${projectId}/${widgetId}/${spec.display.type}/${rangeId}`}</div>
   ),
 }));
 
@@ -33,6 +39,7 @@ const CHART: WidgetChart = {
     breakdown: null,
     display: { type: "line" },
   },
+  range: DATE_FILTER_OPTIONS.find((o) => o.id === "7d")!,
 };
 
 function model(overrides: Partial<ResourceCardModel> = {}): ResourceCardModel {
@@ -87,7 +94,9 @@ describe("ResourceCard", () => {
     expect(screen.getByText("view spans")).toBeTruthy();
     // findBy: the preview module is loaded through next/dynamic, so the stub
     // mounts a tick after the card renders.
-    expect((await screen.findByTestId("preview")).textContent).toBe("p1/w1/line");
+    // The card hands the preview the range it snapshotted, so the header's
+    // label and the plot's window cannot come apart.
+    expect((await screen.findByTestId("preview")).textContent).toBe("p1/w1/line/7d");
   });
 
   it("shows no preview for a widget with no chart to draw", () => {

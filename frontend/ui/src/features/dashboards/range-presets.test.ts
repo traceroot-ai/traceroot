@@ -29,6 +29,16 @@ describe("resolveSiteRange", () => {
   const stubStorage = (getItem: (key: string) => string | null) =>
     vi.stubGlobal("window", { localStorage: { getItem } });
 
+  /** A browser whose URL pins a filter, over a project with its own stored pick. */
+  const stubUrlAndStorage = (search: string, storedId: string | null) =>
+    vi.stubGlobal("window", {
+      location: { search },
+      localStorage: {
+        getItem: (key: string) =>
+          key === dateFilterStorageKey("p1") && storedId ? JSON.stringify({ id: storedId }) : null,
+      },
+    });
+
   afterEach(() => vi.unstubAllGlobals());
 
   it("reads the site's own storage slot and returns the stored preset", () => {
@@ -63,6 +73,56 @@ describe("resolveSiteRange", () => {
     stubStorage(() => {
       throw new Error("denied");
     });
+    expect(resolveSiteRange("p1")).toEqual(DEFAULT_DATE_FILTER);
+  });
+
+  it("clamps a stored range that the plan's retention no longer allows", () => {
+    // A downgrade leaves the old 90d selection in storage. Neither the label
+    // nor the query it names may outrun the window the plan still covers.
+    stubStorage(() => JSON.stringify({ id: "90d" }));
+    expect(resolveSiteRange("p1", 30)).toEqual(RANGE_PRESETS.find((o) => o.id === "30d"));
+  });
+
+  it("keeps the stored range when retention allows it or is still unknown", () => {
+    stubStorage(() => JSON.stringify({ id: "90d" }));
+    const ninety = RANGE_PRESETS.find((o) => o.id === "90d");
+    expect(resolveSiteRange("p1", 90)).toEqual(ninety);
+    // Undefined means "retention hasn't resolved yet" — clamping then would
+    // narrow every window on a hard reload.
+    expect(resolveSiteRange("p1", undefined)).toEqual(ninety);
+    expect(resolveSiteRange("p1", null)).toEqual(ninety);
+  });
+
+  it("clamps the default fallback too, not just a stored pick", () => {
+    stubStorage(() => null);
+    expect(resolveSiteRange("p1", 0.25)).toEqual(RANGE_PRESETS.find((o) => o.id === "6h"));
+  });
+
+  it("lets the URL's pinned filter win over the project's stored pick", () => {
+    // A shared link naming 7d must not leave the cards charting the 1d the
+    // picker last stored: the page and everything on it name one window.
+    stubUrlAndStorage("?date_filter=7d", "1d");
+    expect(resolveSiteRange("p1")).toEqual(RANGE_PRESETS.find((o) => o.id === "7d"));
+  });
+
+  it("falls back to the stored pick when the URL pins nothing", () => {
+    stubUrlAndStorage("?tab=widgets", "7d");
+    expect(resolveSiteRange("p1")).toEqual(RANGE_PRESETS.find((o) => o.id === "7d"));
+  });
+
+  it("clamps a URL-pinned range past the plan's retention, like any other", () => {
+    stubUrlAndStorage("?date_filter=90d", null);
+    expect(resolveSiteRange("p1", 7).durationMinutes).toBeLessThanOrEqual(7 * 24 * 60);
+  });
+
+  it("falls back for a URL-pinned id these preset-only surfaces can't draw", () => {
+    stubUrlAndStorage("?date_filter=custom&start=x&end=y", null);
+    expect(resolveSiteRange("p1")).toEqual(DEFAULT_DATE_FILTER);
+  });
+
+  it("survives a window with no location at all", () => {
+    // The storage-only stub the tests above use is exactly this shape.
+    stubStorage(() => null);
     expect(resolveSiteRange("p1")).toEqual(DEFAULT_DATE_FILTER);
   });
 

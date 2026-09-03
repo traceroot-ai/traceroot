@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { appendWidgetPlacement } from "@/features/dashboards/widget-placement";
 import { DISPLAY_TYPES } from "@/features/dashboards/types";
+import { DATE_FILTER_OPTIONS, DEFAULT_DATE_FILTER } from "@/lib/date-filter";
 import { dateFilterStorageKey } from "@/lib/date-filter-storage";
 import {
   createdWidgetsByDashboard,
@@ -33,6 +34,8 @@ function step(overrides: {
 function created(resourceType: string, resourceId: string, extra: Record<string, unknown> = {}) {
   return { kind: "resource_created", resourceType, resourceId, created: true, ...extra };
 }
+
+const preset = (id: string) => DATE_FILTER_OPTIONS.find((o) => o.id === id)!;
 
 const WIDGET_SPEC = {
   view: "spans",
@@ -71,6 +74,7 @@ describe("resourceCardModel", () => {
         chart: {
           projectId: "p1",
           spec: { ...WIDGET_SPEC, filters: [] },
+          range: DEFAULT_DATE_FILTER,
         },
       },
     });
@@ -117,6 +121,7 @@ describe("resourceCardModel", () => {
           breakdown: null,
           display: { type: "line" },
         },
+        range: DEFAULT_DATE_FILTER,
       },
     });
   });
@@ -145,7 +150,11 @@ describe("resourceCardModel", () => {
       details: created("widget", "w2", { projectId: "p1", dashboardId: "db1" }),
     });
     const widgets = new Map([["db1", [widgetStep(), second]]]);
-    const chart = { projectId: "p1", spec: { ...WIDGET_SPEC, filters: [] } };
+    const chart = {
+      projectId: "p1",
+      spec: { ...WIDGET_SPEC, filters: [] },
+      range: DEFAULT_DATE_FILTER,
+    };
     expect(resourceCardModel(dashboard, widgets)).toEqual({
       resourceType: "dashboard",
       resourceId: "db1",
@@ -571,6 +580,7 @@ describe("dashboard miniature tiles", () => {
     expect(tileOf.chart).toEqual({
       projectId: "p1",
       spec: { ...WIDGET_SPEC, filters: [], display: { type: "line" } },
+      range: DEFAULT_DATE_FILTER,
     });
   });
 
@@ -776,6 +786,7 @@ describe("pendingCardModel", () => {
         chart: {
           projectId: "p1",
           spec: { ...WIDGET_SPEC, filters: [] },
+          range: DEFAULT_DATE_FILTER,
         },
       },
     });
@@ -937,6 +948,39 @@ describe("meta window label follows the site's stored range", () => {
       "p1",
     );
     expect(pending?.meta).toEqual(["Widget", "Last 7 days"]);
+  });
+
+  it("snapshots one range for the label and the chart the preview will draw", () => {
+    // The label is built now; the plot freezes its window when the card first
+    // scrolls into view. Both must read the SAME snapshot, or a range changed
+    // in between leaves the card labeled one window and plotted with another.
+    stubStoredRange("p1", "7d");
+    const model = resourceCardModel(widgetStep());
+    expect(model?.meta).toEqual(["Widget", "Last 7 days"]);
+    expect((model?.body as { chart: { range: unknown } }).chart.range).toEqual(preset("7d"));
+  });
+
+  it("clamps a stored range past the plan's retention in both the label and the chart", () => {
+    stubStoredRange("p1", "90d");
+    const model = resourceCardModel(widgetStep(), undefined, 30);
+    expect(model?.meta).toEqual(["Widget", "Last 30 days"]);
+    expect((model?.body as { chart: { range: unknown } }).chart.range).toEqual(preset("30d"));
+  });
+
+  it("clamps a pending card's range the same way", () => {
+    stubStoredRange("p1", "90d");
+    const pending = pendingCardModel(
+      {
+        toolCallId: "tcp1",
+        toolName: "create_widget",
+        args: { title: "Tokens by model", type: "query", spec: WIDGET_SPEC },
+        status: "running",
+      },
+      "p1",
+      30,
+    );
+    expect(pending?.meta).toEqual(["Widget", "Last 30 days"]);
+    expect((pending?.body as { chart: { range: unknown } }).chart.range).toEqual(preset("30d"));
   });
 
   it("keeps the default label for an unknown stored id", () => {

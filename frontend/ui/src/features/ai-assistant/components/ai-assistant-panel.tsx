@@ -10,6 +10,7 @@ import { MessageInput } from "./message-input";
 import { SessionHistory } from "./session-history";
 import { useAiChatContext } from "./ai-chat-context";
 import { getProject, getAvailableLLMModels } from "@/lib/api";
+import { useRetention } from "@/lib/hooks/use-retention";
 
 interface AiAssistantPanelProps {
   projectId?: string;
@@ -84,6 +85,12 @@ export function AiAssistantPanel({
 
   // workspaceId from project (only available on project pages)
   const workspaceId = project?.workspace_id;
+
+  // The plan's retention window, passed to the transcript so a range left in
+  // storage by a workspace that has since downgraded is neither charted nor
+  // labeled on a card. (It reuses the project query above; with no project
+  // there is no plan to look up, and nothing is clamped.)
+  const { retentionDays } = useRetention(projectId ?? "");
 
   // Check if any models are available (system or BYOK)
   const { data: llmModels } = useQuery({
@@ -244,6 +251,7 @@ export function AiAssistantPanel({
             messages={messages}
             sessionStreaming={isStreaming}
             projectId={projectId}
+            retentionDays={projectId ? retentionDays : undefined}
             onDecision={handleDecision}
           />
         )}
