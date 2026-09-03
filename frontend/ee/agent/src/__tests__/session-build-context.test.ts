@@ -159,6 +159,61 @@ describe("SessionManager.buildContext", () => {
     expect(texts[3]).toContain("API error 403");
   });
 
+  it("restores the user's revision text so a rebuilt agent re-proposes with the changes", async () => {
+    // Without the requested changes in the record, a rebuilt agent only
+    // knows the proposal was declined and re-proposes the original args.
+    const revision = "use p95 instead of p50, and scope it to the checkout service";
+    mocks.findUnique.mockResolvedValue({
+      id: "s1",
+      messages: [
+        row("1", "user", "add a latency chart"),
+        row("2", "tool_step", "", {
+          metadata: {
+            toolCallId: "t1",
+            toolName: "create_widget",
+            args: { title: "p50 latency" },
+            result: {
+              content: [{ type: "text", text: "Revise it." }],
+              details: { kind: "proposal_declined", outcome: "revised", text: revision },
+            },
+            isError: true,
+          },
+        }),
+      ],
+    });
+
+    const context = await new SessionManager("s1").buildContext();
+    const text = (context[1] as { content: Array<{ text: string }> }).content[0].text;
+    expect(text).toContain("not executed");
+    expect(text).toContain(revision);
+  });
+
+  it("bounds the restored revision text like every other restored record", async () => {
+    mocks.findUnique.mockResolvedValue({
+      id: "s1",
+      messages: [
+        row("1", "user", "go"),
+        row("2", "tool_step", "", {
+          metadata: {
+            toolCallId: "t1",
+            toolName: "create_widget",
+            args: { title: "p50 latency" },
+            result: {
+              content: [{ type: "text", text: "Revise it." }],
+              details: { kind: "proposal_declined", outcome: "revised", text: "y".repeat(5000) },
+            },
+            isError: true,
+          },
+        }),
+      ],
+    });
+
+    const context = await new SessionManager("s1").buildContext();
+    const text = (context[1] as { content: Array<{ text: string }> }).content[0].text;
+    expect(text.length).toBeLessThanOrEqual(600);
+    expect(text).toContain("yyyy");
+  });
+
   it("degrades a tool_step with absent or truncated metadata to a bare completion record", async () => {
     mocks.findUnique.mockResolvedValue({
       id: "s1",

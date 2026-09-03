@@ -26,6 +26,9 @@ const TOOL_RECORD_CHAR_CAP = 600;
 /** How much of a tool result's text survives into a generic (no structured details) record. */
 const RESULT_SNIPPET_CHARS = 200;
 
+/** How much of the user's revision text survives into a revised proposal's record. */
+const REVISION_TEXT_CHARS = 300;
+
 function clip(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1)}…`;
 }
@@ -80,10 +83,14 @@ export function describeToolStep(metadata: unknown): string {
   let outcome: string;
   if (details?.kind === "proposal_declined") {
     // The user answered the confirmation card with skip/revise: the write
-    // never ran, and the record must be unmistakable about that.
+    // never ran, and the record must be unmistakable about that. A revision
+    // carries the user's requested changes — without them a rebuilt agent
+    // would re-propose the original args.
+    const revision = typeof details.text === "string" && details.text ? details.text : undefined;
     outcome =
       details.outcome === "revised"
-        ? "proposal declined by the user with a revision request — not executed"
+        ? "proposal declined by the user with a revision request — not executed" +
+          (revision ? `; requested changes: ${clip(revision, REVISION_TEXT_CHARS)}` : "")
         : "proposal declined by the user — not executed";
   } else if (details?.kind === "resource_created") {
     const resourceType =

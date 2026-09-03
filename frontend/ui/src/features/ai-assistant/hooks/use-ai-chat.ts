@@ -70,6 +70,12 @@ export function useAiChat({
   // decision without re-binding on every stream delta.
   const messagesBySessionRef = useRef(messagesBySession);
   messagesBySessionRef.current = messagesBySession;
+  // Parked calls with a decision POST in flight (toolCallId → sessionId). A
+  // step stays `pending` until the server accepts the decision, so without
+  // this mark a second reply (or a card click racing a typed one) would
+  // re-target the same call — and its 409 would fall through to a plain send
+  // that aborts the very run executing the first decision.
+  const decidingRef = useRef<Map<string, string>>(new Map());
 
   // Set so concurrent ensureSession calls don't cancel each other; handleClose
   // aborts all in-flight POST /sessions to prevent post-close resurrection.
@@ -149,6 +155,9 @@ export function useAiChat({
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (ac.signal.aborted || !data) return;
+        // A run may have started in this session while the fetch was in
+        // flight — the stale load must not wipe the live turn.
+        if (isSessionStreaming(initialSessionId)) return;
         setSessionMessages(initialSessionId, mapDbMessages(data.messages || []));
       })
       .catch((err) => {
@@ -205,17 +214,29 @@ export function useAiChat({
     const sessionId = activeSessionIdRef.current;
     if (!projectId || !sessionId) return null;
     const step = (messagesBySessionRef.current[sessionId] ?? []).find(
-      (m) => m.role === "tool_step" && m.toolStep?.pending !== undefined,
+      (m) =>
+        m.role === "tool_step" &&
+        m.toolStep?.pending !== undefined &&
+        !decidingRef.current.has(m.toolStep.toolCallId),
     )?.toolStep;
     return step?.pending ? { sessionId, step, pending: step.pending } : null;
   }, [projectId]);
 
+  /** True while a decision POST is in flight for one of this session's calls. */
+  const hasDecisionInFlight = useCallback((sessionId: string | null) => {
+    if (!sessionId) return false;
+    for (const owner of decidingRef.current.values()) if (owner === sessionId) return true;
+    return false;
+  }, []);
+
   /**
    * Resolve a parked decision as a revision carrying the user's message.
-   * Returns true when the revision landed — the message's job is done: the
+   * Returns true when the message's job is done: the revision landed — the
    * declined tool result delivers the words to the model on the still-open
-   * turn, which re-proposes in place. Returns false when the decision is
-   * stale or undeliverable (expired, decided elsewhere, network failure),
+   * turn, which re-proposes in place — or someone decided first (409), in
+   * which case the run is already acting on that decision and the reply is
+   * dropped rather than sent as a message that would abort it. Returns false
+   * when the decision is stale or undeliverable (expired, network failure),
    * and the caller sends the message normally so the user's text is never
    * lost.
    */
@@ -226,6 +247,7 @@ export function useAiChat({
     ): Promise<boolean> => {
       const { sessionId, step, pending } = target;
       const hardEpoch = hardBoundaryEpochRef.current;
+      decidingRef.current.set(step.toolCallId, sessionId);
       try {
         const res = await fetch(`/api/projects/${projectId}/ai/sessions/${sessionId}/decisions`, {
           method: "POST",
@@ -236,6 +258,15 @@ export function useAiChat({
             text,
           }),
         });
+        if (res.status === 409) {
+          // Already decided elsewhere: the call is no longer parked, so the
+          // card stops offering it; the stream's tool result labels the
+          // outcome. The reply itself is dropped (the turn is still open).
+          if (hardEpoch === hardBoundaryEpochRef.current) {
+            resolvePendingDecision(sessionId, step.toolCallId, "create");
+          }
+          return true;
+        }
         if (!res.ok) return false;
         // A hard boundary (close, project switch) crossed while the POST was
         // in flight: the revision landed server-side, but the local buckets
@@ -256,6 +287,8 @@ export function useAiChat({
         return true;
       } catch {
         return false;
+      } finally {
+        decidingRef.current.delete(step.toolCallId);
       }
     },
     [projectId, resolvePendingDecision, appendUserMessage],
@@ -271,7 +304,14 @@ export function useAiChat({
         // the parked call instead of opening a new user turn. Falls through
         // to a normal send when the decision went stale while typing.
         const parked = findActiveParkedStep();
-        if (parked && (await reviseParkedDecision(parked, message))) return;
+        if (parked) {
+          if (await reviseParkedDecision(parked, message)) return;
+        } else if (hasDecisionInFlight(activeSessionIdRef.current)) {
+          // The parked call is being decided right now (an earlier reply, or
+          // a card click). A plain send would abort the run that is about
+          // to act on that decision, so the reply is dropped instead.
+          return;
+        }
         const epoch = sessionEpochRef.current;
         const hardEpoch = hardBoundaryEpochRef.current;
         const sessionId = await ensureSession();
@@ -310,6 +350,7 @@ export function useAiChat({
       ensureSession,
       sendMessage,
       findActiveParkedStep,
+      hasDecisionInFlight,
       reviseParkedDecision,
     ],
   );
@@ -344,6 +385,9 @@ export function useAiChat({
     pendingSessionRef.current = null;
     abortAll();
     clearAll();
+    // Sync the ref now so a send arriving before the next render opens a
+    // fresh session instead of reusing the closed one.
+    activeSessionIdRef.current = null;
     setActiveSessionId(null);
   }, [abortAll, clearAll]);
 
@@ -391,6 +435,9 @@ export function useAiChat({
       setSessions((prev) => prev.filter((s) => s.id !== sessionId));
       removeSession(sessionId);
       if (activeSessionIdRef.current === sessionId) {
+        // Sync the ref now so a send arriving before the next render does
+        // not post into the session that was just deleted.
+        activeSessionIdRef.current = null;
         setActiveSessionId(null);
       }
     },
@@ -415,6 +462,7 @@ export function useAiChat({
     }): Promise<boolean> => {
       const sessionId = activeSessionIdRef.current;
       if (!projectId || !sessionId) return false;
+      decidingRef.current.set(params.toolCallId, sessionId);
       try {
         const res = await fetch(`/api/projects/${projectId}/ai/sessions/${sessionId}/decisions`, {
           method: "POST",
@@ -433,6 +481,8 @@ export function useAiChat({
         return false;
       } catch {
         return false;
+      } finally {
+        decidingRef.current.delete(params.toolCallId);
       }
     },
     [projectId, resolvePendingDecision],

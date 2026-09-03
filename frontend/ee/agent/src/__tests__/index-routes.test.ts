@@ -1,9 +1,11 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import { app } from "../index.js";
 import { pendingDecisions, SESSION_DELETED_SKIP_REASON } from "../pending-decisions.js";
 import { deleteSession, getSession } from "../session.js";
-import { runAgent, type AgentEventHandler } from "../agent.js";
+import { getOrCreateAgent, removeAgent, runAgent, type AgentEventHandler } from "../agent.js";
+import { createExecutor } from "../executors/index.js";
 import { createTools } from "../tools/index.js";
+import { createWritePolicyHook } from "../tools/write-policy.js";
 import type { AgentEvent } from "@earendil-works/pi-agent-core";
 
 vi.mock("@traceroot/core", () => ({
@@ -42,6 +44,11 @@ vi.mock("../prompts/system.js", () => ({
 const mockedGetSession = vi.mocked(getSession);
 const mockedDeleteSession = vi.mocked(deleteSession);
 const mockedRunAgent = vi.mocked(runAgent);
+
+const CONFIRM_ENTRY = {
+  name: "create_detector",
+  policy: { approvalClass: "confirm", minRole: "MEMBER", tenancy: "project" },
+} as const;
 
 function park(sessionId: string) {
   return pendingDecisions.park({
@@ -86,6 +93,46 @@ describe("DELETE session — release path", () => {
     expect(res.status).toBe(404);
     expect(pendingDecisions.pendingCount("del-2")).toBe(1);
     pendingDecisions.releaseSession("del-2", "test cleanup");
+  });
+
+  it("authorizes before tearing down the session's executor and agent", async () => {
+    // A project member holding another user's session id must not be able
+    // to destroy that session's sandbox or evict its agent by way of a 404.
+    mockedGetSession.mockResolvedValue({
+      id: "del-3",
+      userId: "u1",
+      projectId: "p1",
+      workspaceId: "w1",
+      title: "t",
+    } as never);
+    mockedRunAgent.mockImplementation(async (_agent, _msg, handler: AgentEventHandler) => {
+      handler.onDone();
+    });
+    const run = await app.request("/api/v1/projects/p1/sessions/del-3/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-user-id": "u1" },
+      body: JSON.stringify({ message: "hello" }),
+    });
+    await run.text();
+    const executor = vi.mocked(createExecutor).mock.results[0].value as { destroy: Mock };
+
+    mockedDeleteSession.mockResolvedValue(null as never);
+    const intruder = await app.request("/api/v1/projects/p1/sessions/del-3", {
+      method: "DELETE",
+      headers: { "x-user-id": "intruder" },
+    });
+    expect(intruder.status).toBe(404);
+    expect(executor.destroy).not.toHaveBeenCalled();
+    expect(vi.mocked(removeAgent)).not.toHaveBeenCalled();
+
+    mockedDeleteSession.mockResolvedValue({ id: "del-3" } as never);
+    const owner = await app.request("/api/v1/projects/p1/sessions/del-3", {
+      method: "DELETE",
+      headers: { "x-user-id": "u1" },
+    });
+    expect(owner.status).toBe(200);
+    expect(executor.destroy).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(removeAgent)).toHaveBeenCalledWith("del-3");
   });
 });
 
@@ -168,6 +215,107 @@ describe("DELETE session tenancy", () => {
 
     expect(res.status).toBe(404);
     expect(mockedDeleteSession).toHaveBeenCalledWith("s-owned", "u1", "pB");
+  });
+});
+
+describe("messages route attendedness", () => {
+  it("treats a signed-in user continuing a system (RCA) session as attended", async () => {
+    // The session row's owner is null for RCA sessions the detector processor
+    // creates, but the REQUEST carries a user who can answer confirmation
+    // cards — a confirm-class write must park for them, not execute silently.
+    mockedGetSession.mockResolvedValue({
+      id: "rca-1",
+      userId: null,
+      projectId: "p1",
+      workspaceId: "w1",
+      title: "RCA: checkout timeout",
+    } as never);
+    const hook = createWritePolicyHook([CONFIRM_ENTRY], { sessionId: "rca-1" });
+    let channelUserId: string | undefined;
+    let parkedCount: number | undefined;
+    let hookResult: Promise<unknown> | undefined;
+    mockedRunAgent.mockImplementation(async (_agent, _msg, handler: AgentEventHandler) => {
+      channelUserId = pendingDecisions.channelFor("rca-1")?.userId;
+      hookResult = hook({
+        toolCall: { type: "toolCall", id: "tc-1", name: "create_detector", arguments: {} },
+        args: {},
+      } as never);
+      // Parked: nothing settles until the user decides.
+      await new Promise((resolve) => setImmediate(resolve));
+      parkedCount = pendingDecisions.pendingCount("rca-1");
+      pendingDecisions.releaseSession("rca-1", "test cleanup");
+      await hookResult;
+      handler.onDone();
+    });
+
+    const res = await app.request("/api/v1/projects/p1/sessions/rca-1/messages", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-user-id": "u1" },
+      body: JSON.stringify({ message: "create a detector for this" }),
+    });
+
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(channelUserId).toBe("u1");
+    expect(parkedCount).toBe(1);
+    expect(text).toContain("event: confirmation_pending");
+    await expect(hookResult).resolves.toEqual({ block: true, reason: "test cleanup" });
+  });
+});
+
+describe("messages route concurrency", () => {
+  it("rejects a second prompt while a run is in flight without disturbing the first run", async () => {
+    // A rival prompt on a parked session used to persist its user row,
+    // register a last-wins channel, fail in pi's "already processing"
+    // check, and — on its error path — release the FIRST run's healthy
+    // proposal before unregistering the only channel.
+    mockedGetSession.mockResolvedValue({
+      id: "busy-1",
+      userId: "u1",
+      projectId: "p1",
+      workspaceId: "w1",
+      title: "t",
+    } as never);
+    let finishFirstRun!: () => void;
+    const firstRunGate = new Promise<void>((resolve) => {
+      finishFirstRun = resolve;
+    });
+    mockedRunAgent.mockImplementation(async (_agent, _msg, handler: AgentEventHandler) => {
+      park("busy-1");
+      await firstRunGate;
+      pendingDecisions.releaseSession("busy-1", "test cleanup");
+      handler.onDone();
+    });
+    const post = () =>
+      app.request("/api/v1/projects/p1/sessions/busy-1/messages", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-user-id": "u1" },
+        body: JSON.stringify({ message: "hello" }),
+      });
+
+    const first = await post();
+    expect(first.status).toBe(200);
+    const firstChannel = pendingDecisions.channelFor("busy-1");
+    expect(firstChannel).toBeDefined();
+
+    const second = await post();
+    expect(second.status).toBe(409);
+    expect(await second.json()).toEqual({ error: expect.stringContaining("in progress") });
+    // Nothing of the second request touched the session: no agent lookup
+    // (so no user row), and the first run's proposal and channel are intact.
+    expect(vi.mocked(getOrCreateAgent)).toHaveBeenCalledTimes(1);
+    expect(pendingDecisions.pendingCount("busy-1")).toBe(1);
+    expect(pendingDecisions.channelFor("busy-1")).toBe(firstChannel);
+
+    finishFirstRun();
+    expect(await first.text()).toContain("event: done");
+    // The claim is released with the run, so the session accepts prompts again.
+    mockedRunAgent.mockImplementation(async (_agent, _msg, handler: AgentEventHandler) => {
+      handler.onDone();
+    });
+    const third = await post();
+    expect(third.status).toBe(200);
+    await third.text();
   });
 });
 

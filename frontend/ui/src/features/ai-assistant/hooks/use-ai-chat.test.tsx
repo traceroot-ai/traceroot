@@ -722,6 +722,122 @@ describe("useAiChat session switching", () => {
     expect(result.current.currentSessionId).toBe("S2");
   });
 
+  it("an initialSessionId history load resolving after a send does not clobber the live run", async () => {
+    const sseR = createSSE();
+    let resolveHistory!: (r: Response) => void;
+    const deferredHistory = new Promise<Response>((r) => {
+      resolveHistory = r;
+    });
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "GET" && url.endsWith("/ai/sessions/R/messages")) return deferredHistory;
+      if (method === "POST" && url.endsWith("/ai/sessions/R/messages")) return sseR.response;
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    const { result } = renderHook(() => useAiChat({ projectId: "p1", initialSessionId: "R" }), {
+      wrapper,
+    });
+
+    // the user sends in R before its history load resolves
+    await act(async () => {
+      await result.current.handleSend("fresh question", MODEL);
+    });
+    sseR.emit("live reply");
+    await waitFor(() =>
+      expect(result.current.messages.some((m) => m.content === "live reply")).toBe(true),
+    );
+
+    await act(async () => {
+      resolveHistory(
+        jsonResponse({
+          messages: [
+            {
+              id: "r-old",
+              role: "user",
+              content: "history of R",
+              createTime: "2026-01-01T00:00:00Z",
+            },
+          ],
+        }),
+      );
+      await deferredHistory;
+    });
+
+    expect(result.current.messages.some((m) => m.content === "fresh question")).toBe(true);
+    expect(result.current.messages.some((m) => m.content === "live reply")).toBe(true);
+    expect(result.current.isStreaming).toBe(true);
+  });
+
+  it("a send immediately after deleting the active session opens a new one", async () => {
+    let sessionPosts = 0;
+    const messagePosts: string[] = [];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.endsWith("/ai/sessions")) {
+        sessionPosts += 1;
+        return jsonResponse({ id: `S${sessionPosts}` });
+      }
+      const messageMatch = url.match(/\/ai\/sessions\/([^/]+)\/messages$/);
+      if (method === "POST" && messageMatch) {
+        messagePosts.push(messageMatch[1]);
+        return createSSE().response;
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    const { result } = renderChat();
+
+    await act(async () => {
+      await result.current.handleSend("old chat", MODEL);
+    });
+    expect(result.current.currentSessionId).toBe("S1");
+
+    // delete and send in the same tick — before any rerender can sync refs
+    await act(async () => {
+      result.current.handleDeleteSession("S1");
+      await result.current.handleSend("fresh chat", MODEL);
+    });
+
+    expect(sessionPosts).toBe(2);
+    expect(messagePosts).toEqual(["S1", "S2"]);
+    expect(result.current.currentSessionId).toBe("S2");
+  });
+
+  it("a send immediately after closing the panel opens a new session", async () => {
+    let sessionPosts = 0;
+    const messagePosts: string[] = [];
+    fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      if (method === "POST" && url.endsWith("/ai/sessions")) {
+        sessionPosts += 1;
+        return jsonResponse({ id: `S${sessionPosts}` });
+      }
+      const messageMatch = url.match(/\/ai\/sessions\/([^/]+)\/messages$/);
+      if (method === "POST" && messageMatch) {
+        messagePosts.push(messageMatch[1]);
+        return createSSE().response;
+      }
+      throw new Error(`unexpected fetch: ${method} ${url}`);
+    });
+    const { result } = renderChat();
+
+    await act(async () => {
+      await result.current.handleSend("old chat", MODEL);
+    });
+    expect(result.current.currentSessionId).toBe("S1");
+
+    await act(async () => {
+      result.current.handleClose();
+      await result.current.handleSend("after reopen", MODEL);
+    });
+
+    expect(sessionPosts).toBe(2);
+    expect(messagePosts).toEqual(["S1", "S2"]);
+    expect(result.current.currentSessionId).toBe("S2");
+  });
+
   it("deleting the active session clears the view and stops its stream", async () => {
     const { result } = renderChat();
     await startStreamInA(result);
@@ -1121,23 +1237,100 @@ describe("useAiChat revision by chat", () => {
     expect(findStep(result)?.pending).toEqual({ decisionId: "d1" });
   });
 
-  it.each([[404], [409]])(
-    "falls back to a normal send when the revise returns %d",
-    async (status) => {
-      decisionResponse = () => new Response(JSON.stringify({ error: "stale" }), { status });
-      const { result } = await parkPendingCall();
+  it("falls back to a normal send when the revise returns 404, collapsing the stale card", async () => {
+    decisionResponse = () => new Response(JSON.stringify({ error: "stale" }), { status: 404 });
+    const { result } = await parkPendingCall();
 
-      await act(async () => {
-        await result.current.handleSend("tweak it", MODEL);
+    await act(async () => {
+      await result.current.handleSend("tweak it", MODEL);
+    });
+
+    // The revise was attempted, but the user's text still went out normally.
+    expect(decisionCalls).toHaveLength(1);
+    expect(messagePosts.map((p) => p.message)).toEqual(["make a widget", "tweak it"]);
+    // Exactly one bubble for the text — the normal send's own.
+    expect(result.current.messages.filter((m) => m.content === "tweak it")).toHaveLength(1);
+    // The parked call is gone server-side (already released as a skip), so
+    // the card must not keep offering it — the next reply would re-target it.
+    expect(findStep(result)?.pending).toBeUndefined();
+    expect(findStep(result)?.skipped).toBe(true);
+  });
+
+  it("a second reply while the revise is in flight neither re-targets the card nor starts a run", async () => {
+    const decisions: Array<(r: Response) => void> = [];
+    decisionResponse = () =>
+      new Promise<Response>((r) => {
+        decisions.push(r);
       });
+    const { result } = await parkPendingCall();
 
-      // The revise was attempted, but the user's text still went out normally.
-      expect(decisionCalls).toHaveLength(1);
-      expect(messagePosts.map((p) => p.message)).toEqual(["make a widget", "tweak it"]);
-      // Exactly one bubble for the text — the normal send's own.
-      expect(result.current.messages.filter((m) => m.content === "tweak it")).toHaveLength(1);
-    },
-  );
+    let first!: Promise<void>;
+    let second!: Promise<void>;
+    act(() => {
+      first = result.current.handleSend("make it a bar chart", MODEL);
+    });
+    act(() => {
+      second = result.current.handleSend("and blue", MODEL);
+    });
+    await act(async () => {
+      for (const resolve of decisions) resolve(jsonResponse({ ok: true }));
+      await Promise.all([first, second]);
+    });
+
+    // One decision for the one parked call…
+    expect(decisionCalls).toHaveLength(1);
+    // …and no plain send: that would abort the run now executing the revision.
+    expect(messagePosts.map((p) => p.message)).toEqual(["make a widget"]);
+    expect(result.current.isStreaming).toBe(true);
+  });
+
+  it("a reply typed while a card decision is in flight does not start a run", async () => {
+    let resolveDecision!: (r: Response) => void;
+    decisionResponse = () =>
+      new Promise<Response>((r) => {
+        resolveDecision = r;
+      });
+    const { result } = await parkPendingCall();
+
+    let click!: Promise<boolean>;
+    let reply!: Promise<void>;
+    act(() => {
+      click = result.current.handleDecision({
+        toolCallId: "tc1",
+        decisionId: "d1",
+        action: "create",
+      });
+    });
+    act(() => {
+      reply = result.current.handleSend("actually make it blue", MODEL);
+    });
+    await act(async () => {
+      resolveDecision(jsonResponse({ ok: true }));
+      await Promise.all([click, reply]);
+    });
+
+    expect(decisionCalls.map((c) => (c.body as { action: string }).action)).toEqual(["create"]);
+    expect(messagePosts.map((p) => p.message)).toEqual(["make a widget"]);
+    expect(findStep(result)?.pending).toBeUndefined();
+  });
+
+  it("a revise returning 409 drops the reply instead of sending it as a message", async () => {
+    decisionResponse = () =>
+      new Response(JSON.stringify({ error: "decision already made" }), { status: 409 });
+    const { result } = await parkPendingCall();
+
+    await act(async () => {
+      await result.current.handleSend("tweak it", MODEL);
+    });
+
+    expect(decisionCalls).toHaveLength(1);
+    // Someone already decided: the run is acting on that decision and must
+    // not be aborted by a fallback send.
+    expect(messagePosts.map((p) => p.message)).toEqual(["make a widget"]);
+    // The card no longer offers a decision the server has already taken.
+    expect(findStep(result)?.pending).toBeUndefined();
+    expect(result.current.isStreaming).toBe(true);
+  });
 
   it("falls back to a normal send when the revise cannot be delivered", async () => {
     decisionResponse = () => Promise.reject(new Error("network down"));
