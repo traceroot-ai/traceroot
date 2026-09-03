@@ -25,7 +25,7 @@ export interface RunStreamOptions {
   agent: Agent;
   message: string;
   sessionId: string;
-  /** The session's owner (empty for unattended/system sessions). */
+  /** The requesting user who can answer confirmation cards (empty when unattended). */
   channelUserId: string;
   isByok: boolean;
   sessionManager: Pick<SessionManager, "appendMessage">;
@@ -33,10 +33,32 @@ export interface RunStreamOptions {
   decisions?: PendingDecisions;
 }
 
+/** Sessions with a run in flight — one prompt per session at a time. */
+const activeRuns = new Set<string>();
+
+/**
+ * Claim a session for a run; false when one is already in flight. The route
+ * claims BEFORE persisting the user row or touching the cached agent, and
+ * runAgentStream releases the claim when the run settles: a rival prompt on
+ * a parked session would otherwise register a last-wins channel and, when
+ * pi rejects the overlapping prompt, release the first run's healthy
+ * proposal on its error path.
+ */
+export function claimRun(sessionId: string): boolean {
+  if (activeRuns.has(sessionId)) return false;
+  activeRuns.add(sessionId);
+  return true;
+}
+
+export function releaseRun(sessionId: string): void {
+  activeRuns.delete(sessionId);
+}
+
 /**
  * Run one agent prompt into an SSE stream: forward events, persist the run,
  * and host the confirmation channel that lets the write-policy hook park
- * confirm-class tool calls on this stream.
+ * confirm-class tool calls on this stream. Releases the caller's run claim
+ * (see claimRun) once the run settles.
  *
  * The parking release paths owned here: a run error, run completion, and a
  * client disconnect (stream abort) each resolve any still-parked decisions
@@ -70,6 +92,10 @@ export async function runAgentStream(
   decisions.registerChannel(sessionId, channel);
   stream.onAbort(() => {
     decisions.releaseSession(sessionId, CLIENT_DISCONNECTED_SKIP_REASON);
+    // The turn keeps running after the client is gone: with the channel torn
+    // down, a confirm-class call proposed later fails closed at once instead
+    // of parking against the dead stream until the decision timeout.
+    decisions.unregisterChannel(sessionId, channel);
   });
 
   try {
@@ -157,5 +183,6 @@ export async function runAgentStream(
     });
   } finally {
     decisions.unregisterChannel(sessionId, channel);
+    releaseRun(sessionId);
   }
 }

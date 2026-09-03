@@ -480,13 +480,41 @@ describe("useAIStream confirmation_pending", () => {
       type: "tool_execution_end",
       toolCallId: "tc1",
       toolName: "create_widget",
-      result: { content: [{ type: "text", text: "The user chose to skip this call." }] },
+      result: {
+        content: [{ type: "text", text: "The user chose to skip this call." }],
+        details: { kind: "proposal_declined", outcome: "skipped" },
+      },
       isError: true,
     });
 
     await waitFor(() => expect(findStep(result)?.skipped).toBe(true));
     expect(findStep(result)?.pending).toBeUndefined();
     expect(findStep(result)?.status).toBe("error");
+  });
+
+  it("keeps a real failure on a still-pending step labelled as an error, not a skip", async () => {
+    const sse = createSSE();
+    const { result } = renderHook(() => useAIStream());
+    startSend(result, sse);
+
+    sse.emit(toolStart);
+    sse.emit(pendingEvent("d1"));
+    await waitFor(() => expect(findStep(result)?.pending).toBeDefined());
+
+    // A confirmed write that fails fast: its errored result lands before the
+    // create decision's response clears `pending` locally. Only a declined
+    // proposal carries proposal_declined details — this one is a failure.
+    sse.emit({
+      type: "tool_execution_end",
+      toolCallId: "tc1",
+      toolName: "create_widget",
+      result: { content: [{ type: "text", text: "dashboard not found" }] },
+      isError: true,
+    });
+
+    await waitFor(() => expect(findStep(result)?.status).toBe("error"));
+    expect(findStep(result)?.pending).toBeUndefined();
+    expect(findStep(result)?.skipped).toBeFalsy();
   });
 
   it("never marks an ordinary tool error as skipped", async () => {
@@ -582,5 +610,121 @@ describe("useAIStream confirmation_pending", () => {
     });
     expect(findStep(result)?.pending).toBeUndefined();
     expect(findStep(result)?.skipped).toBe(true);
+  });
+});
+
+describe("useAIStream releases parked steps when their run ends", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  const toolStart = {
+    type: "tool_execution_start",
+    toolCallId: "tc1",
+    toolName: "create_widget",
+    args: { title: "Tokens" },
+  };
+  const pendingEvent = {
+    type: "confirmation_pending",
+    decisionId: "d1",
+    toolCallId: "tc1",
+    toolName: "create_widget",
+    args: { title: "Tokens" },
+  };
+  const findStep = (result: { current: ReturnType<typeof useAIStream> }) =>
+    result.current.messagesBySession["s1"]?.find((m) => m.role === "tool_step")?.toolStep;
+
+  /** Start a run in s1 and park tc1 on it. The run's promise comes back
+   *  wrapped so awaiting this helper does not wait for the run itself. */
+  const parkCall = async (
+    result: { current: ReturnType<typeof useAIStream> },
+    sse: ReturnType<typeof createSSE>,
+  ) => {
+    fetchMock.mockResolvedValueOnce(sse.response);
+    let send!: Promise<void>;
+    act(() => {
+      send = result.current.sendMessage({ sessionId: "s1", message: "make it", projectId: "p1" });
+    });
+    sse.emit(toolStart);
+    sse.emit(pendingEvent);
+    await waitFor(() => expect(findStep(result)?.pending).toEqual({ decisionId: "d1" }));
+    return { send };
+  };
+
+  const expectReleased = (result: { current: ReturnType<typeof useAIStream> }) => {
+    expect(findStep(result)?.pending).toBeUndefined();
+    expect(findStep(result)?.skipped).toBe(true);
+    expect(findStep(result)?.status).toBe("done");
+  };
+
+  it("abortSession releases the session's parked step as skipped", async () => {
+    const sse = createSSE();
+    const { result } = renderHook(() => useAIStream());
+    await parkCall(result, sse);
+
+    act(() => {
+      result.current.abortSession("s1");
+    });
+
+    expectReleased(result);
+  });
+
+  it("abortAll releases parked steps in every session", async () => {
+    const sse = createSSE();
+    const { result } = renderHook(() => useAIStream());
+    await parkCall(result, sse);
+
+    act(() => {
+      result.current.abortAll();
+    });
+
+    expectReleased(result);
+  });
+
+  it("a server error event releases the parked step", async () => {
+    const sse = createSSE();
+    const { result } = renderHook(() => useAIStream());
+    const { send } = await parkCall(result, sse);
+
+    sse.emit({ type: "error", message: "model exploded" });
+    sse.close();
+    await act(() => send);
+
+    expectReleased(result);
+    expect(result.current.messagesBySession["s1"]?.some((m) => m.content.startsWith("Error"))).toBe(
+      true,
+    );
+  });
+
+  it("a stream closing without a tool result releases the parked step", async () => {
+    const sse = createSSE();
+    const { result } = renderHook(() => useAIStream());
+    const { send } = await parkCall(result, sse);
+
+    sse.close();
+    await act(() => send);
+
+    expectReleased(result);
+  });
+
+  it("a superseding send in the same session releases the prior run's parked step", async () => {
+    const sse = createSSE();
+    const { result } = renderHook(() => useAIStream());
+    await parkCall(result, sse);
+
+    fetchMock.mockResolvedValueOnce(createSSE().response);
+    act(() => {
+      void result.current.sendMessage({ sessionId: "s1", message: "again", projectId: "p1" });
+    });
+
+    await waitFor(() => expectReleased(result));
   });
 });

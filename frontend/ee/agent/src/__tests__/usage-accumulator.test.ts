@@ -94,6 +94,18 @@ describe("UsageAccumulator", () => {
     expect(mocks.calculateCost).not.toHaveBeenCalled();
   });
 
+  it("still reports a zero-token run that named a model — the persister decides whether it is billable", async () => {
+    // A first-request failure (bad key, 401/429) ends with a model and no
+    // tokens. The accumulator reports what it saw; StreamPersister.finish is
+    // where a run that produced nothing has its usage dropped.
+    const acc = new UsageAccumulator();
+    acc.onEvent(messageEnd({ input: 0, output: 0, cost: { total: 0 } }));
+    mocks.calculateCost.mockResolvedValueOnce(0);
+
+    const usage = await acc.toTokenUsage(false);
+    expect(usage).toMatchObject({ model: "test-model", inputTokens: 0, outputTokens: 0, cost: 0 });
+  });
+
   it("ignores events other than message_end", async () => {
     const acc = new UsageAccumulator();
     acc.onEvent({ type: "turn_start" } as AgentEvent);

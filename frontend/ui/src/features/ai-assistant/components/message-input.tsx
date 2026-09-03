@@ -4,7 +4,11 @@ import { useState, type KeyboardEvent, type ReactNode } from "react";
 import { ModelSelector, type ModelSelection } from "./model-selector";
 
 interface MessageInputProps {
-  onSend: (message: string, modelSelection: ModelSelection) => void;
+  /**
+   * Sends the message. Resolving `false` means the send was refused (a parked
+   * proposal is mid-decision) and the composer restores what it cleared.
+   */
+  onSend: (message: string, modelSelection: ModelSelection) => void | Promise<boolean | void>;
   /** Controlled: the owner (chat context) keeps the pick across remounts/reloads. */
   modelSelection: ModelSelection;
   onModelChange: (selection: ModelSelection) => void;
@@ -31,8 +35,17 @@ export function MessageInput({
   const handleSend = () => {
     const trimmed = input.trim();
     if (!trimmed || disabled || noModelSelected) return;
-    onSend(trimmed, modelSelection);
     setInput("");
+    // Clear optimistically so the composer stays responsive, then put the text
+    // back if the send was refused — a dropped message with no bubble and no
+    // error reads as the product losing what someone typed.
+    void Promise.resolve(onSend(trimmed, modelSelection))
+      .then((accepted) => {
+        if (accepted === false) setInput((current) => (current === "" ? trimmed : current));
+      })
+      // A send that rejects has already surfaced its own failure; swallowing it
+      // here keeps a failed send from becoming an unhandled rejection.
+      .catch(() => {});
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {

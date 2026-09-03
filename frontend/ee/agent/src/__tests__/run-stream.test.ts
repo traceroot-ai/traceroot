@@ -8,13 +8,19 @@ import {
   RUN_ENDED_SKIP_REASON,
   RUN_ERROR_SKIP_REASON,
 } from "../pending-decisions.js";
-import { runAgentStream, type AgentRunStream } from "../run-stream.js";
+import { claimRun, releaseRun, runAgentStream, type AgentRunStream } from "../run-stream.js";
+import { CONFIRMATION_UNAVAILABLE_REASON, createWritePolicyHook } from "../tools/write-policy.js";
 
 vi.mock("../agent.js", () => ({
   runAgent: vi.fn(),
 }));
 
 const mockedRunAgent = vi.mocked(runAgent);
+
+const CONFIRM_ENTRY = {
+  name: "create_detector",
+  policy: { approvalClass: "confirm", minRole: "MEMBER", tenancy: "project" },
+} as const;
 
 interface FakeStream extends AgentRunStream {
   events: Array<{ event?: string; data: string }>;
@@ -186,6 +192,48 @@ describe("runAgentStream", () => {
     // The unblocked turn runs to completion and the stream promise settles.
     handlerRef!.onDone();
     await running;
+  });
+
+  it("release path: a client disconnect tears down the channel so later confirms fail closed", async () => {
+    // The turn keeps running after the browser goes away; a confirm-class
+    // call proposed later must not park against the dead stream for the full
+    // decision timeout — with no channel, the hook blocks immediately.
+    const decisions = new PendingDecisions();
+    const hook = createWritePolicyHook([CONFIRM_ENTRY], { sessionId: "rs-10", decisions });
+    let handlerRef: AgentEventHandler | undefined;
+    mockedRunAgent.mockImplementation(async (_agent, _msg, handler: AgentEventHandler) => {
+      handlerRef = handler;
+    });
+
+    const stream = fakeStream();
+    const running = runAgentStream(stream, options("rs-10", decisions));
+    expect(decisions.channelFor("rs-10")).toBeDefined();
+
+    stream.triggerAbort();
+    expect(decisions.channelFor("rs-10")).toBeUndefined();
+    await expect(
+      hook({
+        toolCall: { type: "toolCall", id: "tc-late", name: "create_detector", arguments: {} },
+        args: {},
+      } as never),
+    ).resolves.toEqual({ block: true, reason: CONFIRMATION_UNAVAILABLE_REASON });
+    expect(decisions.pendingCount("rs-10")).toBe(0);
+
+    handlerRef!.onDone();
+    await running;
+  });
+
+  it("releases the session's run claim once the run settles", async () => {
+    const decisions = new PendingDecisions();
+    mockedRunAgent.mockImplementation(async (_agent, _msg, handler: AgentEventHandler) => {
+      handler.onDone();
+    });
+    expect(claimRun("rs-11")).toBe(true);
+
+    await runAgentStream(fakeStream(), options("rs-11", decisions));
+
+    expect(claimRun("rs-11")).toBe(true);
+    releaseRun("rs-11");
   });
 
   it("stamps proposal_declined details onto a declined call's tool result", async () => {
