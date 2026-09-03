@@ -15,6 +15,12 @@ import {
  * The model-visible schema and policy still come from the registry entry.
  */
 interface WriteToolSpec {
+  /**
+   * Agent-facing wording that replaces the registry description when the
+   * chat agent's execution differs from the public API's (the registry
+   * text documents the API/CLI contract).
+   */
+  description?: string;
   /** Public snake_case field → internal camelCase body key (tenancy fields excluded). */
   fieldMap: Record<string, string>;
   /** Key holding the resource in the route's success payload. */
@@ -38,6 +44,12 @@ export interface ResourceCreatedDetails {
    */
   resourceType: "workspace" | "project" | "detector" | "dashboard" | "widget";
   resourceId: string;
+  /** The name (or title) the resource actually carries — for a dashboard,
+   *  possibly not the one the model asked for (see renamedFrom). */
+  name?: string;
+  /** The name the model asked for, when the service created the dashboard
+   *  under a suffixed one because that name was already taken. */
+  renamedFrom?: string;
   /** false when the write was idempotent and an existing resource was reused. */
   created: boolean;
   projectId?: string;
@@ -68,6 +80,13 @@ const WRITE_TOOL_SPECS: Readonly<Record<string, WriteToolSpec>> = {
     displayNameKey: "name",
   },
   create_dashboard: {
+    // The API/CLI create is idempotent on the name; the agent's is not — a
+    // human just confirmed the create on the chat card, so a same-name
+    // dashboard is created under a suffixed name rather than reused.
+    description:
+      "Create a dashboard in a project; add charts to it with create_widget. If a dashboard " +
+      'with the requested name already exists, the new one is created as "<name> (2)" (then ' +
+      '"(3)", …) and the result reports the name it was given.',
     fieldMap: { name: "name", description: "description" },
     resourceKey: "dashboard",
     displayNameKey: "name",
@@ -139,12 +158,24 @@ function buildWriteSuccess(
     kind: "resource_created",
     resourceType: spec.resourceKey,
     resourceId: id,
+    name: displayName,
     created,
     ...tenancyIds,
   };
   // Widgets live under a dashboard; the route echoes which one.
   if (typeof resource?.dashboardId === "string") {
     details.dashboardId = resource.dashboardId;
+  }
+  // The dashboard route reports, beside the row, the name it had to rename
+  // away from; the model must learn the real name before it refers to it.
+  if (typeof payload.renamedFrom === "string") {
+    details.renamedFrom = payload.renamedFrom;
+    return {
+      text:
+        `Created ${spec.resourceKey} "${displayName}" — a ${spec.resourceKey} named ` +
+        `"${payload.renamedFrom}" already existed, so this one got a new name (id ${id})`,
+      details,
+    };
   }
   if (created) {
     return { text: `Created ${spec.resourceKey} "${displayName}" (id ${id})`, details };
@@ -229,7 +260,7 @@ export function createRegistryWriteTools(opts: CreateRegistryWriteToolsOptions):
     return {
       name: entry.name,
       label: humanizeName(entry.name),
-      description: entry.description,
+      description: spec.description ?? entry.description,
       parameters: { type: "object", properties, required, additionalProperties: false },
       execute: async (
         _toolCallId,

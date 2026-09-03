@@ -111,6 +111,7 @@ describe("createRegistryWriteTools", () => {
       kind: "resource_created",
       resourceType: "detector",
       resourceId: "d1",
+      name: "latency",
       created: true,
       projectId: "p1",
     });
@@ -256,6 +257,7 @@ describe("createRegistryWriteTools", () => {
       kind: "resource_created",
       resourceType: "widget",
       resourceId: "wg1",
+      name: "Spend by model",
       created: true,
       projectId: "p1",
       dashboardId: "db1",
@@ -279,6 +281,7 @@ describe("createRegistryWriteTools", () => {
       kind: "resource_created",
       resourceType: "detector",
       resourceId: "d1",
+      name: "latency",
       created: false,
       projectId: "p1",
     });
@@ -341,6 +344,7 @@ describe("createRegistryWriteTools", () => {
       kind: "resource_created",
       resourceType: "dashboard",
       resourceId: "db1",
+      name: "Spend",
       created: true,
       projectId: "p1",
     });
@@ -357,9 +361,43 @@ describe("createRegistryWriteTools", () => {
       kind: "resource_created",
       resourceType: "dashboard",
       resourceId: "db1",
+      name: "Spend",
       created: true,
       projectId: "p1",
     });
+  });
+
+  it("reports a renamed dashboard create with the name it landed under and what it was renamed from", async () => {
+    const { client } = stubClient({
+      created: true,
+      dashboard: { id: "db2", name: "Spend (2)", projectId: "p1" },
+      renamedFrom: "Spend",
+    });
+    const tool = makeTools(client).find((t) => t.name === "create_dashboard")!;
+    const result = await tool.execute("id", { label: "x", name: "Spend" });
+    expect(result.content[0]!.text).toBe(
+      'Created dashboard "Spend (2)" — a dashboard named "Spend" already existed, so this one got a new name (id db2)',
+    );
+    expect(result.details).toEqual({
+      kind: "resource_created",
+      resourceType: "dashboard",
+      resourceId: "db2",
+      name: "Spend (2)",
+      renamedFrom: "Spend",
+      created: true,
+      projectId: "p1",
+    });
+  });
+
+  it("tells the model create_dashboard renames on a collision instead of the registry's idempotent wording", () => {
+    const tool = makeTools(stubClient().client).find((t) => t.name === "create_dashboard")!;
+    expect(tool.description).not.toMatch(/idempotent/i);
+    expect(tool.description).toContain("(2)");
+    // Only the tool whose agent behaviour diverges from the public API is reworded.
+    const detector = makeTools(stubClient().client).find((t) => t.name === "create_detector")!;
+    expect(detector.description).toBe(
+      REGISTRY.find((e) => e.name === "create_detector")!.description,
+    );
   });
 
   it("carries no details when the success payload has an unexpected shape", async () => {

@@ -114,6 +114,39 @@ async function requireProjectMember(
   return { ok: true as const, workspaceId: project.workspaceId };
 }
 
+/**
+ * Room reserved for the collision suffix when a requested name sits at the
+ * cap: " (2)" through " (999)" all fit. A project would need close to a
+ * thousand same-named dashboards before the search prefix below stopped
+ * covering every candidate.
+ */
+const SUFFIX_ROOM = " (999)".length;
+
+/**
+ * The prefix every candidate suffixed name shares with the requested name,
+ * so one `startsWith` query fetches every name that could collide with any
+ * candidate (the bare name included). For a name comfortably under the cap
+ * this is the name itself.
+ */
+function suffixSearchPrefix(name: string): string {
+  return name.slice(0, DASHBOARD_NAME_MAX - SUFFIX_ROOM);
+}
+
+/**
+ * The lowest-numbered "name (n)", n ≥ 2, that no dashboard in `taken` uses,
+ * with the base cut so the suffixed name still fits the cap. The oldest row
+ * keeps the bare name — the same convention the write-name-constraints work
+ * applies when it deduplicates existing rows. Terminates because `taken` is
+ * finite and every candidate is distinct.
+ */
+function firstFreeSuffixedName(name: string, taken: ReadonlySet<string>): string {
+  for (let n = 2; ; n++) {
+    const suffix = ` (${n})`;
+    const candidate = name.slice(0, DASHBOARD_NAME_MAX - suffix.length) + suffix;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
 export async function createDashboard(input: {
   actorUserId: string;
   projectId: string;
@@ -134,27 +167,51 @@ export async function createDashboard(input: {
     const name = parsed.data.name.trim();
     const description = parsed.data.description ?? null;
 
-    // Idempotent create: a dashboard with the same name in this project is
-    // returned as-is, so agent/CLI retries can't fan out duplicates.
-    const existing = await tx.dashboard.findFirst({
-      where: { projectId: input.projectId, name },
-      select: { id: true, name: true, projectId: true },
-    });
-    if (existing) {
-      return { result: { ok: true, created: false, data: existing } };
+    // A same-name dashboard in this project means different things per
+    // transport. Over the public API (and the CLI on top of it) the create is
+    // idempotent: the existing row comes back as-is, so a retried request
+    // can't fan out duplicates. The agent never reuses: a human just
+    // confirmed "Create dashboard X" on the chat card, so something must
+    // actually be created — it lands under the first free suffixed name
+    // ("X (2)", "X (3)", …) and the result says what it was renamed from.
+    let finalName = name;
+    let renamedFrom: string | undefined;
+    if (input.provenance.transport === "agent") {
+      const taken = await tx.dashboard.findMany({
+        where: { projectId: input.projectId, name: { startsWith: suffixSearchPrefix(name) } },
+        select: { name: true },
+      });
+      const takenNames = new Set(taken.map((row) => row.name));
+      if (takenNames.has(name)) {
+        finalName = firstFreeSuffixedName(name, takenNames);
+        renamedFrom = name;
+      }
+    } else {
+      const existing = await tx.dashboard.findFirst({
+        where: { projectId: input.projectId, name },
+        select: { id: true, name: true, projectId: true },
+      });
+      if (existing) {
+        return { result: { ok: true, created: false, data: existing } };
+      }
     }
 
     const dashboard = await tx.dashboard.create({
       data: {
         projectId: input.projectId,
-        name,
+        name: finalName,
         description,
         createdBy: input.actorUserId,
       },
       select: { id: true, name: true, projectId: true },
     });
     return {
-      result: { ok: true, created: true, data: dashboard },
+      result: {
+        ok: true,
+        created: true,
+        data: dashboard,
+        ...(renamedFrom === undefined ? {} : { renamedFrom }),
+      },
       audit: {
         actorUserId: input.actorUserId,
         operation: "create_dashboard",
@@ -162,7 +219,7 @@ export async function createDashboard(input: {
         resourceId: dashboard.id,
         workspaceId: access.workspaceId,
         projectId: input.projectId,
-        summary: { name },
+        summary: { name: finalName, ...(renamedFrom === undefined ? {} : { renamedFrom }) },
         transport: input.provenance.transport,
         agentSessionId: input.provenance.agentSessionId ?? null,
       },

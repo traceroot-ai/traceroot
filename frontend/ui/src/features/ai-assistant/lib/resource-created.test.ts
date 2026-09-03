@@ -24,6 +24,13 @@ describe("resourceCreatedDetails", () => {
     });
   });
 
+  it("keeps the created name and what it was renamed from, when the details carry them", () => {
+    const details = resourceCreatedDetails(
+      dashboardResult({ name: "Spend (2)", renamedFrom: "Spend" }),
+    );
+    expect(details).toMatchObject({ name: "Spend (2)", renamedFrom: "Spend" });
+  });
+
   it("passes every resource type through — consumers decide what to do with it", () => {
     for (const resourceType of ["workspace", "project", "detector", "widget"]) {
       expect(resourceCreatedDetails(dashboardResult({ resourceType }))?.resourceType).toBe(
