@@ -67,6 +67,11 @@ model WorkspaceMember {
 model Workspace {
   id                    String            @id @db.VarChar
   name                  String            @db.VarChar
+  // Who created the workspace — the indexable half of the write paths'
+  // workspace idempotency key (creator + name). Nullable: legacy rows with no
+  // ADMIN member to backfill from stay NULL and never collide (unique indexes
+  // treat NULLs as distinct). Bare user id, no FK — mirrors Dashboard.createdBy.
+  createdBy             String?           @map("created_by") @db.VarChar
   createTime            DateTime          @default(now()) @map("create_time") @db.Timestamp(6)
   updateTime            DateTime          @default(now()) @map("update_time") @db.Timestamp(6)
   invites               Invite[]
@@ -100,6 +105,9 @@ model Workspace {
   slackIntegration    SlackIntegration?
   usageNotifications  WorkspaceUsageNotification[]
 
+  // Backs the idempotent create: two concurrent create_workspace calls by the
+  // same user with the same name cannot both insert.
+  @@unique([createdBy, name], map: "uq_workspace_created_by_name")
   @@index([billingCustomerId])
   @@index([billingSubscriptionId])
   @@map("workspaces")
@@ -170,6 +178,11 @@ model Project {
   evaluations  Evaluation[]
   workspace    Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
+  // A partial unique index uq_project_workspace_live_name on
+  // (workspace_id, name) WHERE delete_time IS NULL backs the idempotent
+  // create. Partial indexes can't be expressed here, so it lives in the
+  // migration as raw SQL; soft-deleted rows keep their names without
+  // blocking the name's reuse.
   @@index([workspaceId], map: "ix_project_workspace_id")
   @@map("projects")
 }
@@ -769,6 +782,9 @@ model Dashboard {
   widgets Widget[]
   project Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
+  // Backs the idempotent create; dashboards have no soft delete, so the
+  // unique is unconditional.
+  @@unique([projectId, name], map: "uq_dashboard_project_name")
   @@index([projectId], map: "ix_dashboard_project_id")
   @@map("dashboards")
 }

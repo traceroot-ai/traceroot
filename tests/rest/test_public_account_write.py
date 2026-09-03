@@ -213,6 +213,21 @@ def test_create_workspace_forwards_upstream_400_message():
 
 
 @respx.mock
+def test_create_workspace_forwards_upstream_409_message():
+    """A name held by a workspace the actor no longer administers is a 409 from
+    the write service — passed through, not folded into the 503 fail-close."""
+    _mock_account_auth()
+    _mock_workspace_write(
+        body={"error": "A workspace with this name already exists"}, status_code=409
+    )
+
+    resp = _client().post("/api/v1/public/workspaces", json={"name": "Alpha"}, headers=USER_HEADER)
+
+    assert resp.status_code == 409
+    assert resp.json() == {"detail": "A workspace with this name already exists"}
+
+
+@respx.mock
 def test_create_workspace_passthrough_without_error_string_uses_fallback():
     """A passthrough status whose body carries no error string falls back to a
     generic per-status detail — the raw body is never surfaced."""

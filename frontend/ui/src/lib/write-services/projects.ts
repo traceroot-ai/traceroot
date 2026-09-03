@@ -1,4 +1,5 @@
 import { prisma, Role, hasMinRole } from "@traceroot/core";
+import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 import { writeAudit } from "./audit";
 import type { Provenance, ServiceResult } from "./types";
 
@@ -34,59 +35,75 @@ export async function createProject(input: {
       error: "traceTtlDays must be an integer between 1 and 365",
     };
   }
-  const result = await prisma.$transaction(async (tx) => {
-    const member = await tx.workspaceMember.findUnique({
-      where: {
-        workspaceId_userId: {
-          workspaceId: input.workspaceId,
-          userId: input.actorUserId,
+  // The idempotent match doubles as the P2002 re-read: it is exactly the
+  // predicate of the partial unique index uq_project_workspace_live_name.
+  const liveNameMatch = {
+    where: { workspaceId: input.workspaceId, name, deleteTime: null },
+    select: { id: true, name: true, workspaceId: true },
+  };
+  let result: ServiceResult<ProjectCreated>;
+  try {
+    result = await prisma.$transaction(async (tx) => {
+      const member = await tx.workspaceMember.findUnique({
+        where: {
+          workspaceId_userId: {
+            workspaceId: input.workspaceId,
+            userId: input.actorUserId,
+          },
         },
-      },
-      select: { role: true },
-    });
-    if (!member) {
-      return {
-        ok: false as const,
-        status: 403 as const,
-        error: "Not a member of this workspace",
-      };
-    }
-    if (!hasMinRole(member.role, Role.MEMBER)) {
-      return {
-        ok: false as const,
-        status: 403 as const,
-        error: "Requires MEMBER role or higher",
-      };
-    }
+        select: { role: true },
+      });
+      if (!member) {
+        return {
+          ok: false as const,
+          status: 403 as const,
+          error: "Not a member of this workspace",
+        };
+      }
+      if (!hasMinRole(member.role, Role.MEMBER)) {
+        return {
+          ok: false as const,
+          status: 403 as const,
+          error: "Requires MEMBER role or higher",
+        };
+      }
 
-    // Idempotent create: a live project with the same name in this workspace
-    // is returned as-is, so agent/CLI retries can't fan out duplicates.
-    const existing = await tx.project.findFirst({
-      where: { workspaceId: input.workspaceId, name, deleteTime: null },
-      select: { id: true, name: true, workspaceId: true },
-    });
-    if (existing) {
-      return { ok: true as const, created: false, data: existing };
-    }
+      // Idempotent create: a live project with the same name in this workspace
+      // is returned as-is, so agent/CLI retries can't fan out duplicates. This
+      // findFirst is the fast path; the unique index is the backstop that
+      // makes the idempotency atomic under concurrency.
+      const existing = await tx.project.findFirst(liveNameMatch);
+      if (existing) {
+        return { ok: true as const, created: false, data: existing };
+      }
 
-    const project = await tx.project.create({
-      data: {
-        id: crypto.randomUUID(),
-        workspaceId: input.workspaceId,
-        name,
-        traceTtlDays,
-      },
+      const project = await tx.project.create({
+        data: {
+          id: crypto.randomUUID(),
+          workspaceId: input.workspaceId,
+          name,
+          traceTtlDays,
+        },
+      });
+      return {
+        ok: true as const,
+        created: true,
+        data: {
+          id: project.id,
+          name: project.name,
+          workspaceId: project.workspaceId,
+        },
+      };
     });
-    return {
-      ok: true as const,
-      created: true,
-      data: {
-        id: project.id,
-        name: project.name,
-        workspaceId: project.workspaceId,
-      },
-    };
-  });
+  } catch (e) {
+    if (!isPrismaKnownError(e, "P2002")) throw e;
+    // A concurrent identical create won the race on the unique index.
+    // Postgres aborts the losing transaction, so re-read after rollback and
+    // answer idempotently, exactly as the fast path would have.
+    const raced = await prisma.project.findFirst(liveNameMatch);
+    if (!raced) throw e;
+    result = { ok: true, created: false, data: raced };
+  }
 
   if (result.ok && result.created) {
     await writeAudit(prisma, {

@@ -6,4 +6,4 @@ export interface Provenance {
 
 export type ServiceResult<T> =
   | { ok: true; created: boolean; data: T }
-  | { ok: false; status: 400 | 403 | 404; error: string };
+  | { ok: false; status: 400 | 403 | 404 | 409; error: string };

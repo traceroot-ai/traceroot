@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { Prisma } from "@prisma/client";
 import { prisma, Role } from "@traceroot/core";
 import { errorResponse, successResponse } from "@/lib/auth-helpers";
+import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 import { parseJsonObject, requireProjectAuth } from "@/lib/route-helpers";
 import { defaultDashboardId, seedWidgets } from "@/lib/dashboard-seed";
 import { resolveCreatorNames } from "@/lib/dashboard-read";
@@ -98,13 +99,21 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     );
   }
 
-  const dashboard = await prisma.dashboard.create({
-    data: {
-      projectId,
-      name: name.trim(),
-      description: (description as string) ?? null,
-      createdBy: user.id,
-    },
-  });
+  // No duplicate pre-check: uq_dashboard_project_name is the check, and the
+  // only race-free one.
+  let dashboard;
+  try {
+    dashboard = await prisma.dashboard.create({
+      data: {
+        projectId,
+        name: name.trim(),
+        description: (description as string) ?? null,
+        createdBy: user.id,
+      },
+    });
+  } catch (e) {
+    if (!isPrismaKnownError(e, "P2002")) throw e;
+    return errorResponse("A dashboard with this name already exists", 409);
+  }
   return successResponse({ dashboard }, 201);
 }

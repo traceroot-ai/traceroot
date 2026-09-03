@@ -93,3 +93,35 @@ describe("project PATCH alert_window", () => {
     expect((await res.json()).alert_window).toBe("30m");
   });
 });
+
+describe("project PATCH rename collisions", () => {
+  beforeEach(() => {
+    findFirst.mockReset().mockResolvedValue({ id: "p1", name: "Proj" });
+    update.mockReset();
+  });
+
+  it("maps a rename collision (Prisma P2002) to 409 instead of 500", async () => {
+    update.mockRejectedValue(
+      Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
+    );
+    const res = await patch({ name: "Taken" });
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe("A project with this name already exists");
+  });
+
+  it("propagates non-P2002 update failures", async () => {
+    update.mockRejectedValue(new Error("connection lost"));
+    await expect(patch({ name: "Renamed" })).rejects.toThrow("connection lost");
+  });
+
+  it("rethrows a P2002 when the PATCH carries no name — not every unique violation is a rename", async () => {
+    // The update spans the alertConfig upsert; its rare concurrent-first-insert
+    // P2002 must not surface as "A project with this name already exists".
+    update.mockRejectedValue(
+      Object.assign(new Error("Unique constraint failed"), { code: "P2002" }),
+    );
+    await expect(patch({ alert_emails: ["a@example.com"] })).rejects.toThrow(
+      "Unique constraint failed",
+    );
+  });
+});

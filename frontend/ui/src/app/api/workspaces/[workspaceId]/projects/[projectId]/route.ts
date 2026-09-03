@@ -7,6 +7,7 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 
 const updateProjectSchema = z.object({
   name: z.string().min(1, "Name is required").max(100, "Name too long").optional(),
@@ -118,48 +119,43 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
   const { name, trace_ttl_days, rca_model, rca_provider, rca_source, alert_emails, alert_window } =
     result.data;
 
-  // Check for duplicate name if name is being changed
-  if (name && name !== existingProject.name) {
-    const duplicateProject = await prisma.project.findFirst({
-      where: {
-        workspaceId,
-        name,
-        deleteTime: null,
-        NOT: { id: projectId },
-      },
-    });
-
-    if (duplicateProject) {
-      return errorResponse("A project with this name already exists", 409);
-    }
-  }
-
-  const project = await prisma.project.update({
-    where: { id: projectId },
-    data: {
-      ...(name !== undefined && { name }),
-      ...(trace_ttl_days !== undefined && { traceTtlDays: trace_ttl_days }),
-      ...(rca_model !== undefined && { rcaModel: rca_model }),
-      ...(rca_provider !== undefined && { rcaProvider: rca_provider }),
-      ...(rca_source !== undefined && { rcaSource: rca_source }),
-      ...((alert_emails !== undefined || alert_window !== undefined) && {
-        alertConfig: {
-          upsert: {
-            create: {
-              ...(alert_emails !== undefined && { emailAddresses: alert_emails }),
-              ...(alert_window !== undefined && { alertWindow: alert_window }),
-            },
-            update: {
-              ...(alert_emails !== undefined && { emailAddresses: alert_emails }),
-              ...(alert_window !== undefined && { alertWindow: alert_window }),
+  // No duplicate-name pre-check: uq_project_workspace_live_name is the
+  // check, and the only race-free one (caught below).
+  let project;
+  try {
+    project = await prisma.project.update({
+      where: { id: projectId },
+      data: {
+        ...(name !== undefined && { name }),
+        ...(trace_ttl_days !== undefined && { traceTtlDays: trace_ttl_days }),
+        ...(rca_model !== undefined && { rcaModel: rca_model }),
+        ...(rca_provider !== undefined && { rcaProvider: rca_provider }),
+        ...(rca_source !== undefined && { rcaSource: rca_source }),
+        ...((alert_emails !== undefined || alert_window !== undefined) && {
+          alertConfig: {
+            upsert: {
+              create: {
+                ...(alert_emails !== undefined && { emailAddresses: alert_emails }),
+                ...(alert_window !== undefined && { alertWindow: alert_window }),
+              },
+              update: {
+                ...(alert_emails !== undefined && { emailAddresses: alert_emails }),
+                ...(alert_window !== undefined && { alertWindow: alert_window }),
+              },
             },
           },
-        },
-      }),
-      updateTime: new Date(),
-    },
-    include: { alertConfig: true },
-  });
+        }),
+        updateTime: new Date(),
+      },
+      include: { alertConfig: true },
+    });
+  } catch (e) {
+    // Only a rename can hit the project-name unique index; a P2002 raised while
+    // this PATCH carries no name (e.g. the alertConfig upsert racing its own
+    // first insert) must not be mislabeled as a name conflict.
+    if (!isPrismaKnownError(e, "P2002") || name === undefined) throw e;
+    return errorResponse("A project with this name already exists", 409);
+  }
 
   return successResponse({
     id: project.id,

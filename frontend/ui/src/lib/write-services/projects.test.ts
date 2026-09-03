@@ -8,13 +8,14 @@ const { tx, root } = vi.hoisted(() => ({
     project: { findFirst: vi.fn(), create: vi.fn() },
     auditLog: { create: vi.fn() },
   },
-  root: { auditLog: { create: vi.fn() } },
+  root: { project: { findFirst: vi.fn() }, auditLog: { create: vi.fn() } },
 }));
 vi.mock("@traceroot/core", () => {
   const ROLE_ORDER = ["VIEWER", "MEMBER", "ADMIN"];
   return {
     prisma: {
       $transaction: (fn: (t: unknown) => unknown) => fn(tx),
+      project: root.project,
       auditLog: root.auditLog,
     },
     Role: { VIEWER: "VIEWER", MEMBER: "MEMBER", ADMIN: "ADMIN" },
@@ -30,11 +31,72 @@ beforeEach(() => {
   tx.project.create.mockReset();
   tx.auditLog.create.mockReset();
   tx.auditLog.create.mockResolvedValue({});
+  root.project.findFirst.mockReset();
   root.auditLog.create.mockReset();
   root.auditLog.create.mockResolvedValue({});
 });
 
+/** A duck-typed Prisma unique-violation, as the P2002 handlers match it. */
+const p2002 = () => Object.assign(new Error("Unique constraint failed"), { code: "P2002" });
+
 describe("createProject", () => {
+  it("returns the raced project as created=false when the insert loses the unique race", async () => {
+    tx.workspaceMember.findUnique.mockResolvedValue({ role: "MEMBER" });
+    tx.project.findFirst.mockResolvedValue(null);
+    tx.project.create.mockRejectedValue(p2002());
+    root.project.findFirst.mockResolvedValue({
+      id: "p9",
+      name: "Checkout",
+      workspaceId: "w1",
+    });
+    const r = await createProject({
+      actorUserId: "u1",
+      workspaceId: "w1",
+      name: "Checkout",
+      provenance: { transport: "public-api" },
+    });
+    expect(r).toEqual({
+      ok: true,
+      created: false,
+      data: { id: "p9", name: "Checkout", workspaceId: "w1" },
+    });
+    expect(root.project.findFirst).toHaveBeenCalledWith({
+      where: { workspaceId: "w1", name: "Checkout", deleteTime: null },
+      select: { id: true, name: true, workspaceId: true },
+    });
+    expect(root.auditLog.create).not.toHaveBeenCalled();
+  });
+
+  it("rethrows a P2002 whose winner vanished before the re-read", async () => {
+    tx.workspaceMember.findUnique.mockResolvedValue({ role: "MEMBER" });
+    tx.project.findFirst.mockResolvedValue(null);
+    tx.project.create.mockRejectedValue(p2002());
+    root.project.findFirst.mockResolvedValue(null);
+    await expect(
+      createProject({
+        actorUserId: "u1",
+        workspaceId: "w1",
+        name: "Checkout",
+        provenance: { transport: "public-api" },
+      }),
+    ).rejects.toMatchObject({ code: "P2002" });
+  });
+
+  it("propagates non-P2002 transaction failures without a re-read", async () => {
+    tx.workspaceMember.findUnique.mockResolvedValue({ role: "MEMBER" });
+    tx.project.findFirst.mockResolvedValue(null);
+    tx.project.create.mockRejectedValue(new Error("connection lost"));
+    await expect(
+      createProject({
+        actorUserId: "u1",
+        workspaceId: "w1",
+        name: "Checkout",
+        provenance: { transport: "public-api" },
+      }),
+    ).rejects.toThrow("connection lost");
+    expect(root.project.findFirst).not.toHaveBeenCalled();
+  });
+
   it("creates the project and audits, created=true", async () => {
     tx.workspaceMember.findUnique.mockResolvedValue({ role: "MEMBER" });
     tx.project.findFirst.mockResolvedValue(null);

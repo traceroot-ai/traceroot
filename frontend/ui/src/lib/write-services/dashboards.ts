@@ -1,6 +1,7 @@
 import { prisma, Role, hasMinRole } from "@traceroot/core";
 import { z } from "zod";
 import type { Prisma } from "@prisma/client";
+import { isPrismaKnownError } from "@/lib/eval/prisma-errors";
 import {
   DASHBOARD_DESCRIPTION_MAX,
   DASHBOARD_NAME_MAX,
@@ -124,54 +125,72 @@ export async function createDashboard(input: {
   description?: string | null;
   provenance: Provenance;
 }): Promise<ServiceResult<DashboardCreated>> {
-  const { result, audit } = await prisma.$transaction(async (tx): TxOutcome<DashboardCreated> => {
-    const access = await requireProjectMember(tx, input.projectId, input.actorUserId);
-    if (!access.ok) return { result: access };
+  let outcome: Awaited<TxOutcome<DashboardCreated>>;
+  try {
+    outcome = await prisma.$transaction(async (tx): TxOutcome<DashboardCreated> => {
+      const access = await requireProjectMember(tx, input.projectId, input.actorUserId);
+      if (!access.ok) return { result: access };
 
-    const parsed = dashboardSchema.safeParse(input);
-    if (!parsed.success) {
+      const parsed = dashboardSchema.safeParse(input);
+      if (!parsed.success) {
+        return {
+          result: { ok: false, status: 400, error: parsed.error.issues[0].message },
+        };
+      }
+      const name = parsed.data.name.trim();
+      const description = parsed.data.description ?? null;
+
+      // Idempotent create: a dashboard with the same name in this project is
+      // returned as-is, so agent/CLI retries can't fan out duplicates. This
+      // findFirst is the fast path; uq_dashboard_project_name is the backstop
+      // that makes the idempotency atomic under concurrency.
+      const existing = await tx.dashboard.findFirst({
+        where: { projectId: input.projectId, name },
+        select: { id: true, name: true, projectId: true },
+      });
+      if (existing) {
+        return { result: { ok: true, created: false, data: existing } };
+      }
+
+      const dashboard = await tx.dashboard.create({
+        data: {
+          projectId: input.projectId,
+          name,
+          description,
+          createdBy: input.actorUserId,
+        },
+        select: { id: true, name: true, projectId: true },
+      });
       return {
-        result: { ok: false, status: 400, error: parsed.error.issues[0].message },
+        result: { ok: true, created: true, data: dashboard },
+        audit: {
+          actorUserId: input.actorUserId,
+          operation: "create_dashboard",
+          resourceType: "dashboard",
+          resourceId: dashboard.id,
+          workspaceId: access.workspaceId,
+          projectId: input.projectId,
+          summary: { name },
+          transport: input.provenance.transport,
+          agentSessionId: input.provenance.agentSessionId ?? null,
+        },
       };
-    }
-    const name = parsed.data.name.trim();
-    const description = parsed.data.description ?? null;
-
-    // Idempotent create: a dashboard with the same name in this project is
-    // returned as-is, so agent/CLI retries can't fan out duplicates.
-    const existing = await tx.dashboard.findFirst({
-      where: { projectId: input.projectId, name },
+    });
+  } catch (e) {
+    if (!isPrismaKnownError(e, "P2002")) throw e;
+    // A concurrent identical create won the race on the unique index.
+    // Postgres aborts the losing transaction, so re-read after rollback and
+    // answer idempotently, exactly as the fast path would have. The create
+    // only ran after validation, so trimming here mirrors the parsed name.
+    const raced = await prisma.dashboard.findFirst({
+      where: { projectId: input.projectId, name: input.name.trim() },
       select: { id: true, name: true, projectId: true },
     });
-    if (existing) {
-      return { result: { ok: true, created: false, data: existing } };
-    }
+    if (!raced) throw e;
+    return { ok: true, created: false, data: raced };
+  }
 
-    const dashboard = await tx.dashboard.create({
-      data: {
-        projectId: input.projectId,
-        name,
-        description,
-        createdBy: input.actorUserId,
-      },
-      select: { id: true, name: true, projectId: true },
-    });
-    return {
-      result: { ok: true, created: true, data: dashboard },
-      audit: {
-        actorUserId: input.actorUserId,
-        operation: "create_dashboard",
-        resourceType: "dashboard",
-        resourceId: dashboard.id,
-        workspaceId: access.workspaceId,
-        projectId: input.projectId,
-        summary: { name },
-        transport: input.provenance.transport,
-        agentSessionId: input.provenance.agentSessionId ?? null,
-      },
-    };
-  });
-
+  const { result, audit } = outcome;
   if (audit) {
     await writeAudit(prisma, audit);
   }

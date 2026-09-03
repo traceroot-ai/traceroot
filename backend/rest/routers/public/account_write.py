@@ -54,6 +54,7 @@ _PASSTHROUGH_FALLBACKS = {
     status.HTTP_400_BAD_REQUEST: "Invalid request",
     status.HTTP_403_FORBIDDEN: "Forbidden",
     status.HTTP_404_NOT_FOUND: "Not found",
+    status.HTTP_409_CONFLICT: "Name already in use",
 }
 
 _WRITE_ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
@@ -104,10 +105,10 @@ async def _post_internal_write(path: str, payload: dict) -> dict:
             (``{"created": bool, "<resource>": {...}}``).
 
     Raises:
-        HTTPException: 400/403/404 passed through from the write service with
-            its own ``error`` string as ``detail``; 503 (fail closed) on a
-            network error, an upstream 401, any other unexpected status, or a
-            malformed body.
+        HTTPException: 400/403/404/409 passed through from the write service
+            with its own ``error`` string as ``detail``; 503 (fail closed) on
+            a network error, an upstream 401, any other unexpected status, or
+            a malformed body.
     """
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -167,7 +168,13 @@ async def _post_internal_write(path: str, payload: dict) -> dict:
     "/workspaces",
     operation_id="create_workspace",
     response_model=CreateWorkspaceResponse,
-    responses=_WRITE_ERROR_RESPONSES,
+    responses={
+        **_WRITE_ERROR_RESPONSES,
+        409: {
+            "model": ErrorResponse,
+            "description": "Name already used by a workspace the user no longer administers",
+        },
+    },
     summary="Create a workspace",
 )
 @limiter.shared_limit(
