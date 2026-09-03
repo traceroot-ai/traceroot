@@ -236,7 +236,11 @@ export function ResourceCard({
               {model.href !== null && (
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Link href={model.href} aria-label="Open" className={iconActionClasses}>
+                    <Link
+                      href={model.href}
+                      aria-label={`Open ${model.resourceType}`}
+                      className={iconActionClasses}
+                    >
                       <ExternalLink className="h-3 w-3" />
                     </Link>
                   </TooltipTrigger>
@@ -250,7 +254,7 @@ export function ResourceCard({
                       variant="ghost"
                       size="sm"
                       aria-label={previewLabel}
-                      className={cn(iconActionClasses, "h-6 w-6 p-0")}
+                      className={cn(iconActionClasses, "p-0")}
                       onClick={() => setPreviewHidden((hidden) => !hidden)}
                     >
                       {previewHidden ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}

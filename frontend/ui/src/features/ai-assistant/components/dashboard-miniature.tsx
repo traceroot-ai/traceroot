@@ -530,7 +530,7 @@ function MiniData({ chart, result }: { chart: WidgetChart; result: WidgetQueryRe
  * position, so the miniature's tiles rotate through the palette the way the
  * dashboard's own series do. The minis paint with currentColor, so the hue
  * is set once on their container. Text minis (number, table) take none and
- * inherit the tile's foreground.
+ * keep the tile's text color.
  */
 function miniColor(chart: WidgetChart, tileIndex: number): string | undefined {
   switch (chart.spec.display.type) {
