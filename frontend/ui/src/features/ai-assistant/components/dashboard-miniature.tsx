@@ -354,38 +354,52 @@ function SeriesMini({
   // Every row a gap row, or nothing numeric: an empty window, said quietly.
   if (shapes.length === 0) return <EmptyMini />;
   return (
-    <StretchGlyph>
-      {shapes.map((points, index) => {
-        const opacity = Math.max(0.25, 0.75 - index * 0.1);
-        // One real bucket is a dot, as the dashboard draws it — stretching it
-        // into a line across the tile would read as a full window of data.
-        if (points.length === 1) {
-          const [[cx, cy]] = points;
+    <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+      <StretchGlyph>
+        {shapes.map((points, index) => {
+          if (points.length === 1) return null;
+          const opacity = Math.max(0.25, 0.75 - index * 0.1);
+          const path = points.map(([x, y]) => `${x},${y}`).join(" ");
           return (
-            <circle key={index} cx={cx} cy={cy} r="1.5" fill="currentColor" opacity={opacity} />
-          );
-        }
-        const path = points.map(([x, y]) => `${x},${y}`).join(" ");
-        return (
-          <g key={index}>
-            {area && (
-              <polygon
-                points={`${points[0][0]},${MINI_BASE} ${path} ${points[points.length - 1][0]},${MINI_BASE}`}
-                fill="currentColor"
-                opacity={round1(opacity * 0.25)}
+            <g key={index}>
+              {area && (
+                <polygon
+                  points={`${points[0][0]},${MINI_BASE} ${path} ${points[points.length - 1][0]},${MINI_BASE}`}
+                  fill="currentColor"
+                  opacity={round1(opacity * 0.25)}
+                />
+              )}
+              <polyline
+                points={path}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                opacity={opacity}
               />
-            )}
-            <polyline
-              points={path}
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              opacity={opacity}
-            />
-          </g>
-        );
-      })}
-    </StretchGlyph>
+            </g>
+          );
+        })}
+      </StretchGlyph>
+      {/* One real bucket is a dot, as the dashboard draws it — stretching it
+          into a line across the tile would read as a full window of data.
+          It sits over the drawing rather than inside it: the glyph stretches
+          to the tile, so a circle in its coordinates would scale into a
+          blob, while a positioned element keeps a fixed size. */}
+      {shapes.map((points, index) =>
+        points.length === 1 ? (
+          <span
+            key={index}
+            data-mini-dot
+            className="pointer-events-none absolute h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-current"
+            style={{
+              left: `${round1((points[0][0] / 96) * 100)}%`,
+              top: `${round1((points[0][1] / MINI_BASE) * 100)}%`,
+              opacity: Math.max(0.25, 0.75 - index * 0.1),
+            }}
+          />
+        ) : null,
+      )}
+    </div>
   );
 }
 
