@@ -31,12 +31,10 @@ def secret(monkeypatch):
 
 @pytest.fixture()
 def mock_ch(monkeypatch):
-    """Mock the ClickHouse client used by the internal router."""
+    """Mock the ClickHouse client every internal endpoint module binds."""
     mock = MagicMock()
-    monkeypatch.setattr(
-        "rest.routers.internal.get_clickhouse_client",
-        lambda: mock,
-    )
+    for module in ("detectors", "ingest", "usage"):
+        monkeypatch.setattr(f"rest.routers.internal.{module}.get_clickhouse_client", lambda: mock)
     return mock
 
 
@@ -944,9 +942,12 @@ class TestInternalTraceIngest:
 
     def test_route_never_references_detection_enqueue(self):
         """Anti-recursion by construction: the module cannot enqueue detection."""
-        import rest.routers.internal as internal_module
+        from rest.routers.internal import ingest as ingest_module
 
-        assert "enqueue_detector_runs" not in inspect.getsource(internal_module)
+        source = inspect.getsource(ingest_module)
+        # The package __init__ only mounts sub-routers, so scanning it would assert nothing.
+        assert 'router.post("/traces"' in source
+        assert "enqueue_detector_runs" not in source
 
 
 class TestPerSpanProjectAttribution:
@@ -1096,6 +1097,67 @@ class TestUsageBillsEveryStoredRow:
         assert resp.status_code == 200
         combined_sql = mock_ch.query.call_args_list[0].args[0]
         assert "source" not in combined_sql
+
+    def test_usage_bounds_are_normalized_to_utc(self, client, mock_ch, secret):
+        """An aware non-UTC offset must bill the UTC instant, not the wall clock sent."""
+        mock_ch.query.side_effect = [
+            _make_query_result([(1,)], ["total"]),
+            _make_query_result([(1,)], ["total"]),
+            _make_query_result([(0,)], ["total"]),
+        ]
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params={
+                "project_ids": "p1",
+                "start": "2026-07-01T02:00:00+02:00",
+                "end": "2026-08-01T02:00:00+02:00",
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        for call in mock_ch.query.call_args_list:
+            params = call.kwargs["parameters"]
+            assert params["start"] == "2026-07-01 00:00:00"
+            assert params["end"] == "2026-08-01 00:00:00"
+
+    def test_usage_total_bounds_are_normalized_to_utc(self, client, mock_ch, secret):
+        mock_ch.query.side_effect = [_make_query_result([(0,)], ["total"])]
+        resp = client.get(
+            "/api/v1/internal/usage/total",
+            params={
+                "project_ids": "p1",
+                "start": "2026-07-01T02:00:00+02:00",
+                "end": "2026-08-01T02:00:00+02:00",
+            },
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        params = mock_ch.query.call_args_list[0].kwargs["parameters"]
+        assert params["start"] == "2026-07-01 00:00:00"
+        assert params["end"] == "2026-08-01 00:00:00"
+
+    def test_non_ascii_secret_header_is_rejected_not_500(self, client, mock_ch, secret):
+        """Starlette decodes headers as latin-1; a 0x80-0xFF byte must still 403."""
+        resp = client.get(
+            "/api/v1/internal/usage/total",
+            params=self.PARAMS,
+            # Raw bytes: httpx would refuse the non-ASCII str client-side.
+            headers={b"X-Internal-Secret": "sécret\xff".encode("latin-1")},
+        )
+        assert resp.status_code == 403
+
+    def test_non_ascii_configured_secret_matches_its_utf8_wire_bytes(
+        self, client, mock_ch, monkeypatch
+    ):
+        """The wire carries the secret's UTF-8 bytes; Starlette's latin-1 str must still match."""
+        monkeypatch.setattr(settings, "internal_api_secret", "sécret")
+        mock_ch.query.side_effect = [_make_query_result([(0,)], ["total"])]
+        resp = client.get(
+            "/api/v1/internal/usage/total",
+            params=self.PARAMS,
+            headers={b"X-Internal-Secret": "sécret".encode()},
+        )
+        assert resp.status_code == 200
 
 
 # =============================================================================
