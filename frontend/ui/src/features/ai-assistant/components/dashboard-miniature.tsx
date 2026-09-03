@@ -275,8 +275,8 @@ const MAX_MINI_ROWS = 4;
  * Time-series results pivoted to per-series value arrays aligned on bucket
  * order — the same shapes the dashboard renderer pivots ([bucket, value] and
  * [bucket, dim, value]), reduced to what a sparkline needs. WITH FILL gap
- * rows register their bucket but form no series; a non-additive agg's empty
- * buckets stay null and render as gaps bridged by the line.
+ * rows register their bucket but form no series. Holes come back null here;
+ * SeriesMini decides what a hole means (see NON_ADDITIVE_AGGS).
  */
 function miniSeries(result: WidgetQueryResult): (number | null)[][] {
   const { columns, rows } = result;
@@ -314,32 +314,54 @@ const miniY = (value: number, max: number) =>
     ? MINI_BASE
     : round1(Math.min(MINI_BASE, Math.max(MINI_TOP, MINI_BASE - (value / max) * MINI_SPAN)));
 
-function SeriesMini({ result, area }: { result: WidgetQueryResult; area: boolean }) {
-  const series = miniSeries(result);
+/**
+ * Aggregations for which an empty bucket has no value. Mirrors the dashboard
+ * pivot's gap rule and the query compiler's Nullable metrics: a count or sum
+ * of nothing is zero (a hole keeps the baseline), but an average or
+ * percentile of nothing is a gap the line does not cross.
+ */
+const NON_ADDITIVE_AGGS = new Set(["avg", "min", "max", "p50", "p95", "p99"]);
+
+function SeriesMini({
+  result,
+  area,
+  additive,
+}: {
+  result: WidgetQueryResult;
+  area: boolean;
+  additive: boolean;
+}) {
+  // WITH FILL hands back NULL for a sum over a nullable column too, so the
+  // zero fill has to happen here or a single day of traffic collapses a
+  // fortnight of sums into one point.
+  const series = miniSeries(result).map((values) =>
+    additive ? values.map((v) => v ?? 0) : values,
+  );
   const max = Math.max(0, ...series.flat().filter((v): v is number => v !== null));
-  const lines = series
-    .map((values) => {
-      const points = values.flatMap((v, i) =>
+  const shapes = series
+    .map((values) =>
+      values.flatMap((v, i) =>
         v === null
           ? []
           : [[round1(values.length === 1 ? 48 : (i / (values.length - 1)) * 96), miniY(v, max)]],
-      );
-      // One lone bucket: a point is invisible, so draw its value flat across.
-      if (points.length === 1)
-        return [
-          [0, points[0][1]],
-          [96, points[0][1]],
-        ] as number[][];
-      return points;
-    })
-    .filter((points) => points.length > 1);
+      ),
+    )
+    .filter((points) => points.length > 0);
   // Every row a gap row, or nothing numeric: an empty window, said quietly.
-  if (lines.length === 0) return <EmptyMini />;
+  if (shapes.length === 0) return <EmptyMini />;
   return (
     <StretchGlyph>
-      {lines.map((points, index) => {
-        const path = points.map(([x, y]) => `${x},${y}`).join(" ");
+      {shapes.map((points, index) => {
         const opacity = Math.max(0.25, 0.75 - index * 0.1);
+        // One real bucket is a dot, as the dashboard draws it — stretching it
+        // into a line across the tile would read as a full window of data.
+        if (points.length === 1) {
+          const [[cx, cy]] = points;
+          return (
+            <circle key={index} cx={cx} cy={cy} r="1.5" fill="currentColor" opacity={opacity} />
+          );
+        }
+        const path = points.map(([x, y]) => `${x},${y}`).join(" ");
         return (
           <g key={index}>
             {area && (
@@ -481,11 +503,12 @@ function EmptyMini() {
 
 function MiniData({ chart, result }: { chart: WidgetChart; result: WidgetQueryResult }) {
   const unit = FIELD_UNIT[chart.spec.metric.measure];
+  const additive = !NON_ADDITIVE_AGGS.has(chart.spec.metric.agg);
   switch (chart.spec.display.type) {
     case "line":
-      return <SeriesMini result={result} area={false} />;
+      return <SeriesMini result={result} area={false} additive={additive} />;
     case "area":
-      return <SeriesMini result={result} area />;
+      return <SeriesMini result={result} area additive={additive} />;
     case "bar":
     case "histogram":
       return <BarsMini result={result} />;

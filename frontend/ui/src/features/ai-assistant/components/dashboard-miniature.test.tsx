@@ -536,17 +536,68 @@ describe("DashboardMiniature live tiles", () => {
     expect(container.querySelectorAll("[data-live-mini] path").length).toBe(0);
   });
 
-  it("draws a lone bucket's value flat across the tile", async () => {
+  it("draws a lone bucket as a dot, never a line across the whole tile", async () => {
+    // A single point is the series max, so "flat across at its value" drew a
+    // full-width line along the top (and a solid block for an area).
     vi.mocked(api.runWidgetQuery).mockResolvedValue({
       columns: ["bucket", "value"],
       rows: [["2026-06-01T00:00:00", 5]],
       meta: { granularity: "hour" },
     });
-    const { container } = renderLive([liveTile()]);
+    const { container } = renderLive([liveTile({}, "area")]);
+    scrollIntoView();
+
+    await waitFor(() => expect(container.querySelector("[data-live-mini] circle")).toBeTruthy());
+    const dot = container.querySelector("[data-live-mini] circle");
+    expect(dot?.getAttribute("cx")).toBe("48");
+    expect(dot?.getAttribute("cy")).toBe("2");
+    expect(container.querySelector("[data-live-mini] polyline")).toBeNull();
+    expect(container.querySelector("[data-live-mini] polygon")).toBeNull();
+  });
+
+  it("reads a sum's empty buckets as zero, like the dashboard's pivot", async () => {
+    // WITH FILL returns NULL for a sum over a nullable column; a count or sum
+    // of nothing is zero, so the series keeps its baseline instead of
+    // collapsing to one point.
+    vi.mocked(api.runWidgetQuery).mockResolvedValue({
+      columns: ["bucket", "value"],
+      rows: [
+        ["2026-06-01T00:00:00", null],
+        ["2026-06-01T01:00:00", 6],
+        ["2026-06-01T02:00:00", null],
+      ],
+      meta: { granularity: "hour" },
+    });
+    const { container } = renderLive([liveTile({}, "area")]);
     scrollIntoView();
 
     await waitFor(() => expect(container.querySelector("[data-live-mini] polyline")).toBeTruthy());
-    const polyline = container.querySelector("[data-live-mini] polyline");
-    expect(polyline?.getAttribute("points")).toBe("0,2 96,2");
+    expect(container.querySelector("[data-live-mini] polyline")?.getAttribute("points")).toBe(
+      "0,40 48,2 96,40",
+    );
+    expect(container.querySelector("[data-live-mini] polygon")).toBeTruthy();
+  });
+
+  it("keeps a percentile's empty buckets as gaps and dots its lone real bucket", async () => {
+    vi.mocked(api.runWidgetQuery).mockResolvedValue({
+      columns: ["bucket", "value"],
+      rows: [
+        ["2026-06-01T00:00:00", null],
+        ["2026-06-01T01:00:00", 8597.25],
+        ["2026-06-01T02:00:00", null],
+      ],
+      meta: { granularity: "hour" },
+    });
+    const p95 = liveTile();
+    p95.chart = {
+      ...p95.chart!,
+      spec: { ...spec("line", "duration_ms"), metric: { measure: "duration_ms", agg: "p95" } },
+    };
+    const { container } = renderLive([p95]);
+    scrollIntoView();
+
+    await waitFor(() => expect(container.querySelector("[data-live-mini] circle")).toBeTruthy());
+    expect(container.querySelector("[data-live-mini] circle")?.getAttribute("cx")).toBe("48");
+    expect(container.querySelector("[data-live-mini] polyline")).toBeNull();
   });
 });
