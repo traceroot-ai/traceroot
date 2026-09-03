@@ -17,14 +17,34 @@ type RegistryView = { fields: Record<string, WidgetSchemaField> };
 
 const REGISTRY = registrySnapshot as Record<string, RegistryView>;
 
+/**
+ * Read one entry out of a registry record by a caller-supplied name.
+ *
+ * Every name here comes from the model or an API client, so a plain index
+ * would resolve `__proto__`, `toString`, or `constructor` to something
+ * inherited from Object.prototype: truthy, so the "unknown X" branch is
+ * skipped, and the next property access on it throws — a 500 rather than the
+ * correctable error the caller should get. Own keys only, so an unrecognized
+ * name always takes the normal unknown-name path.
+ */
+function lookup<T>(record: Record<string, T>, name: string): T | undefined {
+  return Object.hasOwn(record, name) ? record[name] : undefined;
+}
+
 export type VocabularyResult = { ok: true } | { ok: false; error: string };
 
 // The SQL compiler coerces number-field filter values with Python's float():
 // numeric strings are accepted — including inf/infinity/nan spellings,
 // underscore digit grouping, exponents, and surrounding whitespace — and
-// anything else raises. Mirror that acceptance exactly, so create-time
-// validation is neither stricter nor looser than the query engine.
+// anything else raises. Mirror that acceptance, so create-time validation is
+// neither stricter nor looser than the query engine.
 const DIGITS = String.raw`\d(?:_?\d)*`;
+// Surrounding whitespace as Python strips it, NOT as JS trim() does. JS also
+// strips the zero-width no-break space (U+FEFF) and other format characters
+// that float() rejects, so trimming with trim() would admit a value the query
+// engine then refuses on every render. Trimming a narrower set can only be
+// stricter than the compiler, which fails at create rather than at query.
+const PY_SPACE_RE = /^[ \t\n\r\f\v]+|[ \t\n\r\f\v]+$/g;
 const COMPILER_FLOAT_RE = new RegExp(
   `^[+-]?(?:inf(?:inity)?|nan|(?:${DIGITS}(?:\\.(?:${DIGITS})?)?|\\.${DIGITS})(?:[eE][+-]?${DIGITS})?)$`,
   "i",
@@ -43,7 +63,7 @@ const names = (
     .join(", ");
 
 export function validateWidgetSpecVocabulary(spec: WidgetSpec): VocabularyResult {
-  const view = REGISTRY[spec.view];
+  const view = lookup(REGISTRY, spec.view);
   if (!view) {
     // WidgetSpecSchema pins the view enum already; fail closed if they drift.
     return {
@@ -53,7 +73,7 @@ export function validateWidgetSpecVocabulary(spec: WidgetSpec): VocabularyResult
   }
   const fields = view.fields;
 
-  const measure = fields[spec.metric.measure];
+  const measure = lookup(fields, spec.metric.measure);
   if (!measure || measure.aggs.length === 0) {
     return {
       ok: false,
@@ -82,7 +102,7 @@ export function validateWidgetSpecVocabulary(spec: WidgetSpec): VocabularyResult
           `displays that support a breakdown: ${BREAKDOWN_DISPLAYS}`,
       };
     }
-    const breakdown = fields[spec.breakdown];
+    const breakdown = lookup(fields, spec.breakdown);
     const valid = `valid breakdowns: ${names(fields, (f) => f.groupable)}`;
     if (!breakdown) {
       return {
@@ -99,7 +119,7 @@ export function validateWidgetSpecVocabulary(spec: WidgetSpec): VocabularyResult
   }
 
   for (const filter of spec.filters) {
-    const field = fields[filter.field];
+    const field = lookup(fields, filter.field);
     if (!field || field.filterOps.length === 0) {
       return {
         ok: false,
@@ -119,7 +139,7 @@ export function validateWidgetSpecVocabulary(spec: WidgetSpec): VocabularyResult
     if (
       field.type === "number" &&
       typeof filter.value === "string" &&
-      !COMPILER_FLOAT_RE.test(filter.value.trim())
+      !COMPILER_FLOAT_RE.test(filter.value.replace(PY_SPACE_RE, ""))
     ) {
       return {
         ok: false,

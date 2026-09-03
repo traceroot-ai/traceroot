@@ -129,6 +129,55 @@ describe("validateWidgetSpecVocabulary", () => {
     ).toEqual({ ok: true });
   });
 
+  // Registry rows were looked up by indexing the snapshot object, so a name
+  // inherited from Object.prototype resolved to something truthy and the next
+  // property access threw — a 500 on every write path instead of the normal
+  // "unknown X" reply the caller can correct from.
+  it.each(["__proto__", "toString", "constructor", "hasOwnProperty"])(
+    'rejects inherited object property "%s" as a measure',
+    (name) => {
+      expect(error(spec({ metric: { measure: name, agg: "count" } }))).toBe(
+        `unknown measure "${name}" for view "spans" — valid measures: ${SPANS_MEASURES}`,
+      );
+    },
+  );
+
+  it.each(["__proto__", "toString", "constructor"])(
+    'rejects inherited object property "%s" as a breakdown',
+    (name) => {
+      expect(error(spec({ breakdown: name, display: { type: "bar" } }))).toBe(
+        `unknown breakdown "${name}" for view "spans" — valid breakdowns: ${SPANS_BREAKDOWNS}`,
+      );
+    },
+  );
+
+  it.each(["__proto__", "toString", "constructor"])(
+    'rejects inherited object property "%s" as a filter field',
+    (name) => {
+      expect(error(spec({ view: "traces", filters: [{ field: name, op: "=", value: "x" }] }))).toBe(
+        `unknown filter field "${name}" for view "traces" — ` +
+          `valid filter fields: ${TRACES_FILTER_FIELDS}`,
+      );
+    },
+  );
+
+  it('rejects inherited object property "toString" as a view', () => {
+    expect(error({ ...spec({}), view: "toString" } as unknown as WidgetSpec)).toBe(
+      'unknown view "toString" — valid views: spans, traces',
+    );
+  });
+
+  it("rejects a numeric filter value carrying a zero-width no-break space", () => {
+    // JS trim() strips U+FEFF but Python's float() does not, so accepting it
+    // here would store a widget the query engine refuses on every render.
+    expect(error(spec({ filters: [{ field: "duration_ms", op: ">", value: "\ufeff500" }] }))).toBe(
+      'filter value "\ufeff500" for field "duration_ms" on view "spans" must be numeric',
+    );
+    expect(error(spec({ filters: [{ field: "duration_ms", op: ">", value: "500\ufeff" }] }))).toBe(
+      'filter value "500\ufeff" for field "duration_ms" on view "spans" must be numeric',
+    );
+  });
+
   it("rejects a breakdown on the displays that cannot express one", () => {
     expect(error(spec({ breakdown: "model_name", display: { type: "number" } }))).toBe(
       `display "number" does not support a breakdown dimension — ${BREAKDOWN_DISPLAYS}`,
