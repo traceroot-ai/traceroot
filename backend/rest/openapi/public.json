@@ -502,7 +502,15 @@
                           "type": "string"
                         },
                         "value": {
-                          "minLength": 1,
+                          "anyOf": [
+                            {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            {
+                              "type": "number"
+                            }
+                          ],
                           "title": "Value",
                           "type": [
                             "string",
@@ -653,7 +661,15 @@
                           "type": "string"
                         },
                         "value": {
-                          "minLength": 1,
+                          "anyOf": [
+                            {
+                              "minLength": 1,
+                              "type": "string"
+                            },
+                            {
+                              "type": "number"
+                            }
+                          ],
                           "title": "Value",
                           "type": [
                             "string",
@@ -3585,7 +3601,15 @@
             "type": "string"
           },
           "value": {
-            "minLength": 1,
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ],
             "title": "Value",
             "type": [
               "string",
