@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { COLS, ROW_HEIGHT } from "@/features/dashboards/grid-constants";
 import { useWidgetData } from "@/features/dashboards/hooks/use-widget-data";
 import { makeRange } from "@/features/dashboards/range-presets";
+import { seriesColor } from "@/features/dashboards/series-colors";
 import type { TimeRange, WidgetQueryResult } from "@/features/dashboards/types";
 import { DEFAULT_SIZE } from "@/features/dashboards/widget-placement";
 import { FIELD_UNIT, type FieldUnit } from "@/features/filters/filter-controls";
@@ -224,10 +225,13 @@ function TileGlyph({ glyph }: { glyph: MiniatureGlyph }) {
 }
 
 // ---------------------------------------------------------------------------
-// Live minis: the widget's fetched result drawn at tile scale. Deliberately
-// monochrome and chrome-free — real proportions in the glyphs' own visual
-// language, so a data-rich tile reads as data without pretending a 150px tile
-// can carry axes and legends.
+// Live minis: the widget's fetched result drawn at tile scale. Chrome-free —
+// real proportions in the glyphs' own visual language, so a data-rich tile
+// reads as data without pretending a 150px tile can carry axes and legends.
+// The chart tiles take the dashboard's series rotation, one hue per tile, so
+// the miniature reads as the dashboard it stands for; grey is reserved for
+// the empty and loading faces, and the number and table minis stay in the
+// foreground color because they are text, not marks.
 
 /** SVG coordinates rounded to a tenth: precise enough, stable to assert on. */
 const round1 = (v: number) => Math.round(v * 10) / 10;
@@ -522,6 +526,23 @@ function MiniData({ chart, result }: { chart: WidgetChart; result: WidgetQueryRe
 }
 
 /**
+ * The hue a live mini draws in: the dashboard's series color for the tile's
+ * position, so the miniature's tiles rotate through the palette the way the
+ * dashboard's own series do. The minis paint with currentColor, so the hue
+ * is set once on their container. Text minis (number, table) take none and
+ * inherit the tile's foreground.
+ */
+function miniColor(chart: WidgetChart, tileIndex: number): string | undefined {
+  switch (chart.spec.display.type) {
+    case "number":
+    case "table":
+      return undefined;
+    default:
+      return seriesColor(tileIndex);
+  }
+}
+
+/**
  * One live tile: the widget's own query hook (keyed by widget id, so the
  * dashboard page's tile for this widget shares the cached result), and the
  * per-state faces — loading keeps the glyph (it finally gets to be what it
@@ -530,10 +551,12 @@ function MiniData({ chart, result }: { chart: WidgetChart; result: WidgetQueryRe
  */
 function LiveTileBody({
   tile,
+  tileIndex,
   chart,
   range,
 }: {
   tile: MiniatureTile;
+  tileIndex: number;
   chart: WidgetChart;
   range: TimeRange;
 }) {
@@ -548,7 +571,11 @@ function LiveTileBody({
   if (isPending || error !== null || data === undefined) return <TileGlyph glyph={tile.glyph} />;
   if (data.rows.length === 0) return <EmptyMini />;
   return (
-    <div data-live-mini className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <div
+      data-live-mini
+      className="flex min-h-0 min-w-0 flex-1 flex-col"
+      style={{ color: miniColor(chart, tileIndex) }}
+    >
       <MiniData chart={chart} result={data} />
     </div>
   );
@@ -601,7 +628,7 @@ export function DashboardMiniature({ tiles }: { tiles: readonly MiniatureTile[] 
       className="grid max-w-full gap-1 overflow-hidden rounded-md border border-border/60 bg-background p-1"
       style={frameStyle(tiles)}
     >
-      {tiles.map((tile) => (
+      {tiles.map((tile, tileIndex) => (
         <div
           key={tile.id}
           data-glyph={tile.glyph}
@@ -612,7 +639,7 @@ export function DashboardMiniature({ tiles }: { tiles: readonly MiniatureTile[] 
             {tile.title}
           </span>
           {range !== null && tile.chart !== null ? (
-            <LiveTileBody tile={tile} chart={tile.chart} range={range} />
+            <LiveTileBody tile={tile} tileIndex={tileIndex} chart={tile.chart} range={range} />
           ) : (
             <TileGlyph glyph={tile.glyph} />
           )}
