@@ -202,6 +202,68 @@ describe("SessionManager.buildContext", () => {
     ).toBe(true);
   });
 
+  it("restores the user's revision text so a rebuilt agent re-proposes with the changes", async () => {
+    // Without the requested changes in the record, a rebuilt agent only
+    // knows the proposal was declined and re-proposes the original args.
+    const revision = "use p95 instead of p50, and scope it to the checkout service";
+    mocks.findUnique.mockResolvedValue({
+      id: "s1",
+      messages: [
+        row("1", "user", "add a latency chart"),
+        row("2", "tool_step", "", {
+          metadata: {
+            toolCallId: "t1",
+            toolName: "create_widget",
+            args: { title: "p50 latency" },
+            result: {
+              content: [{ type: "text", text: "Revise it." }],
+              details: { kind: "proposal_declined", outcome: "revised", text: revision },
+            },
+            isError: true,
+          },
+        }),
+      ],
+    });
+
+    const context = await new SessionManager("s1").buildContext();
+
+    expect(outcomeOf(context[2])).toEqual({
+      status: "declined_by_user",
+      executed: false,
+      revisionRequested: true,
+      requestedChanges: revision,
+    });
+  });
+
+  it("bounds the restored revision text like every other restored record", async () => {
+    mocks.findUnique.mockResolvedValue({
+      id: "s1",
+      messages: [
+        row("1", "user", "go"),
+        row("2", "tool_step", "", {
+          metadata: {
+            toolCallId: "t1",
+            toolName: "create_widget",
+            args: { title: "p50 latency" },
+            result: {
+              content: [{ type: "text", text: "Revise it." }],
+              details: { kind: "proposal_declined", outcome: "revised", text: "y".repeat(5000) },
+            },
+            isError: true,
+          },
+        }),
+      ],
+    });
+
+    const context = await new SessionManager("s1").buildContext();
+
+    const outcome = outcomeOf(context[2]);
+    expect(outcome.status).toBe("declined_by_user");
+    expect((outcome.requestedChanges as string).length).toBeLessThanOrEqual(300);
+    expect(outcome.requestedChanges).toContain("yyyy");
+    expect((context[2] as RestoredResult).content[0].text.length).toBeLessThanOrEqual(600);
+  });
+
   it("degrades a tool_step with absent or truncated metadata without inventing an outcome", async () => {
     mocks.findUnique.mockResolvedValue({
       id: "s1",

@@ -16,9 +16,29 @@ function generateId(): string {
   });
 }
 
-/** Freeze any still-streaming bubbles in a message list. */
+/**
+ * Settle a message list whose run is over: freeze any still-streaming bubbles
+ * and release any parked tool step as skipped. A parked call cannot outlive
+ * its run — the server releases it as a skip the moment the stream drops or
+ * the run fails — so a card left pending here would keep offering a decision
+ * nothing can deliver (and keep the input in "reply to revise" mode).
+ */
 function frozen(messages: AIMessage[]): AIMessage[] {
-  return messages.map((m) => (m.isStreaming ? { ...m, isStreaming: false } : m));
+  return messages.map((m) => {
+    if (m.toolStep?.pending !== undefined) {
+      return {
+        ...m,
+        isStreaming: false,
+        toolStep: {
+          ...m.toolStep,
+          pending: undefined,
+          skipped: true,
+          status: "done" as const,
+        },
+      };
+    }
+    return m.isStreaming ? { ...m, isStreaming: false } : m;
+  });
 }
 
 interface SessionRun {
@@ -441,14 +461,16 @@ export function useAIStream(options?: UseAIStreamOptions) {
                   if (runsRef.current.get(sessionId)?.gen === myGen) {
                     onToolResultRef.current?.({ result: eventData.result });
                   }
-                  // A declined proposal's result names its outcome in the
+                  // A declined proposal's result names its outcome in its
                   // structured details — authoritative when present (it can
                   // correct the provisional skip mark the chat-revise path
-                  // set locally). Without details, fall back to inference:
-                  // an error landing on a still-pending step is the decline
-                  // of a skip (the user's, or a server-side release like the
-                  // timeout backstop), and a step no longer pending keeps
-                  // its skipped mark from the local skip that cleared it.
+                  // set locally). Every decline the server sends carries
+                  // them, so an error WITHOUT details is a real failure even
+                  // if it lands on a step still marked pending: a confirmed
+                  // write that fails fast delivers its result before the
+                  // create decision's response clears `pending` locally, and
+                  // must not read as "skipped". A step no longer pending
+                  // keeps the skipped mark from the local skip that cleared it.
                   const declined = proposalDeclined(eventData.result);
                   safeUpdate((prev) =>
                     prev.map((m) =>
@@ -464,10 +486,7 @@ export function useAIStream(options?: UseAIStreamOptions) {
                               pending: undefined,
                               skipped: declined
                                 ? declined.outcome === "skipped" || undefined
-                                : m.toolStep!.skipped ||
-                                  (m.toolStep!.pending !== undefined &&
-                                    eventData.isError === true) ||
-                                  undefined,
+                                : m.toolStep!.skipped || undefined,
                               revisedText:
                                 declined?.outcome === "revised"
                                   ? (declined.text ?? "")
@@ -483,6 +502,9 @@ export function useAIStream(options?: UseAIStreamOptions) {
                   const errorMsg =
                     eventData.message || eventData.error?.errorMessage || "Unknown error";
                   showError(errorMsg);
+                  // The run is dead: the server released its parked call as
+                  // a skip before sending this, so the card goes with it.
+                  safeUpdate(frozen);
                 }
               } catch {
                 // Skip unparseable lines
@@ -496,8 +518,11 @@ export function useAIStream(options?: UseAIStreamOptions) {
           showError((error as Error).message || "Failed to get response.");
         }
       } finally {
-        // Freeze the last open bubble (if streaming was cut short).
+        // Freeze the last open bubble (if streaming was cut short) and
+        // release any step still parked — a finished run cannot deliver a
+        // decision, and the server has already skipped it.
         freezeCurrentBubble();
+        safeUpdate(frozen);
         // Skip cleanup if a newer run owns this session — would clobber its state.
         if (runsRef.current.get(sessionId)?.gen === myGen) {
           runsRef.current.delete(sessionId);
