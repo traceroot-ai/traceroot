@@ -32,6 +32,9 @@ const TOOL_RECORD_CHAR_CAP = 600;
 /** How much of a tool result's text survives into a generic (no structured details) record. */
 const RESULT_SNIPPET_CHARS = 200;
 
+/** How much of a member-supplied resource name survives into a record. */
+const RESOURCE_NAME_CHARS = 120;
+
 /** How much of the user's revision text survives into a revised proposal's record. */
 const REVISION_TEXT_CHARS = 300;
 
@@ -144,14 +147,30 @@ function toolOutcome(meta: Record<string, unknown>): Record<string, unknown> {
     const resourceType =
       typeof details.resourceType === "string" ? details.resourceType : "resource";
     const resourceId = typeof details.resourceId === "string" ? details.resourceId : null;
-    return details.created === false
-      ? {
-          status: "already_existed",
-          note: "reused the existing one, nothing new was created",
-          resourceType,
-          resourceId,
-        }
-      : { status: "created", resourceType, resourceId };
+    if (details.created === false) {
+      return {
+        status: "already_existed",
+        note: "reused the existing one, nothing new was created",
+        resourceType,
+        resourceId,
+      };
+    }
+    // A resource created under a suffixed name must be recorded under that
+    // name, or the rebuilt agent would keep calling it what the user asked
+    // for. Both names are member-controlled, so they stay JSON fields.
+    const name = typeof details.name === "string" ? details.name : undefined;
+    const renamedFrom = typeof details.renamedFrom === "string" ? details.renamedFrom : undefined;
+    return {
+      status: "created",
+      resourceType,
+      resourceId,
+      ...(name !== undefined && renamedFrom !== undefined
+        ? {
+            name: clip(name, RESOURCE_NAME_CHARS),
+            renamedFrom: clip(renamedFrom, RESOURCE_NAME_CHARS),
+          }
+        : {}),
+    };
   }
 
   const text = firstResultText(result);
