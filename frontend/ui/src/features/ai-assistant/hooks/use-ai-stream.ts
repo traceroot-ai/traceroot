@@ -263,7 +263,18 @@ export function useAIStream(options?: UseAIStreamOptions) {
         const targetId = currentTextId ?? openTextBubble();
         safeUpdate((prev) =>
           prev.map((m) =>
-            m.id === targetId ? { ...m, content: `Error: ${errorMessage}`, isStreaming: false } : m,
+            m.id === targetId
+              ? {
+                  ...m,
+                  // Append rather than replace: the persisted transcript keeps
+                  // whatever the assistant already said, so a bubble that drops
+                  // it would not survive a reload of the same session.
+                  content: m.content
+                    ? `${m.content}\n\nError: ${errorMessage}`
+                    : `Error: ${errorMessage}`,
+                  isStreaming: false,
+                }
+              : m,
           ),
         );
         currentTextId = null;

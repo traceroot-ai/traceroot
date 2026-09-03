@@ -728,6 +728,21 @@ describe("pendingCardModel", () => {
     expect(model?.meta).toEqual(["Widget"]);
   });
 
+  it("previews no chart for a trace-feed proposal, whatever its spec parses as", () => {
+    // A feed proposal can carry a spec the chart schema accepts; the write
+    // would still be rejected, so the card must not draw a chart for it.
+    const model = pendingCardModel(
+      runningStep("create_widget", {
+        title: "Recent errors",
+        type: "trace_feed",
+        spec: WIDGET_SPEC,
+      }),
+      "p1",
+    );
+    expect(model?.body).toMatchObject({ kind: "widget", chart: null });
+    expect(model?.meta).toEqual(["Widget"]);
+  });
+
   it("drops the chart when the panel has no project to aim the query at", () => {
     const model = pendingCardModel(
       runningStep("create_widget", { title: "T", type: "query", spec: WIDGET_SPEC }),
