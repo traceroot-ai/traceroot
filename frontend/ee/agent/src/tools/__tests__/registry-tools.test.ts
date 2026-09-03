@@ -289,32 +289,70 @@ describe("createRegistryReadTools", () => {
 });
 
 describe("createTools", () => {
-  it("wires the registry read tools alongside the download, github, and sandbox tools", () => {
+  const READ_TOOL_NAMES = [
+    "list_traces",
+    "list_sessions",
+    "get_session",
+    "list_detectors",
+    "get_detector",
+    "list_findings",
+    "get_finding",
+    "get_finding_by_trace",
+    "list_dashboards",
+    "get_dashboard",
+  ];
+  const WRITE_TOOL_NAMES = [
+    "create_workspace",
+    "create_project",
+    "create_detector",
+    "create_dashboard",
+    "create_widget",
+  ];
+  const OTHER_TOOL_NAMES = [
+    "download_traces",
+    "download_session",
+    "check_github_access",
+    "git_clone",
+    "bash",
+    "read",
+    "write",
+  ];
+
+  it("wires read, write, download, github, and sandbox tools for a user session", () => {
     const tools = createTools({
       projectId: "p1",
       userId: "u1",
       workspaceId: "w1",
+      agentSessionId: "s1",
       executor: {} as Executor,
     });
     expect(tools.map((t) => t.name)).toEqual([
-      "list_traces",
-      "list_sessions",
-      "get_session",
-      "list_detectors",
-      "get_detector",
-      "list_findings",
-      "get_finding",
-      "get_finding_by_trace",
-      "list_dashboards",
-      "get_dashboard",
-      "download_traces",
-      "download_session",
-      "check_github_access",
-      "git_clone",
-      "bash",
-      "read",
-      "write",
+      ...READ_TOOL_NAMES,
+      ...WRITE_TOOL_NAMES,
+      ...OTHER_TOOL_NAMES,
     ]);
+  });
+
+  it("omits the write tools when there is no acting user (system/RCA sessions)", () => {
+    const tools = createTools({
+      projectId: "p1",
+      userId: "",
+      workspaceId: "w1",
+      agentSessionId: "s1",
+      executor: {} as Executor,
+    });
+    expect(tools.map((t) => t.name)).toEqual([...READ_TOOL_NAMES, ...OTHER_TOOL_NAMES]);
+  });
+
+  it("omits the write tools when session provenance is missing", () => {
+    const tools = createTools({
+      projectId: "p1",
+      userId: "u1",
+      workspaceId: "w1",
+      agentSessionId: "",
+      executor: {} as Executor,
+    });
+    expect(tools.map((t) => t.name)).toEqual([...READ_TOOL_NAMES, ...OTHER_TOOL_NAMES]);
   });
 });
 
