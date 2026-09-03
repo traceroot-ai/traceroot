@@ -32,13 +32,22 @@ class WidgetFilter(_StrictModel):
     # allow_inf_nan=False: json.loads accepts bare NaN/Infinity tokens, but a
     # stored non-finite float can never be re-encoded by a strict JSON encoder
     # (the write proxy's httpx client included) — reject it at validation.
-    # The union is emitted as a JSON-Schema type array rather than an anyOf:
-    # this model feeds generated tool schemas (via the public widget-create
-    # body), and some model providers reject properties without a `type`.
+    # The union keeps a top-level JSON-Schema type array: this model feeds
+    # generated tool schemas (via the public widget-create body), and some
+    # model providers reject properties without a `type`. The empty-string
+    # guard lives in a per-branch anyOf rather than beside the type array —
+    # a bare minLength next to ["string", "number"] is applied to numbers by
+    # the agent's argument validator, which then rejects every numeric filter
+    # with no usable error.
     value: Annotated[
         Annotated[str, StringConstraints(min_length=1)]
         | Annotated[float, Field(allow_inf_nan=False)],
-        WithJsonSchema({"type": ["string", "number"], "minLength": 1}),
+        WithJsonSchema(
+            {
+                "type": ["string", "number"],
+                "anyOf": [{"type": "string", "minLength": 1}, {"type": "number"}],
+            }
+        ),
     ]
     # The map key for a keyed field. Unconstrained here: whether a key is required,
     # forbidden or over-length depends on the field, so the compiler raises those.
