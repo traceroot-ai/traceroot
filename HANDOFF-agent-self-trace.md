@@ -148,7 +148,12 @@ done
   longer hand out an id that 404s. A `--source` flag on `traces get` is still the
   way for a member to read an agent trace from the CLI; blocked on #2069 plus a
   `@traceroot-ai/tools` release.
-- **traceroot-ts#150** — carries two asks: publish 0.4.0, and add a side channel
+- **traceroot-ts#150** — the 0.4.0 source was recovered from the old machine
+  (`mbp-m3-pro:~/backup-mbp-intel/home/traceroot-ts`, branch
+  `feat/instrument-pi-agent-core`, one commit; its `npm pack` output is byte-identical
+  to the vendored tarball) and is up as **traceroot-ai/traceroot-ts#151**. After it
+  merges: create Release `v0.4.0` → CI publishes → swap #2072's `file:` pin for
+  `^0.4.0` and delete `frontend/vendor/`. The issue also carries a second ask: a side channel
   reporting `{ toolCallId, spanId, exitCode? }` per tool span. Without it a tool
   step cannot deep-link to its span (that is why #2083's (né #2074) SDK half is still open)
   and a withheld-output step records no exit status.
