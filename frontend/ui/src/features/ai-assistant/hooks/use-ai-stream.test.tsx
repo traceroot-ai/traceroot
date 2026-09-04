@@ -1,27 +1,226 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, renderHook } from "@testing-library/react";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { renderHook, act, waitFor, cleanup } from "@testing-library/react";
 import { useAIStream } from "./use-ai-stream";
+import type { AIMessage } from "../types";
 
-const encoder = new TextEncoder();
-
-/** Fake streaming Response delivering the given agent events as SSE lines. */
-function sseResponse(events: unknown[]) {
-  const chunks = events.map((e) => encoder.encode(`data: ${JSON.stringify(e)}\n`));
-  let i = 0;
+/**
+ * Controllable SSE response: emit() pushes one `data:` line, close() ends the
+ * stream. enqueue after cancellation throws inside the helper and is
+ * swallowed — the assertion that matters is what landed in the hook state.
+ */
+function createSSE() {
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const stream = new ReadableStream<Uint8Array>({
+    start(c) {
+      controller = c;
+    },
+  });
+  const encoder = new TextEncoder();
   return {
-    ok: true,
-    body: {
-      getReader: () => ({
-        read: async () =>
-          i < chunks.length
-            ? { done: false as const, value: chunks[i++] }
-            : { done: true as const, value: undefined },
-        cancel: vi.fn(),
-      }),
+    response: new Response(stream, { status: 200 }),
+    emit(event: Record<string, unknown>) {
+      try {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n`));
+      } catch {
+        // stream already cancelled — fine, tests assert on hook state
+      }
+    },
+    close() {
+      try {
+        controller.close();
+      } catch {
+        // already cancelled
+      }
     },
   };
 }
+
+const textDelta = (delta: string) => ({
+  type: "message_update",
+  assistantMessageEvent: { type: "text_delta", delta },
+});
+
+const historyMsg = (id: string, content: string): AIMessage => ({
+  id,
+  role: "user",
+  content,
+  timestamp: "2026-01-01T00:00:00Z",
+});
+
+describe("useAIStream per-session isolation", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  const send = (result: { current: ReturnType<typeof useAIStream> }, sessionId: string) =>
+    act(() => {
+      void result.current.sendMessage({
+        sessionId,
+        message: `hi ${sessionId}`,
+        projectId: "p1",
+      });
+    });
+
+  it("routes stream deltas to the session that started the run, not the visible one", async () => {
+    const sseA = createSSE();
+    fetchMock.mockResolvedValueOnce(sseA.response);
+    const { result } = renderHook(() => useAIStream());
+
+    await send(result, "A");
+    await waitFor(() => expect(result.current.messagesBySession["A"]).toHaveLength(1));
+
+    // user "switches" to session B: its history is loaded into B's bucket
+    act(() => {
+      result.current.setSessionMessages("B", [historyMsg("b1", "old B message")]);
+    });
+
+    sseA.emit(textDelta("Hello"));
+    sseA.emit(textDelta(" world"));
+
+    await waitFor(() => {
+      const a = result.current.messagesBySession["A"];
+      expect(a?.some((m) => m.role === "assistant" && m.content === "Hello world")).toBe(true);
+    });
+
+    // B's bucket is untouched by A's stream
+    expect(result.current.messagesBySession["B"]).toHaveLength(1);
+    expect(result.current.messagesBySession["B"]![0].content).toBe("old B message");
+  });
+
+  it("keeps session A streaming when a send starts in session B", async () => {
+    const sseA = createSSE();
+    const sseB = createSSE();
+    fetchMock.mockResolvedValueOnce(sseA.response).mockResolvedValueOnce(sseB.response);
+    const { result } = renderHook(() => useAIStream());
+
+    await send(result, "A");
+    await send(result, "B");
+    await waitFor(() => {
+      expect(result.current.streamingSessions["A"]).toBe(true);
+      expect(result.current.streamingSessions["B"]).toBe(true);
+    });
+
+    sseA.emit(textDelta("from A"));
+    sseB.emit(textDelta("from B"));
+
+    await waitFor(() => {
+      expect(result.current.messagesBySession["A"]?.some((m) => m.content === "from A")).toBe(true);
+      expect(result.current.messagesBySession["B"]?.some((m) => m.content === "from B")).toBe(true);
+    });
+
+    sseA.close();
+    await waitFor(() => expect(result.current.streamingSessions["A"]).toBeFalsy());
+    expect(result.current.streamingSessions["B"]).toBe(true);
+  });
+
+  it("cancels the prior run when a new send starts in the same session", async () => {
+    const sse1 = createSSE();
+    const sse2 = createSSE();
+    fetchMock.mockResolvedValueOnce(sse1.response).mockResolvedValueOnce(sse2.response);
+    const { result } = renderHook(() => useAIStream());
+
+    await send(result, "A");
+    sse1.emit(textDelta("one"));
+    await waitFor(() =>
+      expect(result.current.messagesBySession["A"]?.some((m) => m.content === "one")).toBe(true),
+    );
+
+    await send(result, "A");
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    // late chunks from the superseded run must not land anywhere
+    sse1.emit(textDelta("LEAK"));
+    sse2.emit(textDelta("two"));
+    await waitFor(() =>
+      expect(result.current.messagesBySession["A"]?.some((m) => m.content === "two")).toBe(true),
+    );
+    expect(result.current.messagesBySession["A"]?.some((m) => m.content.includes("LEAK"))).toBe(
+      false,
+    );
+    // the superseded run's bubble is frozen, not left streaming forever
+    expect(
+      result.current.messagesBySession["A"]?.filter((m) => m.isStreaming).length,
+    ).toBeLessThanOrEqual(1);
+  });
+
+  it("abortSession stops only that session's stream", async () => {
+    const sseA = createSSE();
+    const sseB = createSSE();
+    fetchMock.mockResolvedValueOnce(sseA.response).mockResolvedValueOnce(sseB.response);
+    const { result } = renderHook(() => useAIStream());
+
+    await send(result, "A");
+    await send(result, "B");
+    await waitFor(() => {
+      expect(result.current.streamingSessions["A"]).toBe(true);
+      expect(result.current.streamingSessions["B"]).toBe(true);
+    });
+
+    act(() => {
+      result.current.abortSession("A");
+    });
+    await waitFor(() => expect(result.current.streamingSessions["A"]).toBeFalsy());
+    expect(result.current.streamingSessions["B"]).toBe(true);
+
+    // aborted stream's late chunks are dropped; B still receives
+    sseA.emit(textDelta("ghost"));
+    sseB.emit(textDelta("alive"));
+    await waitFor(() =>
+      expect(result.current.messagesBySession["B"]?.some((m) => m.content === "alive")).toBe(true),
+    );
+    expect(
+      result.current.messagesBySession["A"]?.some((m) => m.content.includes("ghost")),
+    ).toBeFalsy();
+    // no bubble left permanently streaming in the aborted session
+    expect(result.current.messagesBySession["A"]?.some((m) => m.isStreaming)).toBeFalsy();
+  });
+
+  it("abortAll stops every stream and clearAll drops every bucket", async () => {
+    const sseA = createSSE();
+    const sseB = createSSE();
+    fetchMock.mockResolvedValueOnce(sseA.response).mockResolvedValueOnce(sseB.response);
+    const { result } = renderHook(() => useAIStream());
+
+    await send(result, "A");
+    await send(result, "B");
+    await waitFor(() => {
+      expect(result.current.streamingSessions["A"]).toBe(true);
+      expect(result.current.streamingSessions["B"]).toBe(true);
+    });
+
+    act(() => {
+      result.current.abortAll();
+      result.current.clearAll();
+    });
+
+    await waitFor(() => {
+      expect(result.current.streamingSessions).toEqual({});
+      expect(result.current.messagesBySession).toEqual({});
+    });
+  });
+
+  it("setSessionMessages replaces the bucket of a non-streaming session", () => {
+    const { result } = renderHook(() => useAIStream());
+    act(() => {
+      result.current.setSessionMessages("C", [historyMsg("c1", "one"), historyMsg("c2", "two")]);
+    });
+    expect(result.current.messagesBySession["C"]).toHaveLength(2);
+    act(() => {
+      result.current.setSessionMessages("C", [historyMsg("c3", "three")]);
+    });
+    expect(result.current.messagesBySession["C"]).toHaveLength(1);
+    expect(result.current.messagesBySession["C"]![0].content).toBe("three");
+  });
+});
 
 const toolEndEvent = {
   type: "tool_execution_end",
@@ -36,134 +235,43 @@ const toolEndEvent = {
 
 const sendParams = { sessionId: "s1", message: "make a dashboard", projectId: "p1" };
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
+describe("useAIStream live tool-result and turn-completion callbacks", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
 
-/** Fake streaming Response whose reads stall on `gate`, then report done. */
-function stalledResponse(gate: Promise<void>) {
-  return {
-    ok: true,
-    body: {
-      getReader: () => ({
-        read: async () => {
-          await gate;
-          return { done: true as const, value: undefined };
-        },
-        cancel: vi.fn(),
-      }),
-    },
-  };
-}
-
-describe("useAIStream onTurnComplete", () => {
-  it("fires once, after the turn's tool results, when the stream drains normally", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        sseResponse([
-          toolEndEvent,
-          { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "done" } },
-        ]),
-      ),
-    );
-    const onToolResult = vi.fn();
-    const onTurnComplete = vi.fn();
-    const { result } = renderHook(() => useAIStream({ onToolResult, onTurnComplete }));
-    await act(() => result.current.sendMessage(sendParams));
-    expect(onTurnComplete).toHaveBeenCalledExactlyOnceWith({ sessionId: "s1", projectId: "p1" });
-    expect(onTurnComplete.mock.invocationCallOrder[0]).toBeGreaterThan(
-      onToolResult.mock.invocationCallOrder[0],
-    );
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
   });
 
-  it("does not fire when the stream is aborted mid-turn", async () => {
-    let release!: () => void;
-    const gate = new Promise<void>((r) => {
-      release = r;
-    });
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => stalledResponse(gate)),
-    );
-    const onTurnComplete = vi.fn();
-    const { result } = renderHook(() => useAIStream({ onTurnComplete }));
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  /** Start a run in s1 against `sse` without awaiting it; returns its promise. */
+  const startSend = (
+    result: { current: ReturnType<typeof useAIStream> },
+    sse: ReturnType<typeof createSSE>,
+  ) => {
+    fetchMock.mockResolvedValueOnce(sse.response);
     let send!: Promise<void>;
     act(() => {
       send = result.current.sendMessage(sendParams);
     });
-    // Let the fetch resolve and the reader engage before aborting.
-    await act(async () => {});
-    act(() => result.current.abort());
-    release();
-    await act(() => send);
-    expect(onTurnComplete).not.toHaveBeenCalled();
-  });
+    return send;
+  };
 
-  it("does not fire for a superseded stream", async () => {
-    let release!: () => void;
-    const gate = new Promise<void>((r) => {
-      release = r;
-    });
-    let call = 0;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        call += 1;
-        return call === 1 ? stalledResponse(gate) : sseResponse([]);
-      }),
-    );
-    const onTurnComplete = vi.fn();
-    const { result } = renderHook(() => useAIStream({ onTurnComplete }));
-    let first!: Promise<void>;
-    act(() => {
-      first = result.current.sendMessage(sendParams);
-    });
-    await act(() => result.current.sendMessage({ ...sendParams, sessionId: "s2" }));
-    release();
-    await act(() => first);
-    // Only the newer stream's completion is reported.
-    expect(onTurnComplete).toHaveBeenCalledExactlyOnceWith({ sessionId: "s2", projectId: "p1" });
-  });
-
-  it("does not fire when the turn surfaces a stream error event", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => sseResponse([toolEndEvent, { type: "error", message: "boom" }])),
-    );
-    const onTurnComplete = vi.fn();
-    const { result } = renderHook(() => useAIStream({ onTurnComplete }));
-    await act(() => result.current.sendMessage(sendParams));
-    expect(onTurnComplete).not.toHaveBeenCalled();
-  });
-
-  it("does not fire when the turn ends with an errored message_end", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        sseResponse([
-          { type: "message_end", message: { stopReason: "error", errorMessage: "model failed" } },
-        ]),
-      ),
-    );
-    const onTurnComplete = vi.fn();
-    const { result } = renderHook(() => useAIStream({ onTurnComplete }));
-    await act(() => result.current.sendMessage(sendParams));
-    expect(onTurnComplete).not.toHaveBeenCalled();
-  });
-});
-
-describe("useAIStream onToolResult", () => {
-  it("reports live tool results with the stream's session and project", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => sseResponse([toolEndEvent])),
-    );
+  it("reports live tool results with the run's session and project", async () => {
+    const sse = createSSE();
     const onToolResult = vi.fn();
     const { result } = renderHook(() => useAIStream({ onToolResult }));
-    await act(() => result.current.sendMessage(sendParams));
-    expect(onToolResult).toHaveBeenCalledTimes(1);
-    expect(onToolResult).toHaveBeenCalledWith({
+    const send = startSend(result, sse);
+
+    sse.emit(toolEndEvent);
+    sse.close();
+    await act(() => send);
+
+    expect(onToolResult).toHaveBeenCalledExactlyOnceWith({
       sessionId: "s1",
       projectId: "p1",
       result: toolEndEvent.result,
@@ -172,71 +280,107 @@ describe("useAIStream onToolResult", () => {
   });
 
   it("still records the tool step when no callback is given", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        sseResponse([
-          {
-            type: "tool_execution_start",
-            toolCallId: "tc1",
-            toolName: "create_dashboard",
-            args: {},
-          },
-          toolEndEvent,
-        ]),
-      ),
-    );
+    const sse = createSSE();
     const { result } = renderHook(() => useAIStream());
-    await act(() => result.current.sendMessage(sendParams));
-    const step = result.current.messages.find((m) => m.role === "tool_step");
+    const send = startSend(result, sse);
+
+    sse.emit({ type: "tool_execution_start", toolCallId: "tc1", toolName: "create_dashboard" });
+    sse.emit(toolEndEvent);
+    sse.close();
+    await act(() => send);
+
+    const step = result.current.messagesBySession["s1"]?.find((m) => m.role === "tool_step");
     expect(step?.toolStep?.result).toEqual(toolEndEvent.result);
     expect(step?.toolStep?.status).toBe("done");
   });
 
-  it("does not report tool results from a superseded stream", async () => {
-    // First send's stream stalls until released, then delivers its tool event
-    // after a newer send has already taken over.
-    let release!: () => void;
-    const gate = new Promise<void>((r) => {
-      release = r;
-    });
-    let call = 0;
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => {
-        call += 1;
-        if (call === 1) {
-          const chunk = encoder.encode(`data: ${JSON.stringify(toolEndEvent)}\n`);
-          let delivered = false;
-          return {
-            ok: true,
-            body: {
-              getReader: () => ({
-                read: async () => {
-                  if (!delivered) {
-                    await gate;
-                    delivered = true;
-                    return { done: false as const, value: chunk };
-                  }
-                  return { done: true as const, value: undefined };
-                },
-                cancel: vi.fn(),
-              }),
-            },
-          };
-        }
-        return sseResponse([]);
-      }),
-    );
+  it("fires onTurnComplete once, after the turn's tool results, on a normal drain", async () => {
+    const sse = createSSE();
     const onToolResult = vi.fn();
-    const { result } = renderHook(() => useAIStream({ onToolResult }));
-    let first!: Promise<void>;
+    const onTurnComplete = vi.fn();
+    const { result } = renderHook(() => useAIStream({ onToolResult, onTurnComplete }));
+    const send = startSend(result, sse);
+
+    sse.emit(toolEndEvent);
+    sse.emit(textDelta("done"));
+    sse.close();
+    await act(() => send);
+
+    expect(onTurnComplete).toHaveBeenCalledExactlyOnceWith({ sessionId: "s1", projectId: "p1" });
+    expect(onTurnComplete.mock.invocationCallOrder[0]).toBeGreaterThan(
+      onToolResult.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("does not fire onTurnComplete when the run is aborted mid-turn", async () => {
+    const sse = createSSE();
+    const onTurnComplete = vi.fn();
+    const { result } = renderHook(() => useAIStream({ onTurnComplete }));
+    const send = startSend(result, sse);
+    await waitFor(() => expect(result.current.streamingSessions["s1"]).toBe(true));
+
     act(() => {
-      first = result.current.sendMessage(sendParams);
+      result.current.abortSession("s1");
     });
-    await act(() => result.current.sendMessage({ ...sendParams, sessionId: "s2" }));
-    release();
-    await act(() => first);
+    sse.close();
+    await act(() => send);
+
+    expect(onTurnComplete).not.toHaveBeenCalled();
+  });
+
+  it("reports neither callback for a run superseded within its own session", async () => {
+    const superseded = createSSE();
+    const winner = createSSE();
+    const onToolResult = vi.fn();
+    const onTurnComplete = vi.fn();
+    const { result } = renderHook(() => useAIStream({ onToolResult, onTurnComplete }));
+    const first = startSend(result, superseded);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    // A second send in the SAME session cancels the first run.
+    const second = startSend(result, winner);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+    // The dead run's tool result arrives late — it must be ignored entirely.
+    superseded.emit(toolEndEvent);
+    superseded.close();
+    winner.close();
+    await act(async () => {
+      await Promise.all([first, second]);
+    });
+
     expect(onToolResult).not.toHaveBeenCalled();
+    // Only the run that still owns the session reports completion.
+    expect(onTurnComplete).toHaveBeenCalledExactlyOnceWith({ sessionId: "s1", projectId: "p1" });
+  });
+
+  it("does not fire onTurnComplete when the turn surfaces a stream error event", async () => {
+    const sse = createSSE();
+    const onTurnComplete = vi.fn();
+    const { result } = renderHook(() => useAIStream({ onTurnComplete }));
+    const send = startSend(result, sse);
+
+    sse.emit(toolEndEvent);
+    sse.emit({ type: "error", message: "boom" });
+    sse.close();
+    await act(() => send);
+
+    expect(onTurnComplete).not.toHaveBeenCalled();
+  });
+
+  it("does not fire onTurnComplete when the turn ends with an errored message_end", async () => {
+    const sse = createSSE();
+    const onTurnComplete = vi.fn();
+    const { result } = renderHook(() => useAIStream({ onTurnComplete }));
+    const send = startSend(result, sse);
+
+    sse.emit({
+      type: "message_end",
+      message: { stopReason: "error", errorMessage: "model failed" },
+    });
+    sse.close();
+    await act(() => send);
+
+    expect(onTurnComplete).not.toHaveBeenCalled();
   });
 });
