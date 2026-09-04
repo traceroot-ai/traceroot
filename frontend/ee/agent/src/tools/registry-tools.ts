@@ -1,6 +1,7 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import {
   ApiClient,
+  ApiError,
   INTERNAL_BINDINGS,
   REGISTRY,
   internalAuth,
@@ -34,12 +35,17 @@ export function createRegistryReadTools(projectId: string, userId: string): Agen
     baseUrl: process.env.BACKEND_INTERNAL_URL || "http://localhost:8000",
     headers: internalAuth(process.env.INTERNAL_API_SECRET || "", userId),
   });
-  const bind = (name: string, formatResult: (data: unknown) => string) =>
+  const bind = (
+    name: string,
+    formatResult: (data: unknown) => string,
+    formatError?: (error: ApiError) => string | undefined,
+  ) =>
     toPiAgentTool(requireEntry(name), {
       client,
       pathOverride: INTERNAL_BINDINGS[name],
       fixedArgs: { project_id: projectId },
       formatResult,
+      formatError,
     }) as AgentTool<any>;
   return [
     bind("list_traces", formatTraceList),
@@ -49,6 +55,11 @@ export function createRegistryReadTools(projectId: string, userId: string): Agen
     bind("get_detector", formatDetectorDetail),
     bind("list_findings", formatFindingList),
     bind("get_finding", formatFindingDetail),
-    bind("get_finding_by_trace", formatFindingDetail),
+    bind("get_finding_by_trace", formatFindingDetail, (error) => {
+      if (error.status === 404) {
+        return "No detector finding is attached to trace.";
+      }
+      return undefined;
+    }),
   ];
 }
