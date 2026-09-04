@@ -77,6 +77,11 @@ def ensure_infra():
     )
     # minio-init is a one-shot, idempotent setup container — start it after MinIO is healthy.
     _run(f"{DOCKER_COMPOSE} up -d minio-init")
+    # clickhouse-init provisions the SQL-gateway DB users (sql_gateway_writer is the
+    # DEFINER of migration 006's views, so it must exist before goose runs). Run it to
+    # completion here: the goose docker fallback uses `--no-deps` and the local-goose
+    # path bypasses compose, so neither honors the migrate-clickhouse depends_on.
+    _run(f"{DOCKER_COMPOSE} run --rm --no-deps clickhouse-init")
 
 
 def ensure_python_deps():

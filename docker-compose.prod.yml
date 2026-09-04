@@ -41,6 +41,9 @@ services:
     volumes:
       - clickhouse_data:/var/lib/clickhouse
       - clickhouse_logs:/var/log/clickhouse-server
+      # Grants the admin user SQL access management + SET DEFINER, required for the
+      # SQL-gateway user provisioning (clickhouse-init) and migration 006's definer.
+      - ./backend/db/clickhouse/bootstrap/clickhouse_access_management.xml:/etc/clickhouse-server/users.d/zz-access-management.xml:ro
     healthcheck:
       test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
       interval: 5s
@@ -108,6 +111,30 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # One-shot, idempotent: provisions the SQL-gateway DB users before migrations.
+  # sql_gateway_writer is the DEFINER of migration 006's views, so it MUST exist
+  # before migrate-clickhouse runs. Runs against the live server (works on existing
+  # data volumes). NOTE: these accounts are created with no_password for the compose
+  # stack; a hardened deployment must provision them with real secrets — see
+  # backend/db/clickhouse/SQL_GATEWAY_RUNBOOK.md.
+  clickhouse-init:
+    image: docker.io/clickhouse/clickhouse-server:${CLICKHOUSE_VERSION:-24.3}
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+    volumes:
+      - ./backend/db/clickhouse/bootstrap/sql_gateway_users.sql:/bootstrap/sql_gateway_users.sql:ro
+    # Single-$ so Compose substitutes the admin creds from .env at parse time (this
+    # container has no environment: block, so $$-escaped vars would wrongly fall back
+    # to the default and break auth whenever CLICKHOUSE_PASSWORD is changed).
+    entrypoint: >
+      /bin/sh -c "
+      clickhouse-client --host clickhouse --port 9000
+      --user ${CLICKHOUSE_USER:-clickhouse} --password ${CLICKHOUSE_PASSWORD:-clickhouse}
+      --queries-file /bootstrap/sql_gateway_users.sql
+      "
+    restart: "no"
+
   migrate-clickhouse:
     build:
       context: .
@@ -116,6 +143,8 @@ services:
     depends_on:
       clickhouse:
         condition: service_healthy
+      clickhouse-init:
+        condition: service_completed_successfully
     restart: "no"
 
   # ---------------------------------------------------------------------------
