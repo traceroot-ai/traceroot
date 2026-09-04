@@ -128,6 +128,30 @@ describe("POST /api/internal/write/dashboards", () => {
     expect(await res.json()).toEqual({ created: true, dashboard });
   });
 
+  it("passes the service's renamedFrom through so the agent can say what it renamed", async () => {
+    const dashboard = { id: "dash2", name: "Cost overview (2)", projectId: "p1" };
+    createDashboardMock.mockResolvedValue({
+      ok: true,
+      created: true,
+      data: dashboard,
+      renamedFrom: "Cost overview",
+    });
+
+    const res = await POST(makeRequest(validBody));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ created: true, dashboard, renamedFrom: "Cost overview" });
+  });
+
+  it("leaves renamedFrom off the response when the requested name was used", async () => {
+    const dashboard = { id: "dash1", name: "Cost overview", projectId: "p1" };
+    createDashboardMock.mockResolvedValue({ ok: true, created: true, data: dashboard });
+
+    const res = await POST(makeRequest(validBody));
+
+    expect(await res.json()).toStrictEqual({ created: true, dashboard });
+  });
+
   it("normalizes an omitted agentSessionId to null for the service", async () => {
     const dashboard = { id: "dash1", name: "Cost overview", projectId: "p1" };
     createDashboardMock.mockResolvedValue({ ok: true, created: false, data: dashboard });
