@@ -1086,6 +1086,45 @@ class TestUsageBillsEveryStoredRow:
         # detector_runs was never filtered — it is the per-evaluation result record.
         assert "source" not in runs_sql
 
+    def _runs_sql(self, client, mock_ch, secret) -> str:
+        mock_ch.query.side_effect = [
+            _make_query_result([(3,)], ["total"]),  # traces
+            _make_query_result([(9,)], ["total"]),  # spans
+            _make_query_result([(2,)], ["total"]),  # detector_runs
+        ]
+        resp = client.get(
+            "/api/v1/internal/usage/details",
+            params=self.PARAMS,
+            headers={"X-Internal-Secret": secret},
+        )
+        assert resp.status_code == 200
+        return mock_ch.query.call_args_list[2].args[0]
+
+    def test_detector_runs_collapse_to_latest_row_before_the_window(self, client, mock_ch, secret):
+        """run_id is deterministic, so a retry writes the same run with a later
+        timestamp and both rows live until the merge collapses them. uniqExact over
+        raw rows dedups only WITHIN a window: a run retried across a billing
+        boundary matched period A with its old row and period B with its new one,
+        billing one scan twice (#2077). Collapse to the latest row first.
+        """
+        runs_sql = self._runs_sql(client, mock_ch, secret)
+
+        assert "argMax(timestamp, timestamp)" in runs_sql
+        assert "GROUP BY project_id, detector_id, run_id" in runs_sql
+        # The window compares the collapsed alias, never the raw column.
+        assert "ts >= {start:String}" in runs_sql
+        assert "ts < {end:String}" in runs_sql
+        assert "timestamp >= {start:String}" not in runs_sql
+        assert "timestamp < {end:String}" not in runs_sql
+
+    def test_detector_runs_count_groups_not_raw_rows(self, client, mock_ch, secret):
+        """uniqExact(run_id) over the base table is what allowed the cross-window
+        double count; the collapsed subquery is counted instead."""
+        runs_sql = self._runs_sql(client, mock_ch, secret)
+
+        assert "count()" in runs_sql
+        assert "uniqExact" not in runs_sql
+
     def test_usage_total_counts_rows_from_every_source(self, client, mock_ch, secret):
         mock_ch.query.side_effect = [_make_query_result([(12,)], ["total"])]
         resp = client.get(

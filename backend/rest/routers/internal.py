@@ -228,15 +228,26 @@ async def get_usage_details(
 
     # Detector runs: count every scan attempt recorded by the detector worker
     # (BYOK + system source both count toward Free-plan hard cap).
-    # uniqExact on run_id dedups pre-merge duplicates in the ReplacingMergeTree —
-    # same pattern as the traces / spans queries above.
+    #
+    # Collapse each (project_id, detector_id, run_id) to its latest row BEFORE
+    # applying the window predicate. detector_runs is a ReplacingMergeTree on
+    # that key and run_id is deterministic (sha256 of project:trace:detector), so
+    # a retry writes the same run with a later timestamp and both rows exist
+    # until the merge collapses them. uniqExact over the raw rows dedups only
+    # WITHIN a window, never across one — so a run retried across a billing
+    # boundary satisfied period A's predicate with its old row and period B's
+    # with its new one, billing one scan twice depending on merge timing (#2077).
     detector_runs_result = ch.query(
         """
-        SELECT uniqExact(run_id) as total
-        FROM detector_runs
-        WHERE project_id IN {project_ids:Array(String)}
-          AND timestamp >= {start:String}
-          AND timestamp < {end:String}
+        SELECT count() as total
+        FROM (
+            SELECT run_id, argMax(timestamp, timestamp) AS ts
+            FROM detector_runs
+            WHERE project_id IN {project_ids:Array(String)}
+            GROUP BY project_id, detector_id, run_id
+        )
+        WHERE ts >= {start:String}
+          AND ts < {end:String}
         """,
         parameters={
             "project_ids": project_id_list,
