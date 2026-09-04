@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApiClient, ApiError, REGISTRY } from "@traceroot-ai/tools";
+import { validateToolArguments } from "@earendil-works/pi-ai";
 import { createRegistryWriteTools } from "../registry-write-tools.js";
 
 function stubClient(response: unknown = {}) {
@@ -13,7 +14,6 @@ function makeTools(client: ApiClient) {
     actorUserId: "u1",
     agentSessionId: "as1",
     projectId: "p1",
-    workspaceId: "w1",
   });
 }
 
@@ -158,7 +158,6 @@ describe("createRegistryWriteTools", () => {
       actorUserId: "u1",
       agentSessionId: "as1",
       projectId: "p1",
-      workspaceId: "w1",
     }).find((t) => t.name === "create_dashboard")!;
     expect(tool.parameters.properties).not.toHaveProperty("description");
     expect(tool.parameters.required).not.toContain("description");
@@ -408,7 +407,6 @@ describe("createRegistryWriteTools construction", () => {
         actorUserId: "u1",
         agentSessionId: "as1",
         projectId: "p1",
-        workspaceId: "w1",
       }),
     ).toThrow("registry entry missing: create_widget");
     vi.doUnmock("@traceroot-ai/tools");
@@ -433,9 +431,37 @@ describe("createRegistryWriteTools construction", () => {
         actorUserId: "u1",
         agentSessionId: "as1",
         projectId: "p1",
-        workspaceId: "w1",
       }),
     ).toThrow("registry entry missing policy: create_detector");
+    vi.doUnmock("@traceroot-ai/tools");
+    vi.resetModules();
+  });
+
+  it("throws at construction when a bound write entry is not project-scoped", async () => {
+    // The chat agent injects its session's project as the only ambient
+    // tenancy; a registry flip to another scope must fail loud, not inject
+    // the wrong id silently.
+    vi.resetModules();
+    vi.doMock("@traceroot-ai/tools", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("@traceroot-ai/tools")>();
+      return {
+        ...actual,
+        REGISTRY: actual.REGISTRY.map((e) =>
+          e.name === "create_dashboard" && e.policy
+            ? { ...e, policy: { ...e.policy, tenancy: "workspace" as const } }
+            : e,
+        ),
+      };
+    });
+    const { createRegistryWriteTools: create } = await import("../registry-write-tools.js");
+    expect(() =>
+      create({
+        client: {} as ApiClient,
+        actorUserId: "u1",
+        agentSessionId: "as1",
+        projectId: "p1",
+      }),
+    ).toThrow("create_dashboard: unsupported tenancy for the chat agent: workspace");
     vi.doUnmock("@traceroot-ai/tools");
     vi.resetModules();
   });
@@ -466,10 +492,53 @@ describe("createRegistryWriteTools construction", () => {
         actorUserId: "u1",
         agentSessionId: "as1",
         projectId: "p1",
-        workspaceId: "w1",
       }),
     ).toThrow("create_dashboard: unmapped registry field: color");
     vi.doUnmock("@traceroot-ai/tools");
     vi.resetModules();
+  });
+});
+
+describe("create_widget schema under pi's argument validation", () => {
+  const widgetTool = () => makeTools(stubClient().client).find((t) => t.name === "create_widget")!;
+  const call = (spec: Record<string, unknown>) => ({
+    id: "tc1",
+    name: "create_widget",
+    arguments: { label: "add", dashboard_id: "d1", title: "t", type: "query", spec },
+  });
+  const base = {
+    view: "traces",
+    metric: { agg: "count", measure: "count" },
+    display: { type: "number" },
+    breakdown: null,
+  };
+
+  it("accepts a numeric filter value — pi validates before the tool ever runs", () => {
+    // The filter value is a string-or-number union whose empty-string guard
+    // must not leak onto numbers: a leaked minLength failed every numeric
+    // filter with an empty error the model could not act on.
+    const tool = widgetTool();
+    expect(() =>
+      validateToolArguments(
+        tool,
+        call({ ...base, filters: [{ field: "duration_ms", op: ">", value: 5 }] }),
+      ),
+    ).not.toThrow();
+  });
+
+  it("accepts a string filter value and still rejects an empty one", () => {
+    const tool = widgetTool();
+    expect(() =>
+      validateToolArguments(
+        tool,
+        call({ ...base, filters: [{ field: "name", op: "contains", value: "checkout" }] }),
+      ),
+    ).not.toThrow();
+    expect(() =>
+      validateToolArguments(
+        tool,
+        call({ ...base, filters: [{ field: "name", op: "=", value: "" }] }),
+      ),
+    ).toThrow(/fewer than 1 characters/);
   });
 });

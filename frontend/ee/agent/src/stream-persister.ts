@@ -109,6 +109,8 @@ export class StreamPersister {
   private text = "";
   private thinking = "";
   private runError: string | undefined;
+  /** Whether the run produced anything at all (text, thinking, or a tool step) — see finish. */
+  private produced = false;
   /** args by toolCallId, captured at tool_execution_start (end events lack args) */
   private pendingToolArgs = new Map<string, Record<string, unknown>>();
   /** toolCallIds in tool_execution_start order — the order rows must persist in */
@@ -121,8 +123,14 @@ export class StreamPersister {
   onEvent(event: AgentEvent): void {
     if (event.type === "message_update") {
       const delta = event.assistantMessageEvent as { type?: string; delta?: string };
-      if (delta?.type === "text_delta" && delta.delta) this.text += delta.delta;
-      if (delta?.type === "thinking_delta" && delta.delta) this.thinking += delta.delta;
+      if (delta?.type === "text_delta" && delta.delta) {
+        this.text += delta.delta;
+        this.produced = true;
+      }
+      if (delta?.type === "thinking_delta" && delta.delta) {
+        this.thinking += delta.delta;
+        this.produced = true;
+      }
       return;
     }
 
@@ -136,6 +144,7 @@ export class StreamPersister {
     }
 
     if (event.type === "tool_execution_start") {
+      this.produced = true;
       this.pendingToolArgs.set(event.toolCallId, event.args ?? {});
       this.toolStartOrder.push(event.toolCallId);
       this.flushTextSegment();
@@ -176,7 +185,19 @@ export class StreamPersister {
     this.toolStartOrder = [];
     this.completedToolRows.clear();
     this.pendingToolArgs.clear();
-    this.flushTextSegment(tokenUsage);
+    // A run that died before its first completion (bad key, 401/429) reports
+    // a model with zero tokens: persisting that usage would meter a run the
+    // user never got. Tool-only and errored runs that did consume tokens stay
+    // billable, as does a text-producing run whose provider omitted usage.
+    // A positive cost is consumption too — a provider can price a turn
+    // without reporting a token split, and dropping it would meter that run
+    // at nothing.
+    const consumedNothing =
+      tokenUsage !== undefined &&
+      tokenUsage.inputTokens === 0 &&
+      tokenUsage.outputTokens === 0 &&
+      tokenUsage.cost === 0;
+    this.flushTextSegment(consumedNothing && !this.produced ? undefined : tokenUsage);
     await this.chain;
   }
 

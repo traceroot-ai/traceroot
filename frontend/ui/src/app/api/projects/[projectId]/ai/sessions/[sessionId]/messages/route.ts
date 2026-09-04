@@ -97,7 +97,14 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   );
 
   if (!agentRes.ok || !agentRes.body) {
-    return new Response(JSON.stringify({ error: "Agent service error" }), {
+    // Surface the service's own reason when it gives one (e.g. a 409 because
+    // a run is already in flight for this session); the panel shows this text.
+    const upstream = (await agentRes.json().catch(() => null)) as { error?: unknown } | null;
+    const error =
+      typeof upstream?.error === "string" && upstream.error
+        ? upstream.error
+        : "Agent service error";
+    return new Response(JSON.stringify({ error }), {
       status: agentRes.status,
       headers: { "Content-Type": "application/json" },
     });

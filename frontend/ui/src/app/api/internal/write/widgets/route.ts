@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { verifyInternalSecret } from "@/lib/auth-helpers";
+import { WIDGET_TYPES } from "@/features/dashboards/types";
 import { createWidget } from "@/lib/write-services/dashboards";
 
 // Shape-level checks only: the deep field validation (length caps, exact
@@ -12,7 +13,7 @@ const bodySchema = z.object({
   projectId: z.string("projectId is required").min(1, "projectId is required"),
   dashboardId: z.string("dashboardId is required").min(1, "dashboardId is required"),
   title: z.string("title is required").min(1, "title is required"),
-  type: z.enum(["query", "trace_feed"]),
+  type: z.enum(WIDGET_TYPES),
   spec: z.record(z.string(), z.unknown()),
   displayConfig: z.record(z.string(), z.unknown()).optional(),
   transport: z.enum(["public-api", "agent"]),

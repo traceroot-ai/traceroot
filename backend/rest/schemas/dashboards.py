@@ -29,12 +29,21 @@ class WidgetFilter(_StrictModel):
     op: Literal["=", "contains", ">", ">=", "<", "<="]
     # min_length mirrors the frontend schema: an empty value means the filter
     # was never completed and would silently match only empty-valued rows.
-    # The union is emitted as a JSON-Schema type array rather than an anyOf:
-    # this model feeds generated tool schemas (via the public widget-create
-    # body), and some model providers reject properties without a `type`.
+    # The union keeps a top-level JSON-Schema type array: this model feeds
+    # generated tool schemas (via the public widget-create body), and some
+    # model providers reject properties without a `type`. The empty-string
+    # guard lives in a per-branch anyOf rather than beside the type array —
+    # a bare minLength next to ["string", "number"] is applied to numbers by
+    # the agent's argument validator, which then rejects every numeric filter
+    # with no usable error.
     value: Annotated[
         Annotated[str, StringConstraints(min_length=1)] | float,
-        WithJsonSchema({"type": ["string", "number"], "minLength": 1}),
+        WithJsonSchema(
+            {
+                "type": ["string", "number"],
+                "anyOf": [{"type": "string", "minLength": 1}, {"type": "number"}],
+            }
+        ),
     ]
 
 

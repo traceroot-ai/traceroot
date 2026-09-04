@@ -8,13 +8,30 @@ import {
   RUN_ENDED_SKIP_REASON,
   RUN_ERROR_SKIP_REASON,
 } from "../pending-decisions.js";
-import { runAgentStream, type AgentRunStream } from "../run-stream.js";
+import {
+  claimRun,
+  releaseRun,
+  runAgentStream,
+  waitForRunToSettle,
+  type AgentRunStream,
+} from "../run-stream.js";
+import { CONFIRMATION_UNAVAILABLE_REASON, createWritePolicyHook } from "../tools/write-policy.js";
+import {
+  isSessionDeleted,
+  markSessionDeleted,
+  clearSessionDeleted,
+} from "../executors/deleted-session-fence.js";
 
 vi.mock("../agent.js", () => ({
   runAgent: vi.fn(),
 }));
 
 const mockedRunAgent = vi.mocked(runAgent);
+
+const CONFIRM_ENTRY = {
+  name: "create_detector",
+  policy: { approvalClass: "confirm", minRole: "MEMBER", tenancy: "project" },
+} as const;
 
 interface FakeStream extends AgentRunStream {
   events: Array<{ event?: string; data: string }>;
@@ -71,6 +88,46 @@ afterEach(() => {
 });
 
 describe("runAgentStream", () => {
+  it("releases the run claim even when the terminal flush throws", async () => {
+    // resolve() is what lets the caller's finally release the claim. If a
+    // throw in the done handler skipped it, this session would sit in
+    // activeRuns forever and every later prompt on it would 409.
+    const decisions = new PendingDecisions();
+    mockedRunAgent.mockImplementation(async (_agent, _msg, handler: AgentEventHandler) => {
+      handler.onDone();
+    });
+    const stream = fakeStream();
+    stream.writeSSE = async (message: { event?: string; data: string }) => {
+      if (message.event === "done") throw new Error("client vanished mid-flush");
+      stream.events.push(message);
+    };
+
+    expect(claimRun("rs-throw")).toBe(true);
+    await runAgentStream(stream, options("rs-throw", decisions));
+
+    // Claim released: the next prompt on this session can run.
+    expect(claimRun("rs-throw")).toBe(true);
+    releaseRun("rs-throw");
+  });
+
+  it("releases the run claim even when the error path's persist throws", async () => {
+    const decisions = new PendingDecisions();
+    mockedRunAgent.mockImplementation(async (_agent, _msg, handler: AgentEventHandler) => {
+      handler.onError(new Error("model refused"));
+    });
+    const stream = fakeStream();
+    stream.writeSSE = async (message: { event?: string; data: string }) => {
+      if (message.event === "error") throw new Error("client vanished mid-flush");
+      stream.events.push(message);
+    };
+
+    expect(claimRun("rs-throw-err")).toBe(true);
+    await runAgentStream(stream, options("rs-throw-err", decisions));
+
+    expect(claimRun("rs-throw-err")).toBe(true);
+    releaseRun("rs-throw-err");
+  });
+
   it("forwards agent events and the done event over SSE (existing stream contract)", async () => {
     const decisions = new PendingDecisions();
     mockedRunAgent.mockImplementation(async (_agent, _msg, handler: AgentEventHandler) => {
@@ -188,6 +245,48 @@ describe("runAgentStream", () => {
     await running;
   });
 
+  it("release path: a client disconnect tears down the channel so later confirms fail closed", async () => {
+    // The turn keeps running after the browser goes away; a confirm-class
+    // call proposed later must not park against the dead stream for the full
+    // decision timeout — with no channel, the hook blocks immediately.
+    const decisions = new PendingDecisions();
+    const hook = createWritePolicyHook([CONFIRM_ENTRY], { sessionId: "rs-10", decisions });
+    let handlerRef: AgentEventHandler | undefined;
+    mockedRunAgent.mockImplementation(async (_agent, _msg, handler: AgentEventHandler) => {
+      handlerRef = handler;
+    });
+
+    const stream = fakeStream();
+    const running = runAgentStream(stream, options("rs-10", decisions));
+    expect(decisions.channelFor("rs-10")).toBeDefined();
+
+    stream.triggerAbort();
+    expect(decisions.channelFor("rs-10")).toBeUndefined();
+    await expect(
+      hook({
+        toolCall: { type: "toolCall", id: "tc-late", name: "create_detector", arguments: {} },
+        args: {},
+      } as never),
+    ).resolves.toEqual({ block: true, reason: CONFIRMATION_UNAVAILABLE_REASON });
+    expect(decisions.pendingCount("rs-10")).toBe(0);
+
+    handlerRef!.onDone();
+    await running;
+  });
+
+  it("releases the session's run claim once the run settles", async () => {
+    const decisions = new PendingDecisions();
+    mockedRunAgent.mockImplementation(async (_agent, _msg, handler: AgentEventHandler) => {
+      handler.onDone();
+    });
+    expect(claimRun("rs-11")).toBe(true);
+
+    await runAgentStream(fakeStream(), options("rs-11", decisions));
+
+    expect(claimRun("rs-11")).toBe(true);
+    releaseRun("rs-11");
+  });
+
   it("stamps proposal_declined details onto a declined call's tool result", async () => {
     const decisions = new PendingDecisions();
     mockedRunAgent.mockImplementation(async (_agent, _msg, handler: AgentEventHandler) => {
@@ -270,5 +369,61 @@ describe("runAgentStream", () => {
     decisions.decide(decisionId!, "rs-6", { action: "create" });
     handlerRef!.onDone();
     await running;
+  });
+});
+
+describe("waitForRunToSettle", () => {
+  it("reports settled at once when no run is in flight", async () => {
+    await expect(waitForRunToSettle("settle-idle", 50)).resolves.toBe(true);
+  });
+
+  it("resolves as soon as the run releases its claim", async () => {
+    expect(claimRun("settle-release")).toBe(true);
+    // A generous timeout, so only the release can be what resolves this.
+    const settled = waitForRunToSettle("settle-release", 60_000);
+    releaseRun("settle-release");
+
+    await expect(settled).resolves.toBe(true);
+  });
+
+  it("resolves on its own timeout when the run never settles", async () => {
+    // The session row is already deleted by the time teardown waits here, so
+    // a run that never releases its claim must not hang the DELETE request
+    // forever. The wait buys the executor teardown a quiet moment; it does
+    // not promise one.
+    expect(claimRun("settle-stuck")).toBe(true);
+
+    // Reported as NOT settled: the caller has to know the run outlived the
+    // wait, because the deleted-session fence must stay up while it does.
+    await expect(waitForRunToSettle("settle-stuck", 5)).resolves.toBe(false);
+
+    // The claim is untouched by the timeout — only the wait gave up.
+    expect(claimRun("settle-stuck")).toBe(false);
+    releaseRun("settle-stuck");
+  });
+
+  it("drops the deleted-session fence when the run finally settles", () => {
+    // The teardown that timed out could not clear the mark — the run was still
+    // live. The run clears its own on the way out, so a mark cannot outlive it.
+    claimRun("settle-fenced");
+    markSessionDeleted("settle-fenced");
+    expect(isSessionDeleted("settle-fenced")).toBe(true);
+
+    releaseRun("settle-fenced");
+
+    expect(isSessionDeleted("settle-fenced")).toBe(false);
+  });
+
+  it("holds the fence for a run that outlived the wait", async () => {
+    claimRun("settle-fenced-stuck");
+    markSessionDeleted("settle-fenced-stuck");
+
+    await expect(waitForRunToSettle("settle-fenced-stuck", 5)).resolves.toBe(false);
+
+    // Still fenced: the run is live, and its next sandbox call must not create
+    // a container nothing tracks.
+    expect(isSessionDeleted("settle-fenced-stuck")).toBe(true);
+    releaseRun("settle-fenced-stuck");
+    clearSessionDeleted("settle-fenced-stuck");
   });
 });
