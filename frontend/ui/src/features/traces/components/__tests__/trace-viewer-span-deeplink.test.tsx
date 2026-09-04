@@ -109,7 +109,8 @@ afterEach(() => {
  * loaded trace (spans stream in over SSE, so a miss is not final), and
  * cancelled by a manual pick. The sheet's Drawer is non-modal, so the message
  * list behind it stays clickable and these props change on a *mounted* panel —
- * every rerender below is a reachable sequence of "Open span" / "View trace".
+ * every rerender below is a sequence of "Open span" clicks, or the sheet being
+ * re-pointed at the same trace with no span (the deep link withdrawn).
  *
  * SpanInfoPanel is stubbed to expose which span it was handed, which is the
  * selection the panel resolved.
@@ -219,7 +220,7 @@ it("still applies the deep link when the span arrives after the first render", a
   expect(selectedSpan(container)).toBe("s2");
 });
 
-it("lands on the trace root when 'View trace' follows 'Open span' on the same trace", async () => {
+it("lands on the trace root when the deep link is withdrawn on the same trace", async () => {
   // Same trace id, deep link withdrawn. Asserting on a fresh mount with no
   // deep link would only check the useState initial value; a span has to be
   // selected first for the reset to have anything to do.
@@ -320,7 +321,7 @@ it("lets a manual pick win over a deep-linked span that arrives later", async ()
   expect(selectedSpan(container)).toBe("s1");
 });
 
-it("focuses the span again when the same 'Open span' is clicked after 'View trace'", async () => {
+it("focuses the span again when the same 'Open span' is clicked after the link was withdrawn", async () => {
   // A "done" marker keyed on (trace, span) would still match on the second
   // click and silently skip it; the pending link is re-armed on every change.
   const { container, rerender, findByTestId } = render(
