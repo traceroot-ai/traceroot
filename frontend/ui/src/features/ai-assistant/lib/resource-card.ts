@@ -121,8 +121,12 @@ export interface ResourceCardModel {
   /** false when the write was idempotent and an existing resource was reused. */
   created: boolean;
   title: string;
-  /** Parts of the small header meta line, joined by the renderer. */
+  /** Parts of the footer's meta line, joined by the renderer. */
   meta: string[];
+  /** The resource's own page, or null when there is none to open: a pending
+   *  card (the resource does not exist yet), a project or workspace receipt
+   *  (no page of their own here), or details that left out the scope. */
+  href: string | null;
   /** A description the args carried, when the type has nothing else to show
    *  (a pending dashboard — its widgets arrive as separate calls — or a
    *  reused dashboard, whose miniature cannot be trusted). */
@@ -372,6 +376,42 @@ function detectorPrompt(args: Record<string, unknown>): DetectorPrompt | null {
   return standard === undefined ? null : { kind: "standard", templateLabel: standard.label };
 }
 
+/**
+ * An id safe to splice into a route: the server mints plain ids, so anything
+ * with a separator or a dot-segment in it is not an id and gets no link,
+ * rather than a link that escapes the page it names.
+ */
+function pathSegment(value: unknown): string | null {
+  return typeof value === "string" && /^[A-Za-z0-9_-]+$/.test(value) ? value : null;
+}
+
+/**
+ * The page the created resource lives on. A widget has no page of its own —
+ * its dashboard is where it shows — and a detector opens its detail page. A
+ * project or workspace receipt opens nothing: the panel is scoped to one
+ * project, and the receipt is the whole story of the write.
+ */
+function resourceHref(resourceType: CardResourceType, details: ResourceCreatedDetails) {
+  const projectId = pathSegment(details.projectId);
+  if (projectId === null) return null;
+  switch (resourceType) {
+    case "widget": {
+      const dashboardId = pathSegment(details.dashboardId);
+      return dashboardId === null ? null : `/projects/${projectId}/dashboard/${dashboardId}`;
+    }
+    case "dashboard": {
+      const dashboardId = pathSegment(details.resourceId);
+      return dashboardId === null ? null : `/projects/${projectId}/dashboard/${dashboardId}`;
+    }
+    case "detector": {
+      const detectorId = pathSegment(details.resourceId);
+      return detectorId === null ? null : `/projects/${projectId}/detectors/${detectorId}`;
+    }
+    default:
+      return null;
+  }
+}
+
 function body(
   resourceType: CardResourceType,
   args: Record<string, unknown> | null,
@@ -478,13 +518,14 @@ export function resourceCardModel(
     created: details.created !== false,
     title: displayName ?? str(details.resourceId, MAX_TITLE_CHARS) ?? "",
     meta,
+    href: resourceHref(resourceType, details),
     ...(description === null ? {} : { description }),
     body: cardBody,
   };
 }
 
 /** The resource types a proposal can park as a card in the chat. */
-type PendingResourceType = Extract<CardResourceType, "widget" | "dashboard" | "detector">;
+export type PendingResourceType = Extract<CardResourceType, "widget" | "dashboard" | "detector">;
 
 /**
  * The confirm-class write tools and the resource each would create. Structural
@@ -499,6 +540,26 @@ const PENDING_TOOL_RESOURCE_TYPES: Readonly<Record<string, PendingResourceType>>
 
 /** A pending dashboard's description is prose, so it gets more room than a chip. */
 const MAX_DESCRIPTION_CHARS = 200;
+
+/**
+ * What a parked write proposes, in the words the approval bar asks with: the
+ * resource it would create and the name the call gave it (null when the args
+ * carry none). Null for a tool this panel has no proposal card
+ * for — the composer then offers no buttons, and only a typed reply can
+ * answer the call.
+ */
+export function pendingProposal(
+  step: ToolCallStep,
+): { resourceType: PendingResourceType; title: string | null } | null {
+  const resourceType = PENDING_TOOL_RESOURCE_TYPES[step.toolName];
+  if (resourceType === undefined) return null;
+  const args = plainObject(step.args);
+  // Null when the args name nothing: the card falls back to the type's label,
+  // while the composer's question simply asks by type.
+  const title =
+    args === null ? null : (str(args.title, MAX_TITLE_CHARS) ?? str(args.name, MAX_TITLE_CHARS));
+  return { resourceType, title };
+}
 
 /**
  * The card for a write the agent has PROPOSED but not run — the same card the
@@ -519,12 +580,11 @@ export function pendingCardModel(
   panelProjectId: string | undefined,
   retentionDays?: number | null,
 ): ResourceCardModel | null {
-  const resourceType = PENDING_TOOL_RESOURCE_TYPES[step.toolName];
-  if (resourceType === undefined) return null;
-
+  const proposal = pendingProposal(step);
+  if (proposal === null) return null;
+  const { resourceType } = proposal;
+  const title = proposal.title ?? RESOURCE_TYPE_LABELS[resourceType];
   const args = plainObject(step.args);
-  const displayName =
-    args === null ? null : (str(args.title, MAX_TITLE_CHARS) ?? str(args.name, MAX_TITLE_CHARS));
 
   let body: ResourceCardBody;
   switch (resourceType) {
@@ -582,8 +642,10 @@ export function pendingCardModel(
     // until the real widget id exists.
     resourceId: step.toolCallId,
     created: true,
-    title: displayName ?? RESOURCE_TYPE_LABELS[resourceType],
+    title,
     meta,
+    // Nothing to open: the resource does not exist until the user says so.
+    href: null,
     ...(description === null ? {} : { description }),
     body,
   };

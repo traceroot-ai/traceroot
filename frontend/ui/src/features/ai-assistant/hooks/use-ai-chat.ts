@@ -1,16 +1,33 @@
 "use client";
 
-import { useRef, useState, useCallback, useEffect } from "react";
+import { useRef, useState, useCallback, useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocalStorage } from "@/lib/hooks/use-local-storage";
 import { broadcastQueryInvalidation } from "@/lib/cross-tab-sync";
 import { useAIStream, type LiveToolResult } from "./use-ai-stream";
 import { mapDbMessages } from "../utils/map-db-messages";
 import { invalidationKeysForResult } from "../lib/resource-invalidation";
+import { pendingProposal, type PendingResourceType } from "../lib/resource-card";
 import type { AISession, AIMessage, AiTraceContext } from "../types";
 import type { ModelSelection } from "../components/model-selector";
 
 const EMPTY_SELECTION: ModelSelection = { model: "", provider: "", source: "system", adapter: "" };
+
+/**
+ * The write parked on the visible session, as the composer's approval bar
+ * asks about it: which call and decision the buttons answer, and the resource
+ * and name the question is phrased with.
+ */
+export interface PendingDecision {
+  toolCallId: string;
+  decisionId: string;
+  resourceType: PendingResourceType;
+  /** The name the call gave the resource; null when it gave none. */
+  title: string | null;
+}
+
+/** What the composer can answer a parked write with; a typed reply revises. */
+export type PendingDecisionAction = "create" | "skip";
 
 interface UseAiChatOptions extends AiTraceContext {
   projectId: string | undefined;
@@ -464,7 +481,7 @@ export function useAiChat({
     async (params: {
       toolCallId: string;
       decisionId: string;
-      action: "create" | "skip";
+      action: PendingDecisionAction;
     }): Promise<boolean> => {
       const sessionId = activeSessionIdRef.current;
       if (!projectId || !sessionId) return false;
@@ -510,9 +527,30 @@ export function useAiChat({
 
   const messages: AIMessage[] = activeSessionId ? (messagesBySession[activeSessionId] ?? []) : [];
   const activeStreaming = activeSessionId ? !!streamingSessions[activeSessionId] : false;
-  // True while the visible session has a write parked on a confirmation card
-  // — the input hints that a reply revises the proposal.
-  const hasPendingDecision = messages.some((m) => m.toolStep?.pending !== undefined);
+  // The visible session's parked step — the same one findActiveParkedStep
+  // targets, minus the in-flight exclusion (a ref, so it cannot drive a
+  // render; the bar tracks its own in-flight click). Read off render state
+  // so the composer re-renders when a proposal parks or resolves. The step
+  // object survives a streamed text delta by identity, so the memo below
+  // holds across deltas too.
+  const parkedStep = messages.find(
+    (m) => m.role === "tool_step" && m.toolStep?.pending !== undefined,
+  )?.toolStep;
+  // True while the visible session has a write parked — the input hints that
+  // a reply revises the proposal. Broader than pendingDecision: a parked tool
+  // this panel has no proposal card for still takes a typed reply.
+  const hasPendingDecision = parkedStep !== undefined;
+  const pendingDecision = useMemo<PendingDecision | null>(() => {
+    if (parkedStep?.pending === undefined) return null;
+    const proposal = pendingProposal(parkedStep);
+    if (proposal === null) return null;
+    return {
+      toolCallId: parkedStep.toolCallId,
+      decisionId: parkedStep.pending.decisionId,
+      resourceType: proposal.resourceType,
+      title: proposal.title,
+    };
+  }, [parkedStep]);
 
   return {
     // State
@@ -523,6 +561,7 @@ export function useAiChat({
     currentSessionId: activeSessionId,
     modelSelection,
     hasPendingDecision,
+    pendingDecision,
 
     // Setters
     setHistoryOpen,

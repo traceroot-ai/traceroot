@@ -6,6 +6,7 @@ import { dateFilterStorageKey } from "@/lib/date-filter-storage";
 import {
   createdWidgetsByDashboard,
   pendingCardModel,
+  pendingProposal,
   resourceCardModel,
   suppressedWidgetStepIds,
 } from "./resource-card";
@@ -67,6 +68,7 @@ describe("resourceCardModel", () => {
       resourceId: "w1",
       created: true,
       title: "Tokens by model",
+      href: "/projects/p1/dashboard/db1",
       meta: ["Widget", "Last 24 hours"],
       body: {
         kind: "widget",
@@ -160,6 +162,7 @@ describe("resourceCardModel", () => {
       resourceId: "db1",
       created: true,
       title: "Latency overview",
+      href: "/projects/p1/dashboard/db1",
       meta: ["Dashboard", "2 widgets", "Last 24 hours"],
       body: {
         kind: "dashboard",
@@ -196,6 +199,7 @@ describe("resourceCardModel", () => {
       resourceId: "p9",
       created: true,
       title: "checkout-service",
+      href: null,
       meta: ["Project"],
       body: {
         kind: "receipt",
@@ -218,6 +222,7 @@ describe("resourceCardModel", () => {
       resourceId: "ws1",
       created: true,
       title: "acme",
+      href: null,
       meta: ["Workspace"],
       body: { kind: "receipt", rows: [{ label: "id", value: "ws1" }] },
     });
@@ -262,6 +267,7 @@ describe("resourceCardModel", () => {
       resourceId: "d1",
       created: true,
       title: "Timeout failures",
+      href: "/projects/p1/detectors/d1",
       meta: ["Detector", "Failure"],
       body: {
         kind: "detector",
@@ -444,6 +450,7 @@ describe("resourceCardModel", () => {
       resourceId: "w1",
       created: true,
       title: "w1",
+      href: null,
       meta: ["Widget"],
       body: { kind: "widget", chips: [], chart: null },
     });
@@ -779,6 +786,7 @@ describe("pendingCardModel", () => {
       resourceId: "tcp1",
       created: true,
       title: "Tokens by model",
+      href: null,
       meta: ["Widget", "Last 24 hours"],
       body: {
         kind: "widget",
@@ -837,6 +845,7 @@ describe("pendingCardModel", () => {
       resourceId: "tcp1",
       created: true,
       title: "Latency overview",
+      href: null,
       description: "Where the time goes",
       meta: ["Dashboard"],
       body: { kind: "dashboard", tiles: [] },
@@ -858,6 +867,7 @@ describe("pendingCardModel", () => {
       resourceId: "tcp1",
       created: true,
       title: "Slow spans",
+      href: null,
       meta: ["Detector", "Failure"],
       body: {
         kind: "detector",
@@ -898,6 +908,117 @@ describe("pendingCardModel", () => {
     // (resourceCardModel) ever render in the transcript.
     expect(pendingCardModel(runningStep("create_project", { name: "checkout" }), "p1")).toBeNull();
     expect(pendingCardModel(runningStep("create_workspace", {}), "p1")).toBeNull();
+  });
+});
+
+describe("resource links", () => {
+  it("links a widget card to the dashboard page it was placed on", () => {
+    expect(resourceCardModel(widgetStep())?.href).toBe("/projects/p1/dashboard/db1");
+  });
+
+  it("links a dashboard card to its own page", () => {
+    const dashboard = step({
+      toolName: "create_dashboard",
+      args: { name: "Latency overview" },
+      details: created("dashboard", "db1", { projectId: "p1" }),
+    });
+    expect(resourceCardModel(dashboard)?.href).toBe("/projects/p1/dashboard/db1");
+  });
+
+  it("links a detector card to its detail page", () => {
+    const detector = step({
+      toolName: "create_detector",
+      args: { name: "Failures", template: "failure" },
+      details: created("detector", "d1", { projectId: "p1" }),
+    });
+    expect(resourceCardModel(detector)?.href).toBe("/projects/p1/detectors/d1");
+  });
+
+  it("gives a project or workspace receipt no link — there is no page to open", () => {
+    // Even when the details name a project scope, the receipt stays a receipt.
+    const project = step({
+      toolName: "create_project",
+      args: { name: "checkout" },
+      details: created("project", "p9", { workspaceId: "ws1", projectId: "p9" }),
+    });
+    const workspace = step({
+      toolName: "create_workspace",
+      args: { name: "acme" },
+      details: created("workspace", "ws1", { projectId: "p1" }),
+    });
+    expect(resourceCardModel(project)?.href).toBeNull();
+    expect(resourceCardModel(workspace)?.href).toBeNull();
+  });
+
+  it("gives no link when the details leave out the scope the page lives under", () => {
+    const noProject = step({
+      toolName: "create_widget",
+      args: { title: "T", type: "query", spec: WIDGET_SPEC },
+      details: created("widget", "w1", { dashboardId: "db1" }),
+    });
+    const noDashboard = step({
+      toolName: "create_widget",
+      args: { title: "T", type: "query", spec: WIDGET_SPEC },
+      details: created("widget", "w1", { projectId: "p1" }),
+    });
+    const noProjectDetector = step({
+      toolName: "create_detector",
+      args: { name: "Failures" },
+      details: created("detector", "d1"),
+    });
+    expect(resourceCardModel(noProject)?.href).toBeNull();
+    expect(resourceCardModel(noDashboard)?.href).toBeNull();
+    expect(resourceCardModel(noProjectDetector)?.href).toBeNull();
+  });
+
+  it("never builds a link out of an id that is not a plain path segment", () => {
+    const hostile = step({
+      toolName: "create_detector",
+      args: { name: "Failures" },
+      details: created("detector", "d1/../../admin", { projectId: "p1" }),
+    });
+    expect(resourceCardModel(hostile)?.href).toBeNull();
+  });
+});
+
+describe("pendingProposal", () => {
+  const parked = (toolName: string, args: Record<string, unknown>): ToolCallStep => ({
+    toolCallId: "tc1",
+    toolName,
+    args,
+    status: "running",
+    pending: { decisionId: "d1" },
+  });
+
+  it("leaves the title null when the args name nothing — the caller picks the fallback", () => {
+    expect(pendingProposal(parked("create_dashboard", {}))).toEqual({
+      resourceType: "dashboard",
+      title: null,
+    });
+  });
+
+  it("names the resource a parked create would make, and its title", () => {
+    expect(pendingProposal(parked("create_widget", { title: "Tokens by model" }))).toEqual({
+      resourceType: "widget",
+      title: "Tokens by model",
+    });
+    expect(pendingProposal(parked("create_dashboard", { name: "Latency overview" }))).toEqual({
+      resourceType: "dashboard",
+      title: "Latency overview",
+    });
+    expect(pendingProposal(parked("create_detector", { name: "Slow spans" }))).toEqual({
+      resourceType: "detector",
+      title: "Slow spans",
+    });
+  });
+
+  it("treats a non-string name as no name", () => {
+    expect(pendingProposal(parked("create_detector", { name: { oops: 1 } }))?.title).toBeNull();
+  });
+
+  it("is null for a tool that has no pending card", () => {
+    expect(pendingProposal(parked("update_dashboard_layout", {}))).toBeNull();
+    expect(pendingProposal(parked("create_project", { name: "checkout" }))).toBeNull();
   });
 });
 

@@ -100,9 +100,10 @@ const WIDGET_DETAILS = {
 describe("MessageList tool entries", () => {
   it("shows a created resource as a card instead of a tool line", () => {
     render(<MessageList messages={[toolEntry(createWidgetStep(WIDGET_DETAILS))]} />);
-    expect(screen.getByText("Tokens by model")).toBeTruthy();
-    expect(screen.getByText("view spans")).toBeTruthy();
     expect(screen.queryByText("(create_widget)")).toBeNull();
+    // The card's footer names it; its spec chips sit behind the title.
+    fireEvent.click(screen.getByRole("button", { name: "Tokens by model" }));
+    expect(screen.getByText("view spans")).toBeTruthy();
   });
 
   it("counts a replayed widget create once on the dashboard's card", () => {
@@ -226,10 +227,11 @@ describe("MessageList tool entries", () => {
     // the widget's own step stays a traceable tool line, not a second card.
     expect(screen.getByText("Dashboard · 1 widget")).toBeTruthy();
     expect(screen.getByText("(create_widget)")).toBeTruthy();
-    // The title appears once — the miniature's tile — and the widget card's
-    // spec chips appear nowhere, because that card was suppressed.
+    // The title appears once — the miniature's tile — and there is no card
+    // footer (no definition toggle) for the widget, because its card was
+    // suppressed.
     expect(screen.getAllByText("Tokens by model")).toHaveLength(1);
-    expect(screen.queryByText("view spans")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Tokens by model" })).toBeNull();
     expect(screen.queryByText("Created")).toBeNull();
   });
 
@@ -262,9 +264,9 @@ describe("MessageList tool entries", () => {
     expect(screen.getByText("Reused")).toBeTruthy();
     expect(container.querySelector("[data-glyph]")).toBeNull();
     // The widget keeps its full card — no miniature stands in for it.
-    expect(screen.getByText("Tokens by model")).toBeTruthy();
-    expect(screen.getByText("view spans")).toBeTruthy();
     expect(screen.queryByText("(create_widget)")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Tokens by model" }));
+    expect(screen.getByText("view spans")).toBeTruthy();
   });
 
   it("does not rebuild card models when a text delta streams in", () => {
@@ -387,35 +389,24 @@ describe("MessageList pending confirmation entries", () => {
     };
   }
 
-  it("renders the pending card before the resource exists, with only the two buttons", () => {
-    render(
-      <MessageList
-        messages={[toolEntry(pendingWidgetStep())]}
-        projectId="p1"
-        onDecision={vi.fn()}
-      />,
-    );
+  it("renders the pending card before the resource exists, marked proposed and without decision buttons", () => {
+    render(<MessageList messages={[toolEntry(pendingWidgetStep())]} projectId="p1" />);
 
-    // The Phase 1 card, built from args alone — no result exists yet.
+    // The card, built from args alone — no result exists yet.
     expect(screen.getByText("Tokens by model")).toBeTruthy();
-    expect(screen.getByText("view spans")).toBeTruthy();
+    expect(screen.getByText(/^Proposed · Widget/)).toBeTruthy();
     expect(screen.queryByText("(create_widget)")).toBeNull();
 
-    const buttons = screen.getAllByRole("button");
-    expect(buttons).toHaveLength(2);
-    expect(screen.getByRole("button", { name: "Create widget" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Skip" })).toBeTruthy();
+    // The decision lives in the composer's approval bar, not the thread.
+    expect(screen.queryByRole("button", { name: "Create widget" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
+    expect(screen.queryByRole("link")).toBeNull();
     expect(screen.queryByText(/awaiting/i)).toBeNull();
   });
 
   it("hides the between-turns spinner while a call is parked on the user's decision", () => {
     const { container } = render(
-      <MessageList
-        messages={[toolEntry(pendingWidgetStep())]}
-        sessionStreaming
-        projectId="p1"
-        onDecision={vi.fn()}
-      />,
+      <MessageList messages={[toolEntry(pendingWidgetStep())]} sessionStreaming projectId="p1" />,
     );
     // The run is alive but waiting on the user, not generating.
     expect(container.querySelector(".animate-spin")).toBeNull();
@@ -424,36 +415,9 @@ describe("MessageList pending confirmation entries", () => {
   it("shows the between-turns spinner once the parked call is decided and the run resumes", () => {
     const decided: ToolCallStep = { ...pendingWidgetStep(), pending: undefined, status: "done" };
     const { container } = render(
-      <MessageList
-        messages={[toolEntry(decided)]}
-        sessionStreaming
-        projectId="p1"
-        onDecision={vi.fn()}
-      />,
+      <MessageList messages={[toolEntry(decided)]} sessionStreaming projectId="p1" />,
     );
     expect(container.querySelector(".animate-spin")).not.toBeNull();
-  });
-
-  it("posts the decision with the step's tool call and decision ids", () => {
-    const onDecision = vi.fn().mockResolvedValue(true);
-    render(
-      <MessageList
-        messages={[toolEntry(pendingWidgetStep())]}
-        projectId="p1"
-        onDecision={onDecision}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Create widget" }));
-    expect(onDecision).toHaveBeenCalledExactlyOnceWith({
-      toolCallId: "tc1",
-      decisionId: "d1",
-      action: "create",
-    });
-
-    fireEvent.click(screen.getByRole("button", { name: "Skip" }));
-    // Second click lands while the first is in flight — buttons are disabled.
-    expect(onDecision).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the plain tool line for a pending tool it has no card for", () => {
@@ -464,7 +428,7 @@ describe("MessageList pending confirmation entries", () => {
       status: "running",
       pending: { decisionId: "d9" },
     };
-    render(<MessageList messages={[toolEntry(step)]} projectId="p1" onDecision={vi.fn()} />);
+    render(<MessageList messages={[toolEntry(step)]} projectId="p1" />);
     expect(screen.getByText("(mystery_write)")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
   });
@@ -478,7 +442,7 @@ describe("MessageList pending confirmation entries", () => {
       isError: true,
       result: { content: [{ type: "text", text: "The user chose to skip this call." }] },
     };
-    render(<MessageList messages={[toolEntry(step)]} projectId="p1" onDecision={vi.fn()} />);
+    render(<MessageList messages={[toolEntry(step)]} projectId="p1" />);
 
     expect(screen.getByText("(create_widget)")).toBeTruthy();
     expect(screen.getByText("skipped")).toBeTruthy();
@@ -495,7 +459,7 @@ describe("MessageList pending confirmation entries", () => {
       isError: true,
       result: { content: [{ type: "text", text: "This tool call was NOT executed." }] },
     };
-    render(<MessageList messages={[toolEntry(step)]} projectId="p1" onDecision={vi.fn()} />);
+    render(<MessageList messages={[toolEntry(step)]} projectId="p1" />);
 
     expect(screen.getByText("(create_widget)")).toBeTruthy();
     expect(screen.getByText("revised — use p95 latency instead")).toBeTruthy();
@@ -511,22 +475,18 @@ describe("MessageList pending confirmation entries", () => {
       status: "error",
       isError: true,
     };
-    render(<MessageList messages={[toolEntry(step)]} projectId="p1" onDecision={vi.fn()} />);
+    render(<MessageList messages={[toolEntry(step)]} projectId="p1" />);
 
     expect(screen.getByText(`revised — ${"x".repeat(80)}…`)).toBeTruthy();
   });
 
   it("shows the receipt card once the tool result replaces the pending entry", () => {
     // Same call, after the user chose create and the result landed.
-    render(
-      <MessageList
-        messages={[toolEntry(createWidgetStep(WIDGET_DETAILS))]}
-        projectId="p1"
-        onDecision={vi.fn()}
-      />,
-    );
+    render(<MessageList messages={[toolEntry(createWidgetStep(WIDGET_DETAILS))]} projectId="p1" />);
     expect(screen.getByText("Tokens by model")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Create widget" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Skip" })).toBeNull();
+    expect(screen.queryByText(/Proposed/)).toBeNull();
+    expect(screen.getByRole("link", { name: "Open widget" }).getAttribute("href")).toBe(
+      "/projects/p1/dashboard/db1",
+    );
   });
 });

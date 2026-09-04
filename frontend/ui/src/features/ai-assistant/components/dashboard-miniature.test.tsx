@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import * as api from "@/features/dashboards/api";
 import { COLS, ROW_HEIGHT } from "@/features/dashboards/grid-constants";
+import { SERIES_COLORS } from "@/features/dashboards/series-colors";
 import { DISPLAY_TYPES, type WidgetSpec } from "@/features/dashboards/types";
 import { DATE_FILTER_OPTIONS, DEFAULT_DATE_FILTER } from "@/lib/date-filter";
 import {
@@ -40,6 +41,12 @@ class TestIntersectionObserver {
 }
 
 const scrollIntoView = () => act(() => observed.forEach((o) => o.fire()));
+
+/** jsdom serializes an inline hex color back out as rgb(); compare in that form. */
+function cssColor(hex: string): string {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  return `rgb(${r}, ${g}, ${b})`;
+}
 
 afterEach(() => {
   cleanup();
@@ -576,6 +583,40 @@ describe("DashboardMiniature live tiles", () => {
       "0,40 48,2 96,40",
     );
     expect(container.querySelector("[data-live-mini] polygon")).toBeTruthy();
+  });
+
+  it("colors each live chart tile with the dashboard's series palette, by tile position", async () => {
+    vi.mocked(api.runWidgetQuery).mockResolvedValue({
+      columns: ["bucket", "value"],
+      rows: [
+        ["2026-06-01T00:00:00", 2],
+        ["2026-06-01T01:00:00", 6],
+      ],
+      meta: { granularity: "hour" },
+    });
+    const { container } = renderLive([liveTile({ id: "w1" }), liveTile({ id: "w2", x: 6 })]);
+    scrollIntoView();
+
+    await waitFor(() => expect(container.querySelectorAll("[data-live-mini]").length).toBe(2));
+    const [first, second] = [...container.querySelectorAll<HTMLElement>("[data-live-mini]")];
+    // The minis draw with currentColor, so the tile's hue is its container's
+    // color — the first tile takes the palette's first hue, the second the
+    // next, as the dashboard's own series would.
+    expect(first.style.color).toBe(cssColor(SERIES_COLORS[0]));
+    expect(second.style.color).toBe(cssColor(SERIES_COLORS[1]));
+  });
+
+  it("leaves a number tile in the foreground color, not a series hue", async () => {
+    vi.mocked(api.runWidgetQuery).mockResolvedValue({
+      columns: ["value"],
+      rows: [[1234]],
+      meta: {},
+    });
+    const { container } = renderLive([liveTile({}, "number")]);
+    scrollIntoView();
+
+    await waitFor(() => expect(container.querySelector("[data-live-mini]")).toBeTruthy());
+    expect(container.querySelector<HTMLElement>("[data-live-mini]")?.style.color).toBe("");
   });
 
   it("keeps a percentile's empty buckets as gaps and dots its lone real bucket", async () => {
