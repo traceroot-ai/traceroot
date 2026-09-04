@@ -103,7 +103,7 @@ app.delete("/api/v1/projects/:projectId/sessions/:sessionId", async (c) => {
   }
 
   removeAgent(sessionId);
-  const result = await deleteSession(sessionId, userId);
+  const result = await deleteSession(sessionId, userId, c.req.param("projectId"));
   if (!result) return c.json({ error: "not found" }, 404);
   // The session is gone — any tool call still parked on a confirmation for
   // it can never receive a decision, so release it as a skip.
@@ -128,17 +128,18 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     source?: ModelSource;
   }>();
 
-  // Authorize first: caller must own the session (user-bound) or have
-  // projectId scope on a system session. Without this check, any caller
-  // who can reach the proxy could append messages and run the LLM in
-  // another user's session by guessing/known sessionIds.
+  // Authorize first: caller must own the session in THIS project (user-bound)
+  // or have projectId scope on a system session — getSession treats a
+  // session/project mismatch exactly like a missing session. Without this
+  // check, any caller who can reach the proxy could append messages and run
+  // the LLM in another user's session by guessing/known sessionIds.
   const ownedSession = await getSession(sessionId, userId, projectId);
   if (!ownedSession) {
     return c.json({ error: "session not found" }, 404);
   }
 
   const systemPrompt = getSystemPrompt({
-    projectId,
+    projectId: ownedSession.projectId,
     traceId: body.traceId,
     traceSessionId: body.traceSessionId,
   });
@@ -150,10 +151,13 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
     sessionExecutors.set(sessionId, executor);
   }
 
-  // Use the session's workspaceId (authorized by getSession above) rather than
-  // the raw header value, so tools can't be coerced into another workspace.
+  // Both tenancy ids come from the ONE session row authorized above — never
+  // the raw header or the raw path value — so tools can't be coerced into
+  // another workspace, and projectId/workspaceId can't name two unrelated
+  // tenancies. (getSession already guarantees session.projectId matches the
+  // path; deriving from the row makes that structural.)
   const tools = createTools({
-    projectId,
+    projectId: ownedSession.projectId,
     userId,
     workspaceId: ownedSession.workspaceId,
     agentSessionId: sessionId,
@@ -166,7 +170,7 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
 
   const { agent, sessionManager } = await getOrCreateAgent({
     sessionId,
-    projectId,
+    projectId: ownedSession.projectId,
     workspaceId: ownedSession.workspaceId,
     userId,
     systemPrompt,

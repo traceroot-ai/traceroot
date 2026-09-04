@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ApiClient, ApiError } from "@traceroot-ai/tools";
+import { ApiClient, ApiError, REGISTRY } from "@traceroot-ai/tools";
 import { createRegistryWriteTools } from "../registry-write-tools.js";
 
 function stubClient(response: unknown = {}) {
@@ -18,14 +18,19 @@ function makeTools(client: ApiClient) {
 }
 
 describe("createRegistryWriteTools", () => {
-  it("exposes exactly the five internally-bound write tools", () => {
+  it("exposes exactly the three project-scoped write tools — no structural creates", () => {
     const names = makeTools(stubClient().client).map((t) => t.name);
-    expect(names).toEqual([
-      "create_workspace",
-      "create_project",
-      "create_detector",
+    expect(names).toEqual(["create_detector", "create_dashboard", "create_widget"]);
+  });
+
+  it("keeps all five write tools in the registry — the agent trim must not leak into codegen", () => {
+    const registryWrites = REGISTRY.filter((e) => e.name.startsWith("create_")).map((e) => e.name);
+    expect(registryWrites.sort()).toEqual([
       "create_dashboard",
+      "create_detector",
+      "create_project",
       "create_widget",
+      "create_workspace",
     ]);
   });
 
@@ -39,38 +44,6 @@ describe("createRegistryWriteTools", () => {
     // Same injected-label convention as the read tools.
     expect(tool.parameters.properties.label).toMatchObject({ type: "string" });
     expect(tool.parameters.required[0]).toBe("label");
-  });
-
-  it("create_project hides the ambient workspace_id from the model-facing schema", () => {
-    const tool = makeTools(stubClient().client).find((t) => t.name === "create_project")!;
-    expect(tool.parameters.properties).not.toHaveProperty("workspace_id");
-    expect(tool.parameters.required).not.toContain("workspace_id");
-  });
-
-  it("create_project hides the registry's agent-hidden trace_ttl_days from the model", () => {
-    const tool = makeTools(stubClient().client).find((t) => t.name === "create_project")!;
-    expect(tool.parameters.properties).not.toHaveProperty("trace_ttl_days");
-    expect(tool.parameters.required).not.toContain("trace_ttl_days");
-    expect(Object.keys(tool.parameters.properties)).toEqual(["label", "name"]);
-  });
-
-  it("drops a model-supplied agent-hidden field instead of translating it to the body", async () => {
-    const { client, request } = stubClient({
-      created: true,
-      project: { id: "p2", name: "api", workspaceId: "w1" },
-    });
-    const tool = makeTools(client).find((t) => t.name === "create_project")!;
-    await tool.execute("id", { label: "x", name: "api", trace_ttl_days: 30 });
-    expect(request).toHaveBeenCalledWith("post", "/api/internal/write/projects", {
-      body: {
-        actorUserId: "u1",
-        transport: "agent",
-        agentSessionId: "as1",
-        workspaceId: "w1",
-        name: "api",
-      },
-      signal: undefined,
-    });
   });
 
   it("leaves tools without agent-hidden params untouched", () => {
@@ -164,31 +137,45 @@ describe("createRegistryWriteTools", () => {
     });
   });
 
-  it("create_workspace injects only actor and provenance and hides nothing but label", async () => {
+  it("hides a registry-curated agent-hidden field from the model and drops it from the body", async () => {
+    vi.resetModules();
+    vi.doMock("@traceroot-ai/tools", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("@traceroot-ai/tools")>();
+      return {
+        ...actual,
+        REGISTRY: actual.REGISTRY.map((e) =>
+          e.name === "create_dashboard" ? { ...e, agentHiddenParams: ["description"] } : e,
+        ),
+      };
+    });
+    const { createRegistryWriteTools: create } = await import("../registry-write-tools.js");
     const { client, request } = stubClient({
       created: true,
-      workspace: { id: "w9", name: "Analytics", role: "ADMIN" },
+      dashboard: { id: "db1", name: "Spend", projectId: "p1" },
     });
-    const tool = makeTools(client).find((t) => t.name === "create_workspace")!;
-    expect(Object.keys(tool.parameters.properties)).toEqual(["label", "name"]);
-    expect(tool.parameters.required).toEqual(["label", "name"]);
-    const result = await tool.execute("id", { label: "x", name: "Analytics" });
-    expect(request).toHaveBeenCalledWith("post", "/api/internal/write/workspaces", {
+    const tool = create({
+      client,
+      actorUserId: "u1",
+      agentSessionId: "as1",
+      projectId: "p1",
+      workspaceId: "w1",
+    }).find((t) => t.name === "create_dashboard")!;
+    expect(tool.parameters.properties).not.toHaveProperty("description");
+    expect(tool.parameters.required).not.toContain("description");
+    // A hidden field the model passes anyway must never reach the body.
+    await tool.execute("id", { label: "x", name: "Spend", description: "sneaky" });
+    expect(request).toHaveBeenCalledWith("post", "/api/internal/write/dashboards", {
       body: {
         actorUserId: "u1",
         transport: "agent",
         agentSessionId: "as1",
-        name: "Analytics",
+        projectId: "p1",
+        name: "Spend",
       },
       signal: undefined,
     });
-    expect(result.content[0]!.text).toBe('Created workspace "Analytics" (id w9)');
-    expect(result.details).toEqual({
-      kind: "resource_created",
-      resourceType: "workspace",
-      resourceId: "w9",
-      created: true,
-    });
+    vi.doUnmock("@traceroot-ai/tools");
+    vi.resetModules();
   });
 
   it("create_widget's model-visible spec schema carries per-view query dialects plus the feed", () => {
@@ -322,41 +309,41 @@ describe("createRegistryWriteTools", () => {
       throw new TypeError("fetch failed");
     });
     const tool = makeTools({ request } as unknown as ApiClient).find(
-      (t) => t.name === "create_workspace",
+      (t) => t.name === "create_dashboard",
     )!;
-    const result = await tool.execute("id", { label: "x", name: "Analytics" });
-    expect(result.content[0]!.text).toBe("Error calling create_workspace: fetch failed");
+    const result = await tool.execute("id", { label: "x", name: "Spend" });
+    expect(result.content[0]!.text).toBe("Error calling create_dashboard: fetch failed");
     expect(result.details).toBeUndefined();
   });
 
   it("leaves unset optional args out of the body entirely", async () => {
     const { client, request } = stubClient({
       created: true,
-      project: { id: "p2", name: "api", workspaceId: "w1" },
+      dashboard: { id: "db1", name: "Spend", projectId: "p1" },
     });
-    const tool = makeTools(client).find((t) => t.name === "create_project")!;
+    const tool = makeTools(client).find((t) => t.name === "create_dashboard")!;
     const result = await tool.execute("id", {
       label: "x",
-      name: "api",
-      trace_ttl_days: undefined,
+      name: "Spend",
+      description: undefined,
     });
-    expect(request).toHaveBeenCalledWith("post", "/api/internal/write/projects", {
+    expect(request).toHaveBeenCalledWith("post", "/api/internal/write/dashboards", {
       body: {
         actorUserId: "u1",
         transport: "agent",
         agentSessionId: "as1",
-        workspaceId: "w1",
-        name: "api",
+        projectId: "p1",
+        name: "Spend",
       },
       signal: undefined,
     });
-    expect(result.content[0]!.text).toBe('Created project "api" (id p2)');
+    expect(result.content[0]!.text).toBe('Created dashboard "Spend" (id db1)');
     expect(result.details).toEqual({
       kind: "resource_created",
-      resourceType: "project",
-      resourceId: "p2",
+      resourceType: "dashboard",
+      resourceId: "db1",
       created: true,
-      workspaceId: "w1",
+      projectId: "p1",
     });
   });
 
@@ -405,7 +392,7 @@ describe("createRegistryWriteTools", () => {
 });
 
 describe("createRegistryWriteTools construction", () => {
-  it("throws at construction when the registry lacks one of the five write entries", async () => {
+  it("throws at construction when the registry lacks one of the three write entries", async () => {
     vi.resetModules();
     vi.doMock("@traceroot-ai/tools", async (importOriginal) => {
       const actual = await importOriginal<typeof import("@traceroot-ai/tools")>();
@@ -460,7 +447,7 @@ describe("createRegistryWriteTools construction", () => {
       return {
         ...actual,
         REGISTRY: actual.REGISTRY.map((e) =>
-          e.name === "create_workspace"
+          e.name === "create_dashboard"
             ? {
                 ...e,
                 inputSchema: {
@@ -481,7 +468,7 @@ describe("createRegistryWriteTools construction", () => {
         projectId: "p1",
         workspaceId: "w1",
       }),
-    ).toThrow("create_workspace: unmapped registry field: color");
+    ).toThrow("create_dashboard: unmapped registry field: color");
     vi.doUnmock("@traceroot-ai/tools");
     vi.resetModules();
   });

@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { appendWidgetPlacement } from "@/features/dashboards/widget-placement";
 import { DISPLAY_TYPES } from "@/features/dashboards/types";
+import { DATE_FILTER_OPTIONS, DEFAULT_DATE_FILTER } from "@/lib/date-filter";
+import { dateFilterStorageKey } from "@/lib/date-filter-storage";
 import {
   createdWidgetsByDashboard,
   pendingCardModel,
@@ -32,6 +34,8 @@ function step(overrides: {
 function created(resourceType: string, resourceId: string, extra: Record<string, unknown> = {}) {
   return { kind: "resource_created", resourceType, resourceId, created: true, ...extra };
 }
+
+const preset = (id: string) => DATE_FILTER_OPTIONS.find((o) => o.id === id)!;
 
 const WIDGET_SPEC = {
   view: "spans",
@@ -70,6 +74,7 @@ describe("resourceCardModel", () => {
         chart: {
           projectId: "p1",
           spec: { ...WIDGET_SPEC, filters: [] },
+          range: DEFAULT_DATE_FILTER,
         },
       },
     });
@@ -116,6 +121,7 @@ describe("resourceCardModel", () => {
           breakdown: null,
           display: { type: "line" },
         },
+        range: DEFAULT_DATE_FILTER,
       },
     });
   });
@@ -144,7 +150,11 @@ describe("resourceCardModel", () => {
       details: created("widget", "w2", { projectId: "p1", dashboardId: "db1" }),
     });
     const widgets = new Map([["db1", [widgetStep(), second]]]);
-    const chart = { projectId: "p1", spec: { ...WIDGET_SPEC, filters: [] } };
+    const chart = {
+      projectId: "p1",
+      spec: { ...WIDGET_SPEC, filters: [] },
+      range: DEFAULT_DATE_FILTER,
+    };
     expect(resourceCardModel(dashboard, widgets)).toEqual({
       resourceType: "dashboard",
       resourceId: "db1",
@@ -255,17 +265,20 @@ describe("resourceCardModel", () => {
       meta: ["Detector", "Failure"],
       body: {
         kind: "detector",
-        chips: ["template prompt", "sample 25%", "RCA on", "Latency ≥ 30000"],
+        chips: ["sample 25%", "RCA on", "Latency ≥ 30000"],
+        // The prompt was omitted, so the detector runs the template's
+        // canonical instructions — the card says so instead of staying mute.
+        prompt: { kind: "standard", templateLabel: "Failure" },
       },
     });
   });
 
-  it("marks a detector that was given its own prompt, and one that is off", () => {
+  it("shows the actual prompt of a detector that was given its own, and its off switches", () => {
     const detector = step({
       toolName: "create_detector",
       args: {
         name: "Timeout failures",
-        template: "custom",
+        template: "blank",
         prompt: "Only report a timeout past 30 seconds.",
         enable_rca: false,
         enabled: false,
@@ -273,11 +286,69 @@ describe("resourceCardModel", () => {
       details: created("detector", "d1"),
     });
     const model = resourceCardModel(detector);
-    expect(model?.meta).toEqual(["Detector", "custom"]);
+    // A blank-template detector is a custom one — the meta says "Custom",
+    // never the internal id "blank".
+    expect(model?.meta).toEqual(["Detector", "Custom"]);
     expect(model?.body).toEqual({
       kind: "detector",
-      chips: ["custom prompt", "RCA off", "disabled"],
+      chips: ["RCA off", "paused"],
+      prompt: { kind: "custom", text: "Only report a timeout past 30 seconds." },
     });
+  });
+
+  it("keeps a custom prompt over the template default when both are present", () => {
+    const detector = step({
+      toolName: "create_detector",
+      args: { name: "Picky failures", template: "failure", prompt: "Only tool errors count." },
+      details: created("detector", "d1"),
+    });
+    const model = resourceCardModel(detector);
+    expect(model?.meta).toEqual(["Detector", "Failure"]);
+    expect(model?.body).toMatchObject({
+      prompt: { kind: "custom", text: "Only tool errors count." },
+    });
+  });
+
+  it("chips the detection model and an explicit enabled state", () => {
+    const detector = step({
+      toolName: "create_detector",
+      args: {
+        name: "Failures",
+        template: "failure",
+        detection_model: "gpt-4o-mini",
+        enabled: true,
+      },
+      details: created("detector", "d1"),
+    });
+    expect(resourceCardModel(detector)?.body).toMatchObject({
+      chips: ["enabled", "model gpt-4o-mini"],
+    });
+  });
+
+  it("claims no prompt for a blank detector whose args carry none", () => {
+    const detector = step({
+      toolName: "create_detector",
+      args: { name: "Mystery", template: "blank" },
+      details: created("detector", "d1"),
+    });
+    expect(resourceCardModel(detector)?.body).toEqual({
+      kind: "detector",
+      chips: [],
+      prompt: null,
+    });
+  });
+
+  it("caps a runaway prompt so the card cannot flood the transcript", () => {
+    const detector = step({
+      toolName: "create_detector",
+      args: { name: "Big", template: "blank", prompt: "x".repeat(5000) },
+      details: created("detector", "d1"),
+    });
+    const body = resourceCardModel(detector)?.body;
+    expect(body?.kind).toBe("detector");
+    if (body?.kind !== "detector" || body.prompt?.kind !== "custom") throw new Error("no prompt");
+    expect(body.prompt.text.length).toBeLessThanOrEqual(2001);
+    expect(body.prompt.text.endsWith("…")).toBe(true);
   });
 
   it("caps the trigger chips so a long condition list cannot flood the card", () => {
@@ -293,9 +364,9 @@ describe("resourceCardModel", () => {
       args: { name: "Noisy", template: "failure", trigger_conditions: conditions },
       details: created("detector", "d1"),
     });
-    expect(resourceCardModel(detector)?.body).toEqual({
+    expect(resourceCardModel(detector)?.body).toMatchObject({
       kind: "detector",
-      chips: ["template prompt", "Latency ≥ 1", "Cost > 2", "Tokens < 3", "+2 more"],
+      chips: ["Latency ≥ 1", "Cost > 2", "Tokens < 3", "+2 more"],
     });
   });
 
@@ -309,9 +380,9 @@ describe("resourceCardModel", () => {
       },
       details: created("detector", "d1"),
     });
-    expect(resourceCardModel(detector)?.body).toEqual({
+    expect(resourceCardModel(detector)?.body).toMatchObject({
       kind: "detector",
-      chips: ["template prompt"],
+      chips: [],
     });
   });
 
@@ -509,6 +580,7 @@ describe("dashboard miniature tiles", () => {
     expect(tileOf.chart).toEqual({
       projectId: "p1",
       spec: { ...WIDGET_SPEC, filters: [], display: { type: "line" } },
+      range: DEFAULT_DATE_FILTER,
     });
   });
 
@@ -714,6 +786,7 @@ describe("pendingCardModel", () => {
         chart: {
           projectId: "p1",
           spec: { ...WIDGET_SPEC, filters: [] },
+          range: DEFAULT_DATE_FILTER,
         },
       },
     });
@@ -770,7 +843,7 @@ describe("pendingCardModel", () => {
     });
   });
 
-  it("builds a pending detector card with its template and chips", () => {
+  it("builds a pending detector card with the same body a receipt gets", () => {
     const model = pendingCardModel(
       runningStep("create_detector", {
         name: "Slow spans",
@@ -786,7 +859,28 @@ describe("pendingCardModel", () => {
       created: true,
       title: "Slow spans",
       meta: ["Detector", "Failure"],
-      body: { kind: "detector", chips: ["template prompt", "sample 25%", "RCA on"] },
+      body: {
+        kind: "detector",
+        chips: ["sample 25%", "RCA on"],
+        prompt: { kind: "standard", templateLabel: "Failure" },
+      },
+    });
+  });
+
+  it("shows the pending detector's own prompt on the gate card", () => {
+    const model = pendingCardModel(
+      runningStep("create_detector", {
+        name: "Slow spans",
+        template: "blank",
+        prompt: "Flag traces slower than 30s.",
+      }),
+      "p1",
+    );
+    expect(model?.meta).toEqual(["Detector", "Custom"]);
+    expect(model?.body).toEqual({
+      kind: "detector",
+      chips: [],
+      prompt: { kind: "custom", text: "Flag traces slower than 30s." },
     });
   });
 
@@ -809,5 +903,88 @@ describe("pendingCardModel", () => {
 
   it("returns null for a tool this panel has no pending card for", () => {
     expect(pendingCardModel(runningStep("update_dashboard_layout", {}), "p1")).toBeNull();
+  });
+});
+
+describe("meta window label follows the site's stored range", () => {
+  // Node environment — no real window. A stubbed one with the site's storage
+  // slot populated stands in for a browser where the user picked "Last 7 days"
+  // on the trace list or a dashboard page.
+  const stubStoredRange = (projectId: string, id: string) =>
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: (key: string) =>
+          key === dateFilterStorageKey(projectId) ? JSON.stringify({ id }) : null,
+      },
+    });
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("labels a widget receipt with the stored range, not the default", () => {
+    stubStoredRange("p1", "7d");
+    expect(resourceCardModel(widgetStep())?.meta).toEqual(["Widget", "Last 7 days"]);
+  });
+
+  it("labels a dashboard miniature with the stored range of its tiles' project", () => {
+    stubStoredRange("p1", "7d");
+    const dashboard = step({
+      toolName: "create_dashboard",
+      args: { name: "Latency overview" },
+      details: created("dashboard", "db1", { projectId: "p1" }),
+    });
+    const model = resourceCardModel(dashboard, new Map([["db1", [widgetStep()]]]));
+    expect(model?.meta).toEqual(["Dashboard", "1 widget", "Last 7 days"]);
+  });
+
+  it("labels a pending widget card with the stored range of the panel's project", () => {
+    stubStoredRange("p1", "7d");
+    const pending = pendingCardModel(
+      {
+        toolCallId: "tcp1",
+        toolName: "create_widget",
+        args: { title: "Tokens by model", type: "query", spec: WIDGET_SPEC },
+        status: "running",
+      },
+      "p1",
+    );
+    expect(pending?.meta).toEqual(["Widget", "Last 7 days"]);
+  });
+
+  it("snapshots one range for the label and the chart the preview will draw", () => {
+    // The label is built now; the plot freezes its window when the card first
+    // scrolls into view. Both must read the SAME snapshot, or a range changed
+    // in between leaves the card labeled one window and plotted with another.
+    stubStoredRange("p1", "7d");
+    const model = resourceCardModel(widgetStep());
+    expect(model?.meta).toEqual(["Widget", "Last 7 days"]);
+    expect((model?.body as { chart: { range: unknown } }).chart.range).toEqual(preset("7d"));
+  });
+
+  it("clamps a stored range past the plan's retention in both the label and the chart", () => {
+    stubStoredRange("p1", "90d");
+    const model = resourceCardModel(widgetStep(), undefined, 30);
+    expect(model?.meta).toEqual(["Widget", "Last 30 days"]);
+    expect((model?.body as { chart: { range: unknown } }).chart.range).toEqual(preset("30d"));
+  });
+
+  it("clamps a pending card's range the same way", () => {
+    stubStoredRange("p1", "90d");
+    const pending = pendingCardModel(
+      {
+        toolCallId: "tcp1",
+        toolName: "create_widget",
+        args: { title: "Tokens by model", type: "query", spec: WIDGET_SPEC },
+        status: "running",
+      },
+      "p1",
+      30,
+    );
+    expect(pending?.meta).toEqual(["Widget", "Last 30 days"]);
+    expect((pending?.body as { chart: { range: unknown } }).chart.range).toEqual(preset("30d"));
+  });
+
+  it("keeps the default label for an unknown stored id", () => {
+    stubStoredRange("p1", "eleventy");
+    expect(resourceCardModel(widgetStep())?.meta).toEqual(["Widget", "Last 24 hours"]);
   });
 });

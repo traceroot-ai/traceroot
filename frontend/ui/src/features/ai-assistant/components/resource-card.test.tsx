@@ -1,14 +1,20 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { DATE_FILTER_OPTIONS } from "@/lib/date-filter";
 import { ResourceCard } from "./resource-card";
 import type { ResourceCardModel, WidgetChart } from "../lib/resource-card";
 
 // The preview is exercised for real in widget-chart-preview.test.tsx; here it
 // stands in for itself so these tests can assert what the card hands it.
 vi.mock("./widget-chart-preview", () => ({
-  WidgetChartPreview: ({ projectId, widgetId, spec }: WidgetChart & { widgetId: string }) => (
-    <div data-testid="preview">{`${projectId}/${widgetId}/${spec.display.type}`}</div>
+  WidgetChartPreview: ({
+    projectId,
+    widgetId,
+    spec,
+    rangeId,
+  }: Omit<WidgetChart, "range"> & { widgetId: string; rangeId: string }) => (
+    <div data-testid="preview">{`${projectId}/${widgetId}/${spec.display.type}/${rangeId}`}</div>
   ),
 }));
 
@@ -33,6 +39,7 @@ const CHART: WidgetChart = {
     breakdown: null,
     display: { type: "line" },
   },
+  range: DATE_FILTER_OPTIONS.find((o) => o.id === "7d")!,
 };
 
 function model(overrides: Partial<ResourceCardModel> = {}): ResourceCardModel {
@@ -87,7 +94,9 @@ describe("ResourceCard", () => {
     expect(screen.getByText("view spans")).toBeTruthy();
     // findBy: the preview module is loaded through next/dynamic, so the stub
     // mounts a tick after the card renders.
-    expect((await screen.findByTestId("preview")).textContent).toBe("p1/w1/line");
+    // The card hands the preview the range it snapshotted, so the header's
+    // label and the plot's window cannot come apart.
+    expect((await screen.findByTestId("preview")).textContent).toBe("p1/w1/line/7d");
   });
 
   it("shows no preview for a widget with no chart to draw", () => {
@@ -102,12 +111,71 @@ describe("ResourceCard", () => {
           resourceType: "detector",
           title: "Timeout failures",
           meta: ["Detector", "Failure"],
-          body: { kind: "detector", chips: ["template prompt", "RCA on"] },
+          body: { kind: "detector", chips: ["sample 25%", "RCA on"], prompt: null },
         })}
       />,
     );
-    expect(screen.getByText("template prompt")).toBeTruthy();
+    expect(screen.getByText("sample 25%")).toBeTruthy();
     expect(screen.getByText("RCA on")).toBeTruthy();
+  });
+
+  it("names the standard prompt a detector runs when the args carried none", () => {
+    render(
+      <ResourceCard
+        model={model({
+          resourceType: "detector",
+          title: "Timeout failures",
+          meta: ["Detector", "Failure"],
+          body: {
+            kind: "detector",
+            chips: [],
+            prompt: { kind: "standard", templateLabel: "Failure" },
+          },
+        })}
+      />,
+    );
+    expect(screen.getByText("Uses the standard Failure prompt")).toBeTruthy();
+  });
+
+  it("shows a short custom prompt whole, with no toggle", () => {
+    render(
+      <ResourceCard
+        model={model({
+          resourceType: "detector",
+          title: "Timeouts",
+          meta: ["Detector", "Custom"],
+          body: {
+            kind: "detector",
+            chips: [],
+            prompt: { kind: "custom", text: "Only report a timeout past 30 seconds." },
+          },
+        })}
+      />,
+    );
+    expect(screen.getByText("Only report a timeout past 30 seconds.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Show more" })).toBeNull();
+  });
+
+  it("clamps a long custom prompt behind a show-more toggle", () => {
+    const text = Array.from({ length: 12 }, (_, i) => `rule ${i}: check the span`).join("\n");
+    const { container } = render(
+      <ResourceCard
+        model={model({
+          resourceType: "detector",
+          title: "Timeouts",
+          meta: ["Detector", "Custom"],
+          body: { kind: "detector", chips: [], prompt: { kind: "custom", text } },
+        })}
+      />,
+    );
+    const block = container.querySelector("pre");
+    expect(block?.textContent).toBe(text);
+    expect(block?.className).toContain("line-clamp");
+    const toggle = screen.getByRole("button", { name: "Show more" });
+    fireEvent.click(toggle);
+    expect(container.querySelector("pre")?.className).not.toContain("line-clamp");
+    fireEvent.click(screen.getByRole("button", { name: "Show less" }));
+    expect(container.querySelector("pre")?.className).toContain("line-clamp");
   });
 
   it("renders a project receipt as label/value rows", () => {
