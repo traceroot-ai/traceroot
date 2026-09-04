@@ -238,7 +238,7 @@ function mergeBodySchema(
 }
 
 const POLICY_VALUES: Record<keyof ToolPolicy, readonly string[]> = {
-  approvalClass: ["none", "approval"],
+  approvalClass: ["none", "confirm", "approval"],
   minRole: ["VIEWER", "MEMBER", "ADMIN"],
   tenancy: ["account", "workspace", "project"],
 };
