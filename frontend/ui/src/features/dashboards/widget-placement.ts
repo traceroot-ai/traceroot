@@ -5,20 +5,21 @@
 // narrow column forever. Creating a widget therefore also writes it a real
 // placement.
 
+import { COLS } from "./grid-constants";
 import type { WidgetType } from "./types";
 
 export type WidgetPlacement = { i: string; x: number; y: number; w: number; h: number };
 
-// Mirrors DashboardGrid's 12-column grid: tiles are half-width, two per row.
-const COLS = 12;
+// On the grid's twelve columns, tiles are half-width: two per row.
 const SLOT_W = COLS / 2;
 const SLOT_X = [0, SLOT_W];
 
 // Starting tile sizes in grid units, following the seeded dashboard's
 // proportions — a feed needs more rows than a chart to show a useful list.
 // Keyed by WidgetType: a new widget kind doesn't compile until it has a size
-// here, rather than crashing on the first create.
-const DEFAULT_SIZE: Record<WidgetType, { w: number; h: number }> = {
+// here, rather than crashing on the first create. Exported so the assistant
+// panel's chart preview can frame itself at the tile shape a fresh widget gets.
+export const DEFAULT_SIZE: Record<WidgetType, { w: number; h: number }> = {
   query: { w: SLOT_W, h: 4 },
   trace_feed: { w: SLOT_W, h: 6 },
 };
