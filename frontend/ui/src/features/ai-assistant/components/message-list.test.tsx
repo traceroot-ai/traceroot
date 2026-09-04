@@ -29,7 +29,7 @@ const assistant = (id: string, traceId: string, traceStatus = "available"): AIMe
 const segment = (id: string): AIMessage =>
   ({ id, role: "assistant", content: "thinking out loud" }) as AIMessage;
 
-/** The run's final bubble, with usage so the footer (and its "View trace") renders. */
+/** The run's final bubble, with usage so the footer renders. */
 const finalBubble = (id: string, trace?: { traceId: string; traceStatus: string }): AIMessage =>
   ({
     id,
@@ -151,40 +151,5 @@ describe("MessageList reloaded tool-step capture notes", () => {
     openSteps();
     expect(screen.getByText("Result")).toBeTruthy();
     expect(screen.queryByText(/withheld|truncated/)).toBeNull();
-  });
-});
-
-describe("MessageList per-turn View trace", () => {
-  it("renders View trace in the usage footer once the turn's trace is available, and opens it", () => {
-    const onOpenTrace = vi.fn();
-    render(
-      <MessageList
-        messages={[user("u1"), finalBubble("a1", { traceId: "trace-1", traceStatus: "available" })]}
-        onOpenTrace={onOpenTrace}
-      />,
-    );
-    fireEvent.click(screen.getByRole("button", { name: "View trace" }));
-    expect(onOpenTrace).toHaveBeenCalledTimes(1);
-    expect(onOpenTrace).toHaveBeenCalledWith("trace-1");
-  });
-
-  it("renders no View trace while the export is pending, or without a handler", () => {
-    render(
-      <MessageList
-        messages={[user("u1"), finalBubble("a1", { traceId: "trace-1", traceStatus: "pending" })]}
-        onOpenTrace={vi.fn()}
-      />,
-    );
-    // The footer itself is there (usage), only the link is withheld.
-    expect(screen.getByText("12 in")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "View trace" })).toBeNull();
-    cleanup();
-
-    render(
-      <MessageList
-        messages={[user("u1"), finalBubble("a1", { traceId: "trace-1", traceStatus: "available" })]}
-      />,
-    );
-    expect(screen.queryByRole("button", { name: "View trace" })).toBeNull();
   });
 });

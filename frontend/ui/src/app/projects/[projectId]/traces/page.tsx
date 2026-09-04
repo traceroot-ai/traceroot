@@ -82,9 +82,9 @@ export default function TracesPage() {
 
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(traceIdFromUrl);
   // Scope of the open trace. The list is customer-only, so selecting a row
-  // always means "user"; the two ways to open an internal trace here are the
+  // always means "user"; the one way to open an internal trace here is the
   // ?traceId=&source=agent deep link (an RCA agent trace popped out of a
-  // viewer) and a linked-trace chip inside the viewer itself.
+  // viewer).
   const [selectedSource, setSelectedSource] = useState<TraceSource>(
     traceIdFromUrl && sourceFromUrl === "agent" ? "agent" : "user",
   );
@@ -397,10 +397,9 @@ export default function TracesPage() {
           // and it also pins the trace-detail cache key this panel shares with the live
           // SSE writer. Self-traces are reached from the detector runs surface, which
           // asks for source="detector" explicitly; here an internal trace is open only
-          // via the ?source=agent deep link or a linked-trace chip (selectedSource),
-          // and navigating to a list row drops back to "user".
+          // via the ?source=agent deep link (selectedSource), and navigating to a
+          // list row drops back to "user".
           source={selectedSource}
-          onOpenLinkedTrace={({ traceId, source }) => selectTrace(traceId, source)}
         />
       )}
 

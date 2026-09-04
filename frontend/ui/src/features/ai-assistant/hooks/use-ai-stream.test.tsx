@@ -251,7 +251,7 @@ describe("final trace event annotation", () => {
     vi.unstubAllGlobals();
   });
 
-  it("annotates the live assistant message with traceId/traceStatus so View trace appears without a reload", async () => {
+  it("annotates the live assistant message with traceId/traceStatus so Open span appears without a reload", async () => {
     const sse = createSSE();
     fetchMock.mockResolvedValueOnce(sse.response);
     const { result } = renderHook(() => useAIStream());
