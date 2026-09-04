@@ -3,14 +3,15 @@ import { prisma, Role } from "@traceroot/core";
 import { errorResponse, successResponse } from "@/lib/auth-helpers";
 import { parseJsonObject, requireProjectAuth } from "@/lib/route-helpers";
 import { createWidgetWithPlacement } from "@/lib/dashboard-layout";
-import { WIDGET_TITLE_MAX } from "@/features/dashboards/types";
+import {
+  isWidgetType,
+  WIDGET_TITLE_MAX,
+  WIDGET_TYPES,
+  WidgetSpecSchema,
+} from "@/features/dashboards/types";
+import { validateWidgetSpecVocabulary } from "@/features/dashboards/widget-spec-vocabulary";
 
 type RouteParams = { params: Promise<{ projectId: string; dashboardId: string }> };
-
-const WIDGET_TYPES = new Set(["query", "trace_feed"]);
-
-const isWidgetType = (value: unknown): value is "query" | "trace_feed" =>
-  typeof value === "string" && WIDGET_TYPES.has(value);
 
 // POST .../widgets — add a widget to a dashboard
 export async function POST(req: NextRequest, { params }: RouteParams) {
@@ -34,10 +35,8 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     return errorResponse(`title must be at most ${WIDGET_TITLE_MAX} characters`, 400);
   }
   if (!isWidgetType(type)) {
-    return errorResponse(`type must be one of ${[...WIDGET_TYPES].join(", ")}`, 400);
+    return errorResponse(`type must be one of ${WIDGET_TYPES.join(", ")}`, 400);
   }
-  // Structural check only — deep spec validation happens in the query engine
-  // at execution time, which is the single source of truth.
   if (spec === null || typeof spec !== "object" || Array.isArray(spec)) {
     return errorResponse("spec must be a JSON object", 400);
   }
@@ -46,6 +45,18 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     (displayConfig === null || typeof displayConfig !== "object" || Array.isArray(displayConfig))
   ) {
     return errorResponse("displayConfig must be a JSON object", 400);
+  }
+  // A query spec that names fields the registry doesn't know stores fine and
+  // then fails at query time forever, with no UI path to repair it — the same
+  // vocabulary check the API/agent write path runs, so the guarantee holds on
+  // both. Only specs that parse as query specs can be checked; anything the
+  // schema can't read is still left to the query engine, as before.
+  if (type === "query") {
+    const parsedSpec = WidgetSpecSchema.safeParse(spec);
+    if (parsedSpec.success) {
+      const vocabulary = validateWidgetSpecVocabulary(parsedSpec.data);
+      if (!vocabulary.ok) return errorResponse(vocabulary.error, 400);
+    }
   }
 
   // The widget row and its grid placement land together — a widget with no

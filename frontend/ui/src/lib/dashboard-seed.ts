@@ -4,10 +4,11 @@
 // it is fully user-owned — never re-seeded or force-updated.
 
 import type { Prisma } from "@prisma/client";
+import type { WidgetType } from "@/features/dashboards/types";
 
 type SeedWidget = {
   title: string;
-  type: "query" | "trace_feed";
+  type: WidgetType;
   spec: object;
   layout: { x: number; y: number; w: number; h: number };
 };
