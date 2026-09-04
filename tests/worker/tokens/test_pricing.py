@@ -245,6 +245,17 @@ class TestGpt56CachePricing:
         assert entry["prices"]["cacheRead"] == pytest.approx(entry["prices"]["input"] * 0.10)
 
 
+class TestGpt56LunaPublishedPrices:
+    """Ratio checks alone let a wrong base price stay internally consistent and
+    pass (#2045). Assert the absolute, provider-published rate directly.
+    """
+
+    def test_input_and_output_match_published_rate(self, real_cache):
+        entry = next(e for e in real_cache if e["model_name"] == "gpt-5.6-luna")
+        assert entry["prices"]["input"] == pytest.approx(2e-7)  # $0.20 / 1M tokens
+        assert entry["prices"]["output"] == pytest.approx(1.2e-6)  # $1.20 / 1M tokens
+
+
 class TestGeminiModelIds:
     @pytest.mark.parametrize("model_id,expected_name", GEMINI_MODEL_CASES)
     def test_matches_expected_model(self, real_cache, model_id, expected_name):
