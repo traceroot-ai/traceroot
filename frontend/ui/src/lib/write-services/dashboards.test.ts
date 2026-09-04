@@ -11,9 +11,11 @@ const { tx, root } = vi.hoisted(() => ({
   tx: {
     project: { findUnique: vi.fn() },
     workspaceMember: { findUnique: vi.fn() },
-    dashboard: { findFirst: vi.fn(), create: vi.fn() },
+    dashboard: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
     widget: { create: vi.fn() },
     auditLog: { create: vi.fn() },
+    // The locking read of the layout column; see lib/dashboard-layout.
+    $queryRaw: vi.fn(),
   },
   root: { auditLog: { create: vi.fn() } },
 }));
@@ -88,7 +90,10 @@ beforeEach(() => {
   tx.workspaceMember.findUnique.mockReset();
   tx.dashboard.findFirst.mockReset();
   tx.dashboard.create.mockReset();
+  tx.dashboard.update.mockReset();
   tx.widget.create.mockReset();
+  tx.$queryRaw.mockReset();
+  tx.$queryRaw.mockResolvedValue([{ layout: [] }]);
   tx.auditLog.create.mockReset();
   tx.auditLog.create.mockResolvedValue({});
   root.auditLog.create.mockReset();
@@ -247,8 +252,9 @@ describe("createDashboard", () => {
 });
 
 describe("createWidget", () => {
-  function mockDashboard() {
+  function mockDashboard(layout: unknown = []) {
     tx.dashboard.findFirst.mockResolvedValue({ id: "dash1" });
+    tx.$queryRaw.mockResolvedValue([{ layout }]);
   }
 
   it("returns 404 when the project does not exist", async () => {
@@ -468,5 +474,154 @@ describe("createWidget", () => {
     expect(root.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ transport: "agent", agentSessionId: "as1" }),
     });
+  });
+
+  // Real-world agent-created specs that passed shape validation but could only
+  // 422 at query time; the registry vocabulary now rejects them at create.
+  it.each([
+    {
+      spec: {
+        view: "spans",
+        metric: { measure: "spans", agg: "count" },
+        display: { type: "number" },
+      },
+      error: /^unknown measure "spans" for view "spans" — valid measures: .*count.*duration_ms/,
+    },
+    {
+      spec: {
+        view: "traces",
+        metric: { measure: "traces", agg: "count" },
+        display: { type: "number" },
+      },
+      error: /^unknown measure "traces" for view "traces" — valid measures: .*error_count/,
+    },
+    {
+      spec: {
+        view: "spans",
+        metric: { measure: "count", agg: "count" },
+        breakdown: "model",
+        display: { type: "bar" },
+      },
+      error:
+        /^unknown breakdown "model" for view "spans" — valid breakdowns: environment, model_name, name, span_kind$/,
+    },
+    {
+      spec: {
+        view: "traces",
+        metric: { measure: "count", agg: "count" },
+        filters: [{ field: "errors", op: ">", value: 0 }],
+        display: { type: "number" },
+      },
+      error:
+        /^unknown filter field "errors" for view "traces" — valid filter fields: .*error_count/,
+    },
+    {
+      spec: {
+        view: "spans",
+        metric: { measure: "count", agg: "count" },
+        breakdown: "model_name",
+        display: { type: "number" },
+      },
+      error:
+        /^display "number" does not support a breakdown dimension — displays that support a breakdown: line, area, bar, pie, table$/,
+    },
+    {
+      spec: {
+        view: "spans",
+        metric: { measure: "duration_ms", agg: "p95" },
+        breakdown: "model_name",
+        display: { type: "histogram" },
+      },
+      error:
+        /^display "histogram" does not support a breakdown dimension — displays that support a breakdown: line, area, bar, pie, table$/,
+    },
+  ])(
+    "rejects an out-of-vocabulary query spec with 400 and the valid options ($error)",
+    async ({ spec, error }) => {
+      mockAccess();
+      mockDashboard();
+      const r = await runWidget({ spec });
+      expect(r).toMatchObject({ ok: false, status: 400 });
+      expect((r as { error: string }).error).toMatch(error);
+      expect(tx.widget.create).not.toHaveBeenCalled();
+      expect(root.auditLog.create).not.toHaveBeenCalled();
+    },
+  );
+
+  it("places the new widget in the dashboard layout in the same transaction", async () => {
+    mockAccess();
+    mockDashboard();
+    tx.widget.create.mockResolvedValue(widgetRow);
+    const r = await runWidget();
+    expect(r).toEqual({ ok: true, created: true, data: widgetRow });
+    expect(tx.dashboard.update).toHaveBeenCalledWith({
+      where: { id: "dash1" },
+      data: { layout: [{ i: "wid1", x: 0, y: 0, w: 6, h: 4 }] },
+    });
+  });
+
+  it("packs the new widget beside the tile already on the bottom row", async () => {
+    mockAccess();
+    mockDashboard([{ i: "other", x: 0, y: 4, w: 6, h: 4 }]);
+    tx.widget.create.mockResolvedValue(widgetRow);
+    await runWidget({ type: "trace_feed", spec: { filters: [], limit: 5 } });
+    expect(tx.dashboard.update).toHaveBeenCalledWith({
+      where: { id: "dash1" },
+      data: {
+        layout: [
+          { i: "other", x: 0, y: 4, w: 6, h: 4 },
+          { i: "wid1", x: 6, y: 4, w: 6, h: 6 },
+        ],
+      },
+    });
+  });
+
+  it("locks the dashboard row before the widget insert and the layout read", async () => {
+    mockAccess();
+    mockDashboard();
+    tx.widget.create.mockResolvedValue(widgetRow);
+    await runWidget();
+    const [strings, ...values] = tx.$queryRaw.mock.calls[0] as [string[], ...unknown[]];
+    const sql = strings.join("?");
+    expect(sql).toMatch(/SELECT layout FROM dashboards WHERE id = \? FOR UPDATE/);
+    // The id is a bound parameter, never interpolated into the statement.
+    expect(sql).not.toContain("dash1");
+    expect(values).toEqual(["dash1"]);
+    // Taking the lock after the insert would deadlock: the insert's foreign
+    // key already holds a weaker lock on the same row.
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.widget.create.mock.invocationCallOrder[0],
+    );
+    expect(tx.widget.create.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.dashboard.update.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("leaves the layout untouched when the widget is rejected", async () => {
+    mockAccess();
+    mockDashboard();
+    const r = await runWidget({ spec: { ...validSpec, view: "nope" } });
+    expect(r).toMatchObject({ ok: false, status: 400 });
+    expect(tx.dashboard.update).not.toHaveBeenCalled();
+    // Nothing is written, so the dashboard row is never locked either.
+    expect(tx.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it("creates a spans widget broken down by model_name (the vocabulary for 'by model')", async () => {
+    mockAccess();
+    mockDashboard();
+    tx.widget.create.mockResolvedValue(widgetRow);
+    const spec = {
+      view: "spans",
+      filters: [],
+      metric: { measure: "count", agg: "count" },
+      breakdown: "model_name",
+      display: { type: "bar" },
+    };
+    const r = await runWidget({ spec });
+    expect(r).toEqual({ ok: true, created: true, data: widgetRow });
+    expect(tx.widget.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ spec }) }),
+    );
   });
 });

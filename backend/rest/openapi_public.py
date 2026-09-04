@@ -18,6 +18,7 @@ from rest.services.filters.translate import (
     MAX_VALUE_LENGTH,
     NUMERIC_TYPE_MAX,
 )
+from rest.services.widget_registry import registry_schema
 
 PUBLIC_PREFIX = "/api/v1/public/"
 TITLE = "TraceRoot Public API"
@@ -248,6 +249,103 @@ def _apply_filters_param_schema(schema: dict[str, Any]) -> None:
             }
 
 
+def _inline_component_refs(node: Any, schemas: dict[str, Any]) -> Any:
+    """Deep-copy ``node`` with every ``#/components/schemas/`` ``$ref`` replaced
+    by its (recursively inlined) target, so a copy can be specialized without
+    mutating the shared component. Sibling keys beside a ``$ref`` override the
+    target's, matching the tools generator's resolution rule.
+
+    Args:
+        node (Any): Schema fragment to copy; dicts/lists are walked, scalars
+            returned as-is.
+        schemas (dict[str, Any]): ``components.schemas`` to resolve refs against.
+
+    Returns:
+        Any: A fully inlined deep copy of ``node``.
+    """
+    if isinstance(node, dict):
+        ref = node.get("$ref")
+        if isinstance(ref, str) and ref.startswith("#/components/schemas/"):
+            target = schemas[ref.rsplit("/", 1)[1]]
+            merged = {**target, **{k: v for k, v in node.items() if k != "$ref"}}
+            return _inline_component_refs(merged, schemas)
+        return {key: _inline_component_refs(value, schemas) for key, value in node.items()}
+    if isinstance(node, list):
+        return [_inline_component_refs(value, schemas) for value in node]
+    return node
+
+
+def _widget_query_spec_variants(schemas: dict[str, Any]) -> list[dict[str, Any]]:
+    """One inline query-spec variant per widget registry view.
+
+    Each variant is the ``WidgetSpec`` component (refs inlined) specialized to
+    one view: ``view`` pinned to a const, and the measure, breakdown, and
+    filter-field vocabularies enumerated from the widget field registry — the
+    same source the write service validates against — so generated tool schemas
+    and API docs show exactly the fields create accepts, never hand-listed.
+
+    Args:
+        schemas (dict[str, Any]): ``components.schemas`` of the public document.
+
+    Returns:
+        list[dict[str, Any]]: The per-view ``anyOf`` variants, in registry order.
+    """
+    variants: list[dict[str, Any]] = []
+    for view_name, view in registry_schema().items():
+        fields = view["fields"]
+        measures = [name for name, f in fields.items() if f["aggs"]]
+        groupables = [name for name, f in fields.items() if f["groupable"]]
+        filterables = [name for name, f in fields.items() if f["filterOps"]]
+        variant = _inline_component_refs(schemas["WidgetSpec"], schemas)
+        variant["title"] = f"WidgetSpec ({view_name})"
+        variant["description"] = (
+            f'Chart spec over the "{view_name}" view; the enums below are the '
+            "complete field vocabulary for this view."
+        )
+        properties = variant["properties"]
+        # Explicit `type` alongside const/enum throughout: these variants feed
+        # model tool definitions, and some providers reject untyped properties.
+        properties["view"] = {"const": view_name, "title": "View", "type": "string"}
+        properties["metric"]["properties"]["measure"] = {
+            "enum": measures,
+            "title": "Measure",
+            "type": "string",
+        }
+        properties["breakdown"] = {
+            "enum": [*groupables, None],
+            "title": "Breakdown",
+            "type": ["string", "null"],
+        }
+        properties["filters"]["items"]["properties"]["field"] = {
+            "enum": filterables,
+            "title": "Field",
+            "type": "string",
+        }
+        variants.append(variant)
+    return variants
+
+
+def _apply_widget_spec_vocabulary(schema: dict[str, Any]) -> None:
+    """Replace ``CreateWidgetRequest.spec``'s ``WidgetSpec`` branch with the
+    per-view variants from :func:`_widget_query_spec_variants`; the trace_feed
+    branch keeps its ``$ref``. The ``WidgetSpec`` component itself stays in the
+    document even though the union no longer references it: the frontend
+    widget-spec-parity test anchors on it to guard the pydantic/zod mirror.
+
+    Args:
+        schema (dict[str, Any]): The public-only OpenAPI document; mutated in
+            place. No-op if the request schema is absent.
+    """
+    schemas = (schema.get("components") or {}).get("schemas", {})
+    request = schemas.get("CreateWidgetRequest")
+    if request is None:
+        return
+    request["properties"]["spec"]["anyOf"] = [
+        *_widget_query_spec_variants(schemas),
+        {"$ref": "#/components/schemas/TraceFeedSpec"},
+    ]
+
+
 # Agent/CLI-facing tool curation, keyed by operationId. Reviewed in the same PR
 # as any endpoint change so tool naming can't drift from the API. Every public
 # operation MUST have an entry: enabled tools carry the agent-facing
@@ -395,7 +493,12 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
         "description": (
             "Create a detector (name, template, prompt, optional sampling/RCA "
             "settings) in a project — idempotent on the detector name within "
-            "the project."
+            "the project. The standard detector types (failure, hallucination, "
+            "logic, task, safety) have canonical default instructions: pass "
+            "the matching template id and OMIT prompt to use them. Only supply "
+            "prompt when the user provides genuinely custom instructions — a "
+            "supplied prompt is stored verbatim and overrides the template "
+            "default."
         ),
         "enabled": True,
         "policy": {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
@@ -415,7 +518,18 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
             "Add a widget (title, type, spec) to an existing dashboard. Type "
             '"query" charts a metric (spec: view/filters/metric/breakdown/'
             'display); type "trace_feed" lists recent traces (spec: predicate '
-            "filters + limit). Strict create: every call adds a new widget."
+            "filters + limit). Strict create: every call adds a new widget. "
+            "The spec schema enumerates the only available views, metrics, "
+            "filter operators, and display types — nothing outside it exists. "
+            "If the user asks for a visualization or option that is not in "
+            "the schema (for example a display type the enum lacks), say so "
+            "explicitly and propose the closest available match instead of "
+            "silently substituting. Pick the view first — spans and traces "
+            "expose different fields, and the enums in this schema are the "
+            "complete field vocabulary for each view. If the user asks for a "
+            "dimension or metric that exists on neither view, say so and "
+            'propose the closest available one (for example "traces by model" '
+            "is built on the spans view via model_name)."
         ),
         "enabled": True,
         "policy": {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},
@@ -649,6 +763,7 @@ def build_public_schema(app: Any) -> dict[str, Any]:
     }
     _apply_public_contract(schema)
     _apply_filters_param_schema(schema)
+    _apply_widget_spec_vocabulary(schema)
     _apply_tool_curation(schema)
     return schema
 

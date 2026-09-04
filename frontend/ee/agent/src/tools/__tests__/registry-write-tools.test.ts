@@ -143,6 +143,27 @@ describe("createRegistryWriteTools", () => {
     });
   });
 
+  it("create_detector does not require prompt and leaves an unset prompt out of the body", async () => {
+    const { client, request } = stubClient({
+      created: true,
+      detector: { id: "d1", name: "latency", projectId: "p1", enabled: true, sampleRate: 25 },
+    });
+    const tool = makeTools(client).find((t) => t.name === "create_detector")!;
+    expect(tool.parameters.required).toEqual(["label", "name", "template"]);
+    await tool.execute("id", { label: "x", name: "latency", template: "failure" });
+    expect(request).toHaveBeenCalledWith("post", "/api/internal/write/detectors", {
+      body: {
+        actorUserId: "u1",
+        transport: "agent",
+        agentSessionId: "as1",
+        projectId: "p1",
+        name: "latency",
+        template: "failure",
+      },
+      signal: undefined,
+    });
+  });
+
   it("create_workspace injects only actor and provenance and hides nothing but label", async () => {
     const { client, request } = stubClient({
       created: true,
@@ -170,25 +191,48 @@ describe("createRegistryWriteTools", () => {
     });
   });
 
-  it("create_widget's model-visible spec schema carries both structured dialects", () => {
+  it("create_widget's model-visible spec schema carries per-view query dialects plus the feed", () => {
     const tool = makeTools(stubClient().client).find((t) => t.name === "create_widget")!;
-    const spec = tool.parameters.properties.spec as {
-      type?: string;
-      anyOf?: { properties: Record<string, unknown>; required?: string[] }[];
-    };
+    interface VariantSchema {
+      properties: Record<
+        string,
+        {
+          const?: string;
+          enum?: (string | null)[];
+          properties?: Record<string, { enum?: string[] }>;
+        }
+      >;
+      required?: string[];
+    }
+    const spec = tool.parameters.properties.spec as { type?: string; anyOf?: VariantSchema[] };
     // The union of object dialects keeps an explicit type for providers that
-    // reject untyped properties, plus both variants for the model to compose.
+    // reject untyped properties, plus one query variant per registry view and
+    // the trace_feed variant for the model to compose.
     expect(spec.type).toBe("object");
-    expect(spec.anyOf).toHaveLength(2);
-    const query = spec.anyOf!.find((variant) => "view" in variant.properties)!;
-    expect(Object.keys(query.properties).sort()).toEqual([
-      "breakdown",
-      "display",
-      "filters",
-      "metric",
-      "view",
-    ]);
-    expect(query.required).toEqual(["view", "metric", "display"]);
+    expect(spec.anyOf).toHaveLength(3);
+    const queryVariants = spec.anyOf!.filter((variant) => "view" in variant.properties);
+    const measures = (variant: VariantSchema) =>
+      variant.properties.metric!.properties!.measure!.enum;
+    expect(queryVariants.map((v) => v.properties.view!.const).sort()).toEqual(["spans", "traces"]);
+    for (const query of queryVariants) {
+      expect(Object.keys(query.properties).sort()).toEqual([
+        "breakdown",
+        "display",
+        "filters",
+        "metric",
+        "view",
+      ]);
+      expect(query.required).toEqual(["view", "metric", "display"]);
+      // The field vocabulary is enumerated per view, straight from the widget
+      // field registry, so the model cannot invent measures or breakdowns.
+      expect(measures(query)).toContain("cost");
+      expect(query.properties.breakdown!.enum).toContain("environment");
+    }
+    const [spansQuery, tracesQuery] = [...queryVariants].sort((a, b) =>
+      a.properties.view!.const!.localeCompare(b.properties.view!.const!),
+    );
+    expect(measures(tracesQuery)).toContain("error_count");
+    expect(measures(spansQuery)).not.toContain("error_count");
     const feed = spec.anyOf!.find((variant) => "limit" in variant.properties)!;
     expect(Object.keys(feed.properties).sort()).toEqual(["filters", "limit"]);
   });

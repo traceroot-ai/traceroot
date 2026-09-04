@@ -687,3 +687,93 @@ def test_create_ops_are_enabled_tools_with_pinned_policy(op_id):
     assert tool["name"] == op_id
     assert tool["description"], f"{op_id} needs an agent-facing description"
     assert tool["policy"] == policy
+
+
+# ── create_widget spec vocabulary (generated from the widget field registry) ──
+
+
+def _create_widget_spec_variants(schema):
+    spec = schema["components"]["schemas"]["CreateWidgetRequest"]["properties"]["spec"]
+    return spec["anyOf"]
+
+
+def test_create_widget_spec_has_per_view_variants_and_trace_feed_ref():
+    """The query dialect is one inline variant per registry view (keyed by a
+    ``view`` const) plus the untouched trace_feed $ref branch."""
+    variants = _create_widget_spec_variants(_schema())
+    consts = [
+        v["properties"]["view"]["const"]
+        for v in variants
+        if "properties" in v and "view" in v.get("properties", {})
+    ]
+    assert consts == ["spans", "traces"]
+    refs = [v["$ref"] for v in variants if "$ref" in v]
+    assert refs == ["#/components/schemas/TraceFeedSpec"]
+    assert len(variants) == 3
+
+
+def test_create_widget_spec_variants_carry_registry_enums():
+    """Measure, breakdown, and filter-field enums come from the widget field
+    registry, per view — never hand-listed."""
+    from rest.services.widget_registry import registry_schema
+
+    variants = _create_widget_spec_variants(_schema())
+    by_view = {
+        v["properties"]["view"]["const"]: v for v in variants if "view" in v.get("properties", {})
+    }
+    reg = registry_schema()
+    assert set(by_view) == set(reg)
+    for view_name, variant in by_view.items():
+        fields = reg[view_name]["fields"]
+        props = variant["properties"]
+        measures = [n for n, f in fields.items() if f["aggs"]]
+        assert props["metric"]["properties"]["measure"]["enum"] == measures
+        groupables = [n for n, f in fields.items() if f["groupable"]]
+        assert props["breakdown"]["enum"] == [*groupables, None]
+        filterables = [n for n, f in fields.items() if f["filterOps"]]
+        assert props["filters"]["items"]["properties"]["field"]["enum"] == filterables
+    # The enums must genuinely differ per view (error_count is traces-only), or
+    # the variants would be decoration rather than vocabulary.
+    spans_measures = by_view["spans"]["properties"]["metric"]["properties"]["measure"]["enum"]
+    traces_measures = by_view["traces"]["properties"]["metric"]["properties"]["measure"]["enum"]
+    assert "error_count" in traces_measures and "error_count" not in spans_measures
+
+
+def test_create_widget_spec_variants_declare_types_and_no_refs():
+    """The inline variants feed model tool schemas: every property carries an
+    explicit ``type`` and no ``$ref`` survives inside them."""
+
+    def walk_properties(node, path, missing):
+        for name, prop in (node.get("properties") or {}).items():
+            if not prop.get("type"):
+                missing.append(f"{path}.{name}")
+            walk_properties(prop, f"{path}.{name}", missing)
+            if isinstance(prop.get("items"), dict):
+                walk_properties(prop["items"], f"{path}.{name}.items", missing)
+
+    def contains_ref(node):
+        if isinstance(node, dict):
+            return "$ref" in node or any(contains_ref(v) for v in node.values())
+        if isinstance(node, list):
+            return any(contains_ref(v) for v in node)
+        return False
+
+    variants = _create_widget_spec_variants(_schema())
+    inline = [v for v in variants if "$ref" not in v]
+    assert len(inline) == 2
+    for variant in inline:
+        assert variant["type"] == "object"
+        assert variant["additionalProperties"] is False
+        assert not contains_ref(variant), "inline spec variant still contains a $ref"
+        missing: list[str] = []
+        walk_properties(variant, variant["properties"]["view"]["const"], missing)
+        assert missing == [], f"properties without a type: {missing}"
+
+
+def test_create_widget_spec_keeps_widget_spec_component_for_parity():
+    """The WidgetSpec component stays in the document even though the spec
+    union no longer references it: the frontend widget-spec-parity test anchors
+    on it to guard the pydantic/zod mirror."""
+    components = _schema()["components"]["schemas"]
+    for name in ("WidgetSpec", "WidgetFilter", "WidgetMetric", "WidgetDisplay"):
+        assert name in components

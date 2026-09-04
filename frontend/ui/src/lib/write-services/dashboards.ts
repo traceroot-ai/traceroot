@@ -8,6 +8,8 @@ import {
   WidgetSpecSchema,
 } from "@/features/dashboards/types";
 import { parseTraceFeedSpec } from "@/features/dashboards/trace-feed-spec";
+import { validateWidgetSpecVocabulary } from "@/features/dashboards/widget-spec-vocabulary";
+import { createWidgetWithPlacement } from "@/lib/dashboard-layout";
 import { writeAudit, type AuditEntry } from "./audit";
 import type { Provenance, ServiceResult } from "./types";
 
@@ -223,6 +225,13 @@ export async function createWidget(input: {
           },
         };
       }
+      // Shape-valid is not enough: the fields the spec names must exist in the
+      // registry vocabulary, or the widget stores fine and 4xxs forever at
+      // query time.
+      const vocabulary = validateWidgetSpecVocabulary(specParsed.data);
+      if (!vocabulary.ok) {
+        return { result: { ok: false, status: 400, error: vocabulary.error } };
+      }
       spec = specParsed.data;
     } else {
       const feedParsed = parseTraceFeedSpec(spec);
@@ -240,17 +249,24 @@ export async function createWidget(input: {
     const displayConfig = (parsed.data.displayConfig as Record<string, unknown> | undefined) ?? {};
 
     // Widgets have no natural key (duplicate titles are legitimate), so this
-    // is a strict create — every call adds a widget.
-    const widget = await tx.widget.create({
-      data: {
-        dashboardId: input.dashboardId,
-        title,
-        type,
-        spec: spec as object,
-        displayConfig: displayConfig as object,
-      },
-      select: { id: true, dashboardId: true, title: true, type: true },
-    });
+    // is a strict create — every call adds a widget. Callers pass no layout:
+    // a widget with no placement renders through the grid's unpersisted
+    // fallback, as a narrow stack down the left edge, so placement is ours.
+    const widget = await createWidgetWithPlacement(
+      tx,
+      { dashboardId: input.dashboardId, type },
+      () =>
+        tx.widget.create({
+          data: {
+            dashboardId: input.dashboardId,
+            title,
+            type,
+            spec: spec as object,
+            displayConfig: displayConfig as object,
+          },
+          select: { id: true, dashboardId: true, title: true, type: true },
+        }),
+    );
     return {
       result: { ok: true, created: true, data: widget },
       audit: {

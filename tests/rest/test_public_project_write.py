@@ -139,6 +139,38 @@ def test_create_detector_omits_absent_optionals():
     }
 
 
+def test_create_detector_request_accepts_a_body_without_prompt():
+    """prompt is optional at the schema level; the write service owns the
+    standard-template-or-400 rule."""
+    from rest.schemas.public_write import CreateDetectorRequest
+
+    req = CreateDetectorRequest(project_id="proj-1", name="D", template="failure")
+    assert req.prompt is None
+
+
+@respx.mock
+def test_create_detector_omits_absent_prompt():
+    """A promptless body crosses without a prompt key, so the write service
+    can fill the canonical template instructions."""
+    _mock_account_auth()
+    write = _mock_write(DETECTOR_WRITE_URL, {"created": True, "detector": DETECTOR_ROW})
+
+    resp = _client().post(
+        "/api/v1/public/detectors",
+        json={"project_id": "proj-1", "name": "Latency spikes", "template": "failure"},
+        headers=USER_HEADER,
+    )
+
+    assert resp.status_code == 200
+    assert json.loads(write.calls.last.request.content) == {
+        "actorUserId": "u1",
+        "projectId": "proj-1",
+        "name": "Latency spikes",
+        "template": "failure",
+        "transport": "public-api",
+    }
+
+
 @respx.mock
 def test_create_detector_forwards_the_service_role_message():
     """The write service's own 403 string is the public detail, verbatim."""

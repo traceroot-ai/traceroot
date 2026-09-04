@@ -2,11 +2,15 @@ import { NextRequest } from "next/server";
 import { prisma, Role } from "@traceroot/core";
 import { errorResponse, successResponse } from "@/lib/auth-helpers";
 import { parseJsonObject, requireProjectAuth } from "@/lib/route-helpers";
+import { createWidgetWithPlacement } from "@/lib/dashboard-layout";
 import { WIDGET_TITLE_MAX } from "@/features/dashboards/types";
 
 type RouteParams = { params: Promise<{ projectId: string; dashboardId: string }> };
 
 const WIDGET_TYPES = new Set(["query", "trace_feed"]);
+
+const isWidgetType = (value: unknown): value is "query" | "trace_feed" =>
+  typeof value === "string" && WIDGET_TYPES.has(value);
 
 // POST .../widgets — add a widget to a dashboard
 export async function POST(req: NextRequest, { params }: RouteParams) {
@@ -29,7 +33,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   if (title.trim().length > WIDGET_TITLE_MAX) {
     return errorResponse(`title must be at most ${WIDGET_TITLE_MAX} characters`, 400);
   }
-  if (typeof type !== "string" || !WIDGET_TYPES.has(type)) {
+  if (!isWidgetType(type)) {
     return errorResponse(`type must be one of ${[...WIDGET_TYPES].join(", ")}`, 400);
   }
   // Structural check only — deep spec validation happens in the query engine
@@ -44,14 +48,21 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     return errorResponse("displayConfig must be a JSON object", 400);
   }
 
-  const widget = await prisma.widget.create({
-    data: {
-      dashboardId,
-      title: title.trim(),
-      type,
-      spec: spec as object,
-      displayConfig: (displayConfig as object) ?? {},
-    },
-  });
+  // The widget row and its grid placement land together — a widget with no
+  // placement renders through the grid's unpersisted client fallback, as a
+  // narrow stack down the left edge, until someone drags a tile.
+  const widget = await prisma.$transaction((tx) =>
+    createWidgetWithPlacement(tx, { dashboardId, type }, () =>
+      tx.widget.create({
+        data: {
+          dashboardId,
+          title: title.trim(),
+          type,
+          spec: spec as object,
+          displayConfig: (displayConfig as object) ?? {},
+        },
+      }),
+    ),
+  );
   return successResponse({ widget }, 201);
 }
