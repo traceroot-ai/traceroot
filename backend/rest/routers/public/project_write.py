@@ -201,7 +201,10 @@ async def create_widget(
         "dashboardId": payload.dashboard_id,
         "title": payload.title,
         "type": payload.type,
-        "spec": payload.spec,
+        # Only the fields the caller actually sent: the write service fills its
+        # own defaults, and an unset optional (e.g. a predicate's key) must stay
+        # absent rather than crossing as an explicit null.
+        "spec": payload.spec.model_dump(exclude_unset=True),
         "transport": "public-api",
     }
     if payload.display_config is not None:

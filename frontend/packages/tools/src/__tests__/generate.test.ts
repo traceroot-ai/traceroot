@@ -338,7 +338,7 @@ describe("generateRegistry write operations", () => {
     expect(entry.bodyParams).toEqual(["name", "plan"]);
   });
 
-  it("resolves property-level $refs one level before flattening", () => {
+  it("resolves property-level $refs and strips titles at every level", () => {
     const doc = fakeWriteDoc();
     doc.components!.schemas!.CreateWorkspaceRequest!.properties = {
       settings: { $ref: "#/components/schemas/WorkspaceSettings" },
@@ -351,9 +351,143 @@ describe("generateRegistry write operations", () => {
     const entry = generateRegistry(doc)[0]!;
     expect(entry.inputSchema.properties.settings).toEqual({
       type: "object",
-      properties: { retention_days: { type: "integer", title: "Retention Days" } },
+      properties: { retention_days: { type: "integer" } },
     });
     expect(entry.bodyParams).toEqual(["settings"]);
+  });
+
+  it("resolves nested $refs (items-level and through ref chains) inline", () => {
+    const doc = fakeWriteDoc();
+    doc.components!.schemas!.CreateWorkspaceRequest!.properties = {
+      scorers: {
+        type: "array",
+        title: "Scorers",
+        items: { $ref: "#/components/schemas/ScorerRef" },
+      },
+    };
+    doc.components!.schemas!.ScorerRef = {
+      type: "object",
+      title: "ScorerRef",
+      properties: { target: { $ref: "#/components/schemas/ScorerTarget" } },
+    };
+    doc.components!.schemas!.ScorerTarget = { type: "string", title: "ScorerTarget" };
+    const entry = generateRegistry(doc)[0]!;
+    expect(entry.inputSchema.properties.scorers).toEqual({
+      type: "array",
+      items: { type: "object", properties: { target: { type: "string" } } },
+    });
+  });
+
+  it("keeps sibling keys of a $ref, overriding the target's", () => {
+    const doc = fakeWriteDoc();
+    doc.components!.schemas!.CreateWorkspaceRequest!.properties = {
+      settings: {
+        $ref: "#/components/schemas/WorkspaceSettings",
+        description: "Per-workspace settings.",
+      },
+    };
+    doc.components!.schemas!.WorkspaceSettings = {
+      type: "object",
+      description: "The target's own description.",
+      properties: {},
+    };
+    const entry = generateRegistry(doc)[0]!;
+    expect(entry.inputSchema.properties.settings).toEqual({
+      type: "object",
+      description: "Per-workspace settings.",
+      properties: {},
+    });
+  });
+
+  it("resolves anyOf-variant $refs and stamps type object on an all-object union", () => {
+    const doc = fakeWriteDoc();
+    doc.components!.schemas!.CreateWorkspaceRequest!.properties = {
+      spec: {
+        anyOf: [
+          { $ref: "#/components/schemas/QueryVariant" },
+          { $ref: "#/components/schemas/FeedVariant" },
+        ],
+        title: "Spec",
+        description: "One of two dialects.",
+      },
+    };
+    doc.components!.schemas!.QueryVariant = {
+      type: "object",
+      title: "QueryVariant",
+      properties: { view: { type: "string" } },
+      required: ["view"],
+    };
+    doc.components!.schemas!.FeedVariant = {
+      type: "object",
+      title: "FeedVariant",
+      properties: { limit: { type: "integer" } },
+    };
+    const entry = generateRegistry(doc)[0]!;
+    expect(entry.inputSchema.properties.spec).toEqual({
+      // The stamped type satisfies providers that reject untyped properties;
+      // the preserved anyOf keeps the variant structure for the model.
+      type: "object",
+      description: "One of two dialects.",
+      anyOf: [
+        { type: "object", properties: { view: { type: "string" } }, required: ["view"] },
+        { type: "object", properties: { limit: { type: "integer" } } },
+      ],
+    });
+  });
+
+  it("collapses nested anyOf [T, null] wrappers inside resolved schemas", () => {
+    const doc = fakeWriteDoc();
+    doc.components!.schemas!.CreateWorkspaceRequest!.properties = {
+      settings: { $ref: "#/components/schemas/WorkspaceSettings" },
+    };
+    doc.components!.schemas!.WorkspaceSettings = {
+      type: "object",
+      properties: {
+        breakdown: { anyOf: [{ type: "string" }, { type: "null" }], default: null },
+      },
+    };
+    const entry = generateRegistry(doc)[0]!;
+    expect(entry.inputSchema.properties.settings).toEqual({
+      type: "object",
+      properties: { breakdown: { type: "string", default: null } },
+    });
+  });
+
+  it("throws on a cyclic $ref chain, naming the cycle", () => {
+    const doc = fakeWriteDoc();
+    doc.components!.schemas!.CreateWorkspaceRequest!.properties = {
+      node: { $ref: "#/components/schemas/TreeNode" },
+    };
+    doc.components!.schemas!.TreeNode = {
+      type: "object",
+      properties: { children: { type: "array", items: { $ref: "#/components/schemas/TreeNode" } } },
+    };
+    expect(() => generateRegistry(doc)).toThrow(/cyclic \$ref TreeNode/);
+  });
+
+  it("throws when $ref nesting exceeds the depth cap", () => {
+    const doc = fakeWriteDoc();
+    doc.components!.schemas!.CreateWorkspaceRequest!.properties = {
+      deep: { $ref: "#/components/schemas/Level0" },
+    };
+    for (let i = 0; i <= 10; i++) {
+      doc.components!.schemas![`Level${i}`] = {
+        type: "object",
+        properties: { next: { $ref: `#/components/schemas/Level${i + 1}` } },
+      };
+    }
+    doc.components!.schemas!.Level11 = { type: "string" };
+    expect(() => generateRegistry(doc)).toThrow(/\$ref nesting exceeds 10 levels/);
+  });
+
+  it("throws on an unresolvable nested $ref", () => {
+    const doc = fakeWriteDoc();
+    doc.components!.schemas!.CreateWorkspaceRequest!.properties = {
+      scorers: { type: "array", items: { $ref: "#/components/schemas/Missing" } },
+    };
+    expect(() => generateRegistry(doc)).toThrow(
+      "unresolvable requestBody $ref #/components/schemas/Missing",
+    );
   });
 
   const policyError =
@@ -412,14 +546,10 @@ describe("generateRegistry write operations", () => {
     );
   });
 
-  it("throws on a body property whose emitted schema still contains a nested $ref", () => {
+  it("throws on a $ref in a position the resolver does not reach (allOf)", () => {
     const doc = fakeWriteDoc();
     doc.components!.schemas!.CreateWorkspaceRequest!.properties = {
-      scorers: {
-        type: "array",
-        title: "Scorers",
-        items: { $ref: "#/components/schemas/ScorerRef" },
-      },
+      scorers: { allOf: [{ $ref: "#/components/schemas/ScorerRef" }], title: "Scorers" },
     };
     doc.components!.schemas!.ScorerRef = { type: "object", properties: {} };
     expect(() => generateRegistry(doc)).toThrow(

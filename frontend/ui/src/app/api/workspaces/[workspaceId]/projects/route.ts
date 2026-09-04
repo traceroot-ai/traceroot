@@ -7,6 +7,7 @@ import {
   errorResponse,
   successResponse,
 } from "@/lib/auth-helpers";
+import { seedDefaultDashboard } from "@/lib/dashboard-seed";
 
 const createProjectSchema = z.object({
   name: z.string().min(1, "Name is required").max(100, "Name too long"),
@@ -94,13 +95,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
   const projectId = crypto.randomUUID();
 
-  const project = await prisma.project.create({
-    data: {
-      id: projectId,
-      workspaceId,
-      name,
-      traceTtlDays: trace_ttl_days ?? null,
-    },
+  // One transaction: every project ships with its Default dashboard, so a
+  // failure to seed rolls the project back rather than leaving a project
+  // whose Default never appears once another dashboard is created.
+  const project = await prisma.$transaction(async (tx) => {
+    const created = await tx.project.create({
+      data: {
+        id: projectId,
+        workspaceId,
+        name,
+        traceTtlDays: trace_ttl_days ?? null,
+      },
+    });
+    await seedDefaultDashboard(tx, { projectId, actorUserId: user.id });
+    return created;
   });
 
   return NextResponse.json(

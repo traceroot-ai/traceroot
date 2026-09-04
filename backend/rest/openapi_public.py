@@ -412,8 +412,10 @@ _TOOL_CURATION: dict[str, dict[str, Any]] = {
     "create_widget": {
         "name": "create_widget",
         "description": (
-            "Add a widget (title, type, query spec) to an existing dashboard. "
-            "Strict create: every call adds a new widget."
+            "Add a widget (title, type, spec) to an existing dashboard. Type "
+            '"query" charts a metric (spec: view/filters/metric/breakdown/'
+            'display); type "trace_feed" lists recent traces (spec: predicate '
+            "filters + limit). Strict create: every call adds a new widget."
         ),
         "enabled": True,
         "policy": {"approvalClass": "none", "minRole": "MEMBER", "tenancy": "project"},

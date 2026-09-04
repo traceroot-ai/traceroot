@@ -15,9 +15,44 @@ function generateId(): string {
   });
 }
 
-export function useAIStream() {
+/** A finished tool call observed on the live stream, tagged with its origin. */
+export interface LiveToolResult {
+  sessionId: string;
+  projectId: string;
+  result: unknown;
+  isError: boolean;
+}
+
+/** Identifies the run whose turn just finished cleanly. */
+export interface TurnCompletion {
+  sessionId: string;
+  projectId: string;
+}
+
+export interface UseAIStreamOptions {
+  /**
+   * Called for each tool_execution_end on the CURRENT stream (superseded and
+   * aborted streams never fire it). Lets the caller react to live tool
+   * results — e.g. navigate to a resource the agent just created.
+   */
+  onToolResult?: (event: LiveToolResult) => void;
+  /**
+   * Called once when the CURRENT stream's turn completes normally — the SSE
+   * reader drained to its end. Aborted, superseded, and errored turns never
+   * fire it, so deferred reactions to the turn's tool results (e.g. opening
+   * a resource the agent created) cannot fire for a run the user cut short.
+   */
+  onTurnComplete?: (event: TurnCompletion) => void;
+}
+
+export function useAIStream(options?: UseAIStreamOptions) {
   const [messages, setMessages] = useState<AIMessage[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  // Ref so the stream loop always sees the latest callback without resubscribing.
+  const onToolResultRef = useRef(options?.onToolResult);
+  onToolResultRef.current = options?.onToolResult;
+  const onTurnCompleteRef = useRef(options?.onTurnComplete);
+  onTurnCompleteRef.current = options?.onTurnComplete;
   const abortRef = useRef<AbortController | null>(null);
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   // Bumped on send AND on abort — invalidates in-flight setMessages from prior streams.
@@ -52,6 +87,9 @@ export function useAIStream() {
       // mutate the live run's state via shared refs.
       let currentTextId: string | null = null;
       let lastFrozenId: string | null = null;
+      // Any surfaced error marks the turn as failed so it is never reported
+      // as a normal completion, even when the stream still drains to its end.
+      let sawError = false;
 
       const userMsg: AIMessage = {
         id: generateId(),
@@ -94,6 +132,7 @@ export function useAIStream() {
 
       // Helper: show an error in the current bubble or open a new one.
       const showError = (errorMessage: string) => {
+        sawError = true;
         const targetId = currentTextId ?? openTextBubble();
         safeSetMessages((prev) =>
           prev.map((m) =>
@@ -223,6 +262,14 @@ export function useAIStream() {
                 }
 
                 if (eventData.type === "tool_execution_end") {
+                  if (generationRef.current === myGen) {
+                    onToolResultRef.current?.({
+                      sessionId: params.sessionId,
+                      projectId: params.projectId,
+                      result: eventData.result,
+                      isError: eventData.isError === true,
+                    });
+                  }
                   safeSetMessages((prev) =>
                     prev.map((m) =>
                       m.id === eventData.toolCallId
@@ -250,6 +297,18 @@ export function useAIStream() {
               }
             }
           }
+        }
+
+        // The reader drained on its own — the turn is over. An abort also
+        // surfaces here as a normal drain (cancel resolves the pending read
+        // with done), so gate on the same generation discipline as
+        // onToolResult plus the abort signal (unmount cleanup aborts the
+        // controller without bumping the generation).
+        if (generationRef.current === myGen && !abortController.signal.aborted && !sawError) {
+          onTurnCompleteRef.current?.({
+            sessionId: params.sessionId,
+            projectId: params.projectId,
+          });
         }
       } catch (error) {
         if ((error as Error).name !== "AbortError") {
