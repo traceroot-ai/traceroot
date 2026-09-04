@@ -179,19 +179,24 @@ done
   - Process: PR bodies of #2069/#2070/#2072/#2075/#2083 describe superseded
     implementations; #2068/#2082/#2083 change UI without screenshots.
 
-- **Linked-trace chip (2026-09-02).** The customer trace viewer no longer offers a
-  forward "Root cause analysis" chip; the way into an analysis is the finding (or
-  the chat footer's View trace). An internal trace shows exactly one chip, read
-  from its own trace-record metadata: RCA and detector-run traces link to the
-  customer trace they analyzed ("Analyzed trace"), a follow-up links to the
-  analysis it continues ("Analysis"). The host page takes the click
-  (`onOpenLinkedTrace`). Internal traces ingested BEFORE this round have no chip
-  and no "Analysis for finding …" header: both emitters only stamped
-  `traceroot.span.metadata`, and ingest fills the trace record from
-  `traceroot.trace.metadata` (`otel_transform.py`), so the trace-level metadata
-  was null. Both emitters now stamp it; existing rows are not backfilled by
-  the code. For a dev database, this one-off copies each internal root span's
-  metadata onto its trace record (new ReplacingMergeTree version, newest wins):
+- **Internal-trace decorations removed (2026-09-04, team UX decision, #2082
+  bf07c02b).** An internal trace now opens with the plain trace header — no
+  "Agent" badge, no "Analysis for finding …" line — and offers no hop back to
+  the trace it analyzed (the "Analyzed trace" / "Analysis" chip and its
+  `onOpenLinkedTrace` plumbing are gone from `TraceViewerPanel`, `SpanInfoPanel`,
+  the traces page and the detectors page). The chat reply footer no longer has a
+  "View trace" link; a tool step's "Open span" (#2083) is the one way from the
+  assistant into a turn's trace, so the agent-trace sheet stays. The customer
+  trace viewer never offered a forward "Root cause analysis" chip either (dropped
+  2026-09-02): the way into an analysis is the finding.
+
+- **Trace-level metadata promotion (2026-09-02).** Kept even though nothing in
+  the UI reads it now: both emitters stamp `traceroot.trace.metadata` on the root
+  so ingest (`otel_transform.py`) fills the trace record's `metadata` (before,
+  only `traceroot.span.metadata` was stamped and the trace-level column was
+  null). Existing rows are not backfilled by the code. For a dev database, this
+  one-off copies each internal root span's metadata onto its trace record (new
+  ReplacingMergeTree version, newest wins):
 
   ```sql
   INSERT INTO traces (trace_id, project_id, trace_start_time, name, user_id, session_id,
