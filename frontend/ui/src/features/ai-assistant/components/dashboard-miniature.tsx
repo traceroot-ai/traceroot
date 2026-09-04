@@ -55,6 +55,20 @@ export const REFERENCE_COL_WIDTH = 88;
 export const CHART_TILE_ASPECT = `${DEFAULT_SIZE.query.w * REFERENCE_COL_WIDTH} / ${DEFAULT_SIZE.query.h * ROW_HEIGHT}`;
 
 /**
+ * A card's query is a snapshot, not a live dashboard: its window is frozen at
+ * first visibility, so the fetched result never goes stale — and it must not
+ * refetch on its own. Every ever-visible card in a transcript keeps a mounted
+ * query, so a single tab focus (or reconnect) would otherwise refire the
+ * whole accumulated transcript against ClickHouse at once. Shared by every
+ * card data query — the miniature's tiles and the widget card's preview.
+ */
+export const SNAPSHOT_QUERY_OPTIONS = {
+  staleTime: Infinity,
+  refetchOnWindowFocus: false,
+  refetchOnReconnect: false,
+} as const;
+
+/**
  * The frame: a css grid with the dashboard's column count, one track per grid
  * row, and an aspect ratio fixing every cell to the reference proportions —
  * so the whole miniature scales with the card while its tiles keep their
@@ -500,7 +514,14 @@ function LiveTileBody({
   chart: WidgetChart;
   range: TimeRange;
 }) {
-  const { data, isPending, error } = useWidgetData(chart.projectId, tile.id, chart.spec, range);
+  const { data, isPending, error } = useWidgetData(
+    chart.projectId,
+    tile.id,
+    chart.spec,
+    range,
+    true,
+    SNAPSHOT_QUERY_OPTIONS,
+  );
   if (isPending || error !== null || data === undefined) return <TileGlyph glyph={tile.glyph} />;
   if (data.rows.length === 0) return <EmptyMini />;
   return (

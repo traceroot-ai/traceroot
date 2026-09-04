@@ -1,3 +1,15 @@
+/**
+ * A confirm-class write parked by the agent, waiting on the user. Present only
+ * while the call is parked; the tool result (or a posted decision) clears it.
+ * Never persisted — a parked call dies with the agent service, so a reloaded
+ * transcript shows the plain running tool line instead.
+ */
+export interface PendingConfirmation {
+  /** The parked decision's id — what the decisions endpoint is called with.
+   *  A superseding confirmation_pending event replaces it in place. */
+  decisionId: string;
+}
+
 export interface ToolCallStep {
   toolCallId: string;
   toolName: string;
@@ -5,6 +17,11 @@ export interface ToolCallStep {
   result?: unknown;
   isError?: boolean;
   status: "running" | "done" | "error";
+  /** Set while the call is parked awaiting the user's create/skip decision. */
+  pending?: PendingConfirmation;
+  /** True when the call was declined as a skip (user's, or a server-side
+   *  release) — the tool line notes it instead of reading as a failure. */
+  skipped?: boolean;
 }
 
 export interface AIMessage {

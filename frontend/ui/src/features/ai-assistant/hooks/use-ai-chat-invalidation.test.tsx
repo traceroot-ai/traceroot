@@ -92,12 +92,17 @@ describe("useAiChat cache invalidation on agent writes", () => {
     ]);
   });
 
-  it("stales the parent dashboard when the agent adds a widget", () => {
+  it("stales the list and the parent dashboard when the agent adds a widget", () => {
     renderHook(() => useAiChat({ projectId: PANEL_PROJECT }), { wrapper });
     emitToolResult(
       dashboardResult({ resourceType: "widget", resourceId: "w1", dashboardId: "db1" }),
     );
-    expect(invalidatedKeys()).toEqual([["dashboard", PANEL_PROJECT, "db1"]]);
+    // The placement write bumps the dashboard's update time, which the list
+    // displays — both go stale.
+    expect(invalidatedKeys()).toEqual([
+      ["dashboards", PANEL_PROJECT],
+      ["dashboard", PANEL_PROJECT, "db1"],
+    ]);
   });
 
   it("stales the detectors key when the agent creates a detector", () => {

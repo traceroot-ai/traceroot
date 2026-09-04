@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { focusManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { cloneElement, isValidElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,7 +7,7 @@ import * as api from "@/features/dashboards/api";
 import { ROW_HEIGHT } from "@/features/dashboards/grid-constants";
 import type { WidgetSpec } from "@/features/dashboards/types";
 import { DEFAULT_SIZE } from "@/features/dashboards/widget-placement";
-import { REFERENCE_COL_WIDTH } from "./dashboard-miniature";
+import { REFERENCE_COL_WIDTH, SNAPSHOT_QUERY_OPTIONS } from "./dashboard-miniature";
 import { WidgetChartPreview } from "./widget-chart-preview";
 
 // The frame's shape, derived the way the dashboard miniature derives a tile's:
@@ -126,6 +126,38 @@ describe("WidgetChartPreview", () => {
     await waitFor(() => expect(api.runWidgetQuery).toHaveBeenCalled());
     const range = vi.mocked(api.runWidgetQuery).mock.calls[0][2];
     expect(range.end.getTime() - range.start.getTime()).toBe(24 * 60 * 60 * 1000);
+  });
+
+  it("refires no query on window focus — the preview is a frozen receipt", async () => {
+    vi.mocked(api.runWidgetQuery).mockResolvedValue({ columns: ["value"], rows: [[7]], meta: {} });
+    renderPreview();
+    scrollIntoView();
+    await waitFor(() => expect(api.runWidgetQuery).toHaveBeenCalledTimes(1));
+
+    // The frozen window keeps this query fresh forever on its own, so the run
+    // below cannot tell the focus switches from the staleTime. Assert them on
+    // the shared options the preview passes.
+    expect(SNAPSHOT_QUERY_OPTIONS.refetchOnWindowFocus).toBe(false);
+    expect(SNAPSHOT_QUERY_OPTIONS.refetchOnReconnect).toBe(false);
+
+    // And end to end: minutes pass, then the user tabs away and back. Every
+    // ever-visible card keeps a live query, so a focus refetch would refire
+    // the whole accumulated transcript against ClickHouse.
+    try {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(Date.now() + 10 * 60_000);
+      act(() => {
+        focusManager.setFocused(false);
+        focusManager.setFocused(true);
+      });
+      // The focus subscriber checks staleness asynchronously; the fake clock
+      // stays advanced until it has had the chance to refetch.
+      await act(() => new Promise((resolve) => setTimeout(resolve, 25)));
+      expect(api.runWidgetQuery).toHaveBeenCalledTimes(1);
+    } finally {
+      focusManager.setFocused(undefined);
+      vi.useRealTimers();
+    }
   });
 
   it("renders the chart's own empty state for a window with no rows", async () => {

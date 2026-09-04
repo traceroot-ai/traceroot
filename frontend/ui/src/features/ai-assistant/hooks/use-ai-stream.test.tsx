@@ -26,6 +26,14 @@ function createSSE() {
         // stream already cancelled — fine, tests assert on hook state
       }
     },
+    /** Push a raw SSE line (e.g. a `:` heartbeat comment) untouched. */
+    emitRaw(line: string) {
+      try {
+        controller.enqueue(encoder.encode(`${line}\n`));
+      } catch {
+        // stream already cancelled — fine, tests assert on hook state
+      }
+    },
     close() {
       try {
         controller.close();
@@ -368,6 +376,36 @@ describe("useAIStream live tool-result and turn-completion callbacks", () => {
     expect(onTurnComplete).not.toHaveBeenCalled();
   });
 
+  it("keeps the partial answer when a stream error interrupts the bubble", async () => {
+    // The persisted transcript keeps whatever the assistant already said, so a
+    // live bubble that replaced it with the error alone would not survive a
+    // reload of the same session.
+    const sse = createSSE();
+    const { result } = renderHook(() => useAIStream());
+    const send = startSend(result, sse);
+
+    sse.emit(textDelta("Half an answer"));
+    sse.emit({ type: "error", message: "boom" });
+    sse.close();
+    await act(() => send);
+
+    const assistant = result.current.messagesBySession["s1"]?.find((m) => m.role === "assistant");
+    expect(assistant?.content).toBe("Half an answer\n\nError: boom");
+  });
+
+  it("opens a bubble with the error alone when nothing had streamed yet", async () => {
+    const sse = createSSE();
+    const { result } = renderHook(() => useAIStream());
+    const send = startSend(result, sse);
+
+    sse.emit({ type: "error", message: "boom" });
+    sse.close();
+    await act(() => send);
+
+    const assistant = result.current.messagesBySession["s1"]?.find((m) => m.role === "assistant");
+    expect(assistant?.content).toBe("Error: boom");
+  });
+
   it("does not fire onTurnComplete when the turn ends with an errored message_end", async () => {
     const sse = createSSE();
     const onTurnComplete = vi.fn();
@@ -382,5 +420,187 @@ describe("useAIStream live tool-result and turn-completion callbacks", () => {
     await act(() => send);
 
     expect(onTurnComplete).not.toHaveBeenCalled();
+  });
+});
+
+describe("useAIStream confirmation_pending", () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  const startSend = (
+    result: { current: ReturnType<typeof useAIStream> },
+    sse: ReturnType<typeof createSSE>,
+  ) => {
+    fetchMock.mockResolvedValueOnce(sse.response);
+    let send!: Promise<void>;
+    act(() => {
+      send = result.current.sendMessage({ sessionId: "s1", message: "make it", projectId: "p1" });
+    });
+    return send;
+  };
+
+  const toolStart = {
+    type: "tool_execution_start",
+    toolCallId: "tc1",
+    toolName: "create_widget",
+    args: { title: "Tokens" },
+  };
+  const pendingEvent = (decisionId: string) => ({
+    type: "confirmation_pending",
+    decisionId,
+    toolCallId: "tc1",
+    toolName: "create_widget",
+    args: { title: "Tokens" },
+  });
+  const findStep = (result: { current: ReturnType<typeof useAIStream> }) =>
+    result.current.messagesBySession["s1"]?.find((m) => m.role === "tool_step")?.toolStep;
+
+  it("marks the running tool step pending with its decision id", async () => {
+    const sse = createSSE();
+    const { result } = renderHook(() => useAIStream());
+    startSend(result, sse);
+
+    sse.emit(toolStart);
+    sse.emit(pendingEvent("d1"));
+
+    await waitFor(() => expect(findStep(result)?.pending).toEqual({ decisionId: "d1" }));
+    expect(findStep(result)?.status).toBe("running");
+    const steps = result.current.messagesBySession["s1"]!.filter((m) => m.role === "tool_step");
+    expect(steps).toHaveLength(1);
+  });
+
+  it("replaces the pending entry in place on a second event for the same call", async () => {
+    const sse = createSSE();
+    const { result } = renderHook(() => useAIStream());
+    startSend(result, sse);
+
+    sse.emit(toolStart);
+    sse.emit(pendingEvent("d1"));
+    sse.emit(pendingEvent("d2"));
+
+    await waitFor(() => expect(findStep(result)?.pending).toEqual({ decisionId: "d2" }));
+    const steps = result.current.messagesBySession["s1"]!.filter((m) => m.role === "tool_step");
+    expect(steps).toHaveLength(1);
+  });
+
+  it("appends a pending tool step when no start event preceded it", async () => {
+    const sse = createSSE();
+    const { result } = renderHook(() => useAIStream());
+    startSend(result, sse);
+
+    sse.emit(pendingEvent("d1"));
+
+    await waitFor(() => expect(findStep(result)?.pending).toEqual({ decisionId: "d1" }));
+    expect(findStep(result)?.toolName).toBe("create_widget");
+    expect(findStep(result)?.args).toEqual({ title: "Tokens" });
+    expect(findStep(result)?.status).toBe("running");
+  });
+
+  it("tolerates SSE heartbeat comment lines between events", async () => {
+    const sse = createSSE();
+    const { result } = renderHook(() => useAIStream());
+    startSend(result, sse);
+
+    sse.emit(toolStart);
+    sse.emitRaw(": parked, awaiting a decision");
+    sse.emit(pendingEvent("d1"));
+
+    await waitFor(() => expect(findStep(result)?.pending).toEqual({ decisionId: "d1" }));
+  });
+
+  it("clears pending when the tool result lands, turning the card into the receipt", async () => {
+    const sse = createSSE();
+    const { result } = renderHook(() => useAIStream());
+    startSend(result, sse);
+
+    sse.emit(toolStart);
+    sse.emit(pendingEvent("d1"));
+    await waitFor(() => expect(findStep(result)?.pending).toBeDefined());
+
+    sse.emit({
+      type: "tool_execution_end",
+      toolCallId: "tc1",
+      toolName: "create_widget",
+      result: { content: [{ type: "text", text: "Created" }] },
+      isError: false,
+    });
+
+    await waitFor(() => expect(findStep(result)?.status).toBe("done"));
+    expect(findStep(result)?.pending).toBeUndefined();
+    expect(findStep(result)?.skipped).toBeFalsy();
+  });
+
+  it("marks a declined result on a still-pending step as skipped", async () => {
+    const sse = createSSE();
+    const { result } = renderHook(() => useAIStream());
+    startSend(result, sse);
+
+    sse.emit(toolStart);
+    sse.emit(pendingEvent("d1"));
+    await waitFor(() => expect(findStep(result)?.pending).toBeDefined());
+
+    sse.emit({
+      type: "tool_execution_end",
+      toolCallId: "tc1",
+      toolName: "create_widget",
+      result: { content: [{ type: "text", text: "The user chose to skip this call." }] },
+      isError: true,
+    });
+
+    await waitFor(() => expect(findStep(result)?.skipped).toBe(true));
+    expect(findStep(result)?.pending).toBeUndefined();
+    expect(findStep(result)?.status).toBe("error");
+  });
+
+  it("never marks an ordinary tool error as skipped", async () => {
+    const sse = createSSE();
+    const { result } = renderHook(() => useAIStream());
+    startSend(result, sse);
+
+    sse.emit(toolStart);
+    sse.emit({
+      type: "tool_execution_end",
+      toolCallId: "tc1",
+      toolName: "create_widget",
+      result: { content: [{ type: "text", text: "boom" }] },
+      isError: true,
+    });
+
+    await waitFor(() => expect(findStep(result)?.status).toBe("error"));
+    expect(findStep(result)?.skipped).toBeFalsy();
+  });
+
+  it("resolvePendingDecision clears pending on create and marks skip as skipped", async () => {
+    const sse = createSSE();
+    const { result } = renderHook(() => useAIStream());
+    startSend(result, sse);
+
+    sse.emit(toolStart);
+    sse.emit(pendingEvent("d1"));
+    await waitFor(() => expect(findStep(result)?.pending).toBeDefined());
+
+    act(() => {
+      result.current.resolvePendingDecision("s1", "tc1", "create");
+    });
+    expect(findStep(result)?.pending).toBeUndefined();
+    expect(findStep(result)?.skipped).toBeFalsy();
+
+    sse.emit(pendingEvent("d2"));
+    await waitFor(() => expect(findStep(result)?.pending).toEqual({ decisionId: "d2" }));
+
+    act(() => {
+      result.current.resolvePendingDecision("s1", "tc1", "skip");
+    });
+    expect(findStep(result)?.pending).toBeUndefined();
+    expect(findStep(result)?.skipped).toBe(true);
   });
 });

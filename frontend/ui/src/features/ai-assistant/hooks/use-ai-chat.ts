@@ -38,11 +38,14 @@ export function useAiChat({
   // When the agent creates (or reuses) a DASHBOARD, remember it here and take
   // the user to it only once the agent's TURN completes — navigating on the
   // tool result itself would pull the user away while the agent is still
-  // adding widgets. The last dashboard created in a turn wins. Cleared on
+  // adding widgets. Keyed by sessionId: sessions stream concurrently, so a
+  // background session's create must not overwrite the active session's
+  // pending navigation, and another session's completion must not consume it.
+  // The last dashboard created in a turn wins its session's slot. Cleared on
   // fire, abort, panel close, session switch/new/delete, and project change;
   // aborted or superseded streams never report completion, so a pending
   // navigation from a cut-short turn dies here unfired.
-  const pendingDashboardNavRef = useRef<{ result: unknown; sessionId: string } | null>(null);
+  const pendingDashboardNavsRef = useRef(new Map<string, unknown>());
 
   const handleToolResult = useCallback(
     (event: LiveToolResult) => {
@@ -57,24 +60,26 @@ export function useAiChat({
         broadcastQueryInvalidation(queryKey);
       }
       if (isCreatedDashboardResult(event.result)) {
-        pendingDashboardNavRef.current = { result: event.result, sessionId: event.sessionId };
+        pendingDashboardNavsRef.current.set(event.sessionId, event.result);
       }
     },
     [queryClient],
   );
 
-  // Fire point for the deferred navigation. createdDashboardRoute holds the
-  // guards — dashboards only, active session only, same project only — and is
+  // Fire point for the deferred navigation. A completing turn consumes ONLY
+  // its own session's entry. createdDashboardRoute holds the guards —
+  // dashboards only, active session only, same project only — and is
   // evaluated HERE, against the panel's current state, not the state when the
   // tool result arrived.
   const handleTurnComplete = useCallback(
     (event: TurnCompletion) => {
-      const pending = pendingDashboardNavRef.current;
-      pendingDashboardNavRef.current = null;
-      if (!pending || pending.sessionId !== event.sessionId) return;
+      const pendingNavs = pendingDashboardNavsRef.current;
+      if (!pendingNavs.has(event.sessionId)) return;
+      const result = pendingNavs.get(event.sessionId);
+      pendingNavs.delete(event.sessionId);
       const route = createdDashboardRoute({
-        result: pending.result,
-        eventSessionId: pending.sessionId,
+        result,
+        eventSessionId: event.sessionId,
         activeSessionId: activeSessionIdRef.current,
         panelProjectId: projectId,
       });
@@ -89,6 +94,7 @@ export function useAiChat({
     isSessionStreaming,
     sendMessage,
     setSessionMessages,
+    resolvePendingDecision,
     abortSession,
     abortAll,
     clearAll,
@@ -143,7 +149,7 @@ export function useAiChat({
   // handleSend below. When initialSessionId is set, the loading useEffect
   // below owns session selection, so we bail here to avoid clobbering it.
   useEffect(() => {
-    pendingDashboardNavRef.current = null;
+    pendingDashboardNavsRef.current.clear();
     if (initialSessionId) return;
     sessionEpochRef.current++;
     hardBoundaryEpochRef.current++;
@@ -167,7 +173,7 @@ export function useAiChat({
     // An externally chosen session (e.g. opening an RCA chat) is a session
     // boundary like any other — fence out commits from in-flight sends.
     sessionEpochRef.current++;
-    pendingDashboardNavRef.current = null;
+    pendingDashboardNavsRef.current.clear();
     setActiveSessionId(initialSessionId);
     if (isSessionStreaming(initialSessionId)) return;
 
@@ -271,7 +277,7 @@ export function useAiChat({
     // needs it) so the next send opens a fresh session, and sync the ref now
     // so a send arriving before the next render doesn't reuse the old id.
     pendingSessionRef.current = null;
-    pendingDashboardNavRef.current = null;
+    pendingDashboardNavsRef.current.clear();
     activeSessionIdRef.current = null;
     setActiveSessionId(null);
   }, []);
@@ -291,7 +297,7 @@ export function useAiChat({
     // pre-close creation (and its stale trace context). The self-clear's
     // identity check makes the late settle harmless once this is nulled.
     pendingSessionRef.current = null;
-    pendingDashboardNavRef.current = null;
+    pendingDashboardNavsRef.current.clear();
     abortAll();
     clearAll();
     setActiveSessionId(null);
@@ -312,7 +318,7 @@ export function useAiChat({
   const handleSelectSession = useCallback(
     async (session: AISession) => {
       sessionEpochRef.current++;
-      pendingDashboardNavRef.current = null;
+      pendingDashboardNavsRef.current.clear();
       setActiveSessionId(session.id);
       setHistoryOpen(false);
 
@@ -341,9 +347,7 @@ export function useAiChat({
     (sessionId: string) => {
       setSessions((prev) => prev.filter((s) => s.id !== sessionId));
       removeSession(sessionId);
-      if (pendingDashboardNavRef.current?.sessionId === sessionId) {
-        pendingDashboardNavRef.current = null;
-      }
+      pendingDashboardNavsRef.current.delete(sessionId);
       if (activeSessionIdRef.current === sessionId) {
         setActiveSessionId(null);
       }
@@ -351,10 +355,54 @@ export function useAiChat({
     [removeSession],
   );
 
-  // Aborting cuts the turn short — its pending navigation must die with it.
+  /**
+   * Post the user's decision on a parked write to the session's decisions
+   * route. Returns true when the decision is settled — accepted, or already
+   * resolved elsewhere — so the card keeps its buttons disabled and lets the
+   * stream (or the local resolution) replace it; false when the request never
+   * landed and the card should offer the buttons again. Never errors the
+   * transcript: a 409 means someone decided first (the stream delivers the
+   * outcome), and a 404 means the parked call is gone — resolved locally as
+   * the skip it already became server-side.
+   */
+  const handleDecision = useCallback(
+    async (params: {
+      toolCallId: string;
+      decisionId: string;
+      action: "create" | "skip";
+    }): Promise<boolean> => {
+      const sessionId = activeSessionIdRef.current;
+      if (!projectId || !sessionId) return false;
+      try {
+        const res = await fetch(`/api/projects/${projectId}/ai/sessions/${sessionId}/decisions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ decisionId: params.decisionId, action: params.action }),
+        });
+        if (res.ok) {
+          resolvePendingDecision(sessionId, params.toolCallId, params.action);
+          return true;
+        }
+        if (res.status === 409) return true;
+        if (res.status === 404) {
+          resolvePendingDecision(sessionId, params.toolCallId, "skip");
+          return true;
+        }
+        return false;
+      } catch {
+        return false;
+      }
+    },
+    [projectId, resolvePendingDecision],
+  );
+
+  // Aborting cuts the active session's turn short — its pending navigation
+  // must die with it; other sessions' runs (and slots) are untouched.
   const handleAbort = useCallback(() => {
-    pendingDashboardNavRef.current = null;
-    if (activeSessionIdRef.current) abortSession(activeSessionIdRef.current);
+    const sessionId = activeSessionIdRef.current;
+    if (!sessionId) return;
+    pendingDashboardNavsRef.current.delete(sessionId);
+    abortSession(sessionId);
   }, [abortSession]);
 
   const messages: AIMessage[] = activeSessionId ? (messagesBySession[activeSessionId] ?? []) : [];
@@ -375,6 +423,7 @@ export function useAiChat({
 
     // Actions
     handleSend,
+    handleDecision,
     handleAbort,
     handleNewSession,
     handleClose,

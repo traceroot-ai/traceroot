@@ -205,4 +205,24 @@ describe("useAiChat dashboard auto-navigation", () => {
     endTurn({ sessionId: "s9" });
     expect(mocks.push).not.toHaveBeenCalled();
   });
+
+  it("still navigates after a background session's turn completes first", async () => {
+    await renderActiveChat();
+    act(() => mocks.onToolResult!(toolResult(dashboardDetails())));
+    // Another session finishing must not consume s1's pending navigation.
+    endTurn({ sessionId: "s9" });
+    endTurn();
+    expect(mocks.push).toHaveBeenCalledExactlyOnceWith("/projects/p1/dashboard/db1");
+  });
+
+  it("keeps the active session's navigation when a background session creates a dashboard", async () => {
+    await renderActiveChat();
+    act(() => mocks.onToolResult!(toolResult(dashboardDetails())));
+    // A background session's create lands in its own slot, not over s1's.
+    act(() =>
+      mocks.onToolResult!(toolResult(dashboardDetails({ resourceId: "db2" }), { sessionId: "s9" })),
+    );
+    endTurn();
+    expect(mocks.push).toHaveBeenCalledExactlyOnceWith("/projects/p1/dashboard/db1");
+  });
 });

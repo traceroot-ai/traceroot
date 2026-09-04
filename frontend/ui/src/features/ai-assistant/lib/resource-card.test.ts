@@ -3,6 +3,7 @@ import { appendWidgetPlacement } from "@/features/dashboards/widget-placement";
 import { DISPLAY_TYPES } from "@/features/dashboards/types";
 import {
   createdWidgetsByDashboard,
+  pendingCardModel,
   resourceCardModel,
   suppressedWidgetStepIds,
 } from "./resource-card";
@@ -323,6 +324,23 @@ describe("resourceCardModel", () => {
     expect(resourceCardModel(dashboard)?.created).toBe(false);
   });
 
+  it("gives a reused dashboard no miniature — transcript placements would lie", () => {
+    // The real grid laid this dashboard out before the transcript existed, so
+    // folding the transcript's widgets through an empty layout would draw
+    // positions the grid never assigned. The card keeps the count and the
+    // call's description instead.
+    const reused = step({
+      toolName: "create_dashboard",
+      args: { name: "Latency overview", description: "Where the latency lives" },
+      details: { ...created("dashboard", "db1", { projectId: "p1" }), created: false },
+    });
+    const model = resourceCardModel(reused, new Map([["db1", [widgetStep()]]]));
+    expect(model?.created).toBe(false);
+    expect(model?.body).toEqual({ kind: "dashboard", tiles: [] });
+    expect(model?.meta).toEqual(["Dashboard", "1 widget"]);
+    expect(model?.description).toBe("Where the latency lives");
+  });
+
   it("falls back to the resource id when the call carries no usable name", () => {
     const model = resourceCardModel(widgetStep({ title: { oops: true } }));
     expect(model?.title).toBe("w1");
@@ -615,6 +633,21 @@ describe("suppressedWidgetStepIds", () => {
     expect(suppressed).toEqual(new Set(["tc1", "tc2"]));
   });
 
+  it("keeps a widget's card when its dashboard was reused, not created", () => {
+    // A reused dashboard's card has no miniature, so the widget cards are the
+    // only true receipt for the writes and must not be suppressed under it.
+    const reused = step({
+      toolName: "create_dashboard",
+      args: { name: "Latency overview" },
+      details: { ...created("dashboard", "db1"), created: false },
+    });
+    const suppressed = suppressedWidgetStepIds([
+      entry("tc0", reused),
+      entry("tc1", widgetStep({}, "tc1")),
+    ]);
+    expect(suppressed.size).toBe(0);
+  });
+
   it("keeps a widget added to a dashboard with no card in the transcript", () => {
     const suppressed = suppressedWidgetStepIds([
       entry("tc0", dashboardStep("db-other")),
@@ -644,5 +677,137 @@ describe("suppressedWidgetStepIds", () => {
       entry("u1", undefined, "user"),
     ]);
     expect(suppressed.size).toBe(0);
+  });
+});
+
+describe("pendingCardModel", () => {
+  const runningStep = (
+    toolName: string,
+    args: Record<string, unknown>,
+    toolCallId = "tcp1",
+  ): ToolCallStep => ({
+    toolCallId,
+    toolName,
+    args,
+    status: "running",
+  });
+
+  it("builds a pending widget card with the real chart, keyed by the tool call", () => {
+    const model = pendingCardModel(
+      runningStep("create_widget", {
+        dashboard_id: "db1",
+        title: "Tokens by model",
+        type: "query",
+        spec: WIDGET_SPEC,
+      }),
+      "p1",
+    );
+    expect(model).toEqual({
+      resourceType: "widget",
+      resourceId: "tcp1",
+      created: true,
+      title: "Tokens by model",
+      meta: ["Widget", "Last 24 hours"],
+      body: {
+        kind: "widget",
+        chips: ["view spans", "sum(total_tokens)", "by model_name", "bar"],
+        chart: {
+          projectId: "p1",
+          spec: { ...WIDGET_SPEC, filters: [] },
+        },
+      },
+    });
+  });
+
+  it("keeps the chips but drops the chart when the spec fails the schema", () => {
+    const model = pendingCardModel(
+      runningStep("create_widget", { title: "Broken", type: "query", spec: { view: "spans" } }),
+      "p1",
+    );
+    expect(model?.body).toEqual({ kind: "widget", chips: ["view spans"], chart: null });
+    expect(model?.meta).toEqual(["Widget"]);
+  });
+
+  it("previews no chart for a trace-feed proposal, whatever its spec parses as", () => {
+    // A feed proposal can carry a spec the chart schema accepts; the write
+    // would still be rejected, so the card must not draw a chart for it.
+    const model = pendingCardModel(
+      runningStep("create_widget", {
+        title: "Recent errors",
+        type: "trace_feed",
+        spec: WIDGET_SPEC,
+      }),
+      "p1",
+    );
+    expect(model?.body).toMatchObject({ kind: "widget", chart: null });
+    expect(model?.meta).toEqual(["Widget"]);
+  });
+
+  it("drops the chart when the panel has no project to aim the query at", () => {
+    const model = pendingCardModel(
+      runningStep("create_widget", { title: "T", type: "query", spec: WIDGET_SPEC }),
+      undefined,
+    );
+    expect(model?.body).toMatchObject({ kind: "widget", chart: null });
+  });
+
+  it("builds a pending dashboard card from name and description alone", () => {
+    const model = pendingCardModel(
+      runningStep("create_dashboard", {
+        name: "Latency overview",
+        description: "Where the time goes",
+      }),
+      "p1",
+    );
+    expect(model).toEqual({
+      resourceType: "dashboard",
+      resourceId: "tcp1",
+      created: true,
+      title: "Latency overview",
+      description: "Where the time goes",
+      meta: ["Dashboard"],
+      body: { kind: "dashboard", tiles: [] },
+    });
+  });
+
+  it("builds a pending detector card with its template and chips", () => {
+    const model = pendingCardModel(
+      runningStep("create_detector", {
+        name: "Slow spans",
+        template: "failure",
+        sample_rate: 25,
+        enable_rca: true,
+      }),
+      "p1",
+    );
+    expect(model).toEqual({
+      resourceType: "detector",
+      resourceId: "tcp1",
+      created: true,
+      title: "Slow spans",
+      meta: ["Detector", "Failure"],
+      body: { kind: "detector", chips: ["template prompt", "sample 25%", "RCA on"] },
+    });
+  });
+
+  it("builds a header-only pending card for a project", () => {
+    const model = pendingCardModel(runningStep("create_project", { name: "checkout" }), "p1");
+    expect(model).toEqual({
+      resourceType: "project",
+      resourceId: "tcp1",
+      created: true,
+      title: "checkout",
+      meta: ["Project"],
+      body: { kind: "receipt", rows: [] },
+    });
+  });
+
+  it("falls back to the resource label when the args carry no name", () => {
+    const model = pendingCardModel(runningStep("create_workspace", {}), "p1");
+    expect(model?.title).toBe("Workspace");
+  });
+
+  it("returns null for a tool this panel has no pending card for", () => {
+    expect(pendingCardModel(runningStep("update_dashboard_layout", {}), "p1")).toBeNull();
   });
 });
