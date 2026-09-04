@@ -302,46 +302,11 @@ describe("useAIStream live tool-result and turn-completion callbacks", () => {
     expect(step?.toolStep?.status).toBe("done");
   });
 
-  it("fires onTurnComplete once, after the turn's tool results, on a normal drain", async () => {
-    const sse = createSSE();
-    const onToolResult = vi.fn();
-    const onTurnComplete = vi.fn();
-    const { result } = renderHook(() => useAIStream({ onToolResult, onTurnComplete }));
-    const send = startSend(result, sse);
-
-    sse.emit(toolEndEvent);
-    sse.emit(textDelta("done"));
-    sse.close();
-    await act(() => send);
-
-    expect(onTurnComplete).toHaveBeenCalledExactlyOnceWith({ sessionId: "s1", projectId: "p1" });
-    expect(onTurnComplete.mock.invocationCallOrder[0]).toBeGreaterThan(
-      onToolResult.mock.invocationCallOrder[0],
-    );
-  });
-
-  it("does not fire onTurnComplete when the run is aborted mid-turn", async () => {
-    const sse = createSSE();
-    const onTurnComplete = vi.fn();
-    const { result } = renderHook(() => useAIStream({ onTurnComplete }));
-    const send = startSend(result, sse);
-    await waitFor(() => expect(result.current.streamingSessions["s1"]).toBe(true));
-
-    act(() => {
-      result.current.abortSession("s1");
-    });
-    sse.close();
-    await act(() => send);
-
-    expect(onTurnComplete).not.toHaveBeenCalled();
-  });
-
-  it("reports neither callback for a run superseded within its own session", async () => {
+  it("does not report tool results for a run superseded within its own session", async () => {
     const superseded = createSSE();
     const winner = createSSE();
     const onToolResult = vi.fn();
-    const onTurnComplete = vi.fn();
-    const { result } = renderHook(() => useAIStream({ onToolResult, onTurnComplete }));
+    const { result } = renderHook(() => useAIStream({ onToolResult }));
     const first = startSend(result, superseded);
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 
@@ -358,22 +323,6 @@ describe("useAIStream live tool-result and turn-completion callbacks", () => {
     });
 
     expect(onToolResult).not.toHaveBeenCalled();
-    // Only the run that still owns the session reports completion.
-    expect(onTurnComplete).toHaveBeenCalledExactlyOnceWith({ sessionId: "s1", projectId: "p1" });
-  });
-
-  it("does not fire onTurnComplete when the turn surfaces a stream error event", async () => {
-    const sse = createSSE();
-    const onTurnComplete = vi.fn();
-    const { result } = renderHook(() => useAIStream({ onTurnComplete }));
-    const send = startSend(result, sse);
-
-    sse.emit(toolEndEvent);
-    sse.emit({ type: "error", message: "boom" });
-    sse.close();
-    await act(() => send);
-
-    expect(onTurnComplete).not.toHaveBeenCalled();
   });
 
   it("keeps the partial answer when a stream error interrupts the bubble", async () => {
@@ -404,22 +353,6 @@ describe("useAIStream live tool-result and turn-completion callbacks", () => {
 
     const assistant = result.current.messagesBySession["s1"]?.find((m) => m.role === "assistant");
     expect(assistant?.content).toBe("Error: boom");
-  });
-
-  it("does not fire onTurnComplete when the turn ends with an errored message_end", async () => {
-    const sse = createSSE();
-    const onTurnComplete = vi.fn();
-    const { result } = renderHook(() => useAIStream({ onTurnComplete }));
-    const send = startSend(result, sse);
-
-    sse.emit({
-      type: "message_end",
-      message: { stopReason: "error", errorMessage: "model failed" },
-    });
-    sse.close();
-    await act(() => send);
-
-    expect(onTurnComplete).not.toHaveBeenCalled();
   });
 });
 
@@ -577,6 +510,58 @@ describe("useAIStream confirmation_pending", () => {
 
     await waitFor(() => expect(findStep(result)?.status).toBe("error"));
     expect(findStep(result)?.skipped).toBeFalsy();
+  });
+
+  it("labels a revision from its proposal_declined details, overriding the local skip", async () => {
+    const sse = createSSE();
+    const { result } = renderHook(() => useAIStream());
+    startSend(result, sse);
+
+    sse.emit(toolStart);
+    sse.emit(pendingEvent("d1"));
+    await waitFor(() => expect(findStep(result)?.pending).toBeDefined());
+
+    // The chat-revise path collapses the step locally as a skip first; the
+    // declined result's details must correct the label to revised.
+    act(() => {
+      result.current.resolvePendingDecision("s1", "tc1", "skip");
+    });
+    sse.emit({
+      type: "tool_execution_end",
+      toolCallId: "tc1",
+      toolName: "create_widget",
+      result: {
+        content: [{ type: "text", text: "This tool call was NOT executed." }],
+        details: { kind: "proposal_declined", outcome: "revised", text: "make it a bar chart" },
+      },
+      isError: true,
+    });
+
+    await waitFor(() => expect(findStep(result)?.revisedText).toBe("make it a bar chart"));
+    expect(findStep(result)?.skipped).toBeFalsy();
+    expect(findStep(result)?.pending).toBeUndefined();
+    expect(findStep(result)?.status).toBe("error");
+  });
+
+  it("marks a skip from its proposal_declined details even when never seen pending", async () => {
+    const sse = createSSE();
+    const { result } = renderHook(() => useAIStream());
+    startSend(result, sse);
+
+    sse.emit(toolStart);
+    sse.emit({
+      type: "tool_execution_end",
+      toolCallId: "tc1",
+      toolName: "create_widget",
+      result: {
+        content: [{ type: "text", text: "This tool call was NOT executed." }],
+        details: { kind: "proposal_declined", outcome: "skipped" },
+      },
+      isError: true,
+    });
+
+    await waitFor(() => expect(findStep(result)?.skipped).toBe(true));
+    expect(findStep(result)?.revisedText).toBeUndefined();
   });
 
   it("resolvePendingDecision clears pending on create and marks skip as skipped", async () => {

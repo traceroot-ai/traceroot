@@ -32,6 +32,9 @@ export const PARKED_HEARTBEAT_MS = 15_000;
 /** Cap on remembered decided ids (for 409s on double-decides). */
 const MAX_DECIDED_IDS = 500;
 
+/** Cap on buffered decline details awaiting their tool result (see takeDecline). */
+const MAX_DECLINES = 500;
+
 export type DecisionAction = "create" | "skip" | "revise";
 
 /** What a parked hook receives when its decision resolves. */
@@ -39,6 +42,20 @@ export type DecisionOutcome =
   | { action: "create" }
   | { action: "skip"; reason: string }
   | { action: "revise"; text: string };
+
+/**
+ * Structured details stamped onto a declined proposal's tool result — the
+ * panel's contract for labeling the outcome (skipped vs revised) without
+ * inferring it from an error landing on a pending step. The loop's block path
+ * can only carry text, so the run stream reads these via takeDecline and
+ * rewrites the surfaced result's (empty) details with them.
+ */
+export interface ProposalDeclinedDetails {
+  kind: "proposal_declined";
+  outcome: "skipped" | "revised";
+  /** The user's requested changes (outcome "revised" only). */
+  text?: string;
+}
 
 /** The `confirmation_pending` SSE event payload — the panel's contract. */
 export interface ConfirmationPendingEvent {
@@ -62,13 +79,16 @@ export interface ConfirmationChannel {
 
 export function userSkipReason(toolName: string): string {
   return (
-    `The user chose to skip this proposed ${toolName} call. ` +
-    `It was not performed; continue without it and do not retry it.`
+    `This ${toolName} call was NOT executed — the user chose to skip it. ` +
+    `Do not retry it; acknowledge the skip and continue.`
   );
 }
 
 export function revisionReason(text: string): string {
-  return `The user wants changes: ${text}`;
+  return (
+    `This tool call was NOT executed. The user wants changes: ${text}\n` +
+    `Propose the call again with those changes applied.`
+  );
 }
 
 export const DECISION_TIMED_OUT_SKIP_REASON =
@@ -108,6 +128,13 @@ export class PendingDecisions {
   private readonly decided = new Map<string, string>();
   private readonly channels = new Map<string, ConfirmationChannel>();
   private readonly heartbeats = new Map<string, NodeJS.Timeout>();
+  /**
+   * toolCallId → decline details for tool results the loop is about to
+   * surface as blocked-call errors. Consumed (once) by the run stream when
+   * the matching tool_execution_end passes through; capped FIFO so entries
+   * orphaned by a run dying mid-call cannot accumulate.
+   */
+  private readonly declines = new Map<string, ProposalDeclinedDetails>();
 
   /** Register the live run's stream channel for a session (last one wins). */
   registerChannel(sessionId: string, channel: ConfirmationChannel): void {
@@ -214,11 +241,29 @@ export class PendingDecisions {
     return count;
   }
 
+  /** Consume the decline details recorded for a tool call, if any. */
+  takeDecline(toolCallId: string): ProposalDeclinedDetails | undefined {
+    const details = this.declines.get(toolCallId);
+    if (details !== undefined) this.declines.delete(toolCallId);
+    return details;
+  }
+
   private settle(entry: PendingEntry, outcome: DecisionOutcome): void {
     clearTimeout(entry.timeout);
     this.pending.delete(entry.decisionId);
     if (this.pendingCount(entry.sessionId) === 0) {
       this.stopHeartbeat(entry.sessionId);
+    }
+    if (outcome.action !== "create") {
+      this.declines.set(entry.toolCallId, {
+        kind: "proposal_declined",
+        outcome: outcome.action === "revise" ? "revised" : "skipped",
+        ...(outcome.action === "revise" ? { text: outcome.text } : {}),
+      });
+      if (this.declines.size > MAX_DECLINES) {
+        const oldest = this.declines.keys().next().value;
+        if (oldest !== undefined) this.declines.delete(oldest);
+      }
     }
     entry.resolve(outcome);
   }

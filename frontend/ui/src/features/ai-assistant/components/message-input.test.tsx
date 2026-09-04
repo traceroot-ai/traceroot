@@ -33,4 +33,16 @@ describe("MessageInput", () => {
       true,
     );
   });
+
+  it("shows a custom placeholder when one is provided", () => {
+    render(
+      <MessageInput
+        onSend={vi.fn()}
+        modelSelection={PICK}
+        onModelChange={vi.fn()}
+        placeholder="Reply to revise, or use the buttons"
+      />,
+    );
+    expect(screen.getByPlaceholderText("Reply to revise, or use the buttons")).not.toBeNull();
+  });
 });

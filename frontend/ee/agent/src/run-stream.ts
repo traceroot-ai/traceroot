@@ -102,15 +102,27 @@ export async function runAgentStream(
               console.error(`[Agent] API error:`, msg.errorMessage || "unknown");
             }
           }
+          // A declined proposal's blocked result leaves the loop with empty
+          // details (the block path only carries text) — stamp the recorded
+          // decline onto the surfaced result so the panel and reloaded
+          // history can label the outcome without inference.
+          let outbound = event;
+          if (event.type === "tool_execution_end") {
+            const declined = decisions.takeDecline(event.toolCallId);
+            if (declined !== undefined) {
+              outbound = { ...event, result: { ...event.result, details: declined } };
+            }
+          }
+
           // Forward all events to the frontend
           stream.writeSSE({
-            event: event.type,
-            data: JSON.stringify(event),
+            event: outbound.type,
+            data: JSON.stringify(outbound),
           });
 
           // Mirror the event into token totals and durable rows
-          usageAccumulator.onEvent(event);
-          persister.onEvent(event);
+          usageAccumulator.onEvent(outbound);
+          persister.onEvent(outbound);
         },
         onError: async (error) => {
           console.error(`[Agent] ERROR:`, error.message);

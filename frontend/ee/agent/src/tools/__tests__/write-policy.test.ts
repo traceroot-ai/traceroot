@@ -164,7 +164,7 @@ describe("writePolicyHook — parked confirmations", () => {
     expect(decisions.pendingCount()).toBe(0);
   });
 
-  it("skip → declined with the user-skipped reason so the turn continues", async () => {
+  it("skip → declined result leads with NOT executed and instructs no retry", async () => {
     const { decisions, emitted, hook } = attendedSetup();
     const result = hook(contextFor("create_detector"));
     await tick();
@@ -173,10 +173,28 @@ describe("writePolicyHook — parked confirmations", () => {
       block: true,
       reason: userSkipReason("create_detector"),
     });
+    // Pinned literally: any model must be able to read non-execution from the
+    // text alone, before anything else in the result.
+    expect(userSkipReason("create_detector")).toBe(
+      "This create_detector call was NOT executed — the user chose to skip it. " +
+        "Do not retry it; acknowledge the skip and continue.",
+    );
     expect(decisions.pendingCount()).toBe(0);
   });
 
-  it("revise → declined carrying the user's revision text", async () => {
+  it("skip → records proposal_declined details for the surfaced result", async () => {
+    const { decisions, emitted, hook } = attendedSetup();
+    const result = hook(contextFor("create_detector"));
+    await tick();
+    decisions.decide(emitted[0].decisionId, "s1", { action: "skip" });
+    await result;
+    expect(decisions.takeDecline("call-create_detector")).toEqual({
+      kind: "proposal_declined",
+      outcome: "skipped",
+    });
+  });
+
+  it("revise → declined result leads with NOT executed and instructs a re-proposal", async () => {
     const { decisions, emitted, hook } = attendedSetup();
     const result = hook(contextFor("create_detector"));
     await tick();
@@ -185,6 +203,32 @@ describe("writePolicyHook — parked confirmations", () => {
       block: true,
       reason: revisionReason("use p95 latency"),
     });
+    expect(revisionReason("use p95 latency")).toBe(
+      "This tool call was NOT executed. The user wants changes: use p95 latency\n" +
+        "Propose the call again with those changes applied.",
+    );
+  });
+
+  it("revise → records proposal_declined details carrying the user's text", async () => {
+    const { decisions, emitted, hook } = attendedSetup();
+    const result = hook(contextFor("create_detector"));
+    await tick();
+    decisions.decide(emitted[0].decisionId, "s1", { action: "revise", text: "use p95 latency" });
+    await result;
+    expect(decisions.takeDecline("call-create_detector")).toEqual({
+      kind: "proposal_declined",
+      outcome: "revised",
+      text: "use p95 latency",
+    });
+  });
+
+  it("create → records no decline details", async () => {
+    const { decisions, emitted, hook } = attendedSetup();
+    const result = hook(contextFor("create_detector"));
+    await tick();
+    decisions.decide(emitted[0].decisionId, "s1", { action: "create" });
+    await result;
+    expect(decisions.takeDecline("call-create_detector")).toBeUndefined();
   });
 
   it("unattended session (channel without userId) executes confirm immediately, no event", async () => {
