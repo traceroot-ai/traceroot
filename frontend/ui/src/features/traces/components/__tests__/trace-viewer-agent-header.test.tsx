@@ -66,8 +66,8 @@ vi.mock("@/components/ui/resizable", () => ({
 
 import { TraceViewerPanel } from "../TraceViewerPanel";
 
-it("shows the Agent badge and the finding back-link for an agent trace", async () => {
-  const { findByText } = render(
+it("renders an agent trace with the plain trace header — no badge, no finding label", async () => {
+  const { findAllByText, queryByText } = render(
     <TraceViewerPanel
       projectId="p1"
       traceId={"f".repeat(32)}
@@ -78,14 +78,15 @@ it("shows the Agent badge and the finding back-link for an agent trace", async (
       source="agent"
     />,
   );
-  expect(await findByText("Agent")).toBeTruthy();
-  expect(await findByText(/Analysis for finding 3817f98c1876/)).toBeTruthy();
+  expect((await findAllByText("Trace")).length).toBeGreaterThan(0);
+  expect(queryByText("Agent")).toBeNull();
+  expect(queryByText(/Analysis for finding/)).toBeNull();
 });
 
 it("embedded: never claims the AI slot, never mounts a nested assistant, hides the AI button", async () => {
   cleanup();
   layoutMocks.registerAiHost.mockClear();
-  const { findByText, queryByTestId, queryByTitle } = render(
+  const { findAllByText, queryByTestId, queryByTitle } = render(
     <TraceViewerPanel
       projectId="p1"
       traceId={"f".repeat(32)}
@@ -97,7 +98,7 @@ it("embedded: never claims the AI slot, never mounts a nested assistant, hides t
       embedded
     />,
   );
-  await findByText("Agent");
+  await findAllByText("Trace");
   expect(layoutMocks.registerAiHost).not.toHaveBeenCalled();
   expect(queryByTestId("ai-panel")).toBeNull();
   expect(queryByTitle("AI Assistant")).toBeNull();

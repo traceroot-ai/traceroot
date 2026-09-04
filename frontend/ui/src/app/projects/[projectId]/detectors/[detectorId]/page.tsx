@@ -33,12 +33,6 @@ import { PlanType } from "@traceroot/core";
 type SelectedTrace = {
   traceId: string;
   kind: "original" | "self" | "finding";
-  /**
-   * Opened by a linked-trace hop from the viewer (an analysis's "Analyzed
-   * trace", a follow-up's "Analysis") rather than from a row. It need not be a
-   * row of the current list, so it is exempt from the leave-the-list clearing.
-   */
-  linked?: true;
 } | null;
 
 // A self-trace is identified by its run row (dashless run_id), and a finding's
@@ -160,11 +154,7 @@ export default function DetectorDetailPage() {
   // Clear the selection if its run/trace is no longer in the active list (e.g. the
   // user paginated, refetched, switched tabs, or changed filters).
   useEffect(() => {
-    if (
-      selectedTrace &&
-      !selectedTrace.linked &&
-      !activeRows.some((r) => rowMatchesSelection(r, selectedTrace))
-    ) {
+    if (selectedTrace && !activeRows.some((r) => rowMatchesSelection(r, selectedTrace))) {
       setSelectedTrace(null);
     }
   }, [activeRows, selectedTrace]);
@@ -339,15 +329,6 @@ export default function DetectorDetailPage() {
           autoOpenRca={selectedTrace.kind === "original"}
           initialFullscreen={startFullscreen}
           newTabPath={`/projects/${projectId}/detectors/${detectorId}`}
-          // A self-trace's "Analyzed trace" chip (or a follow-up's "Analysis")
-          // re-points this one mounted panel rather than leaving the page.
-          onOpenLinkedTrace={({ traceId, source }) =>
-            setSelectedTrace({
-              traceId,
-              kind: source === "detector" ? "self" : source === "agent" ? "finding" : "original",
-              linked: true,
-            })
-          }
           source={
             selectedTrace.kind === "self"
               ? "detector"

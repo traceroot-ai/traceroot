@@ -474,13 +474,7 @@ function UserBubble({ msg }: { msg: AIMessage }) {
   );
 }
 
-function UsageFooter({
-  msg,
-  onOpenTrace,
-}: {
-  msg: AIMessage;
-  onOpenTrace?: (traceId: string, spanId?: string) => void;
-}) {
+function UsageFooter({ msg }: { msg: AIMessage }) {
   return (
     <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 whitespace-nowrap px-1 text-[10px] text-muted-foreground/60">
       <span title="Input tokens">{msg.inputTokens!.toLocaleString()} in</span>
@@ -498,19 +492,6 @@ function UsageFooter({
           <span title="Estimated cost">${msg.costUsd.toFixed(4)}</span>
         </>
       )}
-      {msg.traceId && msg.traceStatus === "available" && onOpenTrace && (
-        <>
-          <span>&middot;</span>
-          <button
-            type="button"
-            className="hover:underline"
-            onClick={() => onOpenTrace(msg.traceId!)}
-            title="Open this turn's trace"
-          >
-            View trace
-          </button>
-        </>
-      )}
     </div>
   );
 }
@@ -521,7 +502,7 @@ function UsageFooter({
 interface MessageListProps {
   messages: AIMessage[];
   sessionStreaming?: boolean;
-  /** Opens the sidebar's agent-trace sheet on `traceId`, optionally focusing `spanId`. */
+  /** Opens the sidebar's agent-trace sheet on `traceId`, focused on a tool step's `spanId`. */
   onOpenTrace?: (traceId: string, spanId?: string) => void;
 }
 
@@ -605,8 +586,7 @@ export function MessageList({ messages, sessionStreaming = false, onOpenTrace }:
             // The trace outcome is stamped on the run's LAST text segment only
             // (persister and live hook alike), so in a text → tool → text turn
             // the bubble right after this step has none — look for the one that
-            // carries it. Same gate as the turn's own "View trace" link: a
-            // pending or failed export has no trace to open.
+            // carries it. A pending or failed export has no trace to open.
             const turnAssistant = turn.find(
               (m) => m.role === "assistant" && m.traceStatus === "available",
             );
@@ -639,7 +619,7 @@ export function MessageList({ messages, sessionStreaming = false, onOpenTrace }:
                     <AssistantBubble msg={msg} panelWidth={panelWidth} />
                   )}
                   {msg.role === "assistant" && msg.inputTokens != null && !msg.isStreaming && (
-                    <UsageFooter msg={msg} onOpenTrace={onOpenTrace} />
+                    <UsageFooter msg={msg} />
                   )}
                 </div>
               </div>

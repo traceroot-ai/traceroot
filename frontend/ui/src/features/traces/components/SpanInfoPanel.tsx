@@ -9,7 +9,6 @@ import { formatDuration, formatDate, buildUrlWithFilters } from "@/lib/utils";
 import { TokenChip } from "./TokenChip";
 import { CostChip } from "./CostChip";
 import { SpanStatus } from "@traceroot/core";
-import type { TraceSource } from "@/lib/api/traces";
 import type { TraceDetail } from "@/types/api";
 import type { TraceSelection } from "../types";
 import {
@@ -55,20 +54,6 @@ interface SpanInfoPanelProps {
    * offline-eval's "Dataset:" chip). Unset in production.
    */
   extraTags?: ReactNode;
-  /**
-   * The one hop an internal trace offers — "Analyzed trace" on an RCA or
-   * detector-run trace (to the customer trace it analyzed), "Analysis" on a
-   * follow-up (to the analysis it continues). Rendered as a chip in the
-   * trace-level row; absent (every customer trace), the row is byte-identical
-   * to main's. `onOpen` lets the host page re-point its own selection; without
-   * it the chip deep-links the target on the project's traces page.
-   */
-  linkedTrace?: {
-    label: string;
-    traceId: string;
-    source: TraceSource;
-    onOpen?: (target: { traceId: string; source: TraceSource }) => void;
-  };
 }
 
 /** Drop internal `traceroot.span.*` keys so the Metadata panel shows only user metadata. */
@@ -100,7 +85,6 @@ export function SpanInfoPanel({
   spanActions,
   headerAction,
   extraTags,
-  linkedTrace,
 }: SpanInfoPanelProps) {
   const router = useRouter();
 
@@ -279,8 +263,8 @@ export function SpanInfoPanel({
           </div>
         )}
 
-        {/* Row 3: User/Session links, plus an internal trace's linked-trace hop */}
-        {isTrace && (trace.user_id || trace.session_id || linkedTrace) && (
+        {/* Row 3: User/Session links */}
+        {isTrace && (trace.user_id || trace.session_id) && (
           <div className="mt-2 flex flex-wrap items-center gap-2">
             {trace.user_id && (
               <button
@@ -317,32 +301,6 @@ export function SpanInfoPanel({
                 <DOMAIN_ICONS.session className="h-3 w-3 text-muted-foreground" />
                 <span className="text-muted-foreground">Session:</span>
                 <span className="font-medium">{trace.session_id}</span>
-                <ChevronRight className="h-3 w-3 text-muted-foreground" />
-              </button>
-            )}
-            {linkedTrace && (
-              <button
-                type="button"
-                onClick={() => {
-                  const target = { traceId: linkedTrace.traceId, source: linkedTrace.source };
-                  if (linkedTrace.onOpen) {
-                    linkedTrace.onOpen(target);
-                    return;
-                  }
-                  onClose?.();
-                  router.push(
-                    buildUrl(`/projects/${projectId}/traces`, {
-                      traceId: target.traceId,
-                      ...(target.source === "user" ? {} : { source: target.source }),
-                    }),
-                  );
-                }}
-                title={`Open the ${linkedTrace.label.toLowerCase()}`}
-                className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border bg-muted/40 py-1 pl-2.5 pr-1.5 text-xs transition-colors hover:bg-muted"
-              >
-                <DOMAIN_ICONS.trace className="h-3 w-3 text-muted-foreground" />
-                <span className="text-muted-foreground">{linkedTrace.label}:</span>
-                <span className="font-mono font-medium">{linkedTrace.traceId.slice(0, 8)}</span>
                 <ChevronRight className="h-3 w-3 text-muted-foreground" />
               </button>
             )}

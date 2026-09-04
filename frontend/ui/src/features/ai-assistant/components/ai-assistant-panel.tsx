@@ -121,7 +121,7 @@ export function AiAssistantPanel({
     handleDeleteSession,
   } = useAiChatContext();
 
-  // Per-turn "View trace" / "Open span" (Task 17). useAiChatContext() doesn't
+  // Per-step "Open span" into the turn's trace (Task 17). useAiChatContext() doesn't
   // carry projectId — this component already receives it as its own prop, so
   // that's what the sheet is given.
   const [openTrace, setOpenTrace] = useState<{ traceId: string; spanId?: string } | null>(null);

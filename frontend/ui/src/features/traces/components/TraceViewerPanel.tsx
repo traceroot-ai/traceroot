@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   X,
@@ -126,18 +126,6 @@ interface TraceViewerPanelProps {
    * SELF_TRACE_PENDING_WINDOW_MS. Omit when unknown.
    */
   runTimestamp?: string;
-  /**
-   * Takes the click on an internal trace's linked-trace chip ("Analyzed trace"
-   * on an RCA or detector-run trace, "Analysis" on a follow-up) so the host
-   * page can re-point its own selection. Without it the chip navigates to the
-   * project's traces page with the target deep-linked.
-   */
-  onOpenLinkedTrace?: (target: LinkedTraceTarget) => void;
-}
-
-export interface LinkedTraceTarget {
-  traceId: string;
-  source: TraceSource;
 }
 
 /**
@@ -189,7 +177,6 @@ export function TraceViewerPanel({
   autoOpenRca,
   initialFullscreen,
   embedded,
-  onOpenLinkedTrace,
   newTabPath,
   traceOverride,
   hideDetectors,
@@ -315,52 +302,6 @@ export function TraceViewerPanel({
   // source must match the query key above, or SSE span merging silently no-ops.
   useTraceStream(projectId, traceId, !traceOverride, source);
 
-  // Root trace metadata written by our own emitters. Agent traces (RCA,
-  // follow-up, chat): kind, finding_id, execution_id, attempt, session_id,
-  // scanned_trace_id, parent_trace_id. Detector-run self-traces: detectorId,
-  // detectorName, scannedTraceId. Only parsed for an internal trace — a user
-  // trace's metadata is opaque here.
-  const internalMeta = useMemo(() => {
-    if ((source !== "agent" && source !== "detector") || !trace?.metadata) return null;
-    try {
-      return JSON.parse(trace.metadata) as {
-        kind?: string;
-        finding_id?: string;
-        attempt?: number;
-        scanned_trace_id?: string;
-        parent_trace_id?: string;
-        session_id?: string;
-        scannedTraceId?: string;
-      };
-    } catch {
-      return null;
-    }
-  }, [source, trace?.metadata]);
-  // The one hop an internal trace offers, read from its own metadata so it is
-  // there however the trace was opened (finding page, chat footer, popout,
-  // detector runs): an RCA or detector-run trace links to the customer trace it
-  // analyzed; a follow-up links to the analysis it continues. Customer traces
-  // carry no chip — the way into an analysis is the finding, not the trace.
-  const linkedTrace = useMemo(() => {
-    if (!internalMeta) return null;
-    if (source === "detector") {
-      return internalMeta.scannedTraceId
-        ? { label: "Analyzed trace", traceId: internalMeta.scannedTraceId, source: "user" as const }
-        : null;
-    }
-    if (internalMeta.kind === "rca" && internalMeta.scanned_trace_id) {
-      return {
-        label: "Analyzed trace",
-        traceId: internalMeta.scanned_trace_id,
-        source: "user" as const,
-      };
-    }
-    if (internalMeta.kind === "followup" && internalMeta.parent_trace_id) {
-      return { label: "Analysis", traceId: internalMeta.parent_trace_id, source: "agent" as const };
-    }
-    return null;
-  }, [internalMeta, source]);
-
   // Reset when the displayed trace changes — navigating the list, or swapping
   // between the customer trace and the RCA's agent trace. Keyed on the
   // EFFECTIVE id: the analysis swap changes what is displayed without changing
@@ -478,26 +419,6 @@ export function TraceViewerPanel({
                 className="h-6 w-6 shrink-0 text-muted-foreground hover:text-foreground"
                 title={`Copy ${headerIdentity.label.toLowerCase()} id`}
               />
-            )}
-            {source === "agent" && (
-              <span className="shrink-0 rounded bg-emerald-600/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
-                Agent
-              </span>
-            )}
-            {source === "agent" && internalMeta && (
-              <span className="truncate text-xs text-muted-foreground">
-                {internalMeta.kind === "rca" &&
-                  internalMeta.finding_id &&
-                  `Analysis for finding ${internalMeta.finding_id.replaceAll("-", "")}${
-                    internalMeta.attempt && internalMeta.attempt > 1
-                      ? ` · attempt ${internalMeta.attempt}`
-                      : ""
-                  }`}
-                {internalMeta.kind === "followup" &&
-                  internalMeta.finding_id &&
-                  `Follow-up · finding ${internalMeta.finding_id.replaceAll("-", "")}`}
-                {internalMeta.kind === "chat" && "Chat turn"}
-              </span>
             )}
           </div>
           <div className="flex items-center gap-1">
@@ -723,7 +644,7 @@ export function TraceViewerPanel({
                       (!error || (error instanceof ApiError && error.status === 404)) ? (
                         source === "agent" ? (
                           // Every way into an agent trace — the Alert chip, a Finding ID
-                          // cell, the sidebar's View trace — gates on the execution's
+                          // cell, a tool step's Open span — gates on the execution's
                           // traceStatus being "available", i.e. the agent already reported
                           // a successful export. So a 404 here is ingest lag, never a
                           // failed export, and the detector run's timestamp window below
@@ -768,9 +689,6 @@ export function TraceViewerPanel({
                       headerAction={spanHeaderAction?.(selection)}
                       extraTags={spanExtraTags?.(selection)}
                       isEvalShaped={!!traceOverride}
-                      linkedTrace={
-                        linkedTrace ? { ...linkedTrace, onOpen: onOpenLinkedTrace } : undefined
-                      }
                     />
                   ) : (
                     <SpanTimelineView

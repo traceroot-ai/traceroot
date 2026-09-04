@@ -34,7 +34,7 @@ export interface AIMessage {
   toolStep?: ToolCallStep;
   /** Trace id for the run this assistant segment belongs to, when traced. */
   traceId?: string;
-  /** Export status of `traceId` — "View trace" only shows once it's "available". */
+  /** Export status of `traceId` — a step's "Open span" only shows once it's "available". */
   traceStatus?: TraceStatus;
 }
 

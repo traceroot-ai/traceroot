@@ -235,7 +235,7 @@ export function useAIStream() {
         // Name from the preceding `event:` line, consumed by the next `data:`
         // line. The agent's final trace event is a NAMED event whose payload
         // has no `type` field, so without this it would be silently skipped
-        // and the live message would never grow its "View trace" link.
+        // and the live turn's steps would never grow their "Open span" links.
         let namedEvent = "";
 
         while (true) {
