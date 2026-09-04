@@ -1,7 +1,11 @@
 # Public SQL Gateway — ClickHouse operational runbook
 
 Provisioning for the read-only SQL gateway DB layer. Commands below are the
-forms proven against the pinned ClickHouse **24.3.18.7**.
+forms proven against ClickHouse **24.3.18.7**.
+
+> **Version warning.** Staging runs `bitnamilegacy/clickhouse:25.2.1-debian-12-r0`. Nothing in
+> this runbook has been re-verified on 25.2 — treat the 24.3 results as indicative, not proven,
+> for the cloud path.
 
 > **Tenant isolation is application-enforced.** DB grants do **not** restrict which
 > `project_id` a caller passes to a curated view — a holder of the view grant can call
@@ -98,26 +102,110 @@ order above is the safe logical sequence for staged/manual provisioning.
   `docker-compose.prod.yml` stack instead auto-provisions the `no_password` compose
   accounts via `clickhouse-init` — for a hardened host, create the users with real
   secrets out of band and do not rely on that bootstrap.
-- **Staging / production (Helm) — ⚠️ OPS BLOCKER, not yet automated.** The Helm chart
-  does **not** yet provision these users, so a deploy that reaches migration 006 without
-  them will fail (`post-install`/`pre-upgrade` hook Job → failed release). Provision them
-  as part of the ClickHouse deploy, then wire the RO env, before rolling the app:
-  1. In the ClickHouse Bitnami subchart values, declare the users/profile via
-     `clickhouse.usersExtraOverrides` (native `users.d` XML — applies to already-running
-     clusters, unlike `initdbScripts`, which only fires on a first-boot/empty data dir and
-     would silently no-op on the existing EFS volume). Back the passwords with
-     `<password from_env="...">` fed by `clickhouse.extraEnvVars` `secretKeyRef`.
-  2. Add `sql_gateway_writer` / `sql_gateway_ro` passwords as new keys in the Terraform-owned
-     secret (`deploy/terraform/aws/secrets.tf`) — mirror `random_password.clickhouse`.
-  3. Wire `CLICKHOUSE_RO_USER` / `CLICKHOUSE_RO_PASSWORD` into `deploy/helm/templates/rest/deployment.yaml`
-     (next to the existing `CLICKHOUSE_USER`/`CLICKHOUSE_PASSWORD`).
-  4. Verify the writer exists **before** the migrate Job runs — the subchart StatefulSet is
-     not hook-ordered relative to the `hook-weight: 0` migrate Job, so confirm the users are
-     live (e.g. a `pre-upgrade` hook Job at a lower weight, or a manual pre-check) rather than
-     assuming values-driven config lands first.
+- **Staging / production (Helm).** **Not yet implemented — the chart moved.** `deploy/` was
+  removed from this repo on 2026-09-01; infrastructure now lives in three
+  dedicated repos:
 
-  TODO(ops): automate the above (tracked separately) before enabling the SQL gateway in
-  staging/prod. This change intentionally does not ship unverified Helm/Terraform changes.
+  | What | Repo | Notes |
+  |---|---|---|
+  | Helm chart | `traceroot-ai/traceroot-k8s` | `charts/traceroot/`; released by chart-releaser on merge, bump `Chart.yaml` `version` in the same PR |
+  | Terraform module | `traceroot-ai/traceroot-terraform-aws` | public, installs the chart |
+  | Environments | `traceroot-ai/traceroot-infra` (private) | `staging/` + `production/` pin a module version; ESO delivery lives in `eso/` |
+
+  The gap itself is unchanged: `charts/traceroot/templates/migrations/migrate-clickhouse.yaml`
+  runs at `hook-weight: 0` and nothing provisions the gateway users. Verified against the
+  chart at v1.0.0 — no `usersExtraOverrides`, no `access_management`, no `sql_gateway`
+  reference anywhere, and `rest/deployment.yaml` wires `CLICKHOUSE_USER`/`CLICKHOUSE_PASSWORD`
+  but no read-only pair.
+
+  What the implementation needs, by repo:
+  - **`traceroot-k8s`** — the `provision-clickhouse-users` hook Job at `hook-weight: -5`,
+    `clickhouse.usersExtraOverrides` granting the admin `access_management`, and
+    `CLICKHOUSE_RO_USER`/`CLICKHOUSE_RO_PASSWORD` in `rest/deployment.yaml`.
+    `usersExtraOverrides` is confirmed supported by the bundled Bitnami clickhouse 8.0.5
+    subchart (`templates/configmap-users-extra.yaml`), and it is a distinct config slot from
+    `extraOverrides`, which staging already uses for log-table removal — adding one does not
+    disturb the other.
+  - **`traceroot-infra`** — add `clickhouse-writer-password` and `clickhouse-ro-password` to
+    the `traceroot/<env>/app` secret in AWS Secrets Manager, then bump
+    `traceroot_helm_chart_version` in `staging/main.tf` and apply.
+
+  **Secrets come from ESO, not Terraform.** Both environments set `manage_app_secrets = false`,
+  so the Terraform module generates no application secrets at all — an earlier plan to add
+  `random_password` resources to the module does not apply. External Secrets Operator syncs
+  `traceroot/<env>/app` into the `traceroot` Kubernetes Secret using `dataFrom: extract`
+  (`traceroot-infra/eso/setup-eso.sh`), which pulls **every** key in that JSON document. Adding
+  the two passwords is therefore a Secrets Manager write plus a refresh (interval 1h) — no ESO
+  manifest change and no Terraform change.
+
+  **First rollout onto an already-running cluster — one-time manual sequencing.** Helm runs
+  `pre-upgrade` hooks *before* it updates non-hook resources (the ClickHouse StatefulSet). On
+  the very first upgrade that introduces `access_management`, the provisioning hook would run
+  against the old pod that lacks it and fail with a permissions error (no retry can fix that).
+  Do it in two steps: (1) upgrade with only the `usersExtraOverrides` change and confirm the
+  ClickHouse pod rolled with the new flag (`SHOW GRANTS` shows `ACCESS MANAGEMENT`); (2) upgrade
+  again to add the provisioning Job + enable the migration. Fresh installs and every subsequent
+  upgrade need no manual step. Confirm afterwards: `SHOW CREATE VIEW` shows the writer definer,
+  and `sql_gateway_ro` is denied the physical tables (Code 497). Under the current repo layout
+  each step is a chart release plus a version bump in `staging/main.tf`, and `traceroot-infra`'s
+  rule is staging first, always.
+
+  Secret rotation is handled in-code: the provisioning Job follows each `CREATE USER` with
+  `ALTER USER ... IDENTIFIED WITH sha256_password BY ...`, so a rerun after rotating the
+  writer/ro secrets propagates the new password.
+
+### Verifying on staging with read-only access
+
+Engineers get `AmazonEKSViewPolicy` on staging via Identity Center
+(`traceroot-infra/staging/main.tf`), deliberately not `AmazonEKSAdminViewPolicy` — AdminView
+would expose the Secrets that ESO syncs. Confirmed live on 2026-09-03 as
+`AWSReservedSSO_Engineer_.../hao` against `traceroot-staging`:
+
+| `kubectl auth can-i` | |
+|---|---|
+| `get pods`, `get pods/log`, `get configmaps`, `get statefulsets`, `get jobs`, `get events` | yes |
+| `create pods/exec`, `create pods/portforward`, `create pods` | **no** |
+| `get secrets`, `get externalsecrets` | **no** |
+
+So an engineer **cannot** open a ClickHouse session on staging: every route to one
+(`exec`, `port-forward`, or running a throwaway client pod) requires a create verb that View
+withholds, and the admin and `sql_gateway_ro` passwords are Secret keys that View cannot read.
+`SHOW CREATE VIEW` and the Code 497 denial check therefore cannot be run ad hoc by an engineer.
+
+Two consequences for the implementation:
+
+1. **The provisioning Job must report its own verification.** Have it run `SHOW CREATE VIEW`
+   and the `sql_gateway_ro`-denial probe and print the results, so the evidence lands somewhere
+   a logs-only reader can see.
+2. **Do not leave the default hook-delete-policy on that Job.** `migrate-clickhouse.yaml` uses
+   `hook-delete-policy: before-hook-creation,hook-succeeded`, which deletes the Job and its pod
+   on success — confirmed on staging, where `kubectl get jobs` returns nothing despite
+   migrations having run. Logs of a successful run are unrecoverable. For the provisioning Job,
+   drop `hook-succeeded` and keep `before-hook-creation` so the Job persists until the next
+   release replaces it.
+
+Anything needing an actual query — including the open access-management question below — has to
+be run by an admin principal (`sso_admin` or the deploy role) or emitted by the Job.
+
+### Open items — must be settled before enabling the gateway in the cloud
+
+- **ClickHouse version gap.** All of this was verified against **24.3** — the
+  `ddl-check` run on 24.3.18.7 and the compose end-to-end run. Staging runs
+  **`bitnamilegacy/clickhouse:25.2.1-debian-12-r0`**. Re-verify explicit `DEFINER` /
+  `SQL SECURITY DEFINER` semantics, settings-profile enforcement, and the readonly denial on
+  25.2 before relying on any of the 24.3 results.
+- **Does the admin already carry access management?** Narrowed but not settled. The Bitnami
+  clickhouse 8.0.5 chart never sets `access_management` (grepped, no match), and the rendered
+  `traceroot-clickhouse` ConfigMap on staging contains no `<users>` block, so if the admin has
+  it, it comes from the image entrypoint rather than from chart config. Settle it with
+  `SHOW GRANTS` from an admin session — if the admin already has it, the `usersExtraOverrides`
+  change is redundant and the two-step rollout above is unnecessary.
+- **`helm template` / `helm lint` and `terraform fmt`/`validate`** have never been run against
+  these changes; neither tool was available where they were authored.
+- **The migration number collides with `main`.** This work numbers the views migration
+  `006_create_public_sql_views.sql`, but `main` now has `006_add_source_column.sql` and runs
+  through `011_add_is_evaluation.sql`. It must be renumbered (`012_`) when the branch is
+  rebased, and every "migration 006" reference in this runbook updated with it.
 
 ## DEFINER: explicit scoped writer
 
@@ -166,9 +254,10 @@ SHOW CREATE VIEW <database>.spans_public_v1;
 - Under `readonly = 1`, the RO user cannot apply per-query `SETTINGS`. The query service
   therefore relies on the profile for caps and applies row limits via a `LIMIT`
   wrapper in the SQL text, never via per-query settings.
-- **TODO (public SQL endpoint):** the app service containers must receive `CLICKHOUSE_RO_USER` /
-  `CLICKHOUSE_RO_PASSWORD` before anything calls `get_readonly_clickhouse_client()`.
-  `docker-compose.prod.yml`'s `rest`/`worker` and Helm's `rest/deployment.yaml` do **not**
-  pass them yet — intentionally, since nothing reads the RO client until the public SQL
-  endpoint lands. Wire them there at that point (in cloud, `rest` defaults `ENABLE_BILLING=true`,
-  so a missing `CLICKHOUSE_RO_USER` is fatal by design).
+- **RO env wiring:** the chart's `rest/deployment.yaml` must pass `CLICKHOUSE_RO_USER` /
+  `CLICKHOUSE_RO_PASSWORD` (the host that serves the SQL endpoint). As of `traceroot-k8s`
+  v1.0.0 it does **not** — see the staging/production section above. Also not wired, and
+  intentionally so since nothing reads the RO client there: `docker-compose.prod.yml`'s app
+  services and the chart's `worker`. Wire them if the public SQL endpoint ever runs outside `rest`
+  (in cloud, `rest` defaults `ENABLE_BILLING=true`, so a missing `CLICKHOUSE_RO_USER` is fatal
+  by design).
