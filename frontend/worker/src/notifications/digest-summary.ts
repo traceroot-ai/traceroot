@@ -1,10 +1,12 @@
+import { randomUUID } from "node:crypto";
 import { Type } from "@earendil-works/pi-ai";
 import type { Message, ProviderStreamOptions, Tool, ToolCall } from "@earendil-works/pi-ai";
-import { complete } from "@earendil-works/pi-ai/compat";
 import { fetchProviderConfig, resolvePiModel } from "@traceroot/core/model-resolver";
 import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 import { formatWindowRange } from "@traceroot/slack";
 import { resolveDetectorApiKey } from "../detection/sandbox-eval.js";
+import { withSelfTrace } from "../detection/self-trace-emitter.js";
+import { tracedComplete } from "../detection/traced-complete.js";
 
 export interface DigestSummaryDetectorInput {
   name: string;
@@ -128,6 +130,10 @@ export function parseDigestSummaryTimeoutMs(raw: string | undefined): number {
 }
 
 export interface DigestSummaryModelConfig {
+  // Project attribution for the self-trace: the digest-summary LLM call
+  // becomes a detector-source trace in this project (the worker authenticates
+  // with INTERNAL_API_SECRET, and ingest stamps the source from that).
+  projectId: string;
   workspaceId: string;
   rcaModel: string | null;
   rcaProvider: string | null;
@@ -190,11 +196,31 @@ export async function generateDigestSummary(
         toolChoice: "auto",
         signal: controller.signal,
       };
-      const response = await complete(
-        model,
-        { systemPrompt: prompt.systemPrompt, messages, tools: [buildDigestSummaryTool()] },
-        options,
+      const traced = await withSelfTrace(
+        {
+          // Fresh id per flush. A window can be flushed twice (dedupe key
+          // expired, stalled job re-run), and each flush makes its own LLM
+          // call with fresh span ids — reusing one trace id would stack two
+          // roots under it, so two flushes are two traces.
+          traceId: randomUUID().replaceAll("-", ""),
+          projectId: cfg.projectId,
+          name: "digest-summary",
+          metadata: {
+            kind: "digest",
+            window_start: input.windowStart.getTime(),
+            window_end: input.windowEnd.getTime(),
+            detectors: input.detectors.map((d) => ({ name: d.name, findingCount: d.findingCount })),
+          },
+        },
+        () =>
+          tracedComplete(
+            model,
+            { systemPrompt: prompt.systemPrompt, messages, tools: [buildDigestSummaryTool()] },
+            options,
+          ),
       );
+      if (!traced.ok) throw traced.error;
+      const response = traced.value;
       if (controller.signal.aborted || response.stopReason === "aborted") {
         console.warn(`[DigestSummary] timed out after ${timeoutMs}ms (model=${model.id})`);
         return null;

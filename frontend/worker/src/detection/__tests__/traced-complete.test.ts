@@ -62,11 +62,10 @@ const RESPONSE = {
 };
 
 const META = {
-  runId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+  traceId: "aaaaaaaabbbbccccddddeeeeeeeeeeee",
   projectId: "proj-1",
-  detectorId: "det-1",
-  detectorName: "Latency spike",
-  scannedTraceId: "trace-1",
+  name: "detector-run: Latency spike",
+  metadata: { detectorId: "det-1", detectorName: "Latency spike", scannedTraceId: "trace-1" },
 };
 
 const exporter = new InMemorySpanExporter();
@@ -236,8 +235,8 @@ describe("tracedComplete inside a self-trace scope", () => {
 
 describe("concurrent self-traces stay isolated", () => {
   it("attributes each judge span to its own run's project, no cross-bleed", async () => {
-    const metaA = { ...META, runId: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", projectId: "proj-a" };
-    const metaB = { ...META, runId: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", projectId: "proj-b" };
+    const metaA = { ...META, traceId: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", projectId: "proj-a" };
+    const metaB = { ...META, traceId: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", projectId: "proj-b" };
 
     // Interleave two runs: A yields before its judge call so B runs in between.
     await Promise.all([
