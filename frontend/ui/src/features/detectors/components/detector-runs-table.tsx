@@ -15,34 +15,23 @@ interface DetectorRunsTableProps {
 }
 
 /**
- * One id column's cell. The click handler sits on the `<td>`, not on the inner
- * button, so the whole cell — padding included — routes to that id's own
- * destination. With the handler on the button only, the gap beside a short id
- * fell through to the row, and clicking just off a Finding ID opened the
- * scanned trace instead of the analysis. The inner button stays for keyboard
- * users; its click bubbles to the same handler.
+ * One id column's cell. The id itself is the only click target: the inner
+ * button opens that id's destination, and the cell's padding, like the rest of
+ * the row, does nothing (team UX decision — a link looks like a link, and
+ * nothing else in the table reacts to a click).
  *
  * `onOpen` undefined means this id has nothing to open (a run with no
  * self-trace, a finding whose analysis trace was never recorded): the cell
- * renders as plain text and clicks fall through to the row, as before.
+ * renders as plain text.
  */
 function IdCell({ id, title, onOpen }: { id: string; title: string; onOpen?: () => void }) {
   return (
-    <td
-      className={cn(DETECTOR_TD, "font-mono text-[11px]", onOpen && "cursor-pointer")}
-      onClick={
-        onOpen
-          ? (e) => {
-              e.stopPropagation();
-              onOpen();
-            }
-          : undefined
-      }
-    >
+    <td className={cn(DETECTOR_TD, "font-mono text-[11px]")}>
       {onOpen ? (
         <button
           type="button"
           title={title}
+          onClick={onOpen}
           className="block max-w-full truncate text-left text-muted-foreground transition-colors hover:text-foreground hover:underline"
         >
           {id}
@@ -129,11 +118,7 @@ export function DetectorRunsTable({
           return (
             <tr
               key={run.run_id}
-              onClick={run.self_traced ? () => onRunClick(run) : undefined}
-              className={cn(
-                "border-b border-border/50 transition-colors last:border-0 hover:bg-muted/50",
-                run.self_traced && "cursor-pointer",
-              )}
+              className="border-b border-border/50 transition-colors last:border-0 hover:bg-muted/50"
             >
               <td className={cn(DETECTOR_TD, "whitespace-nowrap text-muted-foreground")}>
                 {formatDate(run.timestamp)}
