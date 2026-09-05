@@ -190,6 +190,12 @@ done
   trace viewer never offered a forward "Root cause analysis" chip either (dropped
   2026-09-02): the way into an analysis is the finding.
 
+- **Runs table click targets (2026-09-05, team UX decision, #2082 a18fd0f6).** Only
+  the Run ID / Trace ID / Finding ID links open anything. The cell padding around
+  an id and the row itself are inert — the row-level "self-traced row opens its
+  self-trace from anywhere" behaviour that predated this stack is gone too; the
+  Run ID link covers it.
+
 - **Trace-level metadata promotion (2026-09-02).** Kept even though nothing in
   the UI reads it now: both emitters stamp `traceroot.trace.metadata` on the root
   so ingest (`otel_transform.py`) fills the trace record's `metadata` (before,
