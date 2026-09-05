@@ -289,4 +289,48 @@ describe("ModelProvidersTab", () => {
       expect.objectContaining({ config: { modelProtocols: { o3: "openai-responses" } } }),
     );
   });
+
+  it("clears a saved override when the pick is changed back to the default", async () => {
+    mocks.getModelProviders.mockResolvedValue({
+      byokEnabled: true,
+      providers: [
+        {
+          id: "provider-1",
+          adapter: "openai",
+          provider: "OpenAI",
+          keyPreview: "sk-...",
+          baseUrl: null,
+          customModels: ["o3"],
+          withDefaultModels: true,
+          config: { modelProtocols: { o3: "openai-responses" } },
+          enabled: true,
+          createdBy: "user-1",
+          createTime: "2026-06-17T00:00:00.000Z",
+          updateTime: "2026-06-17T00:00:00.000Z",
+        },
+      ],
+    });
+    mocks.updateModelProvider.mockResolvedValue({ id: "provider-1" });
+
+    renderTab();
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    const protocolSelect = screen
+      .getAllByRole("combobox")
+      .find((el) =>
+        Array.from((el as HTMLSelectElement).options).some((o) => o.value === "openai-completions"),
+      ) as HTMLSelectElement;
+    expect(protocolSelect).toBeDefined();
+    expect(protocolSelect.value).toBe("openai-responses");
+
+    fireEvent.change(protocolSelect, { target: { value: "openai-completions" } });
+    fireEvent.click(screen.getByRole("button", { name: "Update" }));
+    await waitFor(() => expect(mocks.updateModelProvider).toHaveBeenCalledTimes(1));
+    // The update API merges config, so the override must be sent as cleared,
+    // not omitted — otherwise the stored Responses pick would survive.
+    expect(mocks.updateModelProvider).toHaveBeenCalledWith(
+      "ws-1",
+      "provider-1",
+      expect.objectContaining({ config: { modelProtocols: {} } }),
+    );
+  });
 });

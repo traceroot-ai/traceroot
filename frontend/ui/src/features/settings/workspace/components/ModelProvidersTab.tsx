@@ -188,15 +188,18 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
         filteredProtocols[modelId] = proto;
       }
     }
-    const config: Record<string, unknown> = {};
-    if (Object.keys(filteredProtocols).length > 0) config.modelProtocols = filteredProtocols;
+    // The update API merges `config` into the stored one, so on edit the
+    // overrides are sent even when empty — that is how a pick moved back to
+    // the default clears its stored override. A new provider only needs a
+    // config once there is something to override.
+    const sendConfig = !!editProvider || Object.keys(filteredProtocols).length > 0;
     const base: Record<string, unknown> = {
       adapter,
       provider: providerName,
       ...getBaseUrlPayload(baseUrl, !!editProvider),
       customModels: trimmedModels,
       withDefaultModels: true,
-      ...(Object.keys(config).length > 0 ? { config } : {}),
+      ...(sendConfig ? { config: { modelProtocols: filteredProtocols } } : {}),
     };
 
     if (adapterConfig?.credentialType === "aws") {
