@@ -10,13 +10,19 @@ import { EmptyState } from "@/features/offline-eval/components";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { pctFraction, changeSentiment, SENTIMENT_CLASS } from "@/features/offline-eval/utils";
 import { cn } from "@/lib/utils";
+import { canonicalInputKey } from "@/lib/eval/json-value";
 import { useEvaluationRunDetails } from "../hooks";
 import type { ResultRow, RunDetail, ScoreRow } from "../types";
 
-// A run comparison is N runs (2+) measured on the SAME dataset, lined up by
-// dataset-row id (fixed once the dataset is created). Each metric column stacks one
-// value per run, colour-keyed to the baseline picker; against the chosen baseline
-// every other run also shows a green/red improvement/regression delta — à la a
+// A run comparison is N runs (2+) lined up case-by-case, anchored on the baseline run.
+// Alignment is decided per run against the baseline's DATASET (compared by `datasetId`,
+// the stable PK — never `datasetName`, which is display-only and freely renamed): a run
+// on the baseline's dataset aligns by `testCaseId` (the dataset-row id, stable across
+// input edits), and a run on a DIFFERENT dataset — whose case ids are dataset-scoped and
+// never match — aligns by shared (canonical) input instead. So a same-dataset pair keeps
+// exact row identity even when other runs in the selection span datasets. Each metric
+// column stacks one value per run, colour-keyed to the baseline picker; against the chosen
+// baseline every other run also shows a green/red improvement/regression delta — à la a
 // side-by-side experiment diff. Row drill-in is postponed (cells expand to full text).
 
 // Stable per-run colours, keyed by selection order so a baseline change never
@@ -68,7 +74,32 @@ function meanNumeric(vals: (number | null)[]): number | null {
   return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
 }
 
-type Bundle = { run: RunDetail; results: ResultRow[]; byCase: Map<string, ResultRow> };
+// A run plus two baseline-INDEPENDENT lookups over its own results, keep-first on a
+// duplicate key so a repeated case never silently drops a row from display/aggregates:
+//  · byTestCase — keyed by dataset-row id, for a run on the baseline's dataset;
+//  · byInput    — keyed by canonical input, for a run on a different dataset.
+// Which lookup a run is read through is decided per baseline, when its `byCase` is built.
+type RunBundle = {
+  run: RunDetail;
+  results: ResultRow[];
+  byTestCase: Map<string, ResultRow>;
+  byInput: Map<string, ResultRow>;
+};
+// A run re-projected against the chosen baseline. `byCase` maps a baseline row key (the
+// baseline's `testCaseId`) to this run's aligned result — by testCaseId when the run is
+// on the baseline's dataset, else by a plain canonical-input lookup. Duplicate-input
+// baseline rows stay distinct rows; a cross-dataset run with a single case for a shared
+// input simply fills every baseline row carrying that input. This is what the table
+// consumes.
+type Bundle = RunBundle & { byCase: Map<string, ResultRow> };
+
+/** Keep-first insertion into a Map — a duplicate key keeps the earliest row. */
+function keepFirst(rows: ResultRow[], keyOf: (r: ResultRow) => string): Map<string, ResultRow> {
+  return rows.reduce(
+    (map, r) => (map.has(keyOf(r)) ? map : map.set(keyOf(r), r)),
+    new Map<string, ResultRow>(),
+  );
+}
 
 // ── Cell primitives ───────────────────────────────────────────────────────
 
@@ -203,39 +234,93 @@ export function CompareRunsView({
     [runIds],
   );
 
-  // Bundles in display order: baseline first, then by run number ascending.
+  // The loaded run+results, each with its two baseline-INDEPENDENT lookups built once
+  // (keep-first). Which lookup a run is read through is decided later, per baseline, so
+  // re-picking the baseline never rebuilds these maps (no re-canonicalization).
+  const loaded = React.useMemo<RunBundle[]>(
+    () =>
+      queries
+        .map((q) => q.data)
+        .filter((d): d is NonNullable<typeof d> => !!d)
+        .map((d) => ({
+          run: d.run,
+          results: d.results,
+          byTestCase: keepFirst(d.results, (r) => r.testCaseId),
+          byInput: keepFirst(d.results, (r) => canonicalInputKey(r.input)),
+        })),
+    [queries],
+  );
+
+  // One alignment descriptor, derived from the STABLE `datasetId` (never the mutable,
+  // non-unique `datasetName`). `crossDataset` is true only when the selection genuinely
+  // spans datasets; dataset names are for display copy only. Consumed by the empty-state
+  // copy and (via `byCase` below) the alignment itself.
+  const alignment = React.useMemo(() => {
+    const datasetIds = new Set(loaded.map((b) => b.run.datasetId));
+    return {
+      crossDataset: datasetIds.size > 1,
+      datasetNames: [...new Set(loaded.map((b) => b.run.datasetName ?? "—"))],
+    };
+  }, [loaded]);
+  const { crossDataset, datasetNames } = alignment;
+
+  // Baseline-first display order (baseline, then by run number). Baseline-independent
+  // maps are carried through unchanged — only the ORDER depends on the baseline.
+  const orderedBundles = React.useMemo<RunBundle[]>(
+    () =>
+      [...loaded].sort((a, b) => {
+        if (a.run.id === baselineId) return -1;
+        if (b.run.id === baselineId) return 1;
+        return a.run.runNumber - b.run.runNumber;
+      }),
+    [loaded, baselineId],
+  );
+
+  const baselineBundle = orderedBundles.find((b) => b.run.id === baselineId) ?? orderedBundles[0];
+
+  // Project every run against the baseline: a run on the baseline's dataset aligns by
+  // `testCaseId` (stable across input edits), any other run aligns by canonical input.
+  // Row identity is the baseline row's `testCaseId`, so all runs' `byCase` share one key
+  // space and a same-dataset pair keeps exact row identity even alongside cross-dataset
+  // runs in the same selection.
   const ordered = React.useMemo<Bundle[]>(() => {
-    const bundles = queries
-      .map((q) => q.data)
-      .filter((d): d is NonNullable<typeof d> => !!d)
-      .map((d) => ({
-        run: d.run,
-        results: d.results,
-        byCase: new Map(d.results.map((r) => [r.testCaseId, r])),
-      }));
-    return bundles.sort((a, b) => {
-      if (a.run.id === baselineId) return -1;
-      if (b.run.id === baselineId) return 1;
-      return a.run.runNumber - b.run.runNumber;
+    if (!baselineBundle) return [];
+    // Baseline rows are ALWAYS one per distinct baseline `testCaseId` (occurrence-distinct) —
+    // never globally collapsed by input. So two dataset rows carrying the same input stay two
+    // rows, and a same-dataset peer can still compare them exactly by id even when another run
+    // in the selection spans datasets. (`crossDataset` no longer picks the baseline row list;
+    // alignment is decided per run, against the baseline's dataset, below.)
+    const baselineRows = [...baselineBundle.byTestCase.values()];
+    return orderedBundles.map((b) => {
+      const sameDataset = b.run.datasetId === baselineBundle.run.datasetId;
+      const byCase = new Map<string, ResultRow>();
+      // A cross-dataset run aligns by canonical input with a PLAIN lookup: a single case for
+      // a shared input fills EVERY baseline row carrying that input (no occurrence pairing).
+      // Duplicate-input baseline rows stay distinct rows either way.
+      for (const br of baselineRows) {
+        if (sameDataset) {
+          const match = b.byTestCase.get(br.testCaseId);
+          if (match) byCase.set(br.testCaseId, match);
+        } else {
+          const match = b.byInput.get(canonicalInputKey(br.input));
+          if (match) byCase.set(br.testCaseId, match);
+        }
+      }
+      return { ...b, byCase };
     });
-  }, [queries, baselineId]);
+  }, [orderedBundles, baselineBundle]);
 
   const baseline = ordered.find((b) => b.run.id === baselineId) ?? ordered[0];
 
-  // Same dataset NAME is required — rows line up by dataset-row id, meaningful only
-  // within one dataset (versions may differ).
-  const datasetNames = React.useMemo(
-    () => [...new Set(ordered.map((b) => b.run.datasetName ?? "—"))],
-    [ordered],
-  );
   const crossExperiment = new Set(ordered.map((b) => b.run.evaluationName)).size > 1;
 
-  // Rows = intersection of dataset-row ids present in EVERY run (in baseline order).
+  // Rows = baseline row keys EVERY run can line up with, in baseline order. A row is in the
+  // compared population iff every run has it in `byCase` (an aligned result). `ordered[0]` is
+  // the baseline, whose `byCase` is every baseline row, so this reads as the intersection
+  // across all runs.
   const intersection = React.useMemo(() => {
     if (ordered.length === 0) return [];
-    return ordered[0].results
-      .map((r) => r.testCaseId)
-      .filter((id) => ordered.every((b) => b.byCase.has(id)));
+    return [...ordered[0].byCase.keys()].filter((id) => ordered.every((b) => b.byCase.has(id)));
   }, [ordered]);
 
   // Union of scorer names across the compared runs.
@@ -388,17 +473,12 @@ export function CompareRunsView({
           <div className="p-3">
             <EmptyState>Couldn’t load one or more of these runs.</EmptyState>
           </div>
-        ) : datasetNames.length > 1 ? (
-          <div className="p-3">
-            <EmptyState>
-              These runs are on different datasets ({datasetNames.join(", ")}). A run comparison
-              needs the same dataset.
-            </EmptyState>
-          </div>
         ) : intersection.length === 0 ? (
           <div className="p-3">
             <EmptyState>
-              These runs share no dataset rows — their dataset versions have no rows in common.
+              {crossDataset
+                ? `These runs are on different datasets (${datasetNames.join(", ")}) and share no inputs in common.`
+                : "These runs share no dataset rows — their dataset versions have no rows in common."}
             </EmptyState>
           </div>
         ) : (
@@ -522,12 +602,23 @@ function CaseRow({
 }) {
   const rowOf = (b: Bundle) => b.byCase.get(caseId);
 
-  // Collapse a per-run string column to one value when the runs agree.
-  const collapsed = (get: (r: ResultRow | undefined) => string | null) => {
-    const vals = ordered.map((b) => get(rowOf(b)) ?? "—");
-    return new Set(vals).size <= 1 ? vals[0] : null;
+  // Collapse a per-run string column to one value when the runs agree. `sameOn` decides
+  // agreement (default: the raw text); the displayed value is still the raw text.
+  const collapsed = (
+    get: (r: ResultRow | undefined) => string | null,
+    sameOn: (r: ResultRow | undefined) => string = (r) => get(r) ?? "—",
+  ) => {
+    const keys = new Set(ordered.map((b) => sameOn(rowOf(b))));
+    return keys.size <= 1 ? (get(rowOf(ordered[0])) ?? "—") : null;
   };
-  const collapsedInput = collapsed((r) => r?.input ?? null);
+  // Input collapses on the ALIGNING key, not the raw text: rows aligned across datasets
+  // by `canonicalInputKey` (differing JSON key order, or legacy plaintext vs JSON-encoded)
+  // are the "same input" and render once, while genuinely edited same-dataset inputs stay
+  // stacked.
+  const collapsedInput = collapsed(
+    (r) => r?.input ?? null,
+    (r) => (r ? canonicalInputKey(r.input) : "—"),
+  );
   const collapsedExpected = collapsed((r) => r?.expectedOutput ?? null);
 
   const textStack = (get: (r: ResultRow | undefined) => string | null) => (
