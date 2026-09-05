@@ -301,6 +301,32 @@ describe("PATCH /api/projects/[projectId]/alerts/[alertId]", () => {
       expect(row?.severity).toBe("UNKNOWN");
       expect(row?.lastClaimedAt).toBeNull();
     });
+
+    it("retries the CAS once when a tick parks the rule between the check and the fallback write", async () => {
+      // The first CAS legitimately finds the row ACTIVE (not PARKED) and
+      // falls through to the plain write, which has no status guard of its
+      // own; a tick lands its own park in that exact gap. Without the retry
+      // the fallback would commit the fix and still leave the row parked.
+      store.set("alert-1", alertRow({ status: "ACTIVE" }));
+      let sawFirstCheck = false;
+      alertUpdateMany.mockImplementation(async ({ where, data }) => {
+        const rows = rowsMatching(where);
+        for (const row of rows) store.set(row.id, { ...row, ...data });
+        if (!sawFirstCheck && where.status === "PARKED" && rows.length === 0) {
+          sawFirstCheck = true;
+          const current = store.get("alert-1")!;
+          store.set("alert-1", { ...current, status: "PARKED" });
+        }
+        return { count: rows.length };
+      });
+
+      expect((await patch({ threshold: 999 })).status).toBe(200);
+      const row = store.get("alert-1");
+
+      expect(row?.status).toBe("ACTIVE");
+      expect(row?.threshold).toBe(999);
+      expect(row?.severity).toBe("UNKNOWN");
+    });
   });
 
   it("rejects an empty update rather than issuing a no-op write", async () => {
