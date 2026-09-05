@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import type { TraceStatus } from "@traceroot/core";
 import { ApiError } from "@/lib/api/client";
 
 /** Snake-case shape returned by the backend for a trace's findings */
@@ -64,8 +65,6 @@ async function fetchTraceFindings(
   }
   return res.json() as Promise<{ findings: BackendFinding[] }>;
 }
-
-export type TraceStatus = "disabled" | "pending" | "available" | "failed";
 
 export interface DetectorRca {
   id: string;
@@ -141,6 +140,9 @@ export interface BackendRun {
    * with reads from an un-migrated backend, which imply false.
    */
   self_traced?: boolean;
+  /** Latest RCA execution's agent trace, enriched by the runs proxy. Absent when un-enriched. */
+  execution_trace_id?: string | null;
+  execution_trace_status?: TraceStatus | null;
 }
 
 /**
@@ -150,6 +152,19 @@ export interface BackendRun {
  */
 export function selfTraceId(run: Pick<BackendRun, "run_id">): string {
   return run.run_id.replaceAll("-", "");
+}
+
+/**
+ * The openable agent trace behind a finding: its execution's trace id, only
+ * once that trace's export landed. Null while it is pending/failed/disabled
+ * or when the run is un-enriched — one gate shared by the Finding ID cell
+ * and the ?source=agent deep link, so neither can open a trace that is not
+ * there yet.
+ */
+export function agentTraceId(
+  run: Pick<BackendRun, "execution_trace_id" | "execution_trace_status">,
+): string | null {
+  return run.execution_trace_status === "available" ? (run.execution_trace_id ?? null) : null;
 }
 
 export interface RunsQuery {

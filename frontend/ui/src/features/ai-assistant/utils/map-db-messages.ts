@@ -1,4 +1,5 @@
 import type { AIMessage } from "../types";
+import type { TraceStatus } from "@traceroot/core";
 
 /** AIMessage row as returned by GET /api/projects/:id/ai/sessions/:id/messages. */
 export interface DbAiMessageRow {
@@ -18,8 +19,28 @@ interface ToolStepMetadata {
   toolCallId?: string;
   toolName?: string;
   args?: Record<string, unknown>;
+  /** JSON text (or a plain string result) after the capture policy; absent when withheld. */
   result?: unknown;
   isError?: boolean;
+  spanId?: string;
+  withheld?: "not-allowlisted" | "budget" | null;
+  truncated?: boolean;
+  outputBytes?: number;
+}
+
+/**
+ * The persister stores the result as text (serialised before it is redacted
+ * and truncated), while the live stream showed the parsed value. Give the
+ * bubble the same value back: parse an intact JSON string; a truncated one
+ * cannot be valid JSON, and a plain-string result never was — both stay text.
+ */
+function restoreResult(md: ToolStepMetadata): unknown {
+  if (typeof md.result !== "string" || md.truncated) return md.result;
+  try {
+    return JSON.parse(md.result);
+  } catch {
+    return md.result;
+  }
 }
 
 /**
@@ -42,19 +63,28 @@ export function mapDbMessages(rows: DbAiMessageRow[]): AIMessage[] {
           toolCallId: md.toolCallId ?? m.id,
           toolName: md.toolName ?? "unknown",
           args: md.args ?? {},
-          result: md.result,
+          result: restoreResult(md),
           isError: md.isError,
           status: md.isError ? "error" : "done",
+          spanId: md.spanId,
+          ...(md.withheld ? { withheld: md.withheld } : {}),
+          ...(md.truncated ? { truncated: true } : {}),
+          ...(md.outputBytes != null ? { outputBytes: md.outputBytes } : {}),
         },
       });
       continue;
     }
-    const md = m.metadata as { thinking?: string; totalTokens?: number } | null | undefined;
+    const md = m.metadata as
+      | { thinking?: string; totalTokens?: number; traceId?: string; traceStatus?: TraceStatus }
+      | null
+      | undefined;
     const usage = {
       ...(m.inputTokens != null ? { inputTokens: m.inputTokens } : {}),
       ...(m.outputTokens != null ? { outputTokens: m.outputTokens } : {}),
       ...(md?.totalTokens != null ? { totalTokens: md.totalTokens } : {}),
       ...(m.cost != null ? { costUsd: Number(m.cost) } : {}),
+      ...(md?.traceId != null ? { traceId: md.traceId } : {}),
+      ...(md?.traceStatus != null ? { traceStatus: md.traceStatus } : {}),
     };
     // A content-less assistant row is the usage carrier of a run that ended at
     // a tool boundary. The live stream pins usage on the last text bubble, so
