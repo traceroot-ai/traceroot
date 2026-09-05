@@ -51,6 +51,8 @@ interface TraceViewerPanelProps {
   autoOpenRca?: boolean;
   /** When true, the panel mounts already expanded to full width (e.g. opened in a new tab). */
   initialFullscreen?: boolean;
+  /** Span to select once the trace loads — the deep link behind a chat tool step's "Open span". */
+  initialSpanId?: string;
   /**
    * Rendered inside another surface (the agent-trace sheet, which itself lives
    * inside the assistant panel) rather than as the page's own overlay. Drops
@@ -177,6 +179,7 @@ export function TraceViewerPanel({
   autoOpenRca,
   initialFullscreen,
   embedded,
+  initialSpanId,
   newTabPath,
   traceOverride,
   hideDetectors,
@@ -297,20 +300,37 @@ export function TraceViewerPanel({
     enabled: !traceOverride,
   });
   const trace = traceOverride ?? fetchedTrace;
+
   const isLoading = traceOverride ? false : isFetching;
 
   // source must match the query key above, or SSE span merging silently no-ops.
   useTraceStream(projectId, traceId, !traceOverride, source);
 
-  // Reset when the displayed trace changes — navigating the list, or swapping
-  // between the customer trace and the RCA's agent trace. Keyed on the
-  // EFFECTIVE id: the analysis swap changes what is displayed without changing
-  // `traceId`, and a customer span carried across would render its data (and
-  // fetch its I/O) against the wrong trace.
+  // Reset when the displayed trace or the deep link changes, then apply the
+  // deep link: `initialSpanId` is a *pending* selection, armed on each
+  // (trace, span) change, consumed once the span is in the loaded trace (spans
+  // stream in over SSE, so a miss is not final), and cancelled by a manual
+  // pick. One effect owns both writes, so there is no ordering to get right.
+  const deepLinkRef = useRef<{ key: string; pending: string | null } | null>(null);
   useEffect(() => {
-    setSelection({ type: "trace" });
-    setCollapsedIds(new Set());
-  }, [traceId]);
+    const key = `${traceId}:${initialSpanId ?? ""}`;
+    if (deepLinkRef.current?.key !== key) {
+      deepLinkRef.current = { key, pending: initialSpanId ?? null };
+      setCollapsedIds(new Set());
+      setSelection({ type: "trace" });
+    }
+    const pending = deepLinkRef.current.pending;
+    if (!pending || !trace) return;
+    const span = (trace.spans ?? []).find((s) => s.span_id === pending);
+    if (!span) return;
+    deepLinkRef.current.pending = null;
+    setSelection({ type: "span", span });
+  }, [traceId, initialSpanId, trace]);
+  // A manual pick wins over a deep link that has not resolved yet.
+  const selectManually = useCallback((sel: TraceSelection) => {
+    if (deepLinkRef.current) deepLinkRef.current.pending = null;
+    setSelection(sel);
+  }, []);
 
   useEffect(() => {
     if (viewMode !== "timeline") return;
@@ -347,15 +367,18 @@ export function TraceViewerPanel({
    * model, so it resolves the span's index and scroll position itself — this
    * panel no longer duplicates the collapse-visibility walk or row-height math.
    */
-  const handleTimelineSelect = useCallback((sel: TraceSelection) => {
-    setSelection(sel);
-    setViewMode("tree");
-    if (sel.type === "span") {
-      // Defer a frame so the tree has its up-to-date (non-compact) row model
-      // before the virtualizer scrolls.
-      requestAnimationFrame(() => treeViewRef.current?.scrollToSpan(sel.span.span_id));
-    }
-  }, []);
+  const handleTimelineSelect = useCallback(
+    (sel: TraceSelection) => {
+      selectManually(sel);
+      setViewMode("tree");
+      if (sel.type === "span") {
+        // Defer a frame so the tree has its up-to-date (non-compact) row model
+        // before the virtualizer scrolls.
+        requestAnimationFrame(() => treeViewRef.current?.scrollToSpan(sel.span.span_id));
+      }
+    },
+    [selectManually],
+  );
 
   // Sync tree scroll → timeline
   const handleTreeScroll = useCallback(() => {
@@ -604,7 +627,7 @@ export function TraceViewerPanel({
                         trace={trace}
                         scrollRef={treeScrollRef}
                         selection={selection}
-                        onSelect={viewMode === "tree" ? setSelection : handleTimelineSelect}
+                        onSelect={viewMode === "tree" ? selectManually : handleTimelineSelect}
                         collapsedIds={collapsedIds}
                         onToggleCollapse={handleToggleCollapse}
                         compact={viewMode === "timeline"}
