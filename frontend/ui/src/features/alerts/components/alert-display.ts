@@ -97,8 +97,15 @@ function withDetail(state: AlertDisplayState, extra: string | undefined): AlertD
   return { ...state, detail: state.detail === undefined ? extra : `${state.detail} ${extra}` };
 }
 
-/** Stands in when a parked row carries no reason, so the badge is never mute. */
-const PARKED_WITHOUT_REASON = "Stopped: this rule's settings cannot be evaluated.";
+/**
+ * Stands in when a parked row carries no reason, so the badge is never mute.
+ * The only place this detail states the fix itself: every real parking path
+ * (claim.ts's UNEVALUABLE_RULE_ERROR, scheduler.ts's PARKED_RULE_SUFFIX)
+ * already says what unparks the rule, so restating it there would repeat the
+ * same sentence back to back in one popover.
+ */
+const PARKED_WITHOUT_REASON =
+  "Stopped: this rule's settings cannot be evaluated. Edit and save the rule to start it again.";
 
 /**
  * Parked, then paused, then failing, then never run, each outranking the
@@ -114,8 +121,9 @@ export function resolveAlertDisplayState(alert: AlertDisplayInput): AlertDisplay
       isPaused: false,
       isStopped: true,
       // Not "it will retry": that is the sentence this status exists to stop
-      // telling. The error already carries what the evaluator refused.
-      detail: `${alert.lastError ? `Stopped: ${alert.lastError}.` : PARKED_WITHOUT_REASON} Edit and save the rule to start it again.`,
+      // telling. The error already says what unparks the rule, so this adds
+      // nothing to it beyond the "Stopped:" framing.
+      detail: alert.lastError ? `Stopped: ${alert.lastError}.` : PARKED_WITHOUT_REASON,
     };
   }
 

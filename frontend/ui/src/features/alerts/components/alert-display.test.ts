@@ -67,18 +67,24 @@ describe("resolveAlertDisplayState", () => {
     expect(parked.isPaused).toBe(false);
   });
 
-  it("tells a parked rule's owner why it stopped and what restarts it, never that it will retry", () => {
+  it("states the reason once, trusting it to already say what restarts the rule", () => {
+    // Every real parking path bakes "edit and save" into the stored reason
+    // itself (claim.ts's UNEVALUABLE_RULE_ERROR, scheduler.ts's
+    // PARKED_RULE_SUFFIX), so the badge must not repeat it — that reads as the
+    // same sentence twice in one popover.
     const parked = stateOf({
       status: "PARKED",
-      lastError: "measure: Unknown alert measure 'clicks'",
+      lastError: "measure: unknown; open it and save it again to correct them",
     });
 
-    expect(parked.detail).toContain("measure: Unknown alert measure 'clicks'");
-    expect(parked.detail).toContain("Edit and save");
+    expect(parked.detail).toBe(
+      "Stopped: measure: unknown; open it and save it again to correct them.",
+    );
     // The sentence this status exists to stop telling.
     expect(parked.detail).not.toContain("retry");
 
-    // A row parked with no reason still says it stopped rather than going mute.
+    // A row parked with no reason at all is the one case with nothing of its
+    // own to say, so only here does the badge supply the fix itself.
     const bare = stateOf({ status: "PARKED", lastError: null });
     expect(bare.detail).toContain("cannot be evaluated");
     expect(bare.detail).toContain("Edit and save");
