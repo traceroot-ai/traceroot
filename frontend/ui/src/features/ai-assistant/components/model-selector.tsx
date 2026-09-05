@@ -7,13 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { getAvailableLLMModels } from "@/lib/api";
-import { flattenAvailableModels, pickDefaultModel } from "../lib/resolve-model";
+import { flattenAvailableModels, reconcileModelSelection } from "../lib/resolve-model";
 
 export interface ModelSelection {
   model: string;
   provider: string;
   source: "system" | "byok";
-  adapter: string; // e.g. "anthropic" | "openai" — needed for SDK routing
+  adapter: string; // e.g. "anthropic" | "openai" - needed for SDK routing
 }
 
 interface ModelSelectorProps {
@@ -54,7 +54,7 @@ export function ModelSelector({
   const models = flattenAvailableModels(data, isPending);
 
   // Reconcile the incoming selection against the catalog:
-  //   1. exact match on (model, provider, source) → check adapter; backfill if empty/wrong
+  //   1. exact match on (model, provider, source): check adapter; backfill if empty/wrong
   //   2. model-id-only match (legacy/hydrated state where the parent only has
   //      `model` saved, e.g. `project.rca_model: string`) → backfill the rest
   //   3. no match → preserve the current selection if the user already picked
@@ -69,49 +69,14 @@ export function ModelSelector({
   useEffect(() => {
     if (isPending) return;
 
-    const exact = models.find(
-      (m) => m.id === value.model && m.provider === value.provider && m.source === value.source,
-    );
-    // Prefer the selection's own source: the list is BYOK-first and not
-    // deduplicated, so a bare id could bind a system selection to a BYOK
-    // provider sharing that id — same name, different credentials at run time.
-    const modelOnly =
-      !exact && value.model && !value.provider
-        ? (models.find((m) => m.id === value.model && m.source === value.source) ??
-          models.find((m) => m.id === value.model))
-        : null;
-    const match = exact ?? modelOnly;
-
-    if (!match) {
-      if (!value.model && !defaultModelId) {
-        const pick = pickDefaultModel(models);
-        if (pick) {
-          onChange({
-            model: pick.id,
-            provider: pick.provider,
-            source: pick.source,
-            adapter: pick.adapter,
-          });
-        }
-      }
-      return;
-    }
-
-    // Match found — backfill any stale/empty fields (notably `adapter`, which
-    // legacy selections often store as `""` and which `currentExists`-style
-    // checks elsewhere ignore).
+    const next = reconcileModelSelection(value, models, { pickDefaultWhenEmpty: !defaultModelId });
     if (
-      match.id !== value.model ||
-      match.provider !== value.provider ||
-      match.source !== value.source ||
-      match.adapter !== value.adapter
+      next.model !== value.model ||
+      next.provider !== value.provider ||
+      next.source !== value.source ||
+      next.adapter !== value.adapter
     ) {
-      onChange({
-        model: match.id,
-        provider: match.provider,
-        source: match.source,
-        adapter: match.adapter,
-      });
+      onChange(next);
     }
   }, [models, value, onChange, isPending, defaultModelId]);
 
@@ -153,7 +118,7 @@ export function ModelSelector({
           {models.map((m) => {
             const key = modelKey(m);
             const isSelected = key === selectedKey;
-            // Show provider tag for BYOK models to distinguish from system ones
+            // Show provider tag for BYOK models to distinguish from system ones.
             const showProvider = m.source === "byok";
             return (
               <button
