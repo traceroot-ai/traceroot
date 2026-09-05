@@ -24,7 +24,7 @@ import type { UserListItem } from "@/lib/api/users";
 import type { UserQueryOptions } from "@/lib/api/users";
 import { useRetention } from "@/lib/hooks/use-retention";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
-import { PlanType } from "@traceroot/core";
+import { toPlanType } from "@traceroot/core";
 
 const tabs = [
   { id: "traces", label: "Traces", icon: DOMAIN_ICONS.trace, href: "traces" },
@@ -231,7 +231,7 @@ export default function UsersPage() {
         open={retention.showPricing}
         onOpenChange={retention.closePricing}
         workspaceId={retention.workspaceId}
-        currentPlan={(retention.billingPlan as PlanType) || PlanType.FREE}
+        currentPlan={toPlanType(retention.billingPlan)}
       />
     </div>
   );

@@ -17,6 +17,7 @@ export {
   FAIL_CLOSED_RETENTION_DAYS,
   getRetentionDays,
   PlanType,
+  toPlanType,
   // Types
   type PlanConfig,
   type Entitlement,
