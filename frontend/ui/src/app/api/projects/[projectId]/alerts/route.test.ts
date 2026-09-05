@@ -308,15 +308,17 @@ describe("PATCH /api/projects/[projectId]/alerts/[alertId]", () => {
       // own; a tick lands its own park in that exact gap. Without the retry
       // the fallback would commit the fix and still leave the row parked.
       store.set("alert-1", alertRow({ status: "ACTIVE" }));
-      let sawFirstCheck = false;
-      alertUpdateMany.mockImplementation(async ({ where, data }) => {
+
+      // `Once`, not a persistent override: this is the request's first
+      // `updateMany` call (the CAS check), and everything after it, including
+      // the rest of this same request, falls back to the shared
+      // implementation untouched. A persistent override here would outlive
+      // the test, since the file's `beforeEach` only clears call history.
+      alertUpdateMany.mockImplementationOnce(async ({ where, data }) => {
         const rows = rowsMatching(where);
         for (const row of rows) store.set(row.id, { ...row, ...data });
-        if (!sawFirstCheck && where.status === "PARKED" && rows.length === 0) {
-          sawFirstCheck = true;
-          const current = store.get("alert-1")!;
-          store.set("alert-1", { ...current, status: "PARKED" });
-        }
+        const current = store.get("alert-1")!;
+        store.set("alert-1", { ...current, status: "PARKED" });
         return { count: rows.length };
       });
 
