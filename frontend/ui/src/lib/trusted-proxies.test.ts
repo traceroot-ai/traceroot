@@ -51,11 +51,21 @@ describe("better-auth client-address resolution", () => {
     expect(getIPFromHeader("198.51.100.7, 203.0.113.20", { trustedProxies: [] })).toBeNull();
   });
 
-  it("resolves a chain to the rightmost entry once ranges are configured", () => {
-    // Our edge appends the address it observed, so the prepended value is
+  it("takes the rightmost entry when it is outside the ranges", () => {
+    // Our topology: the edge appends the address it observed and never adds
+    // itself, so the rightmost entry is the caller and the prepended value is
     // ignored rather than making the chain unresolvable.
     expect(getIPFromHeader("198.51.100.7, 203.0.113.20", { trustedProxies: ["10.0.0.0/16"] })).toBe(
       "203.0.113.20",
+    );
+  });
+
+  it("walks past a trusted hop to the first untrusted entry", () => {
+    // The branch the ranges exist for: a hop inside a range is skipped and the
+    // walk continues leftward. The case above never enters it, since neither
+    // entry there is inside the range.
+    expect(getIPFromHeader("198.51.100.7, 10.0.0.5", { trustedProxies: ["10.0.0.0/16"] })).toBe(
+      "198.51.100.7",
     );
   });
 

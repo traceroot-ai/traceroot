@@ -10,10 +10,12 @@ import { describe, expect, it, vi } from "vitest";
  * multi-hop caller quietly sharing one bucket. trusted-proxies.test.ts pins the
  * library behaviour that makes this matter.
  */
-const betterAuthMock = vi.fn((options: Record<string, unknown>) => ({
-  options,
-  $Infer: { Session: {} },
-}));
+const betterAuthMock = vi.hoisted(() =>
+  vi.fn((options: Record<string, unknown>) => ({
+    options,
+    $Infer: { Session: {} },
+  })),
+);
 
 vi.mock("better-auth", () => ({ betterAuth: (o: Record<string, unknown>) => betterAuthMock(o) }));
 vi.mock("better-auth/adapters/prisma", () => ({ prismaAdapter: () => ({}) }));
