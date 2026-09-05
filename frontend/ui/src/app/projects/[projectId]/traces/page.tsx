@@ -20,7 +20,7 @@ import { PlanType } from "@traceroot/core";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useLocalStorage } from "@/lib/hooks/use-local-storage";
 import { TraceViewerPanel, GettingStarted } from "@/features/traces/components";
-import { LoadingState } from "@/components/ui/loading-state";
+import { ListState, ListLoading } from "@/components/ui/list-state";
 import type { TraceSelection } from "@/features/traces";
 import { Button } from "@/components/ui/button";
 import {
@@ -97,7 +97,7 @@ export default function TracesPage() {
   );
   // Fetch traces with combined query options + user filter from URL.
   // Evaluation traces are excluded from this default list.
-  const { data, isLoading, error } = useTraces(
+  const { data, isLoading, error, refetch } = useTraces(
     projectId,
     {
       ...queryOptions,
@@ -262,27 +262,31 @@ export default function TracesPage() {
         {/* Content */}
         <div className="flex-1 overflow-auto bg-background">
           {isLoading || checking ? (
-            <div className="flex h-64 items-center justify-center">
-              <LoadingState label="Loading traces..." />
-            </div>
+            <ListLoading label="Loading traces..." />
           ) : error && !data ? (
-            <div className="flex h-64 flex-col items-center justify-center gap-3 text-center">
-              <AlertTriangle className="h-8 w-8 text-destructive/50" />
-              <p className="text-[13px] text-destructive">Error loading traces</p>
-              <p className="text-[12px] text-muted-foreground">
-                Make sure the API server is running and you have API keys configured.
-              </p>
-            </div>
+            <ListState
+              icon={<AlertTriangle className="h-8 w-8 text-destructive/50" />}
+              title="Error loading traces"
+              description="Make sure the API server is running and you have API keys configured."
+              action={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-[12px]"
+                  onClick={() => refetch()}
+                >
+                  Try again
+                </Button>
+              }
+            />
           ) : showGettingStarted ? (
             <GettingStarted projectId={projectId} />
           ) : traces.length === 0 ? (
-            <div className="flex h-64 flex-col items-center justify-center gap-3 text-center">
-              <Inbox className="h-8 w-8 text-muted-foreground/40" />
-              <p className="text-[13px] text-muted-foreground">No traces found</p>
-              <p className="text-[12px] text-muted-foreground">
-                Try adjusting your filters or date range.
-              </p>
-            </div>
+            <ListState
+              icon={<Inbox className="h-8 w-8 text-muted-foreground/40" />}
+              title="No traces found"
+              description="Try adjusting your filters or date range."
+            />
           ) : (
             <div className="flex h-full flex-col">
               <div className="flex-1 overflow-auto">

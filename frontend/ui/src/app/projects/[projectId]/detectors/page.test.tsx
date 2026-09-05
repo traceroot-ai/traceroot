@@ -86,6 +86,7 @@ const defaultDetectorList = {
   },
   isLoading: false,
   error: null,
+  refetch: vi.fn(),
 };
 
 vi.mock("@/features/detectors/hooks/use-detectors", () => ({
@@ -183,11 +184,27 @@ describe("DetectorsPage", () => {
       data: { data: [], meta: { total: 0 } },
       isLoading: false,
       error: null,
+      refetch: vi.fn(),
     });
 
     render(<DetectorsPage />);
 
     const heading = screen.getByText("No detectors yet");
     expect(heading.parentElement?.querySelector("svg")).toBeTruthy();
+  });
+
+  it("shows the error state with a retry that refetches", () => {
+    const refetch = vi.fn();
+    mocks.useDetectorList.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      error: new Error("boom"),
+      refetch,
+    });
+
+    render(<DetectorsPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(refetch).toHaveBeenCalled();
   });
 });

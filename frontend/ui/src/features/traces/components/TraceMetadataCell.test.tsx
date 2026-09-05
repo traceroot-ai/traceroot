@@ -49,10 +49,7 @@ describe("TraceMetadataCell focus ownership", () => {
         <table>
           <tbody>
             <tr>
-              <TraceMetadataCell
-                entries={parseMetadataEntries(METADATA)}
-                borderClassName="border-r"
-              />
+              <TraceMetadataCell entries={parseMetadataEntries(METADATA)} />
             </tr>
           </tbody>
         </table>

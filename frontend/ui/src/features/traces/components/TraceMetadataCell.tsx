@@ -7,6 +7,7 @@
  */
 import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Td } from "@/components/ui/table";
 import { MetadataJson } from "./MetadataJson";
 import { cn } from "@/lib/utils";
 import { formatContentPreview } from "../utils";
@@ -19,10 +20,9 @@ const PREVIEW_TEXT = "block truncate font-mono text-[11px] text-muted-foreground
 
 interface TraceMetadataCellProps {
   entries: readonly MetadataEntry[];
-  borderClassName: string | false;
 }
 
-export function TraceMetadataCell({ entries, borderClassName }: TraceMetadataCellProps) {
+export function TraceMetadataCell({ entries }: TraceMetadataCellProps) {
   const [isOpen, setIsOpen] = useState(false);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -84,13 +84,11 @@ export function TraceMetadataCell({ entries, borderClassName }: TraceMetadataCel
     [isOpen],
   );
 
-  const cellClassName = cn("max-w-[180px]", borderClassName, "px-3 py-1.5");
-
   if (entries.length === 0) {
     return (
-      <td className={cellClassName}>
+      <Td className="max-w-[180px]">
         <span className={PREVIEW_TEXT}>{formatContentPreview(null)}</span>
-      </td>
+      </Td>
     );
   }
 
@@ -98,7 +96,7 @@ export function TraceMetadataCell({ entries, borderClassName }: TraceMetadataCel
   const payload = stringifyMetadataEntries(entries);
 
   return (
-    <td className={cellClassName}>
+    <Td className="max-w-[180px]">
       <Popover open={isOpen} onOpenChange={handleOpenChange}>
         <PopoverTrigger asChild>
           <button
@@ -145,6 +143,6 @@ export function TraceMetadataCell({ entries, borderClassName }: TraceMetadataCel
           </div>
         </PopoverContent>
       </Popover>
-    </td>
+    </Td>
   );
 }

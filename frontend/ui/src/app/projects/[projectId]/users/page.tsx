@@ -3,23 +3,20 @@
 import { useMemo, useLayoutEffect } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import { AlertTriangle } from "lucide-react";
 import { useLayout } from "@/components/layout/app-layout";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
-import { LoadingState } from "@/components/ui/loading-state";
+import { Button } from "@/components/ui/button";
+import { ListState, ListLoading } from "@/components/ui/list-state";
+import { Table, TBody, Td, Th, THead, TR, TRHead } from "@/components/ui/table";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
+import { Timestamp } from "@/features/offline-eval/components";
 import { useUsers } from "@/features/traces/hooks";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useSession as useAuthSession } from "@/lib/auth-client";
-import {
-  formatDate,
-  formatCost,
-  formatTokens,
-  formatExactTokens,
-  cn,
-  buildUrlWithFilters,
-} from "@/lib/utils";
+import { formatCost, formatTokens, formatExactTokens, cn, buildUrlWithFilters } from "@/lib/utils";
 import type { UserListItem } from "@/lib/api/users";
 import type { UserQueryOptions } from "@/lib/api/users";
 import { useRetention } from "@/lib/hooks/use-retention";
@@ -68,7 +65,7 @@ export default function UsersPage() {
     [queryOptions],
   );
 
-  const { data, isPending: dataPending, error } = useUsers(projectId, userQueryOptions);
+  const { data, isPending: dataPending, error, refetch } = useUsers(projectId, userQueryOptions);
   // Auth-gated React Query reports isLoading: false while disabled (TanStack v5).
   // Use isPending OR'd with auth pending so the loading branch shows during the
   // auth-resolution window instead of falling through to the empty state.
@@ -137,61 +134,54 @@ export default function UsersPage() {
         {/* Content */}
         <div className="flex-1 overflow-auto bg-background">
           {checking ? (
-            <div className="flex h-64 items-center justify-center">
-              <LoadingState label="Loading users..." />
-            </div>
+            <ListLoading label="Loading users..." />
           ) : error && !data ? (
-            <div className="flex h-64 flex-col items-center justify-center gap-3">
-              <p className="text-[13px] text-destructive">Error loading users</p>
-              <p className="text-[12px] text-muted-foreground">
-                Make sure the API server is running.
-              </p>
-            </div>
+            <ListState
+              icon={<AlertTriangle className="h-8 w-8 text-destructive/50" />}
+              title="Error loading users"
+              description="Make sure the API server is running and you have API keys configured."
+              action={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-[12px]"
+                  onClick={() => refetch()}
+                >
+                  Try again
+                </Button>
+              }
+            />
           ) : users.length === 0 ? (
-            <div className="flex h-64 flex-col items-center justify-center gap-3">
-              <DOMAIN_ICONS.user className="h-10 w-10 text-muted-foreground" />
-              <p className="text-[13px] text-muted-foreground">No users found</p>
-              <p className="text-[12px] text-muted-foreground">
-                Users will appear here when traces include user_id.
-              </p>
-            </div>
+            <ListState
+              icon={<DOMAIN_ICONS.user className="h-8 w-8 text-muted-foreground/40" />}
+              title="No users found"
+              description="Users will appear here when traces include user_id."
+            />
           ) : (
             <div className="flex h-full flex-col">
               <div className="flex-1 overflow-auto">
-                <table className="w-full">
-                  <thead className="sticky top-0 bg-background">
-                    <tr className="border-b border-border bg-muted/50">
-                      <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        User ID
-                      </th>
-                      <th className="w-[100px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Traces
-                      </th>
-                      <th className="w-[110px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Tokens
-                      </th>
-                      <th className="w-[100px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Cost
-                      </th>
-                      <th className="w-[160px] px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                        Last Activity
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
+                <Table>
+                  <THead>
+                    <TRHead>
+                      <Th>User ID</Th>
+                      <Th className="w-[100px]">Traces</Th>
+                      <Th className="w-[110px]">Tokens</Th>
+                      <Th className="w-[100px]">Cost</Th>
+                      <Th className="w-[160px]">Last Activity</Th>
+                    </TRHead>
+                  </THead>
+                  <TBody>
                     {users.map((user: UserListItem) => (
-                      <tr
+                      <TR
                         key={user.user_id}
+                        interactive
                         onClick={() => handleUserClick(user.user_id)}
-                        className="cursor-pointer border-b border-border/50 transition-colors last:border-0 hover:bg-muted/50"
                       >
-                        <td className="border-r border-border/50 px-3 py-2 text-[12px] text-foreground">
+                        <Td className="max-w-[300px] truncate text-foreground" title={user.user_id}>
                           {user.user_id}
-                        </td>
-                        <td className="border-r border-border/50 px-3 py-2 text-[12px] text-muted-foreground">
-                          {user.trace_count}
-                        </td>
-                        <td className="border-r border-border/50 px-3 py-2 text-[12px] text-muted-foreground">
+                        </Td>
+                        <Td className="text-muted-foreground">{user.trace_count}</Td>
+                        <Td className="text-muted-foreground">
                           {(user.total_input_tokens ?? 0) + (user.total_output_tokens ?? 0) > 0 ? (
                             <span
                               title={`${formatExactTokens(user.total_input_tokens)} / ${formatExactTokens(user.total_output_tokens)}`}
@@ -202,17 +192,15 @@ export default function UsersPage() {
                           ) : (
                             "-"
                           )}
-                        </td>
-                        <td className="border-r border-border/50 px-3 py-2 text-[12px] text-muted-foreground">
-                          {formatCost(user.total_cost)}
-                        </td>
-                        <td className="px-3 py-2 text-[12px] text-muted-foreground">
-                          {formatDate(user.last_trace_time)}
-                        </td>
-                      </tr>
+                        </Td>
+                        <Td className="text-muted-foreground">{formatCost(user.total_cost)}</Td>
+                        <Td className="whitespace-nowrap text-muted-foreground">
+                          <Timestamp iso={user.last_trace_time} />
+                        </Td>
+                      </TR>
                     ))}
-                  </tbody>
-                </table>
+                  </TBody>
+                </Table>
               </div>
 
               <ListPagination

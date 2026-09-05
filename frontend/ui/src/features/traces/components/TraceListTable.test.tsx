@@ -83,8 +83,13 @@ const classesOf = (element: Element) => element.className.split(/\s+/);
 const widthClassesOf = (element: Element) =>
   classesOf(element).filter((name) => /^(?:w|min-w|max-w)-/.test(name));
 
-/** The right-hand divider, present on every cell except the one that ends the row. */
-const hasRowDivider = (element: Element) => classesOf(element).includes("border-r");
+/**
+ * The right-hand divider, suppressed on the cell that ends the row by the shared
+ * `last:border-r-0` class — whichever column the user leaves ending the row goes without it.
+ * The variant triggers on the row's last cell, which is exactly what `:last-child` checks.
+ */
+const hasRowDivider = (element: Element) =>
+  classesOf(element).includes("border-r") && !element.matches(":last-child");
 
 describe("TraceListTable default columns", () => {
   it("renders exactly the ten default columns, in registry order, when nothing has been changed", () => {
@@ -95,6 +100,15 @@ describe("TraceListTable default columns", () => {
     });
     expect(headerNames()).toEqual(DEFAULT_COLUMNS);
     expect(screen.queryByText("s-1")).toBeNull();
+  });
+
+  it("renders the timestamp as a semantic <time> element", () => {
+    renderTable({ traces: [makeTrace({ trace_id: "t-1" })] });
+    const cell = cellAt("t-1", "Timestamp");
+    const stamp = cell.querySelector("time");
+    expect(stamp).toBeTruthy();
+    expect(stamp?.getAttribute("datetime")).toBe("2026-06-01T00:00:00.000Z");
+    expect(stamp?.textContent).toBeTruthy();
   });
 
   it("renders neither the header nor the cell for a default column turned off", () => {
