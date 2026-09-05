@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from worker.tokens.pricing import GATEWAY_PREFIXES
+from worker.tokens.types import GATEWAY_PREFIXES
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -29,7 +29,12 @@ requires_frontend = pytest.mark.skipif(
     reason="frontend sources not present in this checkout",
 )
 
-_PREFIX_RE = re.compile(r"\"([a-z0-9_]+)\"")
+# Deliberately permissive: a class like [a-z0-9_]+ silently drops any prefix
+# carrying a hyphen, dot or capital, so a real drift ("vertex-ai" added to one
+# side only) would vanish from the comparison instead of failing it — the exact
+# silent hole this file exists to close. Everything quoted inside the
+# declaration is compared, and an ill-formed entry fails loudly below.
+_PREFIX_RE = re.compile(r'"([^"\n]+)"')
 
 
 def _parse_ts_prefixes() -> set[str]:
@@ -66,6 +71,14 @@ def test_python_and_typescript_strip_the_same_prefixes():
         f"{sorted(missing_in_python)} are stripped by lookup.ts but not by the worker — "
         "these models will price for the agent and be left unpriced at ingest"
     )
+
+
+@requires_frontend
+def test_parse_would_see_a_prefix_that_is_not_plain_lowercase():
+    """A narrower character class would drop such an entry from the comparison
+    entirely, so a one-sided "vertex-ai" would read as agreement."""
+    block = """export const GATEWAY_PREFIXES = new Set(["vertex-ai", "Azure", "a.b"]);"""
+    assert set(_PREFIX_RE.findall(block)) == {"vertex-ai", "Azure", "a.b"}
 
 
 @requires_frontend

@@ -6,8 +6,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import tiktoken
 
-from worker.tokens.pricing import calculate_cost, get_model_price, strip_gateway_prefixes
+from worker.tokens.pricing import calculate_cost, get_model_price
+from worker.tokens.types import is_claude_model, strip_gateway_prefixes
+from worker.tokens.usage import count_tokens
 
 MATCHED_MODEL_NAME = "__matched_model_name"
 
@@ -314,6 +317,48 @@ class TestGatewayPrefixes:
     def test_stripping_is_bounded(self):
         """A pathological id terminates instead of walking every segment."""
         assert strip_gateway_prefixes("openai/" * 50 + "gpt-5") == "openai/" * 47 + "gpt-5"
+
+
+class TestGatewayPrefixedTokenEstimation:
+    """A prefixed id has to mean the same model to the token estimator as it does
+    to the price lookup (#1556).
+
+    is_claude_model was a bare startswith("claude"), so a gateway-prefixed Claude
+    id fell through to tiktoken's cl100k_base — a materially different estimate,
+    now attached to a cost that resolves.
+    """
+
+    @pytest.mark.parametrize(
+        "model_id",
+        [
+            "claude-opus-4-8",
+            "anthropic/claude-opus-4-8",
+            "openrouter/anthropic/claude-opus-4-8",
+            "vertex_ai/claude-opus-4-8",
+        ],
+    )
+    def test_prefixed_claude_ids_use_the_claude_estimator(self, model_id):
+        assert is_claude_model(model_id) is True
+        # 4 chars/token, versus whatever cl100k_base would have produced.
+        assert count_tokens("a" * 400, model_id) == 100
+
+    @pytest.mark.parametrize("model_id", ["gpt-4o", "azure/gpt-4o", "my-org/claude-ish"])
+    def test_non_claude_ids_are_unaffected(self, model_id):
+        assert is_claude_model(model_id) is False
+
+    def test_prefixed_openai_ids_reach_their_tiktoken_encoding(self):
+        """The prefix is not part of the name tiktoken knows, so "azure/gpt-4o"
+        silently missed its encoding and fell back to cl100k_base.
+
+        The text is chosen so the two encodings genuinely disagree (o200k_base
+        gives 50, cl100k_base 54) — on "hello world" they agree, and the
+        assertion would hold whether or not the prefix was stripped.
+        """
+        text = "hello world " * 20 + "ünïcödé tokens 12345 🎉"
+        assert count_tokens(text, "gpt-4o") != len(
+            tiktoken.get_encoding("cl100k_base").encode(text)
+        )
+        assert count_tokens(text, "azure/gpt-4o") == count_tokens(text, "gpt-4o")
 
 
 class TestGeminiModelIds:
