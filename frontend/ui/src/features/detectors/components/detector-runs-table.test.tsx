@@ -179,10 +179,7 @@ describe("DetectorRunsTable", () => {
     expect(within(row).getAllByRole("button")).toHaveLength(1);
   });
 
-  it("routes a click anywhere in an id cell to that id, not to the row", () => {
-    // The bug this pins: the handler used to sit on the inner button, so the
-    // padding beside a short id fell through to the row — clicking just off a
-    // Finding ID opened the scanned trace instead of the analysis.
+  it("makes the id link the only click target — the cell's blank area does nothing", () => {
     const onRunClick = vi.fn();
     const onTraceClick = vi.fn();
     const onFindingClick = vi.fn();
@@ -200,27 +197,25 @@ describe("DetectorRunsTable", () => {
       />,
     );
 
-    const cellOf = (id: string) => screen.getByText(id).closest("td")!;
-
-    fireEvent.click(cellOf("finding1"));
-    expect(onFindingClick).toHaveBeenCalledTimes(1);
-    expect(onRunClick).not.toHaveBeenCalled();
+    // The padding around each id is inert.
+    for (const id of ["finding1", "trace-triggered", "run-triggered"]) {
+      fireEvent.click(screen.getByText(id).closest("td")!);
+    }
+    expect(onFindingClick).not.toHaveBeenCalled();
     expect(onTraceClick).not.toHaveBeenCalled();
-
-    fireEvent.click(cellOf("trace-triggered"));
-    expect(onTraceClick).toHaveBeenCalledTimes(1);
     expect(onRunClick).not.toHaveBeenCalled();
 
-    fireEvent.click(cellOf("run-triggered"));
-    expect(onRunClick).toHaveBeenCalledTimes(1);
-
-    // Each id fired exactly once — the cell handler must not double-fire with
-    // the button inside it.
+    // The id itself opens its own destination, exactly once.
+    fireEvent.click(screen.getByRole("button", { name: "finding1" }));
+    fireEvent.click(screen.getByRole("button", { name: "trace-triggered" }));
+    fireEvent.click(screen.getByRole("button", { name: "run-triggered" }));
     expect(onFindingClick).toHaveBeenCalledTimes(1);
+    expect(onFindingClick).toHaveBeenCalledWith(run);
     expect(onTraceClick).toHaveBeenCalledTimes(1);
+    expect(onRunClick).toHaveBeenCalledTimes(1);
   });
 
-  it("opens the self-trace when a self_traced row is clicked anywhere", () => {
+  it("row click does nothing even when the run is self_traced — the Run ID link is the way in", () => {
     const onRunClick = vi.fn();
     const onTraceClick = vi.fn();
     const selfRun: BackendRun = {
@@ -238,10 +233,12 @@ describe("DetectorRunsTable", () => {
     );
 
     fireEvent.click(screen.getByText("Something went wrong"));
+    expect(onRunClick).not.toHaveBeenCalled();
+    expect(onTraceClick).not.toHaveBeenCalled();
 
+    fireEvent.click(screen.getByRole("button", { name: "run-self" }));
     expect(onRunClick).toHaveBeenCalledTimes(1);
     expect(onRunClick).toHaveBeenCalledWith(selfRun);
-    expect(onTraceClick).not.toHaveBeenCalled();
   });
 
   it("row click does nothing when the run has no self-trace", () => {
