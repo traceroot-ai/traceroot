@@ -868,6 +868,10 @@ def transform_otel_to_clickhouse(
                         span_attrs,
                         [
                             "llm.token_count.prompt_details.cache_write",
+                            # traceroot SDKs' Claude Agent SDK instrumentation
+                            # (python + ts) spells the same bucket with
+                            # Anthropic's "cache_creation" word:
+                            "llm.token_count.prompt_details.cache_creation",
                             "gen_ai.usage.cache_creation.input_tokens",
                             "gen_ai.usage.cache_creation_input_tokens",
                             "gen_ai.usage.details.cache_write_tokens",
@@ -879,9 +883,9 @@ def transform_otel_to_clickhouse(
                     )
                     # Optional Anthropic 1-hour cache-write portion (1h write = 2.0x
                     # input, versus 1.25x for the default 5-minute write). A SUBSET of
-                    # cache_write, priced at its own rate when present; absent for every
-                    # emitter today (the split is dropped at the instrumentation layer),
-                    # so this defaults to None -> 0 and leaves pricing unchanged.
+                    # cache_write, priced at its own rate when present; emitters that
+                    # don't distinguish TTLs simply omit it, and this defaults to
+                    # None -> 0, leaving pricing at the combined rate.
                     api_cache_write_1h_tokens = first_present_number(
                         span_attrs,
                         [
@@ -982,12 +986,12 @@ def transform_otel_to_clickhouse(
                         )
                         # Store a GROSS (cache-inclusive) input reconstructed from the
                         # disjoint buckets, so the input column always reconciles with
-                        # its cache breakdown. Net/exclusive emitters (e.g.
-                        # claude-agent-sdk) report only the non-cached tokens in
-                        # llm.token_count.prompt with cache as separate additive
-                        # buckets, so the reported input alone (e.g. 2) understates the
-                        # true total; summing the buckets recovers it. Gross emitters
-                        # are unchanged (cache is already a subset of the input).
+                        # its cache breakdown. Net/exclusive emitters report only the
+                        # non-cached tokens in llm.token_count.prompt with cache as
+                        # separate additive buckets, so the reported input alone
+                        # (e.g. 2) understates the true total; summing the buckets
+                        # recovers it. Gross emitters are unchanged (cache is already
+                        # a subset of the input).
                         gross_input = (
                             buckets.input_uncached + buckets.cache_read + buckets.cache_write
                         )
@@ -1006,9 +1010,9 @@ def transform_otel_to_clickhouse(
                             ),
                         }
                         # Persist the 1-hour cache-write portion only when an emitter
-                        # actually reports it, so spans with no 1-hour portion (every
-                        # span today) keep an identical usage_details map. The read path
-                        # defaults the missing key to 0.
+                        # actually reports it, so spans with no 1-hour portion keep an
+                        # identical usage_details map. The read path defaults the
+                        # missing key to 0.
                         if buckets.cache_write_1h:
                             span_record["usage_details"]["cache_write_1h_tokens"] = (
                                 buckets.cache_write_1h

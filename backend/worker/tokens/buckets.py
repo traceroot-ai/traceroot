@@ -3,9 +3,9 @@ physical token in exactly one bucket, priced once.
 
 The reported input may be GROSS (cache-inclusive — the common case, e.g.
 OpenInference's ``llm.token_count.prompt``, which already contains the cache
-tokens) or NET (cache-exclusive — e.g. the claude-agent-sdk instrumentor, which
-passes Anthropic's exclusive ``input_tokens`` straight through with cache reported
-as separate additive buckets).
+tokens) or NET (cache-exclusive — an emitter that passes the provider's
+exclusive input count straight through with cache reported as separate additive
+buckets).
 
 A single rule handles both: subtract cache from the input to recover the uncached
 bucket, flooring at zero, and keep the cache buckets UNCAPPED. For gross emitters
@@ -26,7 +26,7 @@ of the ``cache_write`` total, never as a new disjoint bucket::
 
 Keeping ``cache_write`` as the single total means the gross-input reconstruction
 (uncached + cache_read + cache_write) is unchanged, and any emitter that does not
-report the 1-hour portion (every emitter today) is priced exactly as before.
+report the 1-hour portion is priced exactly as before.
 """
 
 from __future__ import annotations
@@ -132,16 +132,16 @@ def normalize_token_usage(
 
     The uncached bucket is ``max(input - cache_read - cache_write, 0)``; cache is
     kept uncapped. This is correct for GROSS emitters (cache is a subset of the
-    input, so it subtracts out) and for NET emitters such as claude-agent-sdk
-    (cache exceeds the input, so the uncached bucket floors to zero while the
-    additive cache is still priced in full). All buckets are clamped non-negative.
+    input, so it subtracts out) and for NET emitters (cache exceeds the input, so
+    the uncached bucket floors to zero while the additive cache is still priced
+    in full). All buckets are clamped non-negative.
 
     ``cache_write_1h_tokens`` is an OPTIONAL 1-hour portion of the cache-write total.
     It is reconciled against ``cache_write`` so the sub-partition invariant always
     holds even for malformed input: clamped non-negative and capped so
     ``cache_write_1h <= cache_write`` (the remainder is priced at the combined
     cache-write rate). Defaults to ``0``, so an emitter that does not report the
-    1-hour portion (every emitter today) is unaffected.
+    1-hour portion is unaffected.
     """
     _warn_once_if_unknown_scope(scope_name)
     cache_read = max(cache_read_tokens, 0)
