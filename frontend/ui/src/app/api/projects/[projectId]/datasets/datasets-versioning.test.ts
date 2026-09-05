@@ -30,6 +30,7 @@ vi.mock("@traceroot/core", async (importOriginal) => {
 
 import { fakePrisma } from "@/lib/eval/__tests__/fake-prisma";
 import { decodeJsonValue, encodeJsonValue } from "@/lib/eval/json-value";
+import { publishDatasetVersion, type TestCaseSeed } from "@/lib/eval/versions";
 import { POST as saveTestCase } from "./[datasetId]/test-cases/route";
 import { PATCH as editTestCase } from "./[datasetId]/test-cases/[testCaseId]/route";
 import { GET as getDataset, DELETE as deleteDataset } from "./[datasetId]/route";
@@ -228,10 +229,18 @@ describe("the stored encoding survives a UI round trip", () => {
 });
 
 describe("reading a version's cases is deterministically ordered", () => {
-  it("breaks create_time ties on test_case_id instead of returning insertion order", async () => {
+  it("returns cases in insertion (position) order, not hashed testCaseId order", async () => {
     // Every case a publish writes shares one create_time (CURRENT_TIMESTAMP is the
-    // transaction start time), so the tie is the normal case, not an edge case.
+    // transaction start time), so create_time is never the tiebreaker here. `position`
+    // (assigned in SDK/array order at publish) is what fixes the order — the cases come
+    // back the way they were added, matching the run-results table.
+    //
+    // The `position` values below are deliberately chosen so the resulting order differs
+    // from EVERY other candidate: the row insertion order, ascending testCaseId, and
+    // descending testCaseId all disagree with it — so a green assertion can only mean
+    // `position` drove the sort, never a fallback on the content-addressed (hashed) id.
     const tie = new Date("2026-02-02T00:00:00.000Z");
+    const position: Record<string, number> = { "case-b": 0, "case-c": 1, "case-a": 2 };
     fakePrisma.testCase.rows.length = 0;
     for (const id of ["case-c", "case-a", "case-b"]) {
       fakePrisma.testCase.rows.push({
@@ -242,6 +251,7 @@ describe("reading a version's cases is deterministically ordered", () => {
         projectId: PROJECT_ID,
         input: encodeJsonValue(id),
         createTime: tie,
+        position: position[id],
         review: "ready",
         captureReason: "manual",
       });
@@ -254,8 +264,67 @@ describe("reading a version's cases is deterministically ordered", () => {
       p(),
     );
     const body = (await res.json()) as { testCases: { testCaseId: string }[] };
-    // The UI table is newest-first, so ties resolve on test_case_id descending.
-    expect(body.testCases.map((c) => c.testCaseId)).toEqual(["case-c", "case-b", "case-a"]);
+    // position order [b, c, a] — not insertion [c, a, b], not testCaseId asc [a, b, c],
+    // not testCaseId desc [c, b, a]. Only `position` yields this exact sequence.
+    expect(body.testCases.map((c) => c.testCaseId)).toEqual(["case-b", "case-c", "case-a"]);
+  });
+
+  it("assigns position in array order at publish, so the GET returns cases as they were added", async () => {
+    // Drive the REAL publish path (`publishDatasetVersion` → `createMany` with
+    // `position: index`) against the fake prisma, then read it back through the route.
+    // All cases share ONE createTime, as a real publish does. That makes the fallback
+    // ordering (createTime then testCaseId) tie on createTime and fall to testCaseId — so
+    // only `position` can produce the added order; a broken position stamp can't hide
+    // behind a per-row createTime that happens to match insertion order.
+    const tie = new Date("2026-02-02T00:00:00.000Z");
+    const seed = (testCaseId: string): TestCaseSeed => ({
+      testCaseId,
+      input: encodeJsonValue(testCaseId),
+      expected: null,
+      metadata: null,
+      review: "ready",
+      captureReason: "manual",
+      sourceTraceId: null,
+      sourceSpanId: null,
+      sourceSpanName: null,
+      sourceSpanKind: null,
+      addedBy: null,
+      createTime: tie,
+    });
+
+    // The added order is deliberately neither ascending nor descending by testCaseId, so
+    // the order the cases come back in can only have come from `position` (the array index
+    // stamped at publish), never a fallback on the content-addressed (hashed) testCaseId:
+    //   added      [zeta, alpha, mu]   ← what we publish
+    //   id asc     [alpha, mu, zeta]
+    //   id desc    [zeta, mu, alpha]
+    const added = ["zeta", "alpha", "mu"];
+    await publishDatasetVersion({
+      datasetId: "ds1",
+      projectId: PROJECT_ID,
+      transform: () => ({ cases: added.map(seed), focusTestCaseId: added[0] }),
+    });
+
+    // The publish stamped position = array index onto the new version's rows.
+    const dataset = fakePrisma.dataset.rows.find((d) => d.id === "ds1")!;
+    const written = fakePrisma.testCase.rows.filter(
+      (c) => c.datasetVersionId === dataset.currentVersionId,
+    );
+    expect(
+      [...written]
+        .sort((a, b) => (a.position as number) - (b.position as number))
+        .map((c) => c.testCaseId),
+    ).toEqual(added);
+
+    // The dataset-detail GET returns them in that same added order.
+    const res = await getDataset(
+      { nextUrl: { searchParams: new URLSearchParams() } } as unknown as Parameters<
+        typeof getDataset
+      >[0],
+      p(),
+    );
+    const body = (await res.json()) as { testCases: { testCaseId: string }[] };
+    expect(body.testCases.map((c) => c.testCaseId)).toEqual(added);
   });
 });
 

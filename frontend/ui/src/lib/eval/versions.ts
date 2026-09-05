@@ -3,11 +3,21 @@ import { versionSnowflakeFromMs } from "./snowflake";
 import { decodeJsonValue } from "./json-value";
 import { rejectLoneSurrogate, LoneSurrogateError } from "./case-id";
 
-/** Deterministic read order for a version's cases (see the ordering note where
- *  it's used): every case a publish writes shares one `create_time` (Postgres'
- *  `CURRENT_TIMESTAMP` default is the transaction start time), so `testCaseId`
- *  breaks the tie and makes the order total instead of "whatever the plan does". */
-export const TEST_CASE_ORDER = [{ createTime: "asc" as const }, { testCaseId: "asc" as const }];
+/** Insertion order for a version's cases: `position` is assigned in SDK/array order at
+ *  publish, so it preserves the order cases were added (and keeps appends stable, since a
+ *  new version copies the current cases in this order). The `create_time`/`testCaseId`
+ *  keys are a fallback ONLY for rows written before `position` existed (all null): they
+ *  give those legacy rows one consistent (descending, content-hash) order across every
+ *  case-listing surface — NOT their true insertion order, which only returns when the
+ *  dataset is next republished. (Legacy hash order is arbitrary and was inconsistent
+ *  between surfaces before this; a single shared fallback at least makes them agree.
+ *  Within a post-`position` version every row has a distinct position, so these tiebreaks
+ *  never fire there.) */
+export const TEST_CASE_ORDER = [
+  { position: "asc" as const },
+  { createTime: "desc" as const },
+  { testCaseId: "desc" as const },
+];
 
 /**
  * Dataset-version publishing — the immutability core.
@@ -314,8 +324,13 @@ export async function publishDatasetVersion(opts: {
 
     if (cases.length > 0) {
       await tx.testCase.createMany({
-        data: cases.map(({ createTime, ...c }) => ({
+        data: cases.map(({ createTime, ...c }, index) => ({
           ...c,
+          // Insertion order within the version: `cases` is in SDK/array order (and the
+          // current cases were read in that same order via TEST_CASE_ORDER), so the index
+          // preserves the order cases were added — createTime alone can't, since every
+          // case of this publish shares one timestamp.
+          position: index,
           metadata: (c.metadata ?? undefined) as Prisma.InputJsonValue | undefined,
           // Preserve an existing case's original created date across the copy; a
           // brand-new case (no createTime on the seed) omits it and defaults to now.
