@@ -106,7 +106,7 @@ Threats are categorised using **STRIDE**. Each threat maps to a component and a 
 |---|---|---|---|
 | D-01 | Attacker floods trace ingestion endpoint with high-volume spans, exhausting ClickHouse write capacity | REST API / ClickHouse | P1 |
 | D-02 | Celery worker queue overwhelmed with trace ingestion and detector tasks, starving real-time processing | Redis / Celery | P1 |
-| D-03 | Large trace payloads (>300 spans) cause memory exhaustion in the Daytona sandbox (known issue #618) | Daytona sandbox | P2 |
+| D-03 | Large trace payloads cause memory exhaustion in the Daytona sandbox | Daytona sandbox | P2 |
 | D-04 | Recursive or deeply nested agent traces cause unbounded processing time in the TS agent service | TS agent service | P2 |
 
 ### 2.6 Elevation of Privilege
@@ -133,6 +133,7 @@ Threats are categorised using **STRIDE**. Each threat maps to a component and a 
 | I-01 | (no mitigation in place — see Known Gaps) |
 | I-03 | Tenant isolation by `project_id` in ClickHouse queries |
 | E-02 | Daytona sandbox is ephemeral and containerised, limiting blast radius |
+| D-01 | Per-API-key rate limiting (workspace-keyed `slowapi`, Redis-backed) enforced on trace ingestion for cloud/billing-enabled deployments (`backend/rest/rate_limit.py`) |
 
 ### 3.2 Known Gaps and Recommended Actions
 
@@ -143,8 +144,8 @@ Threats are categorised using **STRIDE**. Each threat maps to a component and a 
 | I-01 | No automatic scrubbing of API key patterns in span attributes | Implement regex-based secret scrubbing in the SDK before payloads are sent | P0 |
 | I-03 | Row-level security in ClickHouse not formally verified | Audit all ClickHouse queries for tenant isolation; add integration tests asserting cross-tenant data is unreachable | P0 |
 | R-01 | No audit log table for sensitive operations (debug session start, trace delete, billing change) | Add `audit_log` table in ClickHouse; log actor, action, resource, timestamp | P1 |
-| D-01 | No rate limiting on trace ingestion endpoint | Implement per-API-key rate limiting at the FastAPI layer (e.g. `slowapi`) | P1 |
-| D-03 | Large traces (>300 spans) crash Daytona sandbox (issue #618) | Add span count limit before sandbox download; chunk or summarise large traces | P2 |
+| D-01 | No rate limiting on trace ingestion for self-hosted deployments (cloud/billing-enabled deployments are covered — see 3.1) | Extend the existing workspace-keyed `slowapi` limiter (`backend/rest/rate_limit.py`) to self-hosted, or document the operator-owned rate-limiting expectation in the self-hosting guide | P1 |
+| D-03 | No span-count limit or chunking before Daytona sandbox download for large traces | Add span count limit before sandbox download; chunk or summarise large traces (note: issue #618, previously cited here, was a missing-directory `writeFile` bug fixed in #1441 — unrelated to trace size) | P2 |
 | E-01 | IDOR risk on trace/span endpoints if tenant check is missing | Audit every GET/DELETE endpoint for explicit `project_id` ownership check | P0 |
 | E-04 | Self-hosted Redis has no AUTH by default in `docker-compose.yml` | Set `requirepass` in Redis config and document in self-hosting guide | P1 |
 | S-04 | Self-hosted ClickHouse may accept unauthenticated connections | Enforce ClickHouse user/password in `docker-compose.yml` defaults | P2 |
