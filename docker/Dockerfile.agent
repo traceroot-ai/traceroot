@@ -1,5 +1,5 @@
 # docker/Dockerfile.agent
-FROM node:20-alpine AS base
+FROM node:26-alpine AS base
 RUN apk add --no-cache openssl && \
     corepack enable && corepack prepare pnpm@10 --activate
 
@@ -44,7 +44,7 @@ RUN cd packages/core && \
 RUN cd packages/tools && pnpm build
 RUN cd ee/agent && pnpm build
 
-FROM node:20-alpine AS runner
+FROM node:26-alpine AS runner
 WORKDIR /app
 
 RUN apk add --no-cache openssl docker-cli
