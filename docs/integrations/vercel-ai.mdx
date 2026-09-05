@@ -3,12 +3,18 @@ title: Vercel AI SDK
 description: Trace Vercel AI SDK agents — no instrumentModules config required
 ---
 
-Trace [Vercel AI SDK](https://sdk.vercel.ai) agents in TraceRoot. Unlike LangChain, OpenAI, or Anthropic, no `instrumentModules` configuration is needed — the Vercel AI SDK emits OpenTelemetry spans natively when `experimental_telemetry` is enabled, and TraceRoot enriches them via the OpenInference span processor automatically.
+Trace [Vercel AI SDK](https://sdk.vercel.ai) agents in TraceRoot. Unlike LangChain, OpenAI, or Anthropic, no `instrumentModules` configuration is needed — the Vercel AI SDK emits OpenTelemetry spans natively when telemetry is enabled, and TraceRoot enriches them via the OpenInference span processor automatically.
+
+<Note>
+  **AI SDK v7 and later**: telemetry moved to the separate `@ai-sdk/otel` package. Pass
+  `telemetry: { integrations: [new OpenTelemetry()] }` on each call. On AI SDK v6 and
+  earlier, use `experimental_telemetry: { isEnabled: true }` instead.
+</Note>
 
 ## Setup
 
 ```bash
-npm install @traceroot-ai/traceroot ai @ai-sdk/openai zod
+npm install @traceroot-ai/traceroot ai @ai-sdk/otel @ai-sdk/openai zod
 ```
 
 Initialize TraceRoot at your entry point — no `instrumentModules` config:
@@ -24,6 +30,7 @@ TraceRoot.initialize();
 
 ```typescript
 import { generateText, tool } from 'ai';
+import { OpenTelemetry } from '@ai-sdk/otel';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { observe } from '@traceroot-ai/traceroot';
@@ -35,7 +42,7 @@ const result = await observe({ name: 'my_agent', type: 'agent' }, async () => {
     prompt: 'What is the weather in Tokyo?',
     // This single line activates Vercel AI SDK's built-in OpenTelemetry spans.
     // TraceRoot enriches them automatically.
-    experimental_telemetry: { isEnabled: true },
+    telemetry: { integrations: [new OpenTelemetry()] },
     tools: {
       getWeather: tool({
         description: 'Get current weather for a city',
