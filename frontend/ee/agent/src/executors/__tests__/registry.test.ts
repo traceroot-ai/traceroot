@@ -94,6 +94,50 @@ describe("SandboxRegistry.sweepIdle", () => {
   });
 });
 
+describe("SandboxRegistry.retain", () => {
+  it("keeps a sandbox off the sweep for as long as the request holds it", async () => {
+    const { registry, created } = makeRegistry(30 * 60_000);
+    const release = registry.retain("long-run");
+
+    // A tool loop far longer than the TTL: acquire() alone recorded only when the
+    // turn started, so a purely time-based sweep would have killed it mid-request.
+    clock += 90 * 60_000;
+    expect(await registry.sweepIdle()).toEqual([]);
+    expect(created[0].executor.destroyed).toBe(0);
+
+    release();
+    expect(await registry.sweepIdle()).toEqual([]); // clock restarts on release
+    clock += 31 * 60_000;
+    expect(await registry.sweepIdle()).toEqual(["long-run"]);
+  });
+
+  it("counts concurrent holds, so one finishing does not expose the other", async () => {
+    const { registry } = makeRegistry(30 * 60_000);
+    const releaseFirst = registry.retain("shared");
+    const releaseSecond = registry.retain("shared");
+
+    clock += 90 * 60_000;
+    releaseFirst();
+    expect(await registry.sweepIdle()).toEqual([]);
+
+    releaseSecond();
+    clock += 31 * 60_000;
+    expect(await registry.sweepIdle()).toEqual(["shared"]);
+  });
+
+  it("is idempotent, so a finally that runs twice cannot free another hold", async () => {
+    const { registry } = makeRegistry(30 * 60_000);
+    const releaseFirst = registry.retain("shared");
+    registry.retain("shared");
+
+    releaseFirst();
+    releaseFirst();
+
+    clock += 90 * 60_000;
+    expect(await registry.sweepIdle()).toEqual([]);
+  });
+});
+
 describe("SandboxRegistry.destroyAll", () => {
   it("destroys every sandbox even when one teardown rejects", async () => {
     const failing = stubExecutor({
@@ -145,6 +189,90 @@ describe("SandboxRegistry.destroyAll", () => {
     // Sequential teardown can outlast compose's stop grace period, after which
     // SIGKILL leaks whatever is left (#2101).
     expect(peak).toBe(4);
+  });
+});
+
+describe("SandboxRegistry shutdown admission", () => {
+  it("refuses new sandboxes once teardown has begun", async () => {
+    const { registry, created } = makeRegistry();
+    registry.acquire("before");
+
+    await registry.destroyAll();
+
+    // Snapshotting the map without closing admission left a window where a
+    // request created a container the teardown had already walked past.
+    expect(() => registry.acquire("during")).toThrow(/shutting down/);
+    expect(() => registry.retain("during")).toThrow(/shutting down/);
+    expect(created).toHaveLength(1);
+    expect(registry.size).toBe(0);
+  });
+
+  it("drains a sandbox created while teardown was in flight", async () => {
+    const created: Array<Executor & { destroyed: number }> = [];
+    // Slip an acquire in while the first destroy is awaiting, the exact race the
+    // snapshot-then-destroy version could not see. `racing` closes over
+    // `registry` below; the closure only runs during destroyAll, long after it
+    // is initialised.
+    const racing = stubExecutor({
+      destroy: vi.fn(async () => {
+        try {
+          registry.acquire("late");
+        } catch {
+          // Expected once admission closes — the assertion is on what got destroyed.
+        }
+        racing.destroyed += 1;
+      }),
+    });
+    const registry = new SandboxRegistry({
+      create: (sessionId) => {
+        if (sessionId === "first") return racing;
+        const executor = stubExecutor();
+        created.push(executor);
+        return executor;
+      },
+      idleTtlMs: 30 * 60_000,
+      now,
+    });
+    registry.acquire("first");
+
+    await registry.destroyAll();
+
+    expect(registry.size).toBe(0);
+    expect(created.every((e) => e.destroyed === 1)).toBe(true);
+  });
+});
+
+describe("SandboxRegistry.startSweeping", () => {
+  it("sweeps on the interval and stops when told to", async () => {
+    vi.useFakeTimers();
+    try {
+      const { registry, created } = makeRegistry(30 * 60_000);
+      registry.acquire("idle");
+      clock += 31 * 60_000;
+
+      registry.startSweeping(1_000);
+      registry.startSweeping(1_000); // second call must not add a second timer
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      expect(created[0].executor.destroyed).toBe(1);
+      expect(registry.size).toBe(0);
+
+      registry.stopSweeping();
+      registry.stopSweeping(); // idempotent
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not arm a timer when the TTL is disabled", () => {
+    vi.useFakeTimers();
+    try {
+      const { registry } = makeRegistry(0);
+      registry.startSweeping(1_000);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

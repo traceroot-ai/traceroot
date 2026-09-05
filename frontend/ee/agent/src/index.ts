@@ -187,6 +187,9 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
   }
 
   return streamSSE(c, async (stream) => {
+    // Held for the whole turn: a tool loop can outlast the idle TTL, and without
+    // this the sweeper would tear the sandbox down mid-request.
+    const releaseSandbox = sessionExecutors.retain(sessionId);
     let assistantText = "";
     let loggedFirstUpdate = false;
 
@@ -300,7 +303,9 @@ app.post("/api/v1/projects/:projectId/sessions/:sessionId/messages", async (c) =
           resolve();
         },
       });
-    });
+      // .finally, not a trailing call: an aborted or failed turn must give the
+      // sandbox back too, or that session is never swept again.
+    }).finally(releaseSandbox);
   });
 });
 

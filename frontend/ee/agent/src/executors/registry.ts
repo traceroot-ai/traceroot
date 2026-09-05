@@ -14,6 +14,14 @@ export function idleTtlMsFromEnv(env: NodeJS.ProcessEnv = process.env): number {
 interface Entry {
   executor: Executor;
   lastUsedAt: number;
+  /**
+   * Requests currently holding this sandbox. A turn can run far longer than the
+   * TTL — tool loops, a long RCA — and `lastUsedAt` alone only records when the
+   * turn *started*, so a purely time-based sweep would `docker rm -f` a container
+   * out from under a live request. An entry with a lease outstanding is never
+   * idle, whatever the clock says.
+   */
+  leases: number;
 }
 
 /**
@@ -32,6 +40,7 @@ export class SandboxRegistry {
   private readonly idleTtlMs: number;
   private readonly now: () => number;
   private sweepTimer: NodeJS.Timeout | null = null;
+  private closed = false;
 
   constructor(options: {
     create: (sessionId: string) => Executor;
@@ -49,14 +58,43 @@ export class SandboxRegistry {
 
   /** The session's executor, created on first use. Marks the session as active. */
   acquire(sessionId: string): Executor {
+    // Admission closes before teardown starts. Without this, a request arriving
+    // during shutdown could create a container after destroyAll() had taken its
+    // snapshot, and nothing would ever destroy it.
+    if (this.closed) {
+      throw new Error("Sandbox registry is shutting down");
+    }
     const existing = this.entries.get(sessionId);
     if (existing) {
       existing.lastUsedAt = this.now();
       return existing.executor;
     }
     const executor = this.create(sessionId);
-    this.entries.set(sessionId, { executor, lastUsedAt: this.now() });
+    this.entries.set(sessionId, { executor, lastUsedAt: this.now(), leases: 0 });
     return executor;
+  }
+
+  /**
+   * Hold the session's sandbox for the length of one request, returning the
+   * function that gives it back.
+   *
+   * The sandbox cannot be swept while a hold is outstanding, and releasing it
+   * restarts the idle clock from when the work finished rather than when it
+   * started. The returned function is idempotent, so a `finally` that runs twice
+   * on an aborted stream cannot decrement another request's hold.
+   */
+  retain(sessionId: string): () => void {
+    this.acquire(sessionId);
+    const entry = this.entries.get(sessionId)!;
+    entry.leases += 1;
+    let released = false;
+
+    return () => {
+      if (released) return;
+      released = true;
+      entry.leases -= 1;
+      entry.lastUsedAt = this.now();
+    };
   }
 
   /** Tear down one session's sandbox. Safe to call for an unknown session. */
@@ -72,7 +110,7 @@ export class SandboxRegistry {
     if (this.idleTtlMs <= 0) return [];
     const cutoff = this.now() - this.idleTtlMs;
     const stale = [...this.entries.entries()]
-      .filter(([, entry]) => entry.lastUsedAt <= cutoff)
+      .filter(([, entry]) => entry.leases === 0 && entry.lastUsedAt <= cutoff)
       .map(([sessionId]) => sessionId);
 
     // Settled, not all: one container that refuses to die must not strand the
@@ -110,7 +148,13 @@ export class SandboxRegistry {
    */
   async destroyAll(): Promise<void> {
     this.stopSweeping();
-    const sessionIds = [...this.entries.keys()];
-    await Promise.allSettled(sessionIds.map((sessionId) => this.release(sessionId)));
+    // Close admission first, then drain. Snapshotting the map without closing
+    // leaves a window where an in-flight request creates a container that the
+    // teardown has already walked past, and the process exits owning it.
+    this.closed = true;
+    while (this.entries.size > 0) {
+      const sessionIds = [...this.entries.keys()];
+      await Promise.allSettled(sessionIds.map((sessionId) => this.release(sessionId)));
+    }
   }
 }

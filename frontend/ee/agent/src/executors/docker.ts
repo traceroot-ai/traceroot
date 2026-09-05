@@ -245,7 +245,7 @@ export async function reclaimOrphanedSandboxes(ownerId: string): Promise<string[
       "--filter",
       `name=${CONTAINER_NAME_PREFIX}`,
       "--format",
-      `{{.ID}} {{.Label "${OWNER_LABEL}"}}`,
+      `{{.ID}} {{.Names}} {{.Label "${OWNER_LABEL}"}}`,
     ]);
     listed = stdout;
   } catch (error) {
@@ -260,9 +260,16 @@ export async function reclaimOrphanedSandboxes(ownerId: string): Promise<string[
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const [id, owner] = line.split(/\s+/, 2);
-      return { id, owner };
+      const [id, names, owner] = line.split(/\s+/);
+      return { id, names: (names ?? "").split(","), owner };
     })
+    // `docker ps --filter name=` matches a substring, not a prefix, so a
+    // container someone else called "my-traceroot-sandbox-notes" is listed here
+    // and — carrying no owner label — would read as an orphan. Force-removing a
+    // container we did not create is not a risk worth taking for a sweep, so the
+    // name is re-checked exactly. A container can carry several names; ours is
+    // created with one, and any name matching the prefix identifies it.
+    .filter(({ names }) => names.some((name) => name.startsWith(CONTAINER_NAME_PREFIX)))
     .filter(({ owner }) => owner !== ownerId)
     .map(({ id }) => id);
 
