@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma, Role, RoleSchema } from "@traceroot/core";
+import {
+  prisma,
+  Role,
+  RoleSchema,
+  countCurrentSeats,
+  getSeatLimit,
+  canAddSeat,
+  PlanType,
+} from "@traceroot/core";
 import {
   requireAuth,
   requireWorkspaceMembership,
@@ -98,12 +106,65 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
   });
 
   if (existingMembership) {
+    // Self-healing for legacy data: routes prior to this fix could create a
+    // membership without deleting the matching invite (mirrors accept-route's
+    // cleanup on its own already-a-member branch). deleteMany is a no-op
+    // (not a throw) when no row matches, so a concurrent request that
+    // already cleaned up the same stale invite can't turn this best-effort
+    // cleanup into an unhandled 500.
+    await prisma.invite.deleteMany({
+      where: { email: targetUser.email.toLowerCase(), workspaceId },
+    });
+
     return errorResponse("User is already a member of this workspace", 409);
+  }
+
+  // Check seat limit before adding member. Counts members + pending invites
+  // (mirrors invite-create) since an outstanding invite can still be
+  // accepted later; see the accept route for why it counts members only.
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    include: {
+      _count: {
+        select: {
+          members: true,
+          invites: true,
+        },
+      },
+    },
+  });
+
+  if (!workspace) {
+    return errorResponse("Workspace not found", 404);
+  }
+
+  // A pending invite for this user's email is about to be superseded by the
+  // direct membership created below, so it must not be double-counted
+  // against the seat limit (mirrors invite-accept's own transaction).
+  const pendingInvite = await prisma.invite.findUnique({
+    where: {
+      email_workspaceId: {
+        email: targetUser.email.toLowerCase(),
+        workspaceId,
+      },
+    },
+  });
+
+  const plan = (workspace.billingPlan || PlanType.FREE) as PlanType;
+  const currentSeats = countCurrentSeats(workspace._count, { supersedesInvite: !!pendingInvite });
+  const seatLimit = getSeatLimit(plan);
+
+  if (!canAddSeat(plan, currentSeats)) {
+    return errorResponse(
+      `Your ${plan} plan is limited to ${seatLimit} seat${seatLimit === 1 ? "" : "s"}. ` +
+        `Upgrade your plan to add more members.`,
+      403,
+    );
   }
 
   const membershipId = crypto.randomUUID();
 
-  const membership = await prisma.workspaceMember.create({
+  const createMembership = prisma.workspaceMember.create({
     data: {
       id: membershipId,
       workspaceId,
@@ -111,6 +172,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       role,
     },
   });
+
+  // deleteMany (not delete): a concurrent request that already removed this
+  // same invite must not fail the whole transaction and roll back a
+  // legitimate membership create — mirrors the 409 branch's race-safety fix.
+  const [membership] = pendingInvite
+    ? await prisma.$transaction([
+        createMembership,
+        prisma.invite.deleteMany({ where: { id: pendingInvite.id } }),
+      ])
+    : await prisma.$transaction([createMembership]);
 
   return NextResponse.json(
     {

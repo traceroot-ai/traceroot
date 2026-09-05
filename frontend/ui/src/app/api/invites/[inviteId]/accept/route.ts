@@ -58,6 +58,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
   // Check seat limit before accepting invite
   // (Plan may have been downgraded since invite was sent)
+  // Counts existing members only, not `+ invites` like invite-create does:
+  // the invite being accepted is deleted in the same transaction below, so
+  // counting it here would double-count it against itself.
   const plan = (invite.workspace.billingPlan || PlanType.FREE) as PlanType;
   const currentMembers = invite.workspace._count.members;
   const seatLimit = getSeatLimit(plan);
