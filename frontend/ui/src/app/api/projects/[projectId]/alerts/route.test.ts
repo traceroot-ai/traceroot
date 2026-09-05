@@ -281,6 +281,26 @@ describe("PATCH /api/projects/[projectId]/alerts/[alertId]", () => {
       expect(row?.status).toBe("PARKED");
       expect(row?.name).toBe("Renamed");
     });
+
+    it("re-arms on the current status, not the one read before a concurrent tick parked it", async () => {
+      // The row was ACTIVE when this handler read `existing`; a tick's own
+      // park write lands in between, and the fixing edit still has to catch it
+      // at commit time rather than trust the stale read.
+      store.set("alert-1", alertRow({ status: "ACTIVE" }));
+      alertFindFirst.mockImplementationOnce(async () => {
+        const stale = { ...store.get("alert-1")! };
+        store.set("alert-1", { ...stale, status: "PARKED" });
+        return stale;
+      });
+
+      expect((await patch({ threshold: 999 })).status).toBe(200);
+      const row = store.get("alert-1");
+
+      expect(row?.status).toBe("ACTIVE");
+      expect(row?.threshold).toBe(999);
+      expect(row?.severity).toBe("UNKNOWN");
+      expect(row?.lastClaimedAt).toBeNull();
+    });
   });
 
   it("rejects an empty update rather than issuing a no-op write", async () => {

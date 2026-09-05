@@ -68,7 +68,22 @@ async function claimRow(row: DueAlertRow, tick: AlertTick): Promise<ClaimedAlert
       });
       if (!parked) logInfo(`stale claim discarded alert=${row.id} project=${row.projectId}`);
     } catch (error) {
+      // A park that does not land must not read as a silent success: `nextRunAt`
+      // is already advanced, so without this the row stays ACTIVE with no
+      // recorded reason and is retried, and discarded, every minute with nothing
+      // to show for it. Falls back to the plain failure record, same as the
+      // evaluator's own park path does.
       logError(`park failed alert=${row.id} project=${row.projectId}`, error);
+      try {
+        const recorded = await recordAlertEvaluationFailure({
+          alertId: row.id,
+          claimStamp: tick.now,
+          error: { message: UNEVALUABLE_RULE_ERROR, at: new Date() },
+        });
+        if (!recorded) logInfo(`stale claim discarded alert=${row.id} project=${row.projectId}`);
+      } catch (recordError) {
+        logError(`error record failed alert=${row.id} project=${row.projectId}`, recordError);
+      }
     }
     return null;
   }

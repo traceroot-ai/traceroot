@@ -124,7 +124,7 @@ async function recordFailure(claim: ClaimedAlert, message: string): Promise<void
 
 /** What the owner has to do about a parked rule, appended to the evaluator's reason. */
 const PARKED_RULE_SUFFIX =
-  "; this rule is parked and will not run again until it is edited and saved";
+  "; this rule is parked and will not run again until it is edited and saved, or resumed";
 
 /**
  * A rejection of the rule itself, which every later tick would reject the same

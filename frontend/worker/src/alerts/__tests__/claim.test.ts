@@ -182,6 +182,29 @@ describe("claimDueAlerts — taking ownership", () => {
 
     expect((await claimDueAlerts(TICK)).map((claim) => claim.rule.id)).toEqual(["alert-2"]);
   });
+
+  it("falls back to recording the failure when the park write itself throws", async () => {
+    // Otherwise the row stays ACTIVE with `nextRunAt` already advanced and no
+    // recorded reason at all: a silent, indefinite retry with nothing to show
+    // the owner. The evaluator's own park path (parkRule in scheduler.ts) has
+    // the same fallback.
+    findMany.mockResolvedValue([row({ window: "24h" })]);
+    updateMany.mockImplementation(async (args) => {
+      const data = args.data as Record<string, unknown>;
+      if (data.status === "PARKED") throw new Error("pool timeout");
+      return { count: 1 };
+    });
+
+    expect(await claimDueAlerts(TICK)).toEqual([]);
+
+    const fallback = updateMany.mock.calls.at(-1)?.[0] as {
+      where: unknown;
+      data: Record<string, unknown>;
+    };
+    expect(fallback.where).toEqual({ id: "alert-1", status: "ACTIVE", lastClaimedAt: TICK.now });
+    expect(fallback.data.status).toBeUndefined();
+    expect(fallback.data.lastError).toContain("cannot be evaluated");
+  });
 });
 
 describe("completeAlertEvaluation", () => {
