@@ -11,10 +11,17 @@ const prismaMock = vi.hoisted(() => ({
   evaluationRun: { findFirst: vi.fn() },
   dataset: { findFirst: vi.fn() },
   evaluationResult: { groupBy: vi.fn(), aggregate: vi.fn() },
+  // The route resolves the workspace's plan for the retention gate.
+  workspace: { findUnique: vi.fn() },
 }));
 const auth = vi.hoisted(() => ({ requireAuth: vi.fn(), requireProjectAccess: vi.fn() }));
 
-vi.mock("@traceroot/core", () => ({ prisma: prismaMock }));
+// Spread the real module so the retention helper's `getRetentionDays`/`PlanType`
+// are the shipped ones, not a second copy of the plan table.
+vi.mock("@traceroot/core", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@traceroot/core")>()),
+  prisma: prismaMock,
+}));
 vi.mock("@/lib/auth-helpers", () => ({
   requireAuth: auth.requireAuth,
   requireProjectAccess: auth.requireProjectAccess,
@@ -147,8 +154,13 @@ beforeEach(() => {
   prismaMock.dataset.findFirst.mockReset();
   prismaMock.evaluationResult.groupBy.mockReset();
   prismaMock.evaluationResult.aggregate.mockReset();
+  prismaMock.workspace.findUnique.mockReset();
   auth.requireAuth.mockResolvedValue({ user: { id: "u1" } });
-  auth.requireProjectAccess.mockResolvedValue({ project: { id: "p1" } });
+  auth.requireProjectAccess.mockResolvedValue({ project: { id: "p1", workspaceId: "ws1" } });
+  // Unlimited retention: these cases are about the comparison derivation, so the
+  // gate (and the wall clock the fixture's startedAt is measured against) is kept
+  // out of them. route.retention.test.ts covers the gate itself.
+  prismaMock.workspace.findUnique.mockResolvedValue({ billingPlan: "enterprise" });
   prismaMock.dataset.findFirst.mockResolvedValue({ id: "ds1", name: "Billing routing" });
   // Status counts now come from a grouped aggregate over ALL of a run's results, not the
   // (capped) results page. Default to none; the per-status-counts test supplies its own.
