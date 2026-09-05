@@ -28,6 +28,11 @@ const serverSchema = z.object({
   BETTER_AUTH_SECRET: authSecret(),
   BETTER_AUTH_URL: z.string().default("http://localhost:3000"),
   INTERNAL_API_SECRET: authSecret(),
+  // Comma-separated CIDRs of proxies in front of this app, used to resolve the
+  // real client address from x-forwarded-for. Blank means no trusted proxies
+  // (better-auth's own default): only a single-entry header is trusted. See
+  // lib/trusted-proxies.ts for why a default is not safe to guess.
+  AUTH_TRUSTED_PROXY_CIDRS: z.string().default(""),
   AUTH_GOOGLE_CLIENT_ID: z.string().default(""),
   AUTH_GOOGLE_CLIENT_SECRET: z.string().default(""),
   TRACEROOT_SMTP_URL: z.string().optional(),
