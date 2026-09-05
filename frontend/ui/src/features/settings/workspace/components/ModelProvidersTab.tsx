@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Loader2, CheckCircle2, XCircle, ArrowUpRight, X } from "lucide-react";
+import { Plus, Loader2, ArrowUpRight, X } from "lucide-react";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { ProviderIcon } from "@/components/icons/provider-icons";
 import { Button } from "@/components/ui/button";
 import { AddButton } from "@/components/ui/add-button";
@@ -639,7 +640,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
                 </Button>
                 {testResult?.success && (
                   <span className="flex items-center gap-1 text-xs">
-                    <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+                    <DOMAIN_ICONS.success className="h-3.5 w-3.5 text-green-600" />
                     <span className="text-green-600">Connected</span>
                   </span>
                 )}
@@ -647,7 +648,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
               {testResult && !testResult.success && (
                 <div className="flex min-w-0 flex-col gap-0.5 text-xs text-destructive">
                   <div className="flex items-start gap-1">
-                    <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <DOMAIN_ICONS.failure className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                     <span className="min-w-0 break-words">{testResult.error}</span>
                   </div>
                   {testResult.detail && (
@@ -664,7 +665,7 @@ export function ModelProvidersTab({ workspaceId }: ModelProvidersTabProps) {
 
           {saveError && (
             <div className="flex items-center gap-1 text-xs text-destructive">
-              <XCircle className="h-3.5 w-3.5" />
+              <DOMAIN_ICONS.failure className="h-3.5 w-3.5" />
               {saveError}
             </div>
           )}

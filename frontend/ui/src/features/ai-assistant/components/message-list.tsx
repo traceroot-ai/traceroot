@@ -14,7 +14,8 @@ import {
 import ReactMarkdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ChevronRight, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { ChevronRight, Loader2 } from "lucide-react";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { cn } from "@/lib/utils";
 import type { AIMessage, ToolCallStep } from "../types";
 import { PANEL_MAX_WIDTH } from "../constants";
@@ -346,8 +347,12 @@ function ToolStepItem({ step, isActive }: { step: ToolCallStep; isActive: boolea
         {step.status === "running" && (
           <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground/60" />
         )}
-        {step.status === "done" && <CheckCircle2 className="h-3 w-3 shrink-0 text-green-500/70" />}
-        {step.status === "error" && <XCircle className="h-3 w-3 shrink-0 text-destructive/70" />}
+        {step.status === "done" && (
+          <DOMAIN_ICONS.success className="h-3 w-3 shrink-0 text-green-500/70" />
+        )}
+        {step.status === "error" && (
+          <DOMAIN_ICONS.failure className="h-3 w-3 shrink-0 text-destructive/70" />
+        )}
         <span className="italic text-muted-foreground/80">{formatToolName(step.toolName)}</span>
         <span className="font-mono text-[10px] text-muted-foreground/40">({step.toolName})</span>
         <ChevronRight

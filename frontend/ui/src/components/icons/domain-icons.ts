@@ -17,14 +17,13 @@ import {
   LayoutDashboard,
   LayoutGrid,
   Layers,
-  FlaskConical,
-  Play,
-  Ruler,
+  Loader2,
   Shapes,
   Sparkle,
   Users,
   Workflow,
   Wrench,
+  XCircle,
 } from "lucide-react";
 
 /**
@@ -72,8 +71,9 @@ export const DOMAIN_ICONS = {
   // Free-form key/value data the user attached to a trace, not a traceroot field.
   metadata: Braces,
   dashboard: LayoutDashboard,
-  // Collapsing rows into a lineage/roll-up (e.g. "Group by evaluation").
-  group: Layers,
+  success: CircleCheck,
+  failure: XCircle,
+  pending: Loader2,
   // Neutral "unknown field" fallback for filter/widget dropdowns. Kept
   // decoupled from `model` even though both currently render as Box — if the
   // model glyph ever changes, unmapped fields shouldn't silently change with
