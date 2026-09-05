@@ -7,18 +7,54 @@ const execFileAsync = promisify(execFile);
 
 const DOCKER_IMAGE = "ubuntu:24.04";
 const WORKSPACE_DIR = "/workspace";
+const CONTAINER_NAME_PREFIX = "traceroot-sandbox-";
+
+/** Marks a container as an agent sandbox. Set on every container we create. */
+export const SANDBOX_LABEL = "traceroot.sandbox";
+/** The session a sandbox belongs to. */
+export const SESSION_LABEL = "traceroot.session";
+/** The agent instance that created a sandbox — the basis for reconciliation. */
+export const OWNER_LABEL = "traceroot.owner";
+
+export interface DockerExecutorOptions {
+  /** Session this sandbox serves, recorded as a label for out-of-process lookup. */
+  sessionId?: string;
+  /**
+   * Identifier of the agent instance that owns the sandbox. Startup
+   * reconciliation removes every sandbox NOT carrying the current owner id, so
+   * this must be unique per process (see reclaimOrphanedSandboxes).
+   */
+  ownerId?: string;
+}
 
 export class DockerExecutor implements Executor {
   private containerId: string | null = null;
+  private readonly sessionId: string;
+  private readonly ownerId: string;
+
+  constructor(options: DockerExecutorOptions = {}) {
+    this.sessionId = options.sessionId ?? "unknown";
+    this.ownerId = options.ownerId ?? "unknown";
+  }
 
   async init(): Promise<void> {
     console.log("[DockerExecutor] Creating container...");
 
+    // Ownership also lives in labels, not just in the caller's in-memory map: a
+    // crash, an OOM kill or a SIGKILL past the stop grace period leaves the
+    // container running with no one holding a reference to it. Labels are what
+    // let the next process find and reclaim it.
     const { stdout } = await execFileAsync("docker", [
       "run",
       "-d",
       "--name",
-      `traceroot-sandbox-${Date.now()}`,
+      `${CONTAINER_NAME_PREFIX}${Date.now()}`,
+      "--label",
+      `${SANDBOX_LABEL}=1`,
+      "--label",
+      `${SESSION_LABEL}=${this.sessionId}`,
+      "--label",
+      `${OWNER_LABEL}=${this.ownerId}`,
       // Network enabled — required for git clone and gh CLI (per design doc)
       // Token-based auth is ephemeral (1hr) and container is disposable
       "-w",
@@ -184,6 +220,63 @@ export class DockerExecutor implements Executor {
     }
     this.containerId = null;
   }
+}
+
+/**
+ * Remove every agent sandbox on this Docker host that the current instance does
+ * not own.
+ *
+ * Ownership used to live only in the agent's in-memory map, so any exit short of
+ * a fully completed graceful shutdown — a crash, an OOM kill, a SIGKILL after
+ * the stop grace period — orphaned every container the process had created, and
+ * the next process had no way to name them. Reconciling at startup makes a
+ * restart the reliable sweeper.
+ *
+ * Matching is by name prefix rather than by label so that sandboxes created
+ * before labels existed are reclaimed too; a container is spared only when it
+ * carries the current owner id, which no other process can have.
+ */
+export async function reclaimOrphanedSandboxes(ownerId: string): Promise<string[]> {
+  let listed: string;
+  try {
+    const { stdout } = await execFileAsync("docker", [
+      "ps",
+      "-a",
+      "--filter",
+      `name=${CONTAINER_NAME_PREFIX}`,
+      "--format",
+      `{{.ID}} {{.Label "${OWNER_LABEL}"}}`,
+    ]);
+    listed = stdout;
+  } catch (error) {
+    // No docker socket (Daytona deployments, CI) is not a failure — there is
+    // simply nothing to reclaim, and startup must not depend on it.
+    console.warn(`[DockerExecutor] Could not list sandbox containers: ${String(error)}`);
+    return [];
+  }
+
+  const orphaned = listed
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [id, owner] = line.split(/\s+/, 2);
+      return { id, owner };
+    })
+    .filter(({ owner }) => owner !== ownerId)
+    .map(({ id }) => id);
+
+  if (orphaned.length === 0) return [];
+
+  console.log(`[DockerExecutor] Reclaiming ${orphaned.length} orphaned sandbox container(s)`);
+  try {
+    await execFileAsync("docker", ["rm", "-f", ...orphaned]);
+  } catch (error) {
+    // A container removed by someone else between the list and the remove fails
+    // the whole batch; the next restart retries.
+    console.warn(`[DockerExecutor] Failed to remove orphaned sandboxes: ${String(error)}`);
+  }
+  return orphaned;
 }
 
 /**
