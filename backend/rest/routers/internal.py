@@ -226,7 +226,7 @@ async def get_usage_details(
     traces = int(traces_result.result_rows[0][0]) if traces_result.result_rows else 0
     spans = int(spans_result.result_rows[0][0]) if spans_result.result_rows else 0
 
-    # Detector runs: count every scan attempt recorded by the detector worker
+    # Detector runs: count every completed scan recorded by the detector worker
     # (BYOK + system source both count toward Free-plan hard cap).
     # uniqExact on run_id dedups pre-merge duplicates in the ReplacingMergeTree —
     # same pattern as the traces / spans queries above.
@@ -235,6 +235,7 @@ async def get_usage_details(
         SELECT uniqExact(run_id) as total
         FROM detector_runs
         WHERE project_id IN {project_ids:Array(String)}
+                    AND status = 'completed'
           AND timestamp >= {start:String}
           AND timestamp < {end:String}
         """,

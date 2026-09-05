@@ -1083,8 +1083,9 @@ class TestUsageBillsEveryStoredRow:
         # would silently stop billing self-traces again.
         assert "source" not in traces_sql
         assert "source" not in spans_sql
-        # detector_runs was never filtered — it is the per-evaluation result record.
+        # detector_runs is not source-filtered — it is the per-evaluation result record.
         assert "source" not in runs_sql
+        assert "status = 'completed'" in runs_sql
 
     def test_usage_total_counts_rows_from_every_source(self, client, mock_ch, secret):
         mock_ch.query.side_effect = [_make_query_result([(12,)], ["total"])]
