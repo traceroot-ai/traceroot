@@ -4,6 +4,7 @@ import { enqueueAlertNotification } from "../notifications/alert-slack.js";
 import {
   claimDueAlerts,
   completeAlertEvaluation,
+  parkAlertRule,
   recordAlertEvaluationFailure,
   type ClaimedAlert,
 } from "./claim.js";
@@ -121,6 +122,31 @@ async function recordFailure(claim: ClaimedAlert, message: string): Promise<void
   }
 }
 
+/** What the owner has to do about a parked rule, appended to the evaluator's reason. */
+const PARKED_RULE_SUFFIX =
+  "; this rule is parked and will not run again until it is edited and saved, or resumed";
+
+/**
+ * A rejection of the rule itself, which every later tick would reject the same
+ * way. Parking is the whole point of telling the two apart, so a park that does
+ * not land falls back to recording the failure: a rule left ACTIVE is retried
+ * needlessly, which is the pre-existing behaviour and not a silent stop.
+ */
+async function parkRule(claim: ClaimedAlert, message: string): Promise<void> {
+  const { rule } = claim;
+  try {
+    const parked = await parkAlertRule({
+      alertId: rule.id,
+      claimStamp: claim.claimStamp,
+      error: { message: `${message}${PARKED_RULE_SUFFIX}`, at: new Date() },
+    });
+    if (!parked) logInfo(`stale claim discarded alert=${rule.id} project=${rule.projectId}`);
+  } catch (error) {
+    logError(`park failed alert=${rule.id} project=${rule.projectId}`, error);
+    await recordFailure(claim, message);
+  }
+}
+
 async function settleClaim(
   claim: ClaimedAlert,
   result: AlertEvaluationResult | undefined,
@@ -135,7 +161,11 @@ async function settleClaim(
   }
   if (result.error !== null) {
     logError(`evaluation error alert=${rule.id} project=${rule.projectId}: ${result.error}`);
-    await recordFailure(claim, result.error);
+    // A spec the evaluator refuses is refused on the rule's stored settings, not
+    // on this window's data: retrying it is the loop the parked status exists to
+    // end. Every other failure stays a retry.
+    if (result.errorKind === "spec") await parkRule(claim, result.error);
+    else await recordFailure(claim, result.error);
     return;
   }
 
@@ -263,6 +293,9 @@ function unsendableResult(claim: ClaimedAlert): AlertEvaluationResult {
     value: null,
     row_count: 0,
     error: UNSENDABLE_SPEC_ERROR,
+    // Decided here rather than asked: the backend would refuse this spec on
+    // every tick, which is the same verdict it tags "spec" itself.
+    errorKind: "spec",
   };
 }
 

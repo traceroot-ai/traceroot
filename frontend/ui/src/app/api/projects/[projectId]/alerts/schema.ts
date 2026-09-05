@@ -5,8 +5,8 @@ import {
   ALERT_NAME_MAX,
   ALERT_RENOTIFY_MAX_MINUTES,
   ALERT_RENOTIFY_MIN_MINUTES,
-  ALERT_STATUSES,
   KEYED_ALERT_FILTER_FIELDS,
+  SETTABLE_ALERT_STATUSES,
   getMeasure,
   isAlertAggregation,
   isAlertFilterField,
@@ -104,7 +104,9 @@ const alertRuleShape = {
 
 export const alertCreateSchema = z.object(alertRuleShape);
 export const alertUpdateSchema = z.object(alertRuleShape).partial();
-export const alertPauseSchema = z.object({ status: z.enum(ALERT_STATUSES) });
+// Settable statuses only: PARKED is the evaluator's verdict about the stored
+// rule, so a client that could ask for it could stop a rule that still runs.
+export const alertPauseSchema = z.object({ status: z.enum(SETTABLE_ALERT_STATUSES) });
 
 export type AlertCreateInput = z.infer<typeof alertCreateSchema>;
 export type AlertUpdateInput = z.infer<typeof alertUpdateSchema>;

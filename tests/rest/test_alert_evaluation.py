@@ -230,7 +230,9 @@ def test_one_alert_failing_does_not_fail_its_siblings(fake_ch):
     assert broken.alert_id == "broken"
     assert broken.value is None
     assert broken.error == "Query execution failed"
+    assert broken.error_kind == "query"
     assert (fine_1.error, fine_2.error) == (None, None)
+    assert (fine_1.error_kind, fine_2.error_kind) == (None, None)
     assert fine_1.value == 3.0 and fine_2.value == 3.0
 
 
@@ -257,6 +259,7 @@ def test_unknown_measure_is_that_alert_s_error_not_a_batch_rejection(fake_ch):
     assert results[0].error == "measure: Unknown alert measure 'p99_vibes'"
     assert results[0].value is None
     assert results[1].error is None
+    assert results[1].error_kind is None
     # The rejected alert never reached ClickHouse.
     assert len(ch.calls) == 1
 
@@ -265,6 +268,22 @@ def test_unsupported_view_is_that_alert_s_error(fake_ch):
     fake_ch()
     result = evaluate([make_alert(view="TRACES")])[0]
     assert result.error == "view: Unsupported alert view 'TRACES'"
+
+
+def test_a_refused_spec_and_a_failed_query_are_told_apart_by_kind(fake_ch):
+    """The caller parks a rule on one and retries it on the other, so the two
+    must be distinguishable without reading the message text."""
+    ch = fake_ch((1.0, 1))
+
+    def boom(sql, parameters=None, settings=None):
+        raise RuntimeError("clickhouse connection reset")
+
+    refused = evaluate([make_alert(measure="p99_vibes")])[0]
+    assert refused.error_kind == "spec"
+
+    ch.query = boom
+    failed = evaluate([make_alert()])[0]
+    assert failed.error_kind == "query"
 
 
 def test_an_aggregation_the_field_forbids_is_that_alert_s_error(fake_ch):

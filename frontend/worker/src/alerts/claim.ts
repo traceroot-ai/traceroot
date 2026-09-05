@@ -6,6 +6,7 @@ import type { AlertRuntimeState } from "./state-machine.js";
 import type { AlertTick } from "./tick.js";
 
 const ACTIVE: AlertStatus = "ACTIVE";
+const PARKED: AlertStatus = "PARKED";
 
 /**
  * Leftovers lead the next tick only while the due set fits `ALERT_CLAIM_SCAN_LIMIT`:
@@ -55,19 +56,34 @@ async function claimRow(row: DueAlertRow, tick: AlertTick): Promise<ClaimedAlert
   // Claim before parse: an unevaluable row still needs `nextRunAt` advanced, or it stays due.
   const rule = parseAlertRule(row);
   if (rule === null) {
-    logError(`unevaluable rule discarded alert=${row.id} project=${row.projectId}`);
-    // There is no parked status, so this row is re-read and discarded every
-    // minute. Leaving the reason on it is the only sign the owner gets that the
-    // severity they are reading is frozen and no run will ever move it.
+    logError(`unevaluable rule parked alert=${row.id} project=${row.projectId}`);
+    // No later tick can read what this one could not, so the row is parked
+    // rather than re-read and discarded every minute. The reason travels with
+    // it: parked without one is a rule that stopped for no stated cause.
     try {
-      const recorded = await recordAlertEvaluationFailure({
+      const parked = await parkAlertRule({
         alertId: row.id,
         claimStamp: tick.now,
         error: { message: UNEVALUABLE_RULE_ERROR, at: new Date() },
       });
-      if (!recorded) logInfo(`stale claim discarded alert=${row.id} project=${row.projectId}`);
+      if (!parked) logInfo(`stale claim discarded alert=${row.id} project=${row.projectId}`);
     } catch (error) {
-      logError(`error record failed alert=${row.id} project=${row.projectId}`, error);
+      // A park that does not land must not read as a silent success: `nextRunAt`
+      // is already advanced, so without this the row stays ACTIVE with no
+      // recorded reason and is retried, and discarded, every minute with nothing
+      // to show for it. Falls back to the plain failure record, same as the
+      // evaluator's own park path does.
+      logError(`park failed alert=${row.id} project=${row.projectId}`, error);
+      try {
+        const recorded = await recordAlertEvaluationFailure({
+          alertId: row.id,
+          claimStamp: tick.now,
+          error: { message: UNEVALUABLE_RULE_ERROR, at: new Date() },
+        });
+        if (!recorded) logInfo(`stale claim discarded alert=${row.id} project=${row.projectId}`);
+      } catch (recordError) {
+        logError(`error record failed alert=${row.id} project=${row.projectId}`, recordError);
+      }
     }
     return null;
   }
@@ -214,6 +230,25 @@ export async function recordAlertEvaluationFailure(failure: AlertFailureRecord):
   const { count } = await prisma.alert.updateMany({
     where: { id: failure.alertId, status: ACTIVE, lastClaimedAt: failure.claimStamp },
     data: { lastError: truncate(failure.error.message), lastErrorAt: failure.error.at },
+  });
+  return count === 1;
+}
+
+/**
+ * Records the failure and stops the rule, for the failures no retry can clear:
+ * the stored spec itself is one this build cannot evaluate. Same CAS as the
+ * plain failure record — a rule a later tick re-claimed, or one the owner
+ * paused mid-evaluation, is not this tick's to park — and `nextRunAt` is left
+ * where the claim put it, so an edit that re-arms the rule finds it due.
+ */
+export async function parkAlertRule(failure: AlertFailureRecord): Promise<boolean> {
+  const { count } = await prisma.alert.updateMany({
+    where: { id: failure.alertId, status: ACTIVE, lastClaimedAt: failure.claimStamp },
+    data: {
+      status: PARKED,
+      lastError: truncate(failure.error.message),
+      lastErrorAt: failure.error.at,
+    },
   });
   return count === 1;
 }

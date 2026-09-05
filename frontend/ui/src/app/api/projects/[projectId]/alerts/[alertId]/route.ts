@@ -102,13 +102,51 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     threshold: update.threshold,
     noDataMode: update.noDataMode,
   };
-  if (hasRuleChanged(toRuleSnapshot(existing), nextRule)) {
+  const rewritesRule = hasRuleChanged(toRuleSnapshot(existing), nextRule);
+  if (rewritesRule) {
     Object.assign(data, alertStateReset());
   }
 
+  // The edit is how a parked rule re-arms: parking is a verdict about the
+  // stored settings, and this is the write that replaces them. `renotify`
+  // counts even though it is not part of the evaluated rule — a renotify the
+  // worker cannot parse parks the rule too, and this write is a well-formed
+  // one. A name-only edit changes nothing the evaluator refused, so it leaves
+  // the rule parked rather than re-arming it for one more identical failure.
+  //
+  // Guarded by a status CAS in the write itself, not by `existing.status`: a
+  // concurrent tick can park the rule after `existing` was read here, and the
+  // commit has to catch that at write time or a rule this very edit fixes is
+  // left parked on a stale read.
+  const reArmsParked = rewritesRule || update.renotify !== undefined;
+  const reArmFields = { status: "ACTIVE" as const, ...alertStateReset() };
+  const tryReArm = () =>
+    prisma.alert.updateMany({
+      where: { id: alertId, projectId, status: "PARKED" },
+      data: { ...data, ...reArmFields },
+    });
+
+  let count = reArmsParked ? (await tryReArm()).count : 0;
+
   // Scoped write rather than a write on `id` alone: the project scope is the
-  // tenancy check, so it belongs on the statement that mutates.
-  const { count } = await prisma.alert.updateMany({ where: { id: alertId, projectId }, data });
+  // tenancy check, so it belongs on the statement that mutates. Falls back to
+  // it whenever the re-arm CAS above did not apply: the row was not actually
+  // PARKED at that check, so this edit's ordinary fields still have to land.
+  if (count !== 1) {
+    ({ count } = await prisma.alert.updateMany({ where: { id: alertId, projectId }, data }));
+    // A tick can still park the rule in the gap between the check above and
+    // this write landing (the fallback has no status guard, so it would
+    // otherwise commit the fix and leave the row parked). One retry closes
+    // that: it costs nothing when nothing raced, and a further adversarial
+    // interleaving past this is a rule that stays parked until an explicit
+    // Resume, not a wrong or corrupted write.
+    if (reArmsParked && count > 0) {
+      await prisma.alert.updateMany({
+        where: { id: alertId, projectId, status: "PARKED" },
+        data: reArmFields,
+      });
+    }
+  }
   if (count === 0) return errorResponse("Alert not found", 404);
 
   const alert = await prisma.alert.findFirst({

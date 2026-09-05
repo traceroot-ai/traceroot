@@ -15,6 +15,7 @@ const evaluateAlerts =
 const claimDueAlerts = vi.fn<() => Promise<ClaimedAlert[]>>();
 const completeAlertEvaluation = vi.fn<(completion: AlertCompletion) => Promise<boolean>>();
 const recordAlertEvaluationFailure = vi.fn<(failure: AlertFailureRecord) => Promise<boolean>>();
+const parkAlertRule = vi.fn<(failure: AlertFailureRecord) => Promise<boolean>>();
 const revertAlertEmissionState = vi.fn<(revert: AlertEmissionRevert) => Promise<boolean>>();
 const enqueueAlertNotification = vi.fn<(payload: AlertNotification) => Promise<void>>();
 
@@ -29,6 +30,7 @@ vi.mock("../evaluator-client.js", async (importOriginal) => {
 vi.mock("../claim.js", () => ({
   claimDueAlerts,
   completeAlertEvaluation,
+  parkAlertRule,
   recordAlertEvaluationFailure,
   revertAlertEmissionState,
 }));
@@ -85,6 +87,7 @@ const okResult = (alertId: string): AlertEvaluationResult => ({
   value: 5,
   row_count: 3,
   error: null,
+  errorKind: null,
 });
 
 const breachResult = (alertId: string, value = 250): AlertEvaluationResult => ({
@@ -92,6 +95,7 @@ const breachResult = (alertId: string, value = 250): AlertEvaluationResult => ({
   value,
   row_count: 12,
   error: null,
+  errorKind: null,
 });
 
 const yieldToLoop = (): Promise<void> =>
@@ -107,6 +111,7 @@ beforeEach(() => {
   claimDueAlerts.mockReset().mockResolvedValue([]);
   completeAlertEvaluation.mockReset().mockResolvedValue(true);
   recordAlertEvaluationFailure.mockReset().mockResolvedValue(true);
+  parkAlertRule.mockReset().mockResolvedValue(true);
   revertAlertEmissionState.mockReset().mockResolvedValue(true);
   enqueueAlertNotification.mockReset().mockResolvedValue(undefined);
 });
@@ -181,12 +186,64 @@ describe("runAlertTick — an unsendable spec is that alert's own failure", () =
     expect(enqueueAlertNotification).not.toHaveBeenCalled();
 
     // The reason lands on the rejected rule alone, under this tick's claim stamp.
-    expect(recordAlertEvaluationFailure).toHaveBeenCalledTimes(1);
-    const [failure] = recordAlertEvaluationFailure.mock.calls[0];
-    expect(failure.alertId).toBe("bad-op");
-    expect(failure.claimStamp).toBe(NOW);
-    expect(failure.error.message).toContain("filter the evaluator does not accept");
-    expect(failure.error.at).toBeInstanceOf(Date);
+    // It is a park, not a retry: the backend would refuse this spec every minute.
+    expect(recordAlertEvaluationFailure).not.toHaveBeenCalled();
+    expect(parkAlertRule).toHaveBeenCalledTimes(1);
+    const [parked] = parkAlertRule.mock.calls[0];
+    expect(parked.alertId).toBe("bad-op");
+    expect(parked.claimStamp).toBe(NOW);
+    expect(parked.error.message).toContain("filter the evaluator does not accept");
+    expect(parked.error.message).toContain("parked");
+    expect(parked.error.at).toBeInstanceOf(Date);
+  });
+});
+
+describe("runAlertTick — a rejection of the rule rather than of the run", () => {
+  const failedResult = (
+    alertId: string,
+    error: string,
+    errorKind: AlertEvaluationResult["errorKind"],
+  ): AlertEvaluationResult => ({ alert_id: alertId, value: null, row_count: 0, error, errorKind });
+
+  it("parks the rule the evaluator refused on its spec, and retries the one whose run failed", async () => {
+    claimDueAlerts.mockResolvedValue([claimWith("bad-measure"), claimWith("flaky")]);
+    evaluateAlerts.mockResolvedValue([
+      failedResult("bad-measure", "measure: Unknown alert measure 'clicks'", "spec"),
+      failedResult("flaky", "Query execution failed", "query"),
+    ]);
+
+    await runAlertTick(NOW);
+
+    expect(parkAlertRule.mock.calls.map(([f]) => f.alertId)).toEqual(["bad-measure"]);
+    expect(parkAlertRule.mock.calls[0][0].error.message).toContain("Unknown alert measure");
+    expect(recordAlertEvaluationFailure.mock.calls.map(([f]) => f.alertId)).toEqual(["flaky"]);
+    expect(completeAlertEvaluation).not.toHaveBeenCalled();
+  });
+
+  it("retries a failure a backend too old to classify it left unlabelled", async () => {
+    // The field is absent on the wire, so the rule keeps running rather than
+    // being stopped on a guess about what the message means.
+    claimDueAlerts.mockResolvedValue([claimWith("a")]);
+    evaluateAlerts.mockResolvedValue([failedResult("a", "measure: Unknown alert measure", null)]);
+
+    await runAlertTick(NOW);
+
+    expect(parkAlertRule).not.toHaveBeenCalled();
+    expect(recordAlertEvaluationFailure.mock.calls.map(([f]) => f.alertId)).toEqual(["a"]);
+  });
+
+  it("keeps the rule running when the park write itself fails", async () => {
+    // A park that did not land must not read as a stopped rule: the reason is
+    // recorded instead and the next tick tries again.
+    claimDueAlerts.mockResolvedValue([claimWith("a")]);
+    evaluateAlerts.mockResolvedValue([failedResult("a", "view: Unsupported alert view", "spec")]);
+    parkAlertRule.mockRejectedValue(new Error("pool timeout"));
+
+    await expect(runAlertTick(NOW)).resolves.toBeUndefined();
+
+    expect(recordAlertEvaluationFailure.mock.calls[0][0].error.message).toContain(
+      "Unsupported alert view",
+    );
   });
 });
 
@@ -271,7 +328,7 @@ describe("runAlertTick — the page a transition produces", () => {
     ]);
     evaluateAlerts.mockResolvedValue([
       breachResult("steady-1"),
-      { alert_id: "quiet-1", value: null, row_count: 0, error: null },
+      { alert_id: "quiet-1", value: null, row_count: 0, error: null, errorKind: null },
     ]);
 
     await runAlertTick(NOW);
@@ -289,8 +346,8 @@ describe("runAlertTick — the page a transition produces", () => {
       claimWith("floor-1", { noDataMode: "ZERO", thresholdOperator: "<", threshold: 1 }),
     ]);
     evaluateAlerts.mockResolvedValue([
-      { alert_id: "silent-1", value: null, row_count: 0, error: null },
-      { alert_id: "floor-1", value: null, row_count: 0, error: null },
+      { alert_id: "silent-1", value: null, row_count: 0, error: null, errorKind: null },
+      { alert_id: "floor-1", value: null, row_count: 0, error: null, errorKind: null },
     ]);
 
     await runAlertTick(NOW);
@@ -356,7 +413,13 @@ describe("runAlertTick — a run that produced no measurement", () => {
   it("records the rule the evaluator errored on, and the one it never answered about", async () => {
     claimDueAlerts.mockResolvedValue([claimWith("a"), claimWith("missing"), claimWith("b")]);
     evaluateAlerts.mockResolvedValue([
-      { alert_id: "a", value: null, row_count: 0, error: "column does not exist" },
+      {
+        alert_id: "a",
+        value: null,
+        row_count: 0,
+        error: "column does not exist",
+        errorKind: "query",
+      },
       breachResult("b"),
     ]);
 
@@ -460,14 +523,14 @@ describe("runAlertTick — how wide one tick fans out", () => {
         claimFiltered(`bad-${index}`, [{ field: "status", op: "any of", value: "error" }]),
       ),
     );
-    recordAlertEvaluationFailure.mockImplementation(async () => {
+    parkAlertRule.mockImplementation(async () => {
       await tracker.enter();
       return true;
     });
 
     await runAlertTick(NOW);
 
-    expect(recordAlertEvaluationFailure).toHaveBeenCalledTimes(40);
+    expect(parkAlertRule).toHaveBeenCalledTimes(40);
     expect(tracker.state.peak).toBe(ALERT_EVALUATION_CONCURRENCY);
     // A tick with nothing sendable in it sends no request at all.
     expect(evaluateAlerts).not.toHaveBeenCalled();
