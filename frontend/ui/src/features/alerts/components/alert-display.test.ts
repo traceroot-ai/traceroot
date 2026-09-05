@@ -45,7 +45,7 @@ describe("resolveAlertDisplayState", () => {
     expect(stateOf({ severity: "UNKNOWN", lastEvaluatedAt: undefined }).label).toBe("No Data");
   });
 
-  it("ranks Paused over Failing, and Failing over a rule that has never run", () => {
+  it("ranks Parked over Paused, Paused over Failing, and Failing over a rule that has never run", () => {
     const failedFirstRun = {
       severity: "ALERT" as const,
       lastError: "ClickHouse read timeout",
@@ -58,6 +58,30 @@ describe("resolveAlertDisplayState", () => {
     const paused = stateOf({ ...failedFirstRun, status: "PAUSED" });
     expect(paused.label).toBe("Paused");
     expect(paused.isPaused).toBe(true);
+    expect(paused.isStopped).toBe(true);
+
+    const parked = stateOf({ ...failedFirstRun, status: "PARKED" });
+    expect(parked.label).toBe("Parked");
+    expect(parked.isStopped).toBe(true);
+    // Not paused: nobody chose this, and the action that clears it is different.
+    expect(parked.isPaused).toBe(false);
+  });
+
+  it("tells a parked rule's owner why it stopped and what restarts it, never that it will retry", () => {
+    const parked = stateOf({
+      status: "PARKED",
+      lastError: "measure: Unknown alert measure 'clicks'",
+    });
+
+    expect(parked.detail).toContain("measure: Unknown alert measure 'clicks'");
+    expect(parked.detail).toContain("Edit and save");
+    // The sentence this status exists to stop telling.
+    expect(parked.detail).not.toContain("retry");
+
+    // A row parked with no reason still says it stopped rather than going mute.
+    const bare = stateOf({ status: "PARKED", lastError: null });
+    expect(bare.detail).toContain("cannot be evaluated");
+    expect(bare.detail).toContain("Edit and save");
   });
 
   it("shows Failing on a rule whose last run errored, even while it still holds a green OK", () => {
@@ -123,6 +147,7 @@ describe("resolveAlertDisplayState", () => {
       label: "OK",
       tone: "ok",
       isPaused: false,
+      isStopped: false,
     });
   });
 });

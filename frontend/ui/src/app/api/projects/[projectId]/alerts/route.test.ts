@@ -48,6 +48,9 @@ function matches(row: AlertRowStub, where: Where): boolean {
   if (typeof where.id === "string" && row.id !== where.id) return false;
   if (typeof where.projectId === "string" && row.projectId !== where.projectId) return false;
   if (typeof where.status === "string" && row.status !== where.status) return false;
+  // The resume matches on a set of stopped statuses, not one spelling.
+  const status = where.status as { in?: string[] } | undefined;
+  if (Array.isArray(status?.in) && !status.in.includes(row.status)) return false;
   const name = where.name as { contains?: string } | undefined;
   if (name?.contains !== undefined && !row.name.toLowerCase().includes(name.contains.toLowerCase()))
     return false;
@@ -248,6 +251,38 @@ describe("PATCH /api/projects/[projectId]/alerts/[alertId]", () => {
     expect((await patch({ noDataMode: "SILENT" })).status).toBe(400);
   });
 
+  describe("a parked rule re-arms on the edit that replaces what it was parked on", () => {
+    beforeEach(() => {
+      store.set("alert-1", alertRow({ status: "PARKED" }));
+    });
+
+    it("starts the rule again, cold, when the edit rewrites the rule", async () => {
+      expect((await patch({ threshold: 999 })).status).toBe(200);
+      const row = store.get("alert-1");
+
+      expect(row?.status).toBe("ACTIVE");
+      expect(row?.severity).toBe("UNKNOWN");
+      expect(row?.lastClaimedAt).toBeNull();
+      expect(row?.nextRunAt).toBeInstanceOf(Date);
+    });
+
+    it("counts a renotify edit, which the evaluated rule does not include", async () => {
+      // A renotify the worker cannot parse parks the rule too, and this write
+      // replaces it with one the schema validated.
+      expect((await patch({ renotify: { mode: "OFF" } })).status).toBe(200);
+
+      expect(store.get("alert-1")?.status).toBe("ACTIVE");
+    });
+
+    it("leaves it parked on a rename, which changes nothing the evaluator refused", async () => {
+      expect((await patch({ name: "Renamed" })).status).toBe(200);
+      const row = store.get("alert-1");
+
+      expect(row?.status).toBe("PARKED");
+      expect(row?.name).toBe("Renamed");
+    });
+  });
+
   it("rejects an empty update rather than issuing a no-op write", async () => {
     expect((await patch({})).status).toBe(400);
     expect(alertUpdateMany).not.toHaveBeenCalled();
@@ -322,8 +357,23 @@ describe("PATCH /api/projects/[projectId]/alerts/[alertId]/pause", () => {
     expect(alertUpdateMany.mock.calls[0][0].where).toEqual({
       id: "alert-1",
       projectId: "proj-1",
-      status: "PAUSED",
+      status: { in: ["PAUSED", "PARKED"] },
     });
+  });
+
+  it("resumes a parked rule the same way, as the operator's retry of it", async () => {
+    // The rule stopped on settings the evaluator refused. Starting it again is
+    // allowed and honest: if the settings are still unevaluable the next tick
+    // parks it again, with the reason.
+    store.set("alert-1", alertRow({ status: "PARKED" }));
+
+    expect((await pause("ACTIVE")).status).toBe(200);
+    const row = store.get("alert-1");
+
+    expect(row?.status).toBe("ACTIVE");
+    expect(row?.severity).toBe("UNKNOWN");
+    expect(row?.lastClaimedAt).toBeNull();
+    expect(row?.nextRunAt).toBeInstanceOf(Date);
   });
 
   it("leaves a rule that is already active exactly as it was", async () => {
@@ -347,8 +397,11 @@ describe("PATCH /api/projects/[projectId]/alerts/[alertId]/pause", () => {
     expect(store.get("other-1")?.severity).toBe("ALERT");
   });
 
-  it("rejects a status outside the pair", async () => {
+  it("rejects a status outside the settable pair, PARKED included", async () => {
     expect((await pause("DELETED")).status).toBe(400);
+    // Parking is the evaluator's verdict about the stored rule: a client that
+    // could ask for it could stop a rule that still runs.
+    expect((await pause("PARKED")).status).toBe(400);
     expect(alertUpdateMany).not.toHaveBeenCalled();
   });
 });

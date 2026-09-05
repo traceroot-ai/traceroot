@@ -102,7 +102,19 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
     threshold: update.threshold,
     noDataMode: update.noDataMode,
   };
-  if (hasRuleChanged(toRuleSnapshot(existing), nextRule)) {
+  const rewritesRule = hasRuleChanged(toRuleSnapshot(existing), nextRule);
+  if (rewritesRule) {
+    Object.assign(data, alertStateReset());
+  }
+
+  // The edit is how a parked rule re-arms: parking is a verdict about the
+  // stored settings, and this is the write that replaces them. `renotify`
+  // counts even though it is not part of the evaluated rule — a renotify the
+  // worker cannot parse parks the rule too, and this write is a well-formed
+  // one. A name-only edit changes nothing the evaluator refused, so it leaves
+  // the rule parked rather than re-arming it for one more identical failure.
+  if (existing.status === "PARKED" && (rewritesRule || update.renotify !== undefined)) {
+    data.status = "ACTIVE";
     Object.assign(data, alertStateReset());
   }
 

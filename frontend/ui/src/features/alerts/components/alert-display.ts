@@ -6,6 +6,8 @@ export interface AlertDisplayState {
   label: string;
   tone: AlertTone;
   isPaused: boolean;
+  /** Parked as well as paused: both mean no tick will run this rule as it stands. */
+  isStopped: boolean;
   /** Why the badge reads what it does. Undefined when the label says it all. */
   detail?: string;
 }
@@ -95,13 +97,30 @@ function withDetail(state: AlertDisplayState, extra: string | undefined): AlertD
   return { ...state, detail: state.detail === undefined ? extra : `${state.detail} ${extra}` };
 }
 
+/** Stands in when a parked row carries no reason, so the badge is never mute. */
+const PARKED_WITHOUT_REASON = "Stopped: this rule's settings cannot be evaluated.";
+
 /**
- * Paused, then failing, then never run, each outranking the severity beneath it:
- * a severity is a report about a run, and these three say the run did not happen.
+ * Parked, then paused, then failing, then never run, each outranking the
+ * severity beneath it: a severity is a report about a run, and these four say
+ * the run did not happen. Parked leads because it is the only one of them that
+ * no amount of waiting resolves.
  */
 export function resolveAlertDisplayState(alert: AlertDisplayInput): AlertDisplayState {
+  if (alert.status === "PARKED") {
+    return {
+      label: "Parked",
+      tone: "warning",
+      isPaused: false,
+      isStopped: true,
+      // Not "it will retry": that is the sentence this status exists to stop
+      // telling. The error already carries what the evaluator refused.
+      detail: `${alert.lastError ? `Stopped: ${alert.lastError}.` : PARKED_WITHOUT_REASON} Edit and save the rule to start it again.`,
+    };
+  }
+
   if (alert.status === "PAUSED") {
-    return { label: "Paused", tone: "neutral", isPaused: true };
+    return { label: "Paused", tone: "neutral", isPaused: true, isStopped: true };
   }
 
   const undelivered = describeUndelivered(alert);
@@ -112,6 +131,7 @@ export function resolveAlertDisplayState(alert: AlertDisplayInput): AlertDisplay
         label: "Failing",
         tone: "alert",
         isPaused: false,
+        isStopped: false,
         detail: `Last run failed: ${alert.lastError}. It will retry next minute; if this persists, check the rule's filters and measure.`,
       },
       undelivered,
@@ -126,6 +146,7 @@ export function resolveAlertDisplayState(alert: AlertDisplayInput): AlertDisplay
         label: "No Data",
         tone: "warning",
         isPaused: false,
+        isStopped: false,
         detail: "This rule has not run yet. Its first result appears within a minute.",
       },
       undelivered,
@@ -133,7 +154,7 @@ export function resolveAlertDisplayState(alert: AlertDisplayInput): AlertDisplay
   }
 
   const severity = SEVERITY_DISPLAY[alert.severity] ?? SEVERITY_DISPLAY.UNKNOWN;
-  return withDetail({ ...severity, isPaused: false }, undelivered);
+  return withDetail({ ...severity, isPaused: false, isStopped: false }, undelivered);
 }
 
 export function formatAlertWindow(window: AlertWindow | string): string {

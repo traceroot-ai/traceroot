@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { prisma, Role } from "@traceroot/core";
+import { prisma, Role, STOPPED_ALERT_STATUSES } from "@traceroot/core";
 import { errorResponse, successResponse } from "@/lib/auth-helpers";
 import { parseJsonObject, requireProjectAuth } from "@/lib/route-helpers";
 import { alertPauseSchema, firstIssueMessage } from "../../schema";
@@ -22,13 +22,15 @@ export async function PATCH(req: NextRequest, { params }: RouteParams) {
   const { status } = result.data;
 
   // Pausing keeps the severity it stopped at; resuming is a cold start,
-  // because the gap it was paused for was never evaluated. The PAUSED guard
+  // because the gap it was paused for was never evaluated. The stopped guard
   // lives in the WHERE so a replayed resume of an already-active rule cannot
-  // reset state it is still alerting on.
+  // reset state it is still alerting on. PARKED resumes the same way: the
+  // resume is a retry of a rule the evaluator gave up on, and if its settings
+  // are still unevaluable the next tick parks it again with the reason.
   const resumed =
     status === "ACTIVE"
       ? await prisma.alert.updateMany({
-          where: { id: alertId, projectId, status: "PAUSED" },
+          where: { id: alertId, projectId, status: { in: [...STOPPED_ALERT_STATUSES] } },
           data: { status, ...alertStateReset() },
         })
       : { count: 0 };
