@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma, Role } from "@traceroot/core";
+import { prisma, Role, isBillingEnabled } from "@traceroot/core";
 import {
   requireAuth,
   requireWorkspaceMembership,
@@ -65,6 +65,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     billingSubscriptionId: workspace.billingSubscriptionId,
     billingStatus: workspace.billingStatus,
     currentUsage: workspace.currentUsage,
+    billingEnabled: isBillingEnabled(),
   });
 }
 

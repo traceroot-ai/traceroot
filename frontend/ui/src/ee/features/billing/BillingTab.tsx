@@ -116,6 +116,11 @@ interface BillingTabProps {
   currentPlan?: PlanType;
   hasSubscription?: boolean; // true if workspace has billingSubscriptionId
   currentUsage?: UsageStats | null;
+  // False on self-host deployments (ENABLE_BILLING=false). The entitlement
+  // layer already treats these workspaces as unlimited, so this UI must not
+  // show a "Change plan" affordance that leads to a dead Stripe checkout, or
+  // advertise plan caps that aren't actually enforced.
+  billingEnabled?: boolean;
 }
 
 export function BillingTab({
@@ -123,10 +128,13 @@ export function BillingTab({
   currentPlan = PlanType.FREE,
   hasSubscription = false,
   currentUsage,
+  billingEnabled = true,
 }: BillingTabProps) {
   const searchParams = useSearchParams();
   const upgradeIntent = searchParams.get("upgrade");
-  const [showPricingDialog, setShowPricingDialog] = useState(Boolean(upgradeIntent));
+  const [showPricingDialog, setShowPricingDialog] = useState(
+    billingEnabled && Boolean(upgradeIntent),
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [subscriptionInfo, setSubscriptionInfo] = useState<SubscriptionInfo | null>(null);
@@ -135,21 +143,26 @@ export function BillingTab({
   const aiUsage = currentUsage?.ai;
   const rcaUsage = currentUsage?.rca;
   const detectorUsage = currentUsage?.detector;
-  const eventQuota = EVENT_QUOTAS[currentPlan];
-  const aiRunQuota = AI_RUN_QUOTAS[currentPlan];
-  const rcaRunQuota = RCA_RUN_QUOTAS[currentPlan];
-  const detectorRunQuota = DETECTOR_RUN_QUOTAS[currentPlan];
+  // Self-host has no plan tier to enforce — read quotas from Enterprise's
+  // Infinity shape so this UI matches the entitlement layer (which already
+  // short-circuits every quota check to "allow" when billing is disabled)
+  // instead of showing the nominal Free-plan caps the workspace row defaults to.
+  const quotaPlan = billingEnabled ? currentPlan : PlanType.ENTERPRISE;
+  const eventQuota = EVENT_QUOTAS[quotaPlan];
+  const aiRunQuota = AI_RUN_QUOTAS[quotaPlan];
+  const rcaRunQuota = RCA_RUN_QUOTAS[quotaPlan];
+  const detectorRunQuota = DETECTOR_RUN_QUOTAS[quotaPlan];
 
   // Fetch live subscription info from Stripe
   useEffect(() => {
-    if (!hasSubscription) return;
+    if (!billingEnabled || !hasSubscription) return;
 
     getSubscriptionInfo(workspaceId)
       .then(setSubscriptionInfo)
       .catch((err) => {
         console.error("Failed to fetch subscription info:", err);
       });
-  }, [workspaceId, hasSubscription]);
+  }, [workspaceId, hasSubscription, billingEnabled]);
 
   async function handleOpenPortal() {
     setIsLoading(true);
@@ -187,8 +200,14 @@ export function BillingTab({
         </div>
         <div className="px-4 py-3">
           <p className="text-sm text-muted-foreground">
-            You are currently on the{" "}
-            <span className="font-medium text-foreground">{currentPlanConfig.name}</span> plan.
+            {billingEnabled ? (
+              <>
+                You are currently on the{" "}
+                <span className="font-medium text-foreground">{currentPlanConfig.name}</span> plan.
+              </>
+            ) : (
+              "This is a self-hosted deployment — every plan limit is unlimited, so there's no higher tier to move to."
+            )}
           </p>
 
           {/* Cancellation Notice */}
@@ -237,16 +256,18 @@ export function BillingTab({
             </p>
           )}
 
-          <div className="mt-3 flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => setShowPricingDialog(true)}>
-              Change plan
-            </Button>
-            {hasSubscription && (
-              <Button variant="ghost" size="sm" onClick={handleOpenPortal} disabled={isLoading}>
-                Manage billing <ExternalLink className="ml-1 h-3 w-3" />
+          {billingEnabled && (
+            <div className="mt-3 flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => setShowPricingDialog(true)}>
+                Change plan
               </Button>
-            )}
-          </div>
+              {hasSubscription && (
+                <Button variant="ghost" size="sm" onClick={handleOpenPortal} disabled={isLoading}>
+                  Manage billing <ExternalLink className="ml-1 h-3 w-3" />
+                </Button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -257,11 +278,13 @@ export function BillingTab({
         </div>
         <div className="px-4 py-3">
           <p className="text-sm text-muted-foreground">
-            {currentPlan === PlanType.FREE
-              ? `Events used this period. Free plan includes ${eventQuota.included.toLocaleString()} events (hard cap).`
-              : eventQuota.included === Infinity
-                ? "Events used this billing period. Unlimited events included."
-                : `Events used this billing period. ${eventQuota.included.toLocaleString()} included, then ${eventQuota.overageLabel}.`}
+            {!billingEnabled
+              ? "Events ingested this period. Self-hosted deployments have no event limits."
+              : currentPlan === PlanType.FREE
+                ? `Events used this period. Free plan includes ${eventQuota.included.toLocaleString()} events (hard cap).`
+                : eventQuota.included === Infinity
+                  ? "Events used this billing period. Unlimited events included."
+                  : `Events used this billing period. ${eventQuota.included.toLocaleString()} included, then ${eventQuota.overageLabel}.`}
           </p>
           <div className="mt-3 space-y-2 text-sm">
             <div className="flex justify-between">
@@ -300,15 +323,17 @@ export function BillingTab({
         }
         runsHelper={
           "Each chat request." +
-          (currentPlan !== PlanType.FREE && currentPlan !== PlanType.ENTERPRISE
+          (billingEnabled && currentPlan !== PlanType.FREE && currentPlan !== PlanType.ENTERPRISE
             ? ` Overage: ${aiRunQuota.overageLabel}.`
             : "")
         }
         systemCost={aiUsage?.systemUsage.cost ?? 0}
         systemHelper={
-          currentPlan === PlanType.FREE
-            ? "Included in your plan (we pay)."
-            : "Included with runs; 1.05x markup on overage token cost."
+          !billingEnabled
+            ? "No billing on self-hosted deployments."
+            : currentPlan === PlanType.FREE
+              ? "Included in your plan (we pay)."
+              : "Included with runs; 1.05x markup on overage token cost."
         }
         systemInputTokens={aiUsage?.systemUsage.inputTokens ?? 0}
         systemOutputTokens={aiUsage?.systemUsage.outputTokens ?? 0}
@@ -337,15 +362,17 @@ export function BillingTab({
         runsValue={formatRcaQuotaLabel(rcaRunQuota, rcaUsage?.runsUsed ?? 0)}
         runsHelper={
           "Triggered by detector findings." +
-          (currentPlan !== PlanType.FREE && currentPlan !== PlanType.ENTERPRISE
+          (billingEnabled && currentPlan !== PlanType.FREE && currentPlan !== PlanType.ENTERPRISE
             ? ` Overage: ${rcaRunQuota.overageLabel}.`
             : "")
         }
         systemCost={rcaUsage?.systemTokenCost ?? 0}
         systemHelper={
-          currentPlan === PlanType.FREE
-            ? "Included in your plan (we pay)."
-            : "Included with runs; 1.05x markup on overage token cost."
+          !billingEnabled
+            ? "No billing on self-hosted deployments."
+            : currentPlan === PlanType.FREE
+              ? "Included in your plan (we pay)."
+              : "Included with runs; 1.05x markup on overage token cost."
         }
         systemInputTokens={rcaUsage?.systemInputTokens ?? 0}
         systemOutputTokens={rcaUsage?.systemOutputTokens ?? 0}
@@ -353,13 +380,15 @@ export function BillingTab({
       />
 
       {/* Pricing Dialog */}
-      <PricingDialog
-        open={showPricingDialog}
-        onOpenChange={setShowPricingDialog}
-        workspaceId={workspaceId}
-        currentPlan={currentPlan}
-        hasSubscription={hasSubscription}
-      />
+      {billingEnabled && (
+        <PricingDialog
+          open={showPricingDialog}
+          onOpenChange={setShowPricingDialog}
+          workspaceId={workspaceId}
+          currentPlan={currentPlan}
+          hasSubscription={hasSubscription}
+        />
+      )}
     </div>
   );
 }
