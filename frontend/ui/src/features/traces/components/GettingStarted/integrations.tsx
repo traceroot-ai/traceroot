@@ -335,6 +335,38 @@ TraceRoot.initialize();
     },
   },
   {
+    id: "bedrock",
+    name: "Amazon Bedrock",
+    href: "https://traceroot.ai/docs/integrations/bedrock",
+    category: "provider",
+    logo: "/logo/integrations/bedrock.svg",
+    languages: {
+      python: {
+        installCommand: "pip install traceroot boto3",
+        initSnippet: `import os
+import boto3
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.BEDROCK])
+
+client = boto3.client("bedrock-runtime", region_name=os.environ["AWS_REGION"])`,
+      },
+      typescript: {
+        installCommand: "npm install @traceroot-ai/traceroot @aws-sdk/client-bedrock-runtime",
+        initSnippet: `import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";
+import * as bedrockRuntime from "@aws-sdk/client-bedrock-runtime";
+import { TraceRoot } from "@traceroot-ai/traceroot";
+
+TraceRoot.initialize({
+  instrumentModules: { bedrock: bedrockRuntime },
+});
+
+const client = new BedrockRuntimeClient({ region: process.env.AWS_REGION });`,
+      },
+    },
+  },
+  {
     id: "anthropic",
     name: "Anthropic",
     href: "https://traceroot.ai/docs/integrations/anthropic",
@@ -363,6 +395,49 @@ const client = new Anthropic();`,
       },
     },
   },
+  // Azure OpenAI uses the OpenAI instrumentor (AzureOpenAI subclasses OpenAI), so it needs
+  // no dedicated Integration value: the OpenAI.request patch covers Azure too. The
+  // instrumentor matches the openai.azure.com host and tags the span's provider as "azure",
+  // so Azure traffic stays distinguishable from direct OpenAI traffic.
+  {
+    id: "azure-openai",
+    name: "Azure OpenAI",
+    href: "https://traceroot.ai/docs/integrations/azure-openai",
+    category: "provider",
+    logo: "/logo/integrations/azure-openai.svg",
+    languages: {
+      python: {
+        installCommand: "pip install traceroot openai",
+        initSnippet: `import os
+import openai
+import traceroot
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.OPENAI])
+
+client = openai.AzureOpenAI(
+    api_key=os.environ["AZURE_OPENAI_API_KEY"],
+    azure_endpoint=os.environ["AZURE_OPENAI_ENDPOINT"],
+    api_version="2024-10-21",
+)`,
+      },
+      typescript: {
+        installCommand: "npm install @traceroot-ai/traceroot openai",
+        initSnippet: `import OpenAI, { AzureOpenAI } from "openai";
+import { TraceRoot } from "@traceroot-ai/traceroot";
+
+TraceRoot.initialize({
+  instrumentModules: { openAI: OpenAI },
+});
+
+const client = new AzureOpenAI({
+  apiKey: process.env.AZURE_OPENAI_API_KEY,
+  endpoint: process.env.AZURE_OPENAI_ENDPOINT,
+  apiVersion: "2024-10-21",
+});`,
+      },
+    },
+  },
   {
     id: "gemini",
     name: "Google Gemini",
@@ -376,6 +451,26 @@ const client = new Anthropic();`,
 from traceroot import Integration
 
 traceroot.initialize(integrations=[Integration.GOOGLE_GENAI])`,
+      },
+    },
+  },
+  {
+    id: "groq",
+    name: "Groq",
+    href: "https://traceroot.ai/docs/integrations/groq",
+    category: "provider",
+    logo: "/logo/integrations/groq.svg",
+    languages: {
+      python: {
+        installCommand: "pip install traceroot groq",
+        initSnippet: `import os
+import traceroot
+from groq import Groq
+from traceroot import Integration
+
+traceroot.initialize(integrations=[Integration.GROQ])
+
+client = Groq(api_key=os.environ["GROQ_API_KEY"])`,
       },
     },
   },
