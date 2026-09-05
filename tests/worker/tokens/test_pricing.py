@@ -6,8 +6,11 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+import tiktoken
 
 from worker.tokens.pricing import calculate_cost, get_model_price
+from worker.tokens.types import is_claude_model, strip_gateway_prefixes
+from worker.tokens.usage import count_tokens
 
 MATCHED_MODEL_NAME = "__matched_model_name"
 
@@ -243,6 +246,119 @@ class TestGpt56CachePricing:
     def test_cache_read_is_90_percent_discount(self, real_cache, model_name):
         entry = next(e for e in real_cache if e["model_name"] == model_name)
         assert entry["prices"]["cacheRead"] == pytest.approx(entry["prices"]["input"] * 0.10)
+
+
+class TestGatewayPrefixes:
+    """Gateway/router-prefixed ids must price like the bare model (#1556).
+
+    Every catalogue pattern hand-encodes the prefixes it tolerates, so coverage
+    drifted between siblings and no entry accepted the router prefixes real
+    deployments emit. The failure was silent: get_model_price returned None, cost
+    was left unset, and it read as "cost isn't rendering" rather than a miss.
+    """
+
+    @pytest.mark.parametrize(
+        "model_id,expected_name",
+        [
+            # No entry accepts vertex_ai/ — gemini patterns allow google/ | models/.
+            ("vertex_ai/gemini-2.5-pro", "gemini-2.5-pro"),
+            ("vertexai/gemini-2.5-pro", "gemini-2.5-pro"),
+            # gpt-5.4 allowed only openai/, though its gpt-5.6-* siblings allow azure/.
+            ("azure/gpt-5.4", "gpt-5.4"),
+            ("azure_ai/gpt-5.4", "gpt-5.4"),
+            # Chained router prefixes were not handled at all.
+            ("openrouter/anthropic/claude-opus-4-8", "claude-opus-4-8"),
+            ("litellm/openai/gpt-5", "gpt-5"),
+            ("portkey/openai/gpt-4o", "gpt-4o"),
+            # A gateway in front of a Bedrock-shaped id still resolves.
+            ("bedrock/us.anthropic.claude-opus-4-8", "claude-opus-4-8"),
+        ],
+    )
+    def test_prefixed_id_resolves_to_the_bare_model(self, real_cache, model_id, expected_name):
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price(model_id)
+
+        assert price is not None, f"{model_id} should price like {expected_name}, got None"
+        assert price[MATCHED_MODEL_NAME] == expected_name
+
+    @pytest.mark.parametrize(
+        "model_id,expected_name",
+        [
+            ("openai/gpt-5.6-sol", "gpt-5.6-sol"),
+            ("anthropic/claude-opus-4-8", "claude-opus-4-8"),
+            ("google/gemini-2.5-pro", "gemini-2.5-pro"),
+            ("us.anthropic.claude-opus-4-8-v1:0", "claude-opus-4-8"),
+        ],
+    )
+    def test_ids_that_already_resolved_are_unchanged(self, real_cache, model_id, expected_name):
+        """The normalization pass runs only after a direct match fails, so it can
+        add a price but never redirect one that already resolved."""
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            price = get_model_price(model_id)
+
+        assert price is not None
+        assert price[MATCHED_MODEL_NAME] == expected_name
+
+    def test_unknown_model_behind_a_gateway_is_still_unpriced(self, real_cache):
+        """Stripping must not manufacture a match — an unknown SKU stays None so
+        cost is left unset rather than silently recorded as $0."""
+        with patch("worker.tokens.pricing._load_cache", lambda: real_cache):
+            assert get_model_price("openrouter/acme/not-a-real-model") is None
+
+    @pytest.mark.parametrize(
+        "model_id",
+        ["ft:gpt-4o:acme/custom", "my-org/gpt-5", "gpt-5"],
+    )
+    def test_non_gateway_segments_are_left_alone(self, model_id):
+        """Only known gateway segments are stripped, so an id whose first segment
+        is part of the real model name is untouched."""
+        assert strip_gateway_prefixes(model_id) == model_id
+
+    def test_stripping_is_bounded(self):
+        """A pathological id terminates instead of walking every segment."""
+        assert strip_gateway_prefixes("openai/" * 50 + "gpt-5") == "openai/" * 47 + "gpt-5"
+
+
+class TestGatewayPrefixedTokenEstimation:
+    """A prefixed id has to mean the same model to the token estimator as it does
+    to the price lookup (#1556).
+
+    is_claude_model was a bare startswith("claude"), so a gateway-prefixed Claude
+    id fell through to tiktoken's cl100k_base — a materially different estimate,
+    now attached to a cost that resolves.
+    """
+
+    @pytest.mark.parametrize(
+        "model_id",
+        [
+            "claude-opus-4-8",
+            "anthropic/claude-opus-4-8",
+            "openrouter/anthropic/claude-opus-4-8",
+            "vertex_ai/claude-opus-4-8",
+        ],
+    )
+    def test_prefixed_claude_ids_use_the_claude_estimator(self, model_id):
+        assert is_claude_model(model_id) is True
+        # 4 chars/token, versus whatever cl100k_base would have produced.
+        assert count_tokens("a" * 400, model_id) == 100
+
+    @pytest.mark.parametrize("model_id", ["gpt-4o", "azure/gpt-4o", "my-org/claude-ish"])
+    def test_non_claude_ids_are_unaffected(self, model_id):
+        assert is_claude_model(model_id) is False
+
+    def test_prefixed_openai_ids_reach_their_tiktoken_encoding(self):
+        """The prefix is not part of the name tiktoken knows, so "azure/gpt-4o"
+        silently missed its encoding and fell back to cl100k_base.
+
+        The text is chosen so the two encodings genuinely disagree (o200k_base
+        gives 50, cl100k_base 54) — on "hello world" they agree, and the
+        assertion would hold whether or not the prefix was stripped.
+        """
+        text = "hello world " * 20 + "ünïcödé tokens 12345 🎉"
+        assert count_tokens(text, "gpt-4o") != len(
+            tiktoken.get_encoding("cl100k_base").encode(text)
+        )
+        assert count_tokens(text, "azure/gpt-4o") == count_tokens(text, "gpt-4o")
 
 
 class TestGeminiModelIds:

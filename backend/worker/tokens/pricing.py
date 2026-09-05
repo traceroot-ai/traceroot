@@ -17,6 +17,7 @@ import psycopg2
 from shared.config import settings
 
 from .buckets import TokenBuckets, reconcile_cache_write_1h
+from .types import strip_gateway_prefixes
 from .usage import count_tokens
 
 logger = logging.getLogger(__name__)
@@ -81,26 +82,42 @@ def _load_cache() -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def get_model_price(model: str) -> dict[str, float] | None:
-    """Lookup price for model. Tries exact match, then regex fallback.
-
-    Returns dict with keys like ``input``, ``output``, ``cacheRead``, ``cacheWrite``
-    (values in USD per token), or None if not found.
-    """
-    cache = _load_cache()
-
-    # Exact match on model_name
+def _match(cache: list[dict], model: str) -> dict[str, float] | None:
+    """Exact match on model_name, then regex fallback on match_pattern."""
     for entry in cache:
         if entry["model_name"] == model:
             return entry["prices"]
 
-    # Regex fallback using match_pattern
     for entry in cache:
         try:
             if re.search(entry["match_pattern"], model, re.IGNORECASE):
                 return entry["prices"]
         except re.error:
             continue
+
+    return None
+
+
+def get_model_price(model: str) -> dict[str, float] | None:
+    """Lookup price for model. Tries exact match, then regex fallback.
+
+    Returns dict with keys like ``input``, ``output``, ``cacheRead``, ``cacheWrite``
+    (values in USD per token), or None if not found.
+
+    The id is matched as given first, so any pattern that deliberately recognises a
+    prefixed form keeps winning exactly as before. Only when nothing matches are
+    gateway prefixes stripped and the passes retried — the fallback is additive, so
+    it can turn a None into a price but never change a price that already resolved.
+    """
+    cache = _load_cache()
+
+    prices = _match(cache, model)
+    if prices is not None:
+        return prices
+
+    bare = strip_gateway_prefixes(model)
+    if bare != model:
+        return _match(cache, bare)
 
     return None
 
