@@ -181,8 +181,17 @@ async function processWorkspace(
     aggregateMessagesForKind(workspace.id, "chat", periodWindow),
     aggregateMessagesForKind(workspace.id, "rca", periodWindow),
     aggregateMessagesForKind(workspace.id, "detector", periodWindow),
+    // Only completed RCAs are billable. `detector_rcas` gets a row per finding
+    // that *would* run RCA, so the table also holds "pending"/"running" rows and
+    // two flavours of "failed": genuine agent errors, and the rcaBlocked skip
+    // path (detector-rca-processor) that writes status="failed" purely to
+    // terminate the UI's "in progress" state. Counting those made a capped Free
+    // workspace unrecoverable — every new finding wrote a failed row that pushed
+    // the counter further past the cap — and billed paid plans for runs that
+    // produced nothing. This single count feeds rca.runsUsed, the Free-plan
+    // hard cap (4c-bis), and the Stripe overage units (5c).
     prisma.detectorRca.count({
-      where: { project: { workspaceId: workspace.id }, ...periodWindow },
+      where: { project: { workspaceId: workspace.id }, status: "done", ...periodWindow },
     }),
   ]);
 
