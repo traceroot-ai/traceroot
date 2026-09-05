@@ -81,26 +81,106 @@ def _load_cache() -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def get_model_price(model: str) -> dict[str, float] | None:
-    """Lookup price for model. Tries exact match, then regex fallback.
+# Gateway / router prefixes stripped before the second matching pass.
+#
+# Every catalogue pattern hand-encodes which prefixes it tolerates, so coverage
+# drifts between siblings (`gpt-5.6-sol` accepts `azure/`, `gpt-5.4` does not) and
+# no entry accepts the router prefixes real deployments emit. Normalizing once
+# here fixes every row at the same time, and a new gateway costs one line instead
+# of an edit to all ~87 patterns.
+#
+# Keep in sync with GATEWAY_PREFIXES in
+# frontend/packages/core/src/model-pricing/lookup.ts — the two lookups must agree
+# on what a model id means. tests/worker/tokens/test_gateway_prefix_parity.py
+# fails if they drift.
+GATEWAY_PREFIXES = frozenset(
+    {
+        "amazon_bedrock",
+        "anthropic",
+        "azure",
+        "azure_ai",
+        "bedrock",
+        "deepseek",
+        "fireworks_ai",
+        "google",
+        "googleai",
+        "groq",
+        "litellm",
+        "mistral",
+        "models",
+        "moonshot",
+        "openai",
+        "openrouter",
+        "portkey",
+        "together_ai",
+        "vertex_ai",
+        "vertexai",
+        "xai",
+        "zai",
+    }
+)
 
-    Returns dict with keys like ``input``, ``output``, ``cacheRead``, ``cacheWrite``
-    (values in USD per token), or None if not found.
+# Chained prefixes in the wild are at most two deep ("openrouter/anthropic/…"),
+# so three is slack, not a limit anyone reaches. Bounding the loop keeps a
+# pathological id from turning into a long walk.
+_MAX_PREFIX_DEPTH = 3
+
+
+def strip_gateway_prefixes(model: str) -> str:
+    """Drop leading gateway/router segments from a model id.
+
+    ``openrouter/anthropic/claude-opus-4-8`` -> ``claude-opus-4-8``.
+
+    Only segments in GATEWAY_PREFIXES are removed, so an id whose first segment is
+    part of the model's real name is returned untouched. Bedrock's
+    ``us.anthropic.claude-…`` and Vertex's ``model@date`` forms are distinct id
+    shapes rather than slash prefixes, and the catalogue patterns already handle
+    them, so they pass through here unchanged.
     """
-    cache = _load_cache()
+    for _ in range(_MAX_PREFIX_DEPTH):
+        head, separator, tail = model.partition("/")
+        if not separator or head.lower() not in GATEWAY_PREFIXES or not tail:
+            break
+        model = tail
+    return model
 
-    # Exact match on model_name
+
+def _match(cache: list[dict], model: str) -> dict[str, float] | None:
+    """Exact match on model_name, then regex fallback on match_pattern."""
     for entry in cache:
         if entry["model_name"] == model:
             return entry["prices"]
 
-    # Regex fallback using match_pattern
     for entry in cache:
         try:
             if re.search(entry["match_pattern"], model, re.IGNORECASE):
                 return entry["prices"]
         except re.error:
             continue
+
+    return None
+
+
+def get_model_price(model: str) -> dict[str, float] | None:
+    """Lookup price for model. Tries exact match, then regex fallback.
+
+    Returns dict with keys like ``input``, ``output``, ``cacheRead``, ``cacheWrite``
+    (values in USD per token), or None if not found.
+
+    The id is matched as given first, so any pattern that deliberately recognises a
+    prefixed form keeps winning exactly as before. Only when nothing matches are
+    gateway prefixes stripped and the passes retried — the fallback is additive, so
+    it can turn a None into a price but never change a price that already resolved.
+    """
+    cache = _load_cache()
+
+    prices = _match(cache, model)
+    if prices is not None:
+        return prices
+
+    bare = strip_gateway_prefixes(model)
+    if bare != model:
+        return _match(cache, bare)
 
     return None
 
