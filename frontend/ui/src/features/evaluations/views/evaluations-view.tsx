@@ -138,11 +138,17 @@ function RunTableRow({
         {datasetVersion && (
           <span className="inline-flex items-center gap-0.5 font-mono text-[11px]">
             <span>{datasetVersion}</span>
-            <CopyButton
-              value={datasetVersion}
-              className="h-5 w-5 text-muted-foreground hover:text-foreground"
-              title="Copy version ID"
-            />
+            {/* Copying must not also open the run detail (the row's own onClick).
+                Activating the button from the keyboard dispatches a click too, so
+                stopping the click covers both paths — TR already ignores keydown
+                from nested targets. */}
+            <span className="inline-flex" onClick={(e) => e.stopPropagation()}>
+              <CopyButton
+                value={datasetVersion}
+                className="h-5 w-5 text-muted-foreground hover:text-foreground"
+                title="Copy version ID"
+              />
+            </span>
           </span>
         )}
       </Td>
