@@ -6,14 +6,18 @@
  * against a stubbed fetch (server-shaped payloads) is how the browser path is
  * checked, exactly like offline-eval.smoke.test.tsx.
  */
-import { describe, it, expect, vi, afterEach, beforeEach, beforeAll } from "vitest";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
 import { render, cleanup, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@/components/ui/toast";
 
+// One spy shared by every useRouter() consumer, so a test can assert that a
+// nested control (a copy button inside a navigable row) did NOT navigate. A
+// fresh vi.fn() per call would make that unobservable.
+const routerPush = vi.hoisted(() => vi.fn());
 vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "p1", datasetId: "ds1", runId: "run1" }),
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useRouter: () => ({ push: routerPush, replace: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
   usePathname: () => "/projects/p1/evaluations",
 }));
@@ -267,11 +271,11 @@ function payloadFor(url: string): unknown {
   return {};
 }
 
-beforeAll(() => {
-  Object.assign(navigator, { clipboard: { writeText: vi.fn(async () => {}) } });
-});
-
 beforeEach(() => {
+  // A fresh clipboard spy per test: a file-wide one keeps its call history, so
+  // any `toHaveBeenCalledWith` below would pass on an earlier test's click.
+  Object.assign(navigator, { clipboard: { writeText: vi.fn(async () => {}) } });
+  routerPush.mockClear();
   global.fetch = vi.fn(async (url: RequestInfo | URL) => ({
     ok: true,
     status: 200,
@@ -306,7 +310,10 @@ describe("real Datasets + Evaluations views render server data", () => {
     mount(<EvaluationsView projectId="p1" />);
     const copyBtn = (await screen.findAllByTitle("Copy version ID"))[0];
     fireEvent.click(copyBtn);
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("dv1");
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("dv1"));
+    // The button sits inside a row whose onClick pushes the run detail route;
+    // copying an id must not also navigate away from the list.
+    expect(routerPush).not.toHaveBeenCalled();
   });
 
   it("Evaluations shows an empty state that points at the SDK (no Run evaluation CTA)", async () => {
