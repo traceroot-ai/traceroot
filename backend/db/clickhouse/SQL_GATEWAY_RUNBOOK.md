@@ -3,9 +3,12 @@
 Provisioning for the read-only SQL gateway DB layer. Commands below are the
 forms proven against ClickHouse **24.3.18.7**.
 
-> **Version warning.** Staging runs `bitnamilegacy/clickhouse:25.2.1-debian-12-r0`. Nothing in
-> this runbook has been re-verified on 25.2 — treat the 24.3 results as indicative, not proven,
-> for the cloud path.
+> **Version warning.** Staging runs `bitnamilegacy/clickhouse:25.2.1-debian-12-r0`. Two things
+> have since been checked directly on 25.2.1: the admin holds `CREATE USER` / `SET DEFINER`
+> without extra configuration, and a view can be created with an explicit `DEFINER` of another
+> account. Everything else below — the read-only settings profile actually capping a query, and
+> the read-only account being refused the physical tables — remains proven only on 24.3.
+> Treat those as indicative, not proven, for the cloud path.
 
 > **Tenant isolation is application-enforced.** DB grants do **not** restrict which
 > `project_id` a caller passes to a curated view — a holder of the view grant can call
@@ -90,8 +93,9 @@ order above is the safe logical sequence for staged/manual provisioning.
   (`depends_on: clickhouse-init: condition: service_completed_successfully`). `make dev`
   runs it via `tmux_tools/launcher.py` before `goose up` (the goose docker fallback uses
   `--no-deps`, so the launcher runs it explicitly). The script is idempotent and runs
-  against the live server, so it also provisions existing data volumes. Dev accounts use
-  `no_password`. The compose ClickHouse also mounts `clickhouse_access_management.xml`
+  against the live server, so it also provisions existing data volumes. Dev accounts take
+  weak known defaults from `SQL_GATEWAY_WRITER_PASSWORD` and `CLICKHOUSE_RO_PASSWORD`;
+  neither account is passwordless on any stack, because the writer can read the raw tables. The compose ClickHouse also mounts `clickhouse_access_management.xml`
   into `users.d/` so the admin user (`CLICKHOUSE_USER`) gains `ACCESS MANAGEMENT` +
   `SET DEFINER` — the stock user has broad DDL but **not** access management, so without
   it the `CREATE USER` bootstrap fails and migration 012 cannot set its explicit definer.
@@ -99,9 +103,11 @@ order above is the safe logical sequence for staged/manual provisioning.
   the `tests/db/` migration/config/client tests are static/mocked.
 - **Self-host / manual.** Run the "Provisioning order" SQL above (with **real secrets**,
   not `no_password`) against your ClickHouse before `goose up`. Note: the
-  `docker-compose.prod.yml` stack instead auto-provisions the `no_password` compose
-  accounts via `clickhouse-init` — for a hardened host, create the users with real
-  secrets out of band and do not rely on that bootstrap.
+  `docker-compose.prod.yml` stack provisions these accounts via `clickhouse-init` from
+  `SQL_GATEWAY_WRITER_PASSWORD` and `CLICKHOUSE_RO_PASSWORD`, both of which it refuses to
+  start without. The passwords are hashed before they reach ClickHouse, so they appear
+  neither in the container's command line nor in `query_log`. The dev stack supplies weak
+  known defaults for the same accounts.
 - **Staging / production (Helm).** **Written, not yet released.** `deploy/` was
   removed from this repo on 2026-09-01; infrastructure now lives in three
   dedicated repos:
@@ -153,11 +159,17 @@ order above is the safe logical sequence for staged/manual provisioning.
   to reach the ClickHouse pod before the provisioning hook runs, so no restart is involved and
   a single apply is enough on a running cluster as well as a fresh one.
 
-  An external ClickHouse whose admin is narrower can be granted it with
-  `clickhouse.usersExtraOverrides`; that is documented in the chart's values rather than
-  required. Note the compose stack uses a different image whose admin does **not** carry it,
-  which is why the local path still mounts an access-management file — the two are not in
-  conflict, they are different servers.
+  `clickhouse.usersExtraOverrides` covers a **chart-managed** ClickHouse only: it configures
+  the bundled subchart, so it has no effect on a server the chart does not deploy
+  (`clickhouse.deploy: false`). For an independently managed ClickHouse, grant the admin
+  access management on that server itself — through its own `users.d` configuration, or with
+  `GRANT ACCESS MANAGEMENT ON *.* TO <admin>` from an account that already holds it. The
+  provisioning hook reads `SHOW GRANTS` before any DDL and stops with a named cause if
+  `CREATE USER` or `SET DEFINER` is missing, so a narrower admin fails immediately and says so.
+
+  Note the compose stack uses a different image whose admin does **not** carry access
+  management, which is why the local path still mounts an access-management file — the two are
+  not in conflict, they are different servers.
 
   Secret rotation is handled in-code: the provisioning Job follows each `CREATE USER` with
   `ALTER USER ... IDENTIFIED WITH sha256_password BY ...`, so a rerun after rotating the
@@ -212,7 +224,10 @@ serving the old one, and a hook that deletes credentials has no safe outcome if 
 was a typo or a bad values merge. Leaving the account is the conservative failure.
 
 The verification hook reports the situation instead: it lists every account holding `SELECT`
-on the curated views and warns when one is not the configured read-only user. That is a
+on the curated views **and on the physical `spans`/`traces` tables**, warning when one is
+neither the configured read-only user nor the configured writer. Both halves matter, and the
+second matters more: an orphaned writer keeps SELECT on the raw tables, including the blobs the
+curated views deliberately omit, so it is the more dangerous leftover of the two. That is a
 warning, not a failure. Removing an orphaned account is a deliberate manual step:
 
 ```sql
