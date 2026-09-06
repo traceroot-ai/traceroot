@@ -380,6 +380,33 @@ describe("Dataset detail — filtering and adding rows", () => {
     expect((patch?.body as { input: string }).input.endsWith(" ")).toBe(true);
   });
 
+  it("reformatting Metadata is not a change, but editing a value is", async () => {
+    mountDetail();
+    await screen.findByText(/charged twice/);
+    // Row 2 is the fixture case that carries metadata.
+    fireEvent.click((await screen.findAllByLabelText("Row actions"))[1]);
+    fireEvent.click(await screen.findByText("Edit"));
+    expect(await screen.findByText("Edit Row")).toBeDefined();
+    const metadata = screen.getByLabelText("Metadata") as HTMLTextAreaElement;
+    expect(metadata.value).toContain("channel");
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save.hasAttribute("disabled")).toBe(true);
+
+    // Metadata is persisted PARSED, so re-spacing and reordering the same object changes
+    // nothing that gets stored — comparing the raw text here would let Save publish a
+    // new dataset version identical to the current one.
+    fireEvent.change(metadata, {
+      target: { value: '{"priority":"high","channel":"email"}' },
+    });
+    expect(save.hasAttribute("disabled")).toBe(true);
+
+    // A real value change still enables Save.
+    fireEvent.change(metadata, {
+      target: { value: '{"channel":"chat","priority":"high"}' },
+    });
+    expect(save.hasAttribute("disabled")).toBe(false);
+  });
+
   it("the row action menu deletes a row (DELETE) after confirming", async () => {
     mountDetail();
     await screen.findByText(/charged twice/);

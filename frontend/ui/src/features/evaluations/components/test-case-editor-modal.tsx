@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/ui/toast";
 import { EditableValueBlock } from "@/features/offline-eval/components";
+import { canonicalJson } from "@/lib/eval/canonical";
 import { useSaveTestCase, useUpdateTestCase } from "../hooks";
 
 /**
@@ -28,6 +29,25 @@ function metadataToText(metadata: unknown): string {
   if (metadata === null || metadata === undefined) return "";
   if (typeof metadata === "object" && Object.keys(metadata as object).length === 0) return "";
   return JSON.stringify(metadata, null, 2);
+}
+
+/**
+ * The canonical form of the value `handleSave` would PERSIST for this metadata text —
+ * the parsed object, or null when blank — so the dirty check compares meaning rather than
+ * bytes. Metadata is stored parsed, so re-spacing `{"a": 1}` to `{"a":1}` or reordering
+ * its keys is a no-op that must not enable Save (it would publish an identical version).
+ * Text with no persisted form — half-typed JSON, or a lone surrogate `canonicalJson`
+ * rejects — returns null: `metadataError` already blocks Save on it, and this runs during
+ * render, so it must not throw. The null sentinel can't collide with a real result, which
+ * is always a JSON string (blank metadata canonicalizes to `"null"`, not to null).
+ */
+function metadataSignature(text: string): string | null {
+  const trimmed = text.trim();
+  try {
+    return canonicalJson(trimmed === "" ? null : JSON.parse(trimmed));
+  } catch {
+    return null;
+  }
 }
 
 export function TestCaseEditorModal({
@@ -84,7 +104,8 @@ export function TestCaseEditorModal({
   // can never be gated away as a no-op: `input` is stored verbatim AND its exact bytes are the
   // case's content-addressed id (`stableCaseId` hashes `canonicalJson(input)`, which does not
   // trim), so a whitespace-only input edit is a real change and compares raw; `expected` is
-  // stored as `expected.trim() || null` and `metadata` is stored parsed, so both compare trimmed.
+  // stored as `expected.trim() || null` so it compares trimmed, and `metadata` is stored
+  // PARSED so it compares canonically (see `metadataSignature`) rather than as raw text.
   // Trimming `input` on the way in is not an option either: that id derivation is byte-parity
   // with the TS/Python SDKs, so a trimming UI would give `" hi "` a different `tc_` id than the
   // same input authored through an SDK, and a re-publish would duplicate the case, not upsert it.
@@ -92,7 +113,9 @@ export function TestCaseEditorModal({
     mode.kind !== "edit" ||
     input !== mode.input ||
     expected.trim() !== (mode.expected ?? "").trim() ||
-    metadata.trim() !== metadataToText(mode.metadata).trim();
+    // Both sides go through the seeded TEXT, so a case stored as `{}` (which `metadataToText`
+    // renders blank) matches an untouched blank field instead of reading as an edit.
+    metadataSignature(metadata) !== metadataSignature(metadataToText(mode.metadata));
   const canSave = !metadataError && !pending && hasChanges;
 
   const handleSave = () => {
