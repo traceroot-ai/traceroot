@@ -400,3 +400,27 @@ def test_restricted_column_error_does_not_name_project_id() -> None:
         with pytest.raises(SqlValidationError) as exc_info:
             validate(sql)
         assert "project_id" not in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# Curated `metadata` Map column: keying needs no function, inspecting does.
+# ---------------------------------------------------------------------------
+METADATA_MAP_CASES = [
+    "SELECT metadata['user_id'] FROM spans",
+    "SELECT count() FROM spans WHERE metadata['tier'] = 'pro'",
+    "SELECT mapKeys(metadata) FROM spans",
+    "SELECT mapValues(metadata) FROM traces",
+    "SELECT name FROM spans WHERE mapContains(metadata, 'tenant')",
+]
+
+
+@pytest.mark.parametrize("sql", METADATA_MAP_CASES)
+def test_metadata_map_access_is_allowed(sql: str) -> None:
+    assert isinstance(validate(sql), exp.Query)
+
+
+def test_map_functions_do_not_open_the_wider_array_surface() -> None:
+    # Only the three map accessors were added; array functions that happen to
+    # compose with mapKeys() are still rejected by the allowlist.
+    with pytest.raises(SqlValidationError):
+        validate("SELECT arrayJoin(mapKeys(metadata)) FROM spans")
