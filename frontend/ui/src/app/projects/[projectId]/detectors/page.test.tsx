@@ -193,7 +193,7 @@ describe("DetectorsPage", () => {
     expect(heading.parentElement?.querySelector("svg")).toBeTruthy();
   });
 
-  it("shows the error state with a retry that refetches", () => {
+  it("shows the error state with a red headline and a retry that refetches", () => {
     const refetch = vi.fn();
     mocks.useDetectorList.mockReturnValue({
       data: undefined,
@@ -204,6 +204,7 @@ describe("DetectorsPage", () => {
 
     render(<DetectorsPage />);
 
+    expect(screen.getByText("Error loading detectors").className).toContain("text-destructive");
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(refetch).toHaveBeenCalled();
   });

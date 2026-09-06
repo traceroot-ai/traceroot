@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { AlertTriangle, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
+import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 import { Button } from "@/components/ui/button";
-import { ListState, ListLoading } from "@/components/ui/list-state";
+import { ListState, ListError, ListLoading } from "@/components/ui/list-state";
 import { Table, TBody, Td, Th, THead, TR, TRHead } from "@/components/ui/table";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { SearchFilterBar } from "@/components/search-filter-bar";
@@ -162,21 +162,7 @@ export default function DetectorsPage() {
           {isLoading ? (
             <ListLoading label="Loading detectors..." />
           ) : error ? (
-            <ListState
-              icon={<AlertTriangle className="h-8 w-8 text-destructive/50" />}
-              title="Error loading detectors"
-              description="Make sure the API server is running and you have API keys configured."
-              action={
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 text-[12px]"
-                  onClick={() => refetch()}
-                >
-                  Try again
-                </Button>
-              }
-            />
+            <ListError title="Error loading detectors" onRetry={() => refetch()} />
           ) : isEmptyProject ? (
             <ListState
               icon={<DOMAIN_ICONS.detector className="h-8 w-8 text-muted-foreground/40" />}

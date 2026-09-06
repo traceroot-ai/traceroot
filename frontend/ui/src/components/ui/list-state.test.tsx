@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
-import { describe, expect, it, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
-import { ListState, ListLoading, TableStateRow } from "./list-state";
+import { describe, expect, it, afterEach, vi } from "vitest";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
+import {
+  ListState,
+  ListError,
+  ListLoading,
+  TableStateRow,
+  LIST_ERROR_API_HINT,
+} from "./list-state";
 
 afterEach(cleanup);
 
@@ -26,6 +32,51 @@ describe("ListState", () => {
     render(<ListState title="No rows" />);
     expect(screen.getByText("No rows")).toBeTruthy();
     expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("keeps the headline muted and announces nothing by default", () => {
+    render(<ListState title="No rows" />);
+
+    expect(screen.getByText("No rows").className).toContain("text-muted-foreground");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("reds the headline and announces the block when the tone is error", () => {
+    render(<ListState tone="error" title="Error loading traces" />);
+
+    const title = screen.getByText("Error loading traces");
+    expect(title.className).toContain("text-destructive");
+    expect(title.className).not.toContain("text-muted-foreground");
+    expect(screen.getByRole("alert").contains(title)).toBe(true);
+  });
+});
+
+describe("ListError", () => {
+  it("renders a red announced headline, the shared hint and a retry", () => {
+    const onRetry = vi.fn();
+    render(<ListError title="Error loading runs" onRetry={onRetry} />);
+
+    const title = screen.getByText("Error loading runs");
+    expect(title.className).toContain("text-destructive");
+    expect(screen.getByRole("alert").contains(title)).toBe(true);
+    expect(screen.getByText(LIST_ERROR_API_HINT)).toBeTruthy();
+    expect(screen.getByRole("alert").querySelector("svg")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("takes a caller description in place of the API-key hint", () => {
+    render(
+      <ListError
+        title="Error loading users"
+        description="Make sure the API server is running."
+        onRetry={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Make sure the API server is running.")).toBeTruthy();
+    expect(screen.queryByText(LIST_ERROR_API_HINT)).toBeNull();
   });
 });
 

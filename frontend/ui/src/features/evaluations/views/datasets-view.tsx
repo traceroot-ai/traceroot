@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Inbox } from "lucide-react";
+import { Inbox } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ListPagination } from "@/components/list-pagination";
@@ -12,7 +12,7 @@ import { useToast } from "@/components/ui/toast";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { DatasetActionsMenu, Timestamp } from "@/features/offline-eval/components";
 import { Table, TBody, Td, Th, THead, TR, TRHead } from "@/components/ui/table";
-import { ListState, ListLoading, TableStateRow } from "@/components/ui/list-state";
+import { ListState, ListError, ListLoading, TableStateRow } from "@/components/ui/list-state";
 import { useDatasets, useDeleteDataset, useEvaluations } from "../hooks";
 import type { DatasetRow } from "../types";
 import { NewDatasetPanel, DatasetEditPanel } from "../components/dataset-panels";
@@ -111,21 +111,7 @@ export function DatasetsView({ projectId }: { projectId: string }) {
               </TableStateRow>
             ) : error ? (
               <TableStateRow colSpan={7}>
-                <ListState
-                  icon={<AlertTriangle className="h-8 w-8 text-destructive/50" />}
-                  title="Error loading datasets"
-                  description="Make sure the API server is running and you have API keys configured."
-                  action={
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-[12px]"
-                      onClick={() => refetch()}
-                    >
-                      Try again
-                    </Button>
-                  }
-                />
+                <ListError title="Error loading datasets" onRetry={() => refetch()} />
               </TableStateRow>
             ) : datasets.length === 0 ? (
               <TableStateRow colSpan={7}>

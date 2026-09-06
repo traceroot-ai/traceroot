@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Inbox } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Inbox } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -19,7 +19,7 @@ import { DateFilterSelect } from "@/components/date-filter-select";
 import { DATE_FILTER_OPTIONS, toTimestampBounds, type DateFilterOption } from "@/lib/date-filter";
 import { useKeywordSearch } from "@/lib/hooks/use-keyword-search";
 import { Table, TBody, Td, Th, THead, TR, TRHead } from "@/components/ui/table";
-import { ListState, ListLoading, TableStateRow } from "@/components/ui/list-state";
+import { ListState, ListError, ListLoading, TableStateRow } from "@/components/ui/list-state";
 import { DatasetActionsMenu, Timestamp } from "@/features/offline-eval/components";
 import { ProjectBreadcrumb } from "@/features/projects/components";
 import { useEvaluationRuns, useDeleteRuns } from "../hooks";
@@ -360,21 +360,7 @@ function RunsTab({ projectId }: { projectId: string }) {
               </TableStateRow>
             ) : error ? (
               <TableStateRow colSpan={RUNS_COLUMN_COUNT}>
-                <ListState
-                  icon={<AlertTriangle className="h-8 w-8 text-destructive/50" />}
-                  title="Error loading runs"
-                  description="Make sure the API server is running and you have API keys configured."
-                  action={
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-[12px]"
-                      onClick={() => refetch()}
-                    >
-                      Try again
-                    </Button>
-                  }
-                />
+                <ListError title="Error loading runs" onRetry={() => refetch()} />
               </TableStateRow>
             ) : runs.length === 0 ? (
               <TableStateRow colSpan={RUNS_COLUMN_COUNT}>

@@ -3,11 +3,9 @@
 import { useMemo, useLayoutEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import { AlertTriangle } from "lucide-react";
 import { useLayout } from "@/components/layout/app-layout";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
-import { Button } from "@/components/ui/button";
-import { ListState, ListLoading } from "@/components/ui/list-state";
+import { ListState, ListError, ListLoading } from "@/components/ui/list-state";
 import { Table, TBody, Td, Th, THead, TR, TRHead } from "@/components/ui/table";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { ListPagination } from "@/components/list-pagination";
@@ -140,21 +138,7 @@ export default function SessionsPage() {
           {checking ? (
             <ListLoading label="Loading sessions..." />
           ) : error && !data ? (
-            <ListState
-              icon={<AlertTriangle className="h-8 w-8 text-destructive/50" />}
-              title="Error loading sessions"
-              description="Make sure the API server is running and you have API keys configured."
-              action={
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 text-[12px]"
-                  onClick={() => refetch()}
-                >
-                  Try again
-                </Button>
-              }
-            />
+            <ListError title="Error loading sessions" onRetry={() => refetch()} />
           ) : sessions.length === 0 ? (
             <ListState
               icon={<DOMAIN_ICONS.session className="h-8 w-8 text-muted-foreground/40" />}

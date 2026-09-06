@@ -5,7 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { useLayout } from "@/components/layout/app-layout";
-import { X, Inbox, AlertTriangle, Plus } from "lucide-react";
+import { X, Inbox, Plus } from "lucide-react";
 import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { SearchFilterBar } from "@/components/search-filter-bar";
 import { TraceSearchFilterInput } from "@/features/filters/trace-search-filter-input";
@@ -20,7 +20,7 @@ import { PlanType } from "@traceroot/core";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { useLocalStorage } from "@/lib/hooks/use-local-storage";
 import { TraceViewerPanel, GettingStarted } from "@/features/traces/components";
-import { ListState, ListLoading } from "@/components/ui/list-state";
+import { ListState, ListError, ListLoading } from "@/components/ui/list-state";
 import type { TraceSelection } from "@/features/traces";
 import { Button } from "@/components/ui/button";
 import {
@@ -264,21 +264,7 @@ export default function TracesPage() {
           {isLoading || checking ? (
             <ListLoading label="Loading traces..." />
           ) : error && !data ? (
-            <ListState
-              icon={<AlertTriangle className="h-8 w-8 text-destructive/50" />}
-              title="Error loading traces"
-              description="Make sure the API server is running and you have API keys configured."
-              action={
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 text-[12px]"
-                  onClick={() => refetch()}
-                >
-                  Try again
-                </Button>
-              }
-            />
+            <ListError title="Error loading traces" onRetry={() => refetch()} />
           ) : showGettingStarted ? (
             <GettingStarted projectId={projectId} />
           ) : traces.length === 0 ? (
