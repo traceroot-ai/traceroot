@@ -66,10 +66,9 @@ export function formatCost(cost: number | null | undefined): React.ReactNode {
 export function EvaluationsView({ projectId }: { projectId: string }) {
   return (
     <div className="flex h-full flex-col text-[13px]">
-      {/* Top breadcrumb bar */}
-      {/* ProjectBreadcrumb mounts into the app header (#project-breadcrumb-portal).
-          Must render unconditionally: if unmounted on an empty state or while a
-          mounted ProjectBreadcrumb the header goes blank on this route. */}
+      {/* Populates the app's top breadcrumb bar (workspace / project) through the
+          layout's `setHeaderContent`. Must render unconditionally — unmounting it
+          (e.g. behind an empty state) runs its cleanup and blanks the header. */}
       <ProjectBreadcrumb projectId={projectId} current="Evaluations" />
       <div className="flex min-h-0 flex-1 flex-col">
         <RunsTab projectId={projectId} />
