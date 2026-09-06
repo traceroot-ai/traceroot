@@ -116,6 +116,14 @@ ALLOWED_FUNCTIONS: frozenset[str] = frozenset(
         "row_number",  # ClickHouse row_number() -> exp.RowNumber
         "rank",
         "dense_rank",
+        # --- Map access for the curated `metadata` column. Keying it
+        # (metadata['k']) needs no function, but a caller who does not know the
+        # keys has no way to look: these three are how a Map is inspected, and
+        # all are Anonymous with the name preserved. Nothing here reads outside
+        # the row it is given.
+        "mapkeys",  # ClickHouse mapKeys()
+        "mapvalues",  # ClickHouse mapValues()
+        "mapcontains",  # ClickHouse mapContains()
     }
 )
 
