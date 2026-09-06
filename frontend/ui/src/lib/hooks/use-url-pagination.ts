@@ -19,6 +19,17 @@ interface UseUrlPaginationReturn {
 
 const DEFAULT_PAGE = 0;
 const DEFAULT_LIMIT = 50;
+// The list routes cap `limit` server-side (`Math.min(Math.max(raw, 1), 200)`) and echo
+// the capped value back in `meta`, so a larger `page_limit` is silently not honoured.
+// Holding one client-side would request a page size that never arrives and, worse, make
+// `clampToTotal` divide `total` by it — sending pages that are valid under the size the
+// server actually serves back to an earlier page.
+const MAX_LIMIT = 200;
+
+/** Normalize a requested page size to what the API will actually serve. */
+function clampLimit(limit: number): number {
+  return Math.min(limit, MAX_LIMIT);
+}
 
 // Reject NaN, Infinity, and out-of-range values so a hand-edited URL like
 // `?page_limit=0` or `?page_index=-2` falls back to defaults instead of
@@ -35,7 +46,7 @@ export function useUrlPagination(defaultLimit = DEFAULT_LIMIT): UseUrlPagination
   const pathname = usePathname();
 
   const initialPage = parseUrlInt(searchParams.get("page_index"), DEFAULT_PAGE, 0);
-  const initialLimit = parseUrlInt(searchParams.get("page_limit"), defaultLimit, 1);
+  const initialLimit = clampLimit(parseUrlInt(searchParams.get("page_limit"), defaultLimit, 1));
 
   const [page, setPageState] = useState(initialPage);
   const [limit, setLimitState] = useState(initialLimit);
@@ -52,7 +63,7 @@ export function useUrlPagination(defaultLimit = DEFAULT_LIMIT): UseUrlPagination
     }
 
     setPageState(parseUrlInt(searchParams.get("page_index"), DEFAULT_PAGE, 0));
-    setLimitState(parseUrlInt(searchParams.get("page_limit"), defaultLimit, 1));
+    setLimitState(clampLimit(parseUrlInt(searchParams.get("page_limit"), defaultLimit, 1)));
   }, [searchParams, defaultLimit]);
 
   // Update URL with current pagination state
@@ -89,7 +100,8 @@ export function useUrlPagination(defaultLimit = DEFAULT_LIMIT): UseUrlPagination
   );
 
   const setLimit = useCallback(
-    (newLimit: number) => {
+    (requestedLimit: number) => {
+      const newLimit = clampLimit(requestedLimit);
       setLimitState(newLimit);
       setPageState(DEFAULT_PAGE); // Reset to first page when changing limit
       updateUrl(DEFAULT_PAGE, newLimit);

@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
 /**
  * View-mount smoke for the Evaluations list's page clamp. The clamp pulls a page
- * back inside a result set that has shrunk; this covers it pulling back a page that
- * is actually valid, because `placeholderData` still holds the previous query's
- * `total`. Driven through the real view (URL in, request + URL rewrite out), since
- * the bug only exists in the interplay between the query cache, the hook, and the
- * view's effect.
+ * back inside a result set that has shrunk; these cover the two ways it can pull
+ * back a page that is actually valid — a stale placeholder `total`, and a
+ * `page_limit` the API caps below what the URL asked for. Both are driven through
+ * the real view (URL in, request + URL rewrite out), since the bug only exists in
+ * the interplay between the query cache, the hook, and the view's effect.
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, cleanup, screen, waitFor } from "@testing-library/react";
@@ -129,5 +129,40 @@ describe("Evaluations list page clamp", () => {
     // at some earlier page.
     expect(rewrittenPages()).toEqual([]);
     expect(new Set(requestedPages)).toEqual(new Set(["3"]));
+  });
+
+  it("sizes the last page by the limit the API serves, not a larger requested one", async () => {
+    // The list routes cap `limit` at 200 and echo the capped value, so ?page_limit=500
+    // is served as 200 -> 1000 runs is pages 0-4 and page 3 has rows. Sizing by the
+    // requested 500 would make page 1 the last page and bounce a valid deep link.
+    currentParams = new URLSearchParams({ page_limit: "500", page_index: "3" });
+    const requestedLimits: (string | null)[] = [];
+    global.fetch = vi.fn(async (url: RequestInfo | URL) => {
+      const s = String(url);
+      const params = new URL(s, "http://x").searchParams;
+      if (isRuns(s)) requestedLimits.push(params.get("limit"));
+      const requested = Number(params.get("limit") ?? 50);
+      return {
+        ok: true,
+        status: 200,
+        json: async () =>
+          isRuns(s)
+            ? {
+                data: [row(1)],
+                // Mirrors runs/route.ts: the served limit is the capped one.
+                meta: { page: 3, limit: Math.min(Math.max(requested, 1), 200), total: 1000 },
+              }
+            : {},
+      };
+    }) as unknown as typeof fetch;
+
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(view(qc));
+    await screen.findByText("git:c1");
+
+    // The request asks for the page size the server will actually serve...
+    expect(new Set(requestedLimits)).toEqual(new Set(["200"]));
+    // ...and page 3 stands rather than being rewritten to 1.
+    expect(rewrittenPages()).toEqual([]);
   });
 });
