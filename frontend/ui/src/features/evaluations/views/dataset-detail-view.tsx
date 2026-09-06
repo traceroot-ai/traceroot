@@ -229,10 +229,11 @@ export function DatasetDetailView({
       />
       <div className="flex h-full flex-col text-[13px]">
         <div className="flex min-h-0 flex-1 flex-col">
-          {/* Single toolbar row: search on the left; the Row action and the
-                version selector pushed to the right (version farthest). The version
-                id lives inside the dropdown, not spelled out in the bar. No date
-                filter: nothing here reads one. */}
+          {/* Single toolbar row: search and the dataset id on the left; the Row
+                action and the version selector pushed to the right (version
+                farthest). Both ids carry a copy button — they are what an SDK
+                call needs and neither is retypable by eye. No date filter:
+                nothing here reads one. */}
           <SearchFilterBar
             searchValue={keyword}
             onSearchChange={setKeyword}
