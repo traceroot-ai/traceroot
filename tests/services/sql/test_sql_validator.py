@@ -29,6 +29,7 @@ from __future__ import annotations
 import pytest
 import sqlglot.expressions as exp
 
+from rest.services.sql import validator as validator_module
 from rest.services.sql.errors import SqlValidationError
 from rest.services.sql.validator import (
     ALLOWED_FUNCTIONS,
@@ -263,13 +264,35 @@ def test_blocked_prefixes_is_tuple_of_lowercase_strings() -> None:
         assert prefix == prefix.lower(), f"BLOCKED_PREFIXES entry not lowercased: {prefix!r}"
 
 
-def test_blocklist_wins_over_allowlist() -> None:
-    # Manually add a blocked name into ALLOWED_FUNCTIONS would not help;
-    # here we verify the symbolic contract: blocked set and allowed set
-    # are both present as public constants.
+def test_blocked_and_allowed_sets_do_not_overlap() -> None:
+    # The invariant that keeps precedence from ever being exercised in production.
     assert BLOCKED_FUNCTIONS.isdisjoint(ALLOWED_FUNCTIONS), (
         "BLOCKED_FUNCTIONS and ALLOWED_FUNCTIONS must not overlap"
     )
+
+
+def test_blocklist_wins_when_a_name_reaches_both_sets(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Because the two sets are disjoint today, the precedence branch is dead code from
+    # the test suite's point of view and could regress unnoticed. Force the overlap the
+    # invariant above forbids: a blocked name that is ALSO allowlisted stays rejected.
+    monkeypatch.setattr(validator_module, "ALLOWED_FUNCTIONS", ALLOWED_FUNCTIONS | {"sleep"})
+    with pytest.raises(SqlValidationError):
+        validate("SELECT sleep(10) FROM spans")
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        pytest.param("SELECT span_id FROM spans;", id="terminator"),
+        pytest.param("SELECT span_id FROM spans ;", id="spaced-terminator"),
+    ],
+)
+def test_bare_trailing_semicolon_is_one_statement(sql: str) -> None:
+    # A terminator is not a second statement: the parse yields one statement, and the
+    # rewriter renders the AST rather than the caller's text, so the `;` never reaches
+    # ClickHouse. Anything AFTER the `;` IS a second statement and is rejected — see
+    # `reject-multi-stmt` and `reject-trailing-injection` in the rejection matrix.
+    assert isinstance(validate(sql), exp.Query)
 
 
 def test_validate_returns_query_ast_on_success() -> None:
