@@ -7,6 +7,9 @@ By default, TraceRoot provides system models for the AI agent. With BYOK, you ca
 
 ## Default Models
 
+{/* Mirrors the system model list in code, and a test keeps the two in sync.
+    Models available only through BYOK do not belong here — see BYOK Models below. */}
+
 | Provider | Models (first entry is the default) |
 |----------|--------------------------------------|
 | Anthropic | `claude-opus-4-8`, `claude-opus-4-7`, `claude-opus-4-6`, `claude-sonnet-5`, `claude-sonnet-4-6`, `claude-opus-4-5`, `claude-sonnet-4-5`, `claude-haiku-4-5` |
@@ -18,6 +21,15 @@ See [Supported Models](/integrations/internal-models) for a description of each 
 
 OpenAI, Anthropic, Azure OpenAI, Google (Gemini), Amazon Bedrock, xAI, DeepSeek, OpenRouter, Kimi, GLM.
 
+## BYOK Models
+
+Your own key unlocks models beyond the system list above — typically newer frontier
+models, or models TraceRoot does not run on its own keys.
+
+Which models those are depends on the provider you configure, and the set changes as
+providers ship new models, so it is not reproduced here. Add a key and open the model
+selector in the AI chat interface to see everything available to your workspace.
+
 ## Setup
 
 1. Go to Workspace Settings -> Model Providers in the dashboard
@@ -26,4 +38,4 @@ OpenAI, Anthropic, Azure OpenAI, Google (Gemini), Amazon Bedrock, xAI, DeepSeek,
 4. Optionally set a custom base URL for self-hosted or proxied models
 5. Save — keys are encrypted at rest and scoped to your workspace
 
-Once configured, the model selector in the AI chat interface will show both system models and your BYOK models.
+Once configured, the model selector in the AI chat interface lists both the system models above and every model your key makes available.
