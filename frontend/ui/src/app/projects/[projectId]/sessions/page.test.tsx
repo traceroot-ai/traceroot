@@ -125,4 +125,13 @@ describe("SessionsPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(refetch).toHaveBeenCalled();
   });
+
+  it("keeps the loaded rows when a background refetch fails", () => {
+    mocks.useSessions.mockReturnValue({ ...twoSessions, error: new Error("boom") });
+
+    render(<SessionsPage />);
+
+    expect(screen.getByText("sess-1")).toBeTruthy();
+    expect(screen.queryByText("Error loading sessions")).toBeNull();
+  });
 });

@@ -141,7 +141,7 @@ export default function SessionsPage() {
         <div className="flex-1 overflow-auto bg-background">
           {checking ? (
             <ListLoading label="Loading sessions..." />
-          ) : error && !data ? (
+          ) : error && sessions.length === 0 ? (
             <ListError
               title="Error loading sessions"
               description={SESSION_AUTH_ERROR_HINT}

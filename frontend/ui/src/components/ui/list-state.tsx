@@ -56,6 +56,10 @@ export const LIST_ERROR_API_HINT =
  * The failed-fetch state every list shares: warning glyph, red headline and a
  * retry. Kept as a preset so the six lists cannot drift apart again on the
  * icon, the tone or the retry affordance.
+ *
+ * Gate it on `error && rows.length === 0`, the trigger every list uses: a
+ * background refetch that fails while rows are already on screen should leave
+ * those rows alone rather than replacing good data with an error.
  */
 export function ListError({
   title,

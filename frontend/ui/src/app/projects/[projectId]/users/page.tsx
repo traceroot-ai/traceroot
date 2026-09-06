@@ -137,7 +137,7 @@ export default function UsersPage() {
         <div className="flex-1 overflow-auto bg-background">
           {checking ? (
             <ListLoading label="Loading users..." />
-          ) : error && !data ? (
+          ) : error && users.length === 0 ? (
             <ListError
               title="Error loading users"
               description={SESSION_AUTH_ERROR_HINT}

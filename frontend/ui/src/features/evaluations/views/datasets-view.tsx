@@ -109,7 +109,7 @@ export function DatasetsView({ projectId }: { projectId: string }) {
               <TableStateRow colSpan={7}>
                 <ListLoading label="Loading datasets..." />
               </TableStateRow>
-            ) : error ? (
+            ) : error && datasets.length === 0 ? (
               <TableStateRow colSpan={7}>
                 <ListError title="Error loading datasets" onRetry={() => refetch()} />
               </TableStateRow>

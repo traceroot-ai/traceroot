@@ -209,6 +209,18 @@ describe("DetectorsPage", () => {
     expect(refetch).toHaveBeenCalled();
   });
 
+  it("keeps the loaded rows when a background refetch fails", () => {
+    mocks.useDetectorList.mockReturnValue({
+      ...defaultDetectorList,
+      error: new Error("boom"),
+    });
+
+    render(<DetectorsPage />);
+
+    expect(screen.getByText("My Detector")).toBeTruthy();
+    expect(screen.queryByText("Error loading detectors")).toBeNull();
+  });
+
   it("marks the open detector's row as selected", () => {
     render(<DetectorsPage />);
 

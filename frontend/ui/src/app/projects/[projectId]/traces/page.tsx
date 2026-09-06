@@ -263,7 +263,7 @@ export default function TracesPage() {
         <div className="flex-1 overflow-auto bg-background">
           {isLoading || checking ? (
             <ListLoading label="Loading traces..." />
-          ) : error && !data ? (
+          ) : error && traces.length === 0 ? (
             <ListError title="Error loading traces" onRetry={() => refetch()} />
           ) : showGettingStarted ? (
             <GettingStarted projectId={projectId} />

@@ -358,7 +358,7 @@ function RunsTab({ projectId }: { projectId: string }) {
               <TableStateRow colSpan={RUNS_COLUMN_COUNT}>
                 <ListLoading label="Loading runs..." />
               </TableStateRow>
-            ) : error ? (
+            ) : error && runs.length === 0 ? (
               <TableStateRow colSpan={RUNS_COLUMN_COUNT}>
                 <ListError title="Error loading runs" onRetry={() => refetch()} />
               </TableStateRow>

@@ -161,7 +161,7 @@ export default function DetectorsPage() {
         <div className="flex-1 overflow-auto bg-background">
           {isLoading ? (
             <ListLoading label="Loading detectors..." />
-          ) : error ? (
+          ) : error && detectors.length === 0 ? (
             <ListError title="Error loading detectors" onRetry={() => refetch()} />
           ) : isEmptyProject ? (
             <ListState
