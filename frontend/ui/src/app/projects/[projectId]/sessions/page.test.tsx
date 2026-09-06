@@ -106,4 +106,23 @@ describe("SessionsPage", () => {
     expect(rowFor("sess-2").className).toContain("bg-muted");
     expect(rowFor("sess-1").dataset.selected).toBeUndefined();
   });
+
+  it("shows the error state with the session-auth hint and a retry", () => {
+    const refetch = vi.fn();
+    mocks.useSessions.mockReturnValue({
+      data: undefined,
+      isPending: false,
+      error: new Error("boom"),
+      refetch,
+    });
+
+    render(<SessionsPage />);
+
+    const title = screen.getByText("Error loading sessions");
+    expect(title.className).toContain("text-destructive");
+    expect(screen.getByText("Make sure the API server is running.")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(refetch).toHaveBeenCalled();
+  });
 });

@@ -21,6 +21,10 @@ import { useRetention } from "@/lib/hooks/use-retention";
 import { PricingDialog } from "@/ee/features/billing/PricingDialog";
 import { PlanType } from "@traceroot/core";
 
+// This page reads through the browser session, not an API key, so the shared
+// ListError hint would send the user after a credential it never uses.
+const SESSION_AUTH_ERROR_HINT = "Make sure the API server is running.";
+
 const tabs = [
   { id: "traces", label: "Traces", icon: DOMAIN_ICONS.trace, href: "traces" },
   { id: "users", label: "Users", icon: DOMAIN_ICONS.user, href: "users" },
@@ -134,7 +138,11 @@ export default function UsersPage() {
           {checking ? (
             <ListLoading label="Loading users..." />
           ) : error && !data ? (
-            <ListError title="Error loading users" onRetry={() => refetch()} />
+            <ListError
+              title="Error loading users"
+              description={SESSION_AUTH_ERROR_HINT}
+              onRetry={() => refetch()}
+            />
           ) : users.length === 0 ? (
             <ListState
               icon={<DOMAIN_ICONS.user className="h-8 w-8 text-muted-foreground/40" />}

@@ -21,6 +21,10 @@ import { useSession as useAuthSession } from "@/lib/auth-client";
 import { formatCost, formatTokens, formatExactTokens, cn, buildUrlWithFilters } from "@/lib/utils";
 import type { SessionListItem, SessionQueryOptions } from "@/types/api";
 
+// This page reads through the browser session, not an API key, so the shared
+// ListError hint would send the user after a credential it never uses.
+const SESSION_AUTH_ERROR_HINT = "Make sure the API server is running.";
+
 const tabs = [
   { id: "traces", label: "Traces", icon: DOMAIN_ICONS.trace, href: "traces" },
   { id: "users", label: "Users", icon: DOMAIN_ICONS.user, href: "users" },
@@ -138,7 +142,11 @@ export default function SessionsPage() {
           {checking ? (
             <ListLoading label="Loading sessions..." />
           ) : error && !data ? (
-            <ListError title="Error loading sessions" onRetry={() => refetch()} />
+            <ListError
+              title="Error loading sessions"
+              description={SESSION_AUTH_ERROR_HINT}
+              onRetry={() => refetch()}
+            />
           ) : sessions.length === 0 ? (
             <ListState
               icon={<DOMAIN_ICONS.session className="h-8 w-8 text-muted-foreground/40" />}
