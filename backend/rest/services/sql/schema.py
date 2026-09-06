@@ -25,9 +25,10 @@ Because ``SELECT *`` resolves against these curated views, it returns exactly th
 analytical columns defined here -- never the underlying physical-table columns.
 
 Beyond the columns, the views also curate **rows**: on top of the per-project
-scope the rewriter binds, they apply ``VIEW_ROW_FILTERS`` so a caller sees only
-their own customer traffic. A row the product hides on every other read path
-must not reappear through the SQL gateway.
+scope the rewriter binds, they apply ``VIEW_ROW_FILTERS`` and
+``VIEW_EVALUATION_EXCLUSION`` so a caller sees only their own customer traffic.
+A row the product hides on every other read path must not reappear through the
+SQL gateway.
 
 ``span_start_time`` and ``trace_start_time`` are the canonical time-filter
 columns. ``duration_ms`` is not a physical column; the ``spans_public_v1`` view
@@ -114,22 +115,37 @@ TABLE_VIEW_MAP: dict[str, str] = {
     "traces": "traces_public_v1",
 }
 
-#: Row-level predicates the curated views MUST apply to the physical tables, in
-#: addition to the bound project scope. Both mirror rules every other
-#: customer-facing read path already enforces:
+#: Per-row predicates the curated views MUST apply to the physical tables, in
+#: addition to the bound project scope.
 #:
-#: * ``source = 'user'`` names the one value that IS customer traffic instead of
-#:   excluding the internal markers known today, so a marker added tomorrow is
-#:   excluded the day it appears (the reasoning behind
-#:   ``rest.services.trace_reader.customer_traffic_only``, which spells the same
-#:   rule for the internal read paths).
-#: * ``is_evaluation = 0`` drops offline-evaluation rows, which the product hides
-#:   from every list, session and dropdown; the gateway must not be the one
-#:   surface that hands them back.
+#: ``source = 'user'`` names the one value that IS customer traffic instead of
+#: excluding the internal markers known today, so a marker added tomorrow is
+#: excluded the day it appears -- the reasoning behind
+#: ``rest.services.trace_reader.customer_traffic_only``, which spells the same
+#: rule for the internal read paths.
+VIEW_ROW_FILTERS: tuple[str, ...] = ("source = 'user'",)
+
+#: Offline-evaluation exclusion the curated views MUST apply. Deliberately NOT a
+#: per-row ``is_evaluation = 0``, which would leak evaluation data two ways:
 #:
-#: The view migration spells these out in SQL -- a ``.sql`` file cannot import
-#: this module -- so this tuple is the contract that migration is checked against.
-VIEW_ROW_FILTERS: tuple[str, ...] = ("source = 'user'", "is_evaluation = 0")
+#: * Ingest makes the flag monotonic only WITHIN a batch. A later batch carrying
+#:   just the non-eval spans of an evaluation trace rewrites the trace row with
+#:   ``is_evaluation = 0`` and a newer ``ch_update_time``, so a predicate read off
+#:   the deduped latest row un-hides the trace -- the common case, not a race.
+#: * Ordinary child spans of an evaluation trace are themselves stored as ``0``,
+#:   so a span-level flag check never hid them in the first place.
+#:
+#: Set membership on ``trace_id`` is dedup-independent: any row anywhere flagged
+#: ``1`` hides the trace permanently, whatever order the writes arrived in. The
+#: sub-select repeats the project scope so it prunes the same partitions as the
+#: view body and can never read another tenant's rows. This mirrors
+#: ``rest.services.trace_reader._evaluation_exclusion``, which is the same rule
+#: for the internal read paths; both ``spans`` and ``traces`` carry ``trace_id``,
+#: so one predicate serves both views.
+VIEW_EVALUATION_EXCLUSION: str = (
+    "trace_id NOT IN (SELECT trace_id FROM traces "
+    "WHERE project_id = {project_id:String} AND is_evaluation = 1)"
+)
 
 
 def column_names(table: str) -> set[str]:

@@ -10,6 +10,7 @@ rewriter, view migration, schema endpoint, CLI) derive from a stable surface.
 from rest.services.sql.schema import (
     PUBLIC_TABLES,
     TABLE_VIEW_MAP,
+    VIEW_EVALUATION_EXCLUSION,
     VIEW_ROW_FILTERS,
     PublicColumn,
     PublicTable,
@@ -143,10 +144,9 @@ def test_column_types_match_clickhouse_contract():
 
 
 def test_view_row_filters_restrict_rows_to_customer_traffic():
-    # The curated views curate rows as well as columns: internal self-traces and
-    # offline-evaluation rows are hidden on every other read path and must not
-    # reappear through the SQL gateway.
-    assert VIEW_ROW_FILTERS == ("source = 'user'", "is_evaluation = 0")
+    # The curated views curate rows as well as columns: internal self-traces are
+    # hidden on every other read path and must not reappear through the gateway.
+    assert VIEW_ROW_FILTERS == ("source = 'user'",)
 
 
 def test_view_row_filters_key_on_columns_the_views_do_not_expose():
@@ -155,6 +155,29 @@ def test_view_row_filters_key_on_columns_the_views_do_not_expose():
     filtered = {predicate.split()[0] for predicate in VIEW_ROW_FILTERS}
     for table in PUBLIC_TABLES:
         assert not (column_names(table) & filtered)
+
+
+def test_evaluation_exclusion_is_set_membership_not_a_per_row_flag():
+    # A per-row `is_evaluation = 0` is not equivalent: the deduped latest trace row
+    # can carry 0 after a later non-eval batch, and child spans of an evaluation
+    # trace are stored as 0 regardless. Membership on trace_id is dedup-independent.
+    assert "trace_id NOT IN" in VIEW_EVALUATION_EXCLUSION
+    assert "is_evaluation = 1" in VIEW_EVALUATION_EXCLUSION
+    assert "is_evaluation = 0" not in VIEW_EVALUATION_EXCLUSION
+
+
+def test_evaluation_exclusion_subselect_carries_the_project_scope():
+    # The sub-select reads the physical `traces` table directly, so it must repeat
+    # the view's own project parameter -- an unscoped one would read every tenant.
+    assert "project_id = {project_id:String}" in VIEW_EVALUATION_EXCLUSION
+    assert "FROM traces" in VIEW_EVALUATION_EXCLUSION
+
+
+def test_evaluation_exclusion_keys_on_a_column_both_tables_carry():
+    # One predicate serves both views only because spans and traces both expose
+    # trace_id in the curated set.
+    for table in PUBLIC_TABLES:
+        assert "trace_id" in column_names(table)
 
 
 def test_metadata_is_the_queryable_map_not_the_raw_blob():
