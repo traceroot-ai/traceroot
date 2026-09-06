@@ -378,8 +378,12 @@ function RunsTab({ projectId }: { projectId: string }) {
 
       {meta && meta.total > 0 && (
         <ListPagination
-          page={meta.page}
-          limit={meta.limit}
+          /* Client state, not the server echo: `placeholderData` keeps the previous
+             response's `meta` while a page/limit request is in flight, so `meta.page`
+             would render the old page and a second Next click would recompute
+             `page + 1` from it and re-request the page already on its way. */
+          page={page}
+          limit={limit}
           total={meta.total}
           onPageChange={goToPage}
           onLimitChange={updateLimit}
