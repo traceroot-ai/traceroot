@@ -85,6 +85,9 @@ export function TestCaseEditorModal({
   // case's content-addressed id (`stableCaseId` hashes `canonicalJson(input)`, which does not
   // trim), so a whitespace-only input edit is a real change and compares raw; `expected` is
   // stored as `expected.trim() || null` and `metadata` is stored parsed, so both compare trimmed.
+  // Trimming `input` on the way in is not an option either: that id derivation is byte-parity
+  // with the TS/Python SDKs, so a trimming UI would give `" hi "` a different `tc_` id than the
+  // same input authored through an SDK, and a re-publish would duplicate the case, not upsert it.
   const hasChanges =
     mode.kind !== "edit" ||
     input !== mode.input ||

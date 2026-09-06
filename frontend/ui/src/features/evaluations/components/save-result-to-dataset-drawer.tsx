@@ -180,6 +180,9 @@ export function SaveResultToDatasetDrawer({
   // its exact input (`stableCaseId` over `canonicalJson`, which does not trim) — so nothing here
   // trims. A whitespace-only edit really does change the published case; gating it away as a
   // no-op would leave the reviewer unable to save a change the backend would have accepted.
+  // Trimming `input` on the way in is not an option either: that id derivation is byte-parity
+  // with the TS/Python SDKs, so a trimming UI would give `" hi "` a different `tc_` id than the
+  // same input pushed from an SDK, and a re-publish would duplicate the case, not upsert it.
   const hasChanges =
     action === "update_existing_case"
       ? (meta.picksDataset && targetDatasetId !== sourceDatasetId) ||
