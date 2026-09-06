@@ -1,0 +1,95 @@
+---
+title: Reading Results
+description: Read the summary and per-case results an eval run returns
+---
+
+`evaluate()` returns an `EvalRunResult` — a summary per metric, one result per case, and where the run reported.
+
+## Summary
+
+`summary()` prints one line per metric:
+
+```
+matches_expected: mean=0.75 pass=3/4 count=4
+```
+
+A boolean score passes or fails on its own value. A numeric score needs a `threshold` to be judged — without one it's averaged, and `pass=k/n` is left off.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    result = evaluate(name="weather", dataset=ds, task=task, scorers=[reports_temp])
+    print(result.summary())
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    const result = await evaluate({ name: "weather", dataset: ds, task, scorers: [reportsTemp] });
+    console.log(result.summary());
+    ```
+  </Tab>
+</Tabs>
+
+Token counts and cost aren't in the local summary — the platform prices them from the run's spans and shows them in the UI.
+
+## Per-case results
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    for item in result.results:
+        print(item.case_id, item.output, item.scores)
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    for (const item of result.itemResults) {
+      console.log(item.caseId, item.output, item.scores);
+    }
+    ```
+  </Tab>
+</Tabs>
+
+Each item carries `case_id`, `input`, `output`, `expected`, `scores`, `trace_id`, `duration_ms`, and any `error` or `scorer_errors`. A case that hit an error is `errored`; use `case_status(item)` / `caseStatus(item)` to check.
+
+The run also exposes counts (`case_count`, `errored`, `not_scored`), the `candidate_version` it was labelled with, `upload_state` with the run's `dashboard_url`, and `dataset` — the exact dataset version the run measured.
+
+## Upload later
+
+Save a run and upload it afterwards, for when the run happens somewhere without credentials.
+
+<Tabs>
+  <Tab title="Python">
+    ```python
+    from traceroot import EvalRunResult
+
+    result.save("run.json")
+
+    later = EvalRunResult.load("run.json")
+    later.upload()
+    ```
+  </Tab>
+  <Tab title="TypeScript">
+    ```typescript
+    import { EvalRunResult } from "@traceroot-ai/traceroot";
+
+    result.save("run.json");
+
+    const later = EvalRunResult.load("run.json");
+    await later.upload();
+    ```
+  </Tab>
+</Tabs>
+
+`upload()` rebuilds the reporting destination from the saved run, and keeps its scorers' thresholds — so a later upload records the same pass and fail results as the original run.
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Running Evals" icon="play" href="/evals/running-evals">
+    Every option of <code>evaluate()</code>, and where a run reports.
+  </Card>
+  <Card title="Datasets" icon="table" href="/evals/datasets">
+    Pull a dataset version to reproduce a past run.
+  </Card>
+</CardGroup>

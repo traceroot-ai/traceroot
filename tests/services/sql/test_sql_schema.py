@@ -10,14 +10,28 @@ rewriter, view migration, schema endpoint, CLI) derive from a stable surface.
 from rest.services.sql.schema import (
     PUBLIC_TABLES,
     TABLE_VIEW_MAP,
+    VIEW_ROW_FILTERS,
     PublicColumn,
     PublicTable,
     column_names,
 )
 
 # Tenant/internal/blob columns that must never appear in any curated table.
+# `source` and `is_evaluation` are platform control flags, and `metadata_map` is the
+# queryable projection of the `metadata` blob -- all three were added to the physical
+# tables after this contract was written, and none of them is user-facing data.
 FORBIDDEN_COLUMNS = frozenset(
-    {"project_id", "ch_create_time", "ch_update_time", "input", "output", "metadata"}
+    {
+        "project_id",
+        "ch_create_time",
+        "ch_update_time",
+        "input",
+        "output",
+        "metadata",
+        "metadata_map",
+        "source",
+        "is_evaluation",
+    }
 )
 
 EXPECTED_SPANS_COLUMNS = {
@@ -124,3 +138,18 @@ def test_column_types_match_clickhouse_contract():
     assert traces_types["trace_id"] == "String"
     assert traces_types["trace_start_time"] == "DateTime64(3)"
     assert traces_types["user_id"] == "Nullable(String)"
+
+
+def test_view_row_filters_restrict_rows_to_customer_traffic():
+    # The curated views curate rows as well as columns: internal self-traces and
+    # offline-evaluation rows are hidden on every other read path and must not
+    # reappear through the SQL gateway.
+    assert VIEW_ROW_FILTERS == ("source = 'user'", "is_evaluation = 0")
+
+
+def test_view_row_filters_key_on_columns_the_views_do_not_expose():
+    # A filter column is an internal flag; exposing it as a curated column would
+    # invite a user predicate that contradicts the view's own row scope.
+    filtered = {predicate.split()[0] for predicate in VIEW_ROW_FILTERS}
+    for table in PUBLIC_TABLES:
+        assert not (column_names(table) & filtered)

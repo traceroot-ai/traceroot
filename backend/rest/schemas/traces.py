@@ -51,6 +51,12 @@ class SpanResponse(SpanSkeletonResponse):
     regression for the dashboard. Keeping the fields present (as ``null``) rather
     than omitting them is additive: a few bytes per span, and it matches the
     fields the shipped CLI's generated types already declare.
+
+    One internal-only exception: the dashboard's trace-detail read leaves a small
+    SDK span-path subset in ``metadata`` on the skeleton, which it needs to
+    rebuild the tree of an in-flight trace. The public routes drop it (see
+    ``rest.projection.drop_span_tree_metadata``), so for API clients the contract
+    above holds exactly: ``metadata`` is ``null`` unless requested.
     """
 
     input: str | None = None
@@ -85,6 +91,13 @@ class TraceListItem(BaseModel):
     total_input_tokens: int | None = 0
     total_output_tokens: int | None = 0
     total_cost: float | None = 0.0
+    # Trace-level metadata, one entry per key — what the list's single Metadata cell
+    # renders from, and its only source: ``TraceListItem`` carries no ``metadata`` string
+    # sibling to fall back to, so dropping this field would empty that cell rather than
+    # degrade it. Empty for traces that carry no metadata. Filters match any span, so a
+    # row's cell can differ from what its filter matched — see the comment on the list
+    # query in ``trace_reader.list_traces``.
+    metadata_map: dict[str, str] = {}
 
 
 class TraceListResponse(BaseModel):
@@ -102,7 +115,8 @@ class TraceDetailResponse(BaseModel):
     populated only when the caller requests the matching ``io``/``metadata``
     field group (see ``rest.projection``); the default ``skeleton`` projection
     leaves them ``None`` and never runs the bulk span-I/O query, preserving the
-    #1040 lightweight behavior.
+    #1040 lightweight behavior. The one exception is the dashboard's span-path
+    metadata subset — see ``SpanResponse``; the public routes drop it.
     """
 
     trace_id: str
@@ -117,3 +131,55 @@ class TraceDetailResponse(BaseModel):
     output: str | None
     metadata: str | None
     spans: list[SpanResponse]
+
+
+class FilterField(BaseModel):
+    """A single filterable column, serialized from the registry for the UI."""
+
+    field: str
+    label: str
+    type: str
+    level: str
+    operators: list[str]
+    value_source: str
+    enum_values: list[str] = []
+    # True for integer-typed numeric fields (tokens/latency/errors), so the UI can
+    # restrict their inputs to whole numbers.
+    integer: bool = False
+    # True for the one parameterized field (metadata), whose predicate carries a key as
+    # well as an operator and a value. The builder renders a key control only for these,
+    # so the one-row filter shape holds for every other field.
+    requires_key: bool = False
+
+
+class FilterFieldsResponse(BaseModel):
+    """The full set of filterable fields driving the filter dropdown."""
+
+    fields: list[FilterField]
+
+
+class FilterValueCount(BaseModel):
+    """A distinct categorical value and how often it occurs."""
+
+    value: str
+    count: int
+
+
+class FilterValuesResponse(BaseModel):
+    """Distinct values for one categorical filter field, by frequency."""
+
+    field: str
+    values: list[FilterValueCount]
+
+
+class MetadataKeysResponse(BaseModel):
+    """Metadata keys observed in a window, by frequency — the discovery answer.
+
+    Feeds one surface: the metadata filter's key combobox. The trace list's column picker
+    is not a consumer — it offers fixed fields only, and metadata reaches the list as a
+    single blob cell rather than a column per key. Rows reuse ``FilterValueCount``
+    (``value``/``count``) because a key with an occurrence count is the same shape as a
+    categorical value with one, and both are rendered by the same suggestion list.
+    """
+
+    keys: list[FilterValueCount]

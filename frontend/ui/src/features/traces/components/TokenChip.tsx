@@ -1,7 +1,8 @@
-import { CircleStop } from "lucide-react";
+import type { ReactNode } from "react";
 import { formatTokenFlow } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { TokenUsageBreakdown } from "./TokenUsageBreakdown";
+import { TokenUsageBreakdown, type TokenCounts } from "./TokenUsageBreakdown";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 
 interface TokenChipProps {
   inputTokens: number | null | undefined;
@@ -10,6 +11,10 @@ interface TokenChipProps {
   cacheReadTokens?: number | null;
   cacheWriteTokens?: number | null;
   reasoningTokens?: number | null;
+  /** Optional ± delta suffix (trace diff mode). Unset in production. */
+  delta?: ReactNode;
+  /** Baseline counts (trace diff mode) — per-row ± deltas in the hover breakdown. */
+  baseline?: TokenCounts;
 }
 
 /**
@@ -23,16 +28,19 @@ export function TokenChip({
   cacheReadTokens,
   cacheWriteTokens,
   reasoningTokens,
+  delta,
+  baseline,
 }: TokenChipProps) {
   return (
     <TooltipProvider delayDuration={150}>
       <Tooltip>
         <TooltipTrigger asChild>
           <div className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs">
-            <CircleStop className="h-3 w-3 text-muted-foreground" />
+            <DOMAIN_ICONS.tokens className="h-3 w-3 text-muted-foreground" />
             <span className="font-medium">
               {formatTokenFlow(inputTokens, outputTokens, totalTokens)}
             </span>
+            {delta}
           </div>
         </TooltipTrigger>
         <TooltipContent className="border bg-popover p-3 text-popover-foreground shadow-md">
@@ -43,6 +51,7 @@ export function TokenChip({
             cacheReadTokens={cacheReadTokens}
             cacheWriteTokens={cacheWriteTokens}
             reasoningTokens={reasoningTokens}
+            baseline={baseline}
           />
         </TooltipContent>
       </Tooltip>

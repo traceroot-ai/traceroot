@@ -1,11 +1,16 @@
-import { complete, getEnvApiKey } from "@earendil-works/pi-ai";
-import type { Message, ToolCall } from "@earendil-works/pi-ai";
+import { getEnvApiKey } from "@earendil-works/pi-ai/compat";
+// complete() goes through the tracing wrapper: inside a detector self-trace
+// scope the call is recorded as a real LLM span; otherwise pure passthrough.
+import { tracedComplete as complete } from "./traced-complete.js";
+import type { Message, ToolCall, ProviderStreamOptions } from "@earendil-works/pi-ai";
 import {
   findByokKeyForPiProvider,
   fetchProviderConfig,
   resolvePiModel,
+  isSystemModelId,
   type ProviderModelConfig,
 } from "@traceroot/core/model-resolver";
+import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 import { buildSubmitResultTool, type SubmitResultInput } from "./submit-result-tool.js";
 
 export interface DetectorConfig {
@@ -30,7 +35,7 @@ export interface EvalResult {
   /** Sum of `response.usage.output` tokens across attempts. */
   inferenceOutputTokens: number;
   /** Source attribution for billing — preserved on error paths so failures still attribute. */
-  inferenceSource: "system" | "byok" | null;
+  inferenceSource: "system" | "byok";
   /** Model id reported by pi-ai (e.g. "claude-haiku-4-5"); null on early-exit error paths. */
   inferenceModel: string | null;
   /** Provider key reported by pi-ai (e.g. "anthropic"); null on early-exit error paths. */
@@ -47,8 +52,24 @@ const MAX_ATTEMPTS = 2;
  * about traces being truncated. For now, rely on this hard cap.
  */
 const SAFETY_TRUNCATE_CHARS = 150_000;
-/** Default screening model for system source — cheap-and-fast, not the agent default. */
-const SYSTEM_DEFAULT_MODEL = "claude-haiku-4-5";
+/** Fallback per-attempt timeout when DETECTOR_EVAL_TIMEOUT_MS is unset or invalid. */
+export const DEFAULT_DETECTOR_EVAL_TIMEOUT_MS = 60_000;
+/** Node's setTimeout max delay; larger values clamp to 1ms (an instant abort). */
+export const MAX_DETECTOR_EVAL_TIMEOUT_MS = 2_147_483_647;
+
+/**
+ * Parse DETECTOR_EVAL_TIMEOUT_MS into a per-attempt cap (ms) on one complete() call.
+ * Falls back to the default for anything that would break the watchdog — unset/empty,
+ * non-numeric, non-finite, non-positive, or above the Node timer max — since each of
+ * those would otherwise abort every eval immediately. Read at call time so the
+ * deployed value is honored and tests can vary it.
+ */
+export function parseDetectorEvalTimeoutMs(raw: string | undefined): number {
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 && parsed <= MAX_DETECTOR_EVAL_TIMEOUT_MS
+    ? parsed
+    : DEFAULT_DETECTOR_EVAL_TIMEOUT_MS;
+}
 
 /**
  * `tool_choice` value sent to every provider for detector eval.
@@ -66,7 +87,7 @@ const TOOL_CHOICE = "auto";
 
 function errorResult(
   message: string,
-  source: "system" | "byok" | null,
+  source: "system" | "byok",
   inferenceCost = 0,
   inferenceInputTokens = 0,
   inferenceOutputTokens = 0,
@@ -94,7 +115,7 @@ function errorResult(
  *   3. System source fallback → any enabled BYOK row in the workspace whose
  *      adapter maps to the same pi-ai provider (matches agent behavior)
  */
-async function resolveDetectorApiKey(
+export async function resolveDetectorApiKey(
   workspaceId: string,
   providerConfig: ProviderModelConfig | null,
   piProvider: string,
@@ -119,7 +140,12 @@ export async function runDetectionForTrace(params: {
   workspaceId: string;
 }): Promise<EvalResult> {
   const { traceId, spansJsonl, detector, workspaceId } = params;
-  const source = detector.detectionSource ?? null;
+  // A null source means "never set" — legacy rows, and API clients that
+  // omitted the field. Every UI path writes "system" and reads null back as
+  // "system", so treat it as system here too. Unpinned detectors therefore
+  // screen on the fixed default, not an availability-aware pick: a deployment
+  // with no key for that provider fails them rather than substituting.
+  const source = detector.detectionSource ?? "system";
 
   // 1. BYOK config
   let providerConfig: ProviderModelConfig | null = null;
@@ -138,7 +164,15 @@ export async function runDetectionForTrace(params: {
 
   // 2. Resolve model
   const modelId =
-    detector.detectionModel ?? (source === "system" ? SYSTEM_DEFAULT_MODEL : undefined);
+    detector.detectionModel ?? (source === "system" ? DETECTOR_SYSTEM_DEFAULT_MODEL_ID : undefined);
+
+  // A retired or invented id resolves to an unrelated fallback rather than
+  // failing, which would screen on a model nobody chose while every surface
+  // shows the pinned one. A failed run is visible; a substitution is not.
+  if (!providerConfig && modelId && !isSystemModelId(modelId)) {
+    return errorResult(`Detection model "${modelId}" is not a known system model`, source);
+  }
+
   const model = resolvePiModel(modelId, providerConfig);
 
   // 3. Resolve API key (BYOK row → env var → workspace BYOK scan)
@@ -178,12 +212,36 @@ ${spansJsonl.slice(0, SAFETY_TRUNCATE_CHARS)}`;
   let inferenceModel: string | null = null;
   let inferenceProvider: string | null = null;
 
+  // Per-attempt cap, read at call time so the deployed value is honored.
+  const timeoutMs = parseDetectorEvalTimeoutMs(process.env.DETECTOR_EVAL_TIMEOUT_MS);
+  const timeoutMessage = `detector eval timed out after ${timeoutMs}ms (model=${model.id}, api=${model.api})`;
+
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    // Fresh controller per attempt. The signal is what cancels the underlying
+    // provider fetch (pi-ai forwards it); a timer alone can't. Declared outside the
+    // try so the catch can tell a timeout (signal.aborted) from a real error. A
+    // timeout is TERMINAL — every abort branch breaks, so a hung provider is hit once.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    timeout.unref?.();
     try {
-      const response = await complete(model, { systemPrompt, messages, tools: [submitTool] }, {
+      const options: ProviderStreamOptions = {
         apiKey,
         toolChoice: TOOL_CHOICE,
-      } as Record<string, unknown>);
+        signal: controller.signal,
+      };
+      const response = await complete(
+        model,
+        { systemPrompt, messages, tools: [submitTool] },
+        options,
+      );
+
+      // pi-ai may RESOLVE an aborted call with stopReason "aborted" rather than
+      // throwing. Treat it as a terminal timeout — not a missing-submit_result retry.
+      if (controller.signal.aborted || response.stopReason === "aborted") {
+        lastError = timeoutMessage;
+        break;
+      }
 
       inferenceCost += response.usage?.cost?.total ?? 0;
       inferenceInputTokens += response.usage?.input ?? 0;
@@ -234,8 +292,16 @@ ${spansJsonl.slice(0, SAFETY_TRUNCATE_CHARS)}`;
         timestamp: Date.now(),
       });
     } catch (err) {
-      lastError = err instanceof Error ? err.message : String(err);
+      // A thrown AbortError (transports that reject rather than resolve) is the
+      // same terminal timeout; anything else is a genuine error. Either way, stop.
+      lastError = controller.signal.aborted
+        ? timeoutMessage
+        : err instanceof Error
+          ? err.message
+          : String(err);
       break;
+    } finally {
+      clearTimeout(timeout);
     }
   }
 

@@ -1,6 +1,7 @@
 import { formatExactTokens } from "@/lib/utils";
+import { MetricDelta } from "./MetricDelta";
 
-interface TokenUsageBreakdownProps {
+export interface TokenCounts {
   inputTokens: number | null | undefined;
   outputTokens: number | null | undefined;
   totalTokens: number | null | undefined;
@@ -9,11 +10,60 @@ interface TokenUsageBreakdownProps {
   reasoningTokens?: number | null;
 }
 
-function Row({ label, value }: { label: string; value: number }) {
+interface TokenUsageBreakdownProps extends TokenCounts {
+  /** Baseline counts (trace diff mode) — renders a ± delta beside each row. */
+  baseline?: TokenCounts;
+}
+
+/** Disjoint remainders so each section's rows sum to its total. */
+function derive(t: TokenCounts) {
+  const input = t.inputTokens ?? 0;
+  const output = t.outputTokens ?? 0;
+  const cacheRead = t.cacheReadTokens ?? 0;
+  const cacheWrite = t.cacheWriteTokens ?? 0;
+  const reasoning = t.reasoningTokens ?? 0;
+  return {
+    input,
+    output,
+    total: t.totalTokens ?? input + output,
+    cacheRead,
+    cacheWrite,
+    reasoning,
+    uncachedInput: Math.max(input - cacheRead - cacheWrite, 0),
+    plainOutput: Math.max(output - reasoning, 0),
+  };
+}
+
+type Derived = ReturnType<typeof derive>;
+
+function Row({
+  label,
+  value,
+  baseline,
+  emphasis,
+}: {
+  label: string;
+  value: number;
+  baseline?: number;
+  emphasis?: "section" | "total";
+}) {
   return (
-    <div className="flex justify-between gap-8 text-muted-foreground">
+    <div
+      className={
+        emphasis === "total"
+          ? "mt-2 flex justify-between gap-8 border-t border-border/60 pt-1 font-semibold"
+          : emphasis === "section"
+            ? "flex justify-between gap-8 border-b border-border/60 pb-1 font-medium"
+            : "flex justify-between gap-8 text-muted-foreground"
+      }
+    >
       <span>{label}</span>
-      <span className="tabular-nums">{formatExactTokens(value)}</span>
+      <span className="tabular-nums">
+        {formatExactTokens(value)}
+        {baseline !== undefined && value !== baseline && (
+          <MetricDelta delta={value - baseline} format={formatExactTokens} />
+        )}
+      </span>
     </div>
   );
 }
@@ -28,54 +78,37 @@ function Row({ label, value }: { label: string; value: number }) {
  * reasoning models). The uncached `input`/`output` leaf rows always render so
  * the section totals reconcile. Values are shown exactly (comma-grouped), not
  * compactly — this is the precise breakdown behind the compact `x → y (z)` chip.
+ *
+ * In trace diff mode a `baseline` is supplied and each row gains a ± delta.
  */
-export function TokenUsageBreakdown({
-  inputTokens,
-  outputTokens,
-  totalTokens,
-  cacheReadTokens,
-  cacheWriteTokens,
-  reasoningTokens,
-}: TokenUsageBreakdownProps) {
-  const input = inputTokens ?? 0;
-  const output = outputTokens ?? 0;
-  const total = totalTokens ?? input + output;
-  const cacheRead = cacheReadTokens ?? 0;
-  const cacheWrite = cacheWriteTokens ?? 0;
-  const reasoning = reasoningTokens ?? 0;
-  // Disjoint remainders so each section's rows sum to its total.
-  const uncachedInput = Math.max(input - cacheRead - cacheWrite, 0);
-  const plainOutput = Math.max(output - reasoning, 0);
+export function TokenUsageBreakdown(props: TokenUsageBreakdownProps) {
+  const d = derive(props);
+  const b: Derived | undefined = props.baseline ? derive(props.baseline) : undefined;
 
   return (
     <div className="min-w-[220px] text-xs">
       <div className="mb-2 font-semibold">Usage breakdown</div>
 
-      <div className="flex justify-between gap-8 border-b border-border/60 pb-1 font-medium">
-        <span>Input usage</span>
-        <span className="tabular-nums">{formatExactTokens(input)}</span>
-      </div>
+      <Row label="Input usage" value={d.input} baseline={b?.input} emphasis="section" />
       <div className="mt-1 space-y-0.5">
         {/* Always shown (even at zero) so it's clear cache tokens are tracked.
             Same row order as CostBreakdown so the two panels read in parallel. */}
-        <Row label="uncached" value={uncachedInput} />
-        <Row label="cache read" value={cacheRead} />
-        <Row label="cache write" value={cacheWrite} />
+        <Row label="uncached" value={d.uncachedInput} baseline={b?.uncachedInput} />
+        <Row label="cache read" value={d.cacheRead} baseline={b?.cacheRead} />
+        <Row label="cache write" value={d.cacheWrite} baseline={b?.cacheWrite} />
       </div>
 
-      <div className="mt-2 flex justify-between gap-8 border-b border-border/60 pb-1 font-medium">
-        <span>Output usage</span>
-        <span className="tabular-nums">{formatExactTokens(output)}</span>
+      <div className="mt-2">
+        <Row label="Output usage" value={d.output} baseline={b?.output} emphasis="section" />
       </div>
       <div className="mt-1 space-y-0.5">
-        {reasoning > 0 && <Row label="reasoning" value={reasoning} />}
-        <Row label="output" value={plainOutput} />
+        {(d.reasoning > 0 || (b?.reasoning ?? 0) > 0) && (
+          <Row label="reasoning" value={d.reasoning} baseline={b?.reasoning} />
+        )}
+        <Row label="output" value={d.plainOutput} baseline={b?.plainOutput} />
       </div>
 
-      <div className="mt-2 flex justify-between gap-8 border-t border-border/60 pt-1 font-semibold">
-        <span>Total usage</span>
-        <span className="tabular-nums">{formatExactTokens(total)}</span>
-      </div>
+      <Row label="Total usage" value={d.total} baseline={b?.total} emphasis="total" />
     </div>
   );
 }

@@ -3,9 +3,17 @@
 import { useState, useEffect } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { ArrowUpRight, Mail } from "lucide-react";
+import { ArrowUpRight, Clock, Mail } from "lucide-react";
 import { FaSlack } from "react-icons/fa";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { ALERT_WINDOWS, DEFAULT_ALERT_WINDOW, type AlertWindow } from "@traceroot/core";
 import { updateProject } from "@/lib/api";
 import { useProject } from "@/features/projects/hooks";
 import { useSlackStatus } from "@/features/integrations/hooks/useSlackIntegration";
@@ -31,6 +39,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
     adapter: "",
   });
   const [emailAddresses, setEmailAddresses] = useState<string[]>([]);
+  const [alertWindow, setAlertWindow] = useState<AlertWindow>(DEFAULT_ALERT_WINDOW);
 
   useEffect(() => {
     if (project) {
@@ -41,6 +50,7 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
         source: (project.rca_source as "system" | "byok") ?? "system",
       }));
       setEmailAddresses(project.alert_emails ?? []);
+      setAlertWindow((project.alert_window as AlertWindow) ?? DEFAULT_ALERT_WINDOW);
     }
   }, [project]);
 
@@ -70,6 +80,16 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
     },
   });
 
+  const windowMutation = useMutation({
+    mutationFn: (w: AlertWindow) => {
+      if (!project) throw new Error("Project not found");
+      return updateProject(project.workspace_id!, projectId, { alert_window: w });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["project", projectId] });
+    },
+  });
+
   const isModelDirty =
     agentModelSelection.model !== (project?.rca_model ?? "") ||
     agentModelSelection.provider !== (project?.rca_provider ?? "") ||
@@ -78,6 +98,8 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
   const isEmailsDirty =
     emailAddresses.length !== savedEmails.length ||
     emailAddresses.some((e, i) => e !== savedEmails[i]);
+  const isWindowDirty =
+    alertWindow !== ((project?.alert_window as AlertWindow) ?? DEFAULT_ALERT_WINDOW);
   // Save is only meaningful once the project query has resolved.
   const canSave = !!project;
 
@@ -168,6 +190,40 @@ export function DetectorsTab({ projectId }: DetectorsTabProps) {
               <ArrowUpRight className="h-3 w-3" />
             </Link>
           )}
+        </div>
+
+        {/* Alert window subsection */}
+        <div className="border-t border-border px-4 py-3">
+          <div className="flex items-center gap-1.5">
+            <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+            <h4 className="text-[12px] font-medium">Alert window</h4>
+          </div>
+          <div className="mt-2">
+            <Select value={alertWindow} onValueChange={(v) => setAlertWindow(v as AlertWindow)}>
+              <SelectTrigger className="h-7 w-40 text-[12px]" aria-label="window">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(Object.keys(ALERT_WINDOWS) as AlertWindow[]).map((w) => (
+                  <SelectItem key={w} value={w} className="text-[12px]">
+                    {`Every ${w}`}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <p className="mt-2 text-[12px] text-muted-foreground">
+            Detector findings in each window are batched into one digest.
+          </p>
+          <Button
+            size="sm"
+            className="mt-3 h-7 text-[12px]"
+            aria-label="Save alert window"
+            onClick={() => windowMutation.mutate(alertWindow)}
+            disabled={!canSave || windowMutation.isPending || !isWindowDirty}
+          >
+            {windowMutation.isPending ? "Saving..." : "Save"}
+          </Button>
         </div>
       </div>
     </div>

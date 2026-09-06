@@ -1,12 +1,36 @@
-import { Worker, type Job } from "bullmq";
-import { prisma, SYSTEM_MODELS, PlanType, ModelSource } from "@traceroot/core";
+import { Queue, Worker, type Job } from "bullmq";
+import {
+  prisma,
+  SYSTEM_MODELS,
+  PlanType,
+  ModelSource,
+  ALERT_WINDOWS,
+  DEFAULT_ALERT_WINDOW,
+  isAlertWindow,
+} from "@traceroot/core";
 import { fetchProviderConfig, resolvePiModel } from "@traceroot/core/model-resolver";
 import type { DetectorRcaJob } from "../queues/detector-run-queue.js";
 import { DETECTOR_RCA_QUEUE, createRedisConnection } from "../queues/detector-run-queue.js";
-import { sendCombinedAlertEmail } from "../notifications/email.js";
-import { sendCombinedAlertSlack } from "../notifications/slack.js";
+import {
+  type DigestFlushJob,
+  windowStartFor,
+  createDetectorDigestQueue,
+} from "../queues/digest-queue.js";
 
 const AGENT_SERVICE_URL = process.env.AGENT_SERVICE_URL || "http://localhost:8100";
+
+// Settle margin past the window's end before the flush reads ClickHouse, so a
+// finding written at windowEnd−ε is visible. With finding-timestamp keying
+// there is no RCA-latency drift, so a few seconds for write-visibility suffices.
+const DIGEST_SETTLE_MS = Number(process.env.DIGEST_SETTLE_MS ?? 5_000);
+
+let digestQueue: Queue<DigestFlushJob> | null = null;
+function getDigestQueue(): Queue<DigestFlushJob> {
+  if (!digestQueue) {
+    digestQueue = createDetectorDigestQueue(createRedisConnection());
+  }
+  return digestQueue;
+}
 
 // Resolve a project-configured rca_model to the agent service body fields.
 // Uses the same pattern as sandbox-eval.ts: reads the provider from saved
@@ -191,8 +215,15 @@ Output your findings in this format:
     throw new Error(`Failed to send RCA message: HTTP ${msgRes.status}`);
   }
 
-  // Consume SSE stream, accumulate assistant text
+  // Consume SSE stream, accumulate assistant text. The agent service reports
+  // mid-stream failures on the SSE `event:` field (an `error` frame, or a
+  // `message_end` whose message.stopReason is "error") — both arrive over an
+  // HTTP 200 stream, so they must be read from the frames, not the response
+  // status. Track the current `event:` name to recognize an `error` frame,
+  // since its data payload (just `{ message }`) carries no `type` of its own.
   let rcaResult = "";
+  let agentErrorMessage: string | undefined;
+  let currentEventName: string | undefined;
   const reader = msgRes.body!.getReader();
   const decoder = new TextDecoder();
   let remainder = "";
@@ -205,80 +236,61 @@ Output your findings in this format:
     const lines = text.split("\n");
     remainder = lines.pop() ?? ""; // last element: incomplete or empty
     for (const line of lines) {
-      if (line.startsWith("data: ")) {
-        try {
-          const event = JSON.parse(line.slice(6));
-          if (
-            event.type === "message_update" &&
-            event.assistantMessageEvent?.type === "text_delta" &&
-            event.assistantMessageEvent.delta
-          ) {
-            rcaResult += event.assistantMessageEvent.delta;
+      if (line.startsWith("event: ")) {
+        currentEventName = line.slice(7).trim();
+      } else if (line.startsWith("data: ")) {
+        const raw = line.slice(6);
+        if (currentEventName === "error") {
+          // Our own onError handler sends JSON (`{ message }`), but hono's
+          // generic streamSSE `run()` wrapper — triggered when the route
+          // callback throws outside that handler — sends the raw
+          // Error.message string instead. Fall back to the raw line whenever
+          // it isn't JSON with a `.message` field, so that error isn't lost.
+          try {
+            const parsed = JSON.parse(raw);
+            agentErrorMessage = parsed?.message || raw || "unknown agent error";
+          } catch {
+            agentErrorMessage = raw || "unknown agent error";
           }
-        } catch {
-          // skip malformed SSE lines
+        } else {
+          try {
+            const event = JSON.parse(raw);
+            if (
+              event.type === "message_update" &&
+              event.assistantMessageEvent?.type === "text_delta" &&
+              event.assistantMessageEvent.delta
+            ) {
+              rcaResult += event.assistantMessageEvent.delta;
+            } else if (event.type === "message_end" && event.message?.stopReason === "error") {
+              agentErrorMessage = event.message?.errorMessage || "unknown agent error";
+            }
+          } catch {
+            // skip malformed SSE lines
+          }
         }
+      } else if (line === "") {
+        currentEventName = undefined;
       }
     }
+  }
+
+  if (agentErrorMessage) {
+    throw new Error(`RCA agent failed: ${agentErrorMessage}`);
+  }
+  // An empty-but-clean stream is indistinguishable from a swallowed failure,
+  // so it fails deliberately rather than being recorded as done. BullMQ
+  // retries this per the `attempts`/`backoff` set on the RCA job enqueue
+  // (detector-run-processor.ts), which is what actually catches transient
+  // causes like rate limits or provider 5xx.
+  if (!rcaResult.trim()) {
+    throw new Error("RCA agent produced no output");
   }
 
   return { result: rcaResult, sessionId: session.id };
 }
 
-// ---------------------------------------------------------------------------
-// Fan-out helper — exported for unit testing
-// ---------------------------------------------------------------------------
-
-export interface FanOutCommon {
-  detectorName: string;
-  projectName: string;
-  summary: string;
-  rcaResult: string | null;
-  traceId: string;
-  projectId: string;
-}
-
-export interface RunFanOutParams {
-  workspaceId: string;
-  emailAddresses: string[];
-  slackChannelId: string | null;
-  slackBotTokenEnc: string | null;
-  common: FanOutCommon;
-}
-
-export async function runFanOut({
-  workspaceId,
-  emailAddresses,
-  slackChannelId,
-  slackBotTokenEnc,
-  common,
-}: RunFanOutParams): Promise<void> {
-  const tasks: Promise<unknown>[] = [];
-
-  if (emailAddresses.length > 0) {
-    tasks.push(
-      sendCombinedAlertEmail({ to: emailAddresses, ...common }).catch((e) =>
-        console.error(`[RCA] Alert email failed for trace ${common.traceId}:`, e),
-      ),
-    );
-  }
-
-  if (slackChannelId && slackBotTokenEnc) {
-    tasks.push(
-      sendCombinedAlertSlack({
-        workspaceId,
-        encryptedBotToken: slackBotTokenEnc,
-        channelId: slackChannelId,
-        ...common,
-      }).catch((e) => console.error(`[RCA] Slack send failed for trace ${common.traceId}:`, e)),
-    );
-  }
-
-  await Promise.allSettled(tasks);
-}
-
 export async function processRcaJob(job: Job<DetectorRcaJob>) {
-  const { findingId, projectId, traceId, workspaceId, projectName, findings } = job.data;
+  const { findingId, projectId, traceId, workspaceId, findings, findingTimestamp } = job.data;
 
   // Free-plan RCA cap enforcement — read the cached `rcaBlocked` flag
   // set by the hourly billing job (same pattern as `detectorBlocked` in
@@ -315,27 +327,40 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
     update: { projectId, status: "running" },
   });
 
-  // emailAddresses is captured inside the try below; declare here so the
-  // outer catch's fallback alert can still use it (defaults to []).
-  let emailAddresses: string[] = [];
+  // Project alert aggregation window. Hoisted because `scheduleDigestFlush`
+  // closes over it but `project` is fetched later in the try below. Defaults to
+  // DEFAULT_ALERT_WINDOW until the project read resolves it.
+  let alertWindow: string = DEFAULT_ALERT_WINDOW;
 
-  let slackChannelId: string | null = null;
-
-  let slackBotTokenEnc: string | null = null;
-
-  // Always send a combined alert (success: with RCA result; failure: null).
-  // Detector findings should never fail silently on configured channels.
-  const sendAlert = async (rcaResult: string | null) => {
-    const summary = findings.map((f) => `[${f.detectorName}] ${f.summary}`).join("\n");
-    const detectorName = findings.map((f) => f.detectorName).join(", ");
-    const common = { detectorName, projectName, summary, rcaResult, traceId, projectId };
-    await runFanOut({
-      workspaceId,
-      emailAddresses,
-      slackChannelId,
-      slackBotTokenEnc,
-      common,
-    });
+  // Every detector alert is a windowed digest: schedule one deduped flush per
+  // (project, windowStart) keyed off the finding timestamp, which the worker also
+  // stamps onto the detector_runs the flush counts — so the window the key selects
+  // and the window the count reads are identical. The deterministic jobId makes
+  // the first finding of the window schedule the flush and every later finding a
+  // no-op enqueue. Age-based retention keeps a late re-enqueue (slow RCA) a no-op
+  // past the largest window + RCA tail. Findings must never fail silently, so
+  // this runs on both the success and failure paths; flushDigest re-resolves the
+  // recipients and renders the digest.
+  const scheduleDigestFlush = async () => {
+    const windowMs = ALERT_WINDOWS[isAlertWindow(alertWindow) ? alertWindow : DEFAULT_ALERT_WINDOW];
+    // Legacy/in-flight RCA jobs enqueued before findingTimestamp existed carry no
+    // timestamp; fall back to now so the window key never goes NaN.
+    const safeFindingTs =
+      typeof findingTimestamp === "number" && Number.isFinite(findingTimestamp)
+        ? findingTimestamp
+        : Date.now();
+    const windowStart = windowStartFor(safeFindingTs, windowMs);
+    const delay = Math.max(0, windowStart + windowMs + DIGEST_SETTLE_MS - Date.now());
+    await getDigestQueue().add(
+      `digest-${projectId}-${windowStart}`,
+      { projectId, windowStart, windowMs },
+      {
+        jobId: `digest:${projectId}:${windowStart}`,
+        delay,
+        removeOnComplete: { age: 6 * 3600 },
+        removeOnFail: 50,
+      },
+    );
   };
 
   try {
@@ -348,23 +373,10 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
         rcaModel: true,
         rcaProvider: true,
         rcaSource: true,
-        alertConfig: {
-          select: { emailAddresses: true, slackChannelId: true, slackChannelName: true },
-        },
-        workspace: {
-          select: {
-            slackIntegration: {
-              select: { channelId: true, channelName: true, botToken: true },
-            },
-          },
-        },
+        alertConfig: { select: { alertWindow: true } },
       },
     });
-    emailAddresses = project?.alertConfig?.emailAddresses ?? [];
-
-    const slack = project?.workspace?.slackIntegration ?? null;
-    slackChannelId = project?.alertConfig?.slackChannelId ?? slack?.channelId ?? null;
-    slackBotTokenEnc = slack?.botToken ?? null;
+    alertWindow = project?.alertConfig?.alertWindow ?? DEFAULT_ALERT_WINDOW;
 
     // Workspace-level GitHub installations now drive the GitHub tool.
     // Any installation in this workspace is enough to flip the tool on.
@@ -393,17 +405,28 @@ export async function processRcaJob(job: Job<DetectorRcaJob>) {
         completedAt: new Date(),
       },
     });
-
-    await sendAlert(rcaResult);
   } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
     await prisma.detectorRca
-      .update({ where: { findingId }, data: { status: "failed" } })
+      .update({
+        where: { findingId },
+        data: {
+          status: "failed",
+          result: `RCA failed: ${message}`,
+          completedAt: new Date(),
+        },
+      })
       .catch(() => {}); // best-effort
 
-    await sendAlert(null);
+    await scheduleDigestFlush();
 
     throw e; // re-throw so BullMQ marks job as failed
   }
+
+  // RCA state is persisted above; schedule the digest outside the try so a
+  // transient enqueue failure retries the job without the catch reverting a
+  // completed RCA to "failed".
+  await scheduleDigestFlush();
 }
 
 export function startDetectorRcaWorker(): Worker<DetectorRcaJob> {

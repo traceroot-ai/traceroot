@@ -25,6 +25,17 @@ function formatTokens(input: number, output: number): string {
   return `${(input + output).toLocaleString()} tokens`;
 }
 
+function formatModelUsage(row: AIUsageByModel): string {
+  const cost = formatCost(row.cost);
+  return row.isByok
+    ? `${formatTokens(row.inputTokens, row.outputTokens)} · ${cost} (not billed)`
+    : `${formatTokens(row.inputTokens, row.outputTokens)} · ${cost}`;
+}
+
+function isAttributedModelUsage(row: AIUsageByModel): boolean {
+  return row.model !== "unknown";
+}
+
 interface UsageSectionProps {
   title: string;
   runsLabel: string;
@@ -48,6 +59,8 @@ function UsageSection({
   systemOutputTokens,
   byModel,
 }: UsageSectionProps) {
+  const attributedByModel = byModel?.filter(isAttributedModelUsage);
+
   return (
     <div className="border">
       <div className="border-b bg-muted/30 px-4 py-3">
@@ -76,20 +89,17 @@ function UsageSection({
           </div>
         </div>
 
-        {byModel && byModel.length > 0 && (
+        {attributedByModel && attributedByModel.length > 0 && (
           <div className="-mx-4 border-t px-4 pt-3">
             <p className="text-xs font-medium uppercase text-muted-foreground">By model</p>
             <div className="mt-2 space-y-1.5 text-sm">
-              {byModel.map((row) => (
+              {attributedByModel.map((row) => (
                 <div key={`${row.model}-${row.isByok}`} className="flex justify-between">
                   <span className="text-muted-foreground">
                     {row.model}
                     {row.isByok && <span className="ml-1 text-xs opacity-60">BYOK</span>}
                   </span>
-                  <span className="text-muted-foreground">
-                    {formatTokens(row.inputTokens, row.outputTokens)}
-                    {!row.isByok && ` · ${formatCost(row.cost)}`}
-                  </span>
+                  <span className="text-muted-foreground">{formatModelUsage(row)}</span>
                 </div>
               ))}
             </div>
