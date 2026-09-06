@@ -239,8 +239,11 @@ export function DatasetDetailView({
             onSearchChange={setKeyword}
             searchPlaceholder="Search..."
           >
-            <div className="flex items-center gap-1 font-mono text-[11px] text-muted-foreground">
-              <span className="truncate">{dataset.clientDatasetId ?? dataset.id}</span>
+            <div className="flex min-w-0 items-center gap-1 font-mono text-[11px] text-muted-foreground">
+              {/* min-w-0 on both the chip and the span: a flex item defaults to
+                  min-width:auto, which would keep a long client dataset id at its
+                  full width and overflow the bar instead of ellipsizing. */}
+              <span className="min-w-0 truncate">{dataset.clientDatasetId ?? dataset.id}</span>
               <CopyButton
                 value={dataset.clientDatasetId ?? dataset.id}
                 className="h-5 w-5 text-muted-foreground hover:text-foreground"
