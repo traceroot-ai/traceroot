@@ -136,15 +136,27 @@ VIEW_ROW_FILTERS: tuple[str, ...] = ("source = 'user'",)
 #:   so a span-level flag check never hid them in the first place.
 #:
 #: Set membership on ``trace_id`` is dedup-independent: any row anywhere flagged
-#: ``1`` hides the trace permanently, whatever order the writes arrived in. The
-#: sub-select repeats the project scope so it prunes the same partitions as the
-#: view body and can never read another tenant's rows. This mirrors
-#: ``rest.services.trace_reader._evaluation_exclusion``, which is the same rule
-#: for the internal read paths; both ``spans`` and ``traces`` carry ``trace_id``,
-#: so one predicate serves both views.
+#: ``1`` hides the trace permanently, whatever order the writes arrived in.
+#:
+#: The set is built from BOTH physical tables, and the ``spans`` half is not
+#: redundant. Ingest drops the trace record of a batch that carries no root span
+#: for a trace that already exists -- otherwise an intermediate batch would
+#: overwrite the authoritative trace name -- while still inserting that batch's
+#: spans. So an evaluation-kind span can land with no ``traces`` row ever
+#: carrying the flag, and a traces-only predicate would hand those spans back.
+#:
+#: Both sub-selects repeat the project scope: ``project_id`` is the sort-key
+#: prefix of both tables, so each prunes to the caller's own data and can never
+#: read another tenant's rows. Neither is time-bounded, because a parameterized
+#: view cannot see the caller's ``WHERE`` clause -- the cost is one project-scoped
+#: probe of two narrow columns per query, and a maintained per-project evaluation
+#: set is the optimization if that ever shows up in a profile.
 VIEW_EVALUATION_EXCLUSION: str = (
-    "trace_id NOT IN (SELECT trace_id FROM traces "
-    "WHERE project_id = {project_id:String} AND is_evaluation = 1)"
+    "trace_id NOT IN ("
+    "SELECT trace_id FROM traces WHERE project_id = {project_id:String} AND is_evaluation = 1"
+    " UNION DISTINCT "
+    "SELECT trace_id FROM spans WHERE project_id = {project_id:String} AND is_evaluation = 1"
+    ")"
 )
 
 
