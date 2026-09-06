@@ -12,9 +12,12 @@ excludes:
 
 * the tenant column ``project_id``;
 * the internal bookkeeping columns ``ch_create_time`` / ``ch_update_time``;
-* the large blob columns ``input`` / ``output`` / ``metadata`` (raw blob export
-  is a future opt-in, out of scope here), and ``metadata_map`` -- the
-  materialized, queryable projection of that same ``metadata`` document;
+* the large blob columns ``input`` / ``output`` and the raw ``metadata`` JSON
+  document (raw blob export is a future opt-in, out of scope here). Metadata
+  itself is not lost: the curated ``metadata`` column is the physical
+  ``metadata_map`` -- the materialized one-level map of that same document --
+  which is what the trace filters query and what the product calls "metadata"
+  everywhere a user sees it;
 * the internal classification columns ``source`` and ``is_evaluation``, which
   are platform control flags rather than user data (see the row scope below).
 
@@ -29,6 +32,9 @@ must not reappear through the SQL gateway.
 ``span_start_time`` and ``trace_start_time`` are the canonical time-filter
 columns. ``duration_ms`` is not a physical column; the ``spans_public_v1`` view
 computes it as ``dateDiff('millisecond', span_start_time, span_end_time)``.
+``metadata`` is the physical ``metadata_map`` column surfaced under the name the
+rest of the product uses; the views rename it. Keying it (``metadata['user_id']``)
+is the supported access -- the raw JSON document behind it stays unexposed.
 
 The module is pure data: no database/network access, no configuration
 dependency, and no runtime side effects.
@@ -77,6 +83,7 @@ _SPANS = PublicTable(
         PublicColumn("output_tokens", "Nullable(Int64)"),
         PublicColumn("total_tokens", "Nullable(Int64)"),
         PublicColumn("environment", "Nullable(String)"),
+        PublicColumn("metadata", "Map(LowCardinality(String), String)"),
         PublicColumn("git_source_file", "Nullable(String)"),
         PublicColumn("git_source_line", "Nullable(Int32)"),
         PublicColumn("git_source_function", "Nullable(String)"),
@@ -94,6 +101,7 @@ _TRACES = PublicTable(
         PublicColumn("git_ref", "Nullable(String)"),
         PublicColumn("git_repo", "Nullable(String)"),
         PublicColumn("environment", "Nullable(String)"),
+        PublicColumn("metadata", "Map(LowCardinality(String), String)"),
     ),
 )
 

@@ -17,9 +17,10 @@ from rest.services.sql.schema import (
 )
 
 # Tenant/internal/blob columns that must never appear in any curated table.
-# `source` and `is_evaluation` are platform control flags, and `metadata_map` is the
-# queryable projection of the `metadata` blob -- all three were added to the physical
-# tables after this contract was written, and none of them is user-facing data.
+# `source` and `is_evaluation` are platform control flags added to the physical tables
+# after this contract was written; neither is user-facing data. `metadata_map` is
+# absent under that name because the curated tables surface it as `metadata` -- the
+# raw JSON blob of the same name is what stays out, pinned by type below.
 FORBIDDEN_COLUMNS = frozenset(
     {
         "project_id",
@@ -27,7 +28,6 @@ FORBIDDEN_COLUMNS = frozenset(
         "ch_update_time",
         "input",
         "output",
-        "metadata",
         "metadata_map",
         "source",
         "is_evaluation",
@@ -51,6 +51,7 @@ EXPECTED_SPANS_COLUMNS = {
     "output_tokens",
     "total_tokens",
     "environment",
+    "metadata",
     "git_source_file",
     "git_source_line",
     "git_source_function",
@@ -65,6 +66,7 @@ EXPECTED_TRACES_COLUMNS = {
     "git_ref",
     "git_repo",
     "environment",
+    "metadata",
 }
 
 
@@ -153,3 +155,14 @@ def test_view_row_filters_key_on_columns_the_views_do_not_expose():
     filtered = {predicate.split()[0] for predicate in VIEW_ROW_FILTERS}
     for table in PUBLIC_TABLES:
         assert not (column_names(table) & filtered)
+
+
+def test_metadata_is_the_queryable_map_not_the_raw_blob():
+    # `metadata` is the one curated column whose physical counterpart shares its name
+    # with an excluded blob, so the guard is the type: a Map can only be the
+    # materialized one-level projection, never the raw JSON document.
+    for table in PUBLIC_TABLES:
+        metadata = next(c for c in PUBLIC_TABLES[table].columns if c.name == "metadata")
+        assert metadata.type.startswith("Map("), (
+            f"{table}.metadata must be the queryable map, got {metadata.type}"
+        )
