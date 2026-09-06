@@ -211,8 +211,14 @@ describe("DetectorDetailPage", () => {
     fireEvent.click(screen.getByText("Something went wrong"));
     expect(screen.queryByTestId("trace-panel")).toBeNull();
 
+    // The trace_id cell is the row's only navigating control; the copy buttons
+    // beside the two ids write to the clipboard rather than opening the panel.
     const row = screen.getByText("Something went wrong").closest("tr")!;
-    expect(within(row).getAllByRole("button")).toHaveLength(1);
+    expect(
+      within(row)
+        .getAllByRole("button")
+        .map((b) => b.getAttribute("title")),
+    ).toEqual(["Copy run ID", "trace-abc", "Copy trace ID"]);
   });
 
   it("closes the panel, clearing the selected trace", () => {
