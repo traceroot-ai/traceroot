@@ -10,16 +10,20 @@
 -- table/view does not exist yet (verified on 24.3.18.7), so this whole script
 -- safely runs before the migrations create the physical tables and the views.
 --
--- DEV / self-host-compose ONLY: these accounts use `no_password`, matching this
--- stack's posture (the ClickHouse superuser here is also a weak default). REAL
--- deployments (Helm/cloud) MUST provision these with actual secrets via a
--- different mechanism — see backend/db/clickhouse/SQL_GATEWAY_RUNBOOK.md
--- ("Staging / production (Helm)").
+-- Passwords are substituted by the `clickhouse-init` service as SHA-256 hashes:
+-- `__WRITER_HASH__` and `__RO_HASH__` are placeholders, never literal values, and
+-- the raw passwords never appear in this file, in the container's command line or
+-- in ClickHouse's query_log. The writer holds SELECT on the PHYSICAL tables, so it
+-- must never be passwordless: an account with no password there would expose every
+-- project's raw rows, including the blobs the curated views deliberately omit.
+-- The dev stack supplies a known weak default; the self-host production stack
+-- refuses to start without real values.
 --
 -- Assumes the compose database `default` (migrate-clickhouse connects to /default).
 
 -- 1) Scoped writer = the view DEFINER. SELECT on the physical tables only; NOT a superuser.
-CREATE USER IF NOT EXISTS sql_gateway_writer IDENTIFIED WITH no_password;
+CREATE USER IF NOT EXISTS sql_gateway_writer IDENTIFIED WITH sha256_hash BY '__WRITER_HASH__';
+ALTER USER sql_gateway_writer IDENTIFIED WITH sha256_hash BY '__WRITER_HASH__';
 GRANT SELECT ON default.spans  TO sql_gateway_writer;
 GRANT SELECT ON default.traces TO sql_gateway_writer;
 
@@ -33,7 +37,10 @@ CREATE SETTINGS PROFILE IF NOT EXISTS sql_readonly_profile SETTINGS
 
 -- 3) Read-only gateway user: reads the curated views ONLY (never the physical tables).
 CREATE USER IF NOT EXISTS sql_gateway_ro
-    IDENTIFIED WITH no_password
+    IDENTIFIED WITH sha256_hash BY '__RO_HASH__'
+    SETTINGS PROFILE 'sql_readonly_profile';
+ALTER USER sql_gateway_ro
+    IDENTIFIED WITH sha256_hash BY '__RO_HASH__'
     SETTINGS PROFILE 'sql_readonly_profile';
 GRANT SELECT ON default.spans_public_v1  TO sql_gateway_ro;
 GRANT SELECT ON default.traces_public_v1 TO sql_gateway_ro;

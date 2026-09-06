@@ -62,14 +62,24 @@ services:
         condition: service_healthy
     volumes:
       - ./backend/db/clickhouse/bootstrap/sql_gateway_users.sql:/bootstrap/sql_gateway_users.sql:ro
-    # Single-$ so Compose substitutes the admin creds from .env at parse time (this
-    # container has no environment: block, so $$-escaped vars would wrongly fall back
-    # to the default and break auth whenever CLICKHOUSE_PASSWORD is changed).
+    # Credentials arrive as environment, not as command arguments, so they stay out
+    # of the container's command line and out of `docker inspect`. The $$ below are
+    # therefore escaped for the shell rather than substituted by Compose.
+    environment:
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-clickhouse}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
+      # Dev stack: weak known defaults, matching this stack's other credentials.
+      SQL_GATEWAY_WRITER_PASSWORD: ${SQL_GATEWAY_WRITER_PASSWORD:-dev-sql-gateway-writer}
+      CLICKHOUSE_RO_PASSWORD: ${CLICKHOUSE_RO_PASSWORD:-dev-sql-gateway-ro}
     entrypoint: >
       /bin/sh -c "
-      clickhouse-client --host clickhouse --port 9000
-      --user ${CLICKHOUSE_USER:-clickhouse} --password ${CLICKHOUSE_PASSWORD:-clickhouse}
-      --queries-file /bootstrap/sql_gateway_users.sql
+      set -e;
+      W=$$(printf '%s' \"$$SQL_GATEWAY_WRITER_PASSWORD\" | sha256sum | cut -d' ' -f1);
+      R=$$(printf '%s' \"$$CLICKHOUSE_RO_PASSWORD\" | sha256sum | cut -d' ' -f1);
+      sed -e \"s/__WRITER_HASH__/$$W/g\" -e \"s/__RO_HASH__/$$R/g\"
+      /bootstrap/sql_gateway_users.sql > /tmp/sql_gateway_users.sql;
+      clickhouse-client --host clickhouse --port 9000 --user \"$$CLICKHOUSE_USER\"
+      --queries-file /tmp/sql_gateway_users.sql
       "
     restart: "no"
 
