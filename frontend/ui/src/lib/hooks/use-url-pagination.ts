@@ -14,6 +14,7 @@ interface UseUrlPaginationReturn {
   setLimit: (limit: number) => void;
   resetPage: () => void;
   resetPageState: () => void;
+  clampToTotal: (total: number) => void;
 }
 
 const DEFAULT_PAGE = 0;
@@ -111,6 +112,21 @@ export function useUrlPagination(defaultLimit = DEFAULT_LIMIT): UseUrlPagination
   // second write here can't clobber it from a stale searchParams closure.
   const resetPageState = useCallback(() => setPageState(DEFAULT_PAGE), []);
 
+  // Pull the page back inside a result set that has shrunk. Deleting the rows on the
+  // last page — or deep-linking `?page_index=` past the end — otherwise leaves the
+  // page pointing past the data: an empty table that reads as "nothing here" for a
+  // list that still has earlier pages. Call it from the consumer once `total` is
+  // known; a total of 0 is left alone (an empty list has no page to clamp to, and
+  // it's also what an in-flight or errored query reports).
+  const clampToTotal = useCallback(
+    (total: number) => {
+      if (!Number.isFinite(total) || total <= 0) return;
+      const lastPage = Math.max(0, Math.ceil(total / limit) - 1);
+      if (page > lastPage) goToPage(lastPage);
+    },
+    [page, limit, goToPage],
+  );
+
   return {
     page,
     limit,
@@ -118,5 +134,6 @@ export function useUrlPagination(defaultLimit = DEFAULT_LIMIT): UseUrlPagination
     setLimit,
     resetPage,
     resetPageState,
+    clampToTotal,
   };
 }

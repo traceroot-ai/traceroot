@@ -28,6 +28,7 @@ interface UseListPageStateReturn {
   goToPage: (page: number) => void;
   updateLimit: (limit: number) => void;
   resetPageState: () => void;
+  clampToTotal: (total: number) => void;
   // Date filter (URL-synced)
   dateFilter: ReturnType<typeof useUrlDateFilter>["dateFilter"];
   customStartDate: Date | null;
@@ -105,6 +106,7 @@ export function useListPageState(
     goToPage: pagination.goToPage,
     updateLimit: pagination.setLimit,
     resetPageState: pagination.resetPageState,
+    clampToTotal: pagination.clampToTotal,
     // Date filter
     dateFilter,
     customStartDate,

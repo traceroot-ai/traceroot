@@ -181,6 +181,7 @@ function RunsTab({ projectId }: { projectId: string }) {
     limit,
     goToPage,
     updateLimit,
+    clampToTotal,
     dateFilter,
     customStartDate,
     customEndDate,
@@ -207,6 +208,13 @@ function RunsTab({ projectId }: { projectId: string }) {
   // empty-state copy doesn't flicker for the 300ms before the debounce catches up.
   const filtered = !!keyword;
   const total = meta?.total ?? runs.length;
+
+  // Deleting the last page's rows (or a deep link past the end) leaves `page` beyond
+  // the shortened result set — an empty table showing the first-run onboarding copy
+  // for a project that still has runs. Pull it back to the last page that has rows.
+  React.useEffect(() => {
+    clampToTotal(total);
+  }, [clampToTotal, total]);
 
   const confirmDelete = () => {
     if (!deleteRun) return;
