@@ -236,13 +236,14 @@ DROP USER IF EXISTS <old_account>;
 
 ### Open items — must be settled before enabling the gateway in the cloud
 
-- **ClickHouse version gap.** All of this was verified against **24.3** — the
-  `ddl-check` run on 24.3.18.7 and the compose end-to-end run. Staging runs
-  **`bitnamilegacy/clickhouse:25.2.1-debian-12-r0`**. Re-verify explicit `DEFINER` /
-  `SQL SECURITY DEFINER` semantics, settings-profile enforcement, and the readonly denial on
-  25.2 before relying on any of the 24.3 results.
-- **`helm template` / `helm lint` and `terraform fmt`/`validate`** have never been run against
-  these changes; neither tool was available where they were authored.
+- **ClickHouse version gap, now partial.** The `ddl-check` run and the compose end-to-end run
+  were both on **24.3.18.7**. Staging runs **`bitnamilegacy/clickhouse:25.2.1-debian-12-r0`**.
+  Two properties have since been checked directly on 25.2.1 — the admin holding
+  `CREATE USER` / `SET DEFINER` unaided, and a view being created with an explicit `DEFINER`
+  naming another account. Still unverified on 25.2 and proven only on 24.3:
+  **settings-profile enforcement** (a `readonly = 1` profile actually capping a query) and the
+  **read-only account being refused the physical tables**. Re-run `ddl-check` against 25.2 to
+  close the rest.
 
 ## DEFINER: explicit scoped writer
 
