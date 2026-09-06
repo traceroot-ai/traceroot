@@ -4,11 +4,12 @@
   "private": true,
   "scripts": {
     "demo": "tsx agent.ts",
-    "demo:streaming": "tsx agent-streaming.ts"
+    "demo:streaming": "tsx agent-streaming.ts",
+    "demo:agent": "tsx tool-loop-agent.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.0",
-    "@traceroot-ai/traceroot": "^0.1.6",
+    "@traceroot-ai/traceroot": "^0.1.7",
     "ai": "^6.0.0",
     "dotenv": "^16.0.0",
     "openai": "^6.0.0",

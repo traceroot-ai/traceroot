@@ -66,7 +66,9 @@ def _patch_detectors(monkeypatch, detectors):
 
 
 def _patch_summaries(monkeypatch, summaries):
-    monkeypatch.setattr(dt, "_get_trace_summaries", lambda project_id, trace_ids: summaries)
+    monkeypatch.setattr(
+        dt, "_get_trace_summaries", lambda project_id, trace_ids, **kwargs: summaries
+    )
 
 
 def _lock_state(fake_redis, project_id=PROJECT, trace_id=TRACE):
@@ -324,3 +326,192 @@ class TestTopLevelGuard:
     def test_never_raises(self, monkeypatch):
         monkeypatch.setattr(dt, "_get_redis", MagicMock(side_effect=RuntimeError("redis down")))
         dt.enqueue_detector_runs(PROJECT, {TRACE})
+
+
+# ── _eval_condition: environment field semantics ────────────────────────
+
+
+class TestEvalConditionEnvironment:
+    """Pins the missing-field semantics (`actual is None` -> `op == "!="`) and
+    its interaction with a populated `environment` value, so a fix at the
+    insert layer that makes `environment` non-NULL cannot silently change how
+    a genuinely absent value is handled."""
+
+    def test_missing_field_equals_never_matches(self):
+        assert dt._eval_condition({}, {"field": "environment", "op": "=", "value": "prod"}) is (
+            False
+        )
+
+    def test_missing_field_not_equals_always_matches(self):
+        assert (
+            dt._eval_condition({}, {"field": "environment", "op": "!=", "value": "staging"}) is True
+        )
+
+    def test_populated_field_equals_matching_value(self):
+        summary = {"environment": "production"}
+        assert (
+            dt._eval_condition(summary, {"field": "environment", "op": "=", "value": "production"})
+            is True
+        )
+
+    def test_populated_field_equals_non_matching_value(self):
+        summary = {"environment": "production"}
+        assert (
+            dt._eval_condition(summary, {"field": "environment", "op": "=", "value": "staging"})
+            is False
+        )
+
+    def test_populated_field_not_equals_excluded_value(self):
+        """A trace whose environment IS the excluded value must not fire."""
+        summary = {"environment": "staging"}
+        assert (
+            dt._eval_condition(summary, {"field": "environment", "op": "!=", "value": "staging"})
+            is False
+        )
+
+    def test_populated_field_not_equals_other_value(self):
+        """A trace outside the excluded value fires."""
+        summary = {"environment": "production"}
+        assert (
+            dt._eval_condition(summary, {"field": "environment", "op": "!=", "value": "staging"})
+            is True
+        )
+
+
+# ── Evaluation traces are skipped by detectors ──────────────────────────
+
+
+class TestEvaluationTraceSkip:
+    """The real assertion for the feature: an offline-evaluation trace must not enqueue
+    a BullMQ job. These drive ``enqueue_detector_runs`` end to end rather than calling
+    ``_detector_runs_on_trace`` in isolation — removing the guard from the comprehension
+    in ``_claim_and_enqueue`` has to make them fail, otherwise they prove nothing.
+    """
+
+    def test_evaluation_trace_enqueues_nothing_and_is_sticky(
+        self, fake_redis, mock_add_job, monkeypatch
+    ):
+        """No job, and the decision is recorded so a replay cannot re-roll it."""
+        _patch_detectors(monkeypatch, [_detector("d1", sample_rate=100)])
+        _patch_summaries(monkeypatch, {TRACE: {"environment": None, "is_evaluation": True}})
+
+        dt.enqueue_detector_runs(PROJECT, {TRACE})
+
+        mock_add_job.assert_not_called()
+        assert _lock_state(fake_redis)["state"] == "sampled_out"
+
+    def test_production_trace_still_enqueues(self, fake_redis, mock_add_job, monkeypatch):
+        """Control: the same detector on a non-evaluation trace DOES enqueue, so the
+        test above is attributable to the evaluation flag and not to a broken fixture."""
+        _patch_detectors(monkeypatch, [_detector("d1", sample_rate=100)])
+        _patch_summaries(
+            monkeypatch, {TRACE: {"environment": "production", "is_evaluation": False}}
+        )
+
+        dt.enqueue_detector_runs(PROJECT, {TRACE})
+
+        mock_add_job.assert_called_once()
+        assert _lock_state(fake_redis)["state"] == "pending"
+
+    def test_customer_environment_named_evaluation_still_enqueues(
+        self, fake_redis, mock_add_job, monkeypatch
+    ):
+        """REGRESSION: ``environment`` is user-controlled free text. A team that names a
+        real deployment "evaluation" must keep its detectors — the skip keys off the root
+        span's KIND, never off this string."""
+        _patch_detectors(monkeypatch, [_detector("d1", sample_rate=100)])
+        _patch_summaries(
+            monkeypatch, {TRACE: {"environment": "evaluation", "is_evaluation": False}}
+        )
+
+        dt.enqueue_detector_runs(PROJECT, {TRACE})
+
+        mock_add_job.assert_called_once()
+        assert _lock_state(fake_redis)["state"] == "pending"
+
+    def test_opted_in_detector_runs_on_evaluation_trace(
+        self, fake_redis, mock_add_job, monkeypatch
+    ):
+        detector = _detector("d1", sample_rate=100)
+        detector["run_on_evaluation"] = True
+        _patch_detectors(monkeypatch, [detector])
+        _patch_summaries(monkeypatch, {TRACE: {"is_evaluation": True}})
+
+        dt.enqueue_detector_runs(PROJECT, {TRACE})
+
+        mock_add_job.assert_called_once()
+
+    def test_mixed_batch_skips_only_the_evaluation_trace(
+        self, fake_redis, mock_add_job, monkeypatch
+    ):
+        """One eval trace in a batch must not suppress its neighbours."""
+        prod_trace = "bb" * 16
+        _patch_detectors(monkeypatch, [_detector("d1", sample_rate=100)])
+        _patch_summaries(
+            monkeypatch,
+            {
+                TRACE: {"is_evaluation": True},
+                prod_trace: {"is_evaluation": False},
+            },
+        )
+
+        dt.enqueue_detector_runs(PROJECT, {TRACE, prod_trace})
+
+        assert mock_add_job.call_count == 1
+        assert mock_add_job.call_args.args[1]["traceId"] == prod_trace
+
+    def test_summary_missing_the_flag_is_treated_as_non_evaluation(
+        self, fake_redis, mock_add_job, monkeypatch
+    ):
+        """Fail-open: a trace with no spans row (empty summary) keeps running detectors."""
+        _patch_detectors(monkeypatch, [_detector("d1", sample_rate=100)])
+        _patch_summaries(monkeypatch, {})
+
+        dt.enqueue_detector_runs(PROJECT, {TRACE})
+
+        mock_add_job.assert_called_once()
+
+
+class TestTraceSummaryEvaluationFlag:
+    """``is_evaluation`` must come from the ingest-set flag, aggregated monotonically."""
+
+    def _summaries(self, monkeypatch, result_rows):
+        captured = {}
+
+        class FakeCH:
+            def query(self, sql, parameters=None):
+                captured["sql"] = sql
+                captured["parameters"] = parameters
+                return MagicMock(result_rows=result_rows)
+
+        monkeypatch.setattr(
+            "db.clickhouse.client.get_clickhouse_client", lambda: FakeCH(), raising=False
+        )
+        summaries = dt._get_trace_summaries(PROJECT, [TRACE], include_trace_metadata=False)
+        return summaries, captured
+
+    def test_flag_comes_from_is_evaluation_not_environment(self, monkeypatch):
+        summaries, captured = self._summaries(
+            monkeypatch, [(TRACE, ["production"], [], 0.0, 0, None, 0, [{}], None, 1)]
+        )
+
+        assert summaries[TRACE]["is_evaluation"] is True
+        sql = captured["sql"]
+        # Aggregated over ALL the trace's spans, not read off the root. OTel exports a
+        # span when it ENDS, so the EVALUATION root is normally the LAST span to arrive —
+        # a root-keyed read would answer "not an evaluation" until then, and forever if
+        # the eval process dies first. max() is also monotonic: no row can clear it.
+        assert "max(is_evaluation)" in sql
+        assert "parent_span_id IS NULL AND span_kind" not in sql
+        # The flag must NOT be derived from the user-controlled environment string.
+        assert "environment = 'evaluation'" not in sql
+
+    def test_unflagged_trace_yields_false_even_when_named_evaluation(self, monkeypatch):
+        summaries, _ = self._summaries(
+            monkeypatch, [(TRACE, ["evaluation"], [], 0.0, 0, None, 0, [{}], None, 0)]
+        )
+
+        # environment says "evaluation" (a customer's own deployment naming) but the
+        # ingest flag does not — the trace is NOT an evaluation trace.
+        assert summaries[TRACE]["is_evaluation"] is False
+        assert summaries[TRACE]["environment"] == ["evaluation"]

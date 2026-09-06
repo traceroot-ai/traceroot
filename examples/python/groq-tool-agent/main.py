@@ -1,5 +1,5 @@
 """
-Groq Tool Agent — TraceRoot Observability
+Groq Tool Agent - TraceRoot Observability
 
 A ReAct-style agent built with the Groq SDK, instrumented
 with TraceRoot via traceroot.initialize(integrations=[Integration.GROQ]).
@@ -249,7 +249,12 @@ class ReActAgent:
 # ---------------------------------------------------------------------------
 
 DEMO_QUERIES = [
+    # get_weather (x2) + comparison reasoning
     "What's the weather in San Francisco and Tokyo? Compare them.",
+    # get_stock_price + calculate (percentage math)
+    "What's the NVDA stock price? If it goes up 10%, what would the new price be?",
+    # get_current_time (x2) + get_weather (x2) - multi-tool, multi-city
+    "What time is it in Tokyo and New York right now, and what's the weather in each?",
 ]
 
 

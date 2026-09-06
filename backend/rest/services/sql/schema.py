@@ -13,10 +13,18 @@ excludes:
 * the tenant column ``project_id``;
 * the internal bookkeeping columns ``ch_create_time`` / ``ch_update_time``;
 * the large blob columns ``input`` / ``output`` / ``metadata`` (raw blob export
-  is a future opt-in, out of scope here).
+  is a future opt-in, out of scope here), and ``metadata_map`` -- the
+  materialized, queryable projection of that same ``metadata`` document;
+* the internal classification columns ``source`` and ``is_evaluation``, which
+  are platform control flags rather than user data (see the row scope below).
 
 Because ``SELECT *`` resolves against these curated views, it returns exactly the
 analytical columns defined here -- never the underlying physical-table columns.
+
+Beyond the columns, the views also curate **rows**: on top of the per-project
+scope the rewriter binds, they apply ``VIEW_ROW_FILTERS`` so a caller sees only
+their own customer traffic. A row the product hides on every other read path
+must not reappear through the SQL gateway.
 
 ``span_start_time`` and ``trace_start_time`` are the canonical time-filter
 columns. ``duration_ms`` is not a physical column; the ``spans_public_v1`` view
@@ -97,6 +105,23 @@ TABLE_VIEW_MAP: dict[str, str] = {
     "spans": "spans_public_v1",
     "traces": "traces_public_v1",
 }
+
+#: Row-level predicates the curated views MUST apply to the physical tables, in
+#: addition to the bound project scope. Both mirror rules every other
+#: customer-facing read path already enforces:
+#:
+#: * ``source = 'user'`` names the one value that IS customer traffic instead of
+#:   excluding the internal markers known today, so a marker added tomorrow is
+#:   excluded the day it appears (the reasoning behind
+#:   ``rest.services.trace_reader.customer_traffic_only``, which spells the same
+#:   rule for the internal read paths).
+#: * ``is_evaluation = 0`` drops offline-evaluation rows, which the product hides
+#:   from every list, session and dropdown; the gateway must not be the one
+#:   surface that hands them back.
+#:
+#: The view migration spells these out in SQL -- a ``.sql`` file cannot import
+#: this module -- so this tuple is the contract that migration is checked against.
+VIEW_ROW_FILTERS: tuple[str, ...] = ("source = 'user'", "is_evaluation = 0")
 
 
 def column_names(table: str) -> set[str]:

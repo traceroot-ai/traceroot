@@ -1,0 +1,19 @@
+{
+  "name": "@traceroot/example-pi-agent-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "demo": "tsx agent.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "^0.80.0",
+    "@traceroot-ai/traceroot": "^0.1.8",
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  }
+}

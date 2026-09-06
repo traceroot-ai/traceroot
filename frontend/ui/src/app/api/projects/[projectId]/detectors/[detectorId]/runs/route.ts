@@ -1,5 +1,7 @@
 import { NextRequest } from "next/server";
+import { prisma, PlanType } from "@traceroot/core";
 import { requireAuth, requireProjectAccess, errorResponse } from "@/lib/auth-helpers";
+import { clampStartAfter } from "@/lib/server/retention";
 import { env } from "@/env";
 
 const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
@@ -23,9 +25,17 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   const rawPage = parseInt(searchParams.get("page") ?? "0", 10);
   const limit = isNaN(rawLimit) ? 50 : Math.min(Math.max(rawLimit, 1), 200);
   const page = isNaN(rawPage) ? 0 : Math.max(rawPage, 0);
-  const startAfter = searchParams.get("start_after");
+  let startAfter = searchParams.get("start_after");
   const endBefore = searchParams.get("end_before");
   const searchQuery = searchParams.get("search_query");
+  const identified = searchParams.get("identified");
+
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: accessResult.project.workspaceId },
+    select: { billingPlan: true },
+  });
+  const billingPlan = workspace?.billingPlan || PlanType.FREE;
+  startAfter = clampStartAfter(billingPlan, startAfter);
 
   const backendParams = new URLSearchParams({
     project_id: projectId,
@@ -36,6 +46,7 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   if (startAfter) backendParams.set("start_after", startAfter);
   if (endBefore) backendParams.set("end_before", endBefore);
   if (searchQuery) backendParams.set("search_query", searchQuery);
+  if (identified === "true") backendParams.set("identified", "true");
 
   let response: Response;
   try {
@@ -54,5 +65,38 @@ export async function GET(req: NextRequest, { params }: RouteParams) {
   }
 
   const data: unknown = await response.json();
+
+  // Enrich each triggered run with its stored RCA status (one batched Postgres
+  // lookup) so the findings view (identified runs) can show whether the agent
+  // analysis ran. Same source of truth as the trace viewer's Alert gating: a
+  // DetectorRca row exists iff RCA ran; an absent row (null) means it was
+  // skipped (RCA disabled on every detector that fired). Best-effort: on lookup
+  // failure the field is simply absent and the UI renders "—". Runs that never
+  // triggered (null finding_id) are left untouched.
+  if (response.ok && data !== null && typeof data === "object") {
+    const runs = (data as { data?: unknown }).data;
+    if (Array.isArray(runs)) {
+      const ids = runs
+        .map((r) => (r as { finding_id?: unknown }).finding_id)
+        .filter((id): id is string => typeof id === "string");
+      if (ids.length > 0) {
+        try {
+          const rcas = await prisma.detectorRca.findMany({
+            where: { findingId: { in: ids } },
+            select: { findingId: true, status: true },
+          });
+          const statusByFinding = new Map(rcas.map((r) => [r.findingId, r.status]));
+          for (const r of runs as Array<Record<string, unknown>>) {
+            if (typeof r.finding_id === "string") {
+              r.rca_status = statusByFinding.get(r.finding_id) ?? null;
+            }
+          }
+        } catch (err) {
+          console.error("[runs proxy] RCA status lookup failed:", err);
+        }
+      }
+    }
+  }
+
   return Response.json(data, { status: response.status });
 }

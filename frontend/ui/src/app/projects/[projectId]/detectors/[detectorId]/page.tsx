@@ -4,19 +4,33 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ChevronRight, Flag, History } from "lucide-react";
 import { SearchFilterBar } from "@/components/search-filter-bar";
+import { LoadingState } from "@/components/ui/loading-state";
 import { ListPagination } from "@/components/list-pagination";
 import { ProjectBreadcrumb } from "@/features/projects/components";
-import { formatDate, cn, buildUrlWithFilters } from "@/lib/utils";
+import { cn, buildUrlWithFilters } from "@/lib/utils";
 import { useDetector } from "@/features/detectors/hooks/use-detectors";
-import {
-  useFindings,
-  useRuns,
-  describeRcaStatus,
-  type BackendFinding,
-} from "@/features/detectors/hooks/use-findings";
+import { useRuns, selfTraceId, type BackendRun } from "@/features/detectors/hooks/use-findings";
+import { DetectorRunsTable } from "@/features/detectors/components/detector-runs-table";
 import { useListPageState } from "@/lib/hooks/use-list-page-state";
 import { DETECTORS_DEFAULT_DATE_FILTER_ID } from "@/lib/date-filter";
 import { TraceViewerPanel } from "@/features/traces/components/TraceViewerPanel";
+import { useRetention } from "@/lib/hooks/use-retention";
+import { PricingDialog } from "@/ee/features/billing/PricingDialog";
+import { PlanType } from "@traceroot/core";
+
+/**
+ * Which trace the consolidated panel shows. `kind` selects RCA auto-open:
+ * "original" (the run's source trace) opens its RCA when one exists; "self"
+ * (the detector run's own self-trace) opens quietly, with no RCA auto-open.
+ */
+type SelectedTrace = { traceId: string; kind: "original" | "self" } | null;
+
+// A self-trace is identified by its run row (dashless run_id), not by a
+// trace_id in the list, so match on the right key per kind. Module-scope so
+// effects can use it without a dependency-list entry.
+const rowMatchesSelection = (r: BackendRun, sel: SelectedTrace) =>
+  sel != null &&
+  (sel.kind === "self" ? selfTraceId(r) === sel.traceId : r.trace_id === sel.traceId);
 
 const tabs = [
   { id: "findings", label: "Findings", icon: Flag },
@@ -31,16 +45,30 @@ export default function DetectorDetailPage() {
   const detectorId = params.detectorId as string;
 
   // Deep-link params: set when a trace is popped out into a new tab from the
-  // panel's "open in new tab" button, so it reopens here in the detector tab.
+  // panel's "open in new tab" button (or linked from a trace's Detectors tab),
+  // so it reopens here in the detector tab. source=detector marks the id as a
+  // self-trace (dashless run_id), which matches run rows, not trace ids.
   const traceIdFromUrl = searchParams.get("traceId");
+  const sourceFromUrl = searchParams.get("source");
   const [startFullscreen, setStartFullscreen] = useState(searchParams.get("fullscreen") === "1");
-  const [didAutoOpen, setDidAutoOpen] = useState(false);
+  const [autoOpenedKey, setAutoOpenedKey] = useState<string | null>(null);
 
-  const [activeTab, setActiveTab] = useState("findings");
-  const [selectedFinding, setSelectedFinding] = useState<BackendFinding | null>(null);
+  // Deep-link the tab (e.g. the trace detectors tab sends clean runs to "runs"
+  // and findings to "findings"); default to findings for any other value.
+  const tabParam = searchParams.get("tab");
+  const [activeTab, setActiveTab] = useState(tabParam === "runs" ? "runs" : "findings");
+  // Re-honor ?tab= when it changes without a remount (navigating detector→detector
+  // from the trace panel's Detectors table). Keyed on the param value only, so a
+  // manual tab switch — which doesn't touch the URL — is never overridden.
+  useEffect(() => {
+    if (tabParam === "runs" || tabParam === "findings") setActiveTab(tabParam);
+  }, [tabParam]);
+  const [selectedTrace, setSelectedTrace] = useState<SelectedTrace>(null);
 
   // Single shared state across both tabs — same pattern as traces/sessions/users.
   // Pagination, search, and date filter live in the URL so a tab switch keeps them.
+  const retention = useRetention(projectId);
+
   const {
     state,
     queryOptions,
@@ -49,7 +77,10 @@ export default function DetectorDetailPage() {
     updateKeyword,
     updateLimit,
     goToPage,
-  } = useListPageState({ defaultDateFilterId: DETECTORS_DEFAULT_DATE_FILTER_ID });
+  } = useListPageState({
+    defaultDateFilterId: DETECTORS_DEFAULT_DATE_FILTER_ID,
+    retentionDays: retention.retentionDays,
+  });
 
   // Carry the selected range back to the list (and into the breadcrumb) so the
   // detectors section keeps one consistent time range across navigation, the
@@ -63,7 +94,13 @@ export default function DetectorDetailPage() {
 
   const { data: detector } = useDetector(projectId, detectorId);
 
-  const { data: findingsData, isLoading, error } = useFindings(projectId, detectorId, queryOptions);
+  // The Findings tab is a filtered Runs view: the same runs query restricted to
+  // triggered runs (identified = Yes, i.e. finding_id IS NOT NULL).
+  const {
+    data: findingsData,
+    isLoading,
+    error,
+  } = useRuns(projectId, detectorId, { ...queryOptions, identified: true });
 
   const {
     data: runsData,
@@ -74,41 +111,67 @@ export default function DetectorDetailPage() {
   const findings = findingsData?.data ?? [];
   const runs = runsData?.data ?? [];
 
+  // The active tab's rows back both pagination and the panel's ↑/↓ navigation.
+  const activeRows = activeTab === "runs" ? runs : findings;
+
   // Active tab's meta drives pagination. Both tabs share the same page/limit
   // since `useListPageState` is one shared instance — switching tabs keeps you
   // on the same page index. The other tab's data may show empty if it has
   // fewer pages; clicking "first" recovers.
   const activeMeta = activeTab === "runs" ? runsData?.meta : findingsData?.meta;
 
-  // Clear `selectedFinding` if the row it points to is no longer in the
-  // current findings list (e.g. user paginated, refetched, or filtered).
-  useEffect(() => {
-    if (selectedFinding && !findings.some((f) => f.finding_id === selectedFinding.finding_id)) {
-      setSelectedFinding(null);
-    }
-  }, [findings, selectedFinding]);
+  // Clicking a row's trace_id cell opens that run's original trace, with its RCA
+  // auto-opening if one exists (the panel gates auto-open on a real RCA session,
+  // so clean traces open quietly).
+  const openOriginalTrace = (run: BackendRun) =>
+    setSelectedTrace({ traceId: run.trace_id, kind: "original" });
 
-  // Deep-link: when arriving with ?traceId=... (popped out from another tab),
-  // open that finding's trace once the findings list has loaded. Runs once, so
-  // closing the panel doesn't reopen it.
-  useEffect(() => {
-    if (didAutoOpen || !traceIdFromUrl) return;
-    const match = findings.find((f) => f.trace_id === traceIdFromUrl);
-    if (match) {
-      setSelectedFinding(match);
-      setDidAutoOpen(true);
-    }
-  }, [didAutoOpen, traceIdFromUrl, findings]);
+  // Clicking a self-traced run's run_id cell opens the run's own trace.
+  const openSelfTrace = (run: BackendRun) =>
+    setSelectedTrace({ traceId: selfTraceId(run), kind: "self" });
 
-  const selectedIndex = selectedFinding
-    ? findings.findIndex((f) => f.finding_id === selectedFinding.finding_id)
+  // Clear the selection if its run/trace is no longer in the active list (e.g. the
+  // user paginated, refetched, switched tabs, or changed filters).
+  useEffect(() => {
+    if (selectedTrace && !activeRows.some((r) => rowMatchesSelection(r, selectedTrace))) {
+      setSelectedTrace(null);
+    }
+  }, [activeRows, selectedTrace]);
+
+  // Deep-link: when arriving with ?traceId=... (popped out from another tab or
+  // linked from a trace's Detectors tab), open that trace once the list has loaded.
+  //
+  // Latched on WHICH link was consumed rather than a bare boolean: closing the panel
+  // must not reopen the same trace, but a different deep link has to still work.
+  // Navigating detector -> same detector from a trace's Detectors tab changes only the
+  // query string, which does not remount, so a boolean would swallow every later link
+  // for the life of the mount. (The ?tab= effect above already learned this.)
+  const deepLinkKey = traceIdFromUrl ? `${sourceFromUrl ?? ""}:${traceIdFromUrl}` : null;
+  useEffect(() => {
+    if (!traceIdFromUrl || autoOpenedKey === deepLinkKey) return;
+    const sel: SelectedTrace = {
+      traceId: traceIdFromUrl,
+      kind: sourceFromUrl === "detector" ? "self" : "original",
+    };
+    if (activeRows.some((r) => rowMatchesSelection(r, sel))) {
+      setSelectedTrace(sel);
+      setAutoOpenedKey(deepLinkKey);
+    }
+  }, [autoOpenedKey, deepLinkKey, traceIdFromUrl, sourceFromUrl, activeRows]);
+
+  const selectedIndex = selectedTrace
+    ? activeRows.findIndex((r) => rowMatchesSelection(r, selectedTrace))
     : -1;
 
+  // Up/down steps through original traces only; a self-trace is a point-open with
+  // no natural sequence (adjacent rows may not be self-traced).
+  const canNavigate = selectedTrace?.kind === "original";
+
   function handleNavigate(direction: "up" | "down") {
-    if (selectedIndex === -1) return;
+    if (!canNavigate || selectedIndex === -1) return;
     const nextIndex = direction === "up" ? selectedIndex - 1 : selectedIndex + 1;
-    if (nextIndex >= 0 && nextIndex < findings.length) {
-      setSelectedFinding(findings[nextIndex]);
+    if (nextIndex >= 0 && nextIndex < activeRows.length) {
+      setSelectedTrace({ traceId: activeRows[nextIndex].trace_id, kind: "original" });
     }
   }
 
@@ -166,174 +229,50 @@ export default function DetectorDetailPage() {
           customEndDate={state.customEndDate}
           onDateFilterChange={updateDateFilter}
           onCustomRangeChange={updateCustomRange}
+          retentionDays={retention.retentionDays}
+          onUpgradeClick={retention.onUpgradeClick}
         />
 
-        {/* Content */}
+        {/* Content — both tabs render the same DetectorRunsTable; Findings is
+            just the runs query filtered to triggered runs (identified=true). */}
         <div className="flex-1 overflow-auto bg-background">
-          {activeTab === "runs" ? (
-            runsLoading ? (
-              <div className="flex h-64 items-center justify-center">
-                <p className="text-[13px] text-muted-foreground">Loading runs...</p>
-              </div>
-            ) : runsError ? (
-              <div className="flex h-64 flex-col items-center justify-center gap-3">
-                <p className="text-[13px] text-destructive">Error loading runs</p>
-              </div>
-            ) : runs.length === 0 ? (
-              <div className="flex h-64 flex-col items-center justify-center gap-3">
-                <p className="text-[13px] text-muted-foreground">No runs found</p>
-                <p className="text-[12px] text-muted-foreground">
-                  Try adjusting your filters or date range.
-                </p>
-              </div>
-            ) : (
-              <table className="w-full">
-                <thead className="sticky top-0 bg-background">
-                  <tr className="border-b border-border bg-muted/50">
-                    <th className="w-[160px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                      Timestamp
-                    </th>
-                    <th className="w-[280px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                      Run ID
-                    </th>
-                    <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                      Trace ID
-                    </th>
-                    <th className="w-[80px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                      Identified
-                    </th>
-                    <th className="w-[280px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                      Finding ID
-                    </th>
-                    <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                      Summary
-                    </th>
-                    <th className="w-[90px] px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                      Status
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {runs.map((e) => (
-                    <tr
-                      key={e.run_id}
-                      className="border-b border-border/50 transition-colors last:border-0 hover:bg-muted/50"
-                    >
-                      <td className="whitespace-nowrap border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
-                        {formatDate(e.timestamp)}
-                      </td>
-                      <td className="border-r border-border/50 px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
-                        {e.run_id}
-                      </td>
-                      <td className="border-r border-border/50 px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
-                        {e.trace_id}
-                      </td>
-                      <td className="border-r border-border/50 px-3 py-1.5 text-[12px]">
-                        {e.finding_id != null ? (
-                          <span className="text-destructive">Yes</span>
-                        ) : (
-                          <span className="text-muted-foreground">No</span>
-                        )}
-                      </td>
-                      <td className="border-r border-border/50 px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
-                        {e.finding_id ?? "—"}
-                      </td>
-                      <td className="max-w-[400px] border-r border-border/50 px-3 py-1.5 text-[12px] text-foreground">
-                        {e.summary ? (
-                          <span className="block truncate" title={e.summary}>
-                            {e.summary.length > 100 ? e.summary.slice(0, 100) + "…" : e.summary}
-                          </span>
-                        ) : (
-                          <span className="font-mono text-[11px] text-muted-foreground">—</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-1.5 text-[12px] text-muted-foreground">{e.status}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )
-          ) : isLoading ? (
-            <div className="flex h-64 items-center justify-center">
-              <p className="text-[13px] text-muted-foreground">Loading findings...</p>
-            </div>
-          ) : error ? (
-            <div className="flex h-64 flex-col items-center justify-center gap-3">
-              <p className="text-[13px] text-destructive">Error loading findings</p>
-            </div>
-          ) : findings.length === 0 ? (
-            <div className="flex h-64 flex-col items-center justify-center gap-3">
-              <p className="text-[13px] text-muted-foreground">No findings found</p>
-              <p className="text-[12px] text-muted-foreground">
-                Try adjusting your filters or date range.
-              </p>
-            </div>
-          ) : (
-            <table className="w-full">
-              <thead className="sticky top-0 bg-background">
-                <tr className="border-b border-border bg-muted/50">
-                  <th className="w-[140px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                    Timestamp
-                  </th>
-                  <th className="w-[280px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                    Finding ID
-                  </th>
-                  <th className="w-[280px] border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                    Trace ID
-                  </th>
-                  <th className="border-r border-border/50 px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                    Summary
-                  </th>
-                  <th className="w-[110px] px-3 py-1.5 text-left text-[12px] font-medium text-muted-foreground">
-                    Agent analysis
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {findings.map((f) => (
-                  <tr
-                    key={f.finding_id}
-                    onClick={() =>
-                      setSelectedFinding(selectedFinding?.finding_id === f.finding_id ? null : f)
-                    }
-                    className={cn(
-                      "cursor-pointer border-b border-border/50 transition-colors last:border-0",
-                      selectedFinding?.finding_id === f.finding_id
-                        ? "bg-muted"
-                        : "hover:bg-muted/50",
-                    )}
-                  >
-                    <td className="whitespace-nowrap border-r border-border/50 px-3 py-1.5 text-[12px] text-muted-foreground">
-                      {formatDate(f.timestamp)}
-                    </td>
-                    <td className="border-r border-border/50 px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
-                      {f.finding_id}
-                    </td>
-                    <td className="w-[280px] border-r border-border/50 px-3 py-1.5 font-mono text-[11px] text-muted-foreground">
-                      <span className="block truncate" title={f.trace_id}>
-                        {f.trace_id}
-                      </span>
-                    </td>
-                    <td className="max-w-[400px] border-r border-border/50 px-3 py-1.5 text-[12px] text-foreground">
-                      <span className="block truncate" title={f.summary}>
-                        {f.summary.length > 100 ? f.summary.slice(0, 100) + "…" : f.summary}
-                      </span>
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-1.5 text-[12px]">
-                      {(() => {
-                        const rca = describeRcaStatus(f.rca_status);
-                        return (
-                          <span className={rca.className} title={rca.title}>
-                            {rca.label}
-                          </span>
-                        );
-                      })()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+          {(() => {
+            const loading = activeTab === "runs" ? runsLoading : isLoading;
+            const err = activeTab === "runs" ? runsError : error;
+            const noun = activeTab === "runs" ? "runs" : "findings";
+
+            if (loading) {
+              return (
+                <div className="flex h-64 items-center justify-center">
+                  <LoadingState label={`Loading ${noun}...`} />
+                </div>
+              );
+            }
+            if (err) {
+              return (
+                <div className="flex h-64 flex-col items-center justify-center gap-3">
+                  <p className="text-[13px] text-destructive">Error loading {noun}</p>
+                </div>
+              );
+            }
+            if (activeRows.length === 0) {
+              return (
+                <div className="flex h-64 flex-col items-center justify-center gap-3">
+                  <p className="text-[13px] text-muted-foreground">No {noun} found</p>
+                  <p className="text-[12px] text-muted-foreground">
+                    Try adjusting your filters or date range.
+                  </p>
+                </div>
+              );
+            }
+            return (
+              <DetectorRunsTable
+                rows={activeRows}
+                onTraceClick={openOriginalTrace}
+                onRunClick={openSelfTrace}
+              />
+            );
+          })()}
         </div>
 
         <ListPagination
@@ -345,26 +284,39 @@ export default function DetectorDetailPage() {
         />
       </div>
 
-      {/* Detail panel — TraceViewerPanel renders its own fixed slide-in overlay */}
-      {selectedFinding && (
+      {/* Detail panel — one TraceViewerPanel mount for the selected trace.
+          autoOpenRca only for "original" traces (the panel still gates auto-open
+          on a real RCA session, so clean traces open quietly). */}
+      {selectedTrace && (
         <TraceViewerPanel
           projectId={projectId}
-          traceId={selectedFinding.trace_id}
+          traceId={selectedTrace.traceId}
           onClose={() => {
-            setSelectedFinding(null);
+            setSelectedTrace(null);
             setStartFullscreen(false);
           }}
           onNavigate={handleNavigate}
-          canNavigateUp={selectedIndex > 0}
-          canNavigateDown={selectedIndex < findings.length - 1}
+          canNavigateUp={canNavigate && selectedIndex > 0}
+          canNavigateDown={
+            canNavigate && selectedIndex !== -1 && selectedIndex < activeRows.length - 1
+          }
           dateFilter={state.dateFilter}
           customStartDate={state.customStartDate}
           customEndDate={state.customEndDate}
-          autoOpenRca={true}
+          autoOpenRca={selectedTrace.kind === "original"}
           initialFullscreen={startFullscreen}
           newTabPath={`/projects/${projectId}/detectors/${detectorId}`}
+          source={selectedTrace.kind === "self" ? "detector" : "user"}
+          runTimestamp={activeRows[selectedIndex]?.timestamp}
         />
       )}
+
+      <PricingDialog
+        open={retention.showPricing}
+        onOpenChange={retention.closePricing}
+        workspaceId={retention.workspaceId}
+        currentPlan={(retention.billingPlan as PlanType) || PlanType.FREE}
+      />
     </div>
   );
 }
