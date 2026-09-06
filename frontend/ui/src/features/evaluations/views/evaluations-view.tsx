@@ -194,7 +194,7 @@ function RunsTab({ projectId }: { projectId: string }) {
     defaultDateFilterId: "14d",
   });
 
-  const { data, isLoading, error } = useEvaluationRuns(projectId, {
+  const { data, isLoading, error, isPlaceholderData } = useEvaluationRuns(projectId, {
     search_query: queryOptions.search_query,
     started_after: queryOptions.start_after,
     started_before: queryOptions.end_before,
@@ -211,9 +211,14 @@ function RunsTab({ projectId }: { projectId: string }) {
   // Deleting the last page's rows (or a deep link past the end) leaves `page` beyond
   // the shortened result set — an empty table showing the first-run onboarding copy
   // for a project that still has runs. Pull it back to the last page that has rows.
+  // Only ever measured against a SETTLED response: `placeholderData` keeps the previous
+  // query's `meta` while the next one is in flight, so clamping then sizes the incoming
+  // page against the outgoing result set — which rewrites a valid deep-linked page (a
+  // filter change that widens the list) back to an earlier one before its data lands.
   React.useEffect(() => {
+    if (isPlaceholderData) return;
     clampToTotal(total);
-  }, [clampToTotal, total]);
+  }, [clampToTotal, total, isPlaceholderData]);
 
   const confirmDelete = () => {
     if (!deleteRun) return;
