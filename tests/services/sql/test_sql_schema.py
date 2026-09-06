@@ -166,11 +166,18 @@ def test_evaluation_exclusion_is_set_membership_not_a_per_row_flag():
     assert "is_evaluation = 0" not in VIEW_EVALUATION_EXCLUSION
 
 
-def test_evaluation_exclusion_subselect_carries_the_project_scope():
-    # The sub-select reads the physical `traces` table directly, so it must repeat
-    # the view's own project parameter -- an unscoped one would read every tenant.
-    assert "project_id = {project_id:String}" in VIEW_EVALUATION_EXCLUSION
+def test_evaluation_exclusion_subselects_carry_the_project_scope():
+    # The sub-selects read the physical tables directly, so each must repeat the
+    # view's own project parameter -- an unscoped one would read every tenant.
+    assert VIEW_EVALUATION_EXCLUSION.count("project_id = {project_id:String}") == 2
+
+
+def test_evaluation_exclusion_reads_both_physical_tables():
+    # The spans half is not redundant: ingest drops the trace record of a batch that
+    # carries no root span for an existing trace, while still inserting that batch's
+    # spans -- so an eval-kind span can land with no traces row ever flagged.
     assert "FROM traces" in VIEW_EVALUATION_EXCLUSION
+    assert "FROM spans" in VIEW_EVALUATION_EXCLUSION
 
 
 def test_evaluation_exclusion_keys_on_a_column_both_tables_carry():
