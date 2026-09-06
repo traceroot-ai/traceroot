@@ -42,27 +42,24 @@ export interface ResultForDataset {
 
 const ACTION_META: Record<
   ResultDatasetAction,
-  { title: string; blurb: string; cta: string; picksDataset: boolean }
+  { title: string; blurb: string; picksDataset: boolean }
 > = {
   update_existing_case: {
     title: "Update source case",
     blurb:
       "Publishes a new immutable version of this run's dataset with this case updated. Runs already recorded keep pointing at the version they used.",
-    cta: "Publish update",
     picksDataset: false,
   },
   save_new_case: {
     title: "Save as a new case",
     blurb:
       "Adds a brand-new case to the chosen dataset. Blocked if it would just recreate this result's own source case — use “Update source case” for that.",
-    cta: "Save new case",
     picksDataset: true,
   },
   duplicate_as_variant: {
     title: "Duplicate as a variant",
     blurb:
       "Adds a new case tagged as a variant of the source case. Always allowed — useful for exploring a tweak without touching the original.",
-    cta: "Duplicate case",
     picksDataset: true,
   },
 };
