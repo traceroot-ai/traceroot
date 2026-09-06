@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, cleanup, screen } from "@testing-library/react";
+import { render, cleanup, screen, fireEvent } from "@testing-library/react";
+
+const mocks = vi.hoisted(() => ({ useSessions: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
   useParams: () => ({ projectId: "proj-1" }),
@@ -28,8 +30,28 @@ vi.mock("@/lib/hooks/use-list-page-state", () => ({
 }));
 
 vi.mock("@/features/traces/hooks", () => ({
-  useSessions: () => ({ data: { data: [], meta: { total: 0 } }, isPending: false, error: null }),
+  useSessions: (...args: unknown[]) => mocks.useSessions(...args),
 }));
+
+const emptySessions = {
+  data: { data: [], meta: { total: 0 } },
+  isPending: false,
+  error: null,
+  refetch: vi.fn(),
+};
+
+const twoSessions = {
+  data: {
+    data: [
+      { session_id: "sess-1", first_trace_time: null, user_ids: [], trace_count: 2 },
+      { session_id: "sess-2", first_trace_time: null, user_ids: ["user-a"], trace_count: 1 },
+    ],
+    meta: { total: 2 },
+  },
+  isPending: false,
+  error: null,
+  refetch: vi.fn(),
+};
 
 vi.mock("@/features/projects/components", () => ({ ProjectBreadcrumb: () => null }));
 vi.mock("@/lib/hooks/use-retention", () => ({
@@ -51,8 +73,12 @@ vi.mock("@/features/traces/components/SessionDetailPanel", () => ({
 
 import SessionsPage from "./page";
 
+mocks.useSessions.mockReturnValue(emptySessions);
+
 afterEach(() => {
   cleanup();
+  mocks.useSessions.mockReset();
+  mocks.useSessions.mockReturnValue(emptySessions);
 });
 
 describe("SessionsPage", () => {
@@ -63,5 +89,21 @@ describe("SessionsPage", () => {
     expect(screen.getByText("Users")).toBeTruthy();
     expect(screen.getByText("Sessions")).toBeTruthy();
     expect(screen.getByText("No sessions found")).toBeTruthy();
+  });
+
+  it("marks only the clicked row as the selected one", () => {
+    mocks.useSessions.mockReturnValue(twoSessions);
+
+    render(<SessionsPage />);
+
+    const rowFor = (id: string) => screen.getByText(id).closest("tr") as HTMLTableRowElement;
+    expect(rowFor("sess-1").dataset.selected).toBeUndefined();
+    expect(rowFor("sess-2").dataset.selected).toBeUndefined();
+
+    fireEvent.click(rowFor("sess-2"));
+
+    expect(rowFor("sess-2").dataset.selected).toBe("true");
+    expect(rowFor("sess-2").className).toContain("bg-muted");
+    expect(rowFor("sess-1").dataset.selected).toBeUndefined();
   });
 });

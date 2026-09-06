@@ -180,6 +180,7 @@ export default function SessionsPage() {
                       <TR
                         key={session.session_id}
                         interactive
+                        selected={selectedSessionId === session.session_id}
                         onClick={() => {
                           setSelectedSessionId(session.session_id);
                         }}

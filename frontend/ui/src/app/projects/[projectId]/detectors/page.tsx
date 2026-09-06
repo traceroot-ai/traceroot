@@ -233,6 +233,7 @@ export default function DetectorsPage() {
                     <TR
                       key={detector.id}
                       interactive
+                      selected={selectedDetectorId === detector.id}
                       onClick={() =>
                         router.push(buildUrl(`/projects/${projectId}/detectors/${detector.id}`))
                       }

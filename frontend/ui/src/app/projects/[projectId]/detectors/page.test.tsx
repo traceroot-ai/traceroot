@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, cleanup, screen, fireEvent } from "@testing-library/react";
+import { render, cleanup, screen, fireEvent, within } from "@testing-library/react";
 import { DETECTOR_SYSTEM_DEFAULT_MODEL_ID } from "@traceroot/core/llm-providers";
 
 const mocks = vi.hoisted(() => ({ push: vi.fn(), useDetectorList: vi.fn() }));
@@ -206,5 +206,21 @@ describe("DetectorsPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(refetch).toHaveBeenCalled();
+  });
+
+  it("marks the open detector's row as selected", () => {
+    render(<DetectorsPage />);
+
+    const rowFor = (name: string) => screen.getByText(name).closest("tr") as HTMLTableRowElement;
+    expect(rowFor("My Detector").dataset.selected).toBeUndefined();
+
+    // The row click navigates; the panel that drives the highlight opens from
+    // the row's actions menu.
+    fireEvent.click(within(rowFor("My Detector")).getByRole("button"));
+    fireEvent.click(screen.getByText("Edit"));
+
+    expect(rowFor("My Detector").dataset.selected).toBe("true");
+    expect(rowFor("My Detector").className).toContain("bg-muted");
+    expect(rowFor("Pinned Detector").dataset.selected).toBeUndefined();
   });
 });
