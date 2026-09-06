@@ -102,7 +102,7 @@ order above is the safe logical sequence for staged/manual provisioning.
   `docker-compose.prod.yml` stack instead auto-provisions the `no_password` compose
   accounts via `clickhouse-init` — for a hardened host, create the users with real
   secrets out of band and do not rely on that bootstrap.
-- **Staging / production (Helm).** **Not yet implemented — the chart moved.** `deploy/` was
+- **Staging / production (Helm).** **Written, not yet released.** `deploy/` was
   removed from this repo on 2026-09-01; infrastructure now lives in three
   dedicated repos:
 
@@ -112,11 +112,13 @@ order above is the safe logical sequence for staged/manual provisioning.
   | Terraform module | `traceroot-ai/traceroot-terraform-aws` | public, installs the chart |
   | Environments | `traceroot-ai/traceroot-infra` (private) | `staging/` + `production/` pin a module version; ESO delivery lives in `eso/` |
 
-  The gap itself is unchanged: `charts/traceroot/templates/migrations/migrate-clickhouse.yaml`
-  runs at `hook-weight: 0` and nothing provisions the gateway users. Verified against the
-  chart at v1.0.0 — no `usersExtraOverrides`, no `access_management`, no `sql_gateway`
-  reference anywhere, and `rest/deployment.yaml` wires `CLICKHOUSE_USER`/`CLICKHOUSE_PASSWORD`
-  but no read-only pair.
+  As of the released chart (v1.0.0) nothing provisions the gateway users:
+  `charts/traceroot/templates/migrations/migrate-clickhouse.yaml` runs at `hook-weight: 0`,
+  and there is no `usersExtraOverrides`, no `access_management` and no `sql_gateway`
+  reference anywhere; `rest/deployment.yaml` wires `CLICKHOUSE_USER`/`CLICKHOUSE_PASSWORD`
+  but no read-only pair. The changes below are open for review in the chart and module
+  repositories and are not in any release yet, so nothing here is available to an
+  environment until they merge and are tagged.
 
   What the implementation needs, by repo:
   - **`traceroot-k8s`** — the `provision-clickhouse-users` hook Job at `hook-weight: -5`,
@@ -126,13 +128,19 @@ order above is the safe logical sequence for staged/manual provisioning.
     subchart (`templates/configmap-users-extra.yaml`), and it is a distinct config slot from
     `extraOverrides`, which staging already uses for log-table removal — adding one does not
     disturb the other.
+  - **`traceroot-terraform-aws`** — a variable that turns the chart flag on and supplies the
+    admin `access_management` override alongside it. The override is a ClickHouse subchart
+    setting, so the chart cannot switch it on from its own flag and it has to come from here;
+    the two are emitted together so they cannot drift apart. On the turnkey path, where the
+    module manages application secrets, it also generates the two account passwords.
   - **`traceroot-infra`** — add `clickhouse-writer-password` and `clickhouse-ro-password` to
-    the `traceroot/<env>/app` secret in AWS Secrets Manager, then bump
-    `traceroot_helm_chart_version` in `staging/main.tf` and apply.
+    the `traceroot/<env>/app` secret in AWS Secrets Manager, then bump both the module `ref`
+    and `traceroot_helm_chart_version` in `staging/main.tf`, set the enable flag, and apply.
 
   **Secrets come from ESO, not Terraform.** Both environments set `manage_app_secrets = false`,
-  so the Terraform module generates no application secrets at all — an earlier plan to add
-  `random_password` resources to the module does not apply. External Secrets Operator syncs
+  so the Terraform module generates no application secrets at all. It does generate the two
+  account passwords on the turnkey path, where it manages secrets, but that branch is inert
+  here. External Secrets Operator syncs
   `traceroot/<env>/app` into the `traceroot` Kubernetes Secret using `dataFrom: extract`
   (`traceroot-infra/eso/setup-eso.sh`), which pulls **every** key in that JSON document. Adding
   the two passwords is therefore a Secrets Manager write plus a refresh (interval 1h) — no ESO
