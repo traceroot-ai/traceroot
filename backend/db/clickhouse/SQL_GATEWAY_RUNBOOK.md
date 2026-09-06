@@ -146,20 +146,18 @@ order above is the safe logical sequence for staged/manual provisioning.
   the two passwords is therefore a Secrets Manager write plus a refresh (interval 1h) — no ESO
   manifest change and no Terraform change.
 
-  **First rollout onto an already-running cluster — one-time manual sequencing.** Helm runs
-  `pre-upgrade` hooks *before* it updates non-hook resources (the ClickHouse StatefulSet). On
-  the very first upgrade that introduces `access_management`, the provisioning hook would run
-  against the old pod that lacks it and fail with a permissions error (no retry can fix that).
-  The two settings are therefore separate on purpose. Do it in two steps: (1) apply with only
-  the access-management grant enabled and confirm the ClickHouse pod rolled with it
-  (`SHOW GRANTS` shows `ACCESS MANAGEMENT`); (2) apply again enabling the gateway itself, which
-  adds the provisioning Job. Enabling the gateway without the grant is refused at plan time
-  rather than failing as a hook, because a hook failure here aborts the upgrade *before* the
-  grant is applied and leaves no way forward through Terraform. Fresh installs and every subsequent
-  upgrade need no manual step. Confirm afterwards: `SHOW CREATE VIEW` shows the writer definer,
-  and `sql_gateway_ro` is denied the physical tables (Code 497). Under the current repo layout
-  each step is a chart release plus a version bump in `staging/main.tf`, and `traceroot-infra`'s
-  rule is staging first, always.
+  **No staged rollout is needed.** The bundled ClickHouse image already grants its admin
+  `CREATE USER`, `ALTER USER` and `SET DEFINER` — verified directly against
+  `bitnamilegacy/clickhouse:25.2.1-debian-12-r0`, where both `CREATE USER` and a
+  `CREATE VIEW ... DEFINER = <other user>` succeeded with no configuration added. Nothing has
+  to reach the ClickHouse pod before the provisioning hook runs, so no restart is involved and
+  a single apply is enough on a running cluster as well as a fresh one.
+
+  An external ClickHouse whose admin is narrower can be granted it with
+  `clickhouse.usersExtraOverrides`; that is documented in the chart's values rather than
+  required. Note the compose stack uses a different image whose admin does **not** carry it,
+  which is why the local path still mounts an access-management file — the two are not in
+  conflict, they are different servers.
 
   Secret rotation is handled in-code: the provisioning Job follows each `CREATE USER` with
   `ALTER USER ... IDENTIFIED WITH sha256_password BY ...`, so a rerun after rotating the
@@ -228,12 +226,6 @@ DROP USER IF EXISTS <old_account>;
   **`bitnamilegacy/clickhouse:25.2.1-debian-12-r0`**. Re-verify explicit `DEFINER` /
   `SQL SECURITY DEFINER` semantics, settings-profile enforcement, and the readonly denial on
   25.2 before relying on any of the 24.3 results.
-- **Does the admin already carry access management?** Narrowed but not settled. The Bitnami
-  clickhouse 8.0.5 chart never sets `access_management` (grepped, no match), and the rendered
-  `traceroot-clickhouse` ConfigMap on staging contains no `<users>` block, so if the admin has
-  it, it comes from the image entrypoint rather than from chart config. Settle it with
-  `SHOW GRANTS` from an admin session — if the admin already has it, the `usersExtraOverrides`
-  change is redundant and the two-step rollout above is unnecessary.
 - **`helm template` / `helm lint` and `terraform fmt`/`validate`** have never been run against
   these changes; neither tool was available where they were authored.
 - **The migration number collides with `main`.** This work numbers the views migration
