@@ -1,6 +1,20 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, cleanup, fireEvent } from "@testing-library/react";
+import { render, cleanup, fireEvent, screen } from "@testing-library/react";
+
+const mocks = vi.hoisted(() => ({
+  sessionData: undefined as
+    | {
+        trace_count: number;
+        duration_ms: number | null;
+        total_input_tokens: number | null;
+        total_output_tokens: number | null;
+        total_cost: number | null;
+        user_ids: string[];
+        traces: unknown[];
+      }
+    | undefined,
+}));
 
 vi.mock("@/components/layout/app-layout", () => ({
   useLayout: () => ({
@@ -16,7 +30,7 @@ vi.mock("@/lib/auth-client", () => ({
 }));
 
 vi.mock("@/features/traces/hooks", () => ({
-  useSession: () => ({ data: undefined, isPending: false, error: null }),
+  useSession: () => ({ data: mocks.sessionData, isPending: false, error: null }),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -37,6 +51,7 @@ import { SessionDetailPanel } from "./SessionDetailPanel";
 
 afterEach(() => {
   cleanup();
+  mocks.sessionData = undefined;
 });
 
 function renderPanel(onClose = vi.fn()) {
@@ -66,5 +81,27 @@ describe("SessionDetailPanel keyboard", () => {
     event.preventDefault();
     document.dispatchEvent(event);
     expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe("SessionDetailPanel metadata badges", () => {
+  it("shows trace count, latency, and user links, and the empty-traces state", () => {
+    mocks.sessionData = {
+      trace_count: 3,
+      duration_ms: 4200,
+      total_input_tokens: 10,
+      total_output_tokens: 20,
+      total_cost: 0.05,
+      user_ids: ["user-42"],
+      traces: [],
+    };
+    renderPanel();
+
+    expect(screen.getByText("Traces:")).toBeDefined();
+    expect(screen.getByText("3")).toBeDefined();
+    expect(screen.getByText("Total Latency:")).toBeDefined();
+    expect(screen.getByText("User:")).toBeDefined();
+    expect(screen.getByText("user-42")).toBeDefined();
+    expect(screen.getByText("No traces in this session")).toBeDefined();
   });
 });

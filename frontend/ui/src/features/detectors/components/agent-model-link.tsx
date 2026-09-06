@@ -16,13 +16,13 @@ interface AgentModelLinkProps {
 }
 
 export function AgentModelLink({ projectId, rcaModel, workspaceId }: AgentModelLinkProps) {
-  const { data } = useQuery({
+  const { data, isPending } = useQuery({
     queryKey: ["llm-models", workspaceId],
     queryFn: () => getAvailableLLMModels(workspaceId!),
     enabled: !!workspaceId,
   });
 
-  const models = flattenAvailableModels(data);
+  const models = flattenAvailableModels(data, isPending);
 
   const resolvedLabel = (() => {
     if (rcaModel) {

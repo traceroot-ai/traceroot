@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { broadcastQueryInvalidation } from "@/lib/cross-tab-sync";
+import { ApiError } from "@/lib/api/client";
 
 export interface Detector {
   id: string;
@@ -15,7 +16,9 @@ export interface Detector {
   detectionSource: "system" | "byok" | null;
   createTime: string;
   updateTime: string;
-  trigger?: { conditions: Array<{ field: string; op: string; value: unknown }> } | null;
+  trigger?: {
+    conditions: Array<{ field: string; op: string; value: unknown; key?: string }>;
+  } | null;
 }
 
 interface PaginationMeta {
@@ -41,8 +44,9 @@ export interface CreateDetectorInput {
   prompt: string;
   outputSchema: Array<{ name: string; type: string }>;
   sampleRate?: number;
+  enabled?: boolean;
   enableRca?: boolean;
-  triggerConditions?: Array<{ field: string; op: string; value: unknown }>;
+  triggerConditions?: Array<{ field: string; op: string; value: unknown; key?: string }>;
   detectionModel?: string;
   detectionProvider?: string;
   detectionSource?: "system" | "byok";
@@ -60,7 +64,12 @@ async function fetchDetectorList(
   const qs = params.toString();
   const url = `/api/projects/${projectId}/detectors${qs ? `?${qs}` : ""}`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch detectors: ${res.status}`);
+  if (!res.ok) {
+    const body = await res
+      .json()
+      .catch(() => ({ detail: `Failed to fetch detectors: ${res.status}` }));
+    throw new ApiError(res.status, body.detail ?? `Failed to fetch detectors: ${res.status}`);
+  }
   return res.json() as Promise<DetectorListResponse>;
 }
 
@@ -86,8 +95,9 @@ export interface UpdateDetectorInput {
   name?: string;
   prompt?: string;
   sampleRate?: number;
+  enabled?: boolean;
   enableRca?: boolean;
-  triggerConditions?: Array<{ field: string; op: string; value: unknown }>;
+  triggerConditions?: Array<{ field: string; op: string; value: unknown; key?: string }>;
   detectionModel?: string;
   detectionProvider?: string;
   detectionSource?: "system" | "byok";
@@ -154,7 +164,12 @@ async function fetchDetectorCounts(
   const params = new URLSearchParams({ start_after: startAfter });
   if (endBefore) params.set("end_before", endBefore);
   const res = await fetch(`/api/projects/${projectId}/detector-counts?${params.toString()}`);
-  if (!res.ok) throw new Error(`Failed to fetch detector counts: ${res.status}`);
+  if (!res.ok) {
+    const body = await res
+      .json()
+      .catch(() => ({ detail: `Failed to fetch detector counts: ${res.status}` }));
+    throw new ApiError(res.status, body.detail ?? `Failed to fetch detector counts: ${res.status}`);
+  }
   const body = (await res.json()) as { data: Record<string, DetectorCountsItem> };
   return body.data;
 }

@@ -36,7 +36,6 @@ describe("DetectorRcaJob type shape", () => {
       projectId: "proj-789",
       traceId: "trace-abc",
       workspaceId: "ws-111",
-      projectName: "My Project",
       findings: [
         {
           detectorId: "det-456",
@@ -44,6 +43,7 @@ describe("DetectorRcaJob type shape", () => {
           summary: "Something bad happened",
         },
       ],
+      findingTimestamp: 1_700_000_000_000,
     };
     expect(job.traceId).toBe("trace-abc");
     expect(job.findings[0].detectorId).toBe("det-456");

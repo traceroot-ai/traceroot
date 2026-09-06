@@ -73,3 +73,25 @@ describe("POST .../detectors — sampleRate default", () => {
     expect(detectorCreateMock).not.toHaveBeenCalled();
   });
 });
+
+describe("POST .../detectors — trigger conditions", () => {
+  it("stores a condition on an offered field", async () => {
+    const conditions = [{ field: "duration_ms", op: ">", value: 4500 }];
+    const res = await POST(makeRequest(validBody({ triggerConditions: conditions })), makeParams());
+
+    expect(res.status).toBe(201);
+    expect(detectorCreateMock.mock.calls[0][0].data.trigger.create.conditions).toEqual(conditions);
+  });
+
+  it("rejects a condition the worker could not evaluate instead of storing it", async () => {
+    // Stored, this detector would look configured and enabled while never
+    // matching a trace, so the refusal has to happen at the write path.
+    const res = await POST(
+      makeRequest(validBody({ triggerConditions: [{ field: "trace_id", op: "=", value: "abc" }] })),
+      makeParams(),
+    );
+
+    expect(res.status).toBe(400);
+    expect(detectorCreateMock).not.toHaveBeenCalled();
+  });
+});

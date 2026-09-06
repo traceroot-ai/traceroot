@@ -42,6 +42,7 @@ export function WorkspaceBreadcrumb({ workspaceId, current }: WorkspaceBreadcrum
           id: ws.id,
           label: ws.name,
           href: workspaceSwitchHref(pathname, ws.id),
+          isCurrent: ws.id === workspaceId,
           settingsHref: `/workspaces/${ws.id}/settings`,
         })),
         menuHeader: { label: "Workspaces", href: "/workspaces" },
