@@ -198,6 +198,29 @@ Two consequences for the implementation:
 Anything needing an actual query — including the open access-management question below — has to
 be run by an admin principal (`sso_admin` or the deploy role) or emitted by the Job.
 
+### Accounts outlive the release that created them
+
+Provisioning creates the writer and read-only accounts and the settings profile; nothing
+removes them. Two cases follow, and neither is cleaned up automatically:
+
+- **Renaming an account in values** leaves the previous one live, still holding its password
+  and its `SELECT` on the curated views. The new name is provisioned alongside it.
+- **Uninstalling the release** removes no ClickHouse state at all — both accounts and the
+  profile remain, with nothing recording which release created them.
+
+This is deliberate rather than an oversight. The provisioning hook runs before the new
+application pods roll, so a `DROP USER` on a renamed account would cut off every pod still
+serving the old one, and a hook that deletes credentials has no safe outcome if the rename
+was a typo or a bad values merge. Leaving the account is the conservative failure.
+
+The verification hook reports the situation instead: it lists every account holding `SELECT`
+on the curated views and warns when one is not the configured read-only user. That is a
+warning, not a failure. Removing an orphaned account is a deliberate manual step:
+
+```sql
+DROP USER IF EXISTS <old_account>;
+```
+
 ### Open items — must be settled before enabling the gateway in the cloud
 
 - **ClickHouse version gap.** All of this was verified against **24.3** — the
