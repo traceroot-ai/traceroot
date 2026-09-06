@@ -24,11 +24,30 @@ OpenAI, Anthropic, Azure OpenAI, Google (Gemini), Amazon Bedrock, xAI, DeepSeek,
 ## BYOK Models
 
 Your own key unlocks models beyond the system list above — typically newer frontier
-models, or models TraceRoot does not run on its own keys.
+models, or models TraceRoot does not run on its own keys. The table below is generated
+from the model catalog, so it stays current as providers ship new models.
 
-Which models those are depends on the provider you configure, and the set changes as
-providers ship new models, so it is not reproduced here. Add a key and open the model
-selector in the AI chat interface to see everything available to your workspace.
+{/* generated:byok-models */}
+
+<Accordion title="Models your own key adds">
+
+| Provider | Models |
+|----------|--------|
+| OpenAI | `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.5-pro`, `gpt-5.4-pro`, `gpt-5.2` |
+| Anthropic | `claude-opus-5`, `claude-fable-5` |
+| Google (Gemini) | `gemini-3.5-flash`, `gemini-3.1-pro-preview`, `gemini-3-flash-preview`, `gemini-3.1-flash-lite-preview`, `gemini-2.5-flash`, `gemini-2.5-pro` |
+| DeepSeek | `deepseek-v4-pro`, `deepseek-v4-flash`, `deepseek-chat` |
+| xAI | `grok-4.5`, `grok-4.20`, `grok-4` |
+| Kimi | `kimi-k3`, `kimi-k2.6`, `kimi-k2.5`, `kimi-k2-thinking` |
+| GLM | `glm-5.2`, `glm-5.1`, `glm-5`, `glm-5-turbo`, `glm-4.7`, `glm-4.6`, `glm-4.5`, `glm-4.5-air`, `glm-4.5-flash` |
+
+</Accordion>
+
+{/* end generated:byok-models */}
+
+Providers not listed above accept a free-text model name instead of a dropdown. The model
+selector in the AI chat interface is always the authoritative view of what your workspace
+can use.
 
 ## Setup
 
