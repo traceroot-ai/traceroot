@@ -150,9 +150,12 @@ order above is the safe logical sequence for staged/manual provisioning.
   `pre-upgrade` hooks *before* it updates non-hook resources (the ClickHouse StatefulSet). On
   the very first upgrade that introduces `access_management`, the provisioning hook would run
   against the old pod that lacks it and fail with a permissions error (no retry can fix that).
-  Do it in two steps: (1) upgrade with only the `usersExtraOverrides` change and confirm the
-  ClickHouse pod rolled with the new flag (`SHOW GRANTS` shows `ACCESS MANAGEMENT`); (2) upgrade
-  again to add the provisioning Job + enable the migration. Fresh installs and every subsequent
+  The two settings are therefore separate on purpose. Do it in two steps: (1) apply with only
+  the access-management grant enabled and confirm the ClickHouse pod rolled with it
+  (`SHOW GRANTS` shows `ACCESS MANAGEMENT`); (2) apply again enabling the gateway itself, which
+  adds the provisioning Job. Enabling the gateway without the grant is refused at plan time
+  rather than failing as a hook, because a hook failure here aborts the upgrade *before* the
+  grant is applied and leaves no way forward through Terraform. Fresh installs and every subsequent
   upgrade need no manual step. Confirm afterwards: `SHOW CREATE VIEW` shows the writer definer,
   and `sql_gateway_ro` is denied the physical tables (Code 497). Under the current repo layout
   each step is a chart release plus a version bump in `staging/main.tf`, and `traceroot-infra`'s
