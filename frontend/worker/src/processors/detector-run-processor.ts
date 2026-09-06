@@ -1,6 +1,6 @@
 import { Worker, Queue, DelayedError, type Job } from "bullmq";
 import { createHash } from "crypto";
-import { prisma, PlanType } from "@traceroot/core";
+import { prisma, PlanType, calculateCost } from "@traceroot/core";
 import type {
   DetectorRunJob,
   DetectorRcaJob,
@@ -14,6 +14,8 @@ import {
 } from "../queues/detector-run-queue.js";
 import { runDetectionForTrace } from "../detection/sandbox-eval.js";
 import { writeDetectorRun, writeDetectorFinding } from "../detection/clickhouse-writer.js";
+import { withSelfTrace } from "../detection/self-trace-emitter.js";
+import { boundedJson } from "../detection/traced-complete.js";
 
 const BACKEND_URL = process.env.BACKEND_INTERNAL_URL || "http://localhost:8000";
 const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "";
@@ -39,13 +41,14 @@ async function fetchTimeSinceLastSpanMs(projectId: string, traceId: string): Pro
   return body.time_since_last_span_ms;
 }
 
+/** Hash a string to 32 lowercase hex chars (first 128 bits of sha256). */
+function hash32(input: string): string {
+  return createHash("sha256").update(input).digest("hex").slice(0, 32);
+}
+
 /** Hash a string to a uuid-shaped id (first 128 bits of sha256, 8-4-4-4-12). */
 function hashToUuid(input: string): string {
-  return createHash("sha256")
-    .update(input)
-    .digest("hex")
-    .slice(0, 32)
-    .replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
+  return hash32(input).replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
 }
 
 /**
@@ -53,9 +56,12 @@ function hashToUuid(input: string): string {
  * On a BullMQ retry, the same triple lands on the same runId — so re-writes
  * collapse with detector_findings.findingId rather than producing duplicate
  * run rows for the same (detector, trace).
+ *
+ * Dashless 32-hex, the same shape as a trace id: a self-traced run's trace_id
+ * is its run_id verbatim, and both render identically in the UI.
  */
 function deterministicRunId(projectId: string, traceId: string, detectorId: string): string {
-  return hashToUuid(`${projectId}:${traceId}:${detectorId}`);
+  return hash32(`${projectId}:${traceId}:${detectorId}`);
 }
 
 /**
@@ -78,6 +84,13 @@ export function shouldRunRca(
  * triggers on the same trace maps to the SAME finding, and therefore the SAME
  * RCA job (`rca-${findingId}`): exactly one RCA per trace, and a BullMQ retry
  * lands on the same row instead of duplicating it.
+ *
+ * The stored shape is uuid-hyphenated and must stay stable: a re-evaluation
+ * of a trace at any later time must land on the id its finding and RCA rows
+ * were written under, or it would duplicate both. Surfaces that want the
+ * dashless run/trace-id shape normalize at render, and the finding-detail
+ * lookup compares hyphen-insensitively, so display and copy-paste don't
+ * depend on the stored shape.
  */
 export function traceFindingId(projectId: string, traceId: string): string {
   return hashToUuid(`${projectId}:${traceId}`);
@@ -124,15 +137,42 @@ interface TriggeredResult {
   detectorName: string;
   summary: string;
   data: unknown;
+  /** Whether this run's self-trace was emitted; carried to the triggered run write. */
+  selfTraced: boolean;
 }
 
 export interface ScanUsage {
   inferenceCost: number;
   inferenceInputTokens: number;
   inferenceOutputTokens: number;
-  inferenceSource: "system" | "byok" | null;
+  inferenceSource: "system" | "byok";
   inferenceModel: string | null;
   inferenceProvider: string | null;
+}
+
+async function detectorInferenceCost(usage: ScanUsage): Promise<number> {
+  if (
+    usage.inferenceCost > 0 ||
+    !usage.inferenceModel ||
+    usage.inferenceInputTokens + usage.inferenceOutputTokens <= 0
+  ) {
+    return usage.inferenceCost;
+  }
+
+  try {
+    const fallback = await calculateCost(
+      usage.inferenceModel,
+      usage.inferenceInputTokens,
+      usage.inferenceOutputTokens,
+    );
+    return fallback > 0 ? fallback : usage.inferenceCost;
+  } catch (err) {
+    console.error(
+      `[Detector] Failed to calculate local pricing fallback for model ${usage.inferenceModel}:`,
+      err,
+    );
+    return usage.inferenceCost;
+  }
 }
 
 interface SingleDetectorOutcome {
@@ -147,6 +187,12 @@ interface SingleDetectorOutcome {
  * returns the result WITHOUT writing anything — processTrace handles the
  * finding write and the run write so all triggered runs share the same
  * finding_id.
+ *
+ * The eval runs inside withSelfTrace, which records it live as the run's
+ * self-trace (the traced pi-ai call becomes a real LLM child span). The
+ * failed/not-triggered writes here stamp the resulting selfTraced flag
+ * directly; the triggered write in evaluateTrace reads it from the returned
+ * TriggeredResult.
  */
 async function runSingleDetector(params: {
   detector: {
@@ -166,24 +212,59 @@ async function runSingleDetector(params: {
   const { detector, traceId, projectId, spansJsonl, workspaceId } = params;
   const runId = deterministicRunId(projectId, traceId, detector.id);
 
-  let result: Awaited<ReturnType<typeof runDetectionForTrace>>;
-  try {
-    result = await runDetectionForTrace({
-      traceId,
-      spansJsonl,
-      detector: {
-        id: detector.id,
-        name: detector.name,
-        prompt: detector.prompt,
-        outputSchema: detector.outputSchema,
-        detectionModel: detector.detectionModel,
-        detectionProvider: detector.detectionProvider,
-        detectionSource: detector.detectionSource,
-      },
-      workspaceId,
-    });
-  } catch (e) {
-    console.error(`[Detector] Run failed for detector ${detector.id} on trace ${traceId}:`, e);
+  // The eval runs inside the self-trace: the detector-run root span is live
+  // for its whole duration, and the traced pi-ai call inside becomes a real
+  // LLM child span. fn always runs exactly once; a tracing failure only
+  // degrades selfTraced to false.
+  const run = await withSelfTrace(
+    {
+      runId,
+      projectId,
+      detectorId: detector.id,
+      detectorName: detector.name,
+      scannedTraceId: traceId,
+    },
+    () =>
+      runDetectionForTrace({
+        traceId,
+        spansJsonl,
+        detector: {
+          id: detector.id,
+          name: detector.name,
+          prompt: detector.prompt,
+          outputSchema: detector.outputSchema,
+          detectionModel: detector.detectionModel,
+          detectionProvider: detector.detectionProvider,
+          detectionSource: detector.detectionSource,
+        },
+        workspaceId,
+      }),
+    {
+      // Root boundary I/O — promoted to the trace record by the transform,
+      // so the trace header shows what the run asked and what it concluded.
+      // An eval that resolved with a failure result marks the root as errored
+      // so the linked trace reflects the failed run.
+      recordIo: (result) => ({
+        input: boundedJson({
+          detector: detector.name,
+          prompt: detector.prompt,
+          scannedTraceId: traceId,
+        }),
+        output: boundedJson({
+          identified: result.identified,
+          summary: result.summary,
+        }),
+        error: result.error,
+      }),
+    },
+  );
+
+  const selfTraced = run.selfTraced;
+  if (!run.ok) {
+    console.error(
+      `[Detector] Run failed for detector ${detector.id} on trace ${traceId}:`,
+      run.error,
+    );
     await writeDetectorRun({
       runId,
       detectorId: detector.id,
@@ -191,9 +272,11 @@ async function runSingleDetector(params: {
       traceId,
       findingId: null,
       status: "failed",
+      selfTraced,
     }).catch((err) => console.error("[Detector] Failed to write run:", err));
     return { triggered: null, usage: null };
   }
+  const result = run.value;
 
   const usage: ScanUsage = {
     inferenceCost: result.inferenceCost,
@@ -218,6 +301,7 @@ async function runSingleDetector(params: {
       traceId,
       findingId: null,
       status: result.error ? "failed" : "completed",
+      selfTraced,
     }).catch((err) => console.error("[Detector] Failed to write run:", err));
     return { triggered: null, usage };
   }
@@ -233,6 +317,7 @@ async function runSingleDetector(params: {
       detectorName: detector.name,
       summary: result.summary,
       data: result.data,
+      selfTraced,
     },
     usage,
   };
@@ -281,14 +366,12 @@ async function evaluateTrace(
     prisma.project.findUnique({
       where: { id: projectId },
       select: {
-        name: true,
         workspaceId: true,
         workspace: { select: { billingPlan: true, detectorBlocked: true } },
       },
     }),
   ]);
 
-  const projectName = project?.name ?? "";
   const workspaceId = project?.workspaceId ?? "";
 
   // Free-plan detector cap enforcement — read the cached `detectorBlocked`
@@ -337,21 +420,25 @@ async function evaluateTrace(
   // Persist one AIMessage row per scan with kind="detector". This is the
   // source of truth for detector by-model + cost aggregations in the hourly
   // billing cron — same role aIMessage plays for chat + RCA.
-  const usages = fulfilled.map((o) => o.usage).filter((u): u is ScanUsage => u !== null);
+  const usages = fulfilled
+    .map((o) => o.usage)
+    .filter((u): u is ScanUsage => u !== null && u.inferenceModel !== null);
   if (usages.length > 0 && workspaceId) {
-    const aiMessageRows = usages.map((u) => ({
-      workspaceId,
-      sessionId: null,
-      kind: "detector",
-      role: "assistant",
-      content: "", // detector scans don't have a chat-like content payload
-      model: u.inferenceModel,
-      provider: u.inferenceProvider,
-      isByok: u.inferenceSource === "byok",
-      inputTokens: u.inferenceInputTokens,
-      outputTokens: u.inferenceOutputTokens,
-      cost: u.inferenceCost,
-    }));
+    const aiMessageRows = await Promise.all(
+      usages.map(async (u) => ({
+        workspaceId,
+        sessionId: null,
+        kind: "detector",
+        role: "assistant",
+        content: "", // detector scans don't have a chat-like content payload
+        model: u.inferenceModel,
+        provider: u.inferenceProvider,
+        isByok: u.inferenceSource === "byok",
+        inputTokens: u.inferenceInputTokens,
+        outputTokens: u.inferenceOutputTokens,
+        cost: await detectorInferenceCost(u),
+      })),
+    );
     try {
       await prisma.aIMessage.createMany({ data: aiMessageRows });
     } catch (err) {
@@ -382,15 +469,25 @@ async function evaluateTrace(
     })),
   );
 
+  // Single capture time for this finding. Stamped onto the finding row AND every
+  // triggered run below (timestampMs), and threaded to the RCA job to key the
+  // digest flush. Because the same value is both the row timestamp the flush
+  // counts and the window key, a finding always falls in exactly the window its
+  // flush covers — no boundary skew between the worker and server clocks.
+  const findingTimestamp = Date.now();
+
   await writeDetectorFinding({
     findingId,
     projectId,
     traceId,
     summary: combinedSummary,
     payload,
+    timestampMs: findingTimestamp,
   });
 
   // Write runs for all triggered detectors, all pointing to the same finding_id
+  // and stamped with the shared findingTimestamp so the digest count window
+  // matches the flush key.
   await Promise.allSettled(
     triggered.map((r) =>
       writeDetectorRun({
@@ -400,6 +497,8 @@ async function evaluateTrace(
         traceId,
         findingId,
         status: "completed",
+        timestampMs: findingTimestamp,
+        selfTraced: r.selfTraced,
       }).catch((err) => console.error("[Detector] Failed to write run:", err)),
     ),
   );
@@ -432,10 +531,19 @@ async function evaluateTrace(
         projectId,
         traceId,
         workspaceId,
-        projectName,
         findings: rcaFindings,
+        findingTimestamp,
       },
-      { jobId: `rca-${findingId}`, removeOnComplete: 100, removeOnFail: 50 },
+      {
+        jobId: `rca-${findingId}`,
+        removeOnComplete: 100,
+        removeOnFail: 50,
+        // Modest attempts: each retry re-invokes the agent (LLM cost), but a
+        // thrown RCA run is meant to retry through transient causes (rate
+        // limits, provider 5xx) rather than land permanently failed on one shot.
+        attempts: 3,
+        backoff: { type: "exponential", delay: 10000 },
+      },
     );
   } else {
     console.log(

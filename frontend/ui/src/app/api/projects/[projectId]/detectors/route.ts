@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { prisma } from "@traceroot/core";
 import { DEFAULT_DETECTOR_SAMPLE_RATE } from "@/features/detectors/templates";
+import { validateTriggerConditions } from "@/features/detectors/trigger-fields";
 import {
   requireAuth,
   requireProjectAccess,
@@ -82,6 +83,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     prompt,
     outputSchema,
     sampleRate,
+    enabled,
     triggerConditions,
     detectionModel,
     detectionProvider,
@@ -115,11 +117,12 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
     resolvedSampleRate = sampleRate;
   }
 
-  // Validate triggerConditions and outputSchema are arrays when provided —
-  // a non-array object would otherwise silently produce an empty list and
-  // cause the detector to fire on every trace.
-  if (triggerConditions !== undefined && !Array.isArray(triggerConditions)) {
-    return errorResponse("triggerConditions must be an array", 400);
+  // Validate triggerConditions against the trigger-field registry — an
+  // unknown field or operator would be stored fine but never match at
+  // evaluation time, silently disabling the detector.
+  if (triggerConditions !== undefined) {
+    const conditionsError = validateTriggerConditions(triggerConditions);
+    if (conditionsError) return errorResponse(conditionsError, 400);
   }
   if (outputSchema !== undefined && !Array.isArray(outputSchema)) {
     return errorResponse("outputSchema must be an array", 400);
@@ -147,6 +150,14 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
   }
   const resolvedEnableRca = enableRca ?? true;
 
+  // enabled: optional boolean. Defaults to true, but a detector created at 0%
+  // sampling should not show as "enabled but never fires" — fall back to
+  // sampleRate > 0 so a 0% rate creates a paused detector.
+  if (enabled !== undefined && typeof enabled !== "boolean") {
+    return errorResponse("enabled must be a boolean", 400);
+  }
+  const resolvedEnabled = enabled ?? resolvedSampleRate > 0;
+
   const detector = await prisma.detector.create({
     data: {
       projectId,
@@ -155,6 +166,7 @@ export async function POST(req: NextRequest, { params }: RouteParams) {
       prompt,
       outputSchema: (outputSchema as object) ?? [],
       sampleRate: resolvedSampleRate,
+      enabled: resolvedEnabled,
       enableRca: resolvedEnableRca,
       detectionModel: resolvedModel,
       detectionProvider: resolvedProvider,

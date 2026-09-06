@@ -7,21 +7,24 @@ vi.mock("@/lib/auth-client", () => ({
   useSession: () => ({ data: { user: { id: "u1", email: "e@x.dev" } }, isPending: false }),
 }));
 const getTraces = vi.fn();
+const tracesExistMock = vi.fn();
 vi.mock("@/lib/api", () => ({
   getTraces: (...a: unknown[]) => getTraces(...a),
   getTrace: vi.fn(),
   getSpanIO: vi.fn(),
+  tracesExist: (...a: unknown[]) => tracesExistMock(...a),
 }));
 vi.mock("@/lib/api/sessions", () => ({ getSessions: vi.fn(), getSession: vi.fn() }));
 vi.mock("@/lib/api/users", () => ({ getUsers: vi.fn() }));
 vi.mock("./use-trace-list-state", () => ({ useTraceListState: vi.fn() }));
 vi.mock("./use-trace-stream", () => ({ useTraceStream: vi.fn() }));
 
-import { useTraces, usePrefetchTraces } from "./index";
+import { useTraces, usePrefetchTraces, useTracesExist } from "./index";
 
 afterEach(() => {
   cleanup();
   getTraces.mockReset();
+  tracesExistMock.mockReset();
 });
 
 function wrapper() {
@@ -77,5 +80,30 @@ describe("usePrefetchTraces", () => {
     const { result } = renderHook(() => usePrefetchTraces(""), { wrapper: wrapper() });
     result.current({ page: 1, limit: 50 });
     expect(getTraces).not.toHaveBeenCalled();
+  });
+});
+
+describe("useTracesExist", () => {
+  it("returns exists: true when the project has traces", async () => {
+    tracesExistMock.mockResolvedValue({ exists: true });
+    const { result } = renderHook(() => useTracesExist("p1"), { wrapper: wrapper() });
+
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    expect(result.current.data).toEqual({ exists: true });
+    expect(tracesExistMock).toHaveBeenCalledWith("p1", { id: "u1", email: "e@x.dev" });
+  });
+
+  it("returns exists: false when the project has no traces", async () => {
+    tracesExistMock.mockResolvedValue({ exists: false });
+    const { result } = renderHook(() => useTracesExist("p1"), { wrapper: wrapper() });
+
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    expect(result.current.data).toEqual({ exists: false });
+  });
+
+  it("does not fire when projectId is empty", () => {
+    const { result } = renderHook(() => useTracesExist(""), { wrapper: wrapper() });
+    expect(result.current.isFetching).toBe(false);
+    expect(tracesExistMock).not.toHaveBeenCalled();
   });
 });

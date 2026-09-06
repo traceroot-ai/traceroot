@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
-import { FolderKanban } from "lucide-react";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { WorkspaceBreadcrumb } from "@/features/workspaces/components";
 import { CreateProjectDialog, ProjectCard } from "@/features/projects/components";
 import { useWorkspace } from "@/features/workspaces/hooks";
@@ -58,7 +58,7 @@ export default function ProjectsPage() {
           <div className="flex items-center justify-center py-16">
             <div className="flex flex-col items-center justify-center">
               <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-                <FolderKanban className="h-6 w-6 text-muted-foreground" />
+                <DOMAIN_ICONS.project className="h-6 w-6 text-muted-foreground" />
               </div>
               <h3 className="mb-1 text-[13px] font-medium">No projects yet</h3>
               <p className="text-center text-[12px] text-muted-foreground">

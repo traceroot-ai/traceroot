@@ -6,25 +6,25 @@ import { authClient } from "@/lib/auth-client";
 import { useTheme } from "next-themes";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
-  LayoutGrid,
-  LayoutDashboard,
   LifeBuoy,
   ChevronRight,
   Github,
+  House,
   Sun,
   Moon,
   Monitor,
-  Workflow,
+  MonitorSmartphone,
   Settings,
   UserRoundSearch,
-  Eye,
+  Database,
+  FlaskConical,
 } from "lucide-react";
+import { DOMAIN_ICONS } from "@/components/icons/domain-icons";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/utils";
 import { GitHubStarWidget } from "@/components/layout/GitHubStarWidget";
 import { SidebarUpgradeButton } from "@/components/layout/SidebarUpgradeButton";
-import { getProjectContext } from "@/components/layout/project-context";
 import { clientEnv } from "@/env.client";
 
 function getInitials(name?: string | null, email?: string | null): string {
@@ -64,7 +64,6 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
   // Project/workspace context from the matched dynamic route params
   const projectId = params?.projectId ?? null;
   const workspaceId = params?.workspaceId ?? null;
-  const { isProject } = getProjectContext(pathname);
 
   // Settings target depends on context: project settings inside a project,
   // workspace settings inside a workspace, hidden elsewhere
@@ -146,6 +145,26 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Link
+                    href={`/projects/${projectId}/home`}
+                    className={cn(
+                      "flex items-center gap-2 py-2 text-[13px] transition-colors",
+                      collapsed ? "justify-center px-2" : "px-3",
+                      pathname.includes("/home") ? "bg-muted" : "hover:bg-muted/50",
+                    )}
+                  >
+                    <House className="h-3.5 w-3.5 shrink-0" />
+                    {!collapsed && "Home"}
+                  </Link>
+                </TooltipTrigger>
+                {collapsed && (
+                  <TooltipContent side="right" sideOffset={16}>
+                    Home
+                  </TooltipContent>
+                )}
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link
                     href={`/projects/${projectId}/traces`}
                     className={cn(
                       "flex items-center gap-2 py-2 text-[13px] transition-colors",
@@ -153,7 +172,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                       pathname.includes("/traces") ? "bg-muted" : "hover:bg-muted/50",
                     )}
                   >
-                    <Workflow className="h-3.5 w-3.5 shrink-0" />
+                    <DOMAIN_ICONS.trace className="h-3.5 w-3.5 shrink-0" />
                     {!collapsed && "Tracing"}
                   </Link>
                 </TooltipTrigger>
@@ -173,7 +192,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                       pathname.includes("/detectors") ? "bg-muted" : "hover:bg-muted/50",
                     )}
                   >
-                    <Eye className="h-3.5 w-3.5 shrink-0" />
+                    <DOMAIN_ICONS.detector className="h-3.5 w-3.5 shrink-0" />
                     {!collapsed && "Detectors"}
                   </Link>
                 </TooltipTrigger>
@@ -193,13 +212,55 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                       pathname.includes("/dashboard") ? "bg-muted" : "hover:bg-muted/50",
                     )}
                   >
-                    <LayoutDashboard className="h-3.5 w-3.5 shrink-0" />
+                    <DOMAIN_ICONS.dashboard className="h-3.5 w-3.5 shrink-0" />
                     {!collapsed && "Dashboard"}
                   </Link>
                 </TooltipTrigger>
                 {collapsed && (
                   <TooltipContent side="right" sideOffset={16}>
                     Dashboard
+                  </TooltipContent>
+                )}
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link
+                    href={`/projects/${projectId}/datasets`}
+                    className={cn(
+                      "flex items-center gap-2 py-2 text-[13px] transition-colors",
+                      collapsed ? "justify-center px-2" : "px-3",
+                      pathname.startsWith(`/projects/${projectId}/datasets`)
+                        ? "bg-muted"
+                        : "hover:bg-muted/50",
+                    )}
+                  >
+                    <Database className="h-3.5 w-3.5 shrink-0" />
+                    {!collapsed && "Datasets"}
+                  </Link>
+                </TooltipTrigger>
+                {collapsed && (
+                  <TooltipContent side="right" sideOffset={16}>
+                    Datasets
+                  </TooltipContent>
+                )}
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link
+                    href={`/projects/${projectId}/evaluations`}
+                    className={cn(
+                      "flex items-center gap-2 py-2 text-[13px] transition-colors",
+                      collapsed ? "justify-center px-2" : "px-3",
+                      pathname.includes("/evaluations") ? "bg-muted" : "hover:bg-muted/50",
+                    )}
+                  >
+                    <FlaskConical className="h-3.5 w-3.5 shrink-0" />
+                    {!collapsed && "Evaluations"}
+                  </Link>
+                </TooltipTrigger>
+                {collapsed && (
+                  <TooltipContent side="right" sideOffset={16}>
+                    Evaluations
                   </TooltipContent>
                 )}
               </Tooltip>
@@ -219,7 +280,7 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                       : "hover:bg-muted/50",
                   )}
                 >
-                  <LayoutGrid className="h-3.5 w-3.5 shrink-0" />
+                  <DOMAIN_ICONS.workspace className="h-3.5 w-3.5 shrink-0" />
                   {!collapsed && "Workspaces"}
                 </Link>
               </TooltipTrigger>
@@ -237,9 +298,13 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
           {/* Star widget */}
           {!collapsed && <GitHubStarWidget />}
 
-          {/* Upgrade button - only show when in project context */}
-          {isProject && projectId && (
-            <SidebarUpgradeButton projectId={projectId} collapsed={collapsed} />
+          {/* Upgrade button - only show when in a project or workspace context */}
+          {(projectId || workspaceId) && (
+            <SidebarUpgradeButton
+              projectId={projectId}
+              workspaceId={workspaceId}
+              collapsed={collapsed}
+            />
           )}
 
           {/* GitHub link */}
@@ -395,6 +460,15 @@ export function Sidebar({ collapsed = false }: SidebarProps) {
                     </button>
                   </PopoverContent>
                 </Popover>
+
+                {/* Active sessions — the revoke control for CLI/device logins */}
+                <Link
+                  href="/account/settings/sessions"
+                  className="flex w-full items-center justify-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
+                >
+                  <span>Active Sessions</span>
+                  <MonitorSmartphone className="h-4 w-4" />
+                </Link>
 
                 {/* Sign out */}
                 <button

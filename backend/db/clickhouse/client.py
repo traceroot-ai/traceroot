@@ -6,6 +6,7 @@ from typing import Any
 
 import clickhouse_connect
 from clickhouse_connect.driver.client import Client
+from clickhouse_connect.driver.query import QueryResult
 
 from shared.config import settings
 
@@ -61,7 +62,13 @@ class ClickHouseClient:
         return cls(client)
 
     def insert_traces_batch(self, traces: list[dict[str, Any]]) -> None:
-        """Insert multiple trace records."""
+        """Insert multiple trace records.
+
+        Args:
+            traces (list[dict[str, Any]]): Trace records; an optional
+                "source" field distinguishes detector self-traces from
+                customer traffic and defaults to "user".
+        """
         if not traces:
             return
 
@@ -74,6 +81,7 @@ class ClickHouseClient:
                     t["project_id"],
                     t["trace_start_time"],
                     t["name"],
+                    t.get("source", "user"),
                     t.get("user_id"),
                     t.get("session_id"),
                     t.get("git_ref"),
@@ -83,6 +91,8 @@ class ClickHouseClient:
                     t.get("metadata"),
                     now,  # ch_create_time
                     now,  # ch_update_time
+                    t.get("environment"),
+                    1 if t.get("is_evaluation") else 0,
                 ]
             )
 
@@ -94,6 +104,7 @@ class ClickHouseClient:
                 "project_id",
                 "trace_start_time",
                 "name",
+                "source",
                 "user_id",
                 "session_id",
                 "git_ref",
@@ -103,11 +114,19 @@ class ClickHouseClient:
                 "metadata",
                 "ch_create_time",
                 "ch_update_time",
+                "environment",
+                "is_evaluation",
             ],
         )
 
     def insert_spans_batch(self, spans: list[dict[str, Any]]) -> None:
-        """Insert multiple span records."""
+        """Insert multiple span records.
+
+        Args:
+            spans (list[dict[str, Any]]): Span records; an optional
+                "source" field distinguishes detector self-traces from
+                customer traffic and defaults to "user".
+        """
         if not spans:
             return
 
@@ -124,6 +143,7 @@ class ClickHouseClient:
                     s.get("span_end_time"),
                     s["name"],
                     s["span_kind"],
+                    s.get("source", "user"),
                     s.get("status", "OK"),
                     s.get("status_message"),
                     s.get("model_name"),
@@ -140,6 +160,8 @@ class ClickHouseClient:
                     s.get("git_source_function"),
                     now,  # ch_create_time
                     now,  # ch_update_time
+                    s.get("environment"),
+                    1 if s.get("is_evaluation") else 0,
                 ]
             )
 
@@ -155,6 +177,7 @@ class ClickHouseClient:
                 "span_end_time",
                 "name",
                 "span_kind",
+                "source",
                 "status",
                 "status_message",
                 "model_name",
@@ -171,6 +194,8 @@ class ClickHouseClient:
                 "git_source_function",
                 "ch_create_time",
                 "ch_update_time",
+                "environment",
+                "is_evaluation",
             ],
         )
 
@@ -179,12 +204,33 @@ class ClickHouseClient:
         query: str,
         parameters: dict[str, Any] | None = None,
         settings: dict[str, Any] | None = None,
-    ):
+    ) -> QueryResult:
         """Execute a query and return the result.
 
-        ``parameters`` are clickhouse-connect ``{name:Type}`` binds; ``settings``
-        are per-query ClickHouse settings (note: a ``readonly=1`` user cannot apply
-        per-query settings).
+        ``parameters`` and ``settings`` are different channels: parameters
+        bind *data* into the SQL's placeholders, settings tell the ClickHouse
+        server *how* it may execute this one query.
+
+        Args:
+            query (str): SQL text, optionally with ``{name:Type}`` server-side
+                parameter bindings.
+            parameters (dict[str, Any] | None): Values for the server-side
+                bindings.
+            settings (dict[str, Any] | None): Per-query ClickHouse execution
+                settings, equivalent to a trailing ``SETTINGS ...`` clause on
+                the SQL (e.g. ``{"max_execution_time": 10}`` makes the server
+                abort this query once ~10s elapse — checked at data-processing
+                checkpoints, not a hard wall-clock kill — with a
+                TIMEOUT_EXCEEDED error, which surfaces here as a raised
+                exception). Scoped to the single query: other queries, the
+                session, and the server config are unaffected. ``None`` means
+                server/session defaults. Note a ``readonly = 1`` user cannot
+                apply per-query settings at all: the server rejects the query
+                rather than ignoring the setting, so the SQL gateway's
+                read-only caps come from its settings profile instead.
+
+        Returns:
+            QueryResult: The clickhouse-connect query result.
         """
         return self._client.query(query, parameters=parameters, settings=settings)
 

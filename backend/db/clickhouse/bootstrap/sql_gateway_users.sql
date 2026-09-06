@@ -1,7 +1,7 @@
 -- SQL Gateway user provisioning — compose/dev bootstrap.
 --
 -- Idempotent. The `clickhouse-init` compose service pipes this through
--- clickhouse-client BEFORE `migrate-clickhouse` runs, because migration 006
+-- clickhouse-client BEFORE `migrate-clickhouse` runs, because migration 012
 -- creates the public views with `DEFINER = sql_gateway_writer`. ClickHouse
 -- resolves that DEFINER at CREATE VIEW time, so the user MUST exist first or
 -- `goose up` fails with "There is no user 'sql_gateway_writer'".

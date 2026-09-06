@@ -3,23 +3,83 @@
 These endpoints are protected by X-Internal-Secret header and not exposed publicly.
 """
 
+import gzip
 import hmac
+import logging
+import re
+import zlib
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from google.protobuf.message import DecodeError
 from pydantic import BaseModel, Field
 
-from db.clickhouse.client import get_clickhouse_client
+from db.clickhouse.client import ClickHouseClient, get_clickhouse_client
+from rest.routers.public.traces import decode_otlp_protobuf
 from rest.schemas.detectors import (
-    DetectorCountsResponse,
-    FindingListResponse,
+    DetectorWindowSummaryResponse,
     RunListResponse,
 )
 from rest.sql_utils import escape_ilike, to_utc_naive
 from shared.config import settings
+from worker.detector_transform import UnattributableSpanError, transform_detector_traces
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/internal", tags=["internal"])
+
+# Caps for the digest LLM-summary sample (see the window-summary endpoint).
+# Enforced in ClickHouse so a finding storm never materializes unbounded rows.
+DIGEST_SUMMARY_MAX_PER_DETECTOR = 10
+DIGEST_SUMMARY_MAX_TOTAL = 40
+DIGEST_SUMMARY_MAX_CHARS = 300
+
+
+# NULL-preserving latest-finding pick for collapsing duplicate detector_runs
+# rows by run_id. Tuple-wrapped because bare argMax skips NULL rows: a run
+# whose newest row is a clean re-eval (NULL finding_id) must resolve to NULL,
+# retracting its older finding. The ordering tuple breaks timestamp ties
+# deterministically (non-null finding wins). Single source of truth so the
+# counts query and the summaries probe can never disagree on which runs count
+# as identified.
+_LATEST_FINDING_PICK_SQL = (
+    "tupleElement(argMax(tuple(finding_id), (timestamp, coalesce(finding_id, ''))), 1)"
+)
+
+
+def _detector_summary_expr(finding_id_col: str) -> str:
+    """Build the SQL expression extracting a detector's summary from a finding.
+
+    Single source of truth for what "the summary for this detector" means: a
+    finding's ``payload`` is a JSON array of per-detector entries, and the
+    summary is the ``summary`` field of the entry whose ``detectorId`` matches
+    the run's ``r.detector_id`` ('' when the run has no finding). Every query
+    that reads summaries must use this expression so the meaning cannot drift
+    between endpoints.
+
+    Args:
+        finding_id_col (str): Qualified column holding the run's finding id
+            (e.g. ``r.finding_id``, or ``r.latest_finding_id`` after a
+            collapse); NULL means the run fired no finding.
+
+    Returns:
+        str: A ClickHouse expression over aliases ``r`` (runs side) and ``f``
+            (findings side, providing ``f.payload``).
+    """
+    return (
+        "if("
+        f"  {finding_id_col} IS NOT NULL,"
+        "  JSONExtractString("
+        "    arrayFirst("
+        "      x -> JSONExtractString(x, 'detectorId') = r.detector_id,"
+        "      JSONExtractArrayRaw(f.payload)"
+        "    ),"
+        "    'summary'"
+        "  ),"
+        "  ''"
+        ")"
+    )
 
 
 def verify_internal_secret(
@@ -205,6 +265,11 @@ class DetectorRunPayload(BaseModel):
     trace_id: str = Field(alias="traceId")
     finding_id: str | None = Field(default=None, alias="findingId")
     status: str
+    # True when the worker emitted a self-trace for this run (set optimistically
+    # at emit time); gates the runs-tab link to the run's own trace.
+    self_traced: bool = Field(default=False, alias="selfTraced")
+    # Optional worker epoch-ms time for the row; see _maybe_stamp_timestamp.
+    timestamp_ms: int | None = Field(default=None, alias="timestampMs")
 
 
 class DetectorFindingPayload(BaseModel):
@@ -215,45 +280,105 @@ class DetectorFindingPayload(BaseModel):
     trace_id: str = Field(alias="traceId")
     summary: str
     payload: str
+    # See DetectorRunPayload.timestamp_ms.
+    timestamp_ms: int | None = Field(default=None, alias="timestampMs")
+
+
+def _maybe_stamp_timestamp(
+    cols: list[str], vals: list[str], params: dict, timestamp_ms: int | None
+) -> None:
+    """Append the optional worker timestamp to an INSERT's column/value/param lists.
+
+    When ``timestamp_ms`` is provided the worker's finding-capture time is stored
+    verbatim, so the digest window count (which filters on ``timestamp``) uses the
+    same clock the flush is keyed off; when ``None`` the column is omitted and
+    ClickHouse applies its ``now64(3)`` default.
+
+    Args:
+        cols (list[str]): INSERT column names, appended in place.
+        vals (list[str]): INSERT value placeholders, appended in place.
+        params (dict): Bound query parameters, updated in place.
+        timestamp_ms (int | None): Worker epoch-ms timestamp, or None to skip.
+
+    Returns:
+        None
+    """
+    if timestamp_ms is not None:
+        cols.append("timestamp")
+        vals.append("fromUnixTimestamp64Milli({timestamp_ms:Int64})")
+        params["timestamp_ms"] = timestamp_ms
 
 
 @router.post("/detector-runs", dependencies=[Depends(verify_internal_secret)])
 async def write_detector_run(body: DetectorRunPayload):
-    """Record a detector run result in ClickHouse."""
+    """Record a detector run result in ClickHouse.
+
+    A worker-supplied ``timestamp_ms`` is written into ``timestamp`` verbatim so
+    the digest's window count uses the same clock the flush is keyed off;
+    otherwise ClickHouse defaults the column to ``now64(3)`` at INSERT.
+    """
     ch = get_clickhouse_client()
+    cols = [
+        "run_id",
+        "detector_id",
+        "project_id",
+        "trace_id",
+        "finding_id",
+        "status",
+        "self_traced",
+    ]
+    vals = [
+        "{run_id:String}",
+        "{detector_id:String}",
+        "{project_id:String}",
+        "{trace_id:String}",
+        "{finding_id:Nullable(String)}",
+        "{status:String}",
+        "{self_traced:Bool}",
+    ]
+    params = {
+        "run_id": body.run_id,
+        "detector_id": body.detector_id,
+        "project_id": body.project_id,
+        "trace_id": body.trace_id,
+        "finding_id": body.finding_id,
+        "status": body.status,
+        "self_traced": body.self_traced,
+    }
+    _maybe_stamp_timestamp(cols, vals, params, body.timestamp_ms)
     ch.query(
-        """INSERT INTO detector_runs
-           (run_id, detector_id, project_id, trace_id, finding_id, status)
-           VALUES ({run_id:String}, {detector_id:String}, {project_id:String},
-                   {trace_id:String}, {finding_id:Nullable(String)}, {status:String})""",
-        parameters={
-            "run_id": body.run_id,
-            "detector_id": body.detector_id,
-            "project_id": body.project_id,
-            "trace_id": body.trace_id,
-            "finding_id": body.finding_id,
-            "status": body.status,
-        },
+        f"INSERT INTO detector_runs ({', '.join(cols)}) VALUES ({', '.join(vals)})",
+        parameters=params,
     )
     return {"ok": True}
 
 
 @router.post("/detector-findings", dependencies=[Depends(verify_internal_secret)])
 async def write_detector_finding(body: DetectorFindingPayload):
-    """Record a detector finding in ClickHouse."""
+    """Record a detector finding in ClickHouse.
+
+    ``timestamp_ms`` behaves as in :func:`write_detector_run`.
+    """
     ch = get_clickhouse_client()
+    cols = ["finding_id", "project_id", "trace_id", "summary", "payload"]
+    vals = [
+        "{finding_id:String}",
+        "{project_id:String}",
+        "{trace_id:String}",
+        "{summary:String}",
+        "{payload:String}",
+    ]
+    params = {
+        "finding_id": body.finding_id,
+        "project_id": body.project_id,
+        "trace_id": body.trace_id,
+        "summary": body.summary,
+        "payload": body.payload,
+    }
+    _maybe_stamp_timestamp(cols, vals, params, body.timestamp_ms)
     ch.query(
-        """INSERT INTO detector_findings
-           (finding_id, project_id, trace_id, summary, payload)
-           VALUES ({finding_id:String}, {project_id:String},
-                   {trace_id:String}, {summary:String}, {payload:String})""",
-        parameters={
-            "finding_id": body.finding_id,
-            "project_id": body.project_id,
-            "trace_id": body.trace_id,
-            "summary": body.summary,
-            "payload": body.payload,
-        },
+        f"INSERT INTO detector_findings ({', '.join(cols)}) VALUES ({', '.join(vals)})",
+        parameters=params,
     )
     return {"ok": True}
 
@@ -277,6 +402,10 @@ async def list_detector_runs(
     search_query: str | None = Query(
         None, description="Substring match against trace_id OR the per-detector summary"
     ),
+    identified: bool = Query(
+        False,
+        description="When true, return only triggered runs (finding_id IS NOT NULL)",
+    ),
 ):
     """List runs for a detector, newest first.
 
@@ -288,6 +417,11 @@ async def list_detector_runs(
     per-detector summary string (the finding's `payload` is the combined
     array of all triggered detectors for the trace; we filter to the entry
     matching this run's detector_id).
+
+    Args:
+        identified (bool): When true, restrict to runs that triggered a finding
+            (``finding_id IS NOT NULL``). Defaults to false (all runs). The
+            Findings tab uses this to render itself as a filtered Runs view.
 
     Returns {data: [...], meta: {page, limit, total}}. Total is computed by a
     second COUNT query against the same WHERE clause.
@@ -312,21 +446,11 @@ async def list_detector_runs(
         conditions.append("r.timestamp < {end_before:DateTime64(3)}")
         params["end_before"] = to_utc_naive(end_before)
 
-    # Per-detector summary expression; reused in WHERE search and SELECT to keep
-    # one source of truth for what "the summary for this detector" means.
-    summary_expr = (
-        "if("
-        "  r.finding_id IS NOT NULL,"
-        "  JSONExtractString("
-        "    arrayFirst("
-        "      x -> JSONExtractString(x, 'detectorId') = r.detector_id,"
-        "      JSONExtractArrayRaw(f.payload)"
-        "    ),"
-        "    'summary'"
-        "  ),"
-        "  ''"
-        ")"
-    )
+    if identified:
+        conditions.append("r.finding_id IS NOT NULL")
+
+    # Reused in WHERE search and SELECT below.
+    summary_expr = _detector_summary_expr("r.finding_id")
 
     if search_query:
         # ClickHouse ILIKE uses backslash as the default escape character; no
@@ -351,6 +475,7 @@ async def list_detector_runs(
             r.finding_id  AS finding_id,
             r.status      AS status,
             r.timestamp   AS timestamp,
+            r.self_traced AS self_traced,
             {summary_expr} AS summary
         FROM (SELECT * FROM detector_runs FINAL) AS r
         LEFT JOIN (SELECT * FROM detector_findings FINAL) AS f
@@ -396,10 +521,19 @@ async def get_spans_jsonl(trace_id: str, project_id: str):
     from fastapi.responses import PlainTextResponse
 
     ch = get_clickhouse_client()
+    # Dedup ReplacingMergeTree rows without FINAL (FINAL scans all parts and
+    # defeats the trace_id-first sort key / no-IO projection): keep the latest
+    # version per span_id, then order for output. span_start_time is only
+    # ms-precision, so sub-ms parallel siblings need span_end_time + span_id as
+    # stable tie-breakers for deterministic export ordering.
     result = ch.query(
-        """SELECT * FROM spans FINAL
-           WHERE trace_id = {trace_id:String} AND project_id = {project_id:String}
-           ORDER BY span_start_time""",
+        """SELECT * FROM (
+               SELECT * FROM spans
+               WHERE trace_id = {trace_id:String} AND project_id = {project_id:String}
+               ORDER BY ch_update_time DESC
+               LIMIT 1 BY span_id
+           )
+           ORDER BY span_start_time ASC, span_end_time ASC, span_id ASC""",
         parameters={"trace_id": trace_id, "project_id": project_id},
     )
 
@@ -453,100 +587,6 @@ async def get_time_since_last_span(trace_id: str, project_id: str):
     row = agg.result_rows[0] if agg.result_rows else None
     age = int(row[0]) if row and row[0] is not None else 0
     return {"time_since_last_span_ms": age}
-
-
-@router.get(
-    "/detector-findings",
-    response_model=FindingListResponse,
-    dependencies=[Depends(verify_internal_secret)],
-)
-async def list_detector_findings(
-    project_id: str,
-    detector_id: str,
-    page: int = Query(0, ge=0, description="Page number (0-indexed)"),
-    limit: int = Query(50, ge=1, le=200, description="Items per page"),
-    start_after: datetime | None = Query(
-        None, description="Filter findings at/after this timestamp (inclusive)"
-    ),
-    end_before: datetime | None = Query(
-        None, description="Filter findings strictly before this timestamp"
-    ),
-    search_query: str | None = Query(
-        None, description="Substring match against trace_id OR summary"
-    ),
-):
-    """List findings for a detector (joined through runs), newest first.
-
-    Param naming and pagination shape mirror the trace listing endpoints
-    (`page`/`limit`/`start_after`/`end_before`/`search_query`) so the same
-    `useListPageState` queryOptions can flow through unchanged.
-
-    Returns {data: [...], meta: {page, limit, total}}.
-    """
-    ch = get_clickhouse_client()
-    offset = page * limit
-
-    conditions: list[str] = [
-        "r.project_id = {project_id:String}",
-        "r.detector_id = {detector_id:String}",
-    ]
-    params: dict = {
-        "project_id": project_id,
-        "detector_id": detector_id,
-    }
-
-    if start_after is not None:
-        conditions.append("f.timestamp >= {start_after:DateTime64(3)}")
-        params["start_after"] = to_utc_naive(start_after)
-
-    if end_before is not None:
-        conditions.append("f.timestamp < {end_before:DateTime64(3)}")
-        params["end_before"] = to_utc_naive(end_before)
-
-    if search_query:
-        conditions.append(
-            "(f.trace_id ILIKE {search_kw:String} OR f.summary ILIKE {search_kw:String})"
-        )
-        params["search_kw"] = f"%{escape_ilike(search_query)}%"
-
-    where_clause = " AND ".join(conditions)
-
-    # FINAL subqueries on each side: ReplacingMergeTree dedup is async, and
-    # pre-merge duplicate rows would fan out the INNER JOIN (MxN rows per
-    # finding) and leak stale versions into the page.
-    from_join_where = f"""
-        FROM (SELECT * FROM detector_findings FINAL) AS f
-        INNER JOIN (SELECT * FROM detector_runs FINAL) AS r
-          ON f.finding_id = r.finding_id
-        WHERE {where_clause}
-    """
-    data_query = f"""
-        SELECT f.finding_id, f.project_id, f.trace_id, f.summary, f.payload, f.timestamp
-        {from_join_where}
-        ORDER BY f.timestamp DESC
-        LIMIT {{limit:Int32}} OFFSET {{offset:Int32}}
-    """
-    data_params = {**params, "limit": limit, "offset": offset}
-    result = ch.query(data_query, parameters=data_params)
-
-    count_query = f"""
-        SELECT count()
-        {from_join_where}
-    """
-    count_result = ch.query(count_query, parameters=params)
-    total = count_result.result_rows[0][0] if count_result.result_rows else 0
-
-    findings = []
-    for row in result.result_rows:
-        row_dict = dict(zip(result.column_names, row))
-        if hasattr(row_dict.get("timestamp"), "isoformat"):
-            row_dict["timestamp"] = row_dict["timestamp"].isoformat()
-        findings.append(row_dict)
-
-    return {
-        "data": findings,
-        "meta": {"page": page, "limit": limit, "total": total},
-    }
 
 
 @router.get(
@@ -614,21 +654,7 @@ async def list_trace_detector_runs(trace_id: str, project_id: str):
     """
     ch = get_clickhouse_client()
 
-    # Per-detector summary expression; identical to list_detector_runs so the
-    # meaning of "the summary for this detector" stays in one place.
-    summary_expr = (
-        "if("
-        "  r.finding_id IS NOT NULL,"
-        "  JSONExtractString("
-        "    arrayFirst("
-        "      x -> JSONExtractString(x, 'detectorId') = r.detector_id,"
-        "      JSONExtractArrayRaw(f.payload)"
-        "    ),"
-        "    'summary'"
-        "  ),"
-        "  ''"
-        ")"
-    )
+    summary_expr = _detector_summary_expr("r.finding_id")
 
     query = f"""
         SELECT
@@ -639,6 +665,7 @@ async def list_trace_detector_runs(trace_id: str, project_id: str):
             r.finding_id  AS finding_id,
             r.status      AS status,
             r.timestamp   AS timestamp,
+            r.self_traced AS self_traced,
             {summary_expr} AS summary
         FROM (SELECT * FROM detector_runs FINAL) AS r
         LEFT JOIN (SELECT * FROM detector_findings FINAL) AS f
@@ -658,12 +685,129 @@ async def list_trace_detector_runs(trace_id: str, project_id: str):
     return {"runs": runs}
 
 
+def _fetch_sample_summaries(
+    ch: ClickHouseClient, window_clause: str, params: dict[str, Any]
+) -> dict[str, list[str]]:
+    """Fetch recent per-detector finding summaries for a digest window.
+
+    Best-effort by contract: digest jobs have no BullMQ retries, so a thrown
+    flush loses the alert permanently — on any error (including exceeding the
+    per-query execution cap) this logs and returns ``{}`` instead of raising,
+    degrading the digest to counts-only.
+
+    Sampling: newest-first within the window, at most
+    ``DIGEST_SUMMARY_MAX_PER_DETECTOR`` per detector and
+    ``DIGEST_SUMMARY_MAX_TOTAL`` overall (rank-major, so one chatty detector
+    cannot starve the others), each truncated to ``DIGEST_SUMMARY_MAX_CHARS``
+    chars in SQL.
+
+    Args:
+        ch (ClickHouseClient): ClickHouse client to query with.
+        window_clause (str): SQL predicate over the collapsed ``ts`` bounding
+            the digest window (parameter placeholders, not inlined values).
+        params (dict[str, Any]): Bound query parameters; must include
+            ``project_id`` and every placeholder referenced by
+            ``window_clause``.
+
+    Returns:
+        dict[str, list[str]]: detector_id -> its sampled summaries, newest
+            first. Empty on failure or when nothing matched.
+    """
+    try:
+        summary_expr = _detector_summary_expr("r.latest_finding_id")
+        # Probe side bounded BEFORE the join (window bound, non-null
+        # finding, per-detector cap), so the join probes at most
+        # DIGEST_SUMMARY_MAX_PER_DETECTOR x n_detectors rows. RCA-disabled
+        # detectors still consume budget here (the digest drops them
+        # later); accepted for v1. Written once and reused in the join's
+        # semi-filter below, at the cost of ClickHouse evaluating it twice
+        # (the runs collapse is far cheaper than a whole-history payload
+        # read).
+        sampled_probe = f"""
+                    SELECT detector_id, latest_finding_id, ts
+                    FROM (
+                        SELECT
+                            detector_id,
+                            run_id,
+                            -- NULL-preserving shared pick; determinism
+                            -- matters doubly here — this probe is evaluated
+                            -- twice (FROM + IN) and both must select the
+                            -- same finding id on a timestamp tie.
+                            {_LATEST_FINDING_PICK_SQL} AS latest_finding_id,
+                            max(timestamp)                AS ts
+                        FROM detector_runs
+                        WHERE project_id = {{project_id:String}}
+                        GROUP BY detector_id, run_id
+                    )
+                    WHERE {window_clause} AND latest_finding_id IS NOT NULL
+                    -- latest_finding_id tiebreaker: the probe is evaluated
+                    -- twice (FROM + IN); ties on ts must pick identical rows.
+                    ORDER BY detector_id, ts DESC, latest_finding_id
+                    LIMIT {DIGEST_SUMMARY_MAX_PER_DETECTOR} BY detector_id
+        """
+        summaries_query = f"""
+            SELECT detector_id, summary
+            FROM (
+                SELECT
+                    r.detector_id AS detector_id,
+                    -- substringUTF8, not substring: a byte-offset cut can
+                    -- split a multibyte char, and clickhouse-connect
+                    -- replaces an undecodable string with its hex dump.
+                    substringUTF8({summary_expr}, 1, {DIGEST_SUMMARY_MAX_CHARS}) AS summary,
+                    r.ts AS ts,
+                    -- Rank-major allocation: every detector keeps its
+                    -- newest sentence before any detector gets its
+                    -- 2nd..10th, so one chatty detector cannot starve the
+                    -- others out of the overall budget.
+                    row_number() OVER (
+                        PARTITION BY r.detector_id ORDER BY r.ts DESC
+                    ) AS rank
+                FROM (
+                    {sampled_probe}
+                ) AS r
+                INNER JOIN (
+                    -- Semi-join to the sampled finding ids so the FINAL
+                    -- read touches only those findings' payloads, not the
+                    -- project's whole finding history.
+                    SELECT finding_id, payload FROM detector_findings FINAL
+                    WHERE project_id = {{project_id:String}}
+                      AND finding_id IN (
+                        SELECT latest_finding_id FROM ({sampled_probe})
+                      )
+                ) AS f ON r.latest_finding_id = f.finding_id
+                -- Empty summaries (payload without a matching entry) are
+                -- filtered before ranking so they never eat sample slots.
+                WHERE summary != ''
+            )
+            ORDER BY rank ASC, ts DESC
+            LIMIT {DIGEST_SUMMARY_MAX_TOTAL}
+        """
+        # Bound the digest read: on a huge project a stalled summaries
+        # query must degrade to counts-only (via the except path, per the
+        # best-effort contract) instead of holding the worker's HTTP call.
+        result = ch.query(
+            summaries_query,
+            parameters=params,
+            settings={"max_execution_time": 10},
+        )
+        summaries: dict[str, list[str]] = {}
+        for detector_id, summary in result.result_rows:
+            summaries.setdefault(detector_id, []).append(summary)
+        return summaries
+    except Exception:
+        logger.exception(
+            "detector-window-summary: summaries read failed; "
+            "returning counts without sample_summaries"
+        )
+        return {}
+
+
 @router.get(
-    "/detector-counts",
-    response_model=DetectorCountsResponse,
+    "/detector-window-summary",
+    response_model=DetectorWindowSummaryResponse,
     dependencies=[Depends(verify_internal_secret)],
 )
-async def list_detector_counts(
+async def list_detector_window_summary(
     project_id: str,
     start_after: datetime = Query(
         ..., description="Lower bound on detector_runs.timestamp (inclusive)"
@@ -671,49 +815,215 @@ async def list_detector_counts(
     end_before: datetime | None = Query(
         None, description="Upper bound on detector_runs.timestamp (exclusive)"
     ),
+    include_summaries: bool = Query(
+        False,
+        description=(
+            "When true, also return recent per-detector finding summaries "
+            "(capped in SQL) for the digest LLM summary"
+        ),
+    ),
 ):
-    """Aggregate finding and run counts per detector for a project, in one query.
+    """Aggregate run/finding counts and the latest triggered trace per detector.
 
-    Runs are read with FINAL so pre-merge ReplacingMergeTree duplicates don't
-    inflate the counts. A run carries its finding_id when it triggered; since
-    findings are never withdrawn, counting runs with a non-null finding_id per
-    detector gives that detector's finding count.
+    Dedup without FINAL: ``detector_runs`` is a ``ReplacingMergeTree`` whose
+    duplicates are idempotent retries sharing a deterministic ``run_id`` (the
+    larger ``timestamp`` wins). The inner query collapses each ``run_id`` to its
+    latest version via ``argMax`` / ``max(timestamp)`` over the project's whole
+    history; the outer query then windows on that collapsed ``ts``. That yields
+    exactly the rows ``FINAL`` would have surfaced ("latest row wins, then
+    filter") — including for a retry that re-stamps across a window boundary —
+    but as a streamed aggregate rather than a merge-on-read (the construct that
+    OOM-killed rest on the big ``spans`` table; see the 2026-06-25 incident).
 
-    Detectors with zero runs in the window are absent from the result map; the
-    frontend defaults absent entries to {findingCount: 0, runCount: 0}.
+    A run carries its ``finding_id`` and the ``trace_id`` it fired on, so
+    ``finding_count`` and ``sample_trace_ids`` come straight off the runs — no
+    ``detector_findings`` JOIN, and no second per-detector read (the digest used
+    to fetch the latest trace via a now-removed ``GET /detector-findings``;
+    folding it in here removes that N+1). ``sample_trace_ids`` holds the most
+    recent *triggered* run's trace (one today, shaped as a list so we can
+    surface more later), or an empty list for a detector that ran but never
+    fired.
+
+    Detectors with no runs in the window are omitted; the frontend defaults
+    absent entries to {findingCount: 0, runCount: 0}.
+
+    When ``include_summaries`` is set, a second bounded query returns each
+    detector's most recent per-detector judge summaries within the window:
+    newest-first, at most ``DIGEST_SUMMARY_MAX_PER_DETECTOR`` per detector and
+    ``DIGEST_SUMMARY_MAX_TOTAL`` overall, each truncated to
+    ``DIGEST_SUMMARY_MAX_CHARS`` chars in SQL. The per-detector sentence is
+    JSON-extracted from the finding payload with the same expression as the
+    runs endpoints (one source of truth). UI consumers never set the flag, so
+    their read cost is unchanged. The summaries read is best-effort: on any
+    error, including exceeding its per-query execution cap, it is logged and
+    the response is returned without ``sample_summaries`` (counts intact) — it
+    can never fail the endpoint.
     """
     ch = get_clickhouse_client()
 
-    conditions = [
-        "r.project_id = {project_id:String}",
-        "r.timestamp >= {start_after:DateTime64(3)}",
-    ]
+    # Window on the collapsed timestamp (outer), not the raw rows (inner): the
+    # dedup must happen first so a run is placed by its latest version, matching
+    # FINAL across retries that re-stamp near a window boundary.
     params: dict = {
         "project_id": project_id,
         "start_after": to_utc_naive(start_after),
     }
+    window_conditions = ["ts >= {start_after:DateTime64(3)}"]
     if end_before is not None:
-        conditions.append("r.timestamp < {end_before:DateTime64(3)}")
+        window_conditions.append("ts < {end_before:DateTime64(3)}")
         params["end_before"] = to_utc_naive(end_before)
+    window_clause = " AND ".join(window_conditions)
 
-    where_clause = " AND ".join(conditions)
     query = f"""
         SELECT
-            r.detector_id AS detector_id,
-            count()                            AS run_count,
-            countIf(r.finding_id IS NOT NULL)  AS finding_count
-        FROM (SELECT * FROM detector_runs FINAL) AS r
-        WHERE {where_clause}
-        GROUP BY r.detector_id
+            detector_id,
+            count()                                                      AS run_count,
+            countIf(latest_finding_id IS NOT NULL)                       AS finding_count,
+            argMaxIf(latest_trace_id, ts, latest_finding_id IS NOT NULL) AS latest_trace_id
+        FROM (
+            SELECT
+                detector_id,
+                run_id,
+                -- NULL-preserving shared pick: the count must retract a
+                -- clean re-eval'd run exactly when the sample does.
+                {_LATEST_FINDING_PICK_SQL} AS latest_finding_id,
+                argMax(trace_id, timestamp) AS latest_trace_id,
+                max(timestamp)              AS ts
+            FROM detector_runs
+            WHERE project_id = {{project_id:String}}
+            GROUP BY detector_id, run_id
+        )
+        WHERE {window_clause}
+        GROUP BY detector_id
     """
 
     result = ch.query(query, parameters=params)
-    data: dict[str, dict[str, int]] = {}
+    data: dict[str, dict] = {}
     for row in result.result_rows:
         row_dict = dict(zip(result.column_names, row))
+        # One representative trace today, shaped as a list so surfacing more
+        # later (groupArray in the query) needs no contract change. "" (a
+        # detector that ran but never fired) collapses to an empty list.
+        latest_trace_id = row_dict["latest_trace_id"]
         data[row_dict["detector_id"]] = {
             "finding_count": int(row_dict["finding_count"]),
             "run_count": int(row_dict["run_count"]),
+            "sample_trace_ids": [latest_trace_id] if latest_trace_id else [],
         }
 
+    if include_summaries and any(v["finding_count"] > 0 for v in data.values()):
+        for detector_id, summaries in _fetch_sample_summaries(ch, window_clause, params).items():
+            if detector_id in data:
+                data[detector_id]["sample_summaries"] = summaries
+
     return {"data": data}
+
+
+# =============================================================================
+# Internal OTLP trace ingest (detector self-traces)
+# =============================================================================
+
+_TRACE_ID_RE = re.compile(r"^[0-9a-f]{32}$")
+_SPAN_ID_RE = re.compile(r"^[0-9a-f]{16}$")
+
+
+@router.post("/traces", dependencies=[Depends(verify_internal_secret)])
+async def ingest_internal_traces(
+    request: Request,
+    project_id: str | None = Query(
+        default=None, description="Fallback project for spans without a per-span attribute"
+    ),
+    x_project_id: Annotated[str | None, Header()] = None,
+) -> dict:
+    """Ingest detector self-traces (OTLP protobuf) directly into ClickHouse.
+
+    Trusted, internal-only counterpart of the public OTLP ingest: the worker
+    posts here with the shared secret, spans run through the detector-only
+    multi-project wrapper (which calls the same transform as customer traffic,
+    once per project group), and the rows are inserted in-process — no S3 hop and
+    no detection enqueue, so a detector can never scan its own emission. Spans are inserted before the trace row
+    so a partial failure cannot leave a trace row that points at missing
+    spans. Every record is force-stamped source='detector' regardless of
+    payload content.
+
+    Project attribution is per-span and primary: the worker serves every
+    project off one queue, so each span carries its own
+    ``traceroot.project_id`` attribute. The request-level project id (header
+    or query) is only a fallback for spans without the attribute.
+
+    Args:
+        request (Request): Raw request; body is OTLP protobuf, optionally
+            gzip-compressed (Content-Encoding: gzip).
+        project_id (str | None): Fallback project for spans without a
+            per-span attribute, as a query parameter; trusted because the
+            route is secret-gated.
+        x_project_id (str | None): Same, as the X-Project-Id header. The
+            header wins when both are given. Optional — a batch whose every
+            span carries the per-span attribute needs neither.
+
+    Returns:
+        dict: ``{"ok": True}`` on success.
+
+    Raises:
+        HTTPException: 400 on an empty body, an undecodable payload, a span
+            with neither a per-span project attribute nor a request-level
+            fallback, a trace id that is not exactly 32 lowercase hex chars,
+            or a span/parent id that is present but not exactly 16.
+    """
+    fallback_project_id = x_project_id or project_id
+
+    body = await request.body()
+    if not body:
+        raise HTTPException(status_code=400, detail="Empty request body")
+
+    if "gzip" in request.headers.get("content-encoding", "").lower():
+        try:
+            body = gzip.decompress(body)
+        except (OSError, EOFError, zlib.error) as e:
+            # The only caller is our own worker tracer, so this means a bug
+            # on our side — leave a breadcrumb (never the payload).
+            logger.warning("Internal trace ingest: invalid gzip body: %s", e)
+            raise HTTPException(status_code=400, detail="Invalid gzip body") from None
+
+    try:
+        otel_data = decode_otlp_protobuf(body)
+    except DecodeError as e:
+        logger.warning("Internal trace ingest: invalid OTLP protobuf: %s", e)
+        raise HTTPException(status_code=400, detail="Invalid OTLP protobuf") from None
+
+    try:
+        traces, spans = transform_detector_traces(
+            otel_data, fallback_project_id=fallback_project_id
+        )
+    except UnattributableSpanError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from None
+
+    # Defense in depth: client-forced ids are only accepted in internal mode,
+    # and even there they must look like real trace ids (dashless run_id).
+    trace_ids = {t["trace_id"] for t in traces} | {s["trace_id"] for s in spans}
+    for trace_id in trace_ids:
+        if not _TRACE_ID_RE.match(trace_id):
+            raise HTTPException(status_code=400, detail="trace_id must be 32 hex chars")
+    for span in spans:
+        if not _SPAN_ID_RE.match(span["span_id"]):
+            raise HTTPException(status_code=400, detail="span_id must be 16 hex chars")
+        parent_span_id = span.get("parent_span_id")
+        # None is a root span, and every self-trace has exactly one — the
+        # parent id is only constrained when present.
+        if parent_span_id is not None and not _SPAN_ID_RE.match(parent_span_id):
+            raise HTTPException(
+                status_code=400, detail="parent_span_id must be 16 hex chars when present"
+            )
+
+    # This route only ever carries detector self-traces, so the marker is a property
+    # of the route, not of the payload: stamp it rather than trusting what was sent.
+    # This is the ONLY place a non-'user' source is written — the transform never sets
+    # one — so a payload that omits or misstates the attribute still lands classified
+    # correctly, and no tenant-supplied value can reach the column.
+    for record in (*traces, *spans):
+        record["source"] = "detector"
+
+    ch = get_clickhouse_client()
+    ch.insert_spans_batch(spans)
+    ch.insert_traces_batch(traces)
+    return {"ok": True}

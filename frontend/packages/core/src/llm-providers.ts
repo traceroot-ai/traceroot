@@ -48,8 +48,12 @@ export const ADAPTER_DEFAULT_BASE_URL: Record<string, string> = {
 
 // API protocol per adapter — used to build fallback model objects for BYOK models
 // not found in pi-ai's registry. Must match pi-ai's registered API providers.
+// OpenAI proper defaults to the Responses API: newer model families reject
+// function tools on chat completions unless reasoning is explicitly disabled.
+// Chat completions stays selectable per model (modelProtocols) for
+// OpenAI-compatible proxies that only implement that endpoint.
 export const ADAPTER_API_PROTOCOL: Record<string, string> = {
-  openai: "openai-completions",
+  openai: "openai-responses",
   anthropic: "anthropic-messages",
   azure: "azure-openai-responses",
   google: "google-generative-ai",
@@ -76,6 +80,15 @@ export interface LLMModelDef {
 // ──────────────────────────────────────────────
 // System models — always available via env vars.
 // ──────────────────────────────────────────────
+/**
+ * Detector-specific hosted screening model.
+ *
+ * This is intentionally not `resolvePiModel(undefined, null)`: detector evals
+ * use a stable cheap-and-fast model instead of the general provider-priority
+ * fallback used by other model resolution paths.
+ */
+export const DETECTOR_SYSTEM_DEFAULT_MODEL_ID = "claude-haiku-4-5";
+
 export const SYSTEM_MODELS: {
   provider: string;
   envVar: string;
@@ -93,6 +106,7 @@ export const SYSTEM_MODELS: {
       { id: "claude-opus-4-8", label: "claude-opus-4-8" },
       { id: "claude-opus-4-7", label: "claude-opus-4-7" },
       { id: "claude-opus-4-6", label: "claude-opus-4-6" },
+      { id: "claude-sonnet-5", label: "claude-sonnet-5" },
       { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6" },
       { id: "claude-opus-4-5", label: "claude-opus-4-5" },
       { id: "claude-sonnet-4-5", label: "claude-sonnet-4-5" },
@@ -103,7 +117,7 @@ export const SYSTEM_MODELS: {
     provider: "OpenAI",
     envVar: "OPENAI_API_KEY",
     piAIProvider: "openai",
-    apiProtocol: "openai-completions",
+    apiProtocol: "openai-responses",
     models: [
       { id: "gpt-5.5", label: "gpt-5.5" },
       { id: "gpt-5.4", label: "gpt-5.4" },
@@ -111,10 +125,11 @@ export const SYSTEM_MODELS: {
       { id: "gpt-5.4-nano", label: "gpt-5.4-nano" },
       { id: "gpt-5", label: "gpt-5" },
       { id: "gpt-5-mini", label: "gpt-5-mini" },
-      { id: "o3", label: "o3" },
-      { id: "o4-mini", label: "o4-mini" },
-      // Codex models require the Responses API (not Chat Completions)
-      { id: "gpt-5.3-codex", label: "gpt-5.3-codex", apiProtocol: "openai-responses" },
+      // The o-series rejects reasoning effort "none", which the Responses client
+      // sends when no effort is requested; chat completions sends nothing for them.
+      { id: "o3", label: "o3", apiProtocol: "openai-completions" },
+      { id: "o4-mini", label: "o4-mini", apiProtocol: "openai-completions" },
+      { id: "gpt-5.3-codex", label: "gpt-5.3-codex" },
     ],
   },
 ];
@@ -140,27 +155,35 @@ export const PROVIDER_PRIORITY: LLMAdapter[] = [
 // Adapters NOT listed here (azure, amazon-bedrock, openrouter) use free-text input.
 export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
   openai: [
+    // Limited partner preview as of 2026-07-09 — not yet accessible via self-serve API keys.
+    { id: "gpt-5.6-sol", label: "gpt-5.6-sol" },
+    { id: "gpt-5.6-terra", label: "gpt-5.6-terra" },
+    { id: "gpt-5.6-luna", label: "gpt-5.6-luna" },
     { id: "gpt-5.5", label: "gpt-5.5" },
     { id: "gpt-5.5-pro", label: "gpt-5.5-pro" },
     { id: "gpt-5.4", label: "gpt-5.4" },
     { id: "gpt-5.4-pro", label: "gpt-5.4-pro" },
     { id: "gpt-5.4-mini", label: "gpt-5.4-mini" },
     { id: "gpt-5.4-nano", label: "gpt-5.4-nano" },
-    { id: "gpt-5.3-codex", label: "gpt-5.3-codex", apiProtocol: "openai-responses" },
+    { id: "gpt-5.3-codex", label: "gpt-5.3-codex" },
     { id: "gpt-5.2", label: "gpt-5.2" },
     { id: "gpt-5", label: "gpt-5" },
     { id: "gpt-5-mini", label: "gpt-5-mini" },
-    { id: "o3", label: "o3" },
-    { id: "o4-mini", label: "o4-mini" },
+    // See the o-series note on SYSTEM_MODELS.
+    { id: "o3", label: "o3", apiProtocol: "openai-completions" },
+    { id: "o4-mini", label: "o4-mini", apiProtocol: "openai-completions" },
   ],
   anthropic: [
+    { id: "claude-opus-5", label: "claude-opus-5" },
     { id: "claude-opus-4-8", label: "claude-opus-4-8" },
     { id: "claude-opus-4-7", label: "claude-opus-4-7" },
     { id: "claude-opus-4-6", label: "claude-opus-4-6" },
-    { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6" },
     { id: "claude-opus-4-5", label: "claude-opus-4-5" },
+    { id: "claude-sonnet-5", label: "claude-sonnet-5" },
+    { id: "claude-sonnet-4-6", label: "claude-sonnet-4-6" },
     { id: "claude-sonnet-4-5", label: "claude-sonnet-4-5" },
     { id: "claude-haiku-4-5", label: "claude-haiku-4-5" },
+    { id: "claude-fable-5", label: "claude-fable-5" },
   ],
   google: [
     { id: "gemini-3.5-flash", label: "gemini-3.5-flash" },
@@ -176,10 +199,12 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
     { id: "deepseek-chat", label: "deepseek-chat" },
   ],
   xai: [
+    { id: "grok-4.5", label: "grok-4.5" },
     { id: "grok-4.20", label: "grok-4.20" },
     { id: "grok-4", label: "grok-4" },
   ],
   moonshot: [
+    { id: "kimi-k3", label: "kimi-k3" },
     { id: "kimi-k2.6", label: "kimi-k2.6" },
     { id: "kimi-k2.5", label: "kimi-k2.5" },
     { id: "kimi-k2-thinking", label: "kimi-k2-thinking" },
@@ -197,12 +222,24 @@ export const ADAPTER_MODELS: Partial<Record<LLMAdapter, LLMModelDef[]>> = {
   ],
 };
 
+/**
+ * The protocol a model runs on under an adapter when the workspace has not
+ * overridden it: the catalog entry's own `apiProtocol` when it sets one, else
+ * the adapter default. Shared by the resolver and the provider dialog so what
+ * the dialog shows as the default is what the resolver will use.
+ */
+export function defaultApiProtocol(adapter: string, modelId?: string): string {
+  const catalog = ADAPTER_MODELS[adapter as LLMAdapter];
+  const perModel = modelId ? catalog?.find((m) => m.id === modelId)?.apiProtocol : undefined;
+  return perModel ?? ADAPTER_API_PROTOCOL[adapter] ?? "";
+}
+
 // Available API protocols per adapter — shown in provider settings UI
 // When multiple protocols are available, user can choose; otherwise the default is used.
 export const ADAPTER_AVAILABLE_PROTOCOLS: Record<string, { value: string; label: string }[]> = {
   openai: [
-    { value: "openai-completions", label: "Chat Completions" },
     { value: "openai-responses", label: "Responses API" },
+    { value: "openai-completions", label: "Chat Completions" },
   ],
   anthropic: [{ value: "anthropic-messages", label: "Messages API" }],
   azure: [{ value: "azure-openai-responses", label: "Azure OpenAI Responses" }],

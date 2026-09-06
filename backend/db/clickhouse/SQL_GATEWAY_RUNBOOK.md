@@ -20,7 +20,7 @@ forms proven against ClickHouse **24.3.18.7**.
 ## Components
 
 1. **Curated views** `spans_public_v1` / `traces_public_v1` — created by migration
-   `006_create_public_sql_views.sql`. Parameterized on `{project_id:String}`, `SQL SECURITY
+   `012_create_public_sql_views.sql`. Parameterized on `{project_id:String}`, `SQL SECURITY
    DEFINER`, deduped after the project filter. They project curated analytical columns only
    (never `project_id`, `ch_create_time`, `ch_update_time`, or `input`/`output`/`metadata`).
 2. **Scoped writer user** — the view DEFINER. Holds `SELECT` on the physical `spans`/`traces`
@@ -40,7 +40,7 @@ CREATE USER IF NOT EXISTS sql_gateway_writer
 GRANT SELECT ON <database>.spans  TO sql_gateway_writer;
 GRANT SELECT ON <database>.traces TO sql_gateway_writer;
 
--- 2) Apply migration 006 — it creates spans_public_v1 / traces_public_v1 with
+-- 2) Apply migration 012 — it creates spans_public_v1 / traces_public_v1 with
 --    DEFINER = sql_gateway_writer. MUST run AFTER step 1, or the CREATE VIEW fails
 --    ("There is no user 'sql_gateway_writer'"). May be applied by an admin/deploy user
 --    (it does not have to run AS the writer); the stored definer is sql_gateway_writer.
@@ -67,7 +67,7 @@ GRANT SELECT ON <database>.traces_public_v1 TO sql_gateway_ro;
 ## Required deploy order
 
 1. Create `sql_gateway_writer` (+ `SELECT` on the physical `spans`/`traces`).
-2. Run migration 006 — creates the views with `DEFINER = sql_gateway_writer`.
+2. Run migration 012 — creates the views with `DEFINER = sql_gateway_writer`.
 3. Create `sql_readonly_profile` and `sql_gateway_ro`.
 4. Grant `sql_gateway_ro` `SELECT` on `spans_public_v1` / `traces_public_v1`.
 5. Set the backend `CLICKHOUSE_RO_USER` / `CLICKHOUSE_RO_PASSWORD`.
@@ -94,7 +94,7 @@ order above is the safe logical sequence for staged/manual provisioning.
   `no_password`. The compose ClickHouse also mounts `clickhouse_access_management.xml`
   into `users.d/` so the admin user (`CLICKHOUSE_USER`) gains `ACCESS MANAGEMENT` +
   `SET DEFINER` — the stock user has broad DDL but **not** access management, so without
-  it the `CREATE USER` bootstrap fails and migration 006 cannot set its explicit definer.
+  it the `CREATE USER` bootstrap fails and migration 012 cannot set its explicit definer.
 - **CI — no action.** CI does not apply ClickHouse migrations against a live server;
   the `tests/db/` migration/config/client tests are static/mocked.
 - **Self-host / manual.** Run the "Provisioning order" SQL above (with **real secrets**,
@@ -228,10 +228,6 @@ DROP USER IF EXISTS <old_account>;
   25.2 before relying on any of the 24.3 results.
 - **`helm template` / `helm lint` and `terraform fmt`/`validate`** have never been run against
   these changes; neither tool was available where they were authored.
-- **The migration number collides with `main`.** This work numbers the views migration
-  `006_create_public_sql_views.sql`, but `main` now has `006_add_source_column.sql` and runs
-  through `011_add_is_evaluation.sql`. It must be renumbered (`012_`) when the branch is
-  rebased, and every "migration 006" reference in this runbook updated with it.
 
 ## DEFINER: explicit scoped writer
 
@@ -242,7 +238,7 @@ CREATE OR REPLACE VIEW spans_public_v1
     DEFINER = sql_gateway_writer SQL SECURITY DEFINER AS ...
 ```
 
-- **`sql_gateway_writer` MUST exist before migration 006 runs** (provisioning step 1). If it
+- **`sql_gateway_writer` MUST exist before migration 012 runs** (provisioning step 1). If it
   does not, `CREATE VIEW` fails with `There is no user 'sql_gateway_writer'`. This makes the
   security dependency explicit and enforced instead of silently defaulting to whoever applies
   the migration.
@@ -265,7 +261,7 @@ SHOW CREATE VIEW <database>.spans_public_v1;
 ```
 
 > **Verified on ClickHouse 24.3.18.7** (`scripts/spikes/clickhouse_public_views_ddl_check.sh`):
-> after creating `sql_gateway_writer` (SELECT on physical tables), applying migration 006's
+> after creating `sql_gateway_writer` (SELECT on physical tables), applying migration 012's
 > `Up` DDL stores `DEFINER = sql_gateway_writer SQL SECURITY DEFINER`; parameterization
 > (`WHERE project_id = {project_id:String}`) is preserved; the RO user reads the view but is
 > denied the physical table (Code 497); and a foreign `project_id` returns that project's rows

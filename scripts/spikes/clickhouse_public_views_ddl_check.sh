@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # clickhouse_public_views_ddl_check.sh
 #
-# Reproducible verification that migration 006 (public SQL gateway views) applies
+# Reproducible verification that migration 012 (public SQL gateway views) applies
 # AS WRITTEN on ClickHouse 24.3: that SHOW CREATE VIEW records the explicit
 # DEFINER = sql_gateway_writer (the migration pins it), that parameterization is
 # preserved, and that a read-only user with SELECT on the views only can read the
@@ -16,7 +16,7 @@
 set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel)"
-MIG="$ROOT/backend/db/clickhouse/migrations/006_create_public_sql_views.sql"
+MIG="$ROOT/backend/db/clickhouse/migrations/012_create_public_sql_views.sql"
 
 ch() { docker exec ch_sql_spike clickhouse-client "$@"; }
 ch_ro() { docker exec ch_sql_spike clickhouse-client --user pubviews_ro "$@"; }
@@ -43,10 +43,10 @@ echo "   (proves CREATE OR REPLACE re-applies DEFINER = sql_gateway_writer even 
 ch --query "CREATE VIEW pubviews.spans_public_v1 AS SELECT 1 AS stale"
 ch --query "CREATE VIEW pubviews.traces_public_v1 AS SELECT 1 AS stale"
 
-echo "== apply migration 006 Up section AS WRITTEN (DEFINER = sql_gateway_writer) =="
+echo "== apply migration 012 Up section AS WRITTEN (DEFINER = sql_gateway_writer) =="
 awk '/-- \+goose Up/{f=1;next} /-- \+goose Down/{f=0} f' "$MIG" \
   | docker exec -i ch_sql_spike clickhouse-client --database pubviews --multiquery
-echo "migration 006 Up applied OK"
+echo "migration 012 Up applied OK"
 
 echo "== SHOW CREATE VIEW pubviews.spans_public_v1 =="
 SHOW_OUT="$(ch --query "SHOW CREATE VIEW pubviews.spans_public_v1")"

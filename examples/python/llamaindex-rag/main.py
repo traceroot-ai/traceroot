@@ -41,7 +41,7 @@ Settings.llm = OpenAI(model="gpt-4o-mini")
 documents = [
     Document(
         text=(
-            "TraceRoot is an open-source observability platform for AI agents. "
+            "TraceRoot is an open-source observability and self-improving layer for AI agents. "
             "It captures traces, debugs with AI, and helps ship with confidence. "
             "The platform is built on OpenTelemetry and supports BYOK for any model provider."
         )
