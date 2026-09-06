@@ -1,8 +1,9 @@
 import { ADAPTER_MODELS, SYSTEM_MODELS, LLMAdapter } from "./llm-providers";
 
 /** Marks the region of docs/ai-agent/byok.mdx this module owns. */
-export const BYOK_DOC_START = "{/* generated:byok-models */}";
-export const BYOK_DOC_END = "{/* end generated:byok-models */}";
+export const BYOK_DOC_START = `{/* Generated from ADAPTER_MODELS in frontend/packages/core/src/llm-providers.ts — do not edit.
+    Regenerate with: pnpm --filter @traceroot/core generate:byok-docs */}`;
+export const BYOK_DOC_END = "{/* end generated region */}";
 
 /** Display names for the adapters, matching the `provider` field on SYSTEM_MODELS. */
 const PROVIDER_LABELS: Partial<Record<LLMAdapter, string>> = {
