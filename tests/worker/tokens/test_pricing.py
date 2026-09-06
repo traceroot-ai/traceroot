@@ -65,7 +65,7 @@ OPENAI_MODEL_CASES = [
     ("openai/gpt-5.6-sol", "gpt-5.6-sol"),
     ("azure/gpt-5.6-sol", "gpt-5.6-sol"),
     ("gpt-5.6-sol-2026-07-09", "gpt-5.6-sol"),
-    # gpt-5.6 is the provider-documented alias for gpt-5.6-sol (#2043).
+    # gpt-5.6 is the provider-documented alias for gpt-5.6-sol.
     ("gpt-5.6", "gpt-5.6-sol"),
     ("gpt-5.6-terra", "gpt-5.6-terra"),
     ("openai/gpt-5.6-terra", "gpt-5.6-terra"),
@@ -249,7 +249,7 @@ class TestGpt56CachePricing:
 
 class TestGpt56SolPublishedPrices:
     """Ratio checks alone let a wrong base price stay internally consistent and
-    pass (#2043) — gpt-5.6-sol was billed at $5/$30 per 1M tokens against a
+    pass — gpt-5.6-sol was billed at $5/$30 per 1M tokens against a
     published $4/$20 for months with TestGpt56CachePricing green throughout.
     Assert the absolute, provider-published rate directly.
     """
