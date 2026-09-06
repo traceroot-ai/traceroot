@@ -9,7 +9,8 @@
 #
 # This is a disposable verification check (uses a throwaway `pubviews` database/user), not
 # the full live security matrix. Prereq: a running container `ch_sql_spike` on
-# clickhouse/clickhouse-server:24.3.
+# clickhouse/clickhouse-server:24.3, and against the image staging deploys by
+# setting CH_IMAGE (see the CH_IMAGE default below).
 #
 # Usage: bash scripts/spikes/clickhouse_public_views_ddl_check.sh
 
@@ -30,8 +31,8 @@ ch --query "DROP USER IF EXISTS sql_gateway_writer" || true
 ch --query "DROP SETTINGS PROFILE IF EXISTS pubviews_ro_profile" || true
 ch --query "CREATE DATABASE pubviews"
 
-ch --query "CREATE TABLE pubviews.spans (span_id String, trace_id String, parent_span_id Nullable(String), project_id String, span_start_time DateTime64(3), span_end_time Nullable(DateTime64(3)), name String, span_kind String, status String DEFAULT 'OK', status_message Nullable(String), model_name Nullable(String), cost Nullable(Decimal64(9)), input_tokens Nullable(Int64), output_tokens Nullable(Int64), total_tokens Nullable(Int64), input Nullable(String), output Nullable(String), metadata Nullable(String), git_source_file Nullable(String), git_source_line Nullable(Int32), git_source_function Nullable(String), ch_create_time DateTime64(3) DEFAULT now64(3), ch_update_time DateTime64(3) DEFAULT now64(3), environment Nullable(String), usage_details Map(LowCardinality(String), Int64)) ENGINE=ReplacingMergeTree(ch_update_time) ORDER BY (project_id, span_kind, toDate(span_start_time), span_id)"
-ch --query "CREATE TABLE pubviews.traces (trace_id String, project_id String, trace_start_time DateTime64(3), name String, user_id Nullable(String), session_id Nullable(String), git_ref Nullable(String), git_repo Nullable(String), input Nullable(String), output Nullable(String), metadata Nullable(String), ch_create_time DateTime64(3) DEFAULT now64(3), ch_update_time DateTime64(3) DEFAULT now64(3), environment Nullable(String)) ENGINE=ReplacingMergeTree(ch_update_time) ORDER BY (project_id, toDate(trace_start_time), trace_id)"
+ch --query "CREATE TABLE pubviews.spans (span_id String, trace_id String, parent_span_id Nullable(String), project_id String, span_start_time DateTime64(3), span_end_time Nullable(DateTime64(3)), name String, span_kind String, status String DEFAULT 'OK', status_message Nullable(String), model_name Nullable(String), cost Nullable(Decimal64(9)), input_tokens Nullable(Int64), output_tokens Nullable(Int64), total_tokens Nullable(Int64), input Nullable(String), output Nullable(String), metadata Nullable(String), git_source_file Nullable(String), git_source_line Nullable(Int32), git_source_function Nullable(String), ch_create_time DateTime64(3) DEFAULT now64(3), ch_update_time DateTime64(3) DEFAULT now64(3), environment Nullable(String), usage_details Map(LowCardinality(String), Int64), source LowCardinality(String) DEFAULT 'user', is_evaluation UInt8 DEFAULT 0, metadata_map Map(LowCardinality(String), String)) ENGINE=ReplacingMergeTree(ch_update_time) ORDER BY (project_id, span_kind, toDate(span_start_time), span_id)"
+ch --query "CREATE TABLE pubviews.traces (trace_id String, project_id String, trace_start_time DateTime64(3), name String, user_id Nullable(String), session_id Nullable(String), git_ref Nullable(String), git_repo Nullable(String), input Nullable(String), output Nullable(String), metadata Nullable(String), ch_create_time DateTime64(3) DEFAULT now64(3), ch_update_time DateTime64(3) DEFAULT now64(3), environment Nullable(String), source LowCardinality(String) DEFAULT 'user', is_evaluation UInt8 DEFAULT 0, metadata_map Map(LowCardinality(String), String)) ENGINE=ReplacingMergeTree(ch_update_time) ORDER BY (project_id, toDate(trace_start_time), trace_id)"
 
 echo "== provision the scoped writer (view DEFINER) — MUST exist before the migration =="
 ch --query "CREATE USER IF NOT EXISTS sql_gateway_writer IDENTIFIED WITH no_password"
@@ -85,6 +86,31 @@ RO_FOREIGN="$(ch_ro --query "SELECT span_id FROM pubviews.spans_public_v1(projec
 printf '%s\n' "$RO_FOREIGN"
 [ "$RO_FOREIGN" = "sB" ] || { echo "FAIL: expected proj_B row 'sB'"; exit 1; }
 echo "PASS: DB returns whatever project_id is supplied -> the gateway MUST bind the authenticated project_id"
+
+echo "== row curation: internal traffic and evaluation traces are excluded =="
+# A detector self-trace, an evaluation trace flagged on the TRACE row, and one flagged
+# only on a SPAN row -- the last is the case a per-row is_evaluation check would miss.
+ch --query "INSERT INTO pubviews.spans (span_id,trace_id,project_id,span_start_time,span_end_time,name,span_kind,source,is_evaluation) VALUES ('sInt','tInt','proj_A',now64(3),now64(3),'internal','LLM','detector',0), ('sEvalT','tEvalT','proj_A',now64(3),now64(3),'eval-trace','LLM','user',0), ('sEvalS','tEvalS','proj_A',now64(3),now64(3),'eval-span','LLM','user',1)"
+ch --query "INSERT INTO pubviews.traces (trace_id,project_id,trace_start_time,name,source,is_evaluation) VALUES ('tEvalT','proj_A',now64(3),'eval-trace','user',1)"
+
+CURATED="$(ch_ro --query "SELECT span_id FROM pubviews.spans_public_v1(project_id='proj_A') ORDER BY span_id")"
+printf '%s\n' "$CURATED"
+[ "$CURATED" = "sA" ] || { echo "FAIL: expected only sA, got: $CURATED"; exit 1; }
+echo "PASS: source != 'user' excluded, and evaluation traces excluded whether flagged on the trace or only on a span"
+
+echo "== the evaluation flag is monotonic only within a batch: a later non-eval batch must not un-hide =="
+ch --query "INSERT INTO pubviews.traces (trace_id,project_id,trace_start_time,name,source,is_evaluation) VALUES ('tEvalT','proj_A',now64(3),'eval-trace','user',0)"
+STILL_HIDDEN="$(ch_ro --query "SELECT count() FROM pubviews.spans_public_v1(project_id='proj_A') WHERE trace_id = 'tEvalT'")"
+[ "$STILL_HIDDEN" = "0" ] || { echo "FAIL: a newer non-eval trace row un-hid the evaluation trace"; exit 1; }
+echo "PASS: set membership on trace_id survives a newer deduped row saying is_evaluation = 0"
+
+echo "== readonly profile: a readonly=1 user cannot override a CONST cap =="
+if SET_OUT="$(ch_ro --query "SELECT count() FROM pubviews.spans_public_v1(project_id='proj_A') SETTINGS max_execution_time = 60" 2>&1)"; then
+  echo "FAIL: RO user was allowed to override max_execution_time"; exit 1
+fi
+printf '%s' "$SET_OUT" | grep -qE "READONLY|Cannot modify|Code: 164|Setting .* should not be changed" \
+  || { echo "FAIL: per-query SETTINGS refused, but not as a readonly/constraint error: $SET_OUT"; exit 1; }
+echo "PASS: per-query SETTINGS rejected under readonly = 1 (caps come from the profile)"
 
 echo "== cleanup =="
 ch --query "DROP DATABASE pubviews"

@@ -35,6 +35,7 @@ SPANS_COLUMNS = [
     "output_tokens",
     "total_tokens",
     "environment",
+    "metadata",
     "git_source_file",
     "git_source_line",
     "git_source_function",
@@ -48,16 +49,19 @@ TRACES_COLUMNS = [
     "git_ref",
     "git_repo",
     "environment",
+    "metadata",
 ]
 
-# Columns that must NEVER appear in the curated projection.
+# Columns that must NEVER appear in the curated projection. `metadata` is absent
+# from this list on purpose: it IS curated, but only as the queryable one-level map
+# renamed from `metadata_map`. The raw JSON blob behind the physical `metadata`
+# column stays unexposed, which test_metadata_comes_from_the_map_not_the_blob checks.
 FORBIDDEN_PROJECTED = [
     "project_id",
     "ch_create_time",
     "ch_update_time",
     "input",
     "output",
-    "metadata",
 ]
 
 
@@ -94,8 +98,15 @@ def test_both_views_created(text):
     assert "traces_public_v1" in text
 
 
-def test_views_are_parameterized_on_project_id(text):
-    assert text.count("{project_id:String}") == 2
+def test_views_are_parameterized_on_project_id(sql):
+    """Six bindings, not two: each view scopes its own rows once, and each of the two
+    evaluation sub-selects rebinds the scope because a parameterized view cannot see
+    the caller's WHERE clause."""
+    assert sql.count("{project_id:String}") == 6
+    for view in ("spans", "traces"):
+        assert re.search(rf"FROM {view}\s+WHERE project_id = \{{project_id:String\}}", sql), (
+            f"{view} view must scope its own rows"
+        )
 
 
 def test_views_use_sql_security_definer(sql):
@@ -116,9 +127,10 @@ def test_replacingmergetree_dedup_after_project_filter(text, sql):
     # the project filter precedes the dedup in both views
     for view in ("span_id", "trace_id"):
         assert re.search(
-            r"WHERE project_id = \{project_id:String\}\s+ORDER BY ch_update_time DESC\s+LIMIT 1 BY "
+            r"WHERE project_id = \{project_id:String\}.*?ORDER BY ch_update_time DESC\s+LIMIT 1 BY "
             + view,
             text,
+            re.DOTALL,
         ), f"project filter must precede dedup for {view}"
 
 
@@ -147,3 +159,47 @@ def test_traces_projection_is_exactly_curated(text):
         assert re.search(rf"\b{col}\b", proj), f"traces view must project {col}"
     for col in FORBIDDEN_PROJECTED:
         assert not re.search(rf"\b{col}\b", proj), f"traces view must NOT project {col}"
+
+
+def test_metadata_comes_from_the_map_not_the_blob(text):
+    """The curated column is the queryable map; the raw JSON document stays hidden."""
+    for view in ("spans_public_v1", "traces_public_v1"):
+        proj = _outer_projection(text, view)
+        assert "metadata_map AS metadata" in proj, f"{view} must rename the map"
+        # no bare `metadata` selection, which would be the physical JSON blob
+        without_rename = proj.replace("metadata_map AS metadata", "")
+        assert not re.search(r"\bmetadata\b", without_rename), (
+            f"{view} projects the raw metadata blob"
+        )
+
+
+def test_views_return_customer_traffic_only(sql):
+    """Names the value that IS customer traffic, so a marker added later is excluded
+    the day it appears rather than needing this list updated."""
+    assert sql.count("source = 'user'") == 2, "both views must filter to customer traffic"
+
+
+def test_views_exclude_evaluation_traces_by_trace_membership(sql):
+    """Not a per-row is_evaluation = 0: ingest makes the flag monotonic only within a
+    batch, and child spans of an evaluation trace are stored as 0 regardless."""
+    assert sql.count("trace_id NOT IN (") == 2, "both views must exclude evaluation traces"
+    # both physical tables are consulted -- a trace flagged only on spans still counts
+    assert (
+        sql.count("FROM traces WHERE project_id = {project_id:String} AND is_evaluation = 1") == 2
+    )
+    assert (
+        sql.count("FROM spans  WHERE project_id = {project_id:String} AND is_evaluation = 1") == 2
+    )
+    assert sql.count("UNION DISTINCT") == 2
+    assert not re.search(r"is_evaluation\s*=\s*0", sql), (
+        "per-row is_evaluation = 0 leaks evaluation data; use trace membership"
+    )
+
+
+def test_evaluation_subselect_repeats_the_project_scope(sql):
+    """A parameterized view cannot see the caller's WHERE, so the sub-select must
+    bind the project itself or it would scan every tenant's traces."""
+    for block in re.findall(r"trace_id NOT IN \((.*?)\)", sql, re.DOTALL):
+        assert block.count("project_id = {project_id:String}") == 2, (
+            "each evaluation sub-select must be project-scoped"
+        )

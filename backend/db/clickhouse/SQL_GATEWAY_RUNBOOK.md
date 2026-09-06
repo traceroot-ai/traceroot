@@ -1,14 +1,14 @@
 # Public SQL Gateway — ClickHouse operational runbook
 
-Provisioning for the read-only SQL gateway DB layer. Commands below are the
-forms proven against ClickHouse **24.3.18.7**.
+Provisioning for the read-only SQL gateway DB layer. Commands below are proven against
+ClickHouse **24.3.18.7** and re-proven against **25.2.1.3085**, the
+`bitnamilegacy/clickhouse` build staging deploys.
 
-> **Version warning.** Staging runs `bitnamilegacy/clickhouse:25.2.1-debian-12-r0`. Two things
-> have since been checked directly on 25.2.1: the admin holds `CREATE USER` / `SET DEFINER`
-> without extra configuration, and a view can be created with an explicit `DEFINER` of another
-> account. Everything else below — the read-only settings profile actually capping a query, and
-> the read-only account being refused the physical tables — remains proven only on 24.3.
-> Treat those as indicative, not proven, for the cloud path.
+> **Version.** The whole DDL check now passes on `bitnamilegacy/clickhouse:25.2.1-debian-12-r0`
+> as well as on 24.3.18.7: the explicit `DEFINER`, the read-only account reading the curated
+> views, that account being refused the physical tables with `ACCESS_DENIED`, the `readonly = 1`
+> profile rejecting a per-query `SETTINGS` override, and the row curation. Re-run
+> `scripts/spikes/clickhouse_public_views_ddl_check.sh` against any version you move to.
 
 > **Tenant isolation is application-enforced.** DB grants do **not** restrict which
 > `project_id` a caller passes to a curated view — a holder of the view grant can call
@@ -25,7 +25,11 @@ forms proven against ClickHouse **24.3.18.7**.
 1. **Curated views** `spans_public_v1` / `traces_public_v1` — created by migration
    `012_create_public_sql_views.sql`. Parameterized on `{project_id:String}`, `SQL SECURITY
    DEFINER`, deduped after the project filter. They project curated analytical columns only
-   (never `project_id`, `ch_create_time`, `ch_update_time`, or `input`/`output`/`metadata`).
+   (never `project_id`, `ch_create_time`, `ch_update_time`, or the `input`/`output` blobs;
+   `metadata` is the queryable `metadata_map`, renamed, and the raw JSON document behind the
+   physical `metadata` column stays unexposed). They curate **rows** as well: `source = 'user'`
+   keeps customer traffic only, and evaluation traces are excluded by trace membership across
+   both physical tables rather than by a per-row `is_evaluation = 0`, which would leak.
 2. **Scoped writer user** — the view DEFINER. Holds `SELECT` on the physical `spans`/`traces`
    tables only. NOT a superuser.
 3. **Read-only user** — the identity the backend uses to run user SQL, granted `SELECT` on the
@@ -236,14 +240,15 @@ DROP USER IF EXISTS <old_account>;
 
 ### Open items — must be settled before enabling the gateway in the cloud
 
-- **ClickHouse version gap, now partial.** The `ddl-check` run and the compose end-to-end run
-  were both on **24.3.18.7**. Staging runs **`bitnamilegacy/clickhouse:25.2.1-debian-12-r0`**.
-  Two properties have since been checked directly on 25.2.1 — the admin holding
-  `CREATE USER` / `SET DEFINER` unaided, and a view being created with an explicit `DEFINER`
-  naming another account. Still unverified on 25.2 and proven only on 24.3:
-  **settings-profile enforcement** (a `readonly = 1` profile actually capping a query) and the
-  **read-only account being refused the physical tables**. Re-run `ddl-check` against 25.2 to
-  close the rest.
+- **Nothing has run on a cluster.** The DDL check proves the SQL model against a local
+  container of the same image staging deploys; it says nothing about the chart's hooks
+  executing in order, the provisioning Job reaching ClickHouse, or the read-only credentials
+  arriving in the API service. A staging install is still the thing that settles those.
+- **The curated views encode the public schema contract by hand.** A `.sql` migration cannot
+  import `backend/rest/services/sql/schema.py`, so the column list and the two row-curation
+  rules are duplicated. `tests/db/test_public_sql_views_migration.py` pins the duplicate;
+  once the contract module lands on `main`, replace the pinned copies with an import so the
+  two cannot drift.
 
 ## DEFINER: explicit scoped writer
 
@@ -276,7 +281,7 @@ SHOW CREATE VIEW <database>.spans_public_v1;
 --   SELECT 1 FROM <database>.spans                               -> ACCESS_DENIED (Code 497)
 ```
 
-> **Verified on ClickHouse 24.3.18.7** (`scripts/spikes/clickhouse_public_views_ddl_check.sh`):
+> **Verified on ClickHouse 24.3.18.7 and 25.2.1.3085** (`scripts/spikes/clickhouse_public_views_ddl_check.sh`):
 > after creating `sql_gateway_writer` (SELECT on physical tables), applying migration 012's
 > `Up` DDL stores `DEFINER = sql_gateway_writer SQL SECURITY DEFINER`; parameterization
 > (`WHERE project_id = {project_id:String}`) is preserved; the RO user reads the view but is
