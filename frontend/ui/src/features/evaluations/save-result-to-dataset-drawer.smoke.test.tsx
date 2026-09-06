@@ -149,6 +149,18 @@ describe("SaveResultToDatasetDrawer", () => {
     expect(save.hasAttribute("disabled")).toBe(false);
   });
 
+  it("treats a whitespace-only input edit as a real change — the case id hashes exact bytes", () => {
+    mount("update_existing_case");
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save.hasAttribute("disabled")).toBe(true);
+
+    // `input` is POSTed verbatim and `stableCaseId` hashes its exact bytes, so trailing
+    // whitespace republishes a genuinely different case — Save must not gate it away.
+    const input = screen.getByLabelText("Input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: `${RESULT.input} ` } });
+    expect(save.hasAttribute("disabled")).toBe(false);
+  });
+
   it("never copies the candidate output into expected unless explicitly toggled on", async () => {
     const fetchMock = stubFetch();
     mount("update_existing_case");

@@ -360,6 +360,26 @@ describe("Dataset detail — filtering and adding rows", () => {
     expect(patch?.body).toMatchObject({ input: "edited question" });
   });
 
+  it("a whitespace-only Input edit is savable and PATCHes the untrimmed value", async () => {
+    mountDetail();
+    await screen.findByText(/charged twice/);
+    fireEvent.click((await screen.findAllByLabelText("Row actions"))[0]);
+    fireEvent.click(await screen.findByText("Edit"));
+    expect(await screen.findByText("Edit Row")).toBeDefined();
+    const input = screen.getByLabelText("Input") as HTMLTextAreaElement;
+    const save = screen.getByRole("button", { name: "Save" });
+    expect(save.hasAttribute("disabled")).toBe(true);
+
+    // The row's input is stored verbatim and its exact bytes are the case's
+    // content-addressed id, so a trailing space is a real edit — Save must enable.
+    fireEvent.change(input, { target: { value: `${input.value} ` } });
+    expect(save.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(save);
+    expect(await screen.findByText(/Row saved/)).toBeDefined();
+    const patch = requests.find((r) => r.method === "PATCH");
+    expect((patch?.body as { input: string }).input.endsWith(" ")).toBe(true);
+  });
+
   it("the row action menu deletes a row (DELETE) after confirming", async () => {
     mountDetail();
     await screen.findByText(/charged twice/);

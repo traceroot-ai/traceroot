@@ -80,9 +80,14 @@ export function TestCaseEditorModal({
 
   const pending = save.isPending || update.isPending;
   // In edit mode, keep Save disabled until a field actually changes (a create is always savable).
+  // Each field is compared the way it is PERSISTED, so an edit that would really change the row
+  // can never be gated away as a no-op: `input` is stored verbatim AND its exact bytes are the
+  // case's content-addressed id (`stableCaseId` hashes `canonicalJson(input)`, which does not
+  // trim), so a whitespace-only input edit is a real change and compares raw; `expected` is
+  // stored as `expected.trim() || null` and `metadata` is stored parsed, so both compare trimmed.
   const hasChanges =
     mode.kind !== "edit" ||
-    input.trim() !== mode.input.trim() ||
+    input !== mode.input ||
     expected.trim() !== (mode.expected ?? "").trim() ||
     metadata.trim() !== metadataToText(mode.metadata).trim();
   const canSave = !metadataError && !pending && hasChanges;

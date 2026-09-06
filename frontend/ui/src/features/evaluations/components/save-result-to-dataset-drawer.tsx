@@ -177,13 +177,19 @@ export function SaveResultToDatasetDrawer({
     },
   });
 
+  // Only "update" republishes an existing case, so only it needs a dirty gate; save/duplicate
+  // always create a case and are savable as they stand. Every field is compared the way it is
+  // PERSISTED — this drawer POSTs `input` and `expected` verbatim, and a case's id is a hash of
+  // its exact input (`stableCaseId` over `canonicalJson`, which does not trim) — so nothing here
+  // trims. A whitespace-only edit really does change the published case; gating it away as a
+  // no-op would leave the reviewer unable to save a change the backend would have accepted.
   const hasChanges =
     action === "update_existing_case"
       ? (meta.picksDataset && targetDatasetId !== sourceDatasetId) ||
-        input.trim() !== result.input.trim() ||
+        input !== result.input ||
         (useCandidateAsExpected
-          ? (result.candidateOutput ?? "").trim() !== (result.expectedOutput ?? "").trim()
-          : expected.trim() !== (result.expectedOutput ?? "").trim())
+          ? (result.candidateOutput ?? "") !== (result.expectedOutput ?? "")
+          : expected !== (result.expectedOutput ?? ""))
       : true;
 
   const canSave =
